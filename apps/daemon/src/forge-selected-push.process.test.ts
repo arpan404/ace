@@ -42,6 +42,8 @@ for (const origin of [true, false]) {
       runtime = new WorkspaceRuntime(f.store, f.root, () => 1000, {
         sourceControl: f.sourceControl,
         git: {
+          // The local bare remotes stand in for hosted ones through file URLs.
+          transportProtocols: ["file"],
           processRuntime: {
             spawn(command, args, options) {
               return spawnGitProcess(command, args, {

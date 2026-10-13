@@ -355,19 +355,22 @@ function interceptedClient(
 }
 
 test("client capacity releases an unsent comment association across remount and permits retry with its preserved text", async () => {
+  // Room for the page's own concurrent reads; held commands then take every slot.
+  const capacity = 8;
   const holding = Promise.withResolvers<void>();
-  let release: (() => void) | undefined;
+  const held: (() => void)[] = [];
+  const release = () => held.splice(0).forEach((deliver) => deliver());
   const app = harness({
     client: (daemon) =>
       interceptedClient(
         daemon,
         (message, deliver) => {
-          if (message.type === "commandResult" && message.commandId === "capacity-hold") {
-            release = deliver;
-            holding.resolve();
+          if (message.type === "commandResult" && message.commandId.startsWith("capacity-hold")) {
+            held.push(deliver);
+            if (held.length === capacity) holding.resolve();
           } else deliver();
         },
-        { requests: 1 },
+        { requests: capacity },
       ).client,
   });
   seed(app);
@@ -381,10 +384,14 @@ test("client capacity releases an unsent comment association across remount and 
       screen.getByRole<HTMLButtonElement>("button", { name: "Post issue comment" }).disabled,
     ).toBe(false),
   );
-  const pending = app.client.command(
-    { type: "workspace.editor.open", threadId: ThreadId.parse("held-task"), editorId: "code" },
-    {},
-    "capacity-hold",
+  const pending = Promise.all(
+    Array.from({ length: capacity }, (_, index) =>
+      app.client.command(
+        { type: "workspace.editor.open", threadId: ThreadId.parse("held-task"), editorId: "code" },
+        {},
+        `capacity-hold-${index}`,
+      ),
+    ),
   );
   await holding.promise;
   try {
@@ -393,7 +400,7 @@ test("client capacity releases an unsent comment association across remount and 
     expect(comment.value).toBe("Never sent at capacity");
     expect(screen.queryByRole("button", { name: "Check submission" })).toBeNull();
   } finally {
-    release?.();
+    release();
     await pending;
   }
   await userEvent.click(screen.getByRole("button", { name: "Back to issues" }));

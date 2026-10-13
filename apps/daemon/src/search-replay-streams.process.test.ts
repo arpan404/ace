@@ -35,7 +35,8 @@ for (const type of ["notice", "message"] as const) {
         itemId: ItemId.parse("large-text"),
         agentId: root,
         field: "text",
-        append: "next ".repeat(140000) + " appendedtexttail",
+        // Lead with a space so the original tail stays its own searchable word.
+        append: " " + "next ".repeat(140000) + " appendedtexttail",
       },
     ]);
     f.store.appendEvents(f.thread.id, [
@@ -241,7 +242,8 @@ for (const difference of [-1, 0, 1]) {
     if (item.type !== "notice") throw new Error("Wrong item");
     const payload = { type: "item.created" as const, item };
     const padding = capacity + difference - Buffer.byteLength(JSON.stringify(payload));
-    item.text = "boundaryhead " + "x".repeat(padding) + "boundarytail";
+    // Same length as unbroken padding, but the tail stays its own searchable word.
+    item.text = "boundaryhead " + "x".repeat(padding - 1) + " boundarytail";
     const [created] = f.store.appendEvents(f.thread.id, [payload], 30);
     if (!created) throw new Error("Missing boundary event");
     const actualOverhead = Buffer.byteLength(JSON.stringify({ ...created, payload: null })) - 4 + 1;

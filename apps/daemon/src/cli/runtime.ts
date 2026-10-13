@@ -5,6 +5,7 @@ import { createDevThread, stubHandler } from "../commands.ts";
 import type { Config } from "../config.ts";
 import { validateArgs, type Args } from "./args.ts";
 import { result } from "./io.ts";
+import { CliFailure } from "./output.ts";
 export async function runtimeCommand(args: Args, config: Config) {
   const command = args.words[0] ?? "start";
   if (command === "service") {
@@ -21,6 +22,8 @@ export async function runtimeCommand(args: Args, config: Config) {
   validateArgs(args, [], 0, 1);
   const development = process.env.ACE_DEV === "1";
   const { startDaemon, runDaemonProcess } = await import("../index.ts");
+  // A daemon that cannot start (for example, another one holds the lock) failed; the
+  // request itself was valid, so it is not a refusal.
   const daemon = await runDaemonProcess(startDaemon, {
     config,
     ...(command === "serve"
@@ -33,6 +36,8 @@ export async function runtimeCommand(args: Args, config: Config) {
       ? { modelInstances: readModelInstances() ?? [] }
       : {}),
     history: { instances: readHistoryInstances() },
+  }).catch((error: unknown) => {
+    throw new CliFailure("failed", error instanceof Error ? error.message : "Daemon start failed");
   });
   if (!daemon) return;
   try {

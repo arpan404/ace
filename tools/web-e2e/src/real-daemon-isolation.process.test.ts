@@ -5,12 +5,27 @@ import { once } from "node:events";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { expect, onTestFinished, test, vi } from "vitest";
-import { openRegistryIndex } from "@ace/accounts";
+import { openRegistry, openRegistryIndex } from "@ace/accounts";
 import { assertRealDaemonEnvironment, realDaemonEnvironment } from "./real-daemon-environment.ts";
 
 function hash(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+/** Waits, bounded by the test timeout, until the live daemon commits a scripted reply. */
+async function scriptedReplyCommitted(path: string): Promise<void> {
+  const db = new DatabaseSync(path, { readOnly: true });
+  try {
+    const reply = db.prepare(
+      "SELECT 1 FROM events WHERE type IN ('item.created','item.updated') AND instr(payload, ?) > 0 AND instr(payload, '\"assistant\"') > 0 LIMIT 1",
+    );
+    while (!reply.get("Hello from the scripted provider.")) await delay(25);
+  } finally {
+    db.close();
+  }
 }
 
 test("the real e2e launcher ignores inherited account and provider paths and serves scripted threads", async () => {
@@ -65,6 +80,8 @@ test("the real e2e launcher ignores inherited account and provider paths and ser
   child.on("exit", () => ready.reject(new Error(`Launcher exited before readiness: ${stderr}`)));
   try {
     await ready.promise;
+    // Readiness follows seeding; the seeded thread's scripted turn settles afterwards.
+    await scriptedReplyCommitted(join(daemonHome, "events.sqlite"));
     child.kill("SIGTERM");
     await exited;
     expect(hash(await readFile(database))).toBe(before);
@@ -90,7 +107,8 @@ test("the real e2e launcher ignores inherited account and provider paths and ser
     } finally {
       store.close();
     }
-    const fixtureRegistry = await openRegistryIndex(join(daemonHome, "accounts.sqlite"));
+    // Reading accounts waits for their homes to be validated.
+    const fixtureRegistry = await openRegistry(join(daemonHome, "accounts.sqlite"));
     try {
       expect(fixtureRegistry.list().map((row) => row.instance.id)).toContain("codex-cli-default");
     } finally {

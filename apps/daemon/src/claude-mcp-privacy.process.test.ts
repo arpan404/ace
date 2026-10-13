@@ -112,15 +112,21 @@ test("a paired reader receives only MCP names and states, and native configs nev
       expect.soft(serialized).not.toContain("config");
     }
     await engine.flush();
+    // The inventory is served live; Claude's control responses are consumed by its translator
+    // and never become events. Nothing native, sanitized or not, may reach storage.
     const stored = JSON.stringify(daemon.store.readEvents({ afterSeq: 0, limit: 256 }));
-    expect(stored).toContain("failed-http");
-    expect(stored).toContain("needs_auth");
     for (const value of privateValues) expect.soft(stored).not.toContain(value);
     expect.soft(stored).not.toMatch(/Bearer [a-f0-9]{64}/);
     await client.close();
     await daemon.close();
     const logs = await readFile(join(home, "logs/ace.jsonl"), "utf8").catch(() => "");
     for (const value of privateValues) expect(logs).not.toContain(value);
+    const database = [
+      await readFile(join(home, "events.sqlite")),
+      await readFile(join(home, "events.sqlite-wal")).catch(() => Buffer.alloc(0)),
+    ];
+    for (const bytes of database)
+      for (const value of privateValues) expect(bytes.includes(value)).toBe(false);
   } finally {
     await client?.close();
     await daemon.close();

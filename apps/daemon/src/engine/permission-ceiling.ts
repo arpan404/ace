@@ -23,8 +23,10 @@ export function permissionWithinCeiling(parent: Policy, child: Policy): boolean 
       // the user's OS rights; an ace MCP call still needs separate ace consent.
       (parent.provider === "pi" && parent.mode === null));
   if (unrestricted) return true;
-  if (parent.mode === null || child.mode === null) return false;
+  // The same execution identity at the same mode is the same authority, even when
+  // that mode is the provider's unreported default.
   if (sameIdentity(parent, child) && parent.mode === child.mode) return true;
+  if (parent.mode === null || child.mode === null) return false;
   // These pairs retain the same provider's isolation/configuration while reducing autonomy.
   if (
     parent.provider !== child.provider ||

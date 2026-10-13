@@ -48,7 +48,10 @@ test(
           "--offline",
           "--cache",
           join(directory, "npm-cache"),
+          // npm 11 runs a bare file argument as a command; name the package and its bin.
+          "--package",
           join(directory, artifact.file),
+          "ace",
           "run",
           "literal $(untouched) ; prompt",
           "--json",

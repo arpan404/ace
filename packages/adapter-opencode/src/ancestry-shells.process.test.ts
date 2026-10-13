@@ -27,6 +27,7 @@ it.each(["missing", "exited", "running"])(
       metadata: { sessionID: "shell-child" },
     };
     try {
+      await h.publish("session.execution.started");
       await h.control("/test/state", {
         sessions: [
           {
@@ -43,6 +44,7 @@ it.each(["missing", "exited", "running"])(
         { type: "shell.created", directory: "/one", data: { info: shell } },
       ]);
       await entered.promise;
+      await h.publish("session.execution.succeeded");
       await h.control("/test/state", {
         shells:
           status === "missing" ? [] : [{ ...shell, status, exit: 0, time: { completed: 100 } }],

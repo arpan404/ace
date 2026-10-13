@@ -65,13 +65,17 @@ test("a renamed default account immediately names the new-thread composer and pi
   await within(renamed).findByText("Default");
   await userEvent.click(screen.getByRole("link", { name: "Back to app" }));
   const chip = await screen.findByRole("button", { name: /^Model: Opus 5.5, Studio Work/ });
+  // The chip's account badge is decorative; the provider mark names the account (6ce23181d).
   expect(within(chip).getByRole("img", { name: "Claude Code · Studio Work" })).toBeTruthy();
-  expect(within(chip).getByRole("img", { name: "Studio Work account" })).toBeTruthy();
   const popover = await openModelControl(/^Model: Opus 5.5, Studio Work/);
   const list = await openModelPicker(popover);
   expect(await within(list).findByRole("group", { name: "Studio Work" })).toBeTruthy();
   expect(within(list).queryByRole("group", { name: "Work" })).toBeNull();
-  expect(within(list).getAllByText("Recommended").length).toBeGreaterThan(0);
+  expect(
+    within(list)
+      .getAllByRole("option")
+      .some((option) => option.getAttribute("aria-label")?.includes(", recommended,")),
+  ).toBe(true);
 });
 
 test("account-switch confirmations name the account and disappear when another thread opens", async () => {
@@ -100,13 +104,11 @@ test("a limited current account remains selected while account management stays 
   await openModelPicker(popover);
   const selected = within(popover).getByRole("tab", { name: "Codex" });
   expect(selected.getAttribute("aria-selected")).toBe("true");
-  const account = within(popover).getByRole("combobox", { name: "Account" });
-  expect(account.textContent).toBe("Team");
-  await userEvent.click(account);
-  const team = await screen.findByRole("option", { name: "Team" });
+  // A provider's accounts are tabs in the list header (49ef284a8).
+  const accounts = within(popover).getByRole("tablist", { name: "Accounts" });
+  const team = within(accounts).getByRole("tab", { name: "Codex · Team" });
   expect(team.getAttribute("aria-selected")).toBe("true");
   expect(team.getAttribute("aria-disabled")).toBe("true");
-  await userEvent.keyboard("{Escape}");
   await closeModelControl();
   expect(screen.queryByRole("button", { name: "Add another account" })).toBeNull();
 });

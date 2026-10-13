@@ -23,6 +23,9 @@ export class NativeState {
   executionCreated = new Map<string, number>();
   triggers = new Map<string, RunTrigger>();
   ended = new RecentSet();
+  /** Sessions with at least one observed or settled turn. */
+  turned = new RecentSet();
+  private probedIdle = new Map<string, number>();
   events = new RecentSet();
   durable = new RecentMap<number>(1024);
   childClaims = new Map<
@@ -136,6 +139,7 @@ export class NativeState {
     this.wakes.delete(id);
     if (this.active.has(id) || this.ended.has(turn)) return [];
     this.active.set(id, turn);
+    this.turned.add(id);
     this.executionBaseline.set(id, this.idle.get(id) ?? -1);
     this.executionCreated.delete(id);
     return [
@@ -172,6 +176,46 @@ export class NativeState {
           ? "interrupted"
           : "completed",
     );
+  }
+  /** Notes a child first learned from an ancestry read that found it idle. */
+  probed(info: Data): void {
+    const id = string(info.id),
+      time = object(info.time),
+      idleAt = number(time.idle, -1);
+    if (!info.parentID || this.agents.has(id) || idleAt < 0) return;
+    if (idleAt < number(time.updated, Number.POSITIVE_INFINITY)) return;
+    if (this.probedIdle.size >= 1024) this.probedIdle.clear();
+    this.probedIdle.set(id, idleAt);
+  }
+  /**
+   * Once an ancestry probe has delivered its buffered events, a probed child that showed no turn
+   * is settled from the idle read instead of staying starting.
+   */
+  settleProbed(): Fact[] {
+    const facts: Fact[] = [];
+    for (const [id, idleAt] of this.probedIdle)
+      facts.push(...this.settleUnstarted(id, idleAt, `probed:${id}:${idleAt}`, "completed"));
+    this.probedIdle.clear();
+    return facts;
+  }
+  /**
+   * A child adopted during recovery may already have run and gone idle before ace saw any of its
+   * turns (its deferred start was covered by the snapshot). The authoritative idle snapshot is
+   * then its only settlement, so record that past turn instead of leaving the child starting.
+   */
+  settleUnstarted(
+    id: string,
+    idleAt: number,
+    turn: string,
+    outcome: "completed" | "failed" | "interrupted",
+  ): Fact[] {
+    const owner = this.agents.get(id);
+    if (!owner?.parent || idleAt < 0 || this.active.has(id) || this.turned.has(id)) return [];
+    this.turned.add(id);
+    this.ended.add(turn);
+    return [
+      { type: "turn.ended", agent: this.key(id), nativeTurnId: turn, outcome, historical: true },
+    ];
   }
   end(id: string, outcome: "completed" | "failed" | "interrupted", error?: unknown): Fact[] {
     const turn = this.active.get(id);

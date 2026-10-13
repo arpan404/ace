@@ -62,8 +62,8 @@ const file = ${JSON.stringify(state)};
 const state = JSON.parse(readFileSync(file,'utf8'));
 const args = process.argv.slice(2);
 appendFileSync(${JSON.stringify(join(home, "gh-calls"))}, JSON.stringify(args)+'\\n');
-if(state.code==='cli') process.exit(1);
 const path=args[1];
+if(state.code==='cli' && path!=='user') process.exit(1);
 if(args[0]==='pr') process.exit(0);
 let input=''; for await(const chunk of process.stdin) input+=chunk;
 const pr={number:42,node_id:'PR_42',title:'Existing review PR',html_url:'https://github.com/octo/ace/pull/42',state:state.merged?'closed':'open',draft:false,merged:state.merged,mergeable:true,head:{sha:'${"a".repeat(40)}',ref:state.branch},base:{ref:'main'}};
@@ -84,8 +84,10 @@ else if(path==='graphql') {
     body={data:{repository:{viewerPermission:'WRITE',pullRequest:{id:'PR_42',number:42,headRefOid:'${"a".repeat(40)}',state:state.merged?'MERGED':'OPEN',isDraft:false,mergeStateStatus:'BLOCKED',reviewDecision:'REVIEW_REQUIRED',statusCheckRollup:{state:'SUCCESS'},autoMergeRequest:state.autoMerge??null,mergeQueueEntry:null,viewerCanEnableAutoMerge:!state.autoMerge,viewerCanDisableAutoMerge:!!state.autoMerge}}}};
   } else body={data:{repository:{pullRequest:{reviewThreads:{pageInfo:{hasNextPage:false,endCursor:null},nodes:[]}}}}};
 }
-if(state.code!==200) body={message:'fixture refusal'};
-process.stdout.write('HTTP/1.1 '+state.code+' Fixture\\r\\n\\r\\n'+JSON.stringify(body));
+// The refusal targets the forge request; the account probe still identifies the user.
+if(state.code!==200 && path!=='user') body={message:'fixture refusal'};
+// Like gh, only --include prints the HTTP status line; identity probes read the bare body.
+process.stdout.write((args.includes('--include') ? 'HTTP/1.1 '+(path==='user'?200:state.code)+' Fixture\\r\\n\\r\\n' : '')+JSON.stringify(body));
 `,
     { mode: 0o700 },
   );

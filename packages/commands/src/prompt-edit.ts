@@ -13,7 +13,8 @@ export function splitPrompt(text: string): { header?: string; body: string } {
 const Fields = z
   .object({
     name: z.string().optional(),
-    description: z.string().nullish(),
+    // Not .nullish(): browser worker builds drop it, and parse-markdown loads this module there.
+    description: z.string().nullable().optional(),
     provider: z.string().optional(),
   })
   .passthrough();

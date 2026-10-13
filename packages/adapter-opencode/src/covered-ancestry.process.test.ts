@@ -19,6 +19,9 @@ it("covered queued permissions retain every opaque native receipt without reopen
       },
     },
   });
+  // The root has already finished a turn, so a settled tree reads as done rather than new.
+  await h.publish("session.execution.started");
+  await h.publish("session.execution.succeeded");
   try {
     await h.control("/test/state", {
       sessions: [

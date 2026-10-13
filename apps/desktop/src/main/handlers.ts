@@ -1,6 +1,11 @@
 import { app, BrowserWindow, dialog, nativeTheme, type OpenDialogOptions } from "electron";
 import { shell } from "electron";
-import type { AppInfo, DaemonConnection, NativeAppearance } from "../shared/contract.ts";
+import type {
+  AppInfo,
+  DaemonConnection,
+  NativeAppearance,
+  WindowBackground,
+} from "../shared/contract.ts";
 import type { Background } from "./background.ts";
 import type { DaemonRuntime } from "./daemon/runtime.ts";
 import type { Handlers } from "./ipc.ts";
@@ -36,6 +41,8 @@ export function createHandlers(options: {
   updateKeymap?(bindings: Record<string, string>): void;
   /** Opens the daemon's logs in the file manager; false when there is nothing to show. */
   showLogs(): Promise<boolean>;
+  /** The page's theme colours, for the window behind it (now and from the next launch). */
+  setWindowBackground(value: WindowBackground): void;
 }): Handlers {
   const { runtime, settings, background } = options;
   const editorIcon = editorIcons(
@@ -126,6 +133,10 @@ export function createHandlers(options: {
     "theme.setSource": (source) => {
       nativeTheme.themeSource = source;
       return appearance();
+    },
+    "theme.setWindowBackground": (value) => {
+      options.setWindowBackground(value);
+      return undefined;
     },
     "settings.get": () => settings.get(),
     "settings.update": (patch) => settings.update(patch),

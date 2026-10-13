@@ -203,6 +203,7 @@ const makeFixtures = (closed: boolean) => {
         user: { login: "octo" },
         labels: [],
         base: { ref: "main", sha: nextSha },
+        head: { ...pr.head, repo: { owner: { login: "octo" }, name: "ace" } },
         requested_reviewers: [],
         commits: 1,
         changed_files: 1,

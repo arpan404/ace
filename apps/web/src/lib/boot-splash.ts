@@ -1,12 +1,13 @@
 import { useEffect } from "react";
+import { useStartupHandoff } from "./startup/startup.tsx";
 
 /** Longer than the fade (--motion-base), for when no transition runs (reduced motion, hidden tab). */
 const removeAfterMs = 400;
 
 /**
- * Fades out the static boot shell `index.html` paints before the app's script runs, then
- * removes it. Call once the real shell (or the connection screen) has painted. Safe to call
- * more than once, and a no-op where there is no boot shell (tests, Electron reloads).
+ * Fades out the static first paint `index.html` draws before the app's script runs (the ace
+ * mark on the theme's background), then removes it. Safe to call more than once, and a no-op
+ * where there is none (tests, or once the startup screen has replaced it).
  */
 export function dismissBootSplash(doc: Document): void {
   const splash = doc.getElementById("boot");
@@ -17,19 +18,20 @@ export function dismissBootSplash(doc: Document): void {
   doc.defaultView?.setTimeout(remove, removeAfterMs);
 }
 
-/** Dismiss the boot shell after this component's first paint. */
-export function useDismissBootSplash(): void {
-  useEffect(() => {
-    // The frame after commit: the shell underneath has painted, so the fade reveals it.
-    const frame = requestAnimationFrame(() => dismissBootSplash(document));
-    return () => cancelAnimationFrame(frame);
-  }, []);
+/** Remove the static first paint at once: the startup screen drawn over it looks the same. */
+export function removeBootSplash(doc: Document): void {
+  doc.getElementById("boot")?.remove();
 }
 
 /**
- * Keep the boot shell up on purpose, under a screen that explains the wait itself (the
- * desktop's "Starting ace…"), so the boot watchdog in index.html leaves it alone.
+ * A screen that takes over from startup (the connection form, a boot failure): the startup
+ * screen and the static first paint get out of its way after its first paint.
  */
-export function holdBootSplash(doc: Document): void {
-  doc.getElementById("boot")?.setAttribute("data-held", "");
+export function useDismissBootSplash(): void {
+  useStartupHandoff();
+  useEffect(() => {
+    // The frame after commit: the screen underneath has painted, so the fade reveals it.
+    const frame = requestAnimationFrame(() => dismissBootSplash(document));
+    return () => cancelAnimationFrame(frame);
+  }, []);
 }

@@ -124,6 +124,7 @@ describe("agent tree facts", () => {
       type: "agent.status",
       agentId: child.id,
       status: { state: "idle" },
+      completionRelevant: false,
     });
   });
 

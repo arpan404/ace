@@ -211,7 +211,7 @@ test("desktop startup stays visible and withholds the composer until authenticat
     remembered: true,
     createClient: silentClient,
   });
-  expect(await screen.findByRole("status")).toHaveProperty("textContent", "Starting ace…");
+  expect(await screen.findByRole("status")).toHaveProperty("textContent", "Connecting…");
   expect(screen.queryByRole("combobox", { name: "Message" })).toBeNull();
   runOutFirstAttempt();
   expect((await screen.findByRole("alert")).textContent).toMatch(/Couldn't reach/);

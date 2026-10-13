@@ -27,8 +27,9 @@ test.each([
       : kind === "empty home"
         ? "~/nested/extra.conf"
         : "nested/extra.conf";
+  // A trailing slash would match only paths inside .git, never the repository's own gitdir.
   const section =
-    kind === "empty conditional" ? `[includeIf "gitdir:${h.service.root}/.git/"]` : "[include]";
+    kind === "empty conditional" ? `[includeIf "gitdir:${h.service.root}/.git"]` : "[include]";
   await peer.file("declaring.conf", `${section}\npath = ${target}\n`);
   if (kind !== "missing relative") await peer.file("nested/extra.conf", "");
   await peer.file("rules", "a.ts\n");

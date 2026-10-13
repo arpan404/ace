@@ -15,6 +15,7 @@ const row = (speed: string) => ({
   inputModalities: ["text"],
   isDefault: true,
   hidden: false,
+  deprecated: false,
   raw: { json: "{}", truncated: false },
 });
 

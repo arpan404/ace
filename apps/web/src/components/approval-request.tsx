@@ -75,8 +75,8 @@ export function ApprovalRequest(props: {
   const high = copy.risk?.level === "high" ? copy.risk : undefined;
   const medium = copy.risk?.level === "medium" ? copy.risk : undefined;
   const hasDetails =
-    (compact && (!!high || !!copy.command || !!copy.reason)) ||
-    !!medium ||
+    (compact && (!!copy.command || !!copy.reason)) ||
+    (!compact && !!medium) ||
     copy.facts.length > 0 ||
     !!props.review ||
     copy.others.length > 0;
@@ -198,8 +198,8 @@ export function ApprovalRequest(props: {
         <div id={details} className="fx-rise-in flex flex-col gap-2">
           {compact && copy.command && <pre className={block}>{copy.command}</pre>}
           {compact && copy.reason && <p className="text-ui text-muted-foreground">{copy.reason}</p>}
-          {compact && high && <p className="text-ui text-muted-foreground">{high.text}</p>}
-          {medium && (
+          {/* A compact request states its risk in full above; details don't repeat it. */}
+          {!compact && medium && (
             <p className="text-sm text-muted-foreground">
               <b className="mr-[7px] font-medium text-status-needs-you">Check first.</b>
               {medium.text}

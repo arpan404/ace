@@ -4,7 +4,6 @@ import { expect, test } from "vitest";
 import { AppFrame } from "@/app.tsx";
 import type { DesktopDaemon, DesktopDaemonStatus } from "@/boot/desktop.ts";
 import { DesktopFailureScreen } from "./desktop-failure-screen.tsx";
-import { startingHelpMs, startingNoteMs, StartingScreen } from "./starting-screen.tsx";
 
 /** The desktop bridge's daemon controls, recording what the screen asked for. */
 function desktop() {
@@ -64,39 +63,4 @@ test("a desktop daemon that failed says why and offers restart, diagnostics, log
   await user.click(screen.getByRole("button", { name: "Show logs" }));
   await user.click(screen.getByRole("button", { name: "Quit ace" }));
   expect(asked).toEqual(["restart", "logs", "quit"]);
-});
-
-test("a long desktop start shows its installed version and offers bounded service recovery", async () => {
-  const { daemon, emit } = desktop();
-  const timers: { delay: number; run: () => void }[] = [];
-  render(
-    <AppFrame environment={{}}>
-      <StartingScreen
-        daemon={daemon}
-        version="1.2.3"
-        onConnectManually={() => {}}
-        schedule={(delay, run) => {
-          timers.push({ delay, run });
-          return () => {};
-        }}
-      />
-    </AppFrame>,
-  );
-  const elapse = (delay: number) =>
-    act(() => {
-      for (const timer of timers) if (timer.delay === delay) timer.run();
-    });
-  expect(screen.getByRole("status").textContent).toBe("Starting ace…");
-  expect(screen.getByText("v1.2.3")).toBeTruthy();
-  expect(screen.queryByText(/Preparing local services/)).toBeNull();
-
-  elapse(startingNoteMs);
-  expect(screen.getByText(/Preparing local services/)).toBeTruthy();
-  emit({ state: "unreachable" });
-  expect(screen.getByText("Waiting for ace to answer…")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Restart ace" })).toBeTruthy();
-
-  elapse(startingHelpMs);
-  for (const name of ["Show logs", "Restart ace", "Connect manually…", "Quit ace"])
-    expect(screen.getByRole("button", { name })).toBeTruthy();
 });

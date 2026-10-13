@@ -52,10 +52,11 @@ function runtime(
     },
   });
 }
-function push(f: Awaited<ReturnType<typeof setup>>, workspace: WorkspaceRuntime) {
+// A command ID is an idempotency key: a retry after a refusal is a new push with a new ID.
+function push(f: Awaited<ReturnType<typeof setup>>, workspace: WorkspaceRuntime, id = "user-push") {
   return workspace.execute(
     Command.parse({
-      id: "user-push",
+      id,
       deviceId: "device",
       payload: { type: "git.push", threadId: f.id, remote: "origin" },
     }),
@@ -286,13 +287,16 @@ test("a push refuses known active work while provider output keeps streaming int
       );
     emit();
     stream = setInterval(emit, 5);
-    const result = await Promise.race([
-      push(f, workspace),
-      delay(2_000, undefined, { signal: timeout.signal }).then(() => {
-        throw new Error("Push waited for a live provider mailbox");
-      }),
-    ]);
-    expect(result).toMatchObject({ ok: false, error: "git_repository_agent_running" });
+    // Drive the Git push directly: a command receipt is a store write, and store writes
+    // queue behind history publication by design. The refusal itself must not wait.
+    await expect(
+      Promise.race([
+        workspace.git.push({ worktree: f.h.home, remote: "origin" }),
+        delay(2_000, undefined, { signal: timeout.signal }).then(() => {
+          throw new Error("Push waited for a live provider mailbox");
+        }),
+      ]),
+    ).rejects.toMatchObject({ code: "repository_agent_running" });
     await expect(git(f.remote, "rev-parse", "--verify", "HEAD")).rejects.toBeDefined();
   } finally {
     timeout.abort();
@@ -313,10 +317,13 @@ test("unsettled activity reconciliation refuses within its deadline and releases
     const pending = push(f, workspace);
     await waiting;
     f.h.clock.advance(f.h.clock.now() + 1_000);
-    expect(await pending).toMatchObject({ ok: false, error: "git_repository_agent_running" });
+    // The refusal is decided at the deadline. Its command receipt is a store write that
+    // queues behind history publication, so release publication before reading it; a
+    // fence that had waited for the mailbox instead would now push successfully.
     f.h.store.setHistoryWriting(false);
+    expect(await pending).toMatchObject({ ok: false, error: "git_repository_agent_running" });
     await f.h.engine.flush();
-    expect(await push(f, workspace)).toMatchObject({ ok: true });
+    expect(await push(f, workspace, "user-push-retry")).toMatchObject({ ok: true });
     expect(
       f.h.command({
         type: "thread.send",
@@ -352,7 +359,7 @@ test("target metadata discovery failure releases an undispatched transfer reserv
     await writeFile(dot, "malformed target metadata\n");
     expect(await push(f, workspace)).toMatchObject({ ok: false, error: "git_quarantined" });
     await writeFile(dot, original);
-    expect(await push(f, workspace)).toMatchObject({ ok: true });
+    expect(await push(f, workspace, "user-push-retry")).toMatchObject({ ok: true });
     expect(
       f.h.command({
         type: "thread.send",

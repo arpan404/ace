@@ -49,6 +49,7 @@ import {
 import type { ChangedFile, Checkpoint, DiffSide, GitOptions, PushOptions } from "./types.ts";
 
 export { publicationOriginMatches } from "./publication.ts";
+export { executionKeyQuery, nonExecutingEnv } from "./non-executing.ts";
 export { validateCloneUrl } from "./projects.ts";
 export { publicationRemote } from "./publication-remote.ts";
 export type { CloneOptions, ProjectGitPolicy } from "./projects.ts";

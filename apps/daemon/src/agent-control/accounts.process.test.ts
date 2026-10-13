@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { AccountRegistry, createInstance } from "@ace/accounts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
+import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import { setup } from "./test-support.ts";
 import { scriptedModelInstance } from "../testing/models.ts";
 
@@ -101,9 +102,24 @@ test("legacy Cursor delegation account references select the SDK catalog and rem
       observedAt: 1000,
       timeZone: "UTC",
     });
+    const cursorModes = nativePermissionModes("cursor");
+    const base = h.registry.get("codex").capabilities;
     const adapter = createScriptedAdapter({
       provider: "cursor",
-      capabilities: h.registry.get("codex").capabilities,
+      // The child inherits Cursor's sandboxed mode under its full-access parent.
+      capabilities: {
+        ...base,
+        permissionModes: cursorModes,
+        ...(base.permissions
+          ? {
+              permissions: {
+                ...base.permissions,
+                permissionModes: cursorModes,
+                modes: cursorModes.map((mode) => mode.id),
+              },
+            }
+          : {}),
+      },
       nativeSessionId: "sdk-native",
       createTranslator: () => ({ translate: h.frames.translate, tick: () => [] }),
       steps: [{ on: "send", frames: [h.frames.frame(start, end)] }],

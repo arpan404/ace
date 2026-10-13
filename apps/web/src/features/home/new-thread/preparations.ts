@@ -83,6 +83,31 @@ const snapshot = () => revision;
 export function usePreparationsChanged() {
   return useSyncExternalStore(subscribe, snapshot);
 }
+
+type Rows = readonly [string, Preparation][];
+const noRows: Rows = [];
+const read = new WeakMap<KeyValueStorage, Map<string, { revision: number; rows: Rows }>>();
+/** This host's rows, read again only after a save or another window's write. */
+function rowsAt(storage: KeyValueStorage | undefined, host: string | undefined): Rows {
+  if (!storage || !host) return noRows;
+  let hosts = read.get(storage);
+  if (!hosts) {
+    hosts = new Map();
+    read.set(storage, hosts);
+  }
+  const cached = hosts.get(host);
+  if (cached?.revision === revision) return cached.rows;
+  const rows = preparations(storage, host);
+  hosts.set(host, { revision, rows });
+  return rows;
+}
+/**
+ * The saved preparations as state: a component re-renders with the new rows on every change, so a
+ * memoised render never keeps an old title.
+ */
+export function usePreparations(storage: KeyValueStorage | undefined, host: string | undefined) {
+  return useSyncExternalStore(subscribe, () => rowsAt(storage, host));
+}
 export function preparations(storage: KeyValueStorage | undefined, host: string) {
   return readJson(storage, storageKey(host), Records, []).map(
     ([key, row]): [string, Preparation] => {

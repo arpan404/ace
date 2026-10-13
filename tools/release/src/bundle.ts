@@ -38,7 +38,7 @@ export async function bundleDaemon(
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|fork|pty|account-management|process-guardian|pi-login-driver|session|api-key|builtins)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|fork|pty|account-management|process-guardian|pi-login-driver|session|api-key|builtins)\.ts$/,
             },
             async (args) => {
               let contents = await readFile(args.path, "utf8");
@@ -96,7 +96,7 @@ export async function bundleDaemon(
                 contents = contents.replace('"./worker-entry.ts"', '"./notification-worker.mjs"');
               if (args.path.endsWith("/usage/src/worker.ts"))
                 contents = contents.replace('"./worker-entry.ts"', '"./usage-worker.mjs"');
-              if (args.path.endsWith("/review/src/worker-client.ts"))
+              if (args.path.endsWith("/review/src/review-isolate.ts"))
                 contents = contents.replace('"./worker.ts"', '"./review-worker.mjs"');
               if (args.path.endsWith("/history-import/src/index.ts"))
                 contents = contents.replace('"./worker.ts"', '"./history-import-worker.mjs"');

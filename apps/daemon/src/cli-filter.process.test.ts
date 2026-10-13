@@ -24,7 +24,20 @@ test("explicit work restores a filtered intermediate member while its unmatched 
       expect(result.code, result.stderr).toBe(0);
       return z.object({ data: identity }).parse(JSON.parse(result.stdout)).data.threadId;
     };
-    const member = await spawn(f.caller.threadId, "claude", "Intermediate work");
+    // A cross-provider grandchild needs an unrestricted Claude ceiling, which only an
+    // explicit mode grants; inheritance from the Codex root picks Claude's default.
+    const delegated = await f.call({
+      op: "delegate_task",
+      requestId: "intermediate-member",
+      task: "Intermediate work",
+      role: "delegate",
+      provider: "claude",
+      permissionMode: "bypassPermissions",
+      wait: false,
+      estimatedLoad: 0,
+    });
+    const member = z.object({ data: identity }).parse(delegated).data.threadId;
+    await f.daemon.engine?.flush();
     const child = await spawn(member, "codex", "Unmatched background child");
     await f.daemon.engine?.flush();
     await f.h.emit(child, {
@@ -37,7 +50,8 @@ test("explicit work restores a filtered intermediate member while its unmatched 
     expect(killed.code, killed.stderr).toBe(0);
     expect(JSON.parse(killed.stdout)).toMatchObject({ data: { cancelled: [member] } });
     const active = await invoke(home, ["task", "status", member, "--json"]);
-    expect(JSON.parse(active.stdout)).toMatchObject({ state: "working" });
+    // The filtered member is not cancelled: it stays open for its active child.
+    expect(JSON.parse(active.stdout)).toMatchObject({ state: "waiting_on_children" });
 
     const sent = await invoke(home, ["thread", "send", member, "Explicit new work", "--json"]);
     expect(sent.code, sent.stderr).toBe(0);
@@ -53,8 +67,14 @@ test("explicit work restores a filtered intermediate member while its unmatched 
       }).ok,
     ).toBe(true);
     await engine.flush();
-    expect(f.h.inputs.get(member)).toContain("Explicit new work");
+    // Queued input waits for the whole tree, so the active unmatched child holds it.
+    expect(f.h.inputs.get(member) ?? []).not.toContain("Explicit new work");
     await f.h.complete(child, "Unmatched child result");
+    f.h.clock.advance(f.h.clock.now() + f.controls.delegations.policy.coalesceMs + 1000);
+    await engine.flush();
+    expect(f.h.inputs.get(member)).toContain("Explicit new work");
+    // The child's result wakes the member only after the explicit turn ends.
+    await f.h.complete(member, "Explicit turn finished");
     f.h.clock.advance(f.h.clock.now() + f.controls.delegations.policy.coalesceMs + 1000);
     await engine.flush();
     const received = await invoke(home, ["thread", "read", member, "--json"]);
@@ -66,9 +86,14 @@ test("explicit work restores a filtered intermediate member while its unmatched 
         ]),
       }),
     );
-    // Finish the explicit turn and the result wake turn; the member's own result must reach R too.
-    await f.h.complete(member, "Explicit turn finished");
+    // The newly authorized child settled in an earlier coalescing window, so its wake
+    // is a separate turn. Finish both wakes; the member's own result must reach R too.
+    await f.h.complete(member, "Newly authorized result read");
+    await engine.flush();
     await f.h.complete(member, "Resumed intermediate result");
+    f.h.clock.advance(f.h.clock.now() + f.controls.delegations.policy.coalesceMs + 1000);
+    await engine.flush();
+    // The member settles during that flush; its own result wake has a fresh deadline.
     f.h.clock.advance(f.h.clock.now() + f.controls.delegations.policy.coalesceMs + 1000);
     await engine.flush();
     const root = await invoke(home, ["thread", "read", f.caller.threadId, "--json"]);
@@ -313,6 +338,8 @@ test("a provider-filtered kill stops a Claude parent while its Codex child keeps
     expect(f.daemon.engine?.queue(child).lastFailure).toBeNull();
     const followup = await invoke(home, ["thread", "send", child, "still runnable", "--json"]);
     expect(followup.code, followup.stderr).toBe(0);
+    // Queued input is delivered once the surviving background turn ends.
+    await f.h.complete(child, "Background work finished");
     await f.daemon.engine?.flush();
     expect(f.h.inputs.get(child)).toContain("still runnable");
   } finally {

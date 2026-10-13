@@ -223,8 +223,8 @@ test("renaming a project keeps its detected favicon and offers no artwork editin
   await ready(made.client);
   await made.client.projects.add({ path: "/home/dev/site" });
   await made.open("/new");
-  const picker = await screen.findByRole("button", { name: "Setup project: site" });
-  await waitFor(() => expect(picker.querySelector("img")?.getAttribute("src")).toBe(favicon));
+  // New thread names its project inline, without a mark; the edit dialog shows the favicon.
+  await screen.findByRole("button", { name: "Project: site" });
   await filterTo("site");
   await userEvent.click(await screen.findByRole("menuitem", { name: "Edit project…" }));
   const dialog = await screen.findByRole("dialog", { name: "Edit project" });

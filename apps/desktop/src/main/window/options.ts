@@ -16,6 +16,8 @@ export function windowOptions(options: {
   /** JSON app info for the sandboxed preload, which cannot read it from Electron. */
   info: string;
   dark: boolean;
+  /** The page's own theme colour, once it has told the app (`windowBackground`). */
+  background?: string | undefined;
 }): BrowserWindowConstructorOptions {
   const base: BrowserWindowConstructorOptions = {
     ...options.bounds,
@@ -23,7 +25,7 @@ export function windowOptions(options: {
     minHeight: minimumSize.height,
     show: false,
     title: "ace",
-    backgroundColor: solidBackground(options.dark),
+    backgroundColor: options.background ?? solidBackground(options.dark),
     webPreferences: {
       preload: options.preload,
       contextIsolation: true,

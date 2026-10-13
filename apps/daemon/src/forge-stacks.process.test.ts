@@ -33,8 +33,8 @@ async function fixture(
   const gh = await fakeGh({
     ...stackChecksFixture,
     ...fixtures,
-    "repos/octo/ace/pulls/7": [{ raw: "offline" }],
-    "repos/octo/ace/pulls/8": [{ raw: "offline" }],
+    "repos/octo/ace/pulls/7": [{ offline: true }],
+    "repos/octo/ace/pulls/8": [{ offline: true }],
   });
   const db = join(root, "events.sqlite");
   await execute("git", ["init", root]);
@@ -166,7 +166,7 @@ test("a lost merge acknowledgement remains durable and a new command cannot repe
     "repos/octo/ace/pulls/8/merge-async": [{ raw: "acknowledgement lost" }],
   });
   try {
-    expect(await f.command("lost")).toMatchObject({ ok: false, error: "forge_invalid_data" });
+    expect(await f.command("lost")).toMatchObject({ ok: false, error: "forge_outcome_uncertain" });
     await f.restart();
     expect(await f.read()).toMatchObject({
       result: { kind: "forge", data: { value: { operation: { state: "uncertain" } } } },

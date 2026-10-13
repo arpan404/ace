@@ -5,6 +5,7 @@ import {
   electronBinary as electronBinaryFrom,
   electronDist,
 } from "../src/packaging/electron-dist.ts";
+import { noNativeModules } from "../src/packaging/no-native-modules.ts";
 import { zodEnglishOnly } from "./zod-english.ts";
 
 export const desktop = resolve(import.meta.dirname, "..");
@@ -52,6 +53,8 @@ export function electronBundles(outdir: string, env: NodeJS.ProcessEnv): BuildOp
       entryNames: "[name]",
       chunkNames: "chunks/[name]-[hash]",
       outExtension: { ".js": ".mjs" },
+      // app.asar stages no native packages; the daemon owns them.
+      plugins: [zodEnglishOnly, noNativeModules],
       platform: "node",
       target: "node24",
       // CommonJS dependencies bundled into ESM still call `require` for Node built-ins.

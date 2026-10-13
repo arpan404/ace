@@ -4,7 +4,7 @@ import { app, BrowserWindow, nativeTheme, screen, shell } from "electron";
 import type { WindowState } from "../../shared/contract.ts";
 import { isAppUrl, isExternalUrl } from "../csp.ts";
 import { restoreBounds, SavedWindow } from "./bounds.ts";
-import { macTitleBarCss, solidBackground, titleBarSymbolColor, windowOptions } from "./options.ts";
+import { macTitleBarCss, titleBarSymbolColor, windowOptions } from "./options.ts";
 
 export interface MainWindowOptions {
   url: string;
@@ -13,6 +13,8 @@ export interface MainWindowOptions {
   statePath: string;
   onRoute(path: string): void;
   onState(state: WindowState): void;
+  /** The colour behind the page in the given OS scheme (the page's theme, once known). */
+  background(osDark: boolean): string;
 }
 
 /** Reduce transparency (macOS), reported to the page with the rest of the native appearance. */
@@ -45,6 +47,7 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
       preload: options.preload,
       info: options.info,
       dark: nativeTheme.shouldUseDarkColors,
+      background: options.background(nativeTheme.shouldUseDarkColors),
     }),
   );
   if (bounds.maximized) window.maximize();
@@ -90,7 +93,7 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
     const dark = nativeTheme.shouldUseDarkColors;
     if (process.platform === "win32")
       window.setTitleBarOverlay({ symbolColor: titleBarSymbolColor(dark) });
-    window.setBackgroundColor(solidBackground(dark));
+    window.setBackgroundColor(options.background(dark));
   };
   nativeTheme.on("updated", themeChanged);
   window.once("closed", () => nativeTheme.off("updated", themeChanged));

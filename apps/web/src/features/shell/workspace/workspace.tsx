@@ -33,6 +33,9 @@ export function WhenKindsReady(props: {
   children: ReactNode;
   visible?: boolean;
 }) {
+  // Kept out of the compiler: `loaded()` reads the definition's load state, which changes
+  // without the definition itself changing, so a memoized read would wait forever.
+  "use no memo";
   const definition = props.definition;
   const ready = definition.loaded();
   const [, invalidate] = useState(0);

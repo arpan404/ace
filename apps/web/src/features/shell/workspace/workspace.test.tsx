@@ -63,7 +63,7 @@ test("a thread's tabs stay with it: another thread doesn't inherit them, and the
   await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
   expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull();
 
-  await userEvent.keyboard("{Meta>}[{/Meta}");
+  await userEvent.keyboard("{Meta>}[[{/Meta}");
   await screen.findByRole("heading", { level: 1, name: coldStart });
   expect(selected(await sidePanel()).textContent).toBe(web);
 });
@@ -76,7 +76,7 @@ test("keyboard Back and Forward walk thread history, the arrows out of the heade
   const threads = screen.getByRole("navigation", { name: "Threads" });
   await userEvent.click(within(threads).getByRole("link", { name: /Migrate settings schema/ }));
   await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
-  await userEvent.keyboard("{Meta>}[{/Meta}");
+  await userEvent.keyboard("{Meta>}[[{/Meta}");
   await screen.findByRole("heading", { level: 1, name: coldStart });
   await userEvent.keyboard("{Meta>}]{/Meta}");
   await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });

@@ -24,7 +24,7 @@ else if (args.includes('--help')) console.log('login logout --device-auth --clau
 else if (args.includes('status')) console.log(${JSON.stringify(provider === "codex" ? "Not logged in" : '{"loggedIn":false}')});
 else {
  console.log(${JSON.stringify(provider === "codex" ? "Open https://auth.openai.com/codex/device\nEnter code: ABCD-12345\nPress Enter to continue." : "Open https://claude.ai/oauth/authorize?client_id=synthetic&response_type=code&code_challenge=fixture\nPress Enter to continue.")});
- process.on('SIGTERM', () => { fs.appendFileSync(${JSON.stringify(marker)}, 'drained\n'); process.exit(0); });
+ process.on('SIGTERM', () => { fs.appendFileSync(${JSON.stringify(marker)}, 'drained\\n'); process.exit(0); });
  setInterval(() => {}, 1000);
 }
 `,

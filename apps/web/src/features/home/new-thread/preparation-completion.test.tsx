@@ -126,6 +126,7 @@ test("typing a second preparation during the first save gives its later files a 
 test("a refused save from an earlier page returns its prompt and file beside the reopened editor's new work", async () => {
   const { made, hold, reject } = delayedSave();
   await made.open("/new?project=relay");
+  await message();
   await userEvent.upload(
     screen.getByLabelText("Files to attach"),
     new File(["original"], "original.txt", { type: "text/plain" }),

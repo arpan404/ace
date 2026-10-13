@@ -24,7 +24,7 @@ export class FakeReviewDesk {
   private clock: () => number;
   private files: {
     reviewTarget(threadId: string): { workspaceId: string; worktree: string } | undefined;
-    reviewLines(threadId: string, path: string, start: number, end: number): string[];
+    reviewLines(threadId: string, path: string, start: number, end: number): string[] | undefined;
     applyReviewSuggestion(threadId: string, comment: ReviewComment): boolean;
   };
   private deliver: (threadId: string, text: string, requestId: string) => Result;
@@ -75,16 +75,15 @@ export class FakeReviewDesk {
         const session = this.sessions.get(payload.sessionId);
         if (!session) return { ok: false, error: "review_not_found" };
         if (this.notes.size >= 2000) return { ok: false, error: "review_limit" };
-        const lines = session.source.threadId
-          ? this.files.reviewLines(
-              session.source.threadId,
-              payload.position.file,
-              payload.position.start,
-              payload.position.end,
-            )
-          : [];
-        // The fake has checkout text rather than Git snapshots; honor the admission guard.
+        const threadId = session.source.threadId;
+        const { file, start, end } = payload.position;
+        const read = (from: number, to: number) =>
+          threadId ? this.files.reviewLines(threadId, file, Math.max(1, from), to) : [];
+        const lines = read(start, end);
+        // The fake has checkout text rather than Git snapshots; honor the admission guard where
+        // it holds the file's text. A file known only from a provider patch has none to check.
         if (
+          lines &&
           payload.expectedFingerprint &&
           JSON.stringify(payload.expectedFingerprint.lines) !== JSON.stringify(lines)
         )
@@ -92,7 +91,14 @@ export class FakeReviewDesk {
         const anchor = {
           position: payload.position,
           revision: session.source.to,
-          fingerprint: { before: [], lines, after: [] },
+          // Like the daemon's anchor: up to three lines of context on each side.
+          fingerprint: lines
+            ? {
+                before: read(start - 3, start - 1) ?? [],
+                lines,
+                after: read(end + 1, end + 3) ?? [],
+              }
+            : (payload.expectedFingerprint ?? { before: [], lines: [], after: [] }),
           state: "active" as const,
         };
         const comment: ReviewComment = {

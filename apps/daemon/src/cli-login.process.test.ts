@@ -17,7 +17,7 @@ test.each(["codex", "claude"])(
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 const provider = ${JSON.stringify(provider)};
-const marker = join(process.env.CODEX_HOME ?? process.env.CLAUDE_CONFIG_DIR, "synthetic-status");
+const marker = join(provider === "codex" ? process.env.CODEX_HOME : process.env.CLAUDE_CONFIG_DIR, "synthetic-status");
 const args = process.argv.slice(2);
 if (args.includes("--version")) { console.log("1.2.3"); }
 else if (args.includes("status")) {

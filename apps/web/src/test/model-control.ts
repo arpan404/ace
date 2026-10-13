@@ -110,3 +110,12 @@ export async function chooseEffort(popover: HTMLElement, keys: string) {
   slider.focus();
   await userEvent.keyboard(keys);
 }
+
+/** Move the open Tune pane's effort slider to the level named `level` ("Low", "High"). */
+export async function chooseEffortLevel(popover: HTMLElement, level: string) {
+  const slider = within(popover).getByRole("slider", { name: "Effort" });
+  await chooseEffort(popover, "{Home}");
+  for (let step = 0; step < 10 && slider.getAttribute("aria-valuetext") !== level; step++)
+    await userEvent.keyboard("{ArrowRight}");
+  expect(slider.getAttribute("aria-valuetext")).toBe(level);
+}

@@ -47,7 +47,9 @@ test.each([undefined, "patch"])(
       providerEnabled: (provider) => !parentDisabled || provider !== "codex",
     });
     try {
-      const parent = await h.create();
+      // ADR 0061: a fork inherits its source's ceiling. Only a known unrestricted
+      // source can vouch for a fork into another provider.
+      const parent = await h.create(":danger-full-access");
       const fork = h.command({
         type: "thread.fork",
         threadId: parent,

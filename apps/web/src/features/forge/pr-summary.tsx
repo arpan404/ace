@@ -135,15 +135,16 @@ export function PrSummary(props: {
       </PrSection>
       {props.extensions?.summary?.(props.context)}
       {props.lifecycle}
+      {/* Sibling keys must differ: the lifecycle section is keyed by the same PR identity. */}
       <PrMergeState
-        key={prKey}
+        key={`merge-state:${prKey}`}
         workspaceId={props.context.workspaceId}
         detail={detail}
         writeDisabled={props.context.disabled}
         onRefresh={() => void props.context.refresh()}
       />
       <PrStack
-        key={prKey}
+        key={`stack:${prKey}`}
         workspaceId={props.context.workspaceId}
         detail={detail}
         onRefresh={() => void props.context.refresh()}

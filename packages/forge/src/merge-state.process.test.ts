@@ -252,7 +252,7 @@ test.each(["FORBIDDEN", "RATE_LIMITED", "NOT_FOUND"])(
     try {
       await expect(
         f.forge.changeMergeState(7, sha, "enable", "squash", signal()),
-      ).rejects.toMatchObject({ kind: "invalid_data", dispatched: undefined });
+      ).rejects.toMatchObject({ kind: "outcome_uncertain", dispatched: undefined });
       expect(
         (await f.requests()).filter((r) => JSON.stringify(r.body).includes("mutation(")),
       ).toHaveLength(1);

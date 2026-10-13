@@ -31,6 +31,7 @@ import { DaemonNetwork } from "./daemon-network.ts";
 import { SettingsStore } from "./settings-store.ts";
 import { checkUserData, desktopUserData, legacyFolders } from "./user-data.ts";
 import { createMainWindow } from "./window/main-window.ts";
+import { windowBackground, WindowBackgroundStore } from "./window/window-background.ts";
 
 /** Set at build time; unpackaged runs have no app package.json for `app.getVersion()`. */
 declare const ACE_APP_VERSION: string;
@@ -119,6 +120,9 @@ function main(target: DaemonTarget): void {
     log,
   });
   const settings = new SettingsStore(join(app.getPath("userData"), "desktop-settings.json"));
+  const backgrounds = new WindowBackgroundStore(
+    join(app.getPath("userData"), "window-background.json"),
+  );
   let window: BrowserWindow | undefined;
   let rendererUrl = "";
   let route = "/";
@@ -168,6 +172,7 @@ function main(target: DaemonTarget): void {
       preload: paths.preload,
       info: JSON.stringify(info),
       statePath: join(app.getPath("userData"), "window.json"),
+      background: (osDark) => windowBackground(backgrounds.get(), osDark),
       onRoute: (path) => {
         route = path;
         focusChanged();
@@ -304,6 +309,10 @@ function main(target: DaemonTarget): void {
       authorizeDaemon: (url) => network.authorize(url),
       quit: () => app.quit(),
       showLogs,
+      setWindowBackground: (value) => {
+        if (!backgrounds.set(value).changed || !window || window.isDestroyed()) return;
+        window.setBackgroundColor(windowBackground(value, nativeTheme.shouldUseDarkColors));
+      },
       updateKeymap: (next) => {
         bindings = next;
         installMenu();

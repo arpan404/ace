@@ -103,6 +103,9 @@ it("a successful probe returning during recovery waits for authoritative settlem
       },
     },
   });
+  // The root has already finished a turn, so a settled tree reads as done rather than new.
+  await h.publish("session.execution.started");
+  await h.publish("session.execution.succeeded");
   const child = {
     id: "held-child",
     parentID: h.session.nativeSessionId,

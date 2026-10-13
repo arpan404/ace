@@ -1,5 +1,5 @@
 import { renderHook } from "@testing-library/react";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import { useListMotion } from "./motion.ts";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -27,7 +27,9 @@ test("a row that moves up slides over the rows it passes, and only that row", ()
 });
 
 test("with reduced motion a re-sort snaps: nothing slides and no row is raised", () => {
-  vi.stubGlobal("matchMedia", media(true));
+  // The theme provider marks <html> from the Reduce motion setting and the system preference.
+  document.documentElement.setAttribute("data-reduce-motion", "");
+  onTestFinished(() => document.documentElement.removeAttribute("data-reduce-motion"));
   const { result, rerender } = renderHook(({ items }) => useListMotion(items, keyOf), {
     initialProps: { items: ["a", "b", "c"] },
   });

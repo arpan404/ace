@@ -4,6 +4,12 @@ import { FakeDaemon } from "@ace/fake-daemon";
 import { ForgePrStatus, ThreadId } from "@ace/protocol";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { AppFrame } from "@/app.tsx";
@@ -68,7 +74,9 @@ test("saving source control preferences and rescanning replace cached PR results
   });
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const storage = memoryKeyValue();
-  const tree = (show: boolean) => (
+  // Settings rows read the location (deep-link flash), so the page renders inside a router.
+  let show = true;
+  const tree = () => (
     <AppFrame environment={{ storage, root: document.documentElement }}>
       <QueryClientProvider client={queries}>
         <ClientProvider client={client}>
@@ -82,12 +90,20 @@ test("saving source control preferences and rescanning replace cached PR results
       </QueryClientProvider>
     </AppFrame>
   );
-  const view = render(tree(true));
+  const router = createRouter({
+    routeTree: createRootRoute({ component: () => tree() }),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+  });
+  const shown = async (next: boolean) => {
+    show = next;
+    await act(() => router.invalidate());
+  };
+  const view = render(<RouterProvider router={router} />);
   try {
     await screen.findByText("Account A's result");
     await screen.findByText("Other daemon's cached result");
     await screen.findByText(/GitHub API access verified as ada/);
-    view.rerender(tree(false));
+    await shown(false);
     act(() => {
       seed(own, "own-pr", "Account B's result");
       seed(other, "other-pr", "Other daemon's newer result");
@@ -96,7 +112,7 @@ test("saving source control preferences and rescanning replace cached PR results
     await userEvent.type(screen.getByRole("textbox", { name: "Expected account" }), "other");
     await userEvent.click(screen.getByRole("button", { name: "Save preferences" }));
     await screen.findByText(/gh auth switch --hostname github.com --user other/);
-    view.rerender(tree(true));
+    await shown(true);
     await screen.findByText("Account B's result");
     expect(screen.queryByText("Account A's result")).toBeNull();
     expect(screen.getByText("Other daemon's cached result")).toBeTruthy();

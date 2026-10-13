@@ -1,6 +1,6 @@
 import { ThreadId } from "@ace/protocol";
 import { spawn } from "node:child_process";
-import { stat, readFile } from "node:fs/promises";
+import { mkdir, stat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { expect, test } from "vitest";
@@ -70,6 +70,7 @@ test("external read enrollment exposes scoped reads, hides mutations and loses a
       arguments: { threadId: f.caller.threadId },
     });
     expect(own.isError).not.toBe(true);
+    await mkdir(join(f.h.home, "other"));
     const otherWorkspace = f.daemon.store.createWorkspace(join(f.h.home, "other"), "other");
     const other = f.controls.delegations.command("other", {
       type: "thread.prepare",

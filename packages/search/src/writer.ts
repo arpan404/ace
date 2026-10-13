@@ -107,7 +107,11 @@ export class SearchWriter {
       if (changes && (p.status || p.title !== undefined))
         this.sql.run("UPDATE search_meta SET generation=generation+1 WHERE id=1");
       if (p.title !== undefined) this.stageTitle(event.threadId, event.seq);
-    } else if (p.type === "item.created" || p.type === "item.updated") {
+    } else if (
+      (p.type === "item.created" || p.type === "item.updated") &&
+      // An item type search has no kind for yet stays unindexed; it must never fail the append.
+      SearchKind.safeParse(p.item.type).success
+    ) {
       const detail = p.item.type === "tool_call" ? p.item.call.detail : undefined;
       const output =
         detail?.kind === "shell" && detail.output

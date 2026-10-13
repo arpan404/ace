@@ -95,7 +95,8 @@ it("only an administrator can save global source control preferences", async () 
     for (const admin of [false, true]) {
       const issued = socket.store.devices.create(
         admin ? "Administrator" : "Operator",
-        admin ? ["read", "operate", "admin"] : ["read", "operate"],
+        // Local sockets admit desktop device credentials; admin is the boundary under test.
+        admin ? ["read", "operate", "admin", "desktop"] : ["read", "operate", "desktop"],
         1000,
       );
       const client = await socket.open();
