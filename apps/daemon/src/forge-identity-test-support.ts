@@ -34,6 +34,7 @@ const stateSchema = z.object({
   removeOnUser: z.number(),
   refuseReply: z.boolean(),
   graphqlError: z.string(),
+  graphqlErrorAfterReply: z.string(),
   prHead: z.string(),
 });
 const script = `#!${process.execPath}
@@ -46,7 +47,7 @@ async function hold(){writeFileSync(dir+'/held','held'); await new Promise(resol
 if(args[0]==='--version') console.log('gh version 2.90.0');
 else if(args.includes('--help')) console.log('auth status');
 else if(args[0]==='auth') console.log('[]');
-else if(path==='user') { f.users++; save(); if(f.users===f.holdUser) await hold(); if(f.users===f.removeOnUser) unlinkSync(dir+'/gh'); if(f.users===f.invalidUser) {console.log('{}');process.exit(0)} console.log(JSON.stringify({login:f.account})); }
+else if(path==='user') { f.users++; save(); if(f.users===f.holdUser) await hold(); if(f.users===f.removeOnUser) unlinkSync(dir+'/gh'); const user=f.users===f.invalidUser?{}:{login:f.account}; if(args.includes('--include')) http(user); else console.log(JSON.stringify(user)); }
 else {
  if(args[0]==='pr' || (args.includes('--method') && args[args.indexOf('--method')+1]!=='GET' && path!=='graphql')) {f.writes.push(path);save()}
  if(f.holdPath===path) await hold();
@@ -56,7 +57,7 @@ else {
    let input=''; for await(const chunk of process.stdin) input+=chunk;
    const body=JSON.parse(input).body;
    f=JSON.parse(readFileSync(file,'utf8')); const reply={id:31+f.replies.length,body,user:{login:f.account},in_reply_to_id:13,updated_at:"2026-10-11T12:00:00Z"}; f.replies.push(reply);
-   if(f.switchAfterReply) f.account='other'; const lost=f.lostReply; f.lostReply=false; save(); if(f.holdReply) await hold(); if(lost) process.exit(1); http(reply);
+   if(f.switchAfterReply) f.account='other'; if(f.graphqlErrorAfterReply) f.graphqlError=f.graphqlErrorAfterReply; const lost=f.lostReply; f.lostReply=false; save(); if(f.holdReply) await hold(); if(lost) process.exit(1); http(reply);
  } else if(path.includes('/pulls/comments/')) http(f.replies.find(r=>r.id===Number(path.split('/').at(-1))));
  else if(path.includes('/pulls/7/comments?')) http(f.replies);
  else if(path.includes('/pulls?')) http([]);
@@ -66,6 +67,12 @@ else {
  else http([]);
 }
 `;
+/**
+ * Every \`gh\` call is bracketed by an identity probe. A reply runs: admission (1), the actor
+ * read (2-4), the seven baseline status reads (5-18), then the reply POST between probes 19 and 20.
+ */
+export const replyWriteProbe = { preflight: 19, postflight: 20 } as const;
+
 export async function forgeIdentityFixture(
   options: { timeoutMs?: number; settings?: (root: string) => SettingsService } = {},
 ) {
@@ -100,6 +107,7 @@ export async function forgeIdentityFixture(
       removeOnUser: 0,
       refuseReply: false,
       graphqlError: "",
+      graphqlErrorAfterReply: "",
       prHead: "a".repeat(40),
     }),
   );

@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { SettingsService, type Scope } from "@ace/settings";
 import { Command, type SettingsKey } from "@ace/protocol";
-import { forgeIdentityFixture } from "./forge-identity-test-support.ts";
+import { forgeIdentityFixture, replyWriteProbe } from "./forge-identity-test-support.ts";
 
 const reply = (id: string) =>
   Command.parse({
@@ -33,8 +33,7 @@ const changeAccount = (f: Awaited<ReturnType<typeof forgeIdentityFixture>>) =>
 test("preferences changed during a write's preflight probe prevent the old account from writing", async () => {
   const f = await forgeIdentityFixture();
   try {
-    // Admission and baseline comment read precede the write preflight (probe 4).
-    await f.update({ holdUser: 4 });
+    await f.update({ holdUser: replyWriteProbe.preflight });
     const result = f.runtime.execute(reply("changing"));
     await f.held();
     await changeAccount(f);
@@ -52,13 +51,12 @@ test("preferences changed during a write's preflight probe prevent the old accou
 test("a preference change during the final probe preserves the reply but prevents publishing a successful result", async () => {
   const f = await forgeIdentityFixture();
   try {
-    // Admission and baseline read consume three probes; write postflight is probe 5.
-    await f.update({ holdUser: 5 });
+    await f.update({ holdUser: replyWriteProbe.postflight });
     const result = f.runtime.execute(reply("changing"));
     await f.held();
     await changeAccount(f);
     await f.release();
-    expect(await result).toMatchObject({ ok: false, error: "forge_outcome_uncertain" });
+    expect(await result).toMatchObject({ ok: false, error: "forge_write_uncertain" });
     expect((await f.facts()).replies).toHaveLength(1);
     expect(f.store.getThread(f.thread.id)?.details?.linkedPr).toBeUndefined();
     await f.settings.set("sourceControl.preferences", f.preferences, { kind: "global" });
