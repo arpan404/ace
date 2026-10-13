@@ -16,7 +16,9 @@ export {
 /** The tab attached to the composer's top edge. */
 export { preloadComposerParts } from "./composer/deferred-parts.tsx";
 export { useComposerCompact } from "./composer/composer-compact.ts";
-export { ThreadView, type ThreadTarget } from "./thread-view.tsx";
+export { preloadPendingThread, ThreadView, type ThreadTarget } from "./thread-view.tsx";
+/** The reading column the transcript and its composer share; New thread lays its composer on it. */
+export { readingColumn } from "./lib/column.ts";
 /** A provider's own subagent as the whole chat, at `/t/<thread>/agents/<agent>`. */
 export { SubagentView } from "./subagent/subagent-view.tsx";
 /** Warm the parts of the thread screen that load after first paint (tests start with them). */
