@@ -83,6 +83,8 @@ export type Response = {
   headers?: Record<string, string>;
   code?: number;
   raw?: string;
+  /** gh reaches no host: no HTTP response, exit 1. */
+  offline?: boolean;
   stderr?: string;
   repeat?: number;
   text?: string;

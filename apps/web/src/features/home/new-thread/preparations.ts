@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 import { z } from "zod";
 import { Choices } from "./choices.ts";
 import { ComposerDraftSchema, readDraft } from "@/features/thread/index.ts";
+import { newThreadDraftKey } from "@/lib/new-thread-draft-key.ts";
 
 const Preparation = z.object({
   owner: z.string().optional(),
@@ -28,8 +29,7 @@ const Preparation = z.object({
 export type Preparation = z.infer<typeof Preparation>;
 const Records = z.array(z.tuple([z.string(), Preparation]));
 const storageKey = (host: string) => `ace.preparations:${host}`;
-export const preparationKey = (host: string, project: string, skill?: string, source?: string) =>
-  `new:${JSON.stringify(source ? [host, project, skill ?? "", source] : [host, project, skill ?? ""])}`;
+export const preparationKey = newThreadDraftKey;
 
 // Notifications and failed-write notices stay in memory; durable rows remain the authority.
 const listeners = new Set<() => void>();
@@ -82,6 +82,31 @@ function subscribe(listener: () => void) {
 const snapshot = () => revision;
 export function usePreparationsChanged() {
   return useSyncExternalStore(subscribe, snapshot);
+}
+
+type Rows = readonly [string, Preparation][];
+const noRows: Rows = [];
+const read = new WeakMap<KeyValueStorage, Map<string, { revision: number; rows: Rows }>>();
+/** This host's rows, read again only after a save or another window's write. */
+function rowsAt(storage: KeyValueStorage | undefined, host: string | undefined): Rows {
+  if (!storage || !host) return noRows;
+  let hosts = read.get(storage);
+  if (!hosts) {
+    hosts = new Map();
+    read.set(storage, hosts);
+  }
+  const cached = hosts.get(host);
+  if (cached?.revision === revision) return cached.rows;
+  const rows = preparations(storage, host);
+  hosts.set(host, { revision, rows });
+  return rows;
+}
+/**
+ * The saved preparations as state: a component re-renders with the new rows on every change, so a
+ * memoised render never keeps an old title.
+ */
+export function usePreparations(storage: KeyValueStorage | undefined, host: string | undefined) {
+  return useSyncExternalStore(subscribe, () => rowsAt(storage, host));
 }
 export function preparations(storage: KeyValueStorage | undefined, host: string) {
   return readJson(storage, storageKey(host), Records, []).map(

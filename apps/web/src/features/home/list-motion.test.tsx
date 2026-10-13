@@ -1,11 +1,10 @@
 import { workbench } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 beforeEach(() => localStorage.clear());
-afterEach(() => vi.unstubAllGlobals());
 
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
 /** A wide window whose person asked for less motion. */
@@ -17,8 +16,8 @@ const reducedMotion = (query: string) =>
     removeEventListener() {},
   }) as unknown as MediaQueryList;
 
-async function openHome() {
-  const app = harness();
+async function openHome(options: Parameters<typeof harness>[0] = {}) {
+  const app = harness(options);
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/");
   await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
@@ -50,8 +49,7 @@ test("an archived card leaves the list at once for assistive tech, then fades ou
 });
 
 test("with reduced motion an archived card is gone in the same moment", async () => {
-  vi.stubGlobal("matchMedia", reducedMotion);
-  await openHome();
+  await openHome({ matchMedia: reducedMotion });
   await archive(/Invoice PDF locale fallback/);
   expect(within(threads()).queryByText("Invoice PDF locale fallback")).toBeNull();
 });

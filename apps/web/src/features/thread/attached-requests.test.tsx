@@ -105,7 +105,7 @@ test("several open requests stack as a deck: 1 of 3 on top, moved through with â
   within(region).getByRole("button", { name: "Deny" }).focus();
   await userEvent.keyboard("]");
   expect(within(region).getByText("3 of 3")).toBeTruthy();
-  await userEvent.keyboard("[");
+  await userEvent.keyboard("[[");
   expect(within(region).getByText("2 of 3")).toBeTruthy();
   await userEvent.keyboard("]");
   expect(within(region).getByText("3 of 3")).toBeTruthy();

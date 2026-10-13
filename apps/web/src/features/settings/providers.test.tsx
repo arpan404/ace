@@ -272,7 +272,7 @@ test("a vanished saved default stays unavailable until the person picks its reco
   );
   const picker = await screen.findByRole("listbox", { name: "Models" });
   const missing = within(picker).getByRole("option", {
-    name: /Muse Spark 1.3 Contributor, Unavailable/,
+    name: /^Muse Spark 1.3 Contributor, .*Unavailable$/,
   });
   expect(missing.getAttribute("aria-disabled")).toBe("true");
   await userEvent.click(within(picker).getByRole("option", { name: /Opus 5.5, recommended/ }));

@@ -63,7 +63,7 @@ export class OpenCodeTranslator implements Translator {
       if (data.type === "ancestry.pending")
         return state.background(string(data.id), state.rootNative, "other");
       if (data.type === "ancestry.settled")
-        return state.finishBackground(string(data.id), "completed");
+        return [...state.settleProbed(), ...state.finishBackground(string(data.id), "completed")];
       if (data.type === "started") return [{ type: "process.started" }];
       if (data.type === "exited") {
         state.pending.clear();
@@ -165,6 +165,7 @@ export class OpenCodeTranslator implements Translator {
     }
     if (frame.channel === "snapshot.info") {
       if (data.root === true && !state.rootNative) state.rootNative = string(object(data.info).id);
+      if (data.root !== true && data.recovering !== true) state.probed(object(data.info));
       return [
         ...state.seen(object(data.info)),
         ...sessionUsage(state, string(object(data.info).id), object(data.info)),
@@ -174,19 +175,19 @@ export class OpenCodeTranslator implements Translator {
     if (frame.channel === "snapshot.active") {
       const id = string(data.sessionID);
       if (data.running !== true && !state.canSettle(id, number(data.idleAt, -1))) return [];
-      return data.running === true
-        ? state.start(id, `recovered:${id}:${string(data.revision)}`)
-        : [
-            ...state.reconcileWake(id, number(data.idleAt, -1)),
-            ...state.end(
-              id,
-              data.outcome === "interrupted"
-                ? "interrupted"
-                : data.outcome === "failed"
-                  ? "failed"
-                  : "completed",
-            ),
-          ];
+      const turn = `recovered:${id}:${string(data.revision)}`;
+      if (data.running === true) return state.start(id, turn);
+      const outcome =
+        data.outcome === "interrupted"
+          ? "interrupted"
+          : data.outcome === "failed"
+            ? "failed"
+            : "completed";
+      return [
+        ...state.reconcileWake(id, number(data.idleAt, -1)),
+        ...state.settleUnstarted(id, number(data.idleAt, -1), turn, outcome),
+        ...state.end(id, outcome),
+      ];
     }
     if (frame.channel === "snapshot.interactions") {
       const session = string(data.sessionID),

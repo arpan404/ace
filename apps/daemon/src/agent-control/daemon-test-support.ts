@@ -30,6 +30,13 @@ export async function daemonFixture(
       ...options.workspaceActions,
     },
   });
+  // Delegation needs a verifiable permission ceiling. Fixture threads run in each
+  // provider's unrestricted mode, as a user who chose it in Settings would.
+  await daemon.settings.set(
+    "permissions.providerModes",
+    { codex: ":danger-full-access", claude: "bypassPermissions" },
+    { kind: "global" },
+  );
   for (const provider of ["codex", "claude"] as const)
     await seedScriptedModels(daemon.models, scriptedModelInstance(provider, h.home));
   const controls = daemon.agentControl;
@@ -42,6 +49,8 @@ export async function daemonFixture(
     type: "thread.create",
     workspaceId: workspace,
     provider: "codex",
+    // A known, uncontained ceiling lets the parent delegate across providers.
+    permissionMode: ":danger-full-access",
     input: [{ type: "text", text: "plan" }],
   });
   await daemon.engine.flush();

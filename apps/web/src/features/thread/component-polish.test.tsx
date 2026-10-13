@@ -101,12 +101,18 @@ test("an empty fresh diff does not claim saved uncommitted counts", async () => 
 
 test("an approval is explained once in its inline request", async () => {
   await open("/t/thread-retry-budget");
-  await screen.findByRole("region", { name: "Waiting for you" });
+  const strip = await screen.findByRole("region", { name: "Waiting for you" });
+  const card = await within(strip).findByRole("article");
+  // The transcript only points at it.
+  const feed = screen.getByRole("feed", { name: "Transcript" });
   expect(
-    within(screen.getByRole("feed", { name: "Transcript" })).queryAllByText(
-      /Waiting for your approval/,
-    ),
-  ).toHaveLength(0);
+    within(feed).queryByRole("article", { name: card.getAttribute("aria-label") ?? "" }),
+  ).toBeNull();
+  expect(
+    within(feed)
+      .queryAllByText(/Waiting for your approval/)
+      .every((mention) => mention.closest("a")),
+  ).toBe(true);
   expect(screen.queryByRole("region", { name: "Agents" })).toBeNull();
 });
 

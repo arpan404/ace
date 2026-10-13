@@ -7,87 +7,62 @@ import { memoryStorage } from "@/boot/client.ts";
 
 configure({ asyncUtilTimeout: 30000 });
 
-test.each([false, true])(
-  "a second creation can upload its own files even when scope retirement is refused: %s",
-  async (refuse) => {
-    const backing = memoryKeyValue();
-    let retiring = false;
-    const made = harness({
-      storage: {
-        ...backing,
-        setItem(key: string, value: string) {
-          if (retiring && key.startsWith("ace.composer.scope:")) throw new Error("quota");
-          backing.setItem(key, value);
-        },
-      },
-    });
-    for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
-    await made.open("/new?project=relay");
-    await userEvent.type(
-      await screen.findByRole("combobox", { name: "Message" }),
-      "First creation",
-    );
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
-        "true",
-      ),
-    );
-    retiring = refuse;
-    await userEvent.click(screen.getByRole("button", { name: "Send" }));
-    await waitFor(() => {
-      const view = made.daemon.snapshot({ kind: "threads" });
-      expect(
-        view?.kind === "threads" &&
-          Object.values(view.threads).some((row) => row.title === "First creation"),
-      ).toBe(true);
-    });
-    cleanup();
-    await made.open("/new?project=relay");
-    await userEvent.type(
-      await screen.findByRole("combobox", { name: "Message" }),
-      "Second creation",
-    );
-    if (refuse)
-      expect(
-        await screen.findByText(
-          "Couldn't save attachment storage ownership. Keep this editor open until this device has free space.",
-        ),
-      ).toBeTruthy();
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
-        "true",
-      ),
-    );
-    await userEvent.upload(
-      screen.getByLabelText("Files to attach"),
-      new File(["second"], "second.txt", { type: "text/plain" }),
-    );
-    await screen.findByRole("button", { name: "Remove second.txt" });
-    await waitFor(() =>
-      expect(screen.queryByRole("progressbar", { name: "Uploading second.txt" })).toBeNull(),
-    );
-    await userEvent.click(screen.getByRole("button", { name: "Send" }));
-    await waitFor(() => {
-      const view = made.daemon.snapshot({ kind: "threads" });
-      expect(
-        view?.kind === "threads" &&
-          Object.values(view.threads).some((row) => row.title === "Second creation"),
-      ).toBe(true);
-    });
+// Refused handoff writes (rows, content, rotation) are covered in handoff-refusal.test.tsx.
+test("a second creation uploads its own files after the first thread starts", async () => {
+  const made = harness();
+  for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
+  await made.open("/new?project=relay");
+  await userEvent.type(await screen.findByRole("combobox", { name: "Message" }), "First creation");
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
+      "true",
+    ),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => {
     const view = made.daemon.snapshot({ kind: "threads" });
-    const created =
-      view?.kind === "threads" &&
-      Object.values(view.threads).find((row) => row.title === "Second creation");
-    if (!created) throw new Error("second creation did not succeed");
-    const reply = await made.client.request({
-      type: "context.request",
-      operation: { op: "attachment.list", threadId: created.id },
-    });
     expect(
-      reply.result.kind === "attachments" && reply.result.attachments.map((file) => file.name),
-    ).toEqual(["second.txt"]);
-  },
-);
+      view?.kind === "threads" &&
+        Object.values(view.threads).some((row) => row.title === "First creation"),
+    ).toBe(true);
+  });
+  cleanup();
+  await made.open("/new?project=relay");
+  await userEvent.type(await screen.findByRole("combobox", { name: "Message" }), "Second creation");
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
+      "true",
+    ),
+  );
+  await userEvent.upload(
+    screen.getByLabelText("Files to attach"),
+    new File(["second"], "second.txt", { type: "text/plain" }),
+  );
+  await screen.findByRole("button", { name: "Remove second.txt" });
+  await waitFor(() =>
+    expect(screen.queryByRole("progressbar", { name: "Uploading second.txt" })).toBeNull(),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => {
+    const view = made.daemon.snapshot({ kind: "threads" });
+    expect(
+      view?.kind === "threads" &&
+        Object.values(view.threads).some((row) => row.title === "Second creation"),
+    ).toBe(true);
+  });
+  const view = made.daemon.snapshot({ kind: "threads" });
+  const created =
+    view?.kind === "threads" &&
+    Object.values(view.threads).find((row) => row.title === "Second creation");
+  if (!created) throw new Error("second creation did not succeed");
+  const reply = await made.client.request({
+    type: "context.request",
+    operation: { op: "attachment.list", threadId: created.id },
+  });
+  expect(
+    reply.result.kind === "attachments" && reply.result.attachments.map((file) => file.name),
+  ).toEqual(["second.txt"]);
+});
 
 test("a refusal after composer remount joins the current prompt and retains the submitted file", async () => {
   const gate = Promise.withResolvers<void>();
@@ -107,6 +82,7 @@ test("a refusal after composer remount joins the current prompt and retains the 
   });
   for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
   await made.open("/new?project=relay");
+  await screen.findByRole("combobox", { name: "Message" });
   await userEvent.upload(
     screen.getByLabelText("Files to attach"),
     new File(["original"], "original.txt", { type: "text/plain" }),
@@ -223,7 +199,7 @@ test("a rejected new-thread save preserves both prompts and the original file th
   await waitFor(() =>
     expect(screen.queryByRole("progressbar", { name: "Uploading original.txt" })).toBeNull(),
   );
-  await userEvent.type(field, "ORIGINAL_PROMPT");
+  await userEvent.type(field, "Original prompt");
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
       "true",
@@ -231,12 +207,12 @@ test("a rejected new-thread save preserves both prompts and the original file th
   );
   hold = true;
   await userEvent.keyboard("{Enter}");
-  await userEvent.type(screen.getByRole("combobox", { name: "Message" }), "SECOND_DRAFT");
+  await userEvent.type(screen.getByRole("combobox", { name: "Message" }), "Second draft");
   saving.resolve();
   await screen.findByText("This device couldn't save the new thread. Try again.");
   await waitFor(() =>
     expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
-      "SECOND_DRAFT\n\nORIGINAL_PROMPT",
+      "Second draft\n\nOriginal prompt",
     ),
   );
   expect(screen.getByRole("button", { name: "Remove original.txt" })).toBeTruthy();
@@ -245,7 +221,7 @@ test("a rejected new-thread save preserves both prompts and the original file th
   hold = false;
   await first.open("/new?project=relay");
   expect((await screen.findByRole("combobox", { name: "Message" })).textContent).toBe(
-    "SECOND_DRAFT\n\nORIGINAL_PROMPT",
+    "Second draft\n\nOriginal prompt",
   );
   expect(await screen.findByRole("button", { name: "Remove original.txt" })).toBeTruthy();
   await waitFor(() =>
@@ -258,13 +234,13 @@ test("a rejected new-thread save preserves both prompts and the original file th
     const view = first.daemon.snapshot({ kind: "threads" });
     expect(
       view?.kind === "threads" &&
-        Object.values(view.threads).some((thread) => thread.title.includes("SECOND_DRAFT")),
+        Object.values(view.threads).some((thread) => thread.title.includes("Second draft")),
     ).toBe(true);
   });
   const view = first.daemon.snapshot({ kind: "threads" });
   const created =
     view?.kind === "threads" &&
-    Object.values(view.threads).find((thread) => thread.title.includes("SECOND_DRAFT"));
+    Object.values(view.threads).find((thread) => thread.title.includes("Second draft"));
   if (!created) throw new Error("thread was not created");
   const reply = await first.client.request({
     type: "context.request",
@@ -280,9 +256,31 @@ test("a rejected new-thread save preserves both prompts and the original file th
         (item) =>
           item.type === "message" &&
           item.parts.some(
-            (part) => part.type === "text" && part.text === "SECOND_DRAFT\n\nORIGINAL_PROMPT",
+            (part) => part.type === "text" && part.text === "Second draft\n\nOriginal prompt",
           ) &&
           item.attachments?.some((file) => file.name === "original.txt"),
       ),
   ).toBe(true);
+});
+
+test("Edit on a refused new thread puts its message back in New thread for its project", async () => {
+  const made = harness();
+  for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
+  // In the checkout, so the refusal is the message's, not a worktree's.
+  made.daemon.services.settings.seed({ "threads.useWorktree": false });
+  made.daemon.refuseCommands("model_unavailable", "thread.create");
+  await made.open("/new?project=relay");
+  await screen.findByRole("button", { name: /^Model: Opus/ });
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Message" }),
+    "Bring my refused start back{Enter}",
+  );
+  await userEvent.click(await screen.findByRole("button", { name: "Edit" }));
+  await screen.findByRole("heading", { level: 1, name: "New thread" });
+  expect(await screen.findByRole("button", { name: "Project: relay" })).toBeTruthy();
+  await waitFor(() =>
+    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
+      "Bring my refused start back",
+    ),
+  );
 });

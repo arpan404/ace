@@ -63,6 +63,8 @@ function groupLabel(source: ModelSource | undefined): string {
   return source?.kind === "local" ? "Local" : (source?.label ?? "");
 }
 
+const vanishedId = "\u0000vanished";
+
 /** What an old daemon's code-only error says, when it sends no message of its own. */
 const unexplained: ModelProblem = {
   message: "Models couldn't be refreshed.",
@@ -91,6 +93,22 @@ export function pickerGroups(
 ): PickerGroup[] {
   const names = new Map(accounts.map((account) => [account.id, accountDisplayName(account)]));
   const groups = new Map<string, PickerGroup & { rank: number; keys: Set<string> }>();
+  // A saved choice the catalog no longer lists leads the list, so it is seen, not scrolled to.
+  const vanishedGroup = () => {
+    const found = groups.get(vanishedId) ?? {
+      id: vanishedId,
+      provider,
+      label: undefined,
+      current: [],
+      legacy: [],
+      refreshing: false,
+      problems: [],
+      rank: -1,
+      keys: new Set<string>(),
+    };
+    groups.set(vanishedId, found);
+    return found;
+  };
   const group = (instance: string, source: ModelSource | undefined) => {
     const id = groupKey(instance, source);
     let found = groups.get(id);
@@ -115,7 +133,7 @@ export function pickerGroups(
   };
   for (const model of models) {
     if (model.provider !== provider) continue;
-    const into = group(model.instance ?? "", model.source);
+    const into = model.vanished ? vanishedGroup() : group(model.instance ?? "", model.source);
     if (into.keys.has(model.key)) continue;
     into.keys.add(model.key);
     (model.legacy ? into.legacy : into.current).push(model);

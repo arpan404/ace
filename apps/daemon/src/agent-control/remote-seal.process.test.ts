@@ -104,13 +104,15 @@ test("a root turn ending does not seal while its task tree still owns live backg
   });
 });
 
-test("completion waits for a blocking human interaction before freezing an empty selected manifest", async () => {
+test("completion waits for an open human question before freezing an empty selected manifest", async () => {
+  // A turn end cancels its own blocking questions (core cleanup), so the question that
+  // outlives the answer is a non-blocking one the person still has to answer.
   const f = await remoteTarget();
   await f.emit({
     type: "interaction.opened",
     agent: "root",
     interaction: "approval",
-    blocking: true,
+    blocking: false,
     request: {
       kind: "question",
       questions: [

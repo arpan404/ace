@@ -67,11 +67,15 @@ export class FakeFilesWire {
       worktree: thread.details?.worktree ?? `/fake/${thread.workspaceId}`,
     };
   }
-  reviewLines(threadId: string, path: string, start: number, end: number): string[] {
+  /** Lines `start`..`end` of a checkout file; undefined when the fake holds no text for it. */
+  reviewLines(threadId: string, path: string, start: number, end: number): string[] | undefined {
     const file = this.file(threadId, path, this.key(threadId, path));
-    if (!file || file.bytes.length > 1024 * 1024) return [];
+    if (!file || file.bytes.length > 1024 * 1024) return undefined;
+    if (end < start) return [];
+    // A final newline ends the last line; it does not start another.
     return new TextDecoder()
       .decode(file.bytes)
+      .replace(/\n$/, "")
       .split("\n")
       .slice(start - 1, end);
   }

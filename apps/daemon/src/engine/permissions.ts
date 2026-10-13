@@ -213,11 +213,11 @@ export class Permissions {
   private contained(
     id: ThreadId,
     provider: import("@ace/protocol").ProviderKind,
-    selected: PermissionMode | null,
+    selected: PermissionMode | null | undefined,
     depth = 0,
   ): PermissionMode | null {
     const record = this.read(id);
-    if (!record.parent) return selected;
+    if (!record.parent) return selected ?? null;
     if (depth >= 64) throw new Error("Permission ancestry exceeds capacity");
     const identity = this.identity(id, provider);
     const mode = this.narrow(importThreadId.parse(record.parent), identity, selected, depth + 1);
@@ -359,7 +359,10 @@ export class Permissions {
       this.repo.store.atomic((db) =>
         db.prepare("UPDATE engine_permissions SET override=NULL WHERE thread_id=?").run(id),
       );
-    return this.contained(id, provider, selected);
+    // A child without a selectable mode of its own (including after a provider
+    // switch remapped it away) inherits from its ceiling instead of running at an
+    // unreported provider default that no ancestor can vouch for.
+    return this.contained(id, provider, selected ?? undefined);
   }
   applied(id: ThreadId, mode: PermissionMode | null, at: number): void {
     const provider = this.repo.requireState(id).config.provider;

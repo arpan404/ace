@@ -428,8 +428,14 @@ test.each(["collaborator commit", "queue entry"])(
           : {}),
       },
     }));
+    const [checks] = stackChecksFixture["stack-checks"];
+    if (!checks) throw new Error("Missing stack checks fixture");
+    // Check rollups are read at the head the host reports, so they follow the new commit.
+    const changedChecks = structuredClone(checks);
+    if (event === "collaborator commit")
+      changedChecks.body.data.repository.pr7.headRefOid = "f".repeat(40);
     const f = await fakeGh({
-      ...stackChecksFixture,
+      "stack-checks": [checks, changedChecks],
       graphql: [stackResponse(), stackResponse(8, changed)],
       "stack-view": [{ body: localStack }],
       "stack-rebase": [{ code: 0, barrier: "release-rebase" }],
@@ -525,9 +531,7 @@ test("a native 409 acknowledgement cannot lose its uncertainty when the mutation
   const f = await fakeGh({
     ...stackChecksFixture,
     graphql: [stackResponse()],
-    "repos/octo/ace/pulls/8/merge-async": [
-      { status: 409, code: 1, body: { status: "pending", details: { uuid: stackUuid } } },
-    ],
+    "repos/octo/ace/pulls/8/merge-async": [{ ...pending, status: 409, code: 1 }],
   });
   const backend = new GitHubForge({
     repository,

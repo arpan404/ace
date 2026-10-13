@@ -296,9 +296,10 @@ test("the model is picked by name from the agent's models, its default chosen an
       .getAllByRole("option")
       .map((option) => option.getAttribute("aria-label")),
   ).toEqual([
-    "Opus 5.5, recommended, Claude Code",
-    "Sonnet 5.5, Claude Code",
-    "Haiku 4.5, Claude Code",
+    // Each row names its source: the provider and the account (706f991cb).
+    "Opus 5.5, recommended, Claude Code · Personal",
+    "Sonnet 5.5, Claude Code · Personal",
+    "Haiku 4.5, Claude Code · Personal",
     "Legacy models, 6",
   ]);
   expect(list.textContent).not.toMatch(/claude-|Agent's default/);

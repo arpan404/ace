@@ -86,6 +86,8 @@ test.each(["content", "rows", "row deletion", "rotation", "new content"])(
     await screen.findByRole("button", { name: "Start from: origin/main" });
     await ready();
     hold = true;
+    // The upload left focus on the file input; Enter sends from the message.
+    await userEvent.click(screen.getByRole("combobox", { name: "Message" }));
     await userEvent.keyboard("{Enter}");
     await entered.promise;
     const recoveryKey = [...backing.data.keys()].find((key) =>

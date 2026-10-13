@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { Command } from "@ace/protocol";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
-import { forgeIdentityFixture } from "./forge-identity-test-support.ts";
+import { forgeIdentityFixture, replyWriteProbe } from "./forge-identity-test-support.ts";
 
 const reply = (id: string, owner = "octo", name = "ace") =>
   Command.parse({
@@ -27,7 +27,7 @@ test("a successful reply followed by an account switch stays uncertain and a res
   try {
     await f.update({ switchAfterReply: true });
     const result = await f.runtime.execute(reply("first"));
-    expect(result).toMatchObject({ ok: false, error: "forge_outcome_uncertain" });
+    expect(result).toMatchObject({ ok: false, error: "forge_write_uncertain" });
     expect((await f.facts()).replies).toHaveLength(1);
     await f.runtime.close();
     await f.update({ account: "octo", switchAfterReply: false });
@@ -48,7 +48,7 @@ test("a changed remote receipt prevents another reply write", async () => {
   try {
     await f.update({ switchAfterReply: true });
     expect(await f.runtime.execute(reply("first"))).toMatchObject({
-      error: "forge_outcome_uncertain",
+      error: "forge_write_uncertain",
     });
     const facts = await f.facts();
     await f.update({
@@ -58,7 +58,7 @@ test("a changed remote receipt prevents another reply write", async () => {
     });
     expect(await f.runtime.execute(reply("retry"))).toMatchObject({
       ok: false,
-      error: "forge_outcome_uncertain",
+      error: "forge_write_uncertain",
     });
     expect((await f.facts()).replies).toHaveLength(1);
   } finally {
@@ -83,7 +83,7 @@ test("a lost reply response reconciles a new comment instead of an identical old
     });
     expect(await f.runtime.execute(reply("lost"))).toMatchObject({
       ok: false,
-      error: "forge_outcome_uncertain",
+      error: "forge_write_uncertain",
     });
     expect((await f.facts()).replies).toHaveLength(2);
     expect(await f.runtime.execute(reply("reconciled"))).toMatchObject({ ok: true });
@@ -96,7 +96,7 @@ test("a lost reply response reconciles a new comment instead of an identical old
 test("a malformed write preflight fails without reserving an uncertain reply and a fresh command can write", async () => {
   const f = await forgeIdentityFixture();
   try {
-    await f.update({ invalidUser: 4 });
+    await f.update({ invalidUser: replyWriteProbe.preflight });
     expect(await f.runtime.execute(reply("invalid-preflight"))).toMatchObject({
       ok: false,
       error: "forge_invalid_data",
@@ -112,7 +112,7 @@ test("a malformed write preflight fails without reserving an uncertain reply and
 test("a timed out write preflight keeps its CLI failure and a new command can retry", async () => {
   const f = await forgeIdentityFixture({ timeoutMs: 5000 });
   try {
-    await f.update({ holdUser: 4 });
+    await f.update({ holdUser: replyWriteProbe.preflight });
     const pending = f.runtime.execute(reply("timed-out-preflight"));
     await f.held();
     expect(await pending).toMatchObject({ ok: false, error: "forge_cli" });
@@ -132,7 +132,7 @@ test("case-equivalent repositories reconcile the same uncertain reply after a re
     await f.update({ lostReply: true });
     expect(await f.runtime.execute(reply("mixed-case", "Octo", "Ace"))).toMatchObject({
       ok: false,
-      error: "forge_outcome_uncertain",
+      error: "forge_write_uncertain",
     });
     await f.runtime.close();
     restarted = new WorkspaceRuntime(f.store, f.root, () => 1000, {
@@ -152,17 +152,14 @@ test("a concurrent retry cannot reconcile or clear a receipt while its writer is
     await f.update({ lostReply: true, holdReply: true });
     const writer = f.runtime.execute(reply("active-writer", "Octo", "Ace"));
     await f.held();
-    let reconciled = false;
-    const retry = f.runtime.execute(reply("concurrent-reconciliation")).then((result) => {
-      reconciled = true;
-      return result;
+    // The PR-wide fence refuses a concurrent command instead of reconciling the live write.
+    expect(await f.runtime.execute(reply("concurrent-reconciliation"))).toMatchObject({
+      ok: false,
+      error: "forge_write_pending",
     });
-    // Real filesystem/Git work yields while the second command can enter the daemon.
-    await f.runtime.details(f.thread.id);
-    expect(reconciled).toBe(false);
     await f.release();
-    expect(await writer).toMatchObject({ ok: false, error: "forge_outcome_uncertain" });
-    expect(await retry).toMatchObject({ ok: true });
+    expect(await writer).toMatchObject({ ok: false, error: "forge_write_uncertain" });
+    expect(await f.runtime.execute(reply("later-reconciliation"))).toMatchObject({ ok: true });
     expect((await f.facts()).replies).toHaveLength(1);
   } finally {
     await f.release();
@@ -190,7 +187,7 @@ test("a failed PR status read is a read failure rather than an uncertain mutatio
 test("a missing CLI at reply dispatch releases its reservation and a restored CLI can retry", async () => {
   const f = await forgeIdentityFixture();
   try {
-    await f.update({ removeOnUser: 4 });
+    await f.update({ removeOnUser: replyWriteProbe.preflight });
     expect(await f.runtime.execute(reply("missing-write-binary"))).toMatchObject({
       ok: false,
       error: "forge_cli",
@@ -225,18 +222,22 @@ test("a GraphQL refusal during refresh preserves a successful reply receipt so a
   const f = await forgeIdentityFixture();
   let restarted: WorkspaceRuntime | undefined;
   try {
-    await f.update({ graphqlError: "RATE_LIMITED" });
+    await f.update({ graphqlErrorAfterReply: "RATE_LIMITED" });
+    // The acknowledged reply stays accepted even though its status refresh was refused.
     expect(await f.runtime.execute(reply("refused-refresh"))).toMatchObject({
-      ok: false,
-      error: "forge_outcome_uncertain",
+      ok: true,
+      code: "forge_status_unavailable",
     });
     expect((await f.facts()).replies).toHaveLength(1);
     await f.runtime.close();
-    await f.update({ graphqlError: "" });
+    await f.update({ graphqlError: "", graphqlErrorAfterReply: "" });
     restarted = new WorkspaceRuntime(f.store, f.root, () => 1000, {
       sourceControl: f.sourceControl,
     });
-    expect(await restarted.execute(reply("retry-refused-refresh"))).toMatchObject({ ok: true });
+    expect(await restarted.execute(reply("retry-refused-refresh"))).toMatchObject({
+      ok: true,
+      code: "forge_action_reconciled",
+    });
     expect((await f.facts()).replies).toHaveLength(1);
   } finally {
     await restarted?.close();

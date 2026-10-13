@@ -33,7 +33,8 @@ test("a source longer than 64 KiB opens and edits its final page without losing 
   const text = "# Review\n" + "é".repeat(40000) + "\nThe last page.";
   await setup(text);
   await userEvent.click(screen.getByText("Read source", { exact: true }));
-  expect(await screen.findByText(/The last page\./)).toBeTruthy();
+  // The rendered page, not the folded raw Markdown under it.
+  expect(await screen.findByText(/The last page\./, { selector: "p" })).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Source actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
   expect(screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Source text" }).value).toBe(
@@ -118,5 +119,5 @@ test("a changed source cannot overwrite the accepted file and the draft stays av
   expect(await acceptedSource(app)).toBe("Changed elsewhere");
   await userEvent.click(screen.getByRole("button", { name: "Reload source" }));
   await userEvent.click(screen.getByText("Read source", { exact: true }));
-  expect(await screen.findByText("Changed elsewhere")).toBeTruthy();
+  expect(await screen.findByText("Changed elsewhere", { selector: "p" })).toBeTruthy();
 });

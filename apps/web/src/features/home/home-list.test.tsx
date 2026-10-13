@@ -262,32 +262,22 @@ test("Settled lists settled threads without the settle rule, which lives in Sett
   expect(screen.queryByRole("button", { name: "When done threads settle" })).toBeNull();
 });
 
-test("Snooze sinks a thread below the others with its wake time; Undo wakes it", async () => {
+test("a snoozed request stays in the list with its wake time; Undo wakes it", async () => {
   await openHome(workbenchApp());
   await within(threads()).findByRole("link", { name: /Retry budget/ });
   await userEvent.pointer({ keys: "[MouseRight]", target: card(/^Retry budget/) });
   await userEvent.hover(await screen.findByRole("menuitem", { name: /^Snooze/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Tomorrow/ }));
-  // The row keeps its place while the pointer is on the list, and sinks once it leaves.
+  // A thread waiting on the person is never folded away: it keeps its place, marked snoozed.
   await waitFor(() => expect(card(/^Retry budget.*Snoozed until tomorrow/)).toBeTruthy());
+  expect(within(threads()).queryByRole("button", { name: /^Snoozed / })).toBeNull();
   expect(before("Retry budget for app-server restarts", "Backpressure on broadcast fan-out")).toBe(
     true,
   );
-  const list = threads().querySelector("[data-virtual-viewport]");
-  if (!(list instanceof HTMLElement)) throw new Error("no list");
-  await userEvent.unhover(list);
 
-  await waitFor(() =>
-    expect(
-      before("Backpressure on broadcast fan-out", "Retry budget for app-server restarts"),
-    ).toBe(true),
-  );
-  expect(card(/^Retry budget.*Snoozed until tomorrow/)).toBeTruthy();
   await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
   await waitFor(() =>
-    expect(
-      before("Retry budget for app-server restarts", "Backpressure on broadcast fan-out"),
-    ).toBe(true),
+    expect(card(/^Retry budget/).getAttribute("aria-label")).not.toContain("Snoozed"),
   );
 });
 

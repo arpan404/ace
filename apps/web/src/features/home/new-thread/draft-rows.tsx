@@ -9,7 +9,7 @@ import { useHostIdentity } from "@/lib/host-name.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useOrganizerState } from "@/features/organize/index.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
-import { preparations, usePreparationsChanged } from "./preparations.ts";
+import { usePreparations } from "./preparations.ts";
 import { discardPreparation } from "./discard-preparation.ts";
 
 /** Unsent preparations belong to this daemon and device, outside the running thread list. */
@@ -22,10 +22,9 @@ export function DraftRows() {
   const client = useClient();
   const navigate = useNavigate();
   const [error, setError] = useState<string>();
-  usePreparationsChanged();
-  const rows = host
-    ? preparations(storage, host).filter(([, row]) => !project || row.project === project)
-    : [];
+  const rows = usePreparations(storage, host).filter(
+    ([, row]) => !project || row.project === project,
+  );
   if (!host || !rows.length) return null;
   return (
     <>

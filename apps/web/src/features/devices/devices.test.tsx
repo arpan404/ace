@@ -529,9 +529,9 @@ test("another connection's control offers takeover and boot acquires this panel'
         controller: "human",
       });
     });
-    expect(
-      await within(pixel).findByText("Pixel 9 · Off · Another connection is in control"),
-    ).toBeTruthy();
+    await waitFor(() =>
+      expect(statusLine(pixel)).toBe("Pixel 9 · Off · Another connection is in control"),
+    );
     expect(within(pixel).queryByRole("button", { name: /Hand back/ })).toBeNull();
     await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
     await waitFor(() => expect(statusLine(pixel)).toBe("Pixel 9 · Live · You're in control"));

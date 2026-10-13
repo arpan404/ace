@@ -104,6 +104,8 @@ export function useCreateThread(
   create(request: CreateRequest): Promise<boolean>;
   error: string | undefined;
   recovering: boolean;
+  /** A thread start not yet settled carries this draft scope, so no editor may resume it. */
+  claims(draftId: string | undefined): boolean;
 } {
   const client = useClient();
   const navigate = useNavigate();
@@ -213,5 +215,16 @@ export function useCreateThread(
     },
     [submit, recovery],
   );
-  return { create, error, recovering: recovery.recovering };
+  const claims = useCallback(
+    (draftId: string | undefined) => {
+      if (!draftId) return false;
+      try {
+        return readCreateAttempt(storage, recoveryKey)?.payload.context?.draftId === draftId;
+      } catch {
+        return false;
+      }
+    },
+    [storage, recoveryKey],
+  );
+  return { create, error, recovering: recovery.recovering, claims };
 }

@@ -107,14 +107,20 @@ test("the preview renders headings, lists and links while keeping package metada
   app.daemon.seedServices(services);
   await app.open("/skills/engineering~skill~code-review");
   const source = await screen.findByRole("region", { name: "Source" });
-  await userEvent.click(within(source).getByText("Read source", { exact: true }));
+  // The section shows while the source is read; its disclosure arrives with the text.
+  await userEvent.click(await within(source).findByText("Read source", { exact: true }));
   const preview = within(source);
   expect(await preview.findByRole("heading", { name: "Review instructions" })).toBeTruthy();
   expect(preview.getAllByRole("listitem")[0]?.textContent).toContain("Check the behavior");
   expect(preview.getByRole("link", { name: "the reference" }).getAttribute("href")).toBe(
     "https://example.com/reference",
   );
-  expect(preview.queryByText(/Hidden package metadata/)).toBeNull();
+  // Package metadata is only in the raw Markdown source, which stays folded.
+  const raw = preview.getByText("View Markdown source").closest("details");
+  expect(raw?.open).toBe(false);
+  expect(
+    preview.queryAllByText(/Hidden package metadata/).filter((text) => !raw?.contains(text)),
+  ).toEqual([]);
 });
 
 test("Use in a thread opens an editable skill draft and sends the invocation when submitted", async () => {

@@ -79,7 +79,7 @@ test("an uncertain revert survives restart and is reconciled without creating an
       operations: [{ id: "revert", state: "accepted", revertPr: { number: 8 } }],
     });
     const mutations = (await f.gh.requests()).filter((r) =>
-      JSON.stringify(r.body).includes("mutation($input:RevertPullRequestInput!"),
+      JSON.stringify(r.body ?? null).includes("mutation($input:RevertPullRequestInput!"),
     );
     expect(mutations).toHaveLength(1);
   } finally {
@@ -128,12 +128,7 @@ function mergedFixtures() {
 }
 
 test("lifecycle preflight failures never reserve an uncertain write and allow retry after restart", async () => {
-  for (const failure of [
-    { status: 503 },
-    { status: 504 },
-    { status: 429 },
-    { raw: "offline", code: 1 },
-  ]) {
+  for (const failure of [{ status: 503 }, { status: 504 }, { status: 429 }, { offline: true }]) {
     const fixtures = mergedFixtures();
     const key = "graphql:query AceLifecycleSnapshot";
     const valid = fixtures[key]?.[0];
@@ -230,7 +225,7 @@ test("a revert journal completes its original receipt before the outer command r
     });
     expect(
       (await f.gh.requests()).filter((r) =>
-        JSON.stringify(r.body).includes("mutation($input:RevertPullRequestInput!"),
+        JSON.stringify(r.body ?? null).includes("mutation($input:RevertPullRequestInput!"),
       ),
     ).toHaveLength(1);
   } finally {

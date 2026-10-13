@@ -151,6 +151,17 @@ test("resuming a stopped root keeps cancelled child results readable without wak
     }).ok,
   ).toBe(true);
   await h.engine.flush();
+  // Stop holds the queue, including the cascade's subtree cancellation; the new input
+  // waits for an explicit resume.
+  expect(h.engine.queue(parent.threadId)).toMatchObject({ paused: true, reason: "stopped" });
+  expect(
+    h.service.command("resume-root-queue", {
+      type: "queue.resume",
+      threadId: parent.threadId,
+      expectedRevision: h.engine.queue(parent.threadId).revision,
+    }).ok,
+  ).toBe(true);
+  await h.engine.flush();
   h.clock.advance(1050);
   await h.engine.flush();
   expect(wakes(h.events, parent.threadId)).toHaveLength(0);

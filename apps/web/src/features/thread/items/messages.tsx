@@ -78,7 +78,12 @@ export function AssistantMessage(props: {
       {!props.between && (item.complete || (answer.truncated && !streaming)) && (
         <div className={cn("flex min-h-6 items-center gap-2", props.timed !== false && "mt-1")}>
           {props.timed !== false && (
-            <span className="text-xs text-subtle-foreground">{formatClock(item.createdAt)}</span>
+            <time
+              dateTime={new Date(item.createdAt).toISOString()}
+              className="text-xs text-subtle-foreground"
+            >
+              {formatClock(item.createdAt)}
+            </time>
           )}
           <div className="flex opacity-0 transition-opacity duration-(--motion-fast) group-focus-within/answer:opacity-100 group-hover/answer:opacity-100">
             <Suspense fallback={null}>

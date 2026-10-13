@@ -22,10 +22,15 @@ test("every theme passes WCAG AA in light and dark, highlighted rows and glass i
       expect([id, scheme, contrastWarnings(themes[id][scheme], scheme)]).toEqual([id, scheme, []]);
 });
 
-/** Every status declaration a theme sets in one scheme. */
+/**
+ * Every status hue a theme sets in one scheme. The words drawn in a shared hue (`-text`) step
+ * toward each theme's text colour where needed to read at AA; the test below guards those.
+ */
 const statusOf = (id: (typeof themeIds)[number], scheme: "light" | "dark") =>
   Object.fromEntries(
-    Object.entries(themeDeclarations(id, scheme)).filter(([name]) => name.startsWith("--status-")),
+    Object.entries(themeDeclarations(id, scheme)).filter(
+      ([name]) => name.startsWith("--status-") && !name.endsWith("-text"),
+    ),
   );
 
 test("a status looks the same in every theme; only the accent changes", () => {

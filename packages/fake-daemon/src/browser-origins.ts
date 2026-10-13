@@ -1,5 +1,5 @@
 import { originAccess, BrowserOriginError, browserOrigin } from "@ace/browser/policy";
-import { PermissionMode, ThreadId } from "@ace/protocol";
+import { PermissionMode } from "@ace/protocol";
 import type { FakeBrowser } from "./browser.ts";
 import type { FakeServiceContext } from "./service-context.ts";
 import type { FakeSettings } from "./services/settings.ts";
@@ -51,10 +51,8 @@ export function bindFakeBrowserOrigins(
       throw new BrowserOriginError(url, "invalid_origin", "Browser requires an HTTP(S) address");
     const view = host.thread(threadId);
     if (!view) throw new Error("thread_not_found");
-    const mode = PermissionMode.parse(
-      view.thread.permission?.effective ??
-        settings.resolve("permissions.defaultMode", { threadId: ThreadId.parse(threadId) }),
-    );
+    // A thread without a resolved provider mode navigates under the daemon's "ask" authority.
+    const mode = PermissionMode.parse(view.thread.permission?.effective ?? "ask");
     const allowed = settings.get("browser.allowedOrigins");
     const decision = originAccess({
       origin,

@@ -13,6 +13,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { memoryStorage } from "@/boot/client.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { createIdleTask } from "@/test/tasks.ts";
 
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "api" } as const;
 const ref = { repository, number: 42 };
@@ -117,7 +118,16 @@ function app(
       });
     },
   });
-  if (!daemon) for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
+  if (!daemon) {
+    for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
+    // New thread starts only in a registered project: give the daemon one in `api`.
+    createIdleTask(made.daemon, {
+      id: "api-task",
+      title: "Earlier API work",
+      workspaceId: "api",
+      provider: "codex",
+    });
+  }
   const workspaceId = WorkspaceId.parse("api");
   if (source === "issue")
     made.daemon.workspace.setForgeRead(

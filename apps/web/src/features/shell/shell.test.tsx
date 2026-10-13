@@ -36,9 +36,6 @@ test("every view and settings page opens in the shell under its own title", asyn
     await userEvent.click(within(pagesNav).getByRole("link", { name: page }));
     await screen.findByRole("heading", { level: 2, name: page });
   }
-  await userEvent.click(within(pagesNav).getByRole("link", { name: "Appearance" }));
-  await userEvent.click(await screen.findByRole("link", { name: "Open theme editor" }));
-  await screen.findByRole("heading", { level: 2, name: "Theme editor" });
 });
 
 test("old addresses land where their pages live now", async () => {

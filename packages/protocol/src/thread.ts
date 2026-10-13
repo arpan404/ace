@@ -107,7 +107,7 @@ export const Thread = z.object({
    * The thread whose agent delegated this one through ace, from the parent the daemon stamped on
    * the message that launched it. Absent for a thread a person started.
    */
-  delegatedBy: DelegatedBy,
+  delegatedBy: DelegatedBy.optional(),
   execution: ExecutionSelection.optional(),
   switch: ThreadSwitch.optional(),
 });

@@ -126,8 +126,11 @@ export function DraftWriter(props: {
       }
     }
   };
+  // With no selection the key is undefined, so the proposal itself must be checked first.
   const unchanged =
-    proposal?.selection === selectionKey && proposal.textRevision === props.textRevision;
+    proposal !== undefined &&
+    proposal.selection === selectionKey &&
+    proposal.textRevision === props.textRevision;
   return (
     <section aria-label="Generate source-control draft" className="flex flex-col gap-2">
       <details>

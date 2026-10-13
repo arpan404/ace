@@ -490,10 +490,41 @@ test("effort reset keeps Fast selected until it is explicitly switched off", asy
   expect(created?.live?.options).toEqual({ effort: "medium" });
 });
 
+/** The page has checked the provider and holds a draft scope: sending is up to the person. */
+async function settled() {
+  await waitFor(() =>
+    expect(
+      screen.queryByText(/^(Checking provider settings|Preparing attachment storage)…$/),
+    ).toBeNull(),
+  );
+}
+
+test("a draft typed offline survives a reload and starts its thread once reconnected", async () => {
+  const made = app();
+  await made.open("/new?project=relay");
+  await prompt();
+  await settled();
+  act(() => made.daemon.refuseConnections(true));
+  await waitFor(() => expect(made.client.state).not.toBe("ready"));
+  await userEvent.type(await prompt(), "Written while offline");
+  cleanup();
+  // The page reopens while still offline; it shows once the daemon is back, draft intact.
+  await made.open("/new?project=relay");
+  act(() => made.daemon.refuseConnections(false));
+  expect((await prompt()).textContent).toBe("Written while offline");
+  await settled();
+  await userEvent.type(await prompt(), "{Enter}");
+  await screen.findByRole("heading", { level: 1, name: "Written while offline" });
+  await waitFor(() =>
+    expect(listed(made).some((thread) => thread.title === "Written while offline")).toBe(true),
+  );
+});
+
 test("Enter opens the new thread at once with the message as its first bubble, even offline", async () => {
   const made = app();
   await made.open("/new?project=relay");
   const field = await prompt();
+  await settled();
   act(() => made.daemon.refuseConnections(true));
   await waitFor(() => expect(made.client.state).not.toBe("ready"));
 
@@ -509,7 +540,7 @@ test("Enter opens the new thread at once with the message as its first bubble, e
   const starting = await screen.findByRole("list", { name: "Starting threads" });
   expect(
     within(starting).getByRole("link", {
-      name: "Trace the reconnect storm. Sending, Claude Code, Project relay",
+      name: "Trace the reconnect storm. Sends on reconnect, Claude Code, Project relay",
     }),
   ).toBeTruthy();
 

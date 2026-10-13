@@ -6,6 +6,9 @@ import { object } from "./data.ts";
 
 it("a near-limit native receipt preserves its evidence and leaves room for the next child's lookup", async () => {
   const h = await setup();
+  // The root has already finished a turn, so a settled tree reads as done rather than new.
+  await h.publish("session.execution.started");
+  await h.publish("session.execution.succeeded");
   const child = (id: string) => ({
     id,
     parentID: h.session.nativeSessionId,
@@ -86,6 +89,9 @@ it.each(["ancestry.buffered", "lifecycle"])(
         throw new Error("receipt sink temporarily unavailable");
       }
     });
+    // The root has already finished a turn, so a settled tree reads as done rather than new.
+    await h.publish("session.execution.started");
+    await h.publish("session.execution.succeeded");
     const from = h.frames.length;
     await h.control("/test/events", [
       {

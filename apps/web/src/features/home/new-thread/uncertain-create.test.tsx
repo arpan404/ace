@@ -8,6 +8,7 @@ import { afterEach, expect, test } from "vitest";
 import { harness, fakeClient, memoryKeyValue } from "@/test/harness.tsx";
 import { memoryStorage } from "@/boot/client.ts";
 import { loadDismissed, resetDismissed } from "@/lib/dismissed-sends.ts";
+import { chooseModel } from "@/test/model-control.ts";
 
 const timers = {
   set(ms: number, run: () => void) {
@@ -130,6 +131,8 @@ test.each([
       },
     });
     for (const scenario of workbench()) first.play(scenario).runUntilBlocked();
+    // Starts run in the checkout, so a recovered receipt never waits on a worktree being made.
+    first.daemon.services.settings.seed({ "threads.useWorktree": false });
     if (refused) first.daemon.refuseCommands("model_unavailable", "thread.create");
     const before = first.daemon.snapshot({ kind: "threads" });
     if (before?.kind !== "threads") throw new Error("Expected sidebar");
@@ -197,12 +200,14 @@ test.each([
         "Recover this uncertain start",
       );
       daemon.restoreRequests();
+      // The saved model is gone: sending waits for an explicit replacement.
+      await chooseModel("Sonnet 5.5", "Claude Code");
       await waitFor(() =>
         expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
           "true",
         ),
       );
-      await userEvent.keyboard("{Enter}");
+      await userEvent.click(screen.getByRole("button", { name: "Send" }));
       await screen.findByRole("heading", { level: 1, name: "Recover this uncertain start" });
       expect(created()).toHaveLength(1);
       expect(created()[0]?.id).not.toBe(`thread-${lostCommand}`);
@@ -215,14 +220,16 @@ test.each([
       expect(prompt.textContent).toBe(newer ? "Keep this newer unsent draft" : "");
       if (newer) await userEvent.clear(prompt);
       await userEvent.type(prompt, "An independent next thread");
+      // The newer draft's preparation saved the model that is now gone.
+      if (newer) await chooseModel("Sonnet 5.5", "Claude Code");
       await waitFor(() =>
         expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
           "true",
         ),
       );
-      await userEvent.keyboard("{Enter}");
+      await userEvent.click(screen.getByRole("button", { name: "Send" }));
       await screen.findByRole("heading", { level: 1, name: "An independent next thread" });
-      expect(created()).toHaveLength(2);
+      await waitFor(() => expect(created()).toHaveLength(2));
     } else {
       await screen.findByText(
         "The previous thread belongs to another daemon. Reconnect to that daemon to recover it.",

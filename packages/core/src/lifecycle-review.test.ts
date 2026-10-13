@@ -243,6 +243,7 @@ describe("partial and resumed provider lifecycles", () => {
         type: "agent.status",
         agentId: root?.agent.id,
         status: { state: "working", activity: "starting_turn" },
+        completionRelevant: true,
       });
     },
   );

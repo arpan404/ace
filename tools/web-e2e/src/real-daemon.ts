@@ -42,11 +42,15 @@ import {
 } from "./real-daemon-config.ts";
 
 // Strip inherited storage/provider selectors before configuration or service startup.
-process.env = realDaemonEnvironment(
+// Mutate the live environment rather than replace it: os.homedir() reads the process
+// environment, which a replacement object never reaches.
+const isolated = realDaemonEnvironment(
   process.env,
   daemonHome,
   process.env.ACE_TEST_REAL_HOME ?? homedir(),
 );
+for (const key of Object.keys(process.env)) if (!(key in isolated)) delete process.env[key];
+Object.assign(process.env, isolated);
 await assertRealDaemonEnvironment(process.env, daemonHome);
 
 /**

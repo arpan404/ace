@@ -24,6 +24,7 @@ it.each(["agent", "transport"] as const)(
       type: "agent.status",
       agentId: h.agent("root")?.id,
       status: { state: "working", activity: "starting_turn" },
+      completionRelevant: true,
     });
     expect(events).toContainEqual({
       type: "thread.updated",
@@ -52,6 +53,7 @@ it("late text on an idle sibling restores other agents after transport silence",
     type: "agent.status",
     agentId: h.agent("quiet")?.id,
     status: { state: "working", activity: "starting_turn" },
+    completionRelevant: true,
   });
   expect(events).toContainEqual({
     type: "thread.updated",
@@ -82,6 +84,7 @@ it("transport recovery revives a sibling even when its ancestors remain settled 
     type: "agent.status",
     agentId: h.agent("quiet")?.id,
     status: { state: "working", activity: "starting_turn" },
+    completionRelevant: true,
   });
   expect(events).toContainEqual({
     type: "thread.updated",
@@ -116,6 +119,7 @@ it("late child output revives a non-root ancestor while the root keeps running i
     type: "agent.status",
     agentId: h.agent("middle")?.id,
     status: { state: "working", activity: "starting_turn" },
+    completionRelevant: true,
   });
   expect(events).toContainEqual({
     type: "thread.updated",

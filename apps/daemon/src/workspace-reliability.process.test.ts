@@ -106,7 +106,11 @@ test("restart recovery removes setup files and an unrelated cleanup failure does
     "-m",
     "External owner change",
   ]);
-  await expect(changed.release()).rejects.toThrow("identity changed");
+  // Release reports a public cleanup code and keeps the identity check as its cause.
+  await expect(changed.release()).rejects.toMatchObject({
+    message: "workspace_cleanup_required",
+    cause: { message: expect.stringContaining("identity changed") },
+  });
   const recovered = new WorkspaceCreations(f.store, f.service, f.home, 15_000, () => 1000);
   await recovered.ready();
   await expect(recovered.ready(ThreadId.parse("changed"))).rejects.toThrow(

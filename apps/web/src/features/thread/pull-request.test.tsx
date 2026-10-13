@@ -148,7 +148,7 @@ test.each([
 ])("Merge on a PR with $name says what to fix and leaves it open", async ({ status, reason }) => {
   const app = await withPr(status);
   await merge();
-  expect(await screen.findByText(reason)).toBeTruthy();
+  expect(await screen.findByRole("alertdialog", { name: reason })).toBeTruthy();
   expect(screen.queryByRole("dialog", { name: "Merge PR #42?" })).toBeNull();
   expect(linked(app)).toMatchObject({ number: 42, state: "open" });
 });
@@ -196,7 +196,9 @@ test("a merge cancelled at its confirmation leaves the default merge method as i
 test("a merge the forge blocks leaves the default merge method as it was", async () => {
   await withPr(pr({ ci: "failure", checks: [check("test", "failure")] }));
   await gitAction("Rebase and merge");
-  expect(await screen.findByText("Fix the failing checks first")).toBeTruthy();
+  expect(
+    await screen.findByRole("alertdialog", { name: "Fix the failing checks first" }),
+  ).toBeTruthy();
   const card = await openWorkCard();
   expect(
     (await within(card).findByRole("button", { name: "Merge pull request #42" })).getAttribute(

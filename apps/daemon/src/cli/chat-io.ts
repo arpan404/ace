@@ -99,6 +99,8 @@ export function chatIO(args: Args, signal: AbortSignal): ChatIO {
     close() {
       signal.removeEventListener("abort", abort);
       lines.close();
+      // A closed readline only pauses stdin; an open pipe would keep the CLI alive.
+      process.stdin.destroy();
     },
   };
 }

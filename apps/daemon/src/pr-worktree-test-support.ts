@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Command, ThreadId } from "@ace/protocol";
@@ -31,6 +31,8 @@ export async function prDaemon(
 ) {
   const h = transitionHarness();
   await repository(h.home);
+  // The harness database lives in the checkout; committing it would let a branch switch delete it.
+  await appendFile(join(h.home, ".git", "info", "exclude"), "events.sqlite*\n");
   await h.engine.ready();
   const scratch = await realpath(await mkdtemp(join(tmpdir(), "ace-pr-worktree-")));
   const origin = join(scratch, "origin.git");

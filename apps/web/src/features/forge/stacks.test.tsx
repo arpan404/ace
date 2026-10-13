@@ -150,7 +150,7 @@ test("a middle layer shows downstack blockers and reviews the native merge scope
   await userEvent.click(within(confirmation).getByRole("button", { name: "Cancel" }));
   expect(within(section).queryByRole("group", { name: "Confirm stack action" })).toBeNull();
   await userEvent.click(within(section).getByRole("button", { name: "Layer 1: #41 Model" }));
-  expect(await screen.findByRole("heading", { name: "Model #41" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Model" })).toBeTruthy();
 });
 
 test("a refreshed uncertain request blocks another merge and remains visible after membership disappears", async () => {
@@ -199,7 +199,7 @@ test("no linked task leaves stack navigation available while remote writes requi
     within(section).getByRole<HTMLButtonElement>("button", { name: "Merge through #42" }).disabled,
   ).toBe(true);
   await userEvent.click(within(section).getByRole("button", { name: "Layer 3: #43 UI" }));
-  await waitFor(() => expect(screen.getByRole("heading", { name: "UI #43" })).toBeTruthy());
+  await waitFor(() => expect(screen.getByRole("heading", { name: "UI" })).toBeTruthy());
 });
 
 test("a partially published rebase offers a reviewed push without restarting the rebase", async () => {
@@ -285,12 +285,12 @@ test("repository lists group only host-confirmed layers and use host positions f
       .map((button) => button.textContent),
   ).toEqual(["#41 · layer 1", "#43 · layer 3"]);
   await userEvent.click(within(groups).getByRole("button", { name: "#43 · layer 3" }));
-  expect(await screen.findByRole("heading", { name: "UI #43" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "UI" })).toBeTruthy();
 });
 
 test.each([
   { error: "forge_forbidden", message: /This account cannot access the repository/ },
-  { error: "forge_conflict", message: /The pull request changed while reading/ },
+  { error: "forge_conflict", message: /The GitHub resource changed while reading/ },
 ])(
   "final stack confirmation submits the command and exposes its $error receipt",
   async ({ error, message }) => {
@@ -313,6 +313,6 @@ test.each([
     await waitFor(() =>
       expect(within(section).queryByRole("group", { name: "Confirm stack action" })).toBeNull(),
     );
-    expect(screen.getByRole("heading", { name: "API #42" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "API" })).toBeTruthy();
   },
 );

@@ -50,13 +50,19 @@ function boot(
   return { local, session, daemon };
 }
 
-async function connectWith(value: string, options: { url?: string; flipRemember?: boolean } = {}) {
+async function connectWith(
+  value: string,
+  options: { url?: string; flipRemember?: boolean; deviceId?: string } = {},
+) {
   if (options.url) {
     const address = await screen.findByLabelText("ace address");
     await userEvent.clear(address);
     await userEvent.type(address, options.url);
   }
   await userEvent.type(await screen.findByLabelText("Token"), value);
+  // A remote daemon's token is issued with the paired device's ID.
+  if (options.deviceId)
+    await userEvent.type(await screen.findByLabelText("Paired device ID"), options.deviceId);
   if (options.flipRemember) await userEvent.click(screen.getByRole("switch"));
   await userEvent.click(screen.getByRole("button", { name: "Connect" }));
 }
@@ -68,7 +74,7 @@ test("without a token the app asks for one and says how to get it", async () => 
   const hint = document.getElementById(
     screen.getByLabelText("Token").getAttribute("aria-describedby") ?? "",
   );
-  expect(hint?.textContent).toMatch(/run ace token and paste the result/);
+  expect(hint?.textContent).toMatch(/For a local daemon, run ace token on this computer/);
   expect(screen.getByLabelText<HTMLInputElement>("ace address").value).toBe(url);
 
   await connectWith("not-a-token");
@@ -105,7 +111,7 @@ test("a token for this computer's daemon is remembered by default", async () => 
 
 test("a daemon on another machine is forgotten when the window closes unless asked", async () => {
   const { local, session } = boot();
-  await connectWith(token, { url: "ws://192.168.1.5:4242/" });
+  await connectWith(token, { url: "ws://192.168.1.5:4242/", deviceId: "paired-laptop" });
   await screen.findByRole("link", { name: /Fix flaky checkout test/ });
   expect(session.getItem("ace.daemon.token")).toBe(token);
   expect(local.getItem("ace.daemon.token")).toBeNull();

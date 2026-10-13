@@ -96,16 +96,13 @@ test("identical opaque ACP mode names cannot cross approved installations before
   expect(() =>
     reopened.service.delegate(restoredCaller, request("different-after-restart", two)),
   ).toThrow("permission_ceiling_unverifiable");
-  for (const difference of [
+  for (const [index, difference] of [
     { ...one, acpAgentId: "local:other" },
     { ...one, installationId: "other-install" },
     { ...one, instanceId: "other-account" },
-  ])
+  ].entries())
     expect(() =>
-      reopened.service.delegate(
-        restoredCaller,
-        request(`different-${difference.instanceId}-${difference.installationId}`, difference),
-      ),
+      reopened.service.delegate(restoredCaller, request(`different-identity-${index}`, difference)),
     ).toThrow("permission_ceiling_unverifiable");
   const entry = reopened.registry.get("acp");
   const { backend: _backend, ...changedBackend } = entry.source;

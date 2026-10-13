@@ -70,7 +70,8 @@ test("publishing an empty project requires explicit submission and reopening sho
   expect(screen.getByRole("link", { name: "ada/site" }).getAttribute("href")).toBe(
     "https://github.com/ada/site",
   );
-  await userEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+  // The footer's Close, beside the dialog's own close mark.
+  await userEvent.click(within(dialog).getByText("Close", { selector: "button" }));
   const reopened = await openPublish();
   expect(await within(reopened).findByText(/This project has no commits/)).toBeTruthy();
   expect(within(reopened).getByRole("button", { name: "Resume publication" })).toBeTruthy();

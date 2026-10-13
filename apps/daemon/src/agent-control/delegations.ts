@@ -580,7 +580,7 @@ export class DelegationService {
       this.onRemoteCancel?.(thread);
       const tree = this.journal.tree(thread, this.deps.clock.now());
       this.journal.cancel(thread);
-      if (this.deps.store.getThread(thread)) this.deps.engine.discardRecovery(thread);
+      if (this.deps.store.getThread(thread)) this.deps.engine.cancelRecovery(thread);
       this.cancelPreparations(thread);
       const own = this.journal.get(thread);
       if (own && own.phase !== "settled") {

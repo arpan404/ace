@@ -58,6 +58,17 @@ const detail = (
   });
 beforeEach(() => localStorage.clear());
 afterEach(() => vi.unstubAllGlobals());
+/** GitHub confirms PR #42 is in no native stack, so its merge isn't held for stack rules. */
+const notStacked = (app: ReturnType<typeof harness>, workspaceId = "api") =>
+  app.daemon.workspace.setForgeRead(
+    {
+      op: "forge.pr.stack-memberships",
+      workspaceId: WorkspaceId.parse(workspaceId),
+      repository,
+      numbers: [42],
+    },
+    { resource: "prStackMemberships", value: [{ number: 42, stack: null }] },
+  );
 
 test("checkout copied from another repository names that repository instead of the project's origin", async () => {
   const user = userEvent.setup();
@@ -119,7 +130,11 @@ test("new PR tabs keep independent repository identities and preserve the first 
   );
   app.daemon.workspace.setForgeRead(
     { op: "forge.pr.detail", workspaceId: WorkspaceId.parse("api"), repository: other, number: 42 },
-    { resource: "prDetail", value: detail(other, "Second repository PR") },
+    {
+      resource: "prDetail",
+      // Its own description: the other tab stays mounted, hidden, beside it.
+      value: { ...detail(other, "Second repository PR"), body: "Ship the web client." },
+    },
   );
   await app.open("/pull-requests?project=api&number=42");
   await screen.findByRole("heading", { name: "First repository PR" });
@@ -160,6 +175,7 @@ test("a successful merge followed by a failed detail refresh stays disabled unti
     number: 42,
   } as const;
   app.daemon.workspace.setForgeRead(operation, { resource: "prDetail", value });
+  notStacked(app);
   await app.open("/pull-requests?project=api&number=42");
   await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
   const button = await screen.findByRole<HTMLButtonElement>("button", { name: "Merge PR" });
@@ -205,6 +221,7 @@ test("an uncertain write blocks controls on a newly opened detail until GitHub c
     number: 42,
   } as const;
   app.daemon.workspace.setForgeRead(operation, { resource: "prDetail", value });
+  notStacked(app);
   await app.open("/pull-requests?project=api&number=42");
   await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
   expect(
@@ -330,7 +347,19 @@ test("changing repositories replaces the old detail with an honest inaccessible 
     "https://github.com/acme/private/pull/42",
   );
   await userEvent.click(screen.getByRole("button", { name: "Open PR" }));
-  await screen.findByText("This repository or pull request is missing or inaccessible.");
+  // The list above reports the same repository on its own; this is the PR tab's account.
+  const workspace = screen.getByRole("region", { name: "Pull request workspace" });
+  await waitFor(() =>
+    expect(
+      within(workspace)
+        .getAllByRole("alert")
+        .some((alert) =>
+          alert.textContent?.includes(
+            "This repository, issue or pull request is missing or inaccessible.",
+          ),
+        ),
+    ).toBe(true),
+  );
   await waitFor(() =>
     expect(screen.queryByRole("heading", { name: /^Retry reconnects$/ })).toBeNull(),
   );
@@ -340,15 +369,17 @@ test("Work on PR opens a project-scoped task with its review description and a p
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   const pr = detail();
+  // A registered project: a new task can only be prepared in one the daemon lists.
+  const workspaceId = WorkspaceId.parse("relay");
   app.daemon.workspace.setForgeRead(
-    { op: "forge.pr.detail", workspaceId: WorkspaceId.parse("api"), number: 42 },
+    { op: "forge.pr.detail", workspaceId, number: 42 },
     { resource: "prDetail", value: pr },
   );
   app.daemon.workspace.setForgeRead(
-    { op: "forge.pr.detail", workspaceId: WorkspaceId.parse("api"), repository, number: 42 },
+    { op: "forge.pr.detail", workspaceId, repository, number: 42 },
     { resource: "prDetail", value: pr },
   );
-  await app.open("/pull-requests?project=api&number=42");
+  await app.open("/pull-requests?project=relay&number=42");
   await userEvent.click(await screen.findByRole("link", { name: "Work on PR in a new task" }));
   expect(await screen.findByText(/Isolated worktree · PR #42 · aaaaaaaaaaaa/)).toBeTruthy();
   expect((await screen.findByRole("combobox", { name: /Message/i })).textContent).toContain(

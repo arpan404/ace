@@ -40,6 +40,8 @@ export function redactEmbeddedText(
     }
     const first = text[start];
     if (first !== "{" && first !== "[" && first !== '"') continue;
+    // ESC [ introduces a terminal control sequence (colours in CLI stderr), not a record.
+    if (first === "[" && text[start - 1] === "\u001b") continue;
     parts.push(scrubPlain(text.slice(plain, start)));
     const end = embeddedRecordEnd(text, start) - 1;
     let crossing: typeof sensitive;

@@ -67,11 +67,12 @@ test("closed filters keep their scope visible and Clear filters restores all kin
   await search("retry budget");
   await results();
   await userEvent.click(screen.getByRole("button", { name: "Filters" }));
-  await userEvent.click(screen.getByRole("button", { name: "Threads" }));
+  // "retry budget" matches one message and one command in the fixture corpus.
+  await userEvent.click(screen.getByRole("button", { name: "Messages" }));
   await userEvent.click(screen.getByRole("button", { name: "Filters (1)" }));
   expect(screen.queryByRole("combobox", { name: "Project" })).toBeNull();
   expect(screen.getByRole("status", { name: "Active search filters" }).textContent).toContain(
-    "Threads",
+    "Messages",
   );
   await waitFor(async () => expect(within(await results()).getAllByRole("option")).toHaveLength(1));
   await userEvent.click(screen.getByRole("button", { name: "Clear filters" }));

@@ -3,9 +3,10 @@ import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react"
 import { ConsumedDraftScope, draftScopes } from "../sources/context-source.ts";
 
 /**
- * The New thread composer's draft scope for `workspaceId`: undefined until the daemon grants it
- * (and while offline). `adopt()` marks it taken by the thread that was just created, so it is
- * not released when the page closes.
+ * The New thread composer's draft scope for `workspaceId`: undefined until the daemon grants it.
+ * A granted scope stays usable while offline, so a start can queue in the outbox with it; on
+ * reconnect it is resumed (or replaced if the daemon lost it). `adopt()` marks it taken by the
+ * thread that was just created, so it is not released when the page closes.
  */
 export function useDraftScope(
   workspaceId: string | undefined,
@@ -71,16 +72,14 @@ export function useDraftScope(
     return () => {
       if (retry) clearTimeout(retry);
       live = false;
-      if (granted && adopted.current !== granted && !scopeOwner?.owns(granted))
+      // Losing the connection keeps the scope: an offline start may still carry it.
+      const lost = client.connectionState().getSnapshot() !== "ready";
+      if (granted && !lost && adopted.current !== granted && !scopeOwner?.owns(granted))
         scopes.release(granted);
     };
   }, [client, workspaceId, ready, attempt, epoch]);
   const draftId =
-    ready &&
-    scope &&
-    scope.workspaceId === workspaceId &&
-    scope.attempt === attempt &&
-    scope.epoch === epoch
+    scope && scope.workspaceId === workspaceId && scope.attempt === attempt && scope.epoch === epoch
       ? scope.draftId
       : undefined;
   const adopt = useCallback(() => {
