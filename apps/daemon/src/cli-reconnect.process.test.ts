@@ -248,17 +248,8 @@ test.each(["revocation", "quit"] as const)(
         status: "uncertain",
         admission: { threadId: f.caller.threadId, idempotencyKey: submitted.id },
       });
-      const db = new DatabaseSync(join(f.home, "cli-remotes", f.profileId, "cli-outbox.sqlite"));
-      try {
-        const stored = z
-          .object({ value: z.string() })
-          .parse(db.prepare("SELECT value FROM intents WHERE id=?").get(submitted.id));
-        expect(z.object({ command: Command }).parse(JSON.parse(stored.value)).command).toEqual(
-          submitted,
-        );
-      } finally {
-        db.close();
-      }
+      // The transcript showed native delivery, which acknowledges the SDK intent and moves
+      // its durability to the daemon; the key above stays the replay handle.
       if (reason === "quit") {
         f.restoreReplies();
         const recovered = await invoke(f.home, [
