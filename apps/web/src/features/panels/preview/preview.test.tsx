@@ -63,8 +63,9 @@ test("a dev server already running is previewed by its port until previewing sto
 test("Open the Browser from an empty preview opens the Browser tool", async () => {
   const { panel } = await openPreview();
   await userEvent.click(await within(panel).findByRole("button", { name: "Open the Browser" }));
-  expect(await within(panel).findByRole("tab", { name: "New page", selected: true })).toBeTruthy();
-  expect(await within(panel).findByRole("heading", { name: "Open a page" })).toBeTruthy();
+  expect(await within(panel).findByRole("tab", { name: "Browser", selected: true })).toBeTruthy();
+  // Its start page is the address bar, with no narration.
+  expect(await within(panel).findByRole("combobox", { name: "Address" })).toBeTruthy();
 });
 
 test("a dev server opens in a tab of its own, which keeps its address while the server is gone", async () => {
