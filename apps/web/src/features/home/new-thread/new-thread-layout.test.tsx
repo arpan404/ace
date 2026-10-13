@@ -1,5 +1,5 @@
 import { workbench } from "@ace/fake-daemon";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
@@ -46,5 +46,39 @@ test("nothing renders below the New thread composer, even its save warning", asy
   expect(
     composer && warning.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
+  expect(textAfterComposer()).toBe("");
+});
+
+test("where the thread runs is one row in the strip above the composer; a notice takes its place", async () => {
+  const backing = memoryKeyValue();
+  let refuse = false;
+  const storage = {
+    ...backing,
+    get length() {
+      return backing.data.size;
+    },
+    setItem(key: string, value: string) {
+      if (refuse && key === "ace.composer.drafts") throw new Error("quota");
+      backing.setItem(key, value);
+    },
+  };
+  const app = harness({ storage });
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  await app.open("/new?project=relay");
+  const message = await screen.findByRole("combobox", { name: "Message" });
+  const where = await screen.findByRole("region", { name: "Where this thread runs" });
+  const composer = document.querySelector("[data-slot=composer]");
+  // Above the composer's box, not inside it: the box keeps the message and its controls.
+  expect(composer?.contains(where)).toBe(false);
+  expect(
+    composer && where.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(within(where).getByRole("checkbox", { name: "Worktree" })).toBeTruthy();
+  expect(within(where).getByRole("img", { name: /machine icon/ })).toBeTruthy();
+
+  refuse = true;
+  await userEvent.type(message, "Keep this editor open");
+  expect((await screen.findByRole("alert")).textContent).toContain("Couldn't save");
+  expect(screen.queryByRole("region", { name: "Where this thread runs" })).toBeNull();
   expect(textAfterComposer()).toBe("");
 });

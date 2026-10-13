@@ -10,6 +10,8 @@ export {
   chipControl as composerChip,
   stripControl as composerStrip,
   noticeSurface as composerNoticeSurface,
+  environmentSurface as composerEnvironmentSurface,
+  environmentRow as composerEnvironmentRow,
 } from "./composer/composer-styles.ts";
 /** The tab attached to the composer's top edge. */
 export { preloadComposerParts } from "./composer/deferred-parts.tsx";
