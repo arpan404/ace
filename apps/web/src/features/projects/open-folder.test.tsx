@@ -90,11 +90,15 @@ test("a folder the daemon may not open says why and offers another, inside the a
 
   const dialog = await screen.findByRole("dialog", { name: "Add project" });
   // The browser shows that folder's parent, which is just as closed off, and the way home.
-  expect(await within(dialog).findByText(/ace isn't allowed to open this folder yet/)).toBeTruthy();
-
-  await userEvent.click(
-    await within(dialog).findByRole("button", { name: "Go to the home folder" }),
-  );
+  // (The chosen path may say the same of itself under the address.)
+  const parent = await waitFor(() => {
+    const listing = within(dialog)
+      .getAllByRole("status")
+      .find((status) => /ace isn't allowed to open this folder yet/.test(status.textContent ?? ""));
+    if (!listing) throw new Error("The parent folder doesn't say why it is closed");
+    return listing;
+  });
+  await userEvent.click(within(parent).getByRole("button", { name: "Go to the home folder" }));
   expect(await within(dialog).findByRole("option", { name: /^code/ })).toBeTruthy();
   expect(registered(made)).toEqual([]);
 });

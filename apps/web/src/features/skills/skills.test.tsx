@@ -49,8 +49,12 @@ test("Skills opens on the first skill with its source from the plugin", async ()
   const source = await screen.findByText("Source file", { exact: true });
   await userEvent.hover(source);
   expect(await screen.findByRole("tooltip", { name: "skills/code-review/SKILL.md" })).toBeTruthy();
-  await userEvent.click(screen.getByText("Read source", { exact: true }));
-  expect(await screen.findByText(/Review the changes since a fixed point/)).toBeTruthy();
+  // The rendered instructions, not the folded raw Markdown beneath them.
+  const section = within(screen.getByRole("region", { name: "Source" }));
+  await userEvent.click(section.getByText("Read source", { exact: true }));
+  expect(
+    await section.findByText(/Review the changes since a fixed point/, { selector: "p" }),
+  ).toBeTruthy();
 });
 
 test("searching matches the plugin a skill ships with, and a miss offers to clear the search", async () => {
@@ -430,6 +434,8 @@ test("Skills and a thread offer available discovered skills and omit unavailable
   expect(await list.findByText("Explain")).toBeTruthy();
   for (const name of ["Quality Tools", "Search Docs", "Branch Checks"])
     expect(await list.findByText(name)).toBeTruthy();
+  // Kinds other than skills start folded; the reviewer is an agent.
+  await userEvent.click(list.getByText(/^Agents ·/));
   expect(list.getByRole("link", { name: /^Reviewer Global/ })).toBeTruthy();
   await userEvent.click(list.getByRole("link", { name: /^Writing Global/ }));
   expect(await screen.findByRole("heading", { level: 2, name: "Writing" })).toBeTruthy();

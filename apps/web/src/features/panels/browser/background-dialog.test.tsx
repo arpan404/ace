@@ -51,6 +51,12 @@ async function answer() {
   await userEvent.click(within(question).getByRole("button", { name: "OK" }));
 }
 
+/** An error toast, read from the notification stack rather than its screen-reader echo. */
+async function notice(text: string) {
+  const notifications = await screen.findByRole("region", { name: "Notifications" });
+  return within(notifications).findByText(text);
+}
+
 async function setup() {
   const daemon = new FakeDaemon({ clock: () => 1000 });
   new ScenarioPlayer(daemon, failingSubagent()).step();
@@ -145,7 +151,7 @@ test.each([
     const result = await request(input, options);
     if (
       (phase === "takeover" && input.type === "browser.takeover") ||
-      (phase === "answer" && input.type === "browser.execute" && input.command.action === "dialog")
+      (phase === "answer" && input.type === "browser.dialog.answer")
     ) {
       started.resolve();
       await resumed.promise;
@@ -175,7 +181,7 @@ test.each([
   await act(async () => {
     await t.client.request({ type: "browser.origins.list", threadId: t.threadId });
   });
-  expect(screen.queryByText("Couldn't hand back the page")).toBeNull();
+  expect(screen.queryAllByText("Couldn't hand back the page")).toHaveLength(0);
   await t.daemon.browser.navigateAgent(t.threadId, "http://localhost:5173/continued");
   expect(t.daemon.browser.view(t.threadId)?.url).toBe("http://localhost:5173/continued");
 });
@@ -185,13 +191,12 @@ test("a refused dialog answer releases its temporary control and leaves the ques
   const request = t.client.request.bind(t.client);
   let refused = true;
   t.client.request = async (input, options) => {
-    if (refused && input.type === "browser.execute" && input.command.action === "dialog")
-      throw new Error("Answer refused");
+    if (refused && input.type === "browser.dialog.answer") throw new Error("Answer refused");
     return request(input, options);
   };
   t.ask();
   await t.answer();
-  await screen.findByText("Couldn't answer the page");
+  await notice("Couldn't answer the page");
   await waitFor(() => expect(t.daemon.browser.view(t.threadId)?.controller).toBe("agent"));
   expect(t.daemon.browser.view(t.threadId)?.pending_dialog?.dialogId).toBe("question");
   refused = false;
@@ -211,7 +216,7 @@ test("a failed temporary handback leaves a visible retry that restores agent con
   };
   t.ask();
   await t.answer();
-  await screen.findByText("Couldn't hand back the page");
+  await notice("Couldn't hand back the page");
   expect(t.daemon.browser.view(t.threadId)?.controller).toBe("human");
   refused = false;
   await userEvent.click(screen.getByRole("button", { name: "Hand back" }));
@@ -241,9 +246,9 @@ test.each(["stay", "leave"])(
     if (transition === "leave")
       await userEvent.click(screen.getByRole("button", { name: "Leave thread" }));
     await act(async () => failed.resolve());
-    await screen.findByText("Couldn't answer the page");
+    await notice("Couldn't answer the page");
     await waitFor(() => expect(t.daemon.browser.view(t.threadId)?.controller).toBe("agent"));
-    expect(screen.queryByText("Couldn't hand back the page")).toBeNull();
+    expect(screen.queryAllByText("Couldn't hand back the page")).toHaveLength(0);
     await t.daemon.browser.navigateAgent(t.threadId, "http://localhost:5173/after-timeout");
     expect(t.daemon.browser.view(t.threadId)?.url).toBe("http://localhost:5173/after-timeout");
   },
@@ -271,7 +276,7 @@ test("an ambiguous takeover that cannot be released after leaving exposes a work
   await started.promise;
   await userEvent.click(screen.getByRole("button", { name: "Leave thread" }));
   await act(async () => failed.resolve());
-  await screen.findByText("Couldn't hand back the page");
+  await notice("Couldn't hand back the page");
   expect(t.daemon.browser.view(t.threadId)?.controller).toBe("human");
   refuseHandback = false;
   await userEvent.click(screen.getByRole("button", { name: "Hand back" }));
@@ -285,7 +290,7 @@ test("a refused takeover preserves another device's shared control without a fal
   await act(() => t.daemon.browser.takeover(t.threadId, "other-device", "shared"));
   t.ask();
   await t.answer();
-  await screen.findByText("Couldn't answer the page");
+  await notice("Couldn't answer the page");
   await act(async () => {
     await t.client.request({ type: "browser.origins.list", threadId: t.threadId });
   });
@@ -293,7 +298,7 @@ test("a refused takeover preserves another device's shared control without a fal
     controller: "human",
     owner: "other-device",
   });
-  expect(screen.queryByText("Couldn't hand back the page")).toBeNull();
+  expect(screen.queryAllByText("Couldn't hand back the page")).toHaveLength(0);
 });
 
 test("a late dialog completion preserves a newer deliberate shared hold", async () => {
@@ -303,7 +308,7 @@ test("a late dialog completion preserves a newer deliberate shared hold", async 
   const request = t.client.request.bind(t.client);
   t.client.request = async (input, options) => {
     const result = await request(input, options);
-    if (input.type === "browser.execute" && input.command.action === "dialog") {
+    if (input.type === "browser.dialog.answer") {
       started.resolve();
       await resume.promise;
     }
@@ -322,7 +327,7 @@ test("a late dialog completion preserves a newer deliberate shared hold", async 
   });
   expect(t.daemon.browser.view(t.threadId)?.controller).toBe("human");
   expect(t.preview.heldAs(t.threadId)).toBe(t.daemon.browser.view(t.threadId)?.owner);
-  expect(screen.queryByText("Couldn't hand back the page")).toBeNull();
+  expect(screen.queryAllByText("Couldn't hand back the page")).toHaveLength(0);
   await expect(
     t.daemon.browser.navigateAgent(t.threadId, "http://localhost:5173/blocked"),
   ).rejects.toThrow("Browser controlled by human");

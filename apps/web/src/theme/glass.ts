@@ -24,8 +24,11 @@ export function glassEngine(userAgent: string, brands: readonly Brand[] = []): G
 const maxBand = 24;
 /** How far the backdrop moves at the very edge, in px. */
 const maxBend = 24;
-/** Sizes round to this step, so layers that differ by a pixel or two share one filter. */
-const sizeStep = 2;
+/**
+ * Sizes round to this step, so a pixel of jitter either way shares one filter. At 2, a size
+ * one past a step rounds up to the next one and every odd pixel built a filter of its own.
+ */
+const sizeStep = 4;
 
 export interface GlassGeometry {
   /** Rounded size, the filter's identity together with the radius. */
