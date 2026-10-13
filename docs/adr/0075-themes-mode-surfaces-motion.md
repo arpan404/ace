@@ -23,7 +23,12 @@ the window opaque and puts glass only on floating layers.
 ### Mode and theme
 
 - **Mode is its own setting**: Light, Dark or System. System follows `prefers-color-scheme`.
-- **Theme** is one of eight: Graphite (the default), Ace, Mono, Paper, Dusk, Tide, Ember or Moss.
+- **Theme** is one of six: Graphite (the default), Midnight, Paper, Slate, Contrast or Aurora.
+  - Amended 2026-10-13 (#612): the owner rejected accent-only themes as "too repetitive". Each
+    theme now owns its ramp (lightness curve, neutral hue and chroma), contrast, glass and
+    default accent. Contrast replaces the old High contrast option. The accent is its own
+    setting again (see "Accent").
+  - Superseded by the amendment above:
   - Amended after the owner's review of the first build ("missing various neutral colors"):
     every theme shares one twelve-step near-true-grey ramp per scheme, generated in OKLCH
     (`apps/web/src/theme/palettes.ts`). Only Paper and Ember warm it slightly; the accent
@@ -34,12 +39,18 @@ the window opaque and puts glass only on floating layers.
   - Every palette passes WCAG AA on every surface text sits on. `contrastWarnings` checks this
     and a test runs it for all sixteen palettes.
 
+### Accent
+
+- **Accent** is its own setting, laid over any theme: the theme's own, six curated colours, Mono
+  (the text colour) or a custom hex, stored as `appearance.accent` and `appearance.customAccent`.
+- A pinned accent no longer breaks palettes: `accent-fit.ts` fits the chosen colour to each
+  theme and scheme (AA labels on every fill state, 3:1 marks, AA links on every surface) and
+  nudges it clear of the status colours. A test checks every theme × accent pair.
+
 ### Removed
 
 These are replaced by the theme set and Surfaces:
 
-- the accent picker, since a pinned accent would break palettes that were tuned and checked
-  together;
 - custom themes and the theme editor;
 - the glass-intensity slider and the wallpaper;
 - desktop vibrancy and Mica.

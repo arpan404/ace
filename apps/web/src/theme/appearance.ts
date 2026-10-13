@@ -1,5 +1,6 @@
 import * as z from "zod/mini";
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
+import { accentIds, defaultCustomAccent } from "./accent.ts";
 import { defaultThemeId, themeIds, type Scheme, type ThemeId } from "./palettes.ts";
 
 export const Mode = z.enum(["light", "dark", "system"]);
@@ -18,6 +19,9 @@ export type TranscriptSize = z.infer<typeof TranscriptSize>;
 export const Appearance = z.object({
   mode: z.catch(Mode, "system"),
   theme: z.catch(z.enum(themeIds), defaultThemeId),
+  /** Laid over any theme; "theme" keeps the theme's own (accent.ts). */
+  accent: z.catch(z.enum(accentIds), "theme"),
+  customAccent: z.catch(z.string().check(z.regex(/^#[0-9a-f]{6}$/i)), defaultCustomAccent),
   surface: z.catch(SurfaceSetting, "translucent"),
   reduceMotion: z.catch(ReduceMotion, "system"),
   density: z.catch(Density, "comfortable"),
@@ -28,6 +32,8 @@ export type Appearance = z.infer<typeof Appearance>;
 export const defaultAppearance: Appearance = {
   mode: "system",
   theme: defaultThemeId,
+  accent: "theme",
+  customAccent: defaultCustomAccent,
   surface: "translucent",
   reduceMotion: "system",
   density: "comfortable",

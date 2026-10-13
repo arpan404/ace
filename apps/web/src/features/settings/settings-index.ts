@@ -128,7 +128,13 @@ const entries = [
     id: "appearance.theme",
     page: "/settings/appearance",
     title: "Theme",
-    keywords: ["colour", "color", "palette", "accent"],
+    keywords: ["colour", "color", "palette", "contrast", "high contrast"],
+  },
+  {
+    id: "appearance.accent",
+    page: "/settings/appearance",
+    title: "Accent",
+    keywords: ["colour", "color", "accent", "highlight", "mono", "custom"],
   },
   {
     id: "appearance.surfaces",

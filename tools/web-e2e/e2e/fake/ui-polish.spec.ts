@@ -167,16 +167,16 @@ test("an unknown saved theme falls back to Graphite and the swatches answer the 
   await graphite.focus();
   await page.keyboard.press("ArrowLeft");
   // Arrows wrap: left of the first theme is the last.
-  const moss = themes.getByRole("radio", { name: "Moss", exact: true });
-  await expect(moss).toBeChecked();
-  await expect(moss).toBeFocused();
+  const aurora = themes.getByRole("radio", { name: "Aurora", exact: true });
+  await expect(aurora).toBeChecked();
+  await expect(aurora).toBeFocused();
   await expect
     .poll(() =>
       page.evaluate(() => JSON.parse(localStorage.getItem("ace.appearance") ?? "{}").theme),
     )
-    .toBe("moss");
+    .toBe("aurora");
   await page.reload();
-  await expect(moss).toBeChecked();
+  await expect(aurora).toBeChecked();
 });
 
 test("a waiting thread keeps its visible Answer status during hover and keyboard focus", async ({

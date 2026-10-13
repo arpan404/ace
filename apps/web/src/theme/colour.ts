@@ -66,6 +66,40 @@ export function oklchToHex(l: number, c: number, h: number): string {
   return `#${rgb.map((v) => toByte(v).toString(16).padStart(2, "0")).join("")}`.toUpperCase();
 }
 
+const fromByte = (byte: number): number => {
+  const c = byte / 255;
+  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+};
+
+/** OKLab of an opaque sRGB colour. */
+export function rgbToOklab([r, g, b]: Rgb): [number, number, number] {
+  const [lr, lg, lb] = [fromByte(r), fromByte(g), fromByte(b)];
+  const l = Math.cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb);
+  const m = Math.cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb);
+  const s = Math.cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb);
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ];
+}
+
+/** OKLCH (lightness 0..1, chroma, hue in degrees) of an opaque sRGB colour. */
+export function rgbToOklch(rgb: Rgb): { l: number; c: number; h: number } {
+  const [l, a, b] = rgbToOklab(rgb);
+  const h = (Math.atan2(b, a) * 180) / Math.PI;
+  return { l, c: Math.hypot(a, b), h: h < 0 ? h + 360 : h };
+}
+
+/**
+ * Perceptual distance between two colours: Euclidean OKLab scaled by 100, so about 2 is a
+ * just-noticeable difference and under 10 reads as "the same colour" at a glance.
+ */
+export function deltaE(x: Rgb, y: Rgb): number {
+  const [a, b] = [rgbToOklab(x), rgbToOklab(y)];
+  return 100 * Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+
 const black: Rgb = [0, 0, 0];
 const white: Rgb = [255, 255, 255];
 

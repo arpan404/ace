@@ -12,6 +12,9 @@ import { rampSteps, sharedStatus, syntax, type Palette, type Scheme } from "./pa
 const rgbTriple = (hex: string) =>
   [1, 3, 5].map((at) => Number.parseInt(hex.slice(at, at + 2), 16)).join(" ");
 
+/** An alpha as a whole percent. */
+const pct = (alpha: number) => Math.round(alpha * 100);
+
 /** `colour` at `percent` over transparent. */
 const wash = (colour: string, percent: number) =>
   `color-mix(in srgb, ${colour} ${percent}%, transparent)`;
@@ -104,7 +107,7 @@ export function themeTokens(p: Palette, scheme: Scheme) {
     "--ring-pressed": p.accentPressed,
     "--ring-foreground": p.accentFg,
     "--ring-text": p.accentText,
-    "--focus": `color-mix(in srgb, ${p.accent} 60%, transparent)`,
+    "--focus": `color-mix(in srgb, ${p.accent} ${p.material.focus}%, transparent)`,
 
     // Status hues (dots, rings) and the same hue as readable words.
     "--status-working": p.working,
@@ -139,10 +142,10 @@ export function themeTokens(p: Palette, scheme: Scheme) {
     // Floating layers: solid edge and shadow, and the glass material (styles/glass.css).
     "--float-edge": light ? `color-mix(in srgb, ${p.border}, ${p.t1} 4%)` : p.border,
     "--float-shadow": floatShadow,
-    "--glass-tint": `color-mix(in srgb, ${p.s2} ${light ? 64 : 68}%, transparent)`,
+    "--glass-tint": `color-mix(in srgb, ${p.s2} ${pct(p.material.glass.blur)}%, transparent)`,
     // Dialogs and the palette: glass dense enough that nothing behind reads through.
-    "--glass-tint-modal": `color-mix(in srgb, ${p.s2} ${light ? 90 : 92}%, transparent)`,
-    "--glass-tint-liquid": `color-mix(in srgb, ${p.s2} ${light ? 56 : 62}%, transparent)`,
+    "--glass-tint-modal": `color-mix(in srgb, ${p.s2} ${Math.max(pct(p.material.glass.blur), light ? 90 : 92)}%, transparent)`,
+    "--glass-tint-liquid": `color-mix(in srgb, ${p.s2} ${pct(p.material.glass.liquid)}%, transparent)`,
     "--glass-edge": light ? `rgb(${p.shadow} / 0.1)` : "rgb(255 255 255 / 0.09)",
     "--glass-inner": glassInner,
     "--glass-sheen": light ? "rgb(255 255 255 / 0.35)" : "rgb(255 255 255 / 0.045)",

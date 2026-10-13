@@ -6,7 +6,10 @@ import { worstContrast } from "./colour.ts";
 import { contrastWarnings, parseOpaqueColor } from "./contrast.ts";
 import { themeDeclarations, themeRule } from "./css.ts";
 import { edgeMap, fitStep, glassEngine, glassGeometry } from "./glass.ts";
-import { themeIds, themes } from "./palettes.ts";
+import { accentIds, themedPalette, type AccentChoice } from "./accent.ts";
+import { nearStatus, statusDistance, statusGap } from "./accent-fit.ts";
+import { contrastRatio, deltaE, rgbToOklch } from "./colour.ts";
+import { sharedStatus, themeIds, themes } from "./palettes.ts";
 import { paletteSurfaces } from "./surfaces.ts";
 
 const schemes = ["light", "dark"] as const;
@@ -15,28 +18,93 @@ const rgb = (value: string | undefined) => {
   if (!parsed) throw new Error(`not an opaque colour: ${value}`);
   return parsed;
 };
+const chroma = (value: string) => rgbToOklch(rgb(value)).c;
 
-test("every theme passes WCAG AA in light and dark, highlighted rows and glass included", () => {
+/** Every accent choice, plus custom colours at the extremes and two on top of a status. */
+const accentChoices: AccentChoice[] = [
+  ...accentIds.map((accent) => ({ accent, customAccent: "#3E8E7E" })),
+  ...["#FFFFFF", "#000000", "#FFFF00", "#2A62E3", "#D63B3B"].map((customAccent) => ({
+    accent: "custom" as const,
+    customAccent,
+  })),
+];
+
+test("every theme passes WCAG AA in light and dark with every accent, rows and glass included", () => {
   for (const id of themeIds)
     for (const scheme of schemes)
-      expect([id, scheme, contrastWarnings(themes[id][scheme], scheme)]).toEqual([id, scheme, []]);
+      for (const choice of accentChoices) {
+        const palette = themedPalette(id, scheme, choice);
+        expect([id, scheme, choice, contrastWarnings(palette, scheme)]).toEqual([
+          id,
+          scheme,
+          choice,
+          [],
+        ]);
+      }
+});
+
+test("no accent passes for a status colour: one too close is moved clear of it", () => {
+  for (const id of themeIds)
+    for (const scheme of schemes)
+      for (const choice of accentChoices) {
+        const palette = themedPalette(id, scheme, choice);
+        if (chroma(palette.accent) > 0.03)
+          expect(
+            statusGap(palette.accent, palette, scheme),
+            `${id} ${scheme} ${JSON.stringify(choice)}`,
+          ).toBeGreaterThanOrEqual(statusDistance);
+      }
+  // The working blue itself, picked as a custom accent, is flagged and moved.
+  const working = themes.graphite.light.working;
+  expect(nearStatus(working, "light", themes.graphite.light)).toBe(true);
+  const moved = themedPalette("graphite", "light", { accent: "custom", customAccent: working });
+  expect(deltaE(rgb(moved.accent), rgb(working))).toBeGreaterThanOrEqual(statusDistance);
+});
+
+test("themes differ in their surfaces and ink, not only in their accent", () => {
+  for (const scheme of schemes)
+    for (const a of themeIds)
+      for (const b of themeIds) {
+        if (a >= b) continue;
+        const [x, y] = [themes[a][scheme], themes[b][scheme]];
+        const apart = Math.max(
+          ...(["canvas", "sidebar", "raised", "border", "text"] as const).map((step) =>
+            deltaE(rgb(x[step]), rgb(y[step])),
+          ),
+        );
+        expect(apart, `${a} vs ${b} (${scheme})`).toBeGreaterThan(3);
+      }
+});
+
+test("Contrast reads at AAA for body text, with 3:1 borders and full-strength focus rings", () => {
+  for (const scheme of schemes) {
+    const palette = themes.contrast[scheme];
+    const surfaces = paletteSurfaces(palette, scheme).map((surface) => surface.rgb);
+    expect(worstContrast(rgb(palette.t1), surfaces)).toBeGreaterThanOrEqual(7);
+    expect(worstContrast(rgb(palette.t2), surfaces)).toBeGreaterThanOrEqual(7);
+    expect(contrastRatio(rgb(palette.border), rgb(palette.s0))).toBeGreaterThanOrEqual(3);
+    expect(themeDeclarations("contrast", scheme)["--focus"]).toContain(" 100%");
+  }
 });
 
 /**
  * Every status hue a theme sets in one scheme. The words drawn in a shared hue (`-text`) step
  * toward each theme's text colour where needed to read at AA; the test below guards those.
  */
-const statusOf = (id: (typeof themeIds)[number], scheme: "light" | "dark") =>
+const statusOf = (id: (typeof themeIds)[number], scheme: "light" | "dark", choice?: AccentChoice) =>
   Object.fromEntries(
-    Object.entries(themeDeclarations(id, scheme)).filter(
+    Object.entries(themeDeclarations(id, scheme, choice)).filter(
       ([name]) => name.startsWith("--status-") && !name.endsWith("-text"),
     ),
   );
 
-test("a status looks the same in every theme; only the accent changes", () => {
+test("a status looks the same in every theme and with every accent", () => {
   for (const scheme of schemes) {
     const reference = statusOf("graphite", scheme);
-    for (const id of themeIds) expect([id, statusOf(id, scheme)]).toEqual([id, reference]);
+    for (const id of themeIds)
+      for (const choice of accentChoices)
+        expect([id, choice, statusOf(id, scheme, choice)]).toEqual([id, choice, reference]);
+    expect(reference["--status-waiting"]).toBe(sharedStatus[scheme].waiting);
   }
 });
 
@@ -49,7 +117,7 @@ test("quiet text that reads on the page but not on a highlighted menu row is fla
 });
 
 test("a label that can't be read on the accent fill is flagged", () => {
-  const palette = { ...themes.paper.light, accentFg: "#2A2825" };
+  const palette = { ...themes.graphite.light, accentFg: "#2A2825" };
   expect(contrastWarnings(palette, "light").map((warning) => warning.label)).toContain(
     "Label on accent",
   );
@@ -69,9 +137,9 @@ test("waiting and not-responding words read at AA on every surface of every them
 });
 
 test("a theme rule themes any element carrying both attributes, so swatches preview real tokens", () => {
-  const rule = themeRule("tide", "dark");
-  expect(rule.startsWith('[data-theme="tide"][data-scheme="dark"]{')).toBe(true);
-  expect(rule).toContain(`--background:${themes.tide.dark.s0}`);
+  const rule = themeRule("midnight", "dark");
+  expect(rule.startsWith('[data-theme="midnight"][data-scheme="dark"]{')).toBe(true);
+  expect(rule).toContain(`--background:${themes.midnight.dark.s0}`);
   expect(rule).toContain("color-scheme:dark");
 });
 
@@ -109,11 +177,19 @@ test("a saved appearance keeps each valid choice and replaces only the unreadabl
   const storage = memoryKeyValue();
   storage.setItem(
     "ace.appearance",
-    JSON.stringify({ mode: "dark", theme: "midnight", surface: "solid", reduceMotion: 1 }),
+    JSON.stringify({
+      mode: "dark",
+      theme: "tide",
+      accent: "violet",
+      customAccent: "not a colour",
+      surface: "solid",
+      reduceMotion: 1,
+    }),
   );
   expect(loadAppearance(storage)).toEqual({
     ...defaultAppearance,
     mode: "dark",
+    accent: "violet",
     surface: "solid",
   });
 });
