@@ -99,7 +99,8 @@ function openSession(endpoint: DaemonEndpoint): ScreenSession {
       if (state.controller === "agent" && state.holder) holders.set(state.sessionId, state.holder);
     snapshot = {
       connected: next.connected,
-      closed: !opening && !next.connected,
+      // Closed once an opened channel drops (it then carries why); one still connecting isn't.
+      closed: !opening && !next.connected && next.error !== undefined,
       enabled: next.enabled,
       permissions,
       permissionsProblem,
