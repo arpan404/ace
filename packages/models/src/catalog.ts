@@ -241,7 +241,9 @@ export class ModelCatalog implements ModelCatalogApi {
     delete state.unconfiguredAt;
     // Unchanged metadata and an empty catalog cannot recover on a short retry.
     // Explicit refresh and identity/configuration changes still reset eligibility.
-    const terminal = ["no_models", "parse_failure", "cli_too_old"].includes(state.errorDetail.code);
+    const terminal = ["no_models", "parse_failure", "cli_too_old", "cli_unsupported"].includes(
+      state.errorDetail.code,
+    );
     const schedule = terminal
       ? {
           level: state.errorDetail.code === "no_models" ? ("info" as const) : ("warn" as const),

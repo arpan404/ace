@@ -2,10 +2,11 @@ import { expect, test } from "vitest";
 import { openApiDocument, requiredRoutes, validateSpec, version } from "./contract.ts";
 
 test("OpenCode 2.0.x patch releases from 2.0.22 pass the version gate; other lines do not", () => {
-  expect(["2.0.22", "2.0.26", "2.0.27", "2.0.140"].filter(version)).toEqual([
+  expect(["2.0.22", "2.0.26", "2.0.27", "2.0.28", "2.0.140"].filter(version)).toEqual([
     "2.0.22",
     "2.0.26",
     "2.0.27",
+    "2.0.28",
     "2.0.140",
   ]);
   expect(["2.0.21", "2.1.0", "3.0.0", "1.18.33", "2.0.27-beta", "", undefined].some(version)).toBe(

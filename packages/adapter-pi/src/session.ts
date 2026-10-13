@@ -56,8 +56,7 @@ export async function openPiSession(
       ...(ctx.env ? { env: ctx.env } : {}),
       signal: ctx.signal,
     }));
-  if (!cli.path || !piProfile(cli).supported)
-    throw new Error(piVersionRefusal(cli.version));
+  if (!cli.path || !piProfile(cli).supported) throw new Error(piVersionRefusal(cli.version));
   const referenceDir = sessionReferenceDirectory(options.sessionReferenceDir);
   const resume = ctx.resume
     ? await loadSessionReference(referenceDir, ctx.resume.nativeSessionId)

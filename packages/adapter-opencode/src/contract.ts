@@ -42,9 +42,26 @@ export function version(value: unknown): boolean {
   return match !== null && Number(match[1]) >= 22;
 }
 
-export function versionRefusal(installed: string | undefined): string {
-  const found = installed ? `OpenCode ${installed} is installed` : "OpenCode's version is unknown";
-  return `${found}; ace supports ${supportedRange}`;
+function newer(installed: string): boolean {
+  const match = /^(\d{1,6})\.(\d{1,6})\.(\d{1,6})/.exec(installed.trim());
+  if (!match) return false;
+  const [major, minor] = [Number(match[1]), Number(match[2])];
+  return major > 2 || (major === 2 && minor > 0);
+}
+
+/**
+ * Why an installed OpenCode is refused before its contract is probed. Older than the minimum is
+ * `cli_too_old`; a newer line ace hasn't checked (or an unreadable version) is `cli_unsupported`,
+ * never "too old".
+ */
+export function versionRefusal(installed: string | undefined): Error & { code: string } {
+  const message = !installed
+    ? `OpenCode's version is unknown; ace supports ${supportedRange}`
+    : newer(installed)
+      ? `OpenCode ${installed} is newer than ace has checked; ace supports ${supportedRange}`
+      : `OpenCode ${installed} is installed; ace supports ${supportedRange}`;
+  const tooOld = !!installed && /^\d/.test(installed.trim()) && !newer(installed);
+  return Object.assign(new Error(message), { code: tooOld ? "cli_too_old" : "cli_unsupported" });
 }
 
 const HttpMethods = new Set(["get", "put", "post", "delete", "patch", "head", "options", "trace"]);
@@ -57,6 +74,11 @@ const Spec = z
   .passthrough();
 
 const Operation = z.object({ operationId: z.string() }).passthrough();
+
+/** Diagnostics treat `{...}` as structured data, so routes are shown as `:param`. */
+function readable(route: string): string {
+  return route.replace(/\{([^}]+)\}/g, ":$1");
+}
 
 /**
  * Compare the server's OpenAPI document with the routes ace calls. Unknown
@@ -76,8 +98,6 @@ export function contractDifferences(value: unknown): string[] {
       served.set(operation.data.operationId, routes);
     }
   const differences: string[] = [];
-  // Diagnostics treat `{...}` as structured data, so routes are shown as `:param`.
-  const readable = (route: string) => route.replace(/\{([^}]+)\}/g, ":$1");
   for (const [operationId, expected] of Object.entries(requiredRoutes)) {
     const routes = served.get(operationId);
     if (!routes) differences.push(`${operationId} is missing`);
@@ -97,7 +117,7 @@ export function validateSpec(value: unknown, installed: string): void {
       new Error(
         `OpenCode ${installed} changed the API ace uses (${differences.join("; ")}); ace supports ${supportedRange} with the ${minimumVersion} API`,
       ),
-      { code: "cli_too_old" },
+      { code: "cli_unsupported" },
     );
 }
 

@@ -170,8 +170,7 @@ export class OpenCodeServer {
         if (!cli.installed || !cli.path)
           throw Object.assign(new Error("OpenCode is not installed"), { code: "not_configured" });
         expected = cli.version ?? "";
-        if (!version(expected))
-          throw Object.assign(new Error(versionRefusal(cli.version)), { code: "cli_too_old" });
+        if (!version(expected)) throw versionRefusal(cli.version);
         const password = this.runtime.entropy(32);
         this.authorization = `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`;
         this.secrets = [
@@ -243,8 +242,7 @@ export class OpenCodeServer {
           if (this.controller.signal.aborted) abort();
         });
       }
-      if (!version(expected))
-        throw Object.assign(new Error(versionRefusal(expected)), { code: "cli_too_old" });
+      if (!version(expected)) throw versionRefusal(expected);
       this.factory = (await import("@opencode/client")).OpenCode;
       this.controller.signal.throwIfAborted();
       this.client = this.scoped("", this.frame, this.controller.signal);
@@ -303,7 +301,8 @@ export class OpenCodeServer {
       (this.process?.pid !== undefined && info.pid !== this.process.pid)
     )
       throw Object.assign(new Error("OpenCode process/version identity mismatch"), {
-        code: info.version !== expected ? "cli_too_old" : "unreachable",
+        // The binary changed between discovery and start (e.g. an update): rediscover and retry.
+        code: "unreachable",
       });
     this.identity = info;
   }

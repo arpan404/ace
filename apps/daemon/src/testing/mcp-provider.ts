@@ -143,8 +143,7 @@ if (provider === "opencode") {
       res.writeHead(204).end();
       return;
     } else if (path === "/api/info") result = { version: "2.0.22", pid: process.pid };
-    else if (path === "/openapi.json")
-      result = openApiDocument();
+    else if (path === "/openapi.json") result = openApiDocument();
     else if (path === "/api/session" && req.method === "POST") {
       let body = "";
       for await (const chunk of req) {

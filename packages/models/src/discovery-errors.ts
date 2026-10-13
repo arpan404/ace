@@ -20,6 +20,10 @@ const messages: Record<ModelDiscoveryError["code"], [string, string]> = {
     "The installed CLI cannot list these models.",
     "Update the provider CLI, then refresh models.",
   ],
+  cli_unsupported: [
+    "This version of the provider CLI isn't supported yet.",
+    "Install a supported version of the provider CLI, then refresh models.",
+  ],
   rate_limited: [
     "Provider model discovery was rate limited.",
     "Wait a few minutes, then refresh models.",

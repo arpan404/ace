@@ -8,6 +8,7 @@ export const DiscoveryFailureCode = z.enum([
   "auth_expired",
   "unreachable",
   "cli_too_old",
+  "cli_unsupported",
   "rate_limited",
   "parse_failure",
   "timeout",

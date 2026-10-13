@@ -7,7 +7,7 @@ const release = (version: string, env: Record<string, string> = {}) => ({
   discovery: { env: { ACE_TEST_RELEASE: `release-${version}`, ...env } },
 });
 
-test.each(["2.0.22", "2.0.26", "2.0.27"])(
+test.each(["2.0.22", "2.0.26", "2.0.27", "2.0.28"])(
   "%s recovers a dropped stream on its verified server generation",
   async (version) => {
     const h = await setup(release(version));
@@ -30,7 +30,7 @@ test.each(["2.0.22", "2.0.26", "2.0.27"])(
   },
 );
 
-test.each(["2.0.26", "2.0.27", "2.0.99"])(
+test.each(["2.0.26", "2.0.27", "2.0.28", "2.0.99"])(
   "OpenCode %s with the matching API contract starts and lists models",
   async (version) => {
     const h = await setup(release(version));
@@ -53,11 +53,29 @@ test("a patch release that moves an operation ace calls is refused, naming the o
   );
 });
 
-test.each(["2.0.21", "2.1.0", "1.18.33"])(
-  "OpenCode %s outside the supported range is refused with the installed and supported versions",
+test.each(["2.0.21", "1.18.33"])(
+  "OpenCode %s older than the supported range is refused as too old, naming both versions",
   async (version) => {
-    await expect(setup(release(version))).rejects.toThrow(
-      `OpenCode ${version} is installed; ace supports OpenCode 2.0.x, 2.0.22 or newer`,
-    );
+    await expect(setup(release(version))).rejects.toMatchObject({
+      code: "cli_too_old",
+      message: expect.stringContaining(
+        `OpenCode ${version} is installed; ace supports OpenCode 2.0.x, 2.0.22 or newer`,
+      ),
+    });
   },
 );
+
+test("a newer OpenCode line ace hasn't checked is refused as unsupported, never as too old", async () => {
+  await expect(setup(release("2.1.0"))).rejects.toMatchObject({
+    code: "cli_unsupported",
+    message: expect.stringContaining(
+      "OpenCode 2.1.0 is newer than ace has checked; ace supports OpenCode 2.0.x, 2.0.22 or newer",
+    ),
+  });
+});
+
+test("a patch whose API differs is refused as unsupported, never as too old", async () => {
+  await expect(
+    setup(release("2.0.28", { ACE_TEST_CONTRACT_CHANGE: "drop session.get" })),
+  ).rejects.toMatchObject({ code: "cli_unsupported" });
+});

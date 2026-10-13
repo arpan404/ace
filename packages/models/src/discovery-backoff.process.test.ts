@@ -298,7 +298,7 @@ test("a transport auth failure stays at the instance even when only Copilot is c
   expect(JSON.stringify(result)).not.toMatch(/private|Bearer|token/);
 });
 
-test.each(["no_models", "parse_failure", "cli_too_old"] as const)(
+test.each(["no_models", "parse_failure", "cli_too_old", "cli_unsupported"] as const)(
   "terminal %s metadata waits for max age or an explicit change instead of retrying discovery",
   async (code) => {
     let available = false;

@@ -8,6 +8,7 @@ import type {
   ProviderInstallPlan,
 } from "@ace/protocol";
 import { InstallPlanner, type InstallEnvironment, type InstallTarget } from "./planner.ts";
+import { installRefusal } from "./admission.ts";
 import { InstallVersions } from "./versions.ts";
 
 export interface InstallRuntime {
@@ -220,8 +221,10 @@ export class ProviderInstalls {
       this.versions.invalidate(plan);
       this.runtime.log(`${plan.provider}${plan.agent ? `/${plan.agent}` : ""}: ${version}`);
       await this.runtime.changed(plan, version === "removed" ? undefined : version);
-      if (!job.abort.signal.aborted)
-        this.publish(job, { state: "succeeded", ...(version === "removed" ? {} : { version }) });
+      const refusal = version === "removed" ? undefined : installRefusal(plan, version);
+      if (job.abort.signal.aborted) return;
+      if (refusal) this.publish(job, { state: "failed", message: refusal });
+      else this.publish(job, { state: "succeeded", ...(version === "removed" ? {} : { version }) });
     } catch {
       if (!job.abort.signal.aborted)
         this.publish(job, {
