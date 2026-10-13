@@ -188,6 +188,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   const ports = recoveryPorts(context, (id) => engine.sessionMetadata(id));
   const aceAction = engineOptions.aceToolAction ?? services.mcp?.action;
   const engine = new Engine(store, {
+    ...(config.providerIdleMs === undefined ? {} : { idleMs: config.providerIdleMs }),
     ...acp,
     ...engineOptions,
     registry,

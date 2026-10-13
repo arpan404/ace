@@ -103,6 +103,9 @@ export async function startServer(options: ServerOptions): Promise<{
     ...(options.pairingAddress ? { sourceAddress: options.pairingAddress } : {}),
     ...(options.version === undefined ? {} : { version: options.version }),
     ...(options.serviceStatus ? { serviceStatus: options.serviceStatus } : {}),
+    ...(options.engine
+      ? { providerProcesses: () => options.engine?.providerProcesses() ?? [] }
+      : {}),
     ready: () => ready,
   };
   const local = httpServer(

@@ -323,7 +323,7 @@ export async function openCodexSession(
     (data) => emit("note", data, "catalog.runtime"),
   );
   rpc.onNotification = ({ method, params }) => {
-    catalog.changed(method);
+    catalog.changed(method, params);
     if (method === "turn/completed" && obj(params)["threadId"] === nativeSessionId)
       void reconcileLoaded(`discovery:${str(obj(obj(params)["turn"])["id"])}`);
     if (method === "thread/queue/changed")

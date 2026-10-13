@@ -27,7 +27,9 @@ export function optionalCatalogFrames() {
     clear: () => requests.clear(),
   };
 }
-/** Coalesced read-only metadata refreshes; notifications during a read cause one more read. */
+/** Coalesced read-only metadata refreshes; invalidations during a read cause one more read.
+ * `app/list/updated` carries the complete list. Codex 0.162 broadcasts it after serving every
+ * `app/list`, so re-reading on that notification is an unbounded feedback loop. */
 export function createExtensionCatalog(
   rpc: JsonRpcPeer,
   cwd: string,
@@ -37,7 +39,17 @@ export function createExtensionCatalog(
   emit: (data: unknown) => void,
 ) {
   const running = new Map<string, Promise<void>>(),
-    dirty = new Set<string>();
+    dirty = new Set<string>(),
+    published = new Map<string, string>(),
+    pushed = new Map<string, number>();
+  function publish(method: string, data: unknown[]): void {
+    if (closed()) return;
+    const encoded = JSON.stringify(data);
+    // An unchanged snapshot costs neither a frame nor a client fan-out.
+    if (published.get(method) === encoded) return;
+    published.set(method, encoded);
+    emit({ method, result: { data }, cwd });
+  }
   function refresh(method: string): Promise<void> {
     const existing = running.get(method);
     if (existing) {
@@ -48,6 +60,7 @@ export function createExtensionCatalog(
     const work = (async () => {
       do {
         dirty.delete(method);
+        const version = pushed.get(method) ?? 0;
         try {
           const params =
             method === "skills/list"
@@ -69,7 +82,8 @@ export function createExtensionCatalog(
             cursor = typeof body["nextCursor"] === "string" ? body["nextCursor"] : undefined;
             if (!cursor || data.length >= 512) break;
           }
-          if (!closed()) emit({ method, result: { data }, cwd });
+          // A list pushed while this read was in flight is newer than the read.
+          if ((pushed.get(method) ?? 0) === version) publish(method, data);
         } catch {
           /* Optional APIs preserve the last successful snapshot when unavailable. */
         }
@@ -86,15 +100,24 @@ export function createExtensionCatalog(
       for (const method of ["skills/list", "app/list", "mcpServerStatus/list"])
         void refresh(method);
     },
-    changed(method: string) {
+    changed(method: string, params: unknown) {
+      if (method === "app/list/updated") {
+        const data = obj(params)["data"];
+        if (!Array.isArray(data)) return;
+        pushed.set("app/list", (pushed.get("app/list") ?? 0) + 1);
+        try {
+          publish("app/list", data.slice(0, 512));
+        } catch {
+          /* An unpublishable optional snapshot keeps the last one, as a failed read does. */
+        }
+        return;
+      }
       const surface =
         method === "skills/changed"
           ? "skills/list"
-          : method === "app/list/updated"
-            ? "app/list"
-            : method === "mcpServer/updated"
-              ? "mcpServerStatus/list"
-              : undefined;
+          : method === "mcpServer/updated"
+            ? "mcpServerStatus/list"
+            : undefined;
       if (surface) void refresh(surface);
     },
   };

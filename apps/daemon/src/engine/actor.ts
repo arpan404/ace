@@ -49,6 +49,8 @@ export class ThreadActor {
   persistenceFailed = false;
   idleSince: number | undefined;
   idleDue = false;
+  /** The thread was settled or archived: release its provider as soon as the tree is done. */
+  releaseRequested = false;
   private inputLeases = new Map<number, { release(): void; runId: string | undefined }>();
   private queued = 0;
   private queuedBytes = 0;
@@ -449,7 +451,7 @@ export class ThreadActor {
     }
     const deadlines = [
       this.repo.deadline(this.id, this.translator?.nextDeadline?.()),
-      this.idleSince === undefined ? undefined : this.idleSince + this.idleMs,
+      this.releaseAt(),
     ].filter((value): value is number => value !== undefined);
     if (!deadlines.length) return;
     this.cancelTimer = this.clock.setTimer(
@@ -457,7 +459,8 @@ export class ThreadActor {
         this.enqueue(() => {
           const now = this.clock.now();
           this.apply([...(this.translator?.tick(now) ?? []), { type: "tick" }]);
-          if (this.idleSince !== undefined && now >= this.idleSince + this.idleMs) {
+          const release = this.releaseAt();
+          if (release !== undefined && now >= release) {
             this.idleDue = true;
             this.cancelTimer?.();
             this.cancelTimer = undefined;
@@ -466,6 +469,11 @@ export class ThreadActor {
         }),
       Math.max(0, Math.min(...deadlines) - this.clock.now()),
     );
+  }
+  /** Only a done tree has a release deadline; any live work clears it in `schedule`. */
+  releaseAt(): number | undefined {
+    if (this.idleSince === undefined) return undefined;
+    return this.releaseRequested ? this.idleSince : this.idleSince + this.idleMs;
   }
   backlog(): { frames: number; bytes: number } {
     return {
