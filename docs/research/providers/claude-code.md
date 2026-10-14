@@ -151,7 +151,7 @@ All frames carry `uuid` and `session_id`. Discriminate on `type`, then on `subty
   - `task_updated.patch{status: pending|running|completed|failed|killed|paused, is_backgrounded, error, end_time}` (d.ts:6076-6093);
   - `task_notification{status: completed|failed|stopped, summary, output_file, usage, reason?:'worker_restart'}` (d.ts:5985-6013).
 
-  Resumed subagents always report `is_backgrounded: true`, and a resumed run "shows as running again" (docs/sub-agents § Resume subagents).
+  Resumed subagents always report `is_backgrounded: true`, and a resumed run "shows as running again" (docs/sub-agents § Resume subagents). A session recorded on CLI 2.1.296 confirms the shape: a background agent stopped on the session limit (`task_notification{status:'failed'}`), the coordinator resumed it with `SendMessage`, and the same `task_id` notified again later with `status:'completed'` and the `SendMessage` call as its `tool_use_id`. The CLI emits another `task_started` for a task it re-registers after a terminal edge, with a fresh `run_id` that `task_updated` also carries. The adapter reopens the existing child agent on that start, keeps its first spawn link, and ignores updates that name an older `run_id`.
 
 - **Ids.** `canUseTool` gets `agentID` (d.ts:278-279). Hooks get `agent_id` and `agent_type` (d.ts:180-187). `SubagentStart{agent_id, agent_type}` and `SubagentStop{agent_id, agent_transcript_path, last_assistant_message, background_tasks}` (d.ts:9561-9597). **[unverified]** The relationship between `task_id` and `agentId` (local transcripts suggest the same `a…` hex form) needs live confirmation. Join on `tool_use_id`, which all of them carry.
 - **Foreground vs background.**
