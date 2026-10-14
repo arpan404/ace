@@ -1318,7 +1318,7 @@ Example:
 
 ```json
 {
-  "key": "browser.backend",
+  "key": "browser.backendLoss",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -1380,7 +1380,7 @@ Example:
 ```json
 {
   "keys": [
-    "automations.enabled"
+    "generation.autoDraftCommits"
   ],
   "requestId": "example",
   "scope": {

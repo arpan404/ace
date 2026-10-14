@@ -43,6 +43,8 @@
     "remote.agentAccess",
     "remote.relayUrl",
     "automations.enabled",
+    "generation.model",
+    "generation.autoDraftCommits",
     "clients.theme",
     "clients.keybindings"
   ],

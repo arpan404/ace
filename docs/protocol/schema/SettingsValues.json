@@ -43,10 +43,30 @@
       "type": "string"
     },
     "clients.keybindings": {
-      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema8"
+      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema9"
     },
     "clients.theme": {
-      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema7"
+      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema8"
+    },
+    "generation.autoDraftCommits": {
+      "type": "boolean"
+    },
+    "generation.model": {
+      "anyOf": [
+        {
+          "allOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/UtilityModelChoice.json"
+            },
+            {
+              "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema7"
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "host.displayName": {
       "maxLength": 256,
@@ -325,6 +345,8 @@
     "remote.agentAccess",
     "remote.relayUrl",
     "automations.enabled",
+    "generation.model",
+    "generation.autoDraftCommits",
     "clients.theme",
     "clients.keybindings"
   ],

@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/UtilityModelChoice.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "effort": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instance": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "model": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    }
+  },
+  "required": [
+    "provider",
+    "model"
+  ],
+  "type": "object"
+}

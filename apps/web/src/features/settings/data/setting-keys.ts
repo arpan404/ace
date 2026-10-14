@@ -41,6 +41,7 @@ export const settingKeys = {
   settleOnClose: setting("threads.settleOnClose", z.boolean(), false),
   followUp: setting("threads.followUpBehavior", FollowUp, "queue"),
   automations: setting("automations.enabled", z.boolean(), false),
+  autoDraftCommits: setting("generation.autoDraftCommits", z.boolean(), true),
   keybindings: setting<Keybindings>("clients.keybindings", Keybindings, {}),
   limitPolicy: setting<LimitPolicy>("threads.limitPolicy", LimitPolicy, "manual"),
 };

@@ -38,6 +38,7 @@ export interface Services {
   providerLogin?: import("@ace/accounts").ProviderLoginSessions;
   onboarding?: import("../onboarding.ts").Onboarding;
   providerStatuses?: import("../provider-status.ts").ProviderStatuses;
+  utility?: import("./utility.ts").UtilityService;
   previewClient?: import("../preview-client.ts").PreviewClient;
   previewSuggestions?: import("../preview-suggestions/tracker.ts").SuggestionTracker;
   automations?: import("@ace/automations").AutomationService;

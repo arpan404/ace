@@ -53,6 +53,8 @@ export const defaults: SettingsValues = {
   "remote.agentAccess": "off",
   "remote.relayUrl": "",
   "automations.enabled": false,
+  "generation.model": null,
+  "generation.autoDraftCommits": true,
   "clients.theme": {},
   "clients.keybindings": {},
 };

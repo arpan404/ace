@@ -9,7 +9,8 @@
     "./preferences": "./src/preferences.ts",
     "./availability": "./src/availability.ts",
     "./service-labels": "./src/service-labels.ts",
-    "./display-name": "./src/display-name.ts"
+    "./display-name": "./src/display-name.ts",
+    "./utility-model": "./src/utility-model.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

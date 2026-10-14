@@ -93,6 +93,37 @@
         }
       ]
     },
+    "schema11": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema11"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema11"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      ]
+    },
     "schema2": {
       "anyOf": [
         {

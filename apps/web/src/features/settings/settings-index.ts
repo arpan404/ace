@@ -78,6 +78,18 @@ const entries = [
     keywords: ["queue", "steer", "follow up"],
   },
   {
+    id: "generation.model",
+    page: "/settings/general",
+    title: "Titles and commit messages",
+    keywords: ["utility model", "thread title", "commit message", "pull request", "haiku", "luna"],
+  },
+  {
+    id: "generation.autoDraftCommits",
+    page: "/settings/general",
+    title: "Auto-draft commit messages",
+    keywords: ["commit", "draft", "generate"],
+  },
+  {
     id: "automations.enabled",
     page: "/settings/general",
     title: "Run automations",

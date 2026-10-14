@@ -81,6 +81,21 @@ export function admitInput(
   );
 }
 
+/**
+ * The person's message that named the thread hands its text to title generation, once: only
+ * while the title is still the provisional one this message produced.
+ */
+export function notifyNamingPrompt(repo: EngineRepository, command: Command, id: ThreadId): void {
+  const p = command.payload;
+  if (p.type !== "thread.create" && p.type !== "thread.send") return;
+  const origin = repo.inputs.origin(id, `input:${command.id}`) ?? inputOrigin(command);
+  if (origin.kind !== "person" && origin.kind !== "queue") return;
+  const thread = repo.store.getThread(id);
+  if (thread?.titleSource !== "provisional" || thread.title === "New thread") return;
+  if (provisionalTitle(p.input) !== thread.title) return;
+  repo.onNamingPrompt?.(id, p.input);
+}
+
 export function removeInput(
   repo: EngineRepository,
   id: ThreadId,

@@ -35,9 +35,11 @@ async function open(
   kind: "commit" | "pr" = "commit",
   details: Partial<ThreadDetails> = {},
   generator?: Generator,
+  prepare?: (app: ReturnType<typeof harness>) => void,
 ) {
   const app = harness();
   if (generator) app.daemon.workspace.setDraftGenerator(generator);
+  prepare?.(app);
   app
     .play({
       ...scenario,
@@ -111,7 +113,7 @@ test("a generated commit is reviewed, edited and submitted only for the selected
   await userEvent.clear(typed);
   await userEvent.type(typed, "Person's initial text");
   await userEvent.click(form.getByRole("checkbox", { name: "excluded.ts" }));
-  await userEvent.click(form.getByRole("button", { name: "Generate draft" }));
+  await userEvent.click(form.getByRole("button", { name: /^Draft$/ }));
   await form.findByLabelText("Generated draft");
   expect(form.getByRole("textbox", { name: "Commit message" })).toHaveProperty(
     "value",
@@ -180,13 +182,23 @@ test("changing the selection after editing a draft blocks submitting its old sum
   );
 });
 
-test("provider failure keeps both typed fields and the selected paths", async () => {
+test("a failed opening draft is silent; a failed Draft says so and keeps typed fields and paths", async () => {
+  let requests = 0;
   const { form } = await open("commit", {}, async () => {
+    requests++;
     throw new Error("draft_provider_unavailable");
   });
-  await form.findByRole("alert");
+  await waitFor(() => expect(requests).toBe(1));
+  await waitFor(() =>
+    expect(form.getByRole("button", { name: /^Draft$/ })).toHaveProperty("disabled", false),
+  );
+  expect(form.queryByRole("alert")).toBeNull();
+  expect(form.getByRole("textbox", { name: "Commit message" })).toHaveProperty(
+    "value",
+    "Person's initial text",
+  );
   await userEvent.type(form.getByRole("textbox", { name: "Commit details" }), "Person's details");
-  await userEvent.click(form.getByRole("button", { name: "Generate draft" }));
+  await userEvent.click(form.getByRole("button", { name: /^Draft$/ }));
   await form.findByRole("alert");
   expect(form.getByRole("textbox", { name: "Commit details" })).toHaveProperty(
     "value",
@@ -199,7 +211,7 @@ test("PR generation leaves publication explicit and the title and description ed
   const { app, form } = await open("pr");
   const scope = { kind: "thread" as const, threadId: ThreadId.parse("draft-thread") };
   const before = app.daemon.snapshot(scope);
-  await userEvent.click(form.getByRole("button", { name: "Generate draft" }));
+  await userEvent.click(form.getByRole("button", { name: /^Draft$/ }));
   await form.findByLabelText("Generated draft");
   expect(form.getByRole("textbox", { name: "Pull request description" })).toHaveProperty(
     "value",
@@ -227,7 +239,7 @@ test("PR generation sends the recorded remote Git base while the form names its 
     subject: input.selection.kind === "pr" ? `Compared ${input.selection.baseRef}` : "Wrong scope",
     body: input.selection.kind === "pr" ? `Merge into ${input.selection.base}` : "",
   }));
-  await userEvent.click(form.getByRole("button", { name: "Generate draft" }));
+  await userEvent.click(form.getByRole("button", { name: /^Draft$/ }));
   await form.findByLabelText("Generated draft");
   await userEvent.click(form.getByRole("button", { name: "Use draft" }));
   expect(form.getByRole("textbox", { name: "Pull request title" })).toHaveProperty(
@@ -246,7 +258,7 @@ test("reconnect discards a pending result and never requests another generation"
   await waitFor(() => expect(state.requests).toBe(1));
   await act(async () => app.daemon.disconnectAll());
   await waitFor(() =>
-    expect(form.getByRole("button", { name: "Generate draft" })).toHaveProperty("disabled", false),
+    expect(form.getByRole("button", { name: /^Draft$/ })).toHaveProperty("disabled", false),
   );
   await act(async () => state.finish?.({ subject: "Disconnected result", body: "" }));
   expect(form.queryByLabelText("Generated draft")).toBeNull();
@@ -259,7 +271,7 @@ test("reconnect discards a pending result and never requests another generation"
 
 test("a moved PR draft preserves its recovery guidance and never publishes stale text", async () => {
   const { app, form } = await open("pr");
-  await userEvent.click(form.getByRole("button", { name: "Generate draft" }));
+  await userEvent.click(form.getByRole("button", { name: /^Draft$/ }));
   await form.findByLabelText("Generated draft");
   await userEvent.click(form.getByRole("button", { name: "Use draft" }));
   app.daemon.workspace.setGitDiff("draft-thread", "+different changes after generation\n");
@@ -274,12 +286,48 @@ test("a moved PR draft preserves its recovery guidance and never publishes stale
   if (!snapshot || snapshot.kind !== "thread") throw new Error("Missing thread snapshot");
   expect(snapshot.thread.details?.linkedPr).toBeUndefined();
   expect(snapshot.thread.details?.linkedPrs ?? []).toEqual([]);
-  expect(form.getByRole("button", { name: "Generate draft" })).toHaveProperty("disabled", false);
-  await userEvent.click(form.getByRole("button", { name: "Generate draft" }));
+  expect(form.getByRole("button", { name: /^Draft$/ })).toHaveProperty("disabled", false);
+  await userEvent.click(form.getByRole("button", { name: /^Draft$/ }));
   await form.findByLabelText("Generated draft");
   await userEvent.click(form.getByRole("button", { name: "Use draft" }));
   await userEvent.click(form.getByRole("button", { name: /^Create PR/ }));
   await waitFor(() =>
     expect(screen.queryByRole("dialog", { name: "Open a pull request" })).toBeNull(),
   );
+});
+
+test("with auto-draft off, the commit form asks for no draft until Draft is pressed", async () => {
+  const { state, generator } = held();
+  const { form } = await open("commit", {}, generator, (app) =>
+    app.daemon.services.settings.seed({ "generation.autoDraftCommits": false }),
+  );
+  const draft = form.getByRole("button", { name: /^Draft$/ });
+  await waitFor(() => expect(draft).toHaveProperty("disabled", false));
+  expect(state.requests).toBe(0);
+  expect(form.getByRole("textbox", { name: "Commit message" })).toHaveProperty(
+    "value",
+    "Person's initial text",
+  );
+  await userEvent.click(draft);
+  await waitFor(() => expect(state.requests).toBe(1));
+});
+
+test("with no provider able to write, the commit form is the manual fields alone", async () => {
+  const { state, generator } = held();
+  const { form } = await open("commit", {}, generator, (app) => {
+    app.daemon.services.settings.seed({
+      "providers.configuration": (["claude", "codex", "opencode", "cursor", "pi"] as const).map(
+        (provider) => ({ provider, enabled: false }),
+      ),
+    });
+  });
+  await waitFor(() =>
+    expect(form.queryByRole("region", { name: "Generate source-control draft" })).toBeNull(),
+  );
+  expect(form.queryByRole("button", { name: /^Draft$/ })).toBeNull();
+  expect(form.getByRole("textbox", { name: "Commit message" })).toHaveProperty(
+    "value",
+    "Person's initial text",
+  );
+  expect(state.requests).toBe(0);
 });

@@ -34,3 +34,11 @@ export { parseOpenCodeConnections } from "./opencode-connections.ts";
 export { discoveryError } from "./discovery-errors.ts";
 export type { DiscoveryReport } from "./types.ts";
 export { createModelRevisionProbe } from "./discovery-revision.ts";
+export {
+  resolveUtilityModel,
+  readyProviders,
+  lowestEffort,
+  utilityFallbacks,
+  utilityProviders,
+  type UtilityModel,
+} from "./utility-model.ts";

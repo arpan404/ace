@@ -167,6 +167,7 @@
       "enum": [
         "provisional",
         "provider",
+        "generated",
         "person",
         "agent"
       ],

@@ -178,7 +178,7 @@ Example:
 | capabilities | no | [Capabilities.json](schema/Capabilities.json) |  |
 | permission | no | [PermissionState.json](schema/PermissionState.json) |  |
 | title | no | string |  |
-| titleSource | no | ["provisional","provider","person","agent"] |  |
+| titleSource | no | ["provisional","provider","generated","person","agent"] |  |
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) |  |
 | lineage | no | [ThreadLineage.json](schema/ThreadLineage.json) |  |
 | delegatedBy | no | [DelegatedBy.json](schema/DelegatedBy.json) |  |

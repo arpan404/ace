@@ -226,6 +226,10 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           );
     },
     ...(services.models ? { models: services.models } : {}),
+    onNamingPrompt(threadId, input) {
+      engineOptions.onNamingPrompt?.(threadId, input);
+      services.utility?.titles.namingPrompt(threadId, input);
+    },
     providerEnabled: (provider, instance) =>
       services.providerConfigurations?.for(provider, instance).enabled !== false,
     ...(aceAction ? { aceToolAction: aceAction } : {}),
