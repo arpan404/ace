@@ -23,8 +23,8 @@ test("a control's own keys stay as written when a shortcut spelled the same is r
   );
 });
 
-test("keys that only mean something in one place (Enter in Activity) never borrow its rebinding", async () => {
-  setKeybindingOverrides({ "activity.open": "mod+o" });
+test("keys that only mean something in one place (Enter in a list) never borrow its rebinding", async () => {
+  setKeybindingOverrides({ "home.select": "mod+o" });
   render(
     <TooltipProvider>
       <IconButton icon={MagnifyingGlassIcon} label="Next match" keys="enter" />

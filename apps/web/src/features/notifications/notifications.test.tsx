@@ -61,10 +61,10 @@ test("a thread that starts needing you raises a toast naming the request, and Re
   // The tab's title carries the count while something waits.
   expect(document.title).toMatch(/^\(1\)/);
   await userEvent.click(within(await toasts()).getByRole("button", { name: "Review" }));
-  await screen.findByRole("heading", { level: 1, name: "Activity" });
-  // Just that request, on its own.
-  expect(await screen.findByRole("article", { name: request })).toBeTruthy();
-  expect(screen.getAllByRole("article")).toHaveLength(1);
+  await screen.findByRole("heading", { level: 1, name: "Fix flaky checkout test" });
+  // The request waits in the thread's top strip.
+  const strip = await screen.findByRole("region", { name: "Waiting for you" });
+  expect(await within(strip).findByRole("article", { name: request })).toBeTruthy();
   await waitFor(() => expect(toastByText(request)).toBeNull());
 });
 
@@ -167,8 +167,8 @@ test("turning a toast off in Settings silences it", async () => {
   const app = harness();
   const checkout = app.play(flakyCheckout());
   checkout.runThrough("watcher-started");
-  await app.open("/activity");
-  await screen.findByRole("heading", { level: 1, name: "Activity" });
+  await app.open("/new");
+  await inList("Fix flaky checkout test");
 
   await userEvent.click(screen.getByRole("link", { name: "Settings" }));
   await userEvent.click(await screen.findByRole("link", { name: "Notifications" }));

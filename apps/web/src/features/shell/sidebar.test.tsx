@@ -199,7 +199,6 @@ test("every view's shortcut opens it from anywhere", async () => {
   for (const [keys, heading] of [
     ["gu", "Automations"],
     ["gs", "Skills"],
-    ["ga", "Activity"],
     ["{Meta>},{/Meta}", "Settings"],
     ["gh", "Home"],
   ] as const) {
