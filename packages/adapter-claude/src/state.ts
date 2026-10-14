@@ -12,6 +12,8 @@ export interface NativeTask {
   background: boolean;
   terminal: boolean;
   terminalStatus?: string;
+  /** Claude reported this task's start; a terminal edge can arrive before it. */
+  started?: boolean;
 }
 export class ClaudeState {
   readonly root: Key;
@@ -133,6 +135,18 @@ export class ClaudeState {
     }
     if (fresh && !terminalStatus) this.start(agent, "spawn");
     return agent;
+  }
+  /**
+   * A settled child that Claude runs again (a coordinator's SendMessage resumes it) starts a
+   * new turn. Frames of the new run may name the resuming call as their parent tool.
+   */
+  reopenChild(agent: Key, spawn: string): void {
+    this.terminalChildren.delete(agent);
+    if (spawn && this.children.get(spawn) !== agent) {
+      this.children.set(spawn, agent);
+      this.bindings.push(spawn);
+    }
+    this.start(agent, "parent_agent");
   }
   agentFor(data: Data): Key {
     const parent = string(data["parent_tool_use_id"]);

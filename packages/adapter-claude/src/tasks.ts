@@ -20,6 +20,7 @@ function register(state: ClaudeState, data: Data, background: boolean): NativeTa
     background: background || prior?.background === true,
     terminal: prior?.terminal ?? false,
     ...(prior?.terminalStatus ? { terminalStatus: prior.terminalStatus } : {}),
+    ...(prior?.started ? { started: true } : {}),
   };
   state.tasks.set(id, task);
   if (task.terminal && task.child) state.endChild(task, task.terminalStatus ?? "failed");
@@ -95,7 +96,13 @@ export function taskFrame(state: ClaudeState, data: Data, now: number): boolean 
   const id = string(data["task_id"]);
   if (!id) return false;
   if (subtype === "task_started") {
+    const prior = state.tasks.get(id);
+    if (prior?.terminal && prior.started && startsNewRun(prior, data)) {
+      resume(state, prior, data);
+      return true;
+    }
     const task = register(state, data, data["is_backgrounded"] === true);
+    task.started = true;
     if (task.child && typeof data["prompt"] === "string")
       state.emit({
         type: "item.upsert",
@@ -113,6 +120,8 @@ export function taskFrame(state: ClaudeState, data: Data, now: number): boolean 
     return true;
   }
   const task = state.tasks.get(id) ?? register(state, data, data["is_backgrounded"] === true);
+  // An update of a run that has since been resumed must not settle the new run.
+  if (staleRun(task, data)) return true;
   task.data = { ...task.data, ...data };
   if (subtype === "task_progress") {
     state.emit({ type: "signal", agent: task.child ?? task.owner });
@@ -147,13 +156,45 @@ export function taskTick(state: ClaudeState, now: number): Fact[] {
   return state.facts;
 }
 
+/**
+ * Claude reports a resumed task (a coordinator's SendMessage to a stopped agent) with another
+ * `task_started` for the same task id. Newer CLIs give each run its own `run_id`; a repeated
+ * start of the run that already settled changes nothing. A first start that arrives after its
+ * own terminal edge is late registration, not a resume.
+ */
+function startsNewRun(prior: NativeTask, data: Data): boolean {
+  const run = string(data["run_id"]);
+  return !run || run !== string(prior.data["run_id"]);
+}
+function staleRun(task: NativeTask, data: Data): boolean {
+  const run = string(data["run_id"]);
+  const current = string(task.data["run_id"]);
+  return run !== "" && current !== "" && run !== current;
+}
+function resume(state: ClaudeState, prior: NativeTask, data: Data): void {
+  // The child keeps the agent and spawn link of its first run; the resuming call only routes
+  // the frames of the new run.
+  const spawn = string(data["tool_use_id"]);
+  const original = string(prior.data["tool_use_id"]);
+  prior.terminal = false;
+  delete prior.terminalStatus;
+  state.missing.delete(string(data["task_id"]));
+  const task = register(
+    state,
+    original ? { ...data, tool_use_id: original } : data,
+    data["is_backgrounded"] === true,
+  );
+  if (task.child) state.reopenChild(task.child, spawn);
+}
+
 function releaseTask(task: NativeTask): void {
-  // Only terminal identity and ancestry are needed after settlement.
+  // Only terminal identity, run and ancestry are needed after settlement.
   task.data = {
     ...(typeof task.data["task_type"] === "string" ? { task_type: task.data["task_type"] } : {}),
     ...(typeof task.data["tool_use_id"] === "string"
       ? { tool_use_id: task.data["tool_use_id"] }
       : {}),
+    ...(typeof task.data["run_id"] === "string" ? { run_id: task.data["run_id"] } : {}),
     ambient: task.data["ambient"] === true,
   };
 }
