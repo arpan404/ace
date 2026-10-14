@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
 import { discoverProvider, discoverProviders } from "@ace/provider-kit/discovery";
 import { spawnSupervised } from "@ace/provider-kit/process";
 /** I/O defaults live at the adapter boundary; tests can replace each source independently. */
@@ -11,6 +12,8 @@ export type CodexRuntime = {
   discover: typeof discoverProviders;
   discoverProvider: typeof discoverProvider;
   schedule(callback: () => void, delayMs: number): () => void;
+  /** Working directory for a shared app-server, which outlives any one workspace. */
+  homeDir(): string;
 };
 export const runtime: CodexRuntime = {
   stopGraceMs: 5000,
@@ -24,4 +27,5 @@ export const runtime: CodexRuntime = {
     const timer = setTimeout(callback, delayMs);
     return () => clearTimeout(timer);
   },
+  homeDir: homedir,
 };

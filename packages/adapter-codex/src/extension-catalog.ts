@@ -1,4 +1,4 @@
-import type { JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
+import type { CodexChannel } from "./host.ts";
 import { obj } from "./native.ts";
 const catalogRequests = new Set(["skills/list", "app/list", "mcpServerStatus/list"]);
 const catalogNotifications = new Set(["skills/changed", "app/list/updated", "mcpServer/updated"]);
@@ -31,7 +31,7 @@ export function optionalCatalogFrames() {
  * `app/list/updated` carries the complete list. Codex 0.162 broadcasts it after serving every
  * `app/list`, so re-reading on that notification is an unbounded feedback loop. */
 export function createExtensionCatalog(
-  rpc: JsonRpcPeer,
+  rpc: Pick<CodexChannel, "request">,
   cwd: string,
   signal: AbortSignal,
   closed: () => boolean,

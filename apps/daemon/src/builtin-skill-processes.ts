@@ -100,6 +100,8 @@ function leaseUnused(record: LeaseRecord, runtime: SkillProcessRuntime): boolean
 
 export interface BuiltinSkillProcessLease extends ProcessLease {
   close(): void;
+  /** Launches this lease can still record. */
+  spare(): number;
 }
 /** Created after plugin materialization, before any provider receives the projection. */
 export function builtinSkillProcessLease(
@@ -129,6 +131,10 @@ export function builtinSkillProcessLease(
     close() {
       record = { ...record, closed: true };
       writeLease(root, record);
+    },
+    spare() {
+      if (record.closed) return 0;
+      return 64 - record.processes.length - (record.launching ? 1 : 0);
     },
   };
 }

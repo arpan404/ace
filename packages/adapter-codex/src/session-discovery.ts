@@ -14,6 +14,8 @@ export function sessionDiscovery(config: {
   diagnostic(error: unknown): void;
   schedule(callback: () => void, delay: number): () => void;
   isClosed(): boolean;
+  /** Owned by another session on a shared app-server; never part of this tree. */
+  isForeign(threadId: string): boolean;
   getRoot(): string;
   known: Set<string>;
   recovered: Set<string>;
@@ -163,7 +165,8 @@ export function sessionDiscovery(config: {
       do {
         const result = obj(await request("thread/loaded/list", cursor ? { cursor } : {}));
         for (const entry of list(result["data"]))
-          if (typeof entry === "string" && !recovered.has(entry)) await readThread(entry);
+          if (typeof entry === "string" && !recovered.has(entry) && !config.isForeign(entry))
+            await readThread(entry);
         cursor = result["nextCursor"];
       } while (cursor);
       if (!config.isClosed())

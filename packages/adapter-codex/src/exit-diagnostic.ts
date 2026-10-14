@@ -7,7 +7,8 @@ export const CodexExitDiagnostic = z.object({
   retirement: z
     .enum(["idle", "user", "shutdown", "aborted", "open_failed", "rpc_failed"])
     .nullable(),
-  reason: z.enum(["exit", "signal", "stopped", "spawn-error", "output-limit"]),
+  /** `detached`: a shared app-server stopped serving this session and kept running. */
+  reason: z.enum(["exit", "signal", "stopped", "spawn-error", "output-limit", "detached"]),
   code: z.number().int().nullable(),
   signal: z.string().max(32).nullable(),
   pid: z.number().int().positive().optional(),
