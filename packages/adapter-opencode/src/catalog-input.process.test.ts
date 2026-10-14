@@ -3,18 +3,12 @@ import { setup } from "./testing/v2-session.ts";
 import { object, array } from "./data.ts";
 import { projectAttachments, canonicalContext, encodedContextBudget } from "@ace/context";
 
-test.each([130_808, 700_000, 922_403])(
-  "OpenCode delivers or falls back before admission for a %s-byte image",
+test.each([130_808, 922_403, 4 * 1024 * 1024])(
+  "OpenCode admits a %s-byte stored image as a file URI without inlining it",
   async (bytes) => {
     const h = await setup();
     const base = [{ type: "text" as const, text: "image proof" }];
-    const image = {
-      path: "/files/image.png",
-      name: "image.png",
-      mimeType: "image/png",
-      bytes,
-      base64: Buffer.alloc(bytes, 42).toString("base64"),
-    };
+    const image = { path: "/files/image.png", name: "image.png", mimeType: "image/png", bytes };
     const projection = projectAttachments([image], {
       provider: "opencode",
       images: ["image/png"],
@@ -29,9 +23,8 @@ test.each([130_808, 700_000, 922_403])(
       .map(object)
       .filter((r) => String(r.path).endsWith("/prompt"));
     expect(prompts).toHaveLength(1);
-    expect(JSON.stringify(prompts[0])).toContain(
-      bytes < 900_000 ? image.base64 : "/files/image.png",
-    );
+    expect(object(prompts[0]?.body).files).toEqual([{ uri: "file:///files/image.png" }]);
+    expect(projection.deliveries).toEqual(["native_image"]);
     expect(h.frames.some((f) => ["input.rejected", "input.uncertain"].includes(f.channel))).toBe(
       false,
     );

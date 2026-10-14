@@ -24,6 +24,8 @@ export const PreparedAttachment = z.object({
     .optional(),
 });
 export type PreparedAttachment = z.infer<typeof PreparedAttachment>;
+/** OpenCode 2 refuses a file:// attachment above 20 MiB (`SessionPrompt.readFileAttachment`). */
+const openCodeFileBytes = 20 * 1024 * 1024;
 export const ProjectionCapabilities = z.object({
   provider: z.enum(["claude", "codex", "opencode", "acp"]),
   images: z.array(z.string().max(128)).max(32),
@@ -196,6 +198,13 @@ export function projectAttachments(
       const input: OpenCodeInput[] = attachments.map((a) => {
         if (a.text !== undefined) return { type: "text", text: text(a) };
         if (a.nativeImage !== false && capabilities.images.includes(a.mimeType)) {
+          // OpenCode reads file:// attachments itself, so a stored image is sent by reference.
+          if (!a.path.startsWith("ace://")) {
+            if (a.bytes !== undefined && (a.bytes > remaining || a.bytes > openCodeFileBytes))
+              return fallback(a);
+            remaining -= a.bytes ?? 0;
+            return { type: "file", mime: a.mimeType, filename: a.name, url: fileUri(a.path) };
+          }
           const encoded = data(a);
           if (encoded === undefined) return fallback(a);
           return {

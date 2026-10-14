@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { projectAttachments, encodedContextBudget } from "./index.ts";
 
-test.each(["acp", "opencode"] as const)(
+test.each(["acp"] as const)(
   "%s preserves a file fallback when prompt escaping consumes its inline budget",
   (provider) => {
     const base = [{ type: "text" as const, text: '"'.repeat(100_000) }];
@@ -25,7 +25,7 @@ test.each(["acp", "opencode"] as const)(
   },
 );
 
-test.each(["acp", "opencode"] as const)(
+test.each(["acp"] as const)(
   "%s projects aggregate images within the complete encoded transport budget",
   (provider) => {
     const images = [0, 1].map((index) => ({
