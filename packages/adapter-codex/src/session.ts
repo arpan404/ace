@@ -19,8 +19,9 @@ import { hydrateControls } from "./session-state.ts";
 import type { ProviderSession } from "@ace/engine-api";
 import type { CodexSessionContext } from "./session-context.ts";
 import { type DiscoveryOptions, type DiscoveryResult } from "@ace/provider-kit/discovery";
-import { JsonRpcPeer, MethodNotFound } from "@ace/provider-kit/jsonrpc";
-import type { InitializeParams } from "./generated/InitializeParams.ts";
+import { MethodNotFound, type Notification, type ServerRequest } from "@ace/provider-kit/jsonrpc";
+import type { ChannelHandlers, CodexChannel } from "./host.ts";
+import { openChannel, type CodexHostPool } from "./host-pool.ts";
 import type { ThreadStartParams } from "./generated/v2/ThreadStartParams.ts";
 import type { ThreadResumeParams } from "./generated/v2/ThreadResumeParams.ts";
 import { createSessionCommands, type Pending } from "./session-commands.ts";
@@ -31,6 +32,8 @@ export type CodexOptions = {
   discovery?: DiscoveryOptions;
   cli?: DiscoveryResult;
   runtime?: Partial<CodexRuntime>;
+  /** Shared app-servers. Absent, each session runs a private process. */
+  hosts?: CodexHostPool;
 };
 export async function openCodexSession(
   ctx: CodexSessionContext,
@@ -47,36 +50,8 @@ export async function openCodexSession(
   const scope = io.sessionId();
   const interactionKey = (id: unknown) => requestKey(id, scope);
   const seenQuestions = new Set<string>();
-  const discovery = {
-    ...options.discovery,
-    ...(ctx.env ? { env: ctx.env } : {}),
-    signal: ctx.signal,
-  };
-  const cli = ctx.executable
-    ? await io.discoverProvider("codex", {
-        ...discovery,
-        overrides: { ...discovery.overrides, codex: ctx.executable },
-      })
-    : (options.cli ??
-      (options.runtime?.discover
-        ? (await io.discover(discovery)).codex
-        : await io.discoverProvider("codex", discovery)));
-  if (!cli.installed || !cli.path)
-    throw new Error("Codex is not installed. Install it or configure its path.");
-  if (!codexCapabilities(cli).steer)
-    throw new Error(
-      `Codex ${cli.version ?? "unknown version"} is unsupported; need 0.159.1 or newer.`,
-    );
   const injection = ctx.aceMcp ? codexInjection(ctx.aceMcp) : undefined;
-  const proc = io.spawn({
-    command: cli.path,
-    args: [...(ctx.builtinSkills?.args ?? []), "app-server"],
-    cwd: ctx.cwd,
-    ...(ctx.outputFlow ? { outputFlow: ctx.outputFlow } : {}),
-    env: { ...(ctx.env ?? options.discovery?.env), ACE_MCP_BEARER_TOKEN: undefined },
-    name: "ace-codex",
-    ...(ctx.builtinSkills?.lease ? { lease: ctx.builtinSkills.lease } : {}),
-  });
+  let link: CodexChannel | undefined;
   const started = io.now();
   let sequence = 0;
   let nativeSessionId = "";
@@ -154,9 +129,9 @@ export async function openCodexSession(
   };
   const diagnostic = (error: unknown) =>
     emit("stderr", error instanceof Error ? error.message : String(error));
-  const rpc = new JsonRpcPeer(proc, {
-    timeoutMs: null,
-    onFrame(dir, data) {
+  const handlers: ChannelHandlers = {
+    ...(ctx.outputFlow ? { flow: ctx.outputFlow } : {}),
+    frame(dir, data) {
       const m = obj(data);
       const p = obj(m["params"]);
       const method = str(m["method"]);
@@ -294,9 +269,20 @@ export async function openCodexSession(
           plans.set(planKey(str(p["turnId"])), { thread, markdown: str(item["text"]) });
       }
     },
-    onMalformed: (line) => emit("recv", { malformed: line }),
-    onError: diagnostic,
-  });
+    malformed: (line) => emit("recv", { malformed: line }),
+    error: diagnostic,
+    notification: (message) => onNotification(message),
+    request: (message) => onRequest(message),
+    stderr: (line) => lifetime.stderr(line),
+    failed: () => void lifetime.failTransport(),
+    exited: (exit) => lifetime.exited(exit),
+  };
+  const rpc: Pick<CodexChannel, "request"> = {
+    request: (method, params, requestOptions) =>
+      link
+        ? link.request(method, params, requestOptions)
+        : Promise.reject(new Error("Codex session is not attached")),
+  };
   const request = (method: string, params: unknown, interactive = false) =>
     rpc.request(method, params, { timeoutMs: interactive ? null : 30_000, signal: ctx.signal });
   const { scheduleRecovery, reconcileLoaded, refreshQueue, observeRecovery } = sessionDiscovery({
@@ -305,6 +291,7 @@ export async function openCodexSession(
     diagnostic,
     schedule: io.schedule,
     isClosed: () => closed,
+    isForeign: (thread) => link?.foreign(thread) ?? false,
     getRoot: () => nativeSessionId,
     known,
     recovered,
@@ -324,27 +311,36 @@ export async function openCodexSession(
     () => nativeSessionId,
     (data) => emit("note", data, "catalog.runtime"),
   );
-  rpc.onNotification = ({ method, params }) => {
+  function onNotification({ method, params }: Notification): void {
     catalog.changed(method, params);
     if (method === "turn/completed" && obj(params)["threadId"] === nativeSessionId)
       void reconcileLoaded(`discovery:${str(obj(obj(params)["turn"])["id"])}`);
     if (method === "thread/queue/changed")
       void refreshQueue(str(obj(params)["threadId"])).catch(diagnostic);
-  };
-  rpc.onRequest = (serverRequest) => {
+  }
+  function onRequest(serverRequest: ServerRequest): Promise<unknown> {
     if (!isInteractiveRequest(serverRequest.method))
       throw new MethodNotFound(`Unsupported Codex request: ${serverRequest.method}`);
     return new Promise((answer, reject) =>
       pending.set(interactionKey(serverRequest.id), { request: serverRequest, answer, reject }),
     );
-  };
+  }
   const lifetime = sessionLifetime({
-    proc,
     ctx,
     generation: scope,
-    graceMs: io.stopGraceMs,
-    schedule: io.schedule,
     emit,
+    closing() {
+      closed = true;
+    },
+    busy: () => active.size > 0 || shells.size > 0,
+    // Closing often follows the session's own cancellation, so stop requests cannot carry its
+    // signal. They are bounded instead; an unconfirmed stop retires the process.
+    stopWork: () =>
+      commandsFor(
+        nativeSessionId,
+        () => {},
+        (method, params) => rpc.request(method, params, { timeoutMs: 10_000 }),
+      ).interrupt({ agent: "root", cascade: true }),
     cleanup() {
       closed = true;
       for (const cancel of correlationDeadlines.values()) cancel();
@@ -357,17 +353,26 @@ export async function openCodexSession(
       pending.clear();
       asyncQuestions.clear();
       plans.clear();
-      rpc.close();
     },
   });
   emit("note", { event: "session-scope", scope });
   try {
+    link = await openChannel({
+      ctx,
+      io,
+      ...(options.discovery ? { discovery: options.discovery } : {}),
+      ...(options.cli ? { cli: options.cli } : {}),
+      ...(options.runtime?.discover ? { discoverAll: true } : {}),
+      ...(options.hosts ? { pool: options.hosts } : {}),
+      handlers,
+    });
+  } catch (error) {
+    await lifetime.failOpen();
+    throw error;
+  }
+  lifetime.attached(link);
+  try {
     if (ctx.signal.aborted) throw ctx.signal.reason;
-    await request("initialize", {
-      clientInfo: { name: "ace", title: "ace", version: "0.0.0" },
-      capabilities: { experimentalApi: true, requestAttestation: false },
-    } satisfies InitializeParams);
-    rpc.notify("initialized");
     try {
       const listing = z
         .object({
@@ -467,32 +472,14 @@ export async function openCodexSession(
     await lifetime.failOpen();
     throw error;
   }
-  function assertOpen(): void {
-    if (closed) throw new Error("Codex session is closed");
-  }
-  catalog.start();
-  emit("note", { event: "permission-turn-policy-supported" });
-  readRateLimits({ request, emit, isClosed: () => closed });
-  return {
-    nativeSessionId,
-    async configure(selection) {
-      const executionOptions = CodexSelectionOptions.parse(selection.options);
-      assertOpen();
-      await request("thread/settings/update", {
-        threadId: nativeSessionId,
-        model: selection.model ?? null,
-        effort: null,
-        summary: null,
-        serviceTier: null,
-        ...executionOptions,
-      });
-      model = selection.model ?? "";
-      selectedOptions = executionOptions;
-    },
-    close: lifetime.close,
-    mcp: codexMcpControls(request, nativeSessionId, ctx.signal),
-    ...createSessionCommands({
-      nativeSessionId,
+  /** Session controls for a root thread. Closing reuses them with no open-state check. */
+  function commandsFor(
+    root: string,
+    check: () => void,
+    send: (method: string, params: unknown, interactive?: boolean) => Promise<unknown> = request,
+  ) {
+    return createSessionCommands({
+      nativeSessionId: root,
       getLaunchOptions: async (_threadId) => {
         if (ctx.getPermissionMode) permissionMode = await ctx.getPermissionMode();
         const mode = permissionMode;
@@ -520,8 +507,8 @@ export async function openCodexSession(
       asyncQuestions,
       interactionId: ctx.interactionId,
       plans,
-      assertOpen,
-      request,
+      assertOpen: check,
+      request: send,
       emit: (dir, data, channel) => {
         emit(dir, data, channel);
       },
@@ -529,6 +516,32 @@ export async function openCodexSession(
       userMessageId: io.userMessageId,
       onInputMessage: ctx.onInputMessage,
       refreshQueue,
-    }),
+    });
+  }
+  function assertOpen(): void {
+    if (closed) throw new Error("Codex session is closed");
+  }
+  catalog.start();
+  emit("note", { event: "permission-turn-policy-supported" });
+  readRateLimits({ request, emit, isClosed: () => closed });
+  return {
+    nativeSessionId,
+    async configure(selection) {
+      const executionOptions = CodexSelectionOptions.parse(selection.options);
+      assertOpen();
+      await request("thread/settings/update", {
+        threadId: nativeSessionId,
+        model: selection.model ?? null,
+        effort: null,
+        summary: null,
+        serviceTier: null,
+        ...executionOptions,
+      });
+      model = selection.model ?? "";
+      selectedOptions = executionOptions;
+    },
+    close: lifetime.close,
+    mcp: codexMcpControls(request, nativeSessionId, ctx.signal),
+    ...commandsFor(nativeSessionId, assertOpen),
   };
 }

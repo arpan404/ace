@@ -9,6 +9,7 @@ import { prepareBuiltinSkills } from "@ace/plugins";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import type { ProviderAdapter } from "@ace/engine-api";
 import { bindMcpSession } from "./mcp-session.ts";
+import { sharedBuiltinSkills } from "../builtin-skill-share.ts";
 import type { ServiceContext } from "./types.ts";
 
 /** All providers share scoped authority and cleanup; adapters encode their native MCP config. */
@@ -21,8 +22,14 @@ export function withDaemonMcp(
   // A provider that exits on its own starts skill cleanup outside any close call.
   // Daemon shutdown waits for those removals instead of leaving them running.
   const cleanups = new Set<Promise<void>>();
+  // Codex sessions share an app-server, so they share the one projection it was started with.
+  const shared =
+    adapter.provider === "codex" && context.config
+      ? sharedBuiltinSkills("codex", context.config.dataDir)
+      : undefined;
   context.resources?.own(async () => {
     await Promise.allSettled(cleanups);
+    await shared?.close();
   });
   return {
     ...adapter,
@@ -32,10 +39,16 @@ export function withDaemonMcp(
         return adapter.openSession(session);
       if (!mcp && !session.aceMcp && !session.mcp)
         throw new Error("Provider MCP scope unavailable");
-      let skills: Awaited<ReturnType<typeof prepareBuiltinSkills>> | undefined;
+      let skills:
+        | Pick<Awaited<ReturnType<typeof prepareBuiltinSkills>>, "args" | "directories" | "close">
+        | undefined;
       let root: string | undefined;
-      let lease: BuiltinSkillProcessLease | undefined;
-      if (context.config && (adapter.provider === "claude" || adapter.provider === "codex")) {
+      let lease: Pick<BuiltinSkillProcessLease, "preparing" | "spawned" | "close"> | undefined;
+      if (shared) {
+        const projection = await shared.acquire();
+        skills = { ...projection, close: projection.release };
+        lease = { ...projection.lease, close: () => {} };
+      } else if (context.config && adapter.provider === "claude") {
         root = await createBuiltinSkillRoot(context.config.dataDir);
         try {
           skills = await prepareBuiltinSkills(adapter.provider, root);

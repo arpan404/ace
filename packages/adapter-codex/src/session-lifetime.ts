@@ -1,20 +1,23 @@
 import { CodexExitDiagnostic } from "./exit-diagnostic.ts";
 import { createTextRedactor } from "@ace/redaction";
-import type { SupervisedProcess } from "@ace/provider-kit/process";
+import type { CodexChannel, HostExit, Retirement } from "./host.ts";
 import type { CodexSessionContext } from "./session-context.ts";
 
-type Retirement = "idle" | "user" | "shutdown" | "aborted" | "open_failed" | "rpc_failed";
-/** Process I/O and exit evidence stay outside translation and policy decision logic. */
+/** Channel and exit evidence stay outside translation and policy decision logic. */
 export function sessionLifetime(config: {
-  proc: SupervisedProcess;
   ctx: CodexSessionContext;
   generation: string;
-  graceMs: number;
-  schedule(callback: () => void, delayMs: number): () => void;
+  /** Refuse new commands; internal stop requests still flow. */
+  closing(): void;
+  /** Release session state once nothing more will be sent. */
   cleanup(): void;
+  /** Live turns or shells anywhere in this session's tree. */
+  busy(): boolean;
+  /** Stop every turn and shell in the tree. Throws when that cannot be confirmed. */
+  stopWork(): Promise<void>;
   emit(dir: "stderr" | "note", data: unknown): void;
 }) {
-  const { proc, ctx } = config;
+  const { ctx } = config;
   const redact = createTextRedactor({
     workspace: ctx.cwd,
     env: {
@@ -27,70 +30,91 @@ export function sessionLifetime(config: {
   let retirement: Retirement | null = null;
   let closePromise: Promise<void> | undefined;
   let closed = false;
-  let outputDrained = true;
-  let cancelDrain: (() => void) | undefined;
-  // Leader exit is independent of inherited pipe EOF. Preserve a bounded final prefix.
-  const drain = () => {
-    cancelDrain = config.schedule(() => {
-      outputDrained = false;
-      proc.stdout.close();
-      proc.stderr.close();
-      proc.stdin.destroy();
-    }, 250);
+  let exited = false;
+  let cleaned = false;
+  let channel: CodexChannel | undefined;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    config.cleanup();
   };
-  proc.signal.addEventListener("abort", drain, { once: true });
-  if (proc.signal.aborted) drain();
-  proc.stderr.on("line", (line) => {
-    const safe = redact(line);
-    // Scrub before slicing so neither split credentials nor raw frames enter the retained tail.
-    const bytes = Buffer.from(`${stderr}${safe}\n`);
-    stderr = bytes.subarray(Math.max(0, bytes.length - 4096)).toString("utf8");
-    // A tail can begin inside a UTF-8 sequence; keep the encoded bound after replacement.
-    while (Buffer.byteLength(stderr) > 4096) stderr = stderr.slice(1);
-    config.emit("stderr", safe);
-  });
   function stop(reason: Retirement): Promise<void> {
     if (closePromise) return closePromise;
-    // Shutdown after leader exit only finishes draining; it cannot make the loss deliberate.
-    if (!proc.signal.aborted) retirement = reason;
+    // Retiring after the process died only finishes cleanup; it cannot make the loss deliberate.
+    if (!exited && !channel?.gone) retirement = reason;
     closed = true;
-    config.cleanup();
+    config.closing();
     ctx.signal.removeEventListener("abort", abort);
-    closePromise = proc.stop({ graceMs: config.graceMs }).then(() => {});
+    const error =
+      reason === "aborted" && ctx.signal.aborted
+        ? ctx.signal.reason instanceof Error
+          ? ctx.signal.reason
+          : new Error(String(ctx.signal.reason))
+        : new Error(`Codex session closed (${reason})`);
+    closePromise = (async () => {
+      if (!channel || exited) {
+        cleanup();
+        return;
+      }
+      // A shared process keeps running: this tree's work must stop before ace lets go of it.
+      if (channel.shared && config.busy())
+        try {
+          await config.stopWork();
+        } catch {
+          // Unconfirmed work cannot be left running unobserved. Stop the process instead.
+          cleanup();
+          await channel.retire();
+          return;
+        }
+      cleanup();
+      await channel.detach(reason, error);
+    })();
     return closePromise;
   }
   const abort = () => {
     void stop("aborted");
   };
   ctx.signal.addEventListener("abort", abort, { once: true });
-  void proc.exited.then((exit) => {
-    cancelDrain?.();
-    proc.signal.removeEventListener("abort", drain);
-    closed = true;
-    config.cleanup();
-    ctx.signal.removeEventListener("abort", abort);
-    const deliberate =
-      retirement !== null && retirement !== "open_failed" && retirement !== "rpc_failed";
-    const diagnostic = CodexExitDiagnostic.parse({
-      event: "codex-session-exit",
-      generation: config.generation,
-      deliberate,
-      retirement,
-      reason: exit.reason,
-      code: exit.code,
-      signal: exit.signal,
-      stderr,
-      stderrSummary: stderr.slice(-1024),
-      outputDrained,
-      ...(proc.pid !== undefined ? { pid: proc.pid } : {}),
-    });
-    config.emit("note", diagnostic);
-    ctx.onExit({
-      deliberate,
-      message: `Codex app-server ${deliberate ? `retired (${retirement})` : "disconnected"}: ${JSON.stringify(diagnostic)}`,
-    });
-  });
   return {
+    attached(value: CodexChannel): void {
+      channel = value;
+    },
+    stderr(line: string): void {
+      const safe = redact(line);
+      // Scrub before slicing so neither split credentials nor raw frames enter the retained tail.
+      const bytes = Buffer.from(`${stderr}${safe}\n`);
+      stderr = bytes.subarray(Math.max(0, bytes.length - 4096)).toString("utf8");
+      // A tail can begin inside a UTF-8 sequence; keep the encoded bound after replacement.
+      while (Buffer.byteLength(stderr) > 4096) stderr = stderr.slice(1);
+      config.emit("stderr", safe);
+    },
+    exited(exit: HostExit): void {
+      exited = true;
+      closed = true;
+      config.closing();
+      cleanup();
+      ctx.signal.removeEventListener("abort", abort);
+      const deliberate =
+        retirement !== null && retirement !== "open_failed" && retirement !== "rpc_failed";
+      const diagnostic = CodexExitDiagnostic.parse({
+        event: "codex-session-exit",
+        generation: config.generation,
+        deliberate,
+        retirement,
+        reason: exit.reason,
+        code: exit.code,
+        signal: exit.signal,
+        stderr,
+        stderrSummary: stderr.slice(-1024),
+        outputDrained: exit.outputDrained,
+        ...(exit.pid !== undefined ? { pid: exit.pid } : {}),
+      });
+      config.emit("note", diagnostic);
+      ctx.onExit({
+        deliberate,
+        message: `Codex app-server ${deliberate ? `retired (${retirement})` : "disconnected"}: ${JSON.stringify(diagnostic)}`,
+      });
+    },
     close: (reason: "idle" | "user" | "shutdown") => stop(reason),
     failOpen: () => stop("open_failed"),
     failTransport: () => stop("rpc_failed"),
