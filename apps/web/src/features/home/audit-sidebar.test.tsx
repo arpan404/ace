@@ -190,7 +190,8 @@ test("a task keeps project and provider context visible without duplicating Done
   );
   expect(bare.getAttribute("aria-label")).toContain("Codex");
   expect(within(bare).getByText("relay")).toBeTruthy();
-  expect(within(bare).getAllByText("Done", { exact: true })).toHaveLength(1);
+  // Seen before this device's first launch, so it rests quietly: no Done at all, never two.
+  expect(within(bare).queryAllByText("Done", { exact: true })).toHaveLength(0);
   expect(within(bare).getByRole("img", { name: "Codex" })).toBeTruthy();
   await userEvent.hover(bare);
   expect(

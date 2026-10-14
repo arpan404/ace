@@ -1,6 +1,6 @@
 import { createContext, use } from "react";
 import { PullRequestGlyph, pullRequestTone } from "@/components/pull-request-state.tsx";
-import { type ThreadCard, type Tone } from "@ace/ui-core";
+import { type RowAttention, type ThreadCard, type Tone } from "@ace/ui-core";
 import {
   CheckCircleIcon,
   CircleDashedIcon,
@@ -89,29 +89,42 @@ const statusGlyphs: Partial<Record<Tone, IconGlyph>> = {
 };
 
 /**
- * The first line's status: a glyph and a word in the status colour (Working carries its elapsed
- * time). A thread at rest, or one already settled, reads its age instead.
+ * The first line's status, as loud as the row's attention (`rowAttention`, with the open
+ * thread's `currentAttention`):
+ * - what asks the person to act or look: a glyph and a word in the status colour;
+ * - live work in a row not open: its small moving glyph and a muted word, no running clock;
+ * - the open thread's live work: the coloured word with its elapsed time;
+ * - a failure already seen: a quiet word; a thread at rest: only its age.
  */
-export function RowStatus(props: { card: ThreadCard }) {
+export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) {
   const { card } = props;
-  const { tone } = card.status;
-  if (tone === "idle" || (tone === "done" && card.flags.settled)) return <RowTime card={card} />;
+  const { level, word, tone, muted } = props.attention;
+  if (word === undefined) return <RowTime card={card} />;
+  if (level === "failed-seen")
+    return <span className="shrink-0 text-xs text-muted-foreground">{word}</span>;
   const glyph = statusGlyphs[tone];
+  const mark = glyph ? (
+    <Icon
+      icon={glyph}
+      size={muted ? 12 : 13}
+      className={cn("text-(--tone)", tone === "working" && "fx-spin-slow")}
+    />
+  ) : undefined;
+  if (muted)
+    return (
+      <span
+        data-tone={tone}
+        className="inline-flex shrink-0 items-center gap-1 text-xs whitespace-nowrap text-muted-foreground"
+      >
+        {mark ?? <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-(--tone)" />}
+        <span>{word}</span>
+      </span>
+    );
   return (
     <StatusLabel
       tone={tone}
-      label={card.status.compact}
-      mark={
-        glyph ? (
-          <Icon
-            icon={glyph}
-            size={13}
-            className={cn("text-(--tone)", tone === "working" && "fx-spin-slow")}
-          />
-        ) : (
-          false
-        )
-      }
+      label={word}
+      mark={mark ?? false}
       className="gap-1 text-xs font-normal"
     >
       {tone === "working" && <WorkingFor card={card} />}
@@ -198,12 +211,13 @@ export function useManyDevices(): boolean {
   return useMachines().filter((machine) => machine.status === "online").length > 1;
 }
 
-/** Unread results and requests take priority over the canonical dimmed flag. */
-export function quietCard(card: ThreadCard): boolean {
-  return card.dimmed && !card.emphasis;
-}
-
-/** Selection stays readable; ordinary read work uses the quiet ink. */
-export function titleTone(card: ThreadCard): string {
-  return card.flags.unread || card.emphasis ? "font-medium text-foreground" : "text-foreground";
+/**
+ * The title's ink from the row's attention level: what needs the person or failed unseen is
+ * full contrast and medium weight, live work and unread results full contrast, and everything
+ * at rest drops to the muted ink. The title itself always shows.
+ */
+export function titleTone(attention: RowAttention): string {
+  const { level } = attention;
+  if (level === "needs-you" || level === "failed") return "font-medium text-foreground";
+  return attention.muted ? "text-muted-foreground" : "text-foreground";
 }

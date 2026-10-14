@@ -32,6 +32,7 @@ import {
 } from "./live-status.ts";
 
 import { recoveryAttention } from "./recovery-attention.ts";
+import { rowAttention, type RowAttention } from "./row-attention.ts";
 
 const pillIcons: Record<LiveStatus["tone"], TaskPill["icon"]> = {
   working: "working",
@@ -124,10 +125,8 @@ export interface ThreadCard {
   /** "now", "4m", "2d". */
   age: string;
   flags: ThreadRowFlags;
-  /** Medium weight: it needs you or has activity the person hasn't opened. */
-  emphasis: boolean;
-  /** Quiet unless it needs attention or has unread activity. Settled rows are quiet too. */
-  dimmed: boolean;
+  /** How loudly the row asks for the person (see `rowAttention`); every surface reads it. */
+  attention: RowAttention;
   /** The status pill on the first line; without one the row shows its age. */
   pill: TaskPill | undefined;
   /** Lines added and removed in the thread's checkout. */
@@ -254,11 +253,6 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
   const { snoozed, unread } = flags;
   const needsYou = entry.status.state === "needs_you";
   const recovery = recoveryAttention(entry, input.models, input.failedSend);
-  const attention =
-    !!recovery ||
-    needsYou ||
-    entry.status.state === "failed" ||
-    entry.status.state === "unresponsive";
   const subagents = entry.live?.runningSubagentCount ?? runningSubagents(entry.status);
   // What it is doing, when the daemon's live hints say more than its state.
   const fact = threadLiveFact(entry);
@@ -276,6 +270,7 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
       : live
         ? { label: liveStatusText(live), tone: live.tone }
         : threadStatusLabel(entry.status));
+  const compact = recovery?.label ?? compactStatus(entry, fact, working, now, input.locale);
   return {
     id: entry.id,
     title: entry.title,
@@ -283,8 +278,13 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
     badge: projectBadge({ id: entry.workspaceId, name: input.projectName ?? entry.workspaceId }),
     age: formatAge(activityOf(entry), now),
     flags,
-    emphasis: attention || unread,
-    dimmed: input.settled || (!attention && !unread),
+    attention: rowAttention({
+      tone,
+      word: compact,
+      unread,
+      settled: input.settled,
+      recovery: recovery !== undefined,
+    }),
     pill: input.settled
       ? undefined
       : recovery
@@ -323,7 +323,7 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
       label,
       tone,
       mark: recovery?.mark ?? threadStatusMark(entry.status),
-      compact: recovery?.label ?? compactStatus(entry, fact, working, now, input.locale),
+      compact,
       ...(working ? { since } : {}),
     },
     provider: entry.provider,
