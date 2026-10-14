@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { entry } from "./test-entries.fixture.ts";
+import { currentAttention } from "./row-attention.ts";
 import {
   cardDetails,
   middleTruncateText,
@@ -40,21 +41,21 @@ test("a card names its project when the daemon's name is known", () => {
   expect(card.project).toBe("relay");
 });
 
-test("finished work the person hasn't opened is emphasised and announced as unread", () => {
+test("finished work the person hasn't opened says Done and is announced as unread", () => {
   const card = threadCard(input({ entry: entry("t", { state: "done" }, now - 1000) }));
-  expect(card.emphasis).toBe(true);
+  expect(card.attention).toMatchObject({ level: "done-unread", word: "Done", muted: false });
   expect(card.announceUnread).toBe(true);
   const read = threadCard(
     input({ entry: entry("t", { state: "done" }, now - 1000, { readAt: now, unread: false }) }),
   );
-  expect(read.emphasis).toBe(false);
+  expect(read.attention).toMatchObject({ level: "quiet", word: undefined, muted: true });
 });
 
-test("a thread that needs you is emphasised without a second unread announcement", () => {
+test("a thread that needs you is strongest without a second unread announcement", () => {
   const card = threadCard(
     input({ entry: entry("t", { state: "needs_you", interactions: 2 }, now) }),
   );
-  expect(card.emphasis).toBe(true);
+  expect(card.attention).toMatchObject({ level: "needs-you", tone: "needs-you", muted: false });
   expect(card.announceUnread).toBe(false);
   expect(card.status).toMatchObject({
     label: "Needs you",
@@ -164,26 +165,52 @@ test("a working thread's pill counts from when it started working", () => {
 test("finished work shows Done until it is read, then its age, quietly", () => {
   const unread = threadCard(input({ entry: entry("t", { state: "done" }, now - 1000) }));
   expect(unread.pill?.label).toBe("Done");
-  expect(unread.dimmed).toBe(false);
+  expect(unread.attention.muted).toBe(false);
   const read = threadCard(
     input({ entry: entry("t", { state: "done" }, now - 1000, { readAt: now, unread: false }) }),
   );
   expect(read.pill).toBeUndefined();
-  expect(read.dimmed).toBe(true);
+  expect(read.attention.muted).toBe(true);
 });
 
-test("trouble and requests keep their pill whether read or not", () => {
+test("once read, a request stays strong, a failure goes quiet and waiting keeps its word", () => {
   const read = { readAt: now, unread: false };
-  for (const [status, label, quiet] of [
-    [{ state: "needs_you", interactions: 1 }, "Needs you", false],
-    [{ state: "failed" }, "Failed", false],
-    [{ state: "limited" }, "Limited", true],
-    [{ state: "waiting", on: "rate_limit" }, "Waiting", true],
+  for (const [status, label, level] of [
+    [{ state: "needs_you", interactions: 1 }, "Needs you", "needs-you"],
+    [{ state: "failed" }, "Failed", "failed-seen"],
+    [{ state: "limited" }, "Limited", "active"],
+    [{ state: "waiting", on: "rate_limit" }, "Waiting", "active"],
   ] as const) {
     const card = threadCard(input({ entry: entry("t", status, now - 1000, read) }));
     expect(card.pill?.label).toBe(label);
-    expect(card.dimmed).toBe(quiet);
+    expect(card.attention.level).toBe(level);
   }
+});
+
+test("a failure is strong until it is seen", () => {
+  const unseen = threadCard(input({ entry: entry("t", { state: "failed" }, now - 1000) }));
+  expect(unseen.attention).toMatchObject({ level: "failed", word: "Failed", tone: "failed" });
+  const seen = threadCard(
+    input({ entry: entry("t", { state: "failed" }, now - 1000, { readAt: now, unread: false }) }),
+  );
+  expect(seen.attention).toMatchObject({ level: "failed-seen", word: "Failed", muted: true });
+});
+
+test("working is calm in a row that isn't open, and full contrast in the open one", () => {
+  const card = threadCard(input({ entry: entry("t", { state: "working", agents: 1 }, now) }));
+  expect(card.attention).toMatchObject({ level: "active", word: "Working", muted: true });
+  expect(currentAttention(card.attention, true)).toMatchObject({ word: "Working", muted: false });
+  // Opening never quiets what needs the person.
+  const asking = threadCard(
+    input({ entry: entry("t", { state: "needs_you", interactions: 1 }, now) }),
+  );
+  expect(currentAttention(asking.attention, false).muted).toBe(false);
+});
+
+test("new activity after reading makes a finished thread unread again", () => {
+  const read = { readAt: now - 5000 };
+  const again = threadCard(input({ entry: entry("t", { state: "done" }, now - 1000, read) }));
+  expect(again.attention).toMatchObject({ level: "done-unread", word: "Done" });
 });
 
 test("a settled row is quiet and shows no pill", () => {
@@ -191,7 +218,7 @@ test("a settled row is quiet and shows no pill", () => {
     input({ entry: entry("t", { state: "done" }, now - 1000), settled: true }),
   );
   expect(card.pill).toBeUndefined();
-  expect(card.dimmed).toBe(true);
+  expect(card.attention).toMatchObject({ level: "quiet", word: undefined });
 });
 
 test("diff stats show only when the checkout changed", () => {

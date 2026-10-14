@@ -1,3 +1,4 @@
+import { currentAttention } from "@ace/ui-core";
 import { Link, useLocation } from "@tanstack/react-router";
 import {
   settleAction,
@@ -41,7 +42,12 @@ export function SettledRow(props: { threadId: string; leaving?: boolean | undefi
   const body = (
     <>
       <ProjectMark id={entry.workspaceId} badge={card.badge} />
-      <span className={cn("min-w-0 flex-1 truncate leading-5", titleTone(card))}>
+      <span
+        className={cn(
+          "min-w-0 flex-1 truncate leading-5",
+          titleTone(currentAttention(card.attention, current)),
+        )}
+      >
         {renaming ? (
           <RenameField
             entry={entry}

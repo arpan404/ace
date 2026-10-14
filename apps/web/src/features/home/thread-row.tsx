@@ -1,3 +1,4 @@
+import { currentAttention } from "@ace/ui-core";
 import { DotsSixVerticalIcon } from "@phosphor-icons/react";
 import { Link, useLocation } from "@tanstack/react-router";
 import {
@@ -11,14 +12,7 @@ import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
 import { ThreadHoverContent, useThreadHover } from "./thread-hover-card.tsx";
 import { RenameField } from "./rename-field.tsx";
 import { RowActions } from "./row-actions.tsx";
-import {
-  ProjectMark,
-  RowStatus,
-  RowContext,
-  threadDetails,
-  titleTone,
-  quietCard,
-} from "./row-parts.tsx";
+import { ProjectMark, RowStatus, RowContext, threadDetails, titleTone } from "./row-parts.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
 import { useStartedTitle } from "./started-titles.ts";
 import { useThreadCard } from "./use-thread-card.ts";
@@ -57,7 +51,8 @@ export function ThreadRow(props: {
     started && data.card.title === "New thread" ? { ...data.card, title: started } : data.card;
   const handle = card.flags.pinned && !renaming;
   const details = threadDetails(card);
-  const quiet = quietCard(card);
+  // The open thread reads at full contrast; every other row is as loud as its attention level.
+  const attention = currentAttention(card.attention, current);
   const instance =
     (entry.switch?.state === "queued" ? entry.switch.selection.instanceId : undefined) ??
     entry.live?.account ??
@@ -65,7 +60,7 @@ export function ThreadRow(props: {
   const height = "h-20 py-3";
   const title = (
     <div className="flex min-w-0 items-center gap-1.5">
-      <div className={cn("min-w-0 flex-1 truncate leading-5", "text-base", titleTone(card))}>
+      <div className={cn("min-w-0 flex-1 truncate leading-5", "text-base", titleTone(attention))}>
         {renaming ? (
           <RenameField
             entry={entry}
@@ -95,7 +90,7 @@ export function ThreadRow(props: {
             !renaming && "group-hover/row:hidden group-focus-within/row:hidden",
           )}
         >
-          <RowStatus card={card} />
+          <RowStatus card={card} attention={attention} />
         </span>
       </div>
       {title}
@@ -118,7 +113,8 @@ export function ThreadRow(props: {
             onContextMenu={() => hover.change(false)}
             render={<div />}
             className="group/row relative"
-            data-attention={quiet ? "quiet" : "attention"}
+            data-attention={attention.level}
+            data-muted={attention.muted ? "" : undefined}
             // Settled rows stay out of picking and dragging, as they always have.
             {...(settled ? {} : { "data-thread-row": entry.id })}
           >

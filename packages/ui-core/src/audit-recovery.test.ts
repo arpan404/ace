@@ -36,8 +36,8 @@ test("a local save failure gets the same attention even when the daemon is idle"
     failedSend: true,
   });
   expect(card.status).toMatchObject({ compact: "Not sent", tone: "failed", mark: "failed" });
-  expect(card.emphasis).toBe(true);
-  expect(card.dimmed).toBe(false);
+  // A send that needs the person's action is as strong as a request.
+  expect(card.attention).toMatchObject({ level: "needs-you", word: "Not sent", muted: false });
 });
 
 test.each([

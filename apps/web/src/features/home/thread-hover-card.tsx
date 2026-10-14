@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
 import type { ThreadListEntry } from "@ace/protocol";
-import { modelLabel, providerDisplayName, type ThreadCard } from "@ace/ui-core";
+import { currentAttention, modelLabel, providerDisplayName, type ThreadCard } from "@ace/ui-core";
 import { GitBranchIcon } from "@phosphor-icons/react";
 import { HoverCardContent } from "@/components/ui/hover-card.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
@@ -39,9 +39,10 @@ export function ThreadHoverContent(props: {
       className="w-72 max-h-[min(var(--available-height),400px,calc(100dvh-24px))] overflow-y-auto px-3 py-2.5 break-words"
     >
       <p className="text-ui leading-5 font-medium text-foreground">{card.title}</p>
-      {/* The row's own status, so the card and the row can never word it differently. */}
+      {/* The row's own status, so the card and the row can never word it differently; the
+          card is what the person is looking at, so it reads at full contrast. */}
       <div data-hover-status className="mt-0.5 flex">
-        <RowStatus card={card} />
+        <RowStatus card={card} attention={currentAttention(card.attention, true)} />
       </div>
       <div className="mt-1.5 text-ui text-muted-foreground">
         <Fact>
