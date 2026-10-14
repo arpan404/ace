@@ -18,8 +18,10 @@ export type Delivery = "claude" | "codex";
 
 /** Seeded page: one console error and one failing request, as a broken dev server would. */
 export const seededConsoleError = "seeded: login widget failed to mount";
-const page = `<!doctype html><title>Login</title><h1>Sign in</h1>
-<script>console.error(${JSON.stringify(seededConsoleError)}); fetch("/api/session");</script>`;
+// The heading appears only after the failing request settles, so waiting for it is enough.
+const page = `<!doctype html><title>Login</title>
+<script>console.error(${JSON.stringify(seededConsoleError)});
+fetch("/api/session").finally(() => document.body.insertAdjacentHTML("beforeend", "<h1>Sign in</h1>"));</script>`;
 
 /**
  * Real daemon, real ace MCP server, scripted provider CLIs and models. Nothing reaches a provider.

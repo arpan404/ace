@@ -9,6 +9,8 @@ import {
   startMcpServer,
   type Toolkit,
   type CallObserver,
+  type AwarenessPort,
+  aceToolAction,
 } from "@ace/mcp-server";
 import type { Store } from "./store.ts";
 
@@ -17,6 +19,7 @@ export async function startDaemonMcp(
   toolkits: readonly Toolkit[] = [],
   observations?: { observeCall: CallObserver; lease(sessionId: string): () => void },
   status?: StatusReader,
+  awareness?: AwarenessPort,
 ) {
   const registry = new ToolRegistry({
     scheduler: nodeScheduler,
@@ -25,12 +28,6 @@ export async function startDaemonMcp(
   registerBuiltins(
     registry,
     {
-      async thread(caller, signal) {
-        signal.throwIfAborted();
-        const thread = store.getThread(caller.threadId);
-        if (!thread) throw new Error("Unknown thread");
-        return thread;
-      },
       async agents(caller, page, signal) {
         signal.throwIfAborted();
         const agents = store.listMcpAgents(caller.threadId, page.cursor ?? "", page.limit + 1);
@@ -72,6 +69,7 @@ export async function startDaemonMcp(
   const server = await startMcpServer({
     maxBodyBytes: 2 * 1024 * 1024,
     registry,
+    ...(awareness ? { awareness } : {}),
     status:
       status ??
       ((caller) => ({
@@ -82,7 +80,9 @@ export async function startDaemonMcp(
     url: server.url,
     toolNames: () => ["ace_status", ...registry.names()],
     toolsChanged: server.toolsChanged,
-    action: (name: string, input: unknown) => registry.action(name, input),
+    // ace_status lives in its own registry; its static catalog entry still attributes it.
+    action: (name: string, input: unknown) =>
+      registry.action(name, input) ?? aceToolAction(name, input),
     providers: new McpProviderSessions(),
     /** Provider adapters own this lease, and end it or abort lifetime on every exit path. */
     openSession(scope: McpScope, lifetime: AbortSignal) {
@@ -98,7 +98,14 @@ export async function startDaemonMcp(
         lease.end();
       };
       lease.principal.signal.addEventListener("abort", end, { once: true });
-      return { ...lease, end };
+      return {
+        ...lease,
+        end,
+        /** Brief and groups for the provider's native instructions (P1). */
+        session: () => server.awareness?.guidance(lease.principal) ?? {},
+        /** The digest since this session's last ace call, for turn-start hooks. */
+        changes: () => server.awareness?.changes(lease.principal),
+      };
     },
     close: server.close,
   };

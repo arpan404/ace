@@ -94,6 +94,13 @@ export async function waitForBrowser(options: {
       "invalid_arguments",
       "Choose exactly one of url, text, or ref with state",
       'Use {url: "http://localhost:3000/results"}, {text: "Saved"}, or {ref: "e1-42", state: "visible"}.',
+      [
+        {
+          path: "url",
+          expected:
+            'exactly one wait condition: {url}, {text}, or {ref, state: "visible" or "hidden"}',
+        },
+      ],
     );
   const { ref, state } = command;
   const element =

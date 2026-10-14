@@ -1,5 +1,12 @@
 import { legacySessions } from "./legacy-sessions.ts";
-import { createStatusRegistry, type StatusReader, aceInstructions } from "./status.ts";
+import {
+  createStatusRegistry,
+  mcpStatusGroups,
+  type StatusReader,
+  aceInstructions,
+} from "./status.ts";
+import { SessionAwareness, type AwarenessPort } from "./awareness.ts";
+import { withChanges } from "./changes.ts";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import { CredentialRegistry, type Principal } from "./credentials.ts";
@@ -8,6 +15,8 @@ import type { ToolRegistry } from "./registry.ts";
 export interface McpServerOptions {
   registry: ToolRegistry;
   status?: StatusReader;
+  /** Session brief and change digest facts (proposal P1). Absent: plain results. */
+  awareness?: AwarenessPort;
   credentials?: CredentialRegistry;
   port?: number;
   maxRequests?: number;
@@ -30,10 +39,23 @@ export async function startMcpServer(options: McpServerOptions) {
     };
   });
   const status = createStatusRegistry(options.registry, options.status);
+  const awareness = options.awareness
+    ? new SessionAwareness(options.awareness, (principal) => {
+        const state = options.status?.(principal.scope);
+        return mcpStatusGroups(
+          options.registry.capabilities(),
+          principal.scope.capabilities,
+          state?.disabled,
+          state?.access,
+        )
+          .filter((group) => group.enabled && group.name !== "thread")
+          .map((group) => group.name);
+      })
+    : undefined;
   const credentials =
     options.credentials ?? new CredentialRegistry(() => randomBytes(32).toString("hex"));
   let runtime: Promise<Awaited<ReturnType<typeof createHandler>>> | undefined;
-  const load = () => (runtime ??= createHandler(options, credentials, status));
+  const load = () => (runtime ??= createHandler(options, credentials, status, awareness));
   let active = 0;
   let closing = false;
   const http = createServer(
@@ -100,6 +122,7 @@ export async function startMcpServer(options: McpServerOptions) {
   return {
     url: `http://127.0.0.1:${address.port}/mcp`,
     credentials,
+    awareness,
     toolsChanged(): void {
       if (!closing && runtime)
         void runtime
@@ -136,6 +159,7 @@ async function createHandler(
   options: McpServerOptions,
   credentials: CredentialRegistry,
   status: ToolRegistry,
+  awareness: SessionAwareness | undefined,
 ) {
   const { McpServer, createMcpHandler, isLegacyRequest } =
     await import("@modelcontextprotocol/server");
@@ -167,6 +191,17 @@ async function createHandler(
     const server = product.server;
     server.setRequestHandler("resources/list", async () => ({
       resources: [
+        ...(awareness
+          ? [
+              {
+                uri: "ace://session",
+                name: "ace session",
+                description:
+                  "This session's brief: project, branch, access mode, groups, delegation targets, live threads and pending requests.",
+                mimeType: "application/json",
+              },
+            ]
+          : []),
         {
           uri: "ace://status",
           name: "ace status",
@@ -177,6 +212,19 @@ async function createHandler(
       ],
     }));
     server.setRequestHandler("resources/read", async (request, context) => {
+      if (request.params.uri === "ace://session" && awareness) {
+        const facts = awareness.facts(principal);
+        if (!facts) throw new Error("Session unavailable");
+        return {
+          contents: [
+            {
+              uri: "ace://session",
+              mimeType: "application/json",
+              text: JSON.stringify({ brief: awareness.brief(principal), facts }),
+            },
+          ],
+        };
+      }
       if (request.params.uri !== "ace://status") throw new Error("Unknown resource");
       const result = await status.call("ace_status", {}, principal, context.mcpReq.signal);
       if (result.isError || !result.structuredContent) throw new Error("Status unavailable");
@@ -209,12 +257,13 @@ async function createHandler(
       pending.set(id, controller);
       try {
         const registry = request.params.name === "ace_status" ? status : options.registry;
-        return await registry.call(
+        const result = await registry.call(
           request.params.name,
           request.params.arguments ?? {},
           principal,
           AbortSignal.any([context.mcpReq.signal, controller.signal]),
         );
+        return awareness ? withChanges(awareness, principal, request.params.name, result) : result;
       } finally {
         pending.delete(id);
         if (!pending.size) calls.delete(principal);

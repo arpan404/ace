@@ -53,10 +53,18 @@ test("preview does not publish; rendered HTML replays after daemon restart with 
     const connection = { url: mcp.url, bearer: lease.bearer };
     // Exceeds the ordinary MCP input cap; payload remains outside transcript events.
     const html = `<!doctype html><html><body><h1>Replay</h1><!--${"é".repeat(40000)}--></body></html>`;
-    const preview = Result.parse(
-      await (await invoke(connection, "ace_html_preview", { html })).json(),
+    // An unsupported page is refused in the same call, with what to fix, and nothing is published.
+    const refused = Result.parse(
+      await (
+        await invoke(connection, "ace_html_render", {
+          title: "External",
+          html: `<!doctype html><script src="https://example.invalid/x.js"></script>`,
+        })
+      ).json(),
     );
-    expect(preview.result.isError).not.toBe(true);
+    expect(refused.result.isError).toBe(true);
+    expect(JSON.stringify(refused)).toContain("invalid_html");
+    expect(JSON.stringify(refused)).toContain('\\"path\\":\\"html\\"');
     expect(store.readItemPage(thread.id, store.headSeq() + 1, 200).items).toHaveLength(0);
     const rendered = Result.parse(
       await (

@@ -14,7 +14,7 @@ test.each(["claude", "codex"] as const)(
         join(root, "generated/plugins/ace-builtins/skills/visualize/SKILL.md"),
         "utf8",
       );
-      expect(skill).toContain("ace_html_preview");
+      expect(skill).toContain("invalid_html");
       expect(skill).toContain("ace_html_render");
       if (provider === "claude")
         expect(session.directories).toEqual([join(root, "generated/plugins/ace-builtins")]);

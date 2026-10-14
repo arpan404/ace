@@ -9,8 +9,21 @@ export type StatusReader = (caller: McpAttribution) => {
   screenApproved?: boolean;
 };
 
-export const aceInstructions =
-  "ace tools add ace-specific actions next to your own tools. Read, create and edit files and run shell commands with your own workspace tools: ace has no file or shell tools, and no ace tool group, enabled or not, limits them. Websites and web apps, including localhost: ace_browser_*. screen_* (computer use) only for a native desktop app the person asked you to operate. Call ace_status for which ace tool groups are enabled.\nWhen you open or find a pull request for this thread's work, link it with ace_thread_link_pr.";
+/**
+ * MCP server instructions. Claude Code reads only the first 2,048 characters and defers ace tools
+ * behind tool search, so this says first when to look for ace tools and by which names.
+ */
+export const aceInstructions = [
+  "ace is the app running this session. Its tools act on ace itself, beside your own tools. Search for ace tools (names start with ace_, screen_ or device_, plus delegate_task) when you need to:",
+  "- hand work to another agent or provider and collect the results: delegate_task, then ace_wait;",
+  "- open, test or debug any website or localhost page in ace's browser: ace_browser_open, ace_browser_snapshot, ace_browser_logs;",
+  "- show a chart, diagram, comparison or mockup inline: ace_html_render;",
+  "- read or retitle this thread, or find other threads in this project: ace_thread_read, ace_thread_rename, ace_threads_list;",
+  "- link a pull request you opened or found for this work: ace_thread_link_pr;",
+  "- operate a native desktop app the person named: screen_* (computer use).",
+  "ace has no file or shell tools. Read, create and edit files and run shell commands with your own workspace tools: no ace tool group, enabled or not, limits them.",
+  "If an ace tool reports disabled, denied, read-only or human control, stop that ace action and tell the person; don't work around it with other ace tools. Agents never resolve approvals. ace_status lists the enabled ace groups.",
+].join("\n");
 
 export function createStatusRegistry(
   registry: ToolRegistry,

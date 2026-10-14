@@ -1,5 +1,142 @@
 {
   "$id": "https://ace.local/protocol/v1/ace_agents_status.output.json",
-  "$ref": "https://ace.local/protocol/v1/ace_agent_cancel.output.json",
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "enum": [
+        "unsupported",
+        "forbidden",
+        "not_found",
+        "limit",
+        "not_ready",
+        "invalid",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "data": {
+      "additionalProperties": false,
+      "properties": {
+        "children": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "ask": {
+                "maxLength": 100,
+                "type": "string"
+              },
+              "elapsedSeconds": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "last": {
+                "maxLength": 100,
+                "type": "string"
+              },
+              "machine": {
+                "maxLength": 64,
+                "type": "string"
+              },
+              "needs": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer"
+              },
+              "parent": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "role": {
+                "maxLength": 40,
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "working",
+                  "needs_you",
+                  "done",
+                  "failed",
+                  "cancelled"
+                ],
+                "type": "string"
+              },
+              "step": {
+                "maxLength": 60,
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "role",
+              "state",
+              "elapsedSeconds"
+            ],
+            "type": "object"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "counts": {
+          "additionalProperties": false,
+          "properties": {
+            "cancelled": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "done": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "failed": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "needs_you": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "working": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "working",
+            "needs_you",
+            "done",
+            "failed",
+            "cancelled"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "children",
+        "counts"
+      ],
+      "type": "object"
+    },
+    "hint": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "type": "object"
 }

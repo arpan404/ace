@@ -114,10 +114,10 @@ it("serves remote device access alongside isolated MCP authority and shuts down 
       fingerprint: daemon.fingerprint,
     }),
   ).toMatchObject({ running: true });
-  expect(await (await call(daemon.mcp.url, lease.bearer, "ace_thread_info")).json()).toMatchObject({
-    result: { structuredContent: { thread: { id: scope.threadId } } },
+  expect(await (await call(daemon.mcp.url, lease.bearer, "ace_status")).json()).toMatchObject({
+    result: { structuredContent: { threadId: scope.threadId } },
   });
-  expect((await call(daemon.mcp.url, paired.token, "ace_thread_info")).status).toBe(401);
+  expect((await call(daemon.mcp.url, paired.token, "ace_status")).status).toBe(401);
   await expect(
     accessRequest(remote, "/mcp", {
       token: paired.token,
@@ -134,7 +134,7 @@ it("serves remote device access alongside isolated MCP authority and shuts down 
   });
   expect(reopened.store.getMcpAgent(scope.threadId, scope.agentId)).toMatchObject({ id: "root" });
   expect(reopened.fingerprint).toBe(daemon.fingerprint);
-  expect((await call(reopened.mcp.url, lease.bearer, "ace_thread_info")).status).toBe(401);
+  expect((await call(reopened.mcp.url, lease.bearer, "ace_status")).status).toBe(401);
 });
 
 it("persists an attributed notice and notification intent together and preserves pending intents across restart", async () => {
@@ -185,7 +185,7 @@ it("persists an attributed notice and notification intent together and preserves
   const reopened = await openTransport();
   cleanups.push(() => reopened.close());
   expect(reopened.store.readMcpIntents()).toMatchObject([pending[0]]);
-  expect((await call(reopened.mcp.url, lease.bearer, "ace_thread_info")).status).toBe(401);
+  expect((await call(reopened.mcp.url, lease.bearer, "ace_status")).status).toBe(401);
   const first = reopened.store.readMcpIntents()[0];
   if (!first) throw new Error("Expected pending intent");
   expect(reopened.store.acknowledgeMcpIntent(first.id)).toBe(true);
@@ -269,8 +269,8 @@ it("reads indexed agent pages with canonical status and late parent linkage", as
   ).toMatchObject({
     result: { structuredContent: { agents: [{ id: "root" }], nextCursor: null } },
   });
-  expect(await (await call(daemon.mcp.url, lease.bearer, "ace_thread_info")).json()).toMatchObject({
-    result: { structuredContent: { thread: { status: { state: "needs_you" } } } },
+  expect(await (await call(daemon.mcp.url, lease.bearer, "ace_thread_read")).json()).toMatchObject({
+    result: { structuredContent: { data: { thread: { status: { state: "needs_you" } } } } },
   });
   expect(() =>
     daemon.mcp.openSession(
@@ -406,7 +406,7 @@ it("the daemon advertises unique scoped tools from every real registered toolkit
   expect(new Set(names).size).toBe(names.length);
   expect(names).toEqual(
     expect.arrayContaining([
-      "ace_thread_info",
+      "ace_thread_read",
       "ace_read_handoff",
       "ace_read_handoff_chunk",
       "ace_browser_open",

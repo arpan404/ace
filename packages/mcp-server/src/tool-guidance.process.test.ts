@@ -143,7 +143,7 @@ test.each([
     if (mode === "modern") await client.listen({ toolsListChanged: true });
     else await stream.promise;
     if (nativeInstructions) expect(client.getInstructions()).toBeUndefined();
-    else expect(client.getInstructions()).toContain("Websites and web apps, including localhost");
+    else expect(client.getInstructions()).toContain("any website or localhost page");
     const listed = async () => (await client.listTools()).tools;
     expect((await listed()).map((tool) => tool.name)).toEqual(["ace_status"]);
     const change = async (mutate: () => void) => {

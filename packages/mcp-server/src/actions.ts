@@ -1,13 +1,14 @@
 import { htmlToolCatalog } from "./html-tools.ts";
 import type { ApprovalTarget } from "@ace/protocol";
 import { agentControlToolCatalog } from "./agent-control.ts";
-import { builtinToolCatalog, handoffToolCatalog } from "./catalog.ts";
+import { builtinToolCatalog, handoffToolCatalog, statusToolCatalog } from "./catalog.ts";
 
 const definitions = new Map(
   [
     ...agentControlToolCatalog,
     ...builtinToolCatalog,
     ...handoffToolCatalog,
+    ...statusToolCatalog,
     ...htmlToolCatalog,
   ].map((entry) => [entry.name, entry]),
 );

@@ -166,6 +166,28 @@ export async function openSession(
       perTaskStopAffordance: true,
       includeHookEvents: true,
       hooks: {
+        // Turn-start digest: what changed in ace since this session's last ace call (P1).
+        ...(ctx.aceMcp?.changes
+          ? {
+              UserPromptSubmit: [
+                {
+                  hooks: [
+                    async () => {
+                      const changes = ctx.aceMcp?.changes?.();
+                      return changes
+                        ? {
+                            hookSpecificOutput: {
+                              hookEventName: "UserPromptSubmit" as const,
+                              additionalContext: changes,
+                            },
+                          }
+                        : {};
+                    },
+                  ],
+                },
+              ],
+            }
+          : {}),
         SubagentStart: [
           {
             hooks: [

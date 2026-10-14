@@ -29,6 +29,10 @@ const Tools = z.object({
     .max(256),
   nextCursor: z.string().optional(),
 });
+const SessionResource = z.object({
+  brief: z.string().max(4096).optional(),
+  facts: z.object({ groups: z.array(z.string().max(64)).max(32) }),
+});
 const Result = z.object({
   content: z.array(z.unknown()).max(256),
   isError: z.boolean().optional(),
@@ -136,14 +140,36 @@ export default async function aceExtension(
   });
   if (!session.mcp) return;
   const connection = session.mcp;
-  pi.on("before_agent_start", (event) => ({
-    systemPrompt: `${event.systemPrompt}\n\n${developerInstructions("pi")}`,
-  }));
+  // Pi's turn-start hook is synchronous, so the session brief is read from ace://session in the
+  // background and the latest copy goes into each turn's system prompt.
+  let guidance: { brief?: string; groups?: string[] } = {};
+  let readSession: (() => Promise<{ contents: unknown[] }>) | undefined;
+  const refreshGuidance = async () => {
+    try {
+      if (!readSession) return;
+      const read = await readSession();
+      const text = obj(read.contents[0]).text;
+      const parsed = SessionResource.safeParse(JSON.parse(str(text)));
+      if (parsed.success)
+        guidance = {
+          ...(parsed.data.brief ? { brief: parsed.data.brief } : {}),
+          groups: parsed.data.facts.groups,
+        };
+    } catch {
+      /* Older daemons have no session resource; the static guidance still applies. */
+    }
+  };
+  pi.on("before_agent_start", (event) => {
+    const systemPrompt = `${event.systemPrompt}\n\n${developerInstructions("pi", guidance)}`;
+    void refreshGuidance();
+    return { systemPrompt };
+  });
   const { Client, StreamableHTTPClientTransport } = await import("@modelcontextprotocol/client");
   const client = new Client(
     { name: "ace-pi", version: "0.1.0" },
     { versionNegotiation: { mode: { pin: "2026-07-28" } } },
   );
+  readSession = () => client.readResource({ uri: "ace://session" });
   let calls = 0;
   pi.on("tool_result", (event) => {
     if (!ToolName.safeParse(event.toolName).success) return;
@@ -157,6 +183,7 @@ export default async function aceExtension(
         fetch: boundedFetch,
       }),
     );
+    await refreshGuidance();
     const registered = new Set<string>();
     const refresh = (catalogValue: unknown) => {
       const catalog = Tools.parse(catalogValue);

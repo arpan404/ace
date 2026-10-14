@@ -57,6 +57,12 @@ Committed reports:
   in `:read-only` was still offered `screen_request_app`, because the check compared native mode
   names. #685's canonical access mode makes that check correct, and the gate keeps it so.
 
+- [`after-stage2.md`](after-stage2.md) / `after-stage2.json`: after the session brief and change
+  digest, actionable errors and typed results, and the smaller catalogue (proposals 1, 3, 4).
+  The oracle policies read the brief when the instructions carry one, and repair arguments from
+  the error's `issues` paths. The browser fixture now draws its heading only after its failing
+  request settles, so `wait_for` makes the network check deterministic.
+
 ## Tier B: live models (owner-triggered only, never in CI)
 
 Not built, and never run without the owner asking: it spends subscription quota. It is separate

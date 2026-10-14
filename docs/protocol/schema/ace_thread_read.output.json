@@ -1,5 +1,122 @@
 {
   "$id": "https://ace.local/protocol/v1/ace_thread_read.output.json",
-  "$ref": "https://ace.local/protocol/v1/ace_agent_cancel.output.json",
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "enum": [
+        "unsupported",
+        "forbidden",
+        "not_found",
+        "limit",
+        "not_ready",
+        "invalid",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "data": {
+      "additionalProperties": {},
+      "properties": {
+        "items": {
+          "items": {
+            "additionalProperties": {},
+            "properties": {
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "itemsBefore": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "linkedPrs": {
+          "items": {},
+          "type": "array"
+        },
+        "thread": {
+          "additionalProperties": {},
+          "properties": {
+            "id": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "permission": {
+              "additionalProperties": {},
+              "properties": {
+                "effective": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "effective"
+              ],
+              "type": "object"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "status": {
+              "additionalProperties": {},
+              "properties": {
+                "state": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "state"
+              ],
+              "type": "object"
+            },
+            "title": {
+              "type": "string"
+            },
+            "titleSource": {
+              "type": "string"
+            },
+            "workspaceId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "provider",
+            "workspaceId",
+            "status"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "hint": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "type": "object"
 }

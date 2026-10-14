@@ -4,7 +4,7 @@ import { Client as LegacyClient } from "@modelcontextprotocol/sdk/client/index.j
 import { StreamableHTTPClientTransport as LegacyTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterEach, expect, it } from "vitest";
 import { registerBuiltins } from "./index.ts";
-import { deferred, harness, scope, thread } from "./test-support.ts";
+import { deferred, harness, scope } from "./test-support.ts";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -131,9 +131,6 @@ it("attributes concurrent builtin intents to each credential's own node", async 
   registerBuiltins(
     h.registry,
     {
-      async thread() {
-        return thread;
-      },
       async agents() {
         return { agents: [], nextCursor: null };
       },
@@ -176,9 +173,6 @@ it("attributes concurrent builtin intents to each credential's own node", async 
     ]),
   );
   expect(notices).toHaveLength(2);
-  expect(await root.client.callTool({ name: "ace_thread_info" })).toMatchObject({
-    structuredContent: { thread: { status: { state: "waiting", on: "background_task" } } },
-  });
   expect(
     await child.client.callTool({
       name: "ace_notify_user",

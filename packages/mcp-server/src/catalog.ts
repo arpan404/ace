@@ -2,7 +2,6 @@ import { z } from "zod";
 import {
   McpStatus,
   Agent,
-  Thread,
   McpNoticeInput,
   HandoffPageInput,
   HandoffPage,
@@ -19,6 +18,12 @@ export const handoffToolCatalog = [
       "Page cited handoff history. Use sourceThreadId from the manifest and itemsBefore for earlier pages.",
     input: HandoffPageInput,
     output: HandoffPage,
+    // The full item union is ~57 KB of schema; agents read type, id and text parts.
+    advertisedOutput: z.looseObject({
+      threadId: z.string(),
+      items: z.array(z.looseObject({ type: z.string(), id: z.string().optional() })),
+      itemsBefore: z.number().int().positive().nullable(),
+    }),
     capability: null,
     timeoutMs: 10_000,
   },
@@ -49,15 +54,6 @@ export const AgentPage = z.strictObject({
 
 /** Source of truth shared by runtime registration and the generated reference. */
 export const builtinToolCatalog = [
-  {
-    name: "ace_thread_info",
-    riskClass: "read-only",
-    description: "Read this thread and its canonical status.",
-    input: z.strictObject({}),
-    output: z.strictObject({ thread: Thread }),
-    capability: null,
-    timeoutMs: 10_000,
-  },
   {
     name: "ace_list_agents",
     riskClass: "read-only",

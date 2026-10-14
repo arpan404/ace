@@ -1,11 +1,20 @@
 import { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { PublicToolError } from "./public-error.ts";
+import { argumentIssues } from "./argument-issues.ts";
 
 /** Intentionally public failures carry fixed messages. Code-shaped backend objects are untrusted. */
 export function parseToolArguments<T extends z.ZodType>(schema: T, value: unknown): z.output<T> {
   const parsed = schema.safeParse(value);
-  if (!parsed.success) throw new PublicToolError("invalid_arguments");
+  if (!parsed.success)
+    throw new PublicToolError(
+      "invalid_arguments",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      argumentIssues(parsed.error),
+    );
   return parsed.data;
 }
 const Origin = z.object({
@@ -27,7 +36,14 @@ function publicOrigin(raw: string): string {
 export function toolFailure(error: unknown): CallToolResult {
   const trusted = error instanceof PublicToolError;
   const failure = trusted
-    ? new PublicToolError(error.code, error.permission, error.phase, error.candidates, error.detail)
+    ? new PublicToolError(
+        error.code,
+        error.permission,
+        error.phase,
+        error.candidates,
+        error.detail,
+        error.issues,
+      )
     : new PublicToolError(error instanceof z.ZodError ? "invalid_data" : "execution_failed");
   const origin = trusted ? Origin.safeParse(error) : undefined;
   return {
@@ -39,6 +55,7 @@ export function toolFailure(error: unknown): CallToolResult {
           code: failure.code,
           message: failure.message,
           hint: failure.hint,
+          ...(failure.issues ? { issues: failure.issues } : {}),
           ...(failure.detail ? { detail: failure.detail } : {}),
           ...(failure.phase ? { phase: failure.phase } : {}),
           ...(failure.candidates ? { candidates: failure.candidates } : {}),

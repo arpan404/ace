@@ -292,6 +292,8 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           bearer: lease.bearer,
           signal: lease.principal.signal,
           end: lease.end,
+          session: lease.session,
+          changes: lease.changes,
         };
       }),
     recovery: engineOptions.recovery ?? ports,

@@ -1,12 +1,11 @@
 import { z } from "zod";
-import { Thread, McpNotificationIntent, type McpAttribution } from "@ace/protocol";
+import { McpNotificationIntent, type McpAttribution } from "@ace/protocol";
 import type { ToolContext, ToolRegistry } from "./registry.ts";
 
 import { AgentPageInput, AgentPage, builtinToolCatalog } from "./catalog.ts";
 export { AgentPageInput, AgentPage } from "./catalog.ts";
 export type AgentPageRequest = z.output<typeof AgentPageInput>;
 export interface McpReadPort {
-  thread(caller: McpAttribution, signal: AbortSignal): Promise<z.input<typeof Thread>>;
   agents(
     caller: McpAttribution,
     page: AgentPageRequest,
@@ -24,14 +23,6 @@ export function registerBuiltins(
 ): void {
   registry.register({
     ...builtinToolCatalog[0],
-    async run(_, { caller, signal }) {
-      const thread = Thread.parse(await reads.thread(caller, signal));
-      if (thread.id !== caller.threadId) throw new Error("Thread scope mismatch");
-      return { thread };
-    },
-  });
-  registry.register({
-    ...builtinToolCatalog[1],
     async run(page, { caller, signal }) {
       const result = AgentPage.parse(await reads.agents(caller, page, signal));
       if (
@@ -43,7 +34,7 @@ export function registerBuiltins(
     },
   });
   registry.register({
-    ...builtinToolCatalog[2],
+    ...builtinToolCatalog[1],
     async run(notice, context: ToolContext) {
       const result = await intents.notify(
         McpNotificationIntent.parse({ ...context.caller, type: "mcp.notify", notice }),

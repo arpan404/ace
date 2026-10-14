@@ -1,6 +1,13 @@
 import { controlActions } from "./control-actions.ts";
 import { z } from "zod";
-import { AgentControlOperation, AgentControlResult, type McpAttribution } from "@ace/protocol";
+import {
+  AgentControlOperation,
+  ThreadId,
+  type AgentControlResult,
+  type McpAttribution,
+} from "@ace/protocol";
+import { controlOutput } from "./control-outputs.ts";
+import { withControlHint } from "./control-hints.ts";
 import type { Toolkit } from "./toolkits.ts";
 
 /** The longest bounded wait plus transport grace, still inside every provider's tool timeout. */
@@ -44,7 +51,7 @@ export const agentControlToolCatalog = AgentControlOperation.options.flatMap((sc
         : op === "thread.read_output"
           ? "Read a bounded byte range from a transcript/output source returned by ace_thread_read. Offsets and limits are bytes; the result contains base64 bytes and nextOffset. Decode using the source encoding. The stream must belong to the requested authorized thread."
           : op === "thread.read"
-            ? "Read thread metadata and a byte-budgeted transcript page. Use itemsBefore as the next before cursor. For truncated parts with source.streamId, use ace_thread_read_output to page retained bytes."
+            ? "Read a thread's metadata (title, titleSource, status, permission, branch) and a byte-budgeted transcript page. Omit threadId for your own thread. Use itemsBefore as the next before cursor. For truncated parts with source.streamId, use ace_thread_read_output to page retained bytes."
             : controlActions[op].description,
     input:
       op === "thread.link_pr" || op === "thread.unlink_pr" || op === "delegate_task"
@@ -57,8 +64,10 @@ export const agentControlToolCatalog = AgentControlOperation.options.flatMap((sc
                   context.addIssue({ code: "custom", message: issue.message, path: issue.path });
             })
             .meta(toolMeta(schema.meta()))
-        : z.strictObject(shape),
-    output: AgentControlResult,
+        : op === "thread.read"
+          ? z.strictObject({ ...shape, threadId: ThreadId.optional() })
+          : z.strictObject(shape),
+    output: controlOutput(op),
     capability:
       controlActions[op].riskClass === "read-only"
         ? null
@@ -88,8 +97,16 @@ export function agentControlToolkit(port: AgentControlPort): Toolkit {
         registry.register({
           ...definition,
           async run(input: z.output<typeof definition.input>, context) {
-            const operation = AgentControlOperation.parse({ ...input, op: definition.op });
-            return port.execute(context.caller, operation, context.signal);
+            // ace_thread_read without a threadId reads the caller's own thread.
+            const own =
+              definition.op === "thread.read" && !("threadId" in input && input.threadId)
+                ? { threadId: context.caller.threadId }
+                : {};
+            const operation = AgentControlOperation.parse({ ...input, ...own, op: definition.op });
+            return withControlHint(
+              definition.op,
+              await port.execute(context.caller, operation, context.signal),
+            );
           },
         });
     },

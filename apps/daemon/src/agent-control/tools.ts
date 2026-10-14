@@ -12,7 +12,7 @@ import type { AgentControlPort } from "@ace/mcp-server";
 import type { Store } from "../store.ts";
 import type { DelegationService } from "./delegations.ts";
 import { controlCommandId } from "./delegations.ts";
-import { agentTaskView } from "./task-view.ts";
+import { childTaskView } from "./task-view.ts";
 import { conversationTool, type ConversationStartPort } from "./conversation-tools.ts";
 import { AgentControlError } from "./failure.ts";
 
@@ -167,26 +167,10 @@ export function createAgentControlPort(
         }
         case "agent.status":
         case "agent.result": {
-          const record = service.journal.get(operation.threadId);
-          const thread = store.getThread(operation.threadId);
-          if (!record || !thread || !service.authorize(caller, operation.threadId, true))
+          const child = childTaskView(store, service.journal, operation.threadId);
+          if (!child || !service.authorize(caller, operation.threadId, true))
             return { ok: false, code: "forbidden" };
-          const pending = service.journal
-            .family(record.rootId)
-            .some(
-              (edge) =>
-                edge.phase !== "settled" &&
-                service.journal.isDescendant(edge.childId, record.childId),
-            );
-          const root = thread.rootAgentId && store.getMcpAgent(thread.id, thread.rootAgentId);
-          const view = agentTaskView(
-            thread,
-            record,
-            pending,
-            !!root && ["idle", "blocked", "interrupted"].includes(root.status.state),
-          );
-          const available =
-            ["result_available", "failed", "cancelled"].includes(view.state) && !pending;
+          const { record, view, available } = child;
           if (operation.op === "agent.result" && (!available || !record.outcome))
             return { ok: false, code: "not_ready", data: view };
           return {

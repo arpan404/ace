@@ -170,7 +170,7 @@ if (provider === "opencode") {
         if (Buffer.byteLength(body) > 65536) throw new Error("Fake request exceeds bound");
       }
       const entry = z.object({ value: z.string() }).parse(JSON.parse(body));
-      if (!entry.value.includes("ace_browser_") || !entry.value.includes("screen_"))
+      if (!entry.value.includes("ace_thread_rename") || !entry.value.includes("screen_"))
         throw new Error("Native tool guidance is missing");
       res.writeHead(204).end();
       return;

@@ -22,6 +22,7 @@ export const PublicToolCode = z.enum([
   "no_key_window",
   "delivery_unconfirmed",
   "invalid_arguments",
+  "invalid_html",
   "invalid_data",
   "execution_failed",
   "provider_unavailable",
@@ -79,6 +80,13 @@ export type PublicToolCode = z.infer<typeof PublicToolCode>;
 const candidateIds = z
   .array(z.object({ windowId: z.number().int().min(0).max(0xffffffff) }))
   .max(128);
+/** A field-level problem: where, and what the schema expects. Never the value that was sent. */
+export const PublicIssue = z.strictObject({
+  path: z.string().min(1).max(160),
+  expected: z.string().min(1).max(240),
+});
+export type PublicIssue = z.infer<typeof PublicIssue>;
+const issueList = z.array(PublicIssue).max(16);
 const dispatchPhase = z.enum(["rejected-before-dispatch", "dispatched", "partial"]);
 const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   screen_approval_required: {
@@ -151,7 +159,11 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   invalid_arguments: {
     message: "Invalid tool arguments",
-    hint: "Check the advertised tool schema and required fields. Choose exactly one browser wait condition.",
+    hint: "Nothing ran. Fix each field named in issues, keep the other arguments, and call again.",
+  },
+  invalid_html: {
+    message: "The page has unsupported content and was not published",
+    hint: "Fix each problem in issues, then call ace_html_render again with the corrected page.",
   },
   invalid_data: {
     message: "Invalid tool or backend data",
@@ -207,7 +219,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   execution_failed: {
     message: "Tool execution failed",
-    hint: "Retry once or report the failure to the user.",
+    hint: "The tool failed without a public reason. Do not send the identical call again: check the target's current state, change the request, or tell the person.",
   },
   stale_ref: {
     message: "Stale or unknown element ref",
@@ -367,12 +379,14 @@ export class PublicToolError extends Error {
   readonly detail: string | undefined;
   readonly phase: z.infer<typeof dispatchPhase> | undefined;
   readonly candidates: z.infer<typeof candidateIds> | undefined;
+  readonly issues: PublicIssue[] | undefined;
   constructor(
     code: PublicToolCode,
     permission?: DeviceFailure["permission"],
     phase?: unknown,
     candidates?: unknown,
     detail?: string,
+    issues?: unknown,
   ) {
     const entry = catalog[code];
     super(entry.message);
@@ -386,6 +400,8 @@ export class PublicToolError extends Error {
     const parsedCandidates = candidateIds.safeParse(candidates);
     this.candidates =
       code === "window_ambiguous" && parsedCandidates.success ? parsedCandidates.data : undefined;
+    const parsedIssues = issueList.safeParse(issues);
+    this.issues = parsedIssues.success && parsedIssues.data.length ? parsedIssues.data : undefined;
     const parsedPhase = dispatchPhase.safeParse(phase);
     this.phase = parsedPhase.success ? parsedPhase.data : undefined;
     const parsed = DeviceFailure.shape.permission.safeParse(permission);

@@ -49,7 +49,14 @@ export async function bindMcpSession(
   const connection =
     context.aceMcp ??
     (lease && options.mcp
-      ? { url: options.mcp.url, bearer: lease.bearer, signal: lifetime, end }
+      ? {
+          url: options.mcp.url,
+          bearer: lease.bearer,
+          signal: lifetime,
+          end,
+          session: lease.session,
+          changes: lease.changes,
+        }
       : undefined);
   const nativeMcp =
     connection && ["acp", "cursor", "antigravity"].includes(adapter.provider)

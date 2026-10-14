@@ -68,7 +68,6 @@ function published(page: PublishedPage): Scenario {
           rootAgent("claude"),
           turn("root"),
           message("root", "ask", "user", page.ask),
-          ...aceCall("preview", "ace_html_preview", { html: "…" }),
           ...aceCall("render", "ace_html_render", {
             title: page.title,
             html: "…",

@@ -1,9 +1,9 @@
 # HTML visualizations in chat
 
-Agents use `ace_html_preview({ html })` to validate a page, then
-`ace_html_render({ title, html, mode?, height? })` to publish it inline in their reply.
-Preview returns size, nesting and unsupported-feature diagnostics. It does not execute
-scripts or publish an item. HTML in a normal message remains text.
+Agents call `ace_html_render({ title, html, mode?, height? })` to publish a page inline in
+their reply. Render validates first: a page with unsupported features fails with
+`invalid_html`, lists each size, nesting or feature problem in `issues`, and publishes
+nothing, so one call both checks and publishes. HTML in a normal message remains text.
 
 The document cap is 256 KiB of UTF-8, with a 160-character title and an optional
 80–2000 px height cap. Only these structured tools receive a larger MCP input

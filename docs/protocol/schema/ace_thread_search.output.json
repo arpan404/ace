@@ -1,5 +1,86 @@
 {
   "$id": "https://ace.local/protocol/v1/ace_thread_search.output.json",
-  "$ref": "https://ace.local/protocol/v1/ace_agent_cancel.output.json",
-  "$schema": "https://json-schema.org/draft/2020-12/schema"
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "enum": [
+        "unsupported",
+        "forbidden",
+        "not_found",
+        "limit",
+        "not_ready",
+        "invalid",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "data": {
+      "additionalProperties": {},
+      "properties": {
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hits": {
+          "items": {
+            "additionalProperties": {},
+            "properties": {
+              "itemId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "provider": {
+                "type": "string"
+              },
+              "snippet": {
+                "additionalProperties": {},
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "text"
+                ],
+                "type": "object"
+              },
+              "status": {
+                "type": "string"
+              },
+              "threadId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "threadTitle": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "threadId"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "hits"
+      ],
+      "type": "object"
+    },
+    "hint": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "type": "object"
 }
