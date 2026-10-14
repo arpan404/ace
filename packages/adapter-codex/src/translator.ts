@@ -7,6 +7,7 @@ import type { ThreadId, RunTrigger } from "@ace/protocol";
 import type { Frame, Translator } from "@ace/engine-api";
 import type { Agent, TranslationContext } from "./translator-state.ts";
 import { createAgentRegistry } from "./agent-registry.ts";
+import { historyAssembly, metadataOnly } from "./history-assembly.ts";
 import { completeTurn } from "./translate-turn.ts";
 import { translateItem } from "./translate-item.ts";
 import { isKnownDelta, translateDelta } from "./translate-delta.ts";
@@ -31,6 +32,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
   const userTurns = new RecentSet();
   const completions = new PendingCompletions();
   const buffers = unknownBuffers();
+  const histories = historyAssembly();
   const asyncOwners: TranslationContext["asyncOwners"] = new Map();
   let unknownGuard = false;
   function finishUnknown(facts: Fact[]) {
@@ -111,16 +113,22 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     if (frame.dir === "note") {
       translation.answerEchoes.note(message);
       if (message["event"] === "session-scope") scope = str(message["scope"]);
+      if (message["event"] === "thread-history") histories.add(message);
+      if (message["event"] === "thread-history-omitted")
+        facts.push(note(init.rootKey, "thread-history-omitted", frame.data));
       if (message["event"] === "thread-discovered") {
-        const thread = obj(message["thread"]);
+        const thread = histories.complete(message);
         const source = obj(obj(obj(thread["source"])["subAgent"])["thread_spawn"]);
         const revision = recoveryRevision.safeParse(message["revision"]);
+        const discovered = str(thread["id"]);
         discover(
-          str(thread["id"]),
+          discovered,
           thread,
           facts,
           now,
-          str(thread["parentThreadId"], str(source["parent_thread_id"])) || undefined,
+          // The root is the top of this tree, whatever Codex records above it.
+          (discovered !== root && str(thread["parentThreadId"], str(source["parent_thread_id"]))) ||
+            undefined,
           undefined,
           revision.success ? revision.data : undefined,
         );
@@ -203,7 +211,13 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
         if (str(thread["id"])) {
           root = str(thread["id"]);
           cwd = str(thread["cwd"], str(pending.params["cwd"], cwd));
-          const agent = discover(root, thread, facts, now);
+          // Without turns, its status is not evidence of a turn; both come with the history read.
+          const agent = discover(
+            root,
+            pending.params["excludeTurns"] === true ? metadataOnly(thread) : thread,
+            facts,
+            now,
+          );
           facts.push(...title(thread["name"], frame.data));
           confirmModel(agent, result["model"], facts);
         }

@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { list, obj, str } from "../native.ts";
 import { aceMcpApprovals } from "./mcp-approvals.ts";
+import { historyStore, longHistory } from "./history-store.ts";
 if (process.env["ACE_FAKE_RESUME"] === "ignore-term") process.on("SIGTERM", () => {});
 const args: string[] = [];
 const overrides = new Map<string, string>();
@@ -31,7 +32,11 @@ if (args.join(" ") !== "app-server") {
 const write = (data: unknown) => process.stdout.write(`${JSON.stringify(data)}\n`);
 const aceTools =
   process.env["ACE_FAKE_RESUME"] === "ace-mcp-approvals" ? aceMcpApprovals(write) : undefined;
-const notify = (method: string, params: unknown) => write({ method, params });
+const stored = historyStore();
+const notify = (method: string, params: unknown) => {
+  stored.notified(method, params);
+  write({ method, params });
+};
 let appCatalogNotified = false;
 const apps: { id: string; name: string; description: string }[] = [
   { id: "calendar", name: "Calendar", description: "Read calendars" },
@@ -87,7 +92,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     end();
     continue;
   }
-  const respond = (result: unknown) => write({ id, result });
+  const respond = (result: unknown) => write({ id, result: stored.reply(method, p, result) });
   if (method === "initialize") {
     if (obj(p["capabilities"])["experimentalApi"] !== true)
       write({ id, error: { message: "Experimental API is required" } });
@@ -149,20 +154,18 @@ for await (const line of createInterface({ input: process.stdin })) {
         id: "fork-native",
         cwd: process.cwd(),
         status: { type: "idle" },
-        turns: p["excludeTurns"]
-          ? []
-          : forkHistory.map((turn) => ({
-              id: turn.id,
-              status: "completed",
-              items: [
-                {
-                  id: `ask-${turn.id}`,
-                  type: "userMessage",
-                  content: [{ type: "text", text: `ask ${turn.text}` }],
-                },
-                { id: `reply-${turn.id}`, type: "agentMessage", text: turn.text },
-              ],
-            })),
+        turns: forkHistory.map((turn) => ({
+          id: turn.id,
+          status: "completed",
+          items: [
+            {
+              id: `ask-${turn.id}`,
+              type: "userMessage",
+              content: [{ type: "text", text: `ask ${turn.text}` }],
+            },
+            { id: `reply-${turn.id}`, type: "agentMessage", text: turn.text },
+          ],
+        })),
       },
       model: "fake-model",
     });
@@ -201,6 +204,18 @@ for await (const line of createInterface({ input: process.stdin })) {
           !process.env["ACE_MCP_BEARER_TOKEN"],
       },
     });
+    if (["long-history", "legacy-history"].includes(process.env["ACE_FAKE_RESUME"] ?? "")) {
+      respond({
+        thread: {
+          id: "native",
+          cwd: process.cwd(),
+          status: { type: "idle" },
+          turns: longHistory(),
+        },
+        model: "fake-model",
+      });
+      continue;
+    }
     if (process.env["ACE_FAKE_RESUME"] === "historical-interactions") {
       respond({
         thread: {
@@ -229,9 +244,17 @@ for await (const line of createInterface({ input: process.stdin })) {
       continue;
     }
     if (process.env["ACE_FAKE_RESUME"] === "resume-completed") {
-      process.stdout.write(
-        `${JSON.stringify({ id, result: { thread: { id: "native", status: { type: "active" }, turns: [{ id: "resumed", status: "inProgress", items: [] }] } } })}\n${JSON.stringify({ method: "turn/completed", params: { threadId: "native", turn: { id: "resumed", status: "completed" } } })}\n`,
-      );
+      respond({
+        thread: {
+          id: "native",
+          status: { type: "active" },
+          turns: [{ id: "resumed", status: "inProgress", items: [] }],
+        },
+      });
+      notify("turn/completed", {
+        threadId: "native",
+        turn: { id: "resumed", status: "completed" },
+      });
       continue;
     }
     if (process.env["ACE_FAKE_RESUME"] === "active") active.set("native", "resumed");
@@ -880,9 +903,15 @@ for await (const line of createInterface({ input: process.stdin })) {
     if (process.env["ACE_FAKE_RESUME"] === "read-completed" && p["threadId"] === "hidden") {
       active.delete("hidden");
       const turn = { id: "hidden-turn", status: "inProgress", items: [] };
-      process.stdout.write(
-        `${JSON.stringify({ id, result: { thread: { id: "hidden", parentThreadId: "native", status: { type: "active" }, turns: [turn] } } })}\n${JSON.stringify({ method: "turn/completed", params: { threadId: "hidden", turn: { ...turn, status: "completed" } } })}\n`,
-      );
+      respond({
+        thread: {
+          id: "hidden",
+          parentThreadId: "native",
+          status: { type: "active" },
+          turns: [turn],
+        },
+      });
+      notify("turn/completed", { threadId: "hidden", turn: { ...turn, status: "completed" } });
       continue;
     }
     if (/^(?:unrelated-|noise-)/.test(str(p["threadId"]))) {
@@ -911,19 +940,6 @@ for await (const line of createInterface({ input: process.stdin })) {
       continue;
     }
     if (p["threadId"] === "overflow-child") {
-      if (!discoveryFailed) {
-        discoveryFailed = true;
-        if (process.env["ACE_FAKE_RESUME"] === "omitted-history")
-          respond({
-            thread: {
-              id: "overflow-child",
-              parentThreadId: "native",
-              status: { type: "idle" },
-            },
-          });
-        else write({ id, error: { code: -32000, message: "read failed" } });
-        continue;
-      }
       respond({
         thread: {
           id: "overflow-child",
@@ -946,7 +962,7 @@ for await (const line of createInterface({ input: process.stdin })) {
         parentThreadId:
           p["threadId"] === "unrelated"
             ? "other-root"
-            : p["threadId"] === "other-root"
+            : p["threadId"] === "other-root" || p["threadId"] === "native"
               ? null
               : "native",
         cwd: process.cwd(),
@@ -954,6 +970,21 @@ for await (const line of createInterface({ input: process.stdin })) {
         turns: [{ id: active.get(str(p["threadId"])), status: "inProgress" }],
       },
     });
+  } else if (
+    method === "thread/turns/list" &&
+    process.env["ACE_FAKE_RESUME"] === "legacy-history"
+  ) {
+    // Servers before paged history.
+    write({ id, error: { code: -32601, message: "Method not found" } });
+  } else if (method === "thread/turns/list") {
+    // The first history page for the truncated child fails, so recovery must retry it.
+    if (p["threadId"] === "overflow-child" && !discoveryFailed) {
+      discoveryFailed = true;
+      if (process.env["ACE_FAKE_RESUME"] === "omitted-history") respond({ nextCursor: null });
+      else write({ id, error: { code: -32000, message: "read failed" } });
+      continue;
+    }
+    respond(stored.page(p));
   } else if (method !== "initialized")
     write({ id, error: { message: `Unexpected request: ${method}` } });
 }
