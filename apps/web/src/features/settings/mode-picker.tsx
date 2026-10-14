@@ -18,7 +18,7 @@ export function ModePicker() {
       role="radiogroup"
       aria-label="Mode"
       onKeyDown={onRadioKeys}
-      className="grid max-w-[620px] grid-cols-3 gap-2 @min-[420px]:gap-3"
+      className="grid w-full grid-cols-3 gap-4 @min-[420px]:gap-5"
     >
       {modes.map(({ value, label }) => (
         <PickerCard
@@ -26,6 +26,7 @@ export function ModePicker() {
           label={label}
           checked={appearance.mode === value}
           onChoose={() => update({ mode: value })}
+          centerLabel
           preview={
             <AppPreview
               theme={resolved.theme}

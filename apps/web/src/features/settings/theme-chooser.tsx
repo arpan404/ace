@@ -1,18 +1,18 @@
 import { onRadioKeys } from "@/components/ui/radio-keys.ts";
 import { themeIds, themes } from "@/theme/palettes.ts";
 import { useTheme } from "@/theme/theme-provider.tsx";
-import { AppPreview } from "./app-preview.tsx";
 import { PickerCard } from "./picker-card.tsx";
+import { ThemeSpecimen } from "./theme-specimen.tsx";
 
-/** Every theme as a card: the app in that theme, in the mode on screen. */
+/** Every theme as a card: a specimen of its material, light and dark side by side. */
 export function ThemeChooser() {
-  const { appearance, update, resolved } = useTheme();
+  const { appearance, update } = useTheme();
   return (
     <div
       role="radiogroup"
       aria-label="Theme"
       onKeyDown={onRadioKeys}
-      className="grid max-w-[620px] grid-cols-2 gap-2 @min-[420px]:grid-cols-3 @min-[420px]:gap-3"
+      className="grid w-full grid-cols-2 gap-4 @min-[420px]:grid-cols-3 @min-[420px]:gap-5"
     >
       {themeIds.map((id) => (
         <PickerCard
@@ -22,7 +22,7 @@ export function ThemeChooser() {
           checked={appearance.theme === id}
           onChoose={() => update({ theme: id })}
           labelStyle={{ fontFamily: themes[id].fonts.ui }}
-          preview={<AppPreview theme={id} scheme={resolved.scheme} className="aspect-[16/10]" />}
+          preview={<ThemeSpecimen id={id} />}
         />
       ))}
     </div>
