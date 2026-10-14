@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./resolve": "./src/resolve.ts",
+    "./efforts": "./src/efforts.ts",
     "./preferences": "./src/preferences.ts",
     "./availability": "./src/availability.ts",
     "./service-labels": "./src/service-labels.ts",

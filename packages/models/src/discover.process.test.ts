@@ -37,7 +37,10 @@ test("Codex discovery pages model/list without ever starting a turn", async () =
   expect(rows.map((row) => row.id)).toEqual(["first", "second"]);
   expect(rows[0]).toMatchObject({
     nativeModelId: "first",
-    reasoningEfforts: ["low", "high"],
+    efforts: [
+      { id: "low", level: "low", label: "Low" },
+      { id: "high", level: "high", label: "High" },
+    ],
     defaultEffort: "high",
     contextWindow: 200000,
     inputModalities: ["text", "image"],
@@ -66,7 +69,10 @@ test("Claude discovery initializes only and keeps resolved aliases and supported
   expect(rows[0]).toMatchObject({
     id: "opus",
     resolvedModelId: "claude-opus-test",
-    reasoningEfforts: ["high", "max"],
+    efforts: [
+      { id: "high", level: "high", label: "High" },
+      { id: "max", level: "max", label: "Max" },
+    ],
     serviceTiers: [{ id: "fast", parameters: { fastMode: true } }],
   });
   expect(rows[0]?.raw.json).toContain("extraFutureCapability");
@@ -94,7 +100,7 @@ test("OpenCode v2 metadata keeps provider/model IDs and image capability", async
     nativeModelId: "local/some/model",
     contextWindow: 131072,
     inputModalities: ["text", "image"],
-    reasoningEfforts: ["high"],
+    efforts: [{ id: "high", level: "high", label: "High" }],
     deprecated: true,
   });
 });
@@ -140,7 +146,7 @@ test("shared discovery keeps OpenCode metadata without starting an unprofiled AC
       nativeProviderId: "local",
       nativeModelId: "local/merged-model",
       contextWindow: 131072,
-      reasoningEfforts: ["high"],
+      efforts: [{ id: "high", level: "high", label: "High" }],
     }),
   ]);
   expect(acp).toEqual([]);
@@ -201,8 +207,8 @@ test("ACP grouped model options and per-model effort configuration remain distin
     },
     instance("acp"),
   );
-  expect(rows[0]?.reasoningEfforts).toEqual(["high"]);
-  expect(rows[1]?.reasoningEfforts).toEqual([]);
+  expect(rows[0]?.efforts.map((effort) => effort.id)).toEqual(["high"]);
+  expect(rows[1]?.efforts.map((effort) => effort.id)).toEqual([]);
 });
 
 test("single flight coalesces real app-server spawns", async () => {

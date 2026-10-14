@@ -4,6 +4,7 @@ import type { SpawnOptions, SupervisedProcess } from "@ace/provider-kit/process"
 import { providerSource, modelSource } from "./model-source.ts";
 import { base } from "./model.ts";
 import { chatMetadata } from "./catalog-metadata.ts";
+import { piEfforts } from "./efforts.ts";
 import type { DiscoveryDiagnostics, ModelInstance } from "./types.ts";
 
 export async function discoverListedModels(
@@ -70,6 +71,8 @@ const PiReply = z
                 name: z.string().min(1).max(256),
                 contextWindow: z.number().int().positive().optional(),
                 input: z.array(z.string()).max(32).optional(),
+                /** Pi lists thinking-capable models as reasoning models. */
+                reasoning: z.boolean().optional(),
               })
               .passthrough(),
           )
@@ -92,7 +95,10 @@ async function piModels(
     ],
   });
   const state = z
-    .object({ model: z.object({ provider: z.string(), id: z.string() }).nullish() })
+    .object({
+      model: z.object({ provider: z.string(), id: z.string() }).nullish(),
+      thinkingLevel: z.string().nullish(),
+    })
     .passthrough()
     .parse(await piRequest(proc, "get_state", "ace-models-state"));
   signal.throwIfAborted();
@@ -105,6 +111,7 @@ async function piModels(
       nativeModelId: native.id,
       contextWindow: native.contextWindow,
       inputModalities: native.input ?? [],
+      ...piEfforts(native.reasoning === true, state.thinkingLevel),
     }),
   );
 }

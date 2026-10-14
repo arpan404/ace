@@ -7,7 +7,7 @@ export function freezeCatalogModel(model: CatalogModel): CatalogModel {
     Object.freeze(tier);
   }
   Object.freeze(model.serviceTiers);
-  Object.freeze(model.reasoningEfforts);
+  Object.freeze(model.efforts);
   Object.freeze(model.inputModalities);
   Object.freeze(model.raw);
   if (model.source) Object.freeze(model.source);

@@ -6,15 +6,15 @@ import { freezeCatalogModel } from "./freeze.ts";
 export class ModelMetadataPool {
   readonly #rows = new Map<string, CatalogModel>();
   intern(model: CatalogModel): CatalogModel {
-    const { reasoningEfforts, serviceTiers, inputModalities, raw, aliases } = model;
+    const { efforts, serviceTiers, inputModalities, raw, aliases } = model;
     const key = createHash("sha256")
-      .update(JSON.stringify({ reasoningEfforts, serviceTiers, inputModalities, raw, aliases }))
+      .update(JSON.stringify({ efforts, serviceTiers, inputModalities, raw, aliases }))
       .digest("hex");
     const shared = this.#rows.get(key);
     if (shared)
       return freezeCatalogModel({
         ...model,
-        reasoningEfforts: shared.reasoningEfforts,
+        efforts: shared.efforts,
         serviceTiers: shared.serviceTiers,
         inputModalities: shared.inputModalities,
         raw: shared.raw,

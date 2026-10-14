@@ -1,5 +1,6 @@
 import { matchProfile } from "@ace/agent-registry";
 import { nativePermissionModes, acpPermissionModes } from "@ace/provider-kit/permission-modes";
+import { instanceAccessModes } from "@ace/provider-kit/access-modes";
 import { DiscoveryBackoff } from "./discovery-backoff.ts";
 import { connectionRevision } from "./discovery-revision.ts";
 import { discoveryError } from "./discovery-errors.ts";
@@ -670,13 +671,24 @@ export class ModelCatalog implements ModelCatalogApi {
     );
   }
   #status(state: State): ModelInstanceStatus {
+    const permissionModes =
+      state.permissionModes ??
+      (state.entry?.permissionModes
+        ? [...state.entry.permissionModes]
+        : nativePermissionModes(state.config.provider));
     return {
       provider: state.config.provider,
-      permissionModes:
-        state.permissionModes ??
-        (state.entry?.permissionModes
-          ? [...state.entry.permissionModes]
-          : nativePermissionModes(state.config.provider)),
+      permissionModes,
+      accessModes: instanceAccessModes(
+        {
+          provider: state.config.provider,
+          profile: state.config.acpAgentId?.startsWith("official:")
+            ? matchProfile(state.config.acpAgentId.slice(9), state.config.installationVersion ?? "")
+                ?.id
+            : undefined,
+        },
+        permissionModes.map((mode) => mode.id),
+      ),
       instance: state.config.id,
       ...(state.config.acpAgentId ? { acpAgentId: state.config.acpAgentId } : {}),
       ...(state.config.installationId ? { installationId: state.config.installationId } : {}),

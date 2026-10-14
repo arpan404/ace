@@ -14,7 +14,7 @@ function rows(ids: string[], provider: CatalogModel["provider"] = "codex") {
       isDefault: false,
       hidden: false,
       deprecated: false,
-      reasoningEfforts: [],
+      efforts: [],
       serviceTiers: [],
       inputModalities: ["text"],
       raw: { json: "{}", truncated: false },

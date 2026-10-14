@@ -33,7 +33,7 @@ it("keeps SDK-authenticated model parameters separate from guessed ACP defaults"
   expect(rows[0]).toMatchObject({
     instance: "sdk-a",
     id: "composer-2.5",
-    reasoningEfforts: ["high"],
+    efforts: [{ id: "high", level: "high", label: "High" }],
     defaultTier: "0",
     serviceTiers: [{ parameters: { reasoning_effort: "high" } }],
   });
@@ -57,7 +57,7 @@ it("accepts the full SDK catalog including empty native parameter values and nul
   expect(rows.map((row) => row.id)).toEqual(["composer-2.5", "minimal", "nullable"]);
   expect(rows[0]).toMatchObject({
     aliases: ["composer"],
-    reasoningEfforts: ["high"],
+    efforts: [{ id: "high", level: "high", label: "High" }],
     defaultTier: "0",
     serviceTiers: [
       { parameters: { reasoning_effort: "", speed: "" } },
@@ -107,7 +107,7 @@ it("retains optional metadata as raw data when it cannot be used for controls", 
     id: "usable",
     displayName: "Usable",
     serviceTiers: [],
-    reasoningEfforts: [],
+    efforts: [],
   });
   expect(rows[0]?.raw.json).toContain("future-format");
 });
@@ -209,7 +209,10 @@ it.each(["effort", "reasoning", "reasoning_effort"])(
       instance,
     );
     expect(row).toMatchObject({
-      reasoningEfforts: ["low", "high"],
+      efforts: [
+        { id: "low", level: "low", label: "Low" },
+        { id: "high", level: "high", label: "High" },
+      ],
       defaultEffort: "high",
       serviceTiers: expect.arrayContaining([
         expect.objectContaining({

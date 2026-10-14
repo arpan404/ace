@@ -40,7 +40,10 @@ for (const empty of [false, true])
       ],
     ]);
     if (!empty)
-      expect(rows[0]).toMatchObject({ contextWindow: 200000, reasoningEfforts: ["high"] });
+      expect(rows[0]).toMatchObject({
+        contextWindow: 200000,
+        efforts: [{ id: "high", level: "high", label: "High" }],
+      });
   });
 
 test("OpenCode rejects metadata from a different location", async () => {
