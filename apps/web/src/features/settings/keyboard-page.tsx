@@ -48,7 +48,7 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
       "focusToasts",
     ],
   },
-  { label: "Go to", ids: ["goHome", "goActivity", "goAutomations", "goSkills"] },
+  { label: "Go to", ids: ["goHome", "goAutomations", "goSkills"] },
   {
     label: "Thread",
     ids: [
@@ -72,18 +72,6 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
     label: "Terminal & browser",
     ids: ["terminal", "newTerminal", "findInTerminal", "browser", "takeControl"],
   },
-  {
-    label: "Activity",
-    ids: [
-      "activity.next",
-      "activity.prev",
-      "activity.open",
-      "activity.approve",
-      "activity.deny",
-      "activity.read",
-      "activity.unread",
-    ],
-  },
   { label: "Thread list", ids: ["home.pin", "home.select", "home.move"] },
 ];
 const listed = new Set(groups.flatMap((group) => group.ids));
@@ -97,7 +85,6 @@ const scopeChips: Record<Exclude<KeyScope, "global">, string> = {
   thread: "In a thread",
   composer: "In the composer",
   terminal: "In a terminal",
-  activity: "In Activity",
   notifications: "In notifications",
 };
 

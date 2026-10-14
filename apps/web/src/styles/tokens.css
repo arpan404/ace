@@ -16,7 +16,7 @@
   /* Motion tokens live in motion.css. */
 
   /* Layout. */
-  /* A view's own list beside its column (Automations, Skills, Activity). */
+  /* A view's own list beside its column (Automations, Skills). */
   --header-h: 44px;
   --column: 760px;
   /* Every composer footer control: plus, permission, model, meter, send and stop. */

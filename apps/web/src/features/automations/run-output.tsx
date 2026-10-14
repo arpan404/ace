@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import type { AutomationRun } from "@ace/protocol";
 
-/** Shared by Activity and an automation's history: the complete stored output or error. */
+/** A run's complete stored output or error, shown in an automation's history. */
 export function RunOutput(props: { run: AutomationRun }) {
   const { run } = props;
   return (

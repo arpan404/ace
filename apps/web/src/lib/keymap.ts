@@ -9,14 +9,7 @@
  * Where a shortcut works. `global` ones work on every screen; the others only while that
  * context is showing (or focused), so a key may mean one thing in each of them.
  */
-export type KeyScope =
-  | "global"
-  | "home"
-  | "thread"
-  | "composer"
-  | "terminal"
-  | "activity"
-  | "notifications";
+export type KeyScope = "global" | "home" | "thread" | "composer" | "terminal" | "notifications";
 
 export interface KeymapEntry {
   /** The default binding, and the spelling call sites pass (`keymap.x.keys`). */
@@ -91,17 +84,8 @@ export const keymap = {
   // The composer's own keys (Enter sends, ⌘↵ the other of queue or steer). Shown, not rebindable.
   send: { keys: "mod+enter", label: "Send", scope: "composer", fixed: true },
   goHome: { keys: "g h", label: "Go to Home" },
-  goActivity: { keys: "g a", label: "Go to Activity" },
   goAutomations: { keys: "g u", label: "Go to Automations" },
   goSkills: { keys: "g s", label: "Go to Skills" },
-  // Activity triage (features/activity): plain keys, never inside a text field.
-  "activity.next": { keys: "j", also: ["arrowdown"], label: "Next item", scope: "activity" },
-  "activity.prev": { keys: "k", also: ["arrowup"], label: "Previous item", scope: "activity" },
-  "activity.open": { keys: "enter", also: ["o"], label: "Open the item", scope: "activity" },
-  "activity.approve": { keys: "a", label: "Approve", scope: "activity" },
-  "activity.deny": { keys: "d", label: "Deny", scope: "activity" },
-  "activity.read": { keys: "e", label: "Mark read", scope: "activity" },
-  "activity.unread": { keys: "u", label: "Mark unread", scope: "activity" },
   // The Home thread list (features/home): plain keys on the focused row.
   "home.pin": { keys: "p", label: "Pin or unpin the focused thread", scope: "home" },
   "home.select": { keys: "x", label: "Select the focused thread", scope: "home" },

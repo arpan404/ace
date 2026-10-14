@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { useReducedMotion } from "./motion.ts";
 
 /*
- * "New" for lists that are not virtualized (the Activity feed, the agent tree): a row that
+ * "New" for lists that are not virtualized (the agent tree): a row that
  * mounts after its list first painted arrived while the person was looking, so it rises in.
  * Rows present on first paint just appear. Virtualized lists use `useListMotion` instead,
  * because their rows also mount when scrolled into view.

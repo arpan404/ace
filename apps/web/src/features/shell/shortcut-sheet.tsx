@@ -11,7 +11,6 @@ const scopes: readonly { scope: KeyScope; title: string }[] = [
   { scope: "thread", title: "Thread" },
   { scope: "composer", title: "Composer" },
   { scope: "terminal", title: "Terminal" },
-  { scope: "activity", title: "Activity" },
   { scope: "notifications", title: "Notifications" },
 ];
 

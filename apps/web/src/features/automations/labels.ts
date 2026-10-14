@@ -51,7 +51,7 @@ export function runNeedsAttention(run: AutomationRun): boolean {
   );
 }
 
-/** Shared run status colours for history, Activity rows and the detail. */
+/** Shared run status colours for history and the detail. */
 const runTones = {
   running: "working",
   failed: "failed",

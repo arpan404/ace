@@ -1,4 +1,4 @@
-import { CaretRightIcon, ChatsIcon, NotePencilIcon } from "@phosphor-icons/react";
+import { ChatsIcon, NotePencilIcon } from "@phosphor-icons/react";
 import { useSidebar, useSidebarLoaded } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
 import { Suspense } from "react";
@@ -97,4 +97,3 @@ export function HomeSidebar() {
     </>
   );
 }
-

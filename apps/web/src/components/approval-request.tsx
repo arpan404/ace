@@ -11,7 +11,7 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 
 /*
  * One approval, drawn the same on every surface that answers it (the thread's card above the
- * composer, Activity, computer use's app requests): the one thing it acts on, one plain reason,
+ * composer, computer use's app requests): the one thing it acts on, one plain reason,
  * then Allow once, Always allow and Deny, the same choices on every surface (the compact card
  * above the composer included: nothing hides behind a menu there). The rest (who reviewed it, the facts, a medium risk, any
  * other option the request offers) waits behind Details, so the decision row always fits.
@@ -62,7 +62,7 @@ export function ApprovalRequest(props: {
   onAnswer(answer: ApprovalAnswer): void;
   /** Number keys answer, in the thread: each button says its number to assistive tech. */
   numbered?: boolean;
-  /** Letters drawn in the buttons, in Activity (A, D). */
+  /** Letters drawn in the buttons beside their labels. */
   hints?: Partial<Record<ApprovalVerb, string>>;
   /** Whether a key may pick this option; a default-to-no approval takes a click. */
   keyed?: (option: ApprovalOption) => boolean;
