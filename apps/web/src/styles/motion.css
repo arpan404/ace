@@ -257,8 +257,7 @@
  * under reduced motion it breathes in place instead.
  *
  *   .spin-ring          the Spinner: one turn every 800ms
- *   .fx-spin-slow       the sidebar's dashed working mark: one turn every 2.4s
- *   .fx-walk            the 3x3 working glyph: a lit cell walks round the edge, one step per 120ms
+ *   .aperture-part      the status glyphs' moving parts (components/status-glyph.tsx), below
  *   .fx-breathe         the startup mark while ace starts
  *   .fx-indeterminate   a progress bar that doesn't know how far along it is
  *   .animate-pulse      Tailwind's pulse (streaming caret, connection dot, browser agent line)
@@ -266,23 +265,56 @@
 .spin-ring {
   animation: ace-spin 800ms linear infinite;
 }
-.fx-spin-slow {
-  animation: ace-spin 2400ms linear infinite;
+/*
+ * Aperture status glyphs. A moving part is a glyph-sized HTML box, so only its transform and
+ * opacity change and the compositor runs it: no layout, paint or script per frame. Parts move
+ * only inside a `[data-live]` glyph. One iteration holds several beats (four swings, four
+ * drifts, three ratchet steps) because every iteration boundary wakes the main thread for its
+ * `animationiteration` event; longer iterations keep that rare. Reduced motion keeps them
+ * moving, gentler and slower: a smaller swing, a shorter drift, a slower ratchet.
+ *
+ *   swing    each half turns 25deg and back, 500ms each way (reduced: 10deg, 1400ms)
+ *   drift    the dot leaves through the opening once a second (reduced: half as far, every 2s)
+ *   ratchet  a third of a turn in 600ms, once a second (reduced: every 2.4s)
+ */
+.aperture-part {
+  position: absolute;
+  inset: 0;
+  --aperture-swing: 25deg;
+  --aperture-drift: 28%;
 }
-.fx-walk > * {
-  opacity: 0.25;
+.aperture-part[data-counter] {
+  --aperture-swing: -25deg;
 }
-.fx-walk:not([data-still]) > [data-step] {
-  opacity: 0.2;
-  animation: fx-walk calc(var(--motion-fast) * 8) linear infinite;
-  animation-delay: calc(var(--motion-fast) * (var(--step) - 8));
+[data-live] > .aperture-part[data-motion="swing"] {
+  animation: aperture-swing 4000ms cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
-.fx-walk:not([data-still]) > [data-centre] {
-  opacity: 0.4;
+[data-live] > .aperture-part[data-motion="drift"] {
+  opacity: 0;
+  animation: aperture-drift 4000ms cubic-bezier(0.3, 0, 0.6, 1) infinite;
 }
-/* Still (waiting or held): corners and centre lit. */
-.fx-walk[data-still] > :is([data-corner], [data-centre]) {
-  opacity: 0.9;
+[data-live] > .aperture-part[data-motion="ratchet"] {
+  animation: aperture-ratchet 3000ms cubic-bezier(0.6, 0, 0.3, 1) infinite;
+}
+:root[data-reduce-motion] .aperture-part {
+  --aperture-swing: 10deg;
+  --aperture-drift: 14%;
+}
+:root[data-reduce-motion] .aperture-part[data-counter] {
+  --aperture-swing: -10deg;
+}
+:root[data-reduce-motion] [data-live] > .aperture-part[data-motion="swing"] {
+  animation-duration: 11200ms;
+}
+:root[data-reduce-motion] [data-live] > .aperture-part[data-motion="drift"] {
+  animation-duration: 8000ms;
+}
+:root[data-reduce-motion] [data-live] > .aperture-part[data-motion="ratchet"] {
+  animation-duration: 7200ms;
+}
+/* Paused with the rest of live activity while the daemon is unreachable (app-shell). */
+[data-live-held] [data-live] > .aperture-part {
+  animation-play-state: paused;
 }
 .fx-breathe {
   animation: fx-breathe 1.6s ease-in-out infinite alternate;
@@ -302,18 +334,58 @@
     transform: rotate(360deg);
   }
 }
-@keyframes fx-walk {
+@keyframes aperture-swing {
   0%,
-  12.4% {
-    opacity: 1;
+  25%,
+  50%,
+  75%,
+  to {
+    transform: rotate(0deg);
   }
   12.5%,
-  24.9% {
-    opacity: 0.55;
+  37.5%,
+  62.5%,
+  87.5% {
+    transform: rotate(var(--aperture-swing));
   }
+}
+@keyframes aperture-drift {
+  0%,
   25%,
-  100% {
-    opacity: 0.2;
+  50%,
+  75% {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  5%,
+  30%,
+  55%,
+  80% {
+    opacity: 1;
+  }
+  24.9%,
+  49.9%,
+  74.9%,
+  to {
+    transform: translateX(var(--aperture-drift));
+    opacity: 0;
+  }
+}
+@keyframes aperture-ratchet {
+  0% {
+    transform: rotate(0deg);
+  }
+  20%,
+  33.33% {
+    transform: rotate(120deg);
+  }
+  53.33%,
+  66.67% {
+    transform: rotate(240deg);
+  }
+  86.67%,
+  to {
+    transform: rotate(360deg);
   }
 }
 @keyframes fx-breathe {

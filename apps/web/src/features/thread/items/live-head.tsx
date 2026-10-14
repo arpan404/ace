@@ -9,7 +9,7 @@ import { useTreeWork } from "@/features/panels/index.ts";
 import { useShownPlans } from "@/lib/use-plans.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { WorkingIndicator } from "@/components/working-indicator.tsx";
-import { Dot } from "@/components/ui/dot.tsx";
+import { StatusGlyph } from "@/components/status-glyph.tsx";
 import { PauseCircleIcon } from "@phosphor-icons/react";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import type { ThreadKey, ThreadReader } from "@ace/client";
@@ -61,7 +61,7 @@ export function LiveHead(props: { threadId: string }) {
 }
 
 /**
- * The live line, muted: `[grid] Working for 1m 14s` moving; `● Waiting for your answer`
+ * The live line, muted: `[ring] Working for 1m 14s` moving; `(!) Waiting for your answer`
  * while the person is asked (the request itself is in the composer's strip); a held line as it
  * is; a usage-limit pause as a quiet row.
  */
@@ -108,7 +108,7 @@ export function ActivityLine(props: {
         // Waiting on the person outranks working: never "Working", no timer. The request
         // itself sits in the composer's strip.
         <span className="flex min-w-0 items-center gap-2">
-          <Dot tone="needs-you" className="mx-0.5" />
+          <StatusGlyph state="needs-you" />
           <span className="min-w-0 truncate">{label}</span>
         </span>
       ) : (

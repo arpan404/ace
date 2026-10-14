@@ -57,7 +57,7 @@ function TaskRow(props: { threadId: string; taskId: string }) {
         arrival,
       )}
     >
-      <CapsuleGlyph state="working" />
+      <CapsuleGlyph state="background" />
       <button
         type="button"
         className="focus-ring min-w-0 shrink truncate rounded-sm font-mono text-xs"

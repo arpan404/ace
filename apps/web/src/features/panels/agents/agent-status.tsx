@@ -1,8 +1,8 @@
 import type { AgentStatus } from "@ace/protocol";
 import { glyphOf, type AgentGlyph } from "@ace/ui-core";
-import { CheckIcon } from "@phosphor-icons/react";
-import { Dot } from "@/components/ui/dot.tsx";
-import { LiveWorkMark } from "@/components/live-work-mark.tsx";
+import { StatusGlyph } from "@/components/status-glyph.tsx";
+import { agentGlyph } from "@/components/status-glyph-state.ts";
+import { useLiveConnection } from "@/lib/live-connection.ts";
 
 /**
  * Which mark an agent's status draws: needing the person outranks everything, and an agent
@@ -15,24 +15,22 @@ export function agentMark(status: AgentStatus, pending?: boolean, needsYou?: boo
   return pending && (glyph === "done" || glyph === "stopped") ? "waiting" : glyph;
 }
 
-/** An agent's status as one mark: spinner while it works, a dot when it needs you or failed. */
+/**
+ * An agent's status as one glyph (status-glyph.tsx), held still while the facts are stale: a
+ * rocking ring while it works, ratcheting arcs while it waits on its own, a solid "!" when it
+ * needs you, a cross when it failed.
+ */
 export function AgentStatusMark(props: {
   status: AgentStatus;
   pending?: boolean;
   needsYou?: boolean;
 }) {
-  switch (agentMark(props.status, props.pending, props.needsYou)) {
-    case "spinner":
-      return <LiveWorkMark className="text-status-working" />;
-    case "waiting":
-      return <LiveWorkMark className="text-status-waiting" />;
-    case "needs-you":
-      return <Dot tone="needs-you" className="mx-[2.5px]" />;
-    case "failed":
-      return <Dot tone="failed" className="mx-[2.5px]" />;
-    case "stopped":
-      return <Dot tone="idle" className="mx-[2.5px]" />;
-    case "done":
-      return <CheckIcon aria-hidden size={11} className="text-subtle-foreground" />;
-  }
+  const fresh = useLiveConnection().fresh;
+  return (
+    <StatusGlyph
+      state={agentGlyph(agentMark(props.status, props.pending, props.needsYou))}
+      size={12}
+      still={!fresh}
+    />
+  );
 }

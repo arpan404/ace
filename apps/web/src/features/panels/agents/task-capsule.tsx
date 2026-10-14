@@ -1,5 +1,7 @@
-import { CheckIcon, ExclamationMarkIcon, XIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
+import type { Tone } from "@ace/ui-core";
+import { StatusGlyph } from "@/components/status-glyph.tsx";
+import type { GlyphState } from "@/components/status-glyph-state.ts";
 import { plainRow } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
@@ -10,64 +12,57 @@ import { useLiveConnection } from "@/lib/live-connection.ts";
  * ace's own component, drawn in its tokens.
  */
 
-export type CapsuleState = "working" | "waiting" | "needs-you" | "done" | "failed" | "stopped";
+export type CapsuleState =
+  | "working"
+  | "waiting"
+  | "background"
+  | "needs-you"
+  | "done"
+  | "failed"
+  | "stopped";
 
 /** A capsule's outer shell: a plain list row, a hover fill and nothing at rest. */
 export const capsule = plainRow;
 
-const tones: Record<CapsuleState, string> = {
+const tones: Record<CapsuleState, Tone> = {
   working: "working",
   waiting: "waiting",
+  background: "background",
   "needs-you": "needs-you",
   done: "done",
   failed: "failed",
   stopped: "idle",
 };
 
+const glyphs: Record<CapsuleState, GlyphState> = {
+  working: "working",
+  // Its own turn is over while its subagents or commands still run.
+  waiting: "subagents",
+  background: "background",
+  "needs-you": "needs-you",
+  done: "done",
+  failed: "failed",
+  stopped: "stopped",
+};
+
 /**
- * The status glyph: a ring while it works, turning slowly (the live-activity motion, still
- * under reduced motion or while the facts are stale) and holding how many of its own still run;
- * a still ring while it waits; a check when it finished; a cross when it failed; "!" while it
- * needs the person.
+ * The status glyph (status-glyph.tsx): a working ring that rocks open, holding how many of its
+ * own still run, and holds still while the facts are stale; arcs that ratchet while it waits on
+ * its own; a check when it finished; a cross when it failed; a solid "!" while it needs the
+ * person.
  */
 export function CapsuleGlyph(props: { state: CapsuleState; count?: number | undefined }) {
   const fresh = useLiveConnection().fresh;
-  const tone = tones[props.state];
-  if (props.state === "working" || props.state === "waiting")
-    return (
-      <span
-        aria-hidden
-        data-tone={tone}
-        className="relative grid size-[18px] shrink-0 place-items-center text-2xs leading-none font-semibold text-(--tone-text) tabular-nums"
-      >
-        <span
-          className={cn(
-            "absolute inset-0 rounded-full border-[1.5px] border-(--tone)/25 border-t-(--tone)",
-            props.state === "working" && fresh && "fx-spin-slow",
-          )}
-        />
-        {props.count ? props.count : null}
-      </span>
-    );
-  const Glyph =
-    props.state === "done"
-      ? CheckIcon
-      : props.state === "needs-you"
-        ? ExclamationMarkIcon
-        : props.state === "failed"
-          ? XIcon
-          : undefined;
   return (
-    <span
-      aria-hidden
-      data-tone={tone}
-      className={cn(
-        "grid size-[18px] shrink-0 place-items-center rounded-full",
-        props.state === "done" ? "text-(--tone-text)" : "bg-(--tone) text-background",
-      )}
+    <StatusGlyph
+      state={glyphs[props.state]}
+      tone={tones[props.state]}
+      size={18}
+      still={!fresh}
+      className={cn(props.count && "text-2xs leading-none font-semibold tabular-nums")}
     >
-      {Glyph ? <Glyph size={11} weight="bold" /> : <span className="size-1.5 bg-current" />}
-    </span>
+      {props.count ? <span className="relative text-(--tone-text)">{props.count}</span> : null}
+    </StatusGlyph>
   );
 }
 
