@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { NativePermissionMode } from "./permissions.ts";
+import { AccessModeOffer, NativePermissionMode } from "./permissions.ts";
 import { ApiKeySupport, AccountAuthMethod } from "./account-auth.ts";
 import { ProviderKind } from "./provider.ts";
 
@@ -8,6 +8,7 @@ export const ProviderStatus = z.object({
   provider: ProviderKind,
   instanceId: z.string().min(1).max(256).optional(),
   permissionModes: z.array(NativePermissionMode).max(256).optional(),
+  accessModes: z.array(AccessModeOffer).max(4).optional(),
   readiness: z
     .enum([
       "not_installed",

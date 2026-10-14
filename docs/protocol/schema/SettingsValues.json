@@ -2,13 +2,17 @@
   "$id": "https://ace.local/protocol/v1/SettingsValues.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "approvals.policy": {
-      "enum": [
-        "ask",
-        "on-failure",
-        "never"
-      ],
-      "type": "string"
+    "access.defaultMode": {
+      "$ref": "https://ace.local/protocol/v1/AccessMode.json"
+    },
+    "access.nativeModes": {
+      "additionalProperties": {
+        "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+      },
+      "propertyNames": {
+        "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+      },
+      "type": "object"
     },
     "automations.enabled": {
       "type": "boolean"
@@ -84,25 +88,6 @@
     },
     "logs.maxBytes": {
       "$ref": "https://ace.local/protocol/v1/LogMaxBytes.json"
-    },
-    "permissions.defaultMode": {
-      "anyOf": [
-        {
-          "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "permissions.providerModes": {
-      "additionalProperties": {
-        "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
-      },
-      "propertyNames": {
-        "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
-      },
-      "type": "object"
     },
     "projects.roots": {
       "items": {
@@ -332,9 +317,8 @@
     "browser.backend",
     "browser.backendLoss",
     "browser.profile",
-    "permissions.defaultMode",
-    "permissions.providerModes",
-    "approvals.policy",
+    "access.defaultMode",
+    "access.nativeModes",
     "threads.useWorktree",
     "threads.autoSettleAfter",
     "threads.unresponsiveAfter",

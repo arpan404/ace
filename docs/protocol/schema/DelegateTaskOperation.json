@@ -4,6 +4,8 @@
   "additionalProperties": false,
   "examples": [
     {
+      "access": "read-only",
+      "effort": "high",
       "machine": "studio",
       "op": "delegate_task",
       "project": "relay",
@@ -14,6 +16,9 @@
     }
   ],
   "properties": {
+    "access": {
+      "$ref": "https://ace.local/protocol/v1/AccessRequest.json"
+    },
     "accountId": {
       "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
     },
@@ -29,6 +34,17 @@
         "all"
       ],
       "type": "string"
+    },
+    "effort": {
+      "anyOf": [
+        {
+          "const": "inherit",
+          "type": "string"
+        },
+        {
+          "$ref": "https://ace.local/protocol/v1/AgentEffort.json"
+        }
+      ]
     },
     "estimatedLoad": {
       "maximum": 100,
@@ -58,10 +74,7 @@
       "type": "string"
     },
     "options": {
-      "$ref": "https://ace.local/protocol/v1/AgentLaunchOptions.json"
-    },
-    "permissionMode": {
-      "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+      "$ref": "https://ace.local/protocol/v1/AgentServiceOptions.json"
     },
     "project": {
       "maxLength": 256,

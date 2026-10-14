@@ -8,7 +8,7 @@ import { ContextResult } from "./context.ts";
 import { z } from "zod";
 import { RemoteDelegationRequest, AgentSelection } from "./agent-control.ts";
 import { HostId, WorkspaceId, ThreadId, AgentId } from "./ids.ts";
-import { NativePermissionMode } from "./permissions.ts";
+import { AccessMode } from "./permissions.ts";
 
 const key = z.string().min(1).max(128);
 export const RemoteAgentHost = z.strictObject({
@@ -21,7 +21,7 @@ export const RemoteAgentHost = z.strictObject({
     .array(
       AgentSelection.extend({
         model: z.string().min(1).max(256),
-        permissionModes: z.array(NativePermissionMode).max(256),
+        accessModes: z.array(AccessMode).max(4),
       }),
     )
     .max(100),
@@ -49,13 +49,13 @@ export const RemoteTask = z.strictObject({
   sourceHostId: HostId,
   rootThreadId: ThreadId,
   parentProvider: AgentSelection.shape.provider,
-  parentPermissionMode: z.string().max(4096).nullable(),
-  parentPermissionOverride: z.string().max(4096).nullable().default(null),
+  /** The parent's access when the task was sent, the ceiling the receiving daemon applies. */
+  parentAccess: AccessMode.nullable(),
   parentThreadId: ThreadId,
   parentAgentId: AgentId,
   threadId: ThreadId,
   request: RemoteDelegationRequest,
-  permissionMode: z.string().min(1).max(4096),
+  access: AccessMode,
   usage: RemoteTaskUsage.default({ tokens: 0, cost: 0 }),
   phase: RemoteTaskPhase,
   dispatched: z.boolean(),

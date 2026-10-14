@@ -1,4 +1,3 @@
-import { codexReviewerMode } from "@ace/provider-kit/permission-modes";
 import type { Scenario } from "../scenario.ts";
 import { endTurn, message, tool, toolDone, turn } from "./facts.ts";
 import { cwd, input, scenario, command } from "./ux-facts.ts";
@@ -72,9 +71,9 @@ export function uxAudit(): Scenario[] {
     kind: "update",
     changes: {
       permission: {
-        // Codex's own mode ids, as the daemon records them.
-        override: ":danger-full-access",
-        effective: codexReviewerMode("auto_review"),
+        // A pending change from Auto review to Full access.
+        override: "full-access",
+        effective: "auto-review",
         pending: true,
       },
     },

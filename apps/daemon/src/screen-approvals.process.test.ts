@@ -184,7 +184,7 @@ test("cancelled approval opens no grant and pending host approvals expire on rec
 test("foreground approval blocks the engine tree until a human resolves it", async () => {
   const frames = scriptFrames();
   const h = await harness([{ on: "send", frames: [frames.frame(start)] }], frames, {
-    permissionSettings: async () => "auto-review",
+    permissionSettings: async () => ({ access: "auto-review" as const }),
   });
   onTestFinished(h.close);
   const threadId = await h.create();

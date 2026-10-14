@@ -1,4 +1,5 @@
 import type { Capabilities } from "@ace/protocol";
+import { accessModeOffers } from "@ace/provider-kit/access-modes";
 import { piVersionSupported, type DiscoveryResult } from "@ace/provider-kit/discovery";
 import { PiProfile } from "@ace/protocol/pi";
 export function piProfile(cli: DiscoveryResult) {
@@ -17,7 +18,15 @@ export function piCapabilities(cli: DiscoveryResult): Capabilities {
   return {
     steer: supported,
     permissionModes: [],
-    permissions: { modes: [], permissionModes: [], nativeAutoReview: false, toolGate: false },
+    // Pi has no approval channel: Read-only is its own tool allowlist, Full access its default.
+    accessModes: accessModeOffers({ provider: "pi" }),
+    permissions: {
+      modes: accessModeOffers({ provider: "pi" }).map((offer) => offer.native),
+      permissionModes: [],
+      nativeAutoReview: false,
+      toolGate: false,
+    },
+    launchOptions: supported ? ["effort"] : [],
     interruptCascades: false,
     resume: supported,
     fork: supported,

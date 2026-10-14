@@ -82,7 +82,7 @@ for (const scenario of [
         type: "thread.create",
         workspaceId: h.workspace,
         provider: scenario.provider,
-        permissionMode: "ask",
+        access: "ask",
         input: [{ type: "text", text: "Edit the file" }],
       });
       if (!receipt.threadId) throw new Error("No thread");
@@ -157,7 +157,7 @@ test.each(recordings)(
         { on: "resolve", frames: [frames.frame(end)] },
       ],
       frames,
-      { provider: adapter.provider, permissionSettings: async () => "ask" },
+      { provider: adapter.provider, permissionSettings: async () => ({ access: "ask" as const }) },
     );
     try {
       const id = await h.create();
@@ -167,13 +167,7 @@ test.each(recordings)(
       );
       if (!interaction) throw new Error("Missing approval card");
       expect(interaction.state).toBe("pending");
-      expect(view.thread.permission?.effective).toBe(
-        adapter.provider === "codex"
-          ? ":read-only"
-          : adapter.provider === "claude"
-            ? "default"
-            : null,
-      );
+      expect(view.thread.permission?.effective).toBe("ask");
       expect(view.thread.status.state).toBe("needs_you");
       const result = h.command({
         type: "interaction.resolve",

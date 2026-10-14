@@ -75,7 +75,7 @@ export async function startDaemonMcp(
     status:
       status ??
       ((caller) => ({
-        permissionMode: store.getThread(caller.threadId)?.permission?.effective ?? null,
+        access: store.getThread(caller.threadId)?.permission?.effective ?? null,
       })),
   });
   return {

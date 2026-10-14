@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
-import { PermissionCapabilities } from "./permissions.ts";
+import { AccessModeOffer, PermissionCapabilities } from "./permissions.ts";
 
 /** Preview the selected provider's native selectors without opening a provider session. */
 export const PermissionCapabilitiesRequest = z.object({
@@ -15,5 +15,7 @@ export const PermissionCapabilitiesResult = z.object({
   requestId: z.string().min(1).max(128),
   ok: z.boolean(),
   permissions: PermissionCapabilities.optional(),
+  /** The ace access modes the instance genuinely supports. */
+  accessModes: z.array(AccessModeOffer).max(4).optional(),
   error: z.string().max(256).optional(),
 });

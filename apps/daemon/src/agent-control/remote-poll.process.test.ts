@@ -39,14 +39,7 @@ test("capacity polls keep the client ready and fairly route active work and canc
         {
           provider: "codex",
           model: "chosen-model",
-          permissionModes: [
-            {
-              id: f.daemon.engine?.permissionMode(f.caller.threadId) ?? ":read-only",
-              label: "Safe",
-              description: "safe",
-              risk: "low",
-            },
-          ],
+          accessModes: ["read-only", "ask", "auto-review", "full-access"],
         },
       ],
     });

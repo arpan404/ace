@@ -112,7 +112,7 @@ it("a new thread's ace_status lists only groups ace serves, with every served gr
     expect(group.reason).not.toMatch(/backend|configure/i);
   }
   const thread = daemon.store.listThreads()[0];
-  expect(reported.permissionMode).toBe(thread?.permission?.effective ?? null);
+  expect(reported.access).toBe(thread?.permission?.effective ?? null);
 });
 
 it("ace's guidance tells agents to edit files and run shell commands with their own tools", async () => {

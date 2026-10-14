@@ -8,14 +8,14 @@ import { harness } from "@/test/harness.tsx";
 const title = "Allow git push to main?";
 
 /** A thread under `mode` whose agent asks to push, offering once, this-thread and deny. */
-function pushRequest(mode: "auto" | "bypassPermissions"): Scenario {
+function pushRequest(mode: "auto-review" | "full-access"): Scenario {
   return {
     thread: {
       id: `thread-push-${mode}`,
       workspaceId: "relay",
       title: "Push",
       provider: "claude",
-      permissionMode: mode,
+      access: mode,
     },
     steps: [
       {
@@ -75,7 +75,7 @@ function pushRequest(mode: "auto" | "bypassPermissions"): Scenario {
 
 test("native auto mode preserves and returns the provider session grant", async () => {
   const app = harness();
-  const scenario = pushRequest("auto");
+  const scenario = pushRequest("auto-review");
   app.play(scenario).runUntilBlocked();
   await app.open("/activity");
   const card = await openActivityRequest(title);
@@ -96,7 +96,7 @@ test("native auto mode preserves and returns the provider session grant", async 
 
 test("native bypass mode preserves the provider session grant", async () => {
   const app = harness();
-  const scenario = pushRequest("bypassPermissions");
+  const scenario = pushRequest("full-access");
   app.play(scenario).runUntilBlocked();
   await app.open("/activity");
   const card = await openActivityRequest(title);

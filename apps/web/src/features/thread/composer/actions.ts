@@ -27,12 +27,12 @@ export async function composerAction(
     if (ports.thread.provider !== "claude")
       throw new Error("Plan mode isn't available for this provider.");
     if (ports.plan) return ports.plan();
-    if (ports.thread.draft)
-      throw new Error("Choose plan mode in the approvals menu before sending.");
+    if (ports.thread.draft) throw new Error("Choose Read-only in the access menu before sending.");
     await runCommand(ports.client, {
       type: "thread.permission.set",
       threadId: ThreadId.parse(ports.thread.id),
-      permissionMode: "plan",
+      // Claude's read-only access is its native plan mode.
+      access: "read-only",
     });
     return;
   }

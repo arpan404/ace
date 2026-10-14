@@ -124,7 +124,7 @@ export class RemoteAgentBroker {
       if (
         reply.type !== "permissions.capabilities.result" ||
         !reply.ok ||
-        !reply.permissions?.permissionModes?.length
+        !reply.accessModes?.length
       )
         continue;
       agents.push({
@@ -134,7 +134,7 @@ export class RemoteAgentBroker {
         ...(model.acpAgentId ? { acpAgentId: model.acpAgentId } : {}),
         ...(model.installationId ? { installationId: model.installationId } : {}),
         ...(model.instanceId ? { instanceId: model.instanceId } : {}),
-        permissionModes: reply.permissions.permissionModes,
+        accessModes: reply.accessModes.map((offer) => offer.mode),
       });
     }
     const state = this.pool.machine(id);

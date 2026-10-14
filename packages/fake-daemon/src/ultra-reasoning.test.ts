@@ -43,7 +43,13 @@ test("the activity preview boots with an explicitly supported simulated Ultra an
   );
   expect(model).toMatchObject({
     displayName: "Simulated Ultra Reasoning with Extended Context Model",
-    reasoningEfforts: ["minimal", "low", "medium", "high", "ultra"],
+    efforts: [
+      { id: "minimal", level: "minimal", label: "Minimal" },
+      { id: "low", level: "low", label: "Low" },
+      { id: "medium", level: "medium", label: "Medium" },
+      { id: "high", level: "high", label: "High" },
+      { id: "ultra", level: "ultra", label: "Ultra" },
+    ],
     hidden: false,
   });
   expect(model?.serviceTiers).toContainEqual(

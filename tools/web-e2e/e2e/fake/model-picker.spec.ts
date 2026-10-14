@@ -360,9 +360,9 @@ for (const route of ["/new", "/t/thread-replay-cursor"])
     }) => {
       await page.setViewportSize({ width, height: 800 });
       await page.goto(route);
-      await page.getByRole("button", { name: /^Approvals:/ }).click();
+      await page.getByRole("button", { name: /^Access:/ }).click();
       await page.getByRole("menuitemradio", { name: "Full access", exact: true }).click();
-      const trigger = page.getByRole("button", { name: /^Approvals: Full access/ });
+      const trigger = page.getByRole("button", { name: /^Access: Full access/ });
       await expect(trigger).toHaveText("Full access");
       const colors = await trigger.evaluate((element) => {
         const actual = getComputedStyle(element).color;
@@ -388,8 +388,8 @@ for (const route of ["/new", "/t/thread-replay-cursor"])
         path: `/tmp/ace-permission-label-${route === "/new" ? "new" : "thread"}-${width}.png`,
       });
       await trigger.click();
-      await page.getByRole("menuitemradio", { name: "Manual", exact: true }).click();
-      await expect(page.getByRole("button", { name: /^Approvals: Manual/ })).toHaveText("Manual");
+      await page.getByRole("menuitemradio", { name: "Ask", exact: true }).click();
+      await expect(page.getByRole("button", { name: /^Access: Ask/ })).toHaveText("Ask");
     });
 
 for (const theme of ["light", "dark"])

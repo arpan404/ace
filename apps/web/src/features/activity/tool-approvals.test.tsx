@@ -14,7 +14,7 @@ const working: Scenario = {
     workspaceId: "relay",
     title: "Reconcile totals",
     provider: "codex",
-    permissionMode: "auto-review",
+    access: "auto-review",
   },
   steps: [
     {

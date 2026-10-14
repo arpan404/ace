@@ -17,7 +17,7 @@ function conversation(requestId: string, workspace: unknown = { kind: "project" 
     text: "Build this",
     provider: "claude",
     model: "chosen-model",
-    options: { effort: "high" },
+    effort: "high",
     workspace,
   });
 }

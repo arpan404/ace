@@ -12,7 +12,7 @@ export function createEngineThread(
   repo: EngineRepository,
   input: {
     id: ThreadId;
-    permissionMode?: import("@ace/protocol").PermissionMode;
+    access?: import("@ace/protocol").AccessMode;
     workspaceId: WorkspaceId;
     title: string;
     titleSource?: import("@ace/protocol").Thread["titleSource"];
@@ -30,12 +30,7 @@ export function createEngineThread(
   },
 ): void {
   const { id, workspaceId, selection, cwd, at, lineage } = input;
-  repo.permissions.ensure(
-    id,
-    input.permissionMode,
-    selection.provider,
-    input.capabilities?.permissionModes,
-  );
+  repo.permissions.ensure(id, input.access);
   if (lineage) repo.permissions.parent(id, lineage.parentThreadId, at);
   const project = repo.store.getWorkspace(workspaceId);
   const parentDetails = lineage ? repo.store.getThread(lineage.parentThreadId)?.details : undefined;
@@ -65,12 +60,7 @@ export function createEngineThread(
     capabilities: input.capabilities,
     handoff: input.handoff,
     ...input.acpIdentity,
-    permission: repo.permissions.ensure(
-      id,
-      input.permissionMode,
-      selection.provider,
-      input.capabilities?.permissionModes,
-    ),
+    permission: repo.permissions.ensure(id, input.access),
     status: { state: "new" },
     createdAt: at,
     updatedAt: at,

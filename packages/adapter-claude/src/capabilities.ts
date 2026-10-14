@@ -1,3 +1,4 @@
+import { accessModeOffers } from "@ace/provider-kit/access-modes";
 import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import type { Capabilities } from "@ace/protocol";
@@ -15,6 +16,7 @@ export function capabilities(cli: DiscoveryResult): Capabilities {
   return {
     steer: false,
     permissionModes: nativePermissionModes("claude"),
+    accessModes: accessModeOffers({ provider: "claude" }),
     permissions: {
       modes: nativePermissionModes("claude").map((mode) => mode.id),
       permissionModes: nativePermissionModes("claude"),

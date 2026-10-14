@@ -298,7 +298,7 @@ test("a never-started thread has no live work and can change workspace before it
     ).toMatchObject({ ok: true });
     // An unrelated change reaches the thread before any turn.
     expect(
-      h.command({ type: "thread.permission.set", threadId: id, permissionMode: ":read-only" }),
+      h.command({ type: "thread.permission.set", threadId: id, access: "read-only" }),
     ).toMatchObject({ ok: true });
     await h.engine.flush();
     expect(h.engine.liveWork(id)).toEqual({ agentsRunning: 0, operationsRunning: 0 });

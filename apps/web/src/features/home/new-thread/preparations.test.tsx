@@ -77,8 +77,8 @@ test("an untouched composer creates no row while a settings-only draft can be re
   await message();
   const before = made.daemon.snapshot({ kind: "threads" });
   expect(drafts()).toBeNull();
-  await userEvent.click(await screen.findByRole("button", { name: /^Approvals:/ }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Plan" }));
+  await userEvent.click(await screen.findByRole("button", { name: /^Access:/ }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Read-only" }));
   expect(
     await screen.findByRole("link", { name: "New preparation. Draft, Project relay" }),
   ).toBeTruthy();
@@ -91,7 +91,7 @@ test("an untouched composer creates no row while a settings-only draft can be re
   await userEvent.click(
     await screen.findByRole("link", { name: "New preparation. Draft, Project relay" }),
   );
-  expect(await screen.findByRole("button", { name: "Approvals: Plan" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Access: Read-only" })).toBeTruthy();
   await userEvent.type(await message(), "Discard this text too");
   await userEvent.click(screen.getByRole("button", { name: "Discard draft in relay" }));
   await waitFor(() => expect(drafts()).toBeNull());

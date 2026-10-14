@@ -181,8 +181,8 @@ export class RemotePublications {
       !!thread &&
       thread.rootAgentId === caller.agentId &&
       !!store.getMcpAgent(caller.threadId, caller.agentId) &&
-      engine.permissionMode(thread.id) === task.permissionMode &&
-      (thread.permission?.override ?? task.permissionMode) === task.permissionMode &&
+      engine.access(thread.id) === task.access &&
+      (thread.permission?.override ?? task.access) === task.access &&
       store.commandReceipt(CommandId.parse(`remote-create:${task.id}`), remoteContextOwner)?.ok ===
         true &&
       store.commandReceipt(CommandId.parse(`remote-stop:${task.id}`), remoteContextOwner)?.ok !==

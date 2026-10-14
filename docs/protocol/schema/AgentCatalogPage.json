@@ -4,10 +4,10 @@
   "properties": {
     "caller": {
       "properties": {
-        "permissionMode": {
+        "access": {
           "anyOf": [
             {
-              "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+              "$ref": "https://ace.local/protocol/v1/AccessMode.json"
             },
             {
               "type": "null"
@@ -20,7 +20,7 @@
       },
       "required": [
         "threadId",
-        "permissionMode"
+        "access"
       ],
       "type": "object"
     },

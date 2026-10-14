@@ -1,8 +1,8 @@
 import {
-  PermissionMode,
-  type PermissionCapabilities,
+  type AccessMode,
+  type AccessModeOffer,
+  type Capabilities,
   type PermissionState,
-  type SettingsScope,
   type SettingsLayer,
   ThreadId,
   type PermissionReview,
@@ -33,21 +33,27 @@ export class PermissionClient {
       options,
     );
   }
-  setThread(threadId: string, mode: PermissionMode | null, options?: RequestOptions) {
+  /** The thread's own access; null follows its project and the daemon default. */
+  setThread(threadId: string, access: AccessMode | null, options?: RequestOptions) {
     return this.client.command(
-      { type: "thread.permission.set", threadId: ThreadId.parse(threadId), permissionMode: mode },
+      { type: "thread.permission.set", threadId: ThreadId.parse(threadId), access },
       options,
     );
   }
-  getDefault(scope: SettingsScope = {}, options?: RequestOptions) {
+  /** This daemon's access for new threads. */
+  getDefault(options?: RequestOptions) {
     return this.client.request(
-      { type: "settings.get", key: "permissions.defaultMode", scope },
+      { type: "settings.get", key: "access.defaultMode", scope: {} },
       options,
     );
   }
-  setDefault(mode: PermissionMode, layer: SettingsLayer, options?: RequestOptions) {
+  setDefault(
+    access: AccessMode,
+    layer: SettingsLayer = { kind: "global" },
+    options?: RequestOptions,
+  ) {
     return this.client.request(
-      { type: "settings.set", key: "permissions.defaultMode", value: mode, layer },
+      { type: "settings.set", key: "access.defaultMode", value: access, layer },
       options,
     );
   }
@@ -57,11 +63,11 @@ export function threadPermission(
 ): PermissionState | undefined {
   return source.thread?.permission;
 }
-/** Native selector ids, with a compatibility fallback for older daemons. */
-export function permissionModes(
-  capabilities: PermissionCapabilities | undefined,
-): readonly PermissionMode[] {
-  return capabilities?.permissionModes?.map((mode) => mode.id) ?? capabilities?.modes ?? [];
+/** The ace access modes an instance genuinely supports, least capable first. */
+export function accessModes(
+  capabilities: Pick<Capabilities, "accessModes"> | undefined,
+): readonly AccessModeOffer[] {
+  return capabilities?.accessModes ?? [];
 }
 /** Select with interaction:<id>. Review notices are also available through source.item(id). */
 export function permissionReview(

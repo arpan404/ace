@@ -7,7 +7,7 @@ export function manyActions(daemon: FakeDaemon, id: string): void {
     workspaceId: "ace",
     title: "Many approval actions",
     provider: "codex",
-    permissionMode: "ask",
+    access: "ask",
   });
   daemon.apply(id, [
     facts.rootAgent("codex"),

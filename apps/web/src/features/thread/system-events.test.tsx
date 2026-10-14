@@ -469,7 +469,7 @@ test("provider approval options include the session grant and send the chosen op
       workspaceId: "relay",
       title: "One shot",
       provider: "claude",
-      permissionMode: "auto",
+      access: "auto-review",
     },
     steps: [
       {

@@ -20,7 +20,7 @@ function asking(interaction: string, title: string, defaultToNo: boolean): Scena
       workspaceId: "relay",
       title: "Migrate sessions",
       provider: "codex",
-      permissionMode: "ask",
+      access: "ask",
     },
     steps: [
       {

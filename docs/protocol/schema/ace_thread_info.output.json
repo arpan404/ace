@@ -124,6 +124,34 @@
         "capabilities": {
           "additionalProperties": false,
           "properties": {
+            "accessModes": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "read-only",
+                      "ask",
+                      "auto-review",
+                      "full-access"
+                    ],
+                    "type": "string"
+                  },
+                  "native": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "mode",
+                  "native"
+                ],
+                "type": "object"
+              },
+              "maxItems": 4,
+              "type": "array"
+            },
             "approvals": {
               "enum": [
                 "interactive",
@@ -1278,6 +1306,34 @@
         "effectiveCapabilities": {
           "additionalProperties": false,
           "properties": {
+            "accessModes": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "read-only",
+                      "ask",
+                      "auto-review",
+                      "full-access"
+                    ],
+                    "type": "string"
+                  },
+                  "native": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "mode",
+                  "native"
+                ],
+                "type": "object"
+              },
+              "maxItems": 4,
+              "type": "array"
+            },
             "approvals": {
               "enum": [
                 "interactive",
@@ -2057,11 +2113,20 @@
         "permission": {
           "additionalProperties": false,
           "properties": {
+            "custom": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
             "effective": {
               "anyOf": [
                 {
-                  "maxLength": 4096,
-                  "minLength": 1,
+                  "enum": [
+                    "read-only",
+                    "ask",
+                    "auto-review",
+                    "full-access"
+                  ],
                   "type": "string"
                 },
                 {
@@ -2072,8 +2137,12 @@
             "override": {
               "anyOf": [
                 {
-                  "maxLength": 4096,
-                  "minLength": 1,
+                  "enum": [
+                    "read-only",
+                    "ask",
+                    "auto-review",
+                    "full-access"
+                  ],
                   "type": "string"
                 },
                 {

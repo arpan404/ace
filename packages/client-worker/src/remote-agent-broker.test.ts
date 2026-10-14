@@ -18,7 +18,7 @@ const task = RemoteTask.parse({
   parentThreadId: "parent",
   parentAgentId: "root",
   parentProvider: "codex",
-  parentPermissionMode: ":read-only",
+  parentAccess: "read-only",
   threadId: `remote-${"a".repeat(64)}`,
   request: {
     requestId: "work",
@@ -29,7 +29,7 @@ const task = RemoteTask.parse({
     role: "Review",
     task: "Review",
   },
-  permissionMode: ":read-only",
+  access: "read-only",
   phase: "queued",
   dispatched: true,
   delivered: false,

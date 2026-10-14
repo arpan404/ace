@@ -13,9 +13,9 @@ export function createPermissionsSession(context: SocketContext): SocketService 
       try {
         const engine = context.options.engine;
         if (!engine) throw new Error("Permission metadata unavailable");
-        let permissions =
+        const base =
           message.provider === "pi"
-            ? piCapabilities({ installed: false, auth: "unknown", loginHint: "" }).permissions
+            ? piCapabilities({ installed: false, auth: "unknown", loginHint: "" })
             : engine.capabilities(
                 message.provider,
                 message.provider === "cursor"
@@ -23,7 +23,8 @@ export function createPermissionsSession(context: SocketContext): SocketService 
                   : message.backend === "cli"
                     ? undefined
                     : message.backend,
-              ).permissions;
+              );
+        let permissions = base.permissions;
         const instance =
           message.instanceId &&
           context.options.models
@@ -39,11 +40,13 @@ export function createPermissionsSession(context: SocketContext): SocketService 
             permissionModes: instance.permissionModes,
             modes: instance.permissionModes.map((mode) => mode.id),
           };
+        const accessModes = (instance ? instance.accessModes : undefined) ?? base.accessModes;
         context.send({
           type: "permissions.capabilities.result",
           requestId: message.requestId,
           ok: true,
           ...(permissions ? { permissions } : {}),
+          ...(accessModes ? { accessModes } : {}),
         });
       } catch {
         context.send({

@@ -2,6 +2,13 @@
   "$id": "https://ace.local/protocol/v1/ProviderStatus.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "accessModes": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/AccessModeOffer.json"
+      },
+      "maxItems": 4,
+      "type": "array"
+    },
     "accountLabel": {
       "maxLength": 256,
       "minLength": 1,

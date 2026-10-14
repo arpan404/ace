@@ -3,6 +3,22 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "access": {
+      "anyOf": [
+        {
+          "enum": [
+            "read-only",
+            "ask",
+            "auto-review",
+            "full-access"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "agentId": {
       "minLength": 1,
       "type": "string"
@@ -42,18 +58,6 @@
       "maxItems": 9,
       "type": "array"
     },
-    "permissionMode": {
-      "anyOf": [
-        {
-          "maxLength": 4096,
-          "minLength": 1,
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
     "threadId": {
       "minLength": 1,
       "type": "string"
@@ -62,7 +66,7 @@
   "required": [
     "threadId",
     "agentId",
-    "permissionMode",
+    "access",
     "groups"
   ],
   "type": "object"

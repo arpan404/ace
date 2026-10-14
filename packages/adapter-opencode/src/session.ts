@@ -4,7 +4,7 @@ import { openCodeMcpControls } from "./mcp-controls.ts";
 import { developerInstructions } from "@ace/mcp-server";
 import { registerAceMcp } from "./mcp-registration.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
-import { opencodePermissionAgent } from "./permission-policy.ts";
+import { opencodePolicy } from "./permission-policy.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { Key } from "@ace/core";
 import type { ContentPart, InteractionResolution, ExecutionSelection } from "@ace/protocol";
@@ -166,6 +166,7 @@ export class OpenCodeSession implements ProviderSession {
     ctx.signal.addEventListener("abort", s.abortListener, { once: true });
     try {
       s.emit("note", "lifecycle", { type: "started" });
+      const policy = ctx.permissionMode ? opencodePolicy(ctx.permissionMode) : undefined;
       const info = SessionInfo.parse(
         ctx.resume
           ? await s.client.session.get({ sessionID: ctx.resume.nativeSessionId })
@@ -173,15 +174,17 @@ export class OpenCodeSession implements ProviderSession {
               title: "ace",
               location: { directory: ctx.cwd },
               model: selectedModel(ctx.model, ctx.options),
-              ...(ctx.permissionMode ? { agent: opencodePermissionAgent(ctx.permissionMode) } : {}),
+              ...(policy ? { agent: policy.agent } : {}),
+              ...(policy?.rules?.length ? { permissions: policy.rules } : {}),
             }),
       );
+      if (ctx.resume && policy) {
+        await s.client.session.switchAgent({ sessionID: info.id, agent: policy.agent });
+        // Replace the rules ace wrote for the previous mode; a Custom mode keeps the session's.
+        if (policy.rules)
+          await s.client.session.update({ sessionID: info.id, permissions: policy.rules });
+      }
       if (ctx.resume) {
-        if (ctx.permissionMode)
-          await s.client.session.switchAgent({
-            sessionID: info.id,
-            agent: opencodePermissionAgent(ctx.permissionMode),
-          });
         const model = selectedModel(ctx.model, ctx.options);
         const previous = z
           .object({ providerID: z.string(), id: z.string(), variant: z.string().optional() })

@@ -14,99 +14,96 @@ import { token } from "../socket-test-support.ts";
 import { connect, command as socketCommand } from "../thread-creation-test-support.ts";
 
 it.each([
-  ["thread.create", "ask"],
+  ["thread.create", "full-access"],
   ["thread.create", "auto-review"],
-  ["thread.prepare", "ask"],
+  ["thread.prepare", "full-access"],
   ["thread.prepare", "auto-review"],
-] as const)(
-  "%s migrates legacy %s to native Cursor options and preserves input",
-  async (type, mode) => {
-    const home = await mkdtemp(join(tmpdir(), "cursor-limited-admission-"));
-    const store = new Store(join(home, "state.sqlite"));
-    const workspaceId = store.createWorkspace(home, "Workspace");
-    const frames = scriptFrames();
-    const adapter = createScriptedAdapter({
-      provider: "cursor",
-      capabilities: cursorCapabilities,
-      steps: [{ on: "send", frames: [frames.frame(start, end)] }],
-      createTranslator: () => ({ translate: frames.translate, tick: () => [] }),
+] as const)("%s runs Cursor %s with its native options and preserves input", async (type, mode) => {
+  const home = await mkdtemp(join(tmpdir(), "cursor-limited-admission-"));
+  const store = new Store(join(home, "state.sqlite"));
+  const workspaceId = store.createWorkspace(home, "Workspace");
+  const frames = scriptFrames();
+  const adapter = createScriptedAdapter({
+    provider: "cursor",
+    capabilities: cursorCapabilities,
+    steps: [{ on: "send", frames: [frames.frame(start, end)] }],
+    createTranslator: () => ({ translate: frames.translate, tick: () => [] }),
+  });
+  const registry = new AdapterRegistry();
+  let effective: import("@ace/protocol").PermissionMode | undefined;
+  registry.register(
+    {
+      ...adapter,
+      backend: "cursor-sdk",
+      async openSession(context) {
+        effective = context.permissionMode;
+        return adapter.openSession(context);
+      },
+    },
+    { installed: true, auth: "logged_in", loginHint: "Synthetic boundary" },
+  );
+  const engine = new Engine(store, { registry, selectInstance: () => "private-sdk" });
+  await engine.ready();
+  const server = await startServer({
+    store,
+    engine,
+    handler: engine.handler,
+    port: 0,
+    hostId: "host",
+    token,
+  });
+  const client = await connect(server.url);
+  const threadId = ThreadId.parse("limited-thread");
+  const input = [{ type: "text" as const, text: "Preserve this first message" }];
+  try {
+    const selection = {
+      threadId,
+      workspaceId,
+      provider: "cursor" as const,
+      access: mode,
+    };
+    const result = await socketCommand(
+      client,
+      "create",
+      type === "thread.create"
+        ? { type, ...selection, input }
+        : { type, ...selection, title: "Limited prepared thread" },
+    );
+    expect(result).toMatchObject({ ok: true, threadId });
+    if (type === "thread.prepare")
+      expect(
+        await socketCommand(client, "first-input", {
+          type: "thread.send",
+          threadId,
+          input,
+          delivery: "queue",
+        }),
+      ).toMatchObject({ ok: true });
+    await engine.flush();
+    expect(effective).toBe(cursorMode(mode === "auto-review", mode === "auto-review"));
+    expect(adapter.commands.filter((entry) => entry.type === "send")).toEqual([
+      { type: "send", input, delivery: "queue" },
+    ]);
+    expect(engine.sessionMetadata(threadId)).toMatchObject({
+      backend: "cursor-sdk",
+      instanceId: "private-sdk",
     });
-    const registry = new AdapterRegistry();
-    let effective: import("@ace/protocol").PermissionMode | undefined;
-    registry.register(
-      {
-        ...adapter,
-        backend: "cursor-sdk",
-        async openSession(context) {
-          effective = context.permissionMode;
-          return adapter.openSession(context);
+    expect(store.getThread(threadId)).toMatchObject({
+      status: { state: "done" },
+      capabilities: {
+        permissions: {
+          nativeAutoReview: true,
         },
       },
-      { installed: true, auth: "logged_in", loginHint: "Synthetic boundary" },
-    );
-    const engine = new Engine(store, { registry, selectInstance: () => "private-sdk" });
-    await engine.ready();
-    const server = await startServer({
-      store,
-      engine,
-      handler: engine.handler,
-      port: 0,
-      hostId: "host",
-      token,
     });
-    const client = await connect(server.url);
-    const threadId = ThreadId.parse("limited-thread");
-    const input = [{ type: "text" as const, text: "Preserve this first message" }];
-    try {
-      const selection = {
-        threadId,
-        workspaceId,
-        provider: "cursor" as const,
-        permissionMode: mode,
-      };
-      const result = await socketCommand(
-        client,
-        "create",
-        type === "thread.create"
-          ? { type, ...selection, input }
-          : { type, ...selection, title: "Limited prepared thread" },
-      );
-      expect(result).toMatchObject({ ok: true, threadId });
-      if (type === "thread.prepare")
-        expect(
-          await socketCommand(client, "first-input", {
-            type: "thread.send",
-            threadId,
-            input,
-            delivery: "queue",
-          }),
-        ).toMatchObject({ ok: true });
-      await engine.flush();
-      expect(effective).toBe(cursorMode(true, mode === "auto-review"));
-      expect(adapter.commands.filter((entry) => entry.type === "send")).toEqual([
-        { type: "send", input, delivery: "queue" },
-      ]);
-      expect(engine.sessionMetadata(threadId)).toMatchObject({
-        backend: "cursor-sdk",
-        instanceId: "private-sdk",
-      });
-      expect(store.getThread(threadId)).toMatchObject({
-        status: { state: "done" },
-        capabilities: {
-          permissions: {
-            nativeAutoReview: true,
-          },
-        },
-      });
-    } finally {
-      await client.close();
-      await server.close();
-      await engine.close();
-      store.close();
-      await rm(home, { recursive: true, force: true });
-    }
-  },
-);
+  } finally {
+    await client.close();
+    await server.close();
+    await engine.close();
+    store.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
 
 it("rejects oversized SDK input before creating a thread and fences the durable input backlog", async () => {
   const home = await mkdtemp(join(tmpdir(), "cursor-admission-"));
@@ -232,7 +229,7 @@ it("pins SDK account and backend before worktree preparation and checkpoints bef
             provider: "cursor",
             mode: "worktree",
             model: "composer-2.5",
-            permissionMode: "auto-review",
+            access: "auto-review",
             input: [{ type: "text", text: "offline" }],
           },
         }),

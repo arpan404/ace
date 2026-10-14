@@ -108,7 +108,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
     observations,
     (caller) => ({
       // Report the thread's own native selector; a fixed placeholder misleads agents.
-      permissionMode: store.getThread(caller.threadId)?.permission?.effective ?? null,
+      access: store.getThread(caller.threadId)?.permission?.effective ?? null,
       get screenApproved() {
         return services.screen?.hasAppApproval(caller) ?? false;
       },

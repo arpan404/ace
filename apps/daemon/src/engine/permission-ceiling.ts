@@ -1,51 +1,22 @@
-import { codexReviewerMode, cursorMode } from "@ace/provider-kit/permission-modes";
-import type { PermissionMode, PermissionPolicyIdentity, ProviderKind } from "@ace/protocol";
-
-type Policy = PermissionPolicyIdentity & { mode: PermissionMode | null };
+import { accessRank, stricterOffer } from "@ace/provider-kit/access-modes";
+import { AccessMode, type AccessModeOffer, type PermissionPolicyIdentity } from "@ace/protocol";
 
 /**
- * What a native mode lets an agent do without a person, for delegation containment only
- * (ADR 0069, delegation ceiling): 0 reads and plans, 1 acts only on approval or prior grants,
- * 2 edits the workspace without asking, 3 lets an automatic reviewer approve, 4 is unrestricted.
- * Only the provider-defined modes listed here have a capability; opaque ACP selectors, custom
- * profiles and unreported defaults have none and are contained only by an identical policy.
- * Within a capability, the first listed mode is the one an inherited child takes.
- * `inheritable: false` marks modes an instance may not offer (classifier or reviewer availability),
- * so inheritance never picks them; an explicit request still can.
+ * A thread's stored access: one of the four ace modes, `custom:<native>` for an Advanced
+ * native override, or null for a provider that offers no ace mode (its own default).
  */
-const capabilities: Partial<
-  Record<ProviderKind, readonly { mode: PermissionMode; level: number; inheritable?: false }[]>
-> = {
-  claude: [
-    { mode: "plan", level: 0 },
-    { mode: "default", level: 1 },
-    { mode: "dontAsk", level: 1 },
-    { mode: "acceptEdits", level: 2 },
-    { mode: "auto", level: 3, inheritable: false },
-    { mode: "bypassPermissions", level: 4 },
-  ],
-  codex: [
-    { mode: ":read-only", level: 0 },
-    { mode: ":workspace", level: 2 },
-    { mode: codexReviewerMode("auto_review"), level: 3, inheritable: false },
-    { mode: codexReviewerMode("guardian_subagent"), level: 3, inheritable: false },
-    { mode: ":danger-full-access", level: 4 },
-  ],
-  opencode: [
-    { mode: "plan", level: 0 },
-    { mode: "build", level: 2 },
-  ],
-  cursor: [
-    { mode: cursorMode(true, false), level: 2 },
-    { mode: cursorMode(true, true), level: 3 },
-    { mode: cursorMode(false, false), level: 4 },
-    { mode: cursorMode(false, true), level: 4 },
-  ],
-};
+export type AccessSelection = string;
+type Policy = PermissionPolicyIdentity & { mode: AccessSelection | null };
 
-function capability(policy: Policy): number | undefined {
-  if (policy.backend === "acp" || policy.mode === null) return undefined;
-  return capabilities[policy.provider]?.find((entry) => entry.mode === policy.mode)?.level;
+export const customSelection = (native: string): AccessSelection => `custom:${native}`;
+export function customNative(selection: AccessSelection | null): string | undefined {
+  return selection?.startsWith("custom:") ? selection.slice(7) : undefined;
+}
+
+/** The ace mode rank (ADR 0075): 0 Read-only … 3 Full access; undefined for Custom/default. */
+function rank(selection: AccessSelection | null): number | undefined {
+  const mode = AccessMode.safeParse(selection);
+  return mode.success ? accessRank(mode.data) : undefined;
 }
 
 function sameIdentity(parent: PermissionPolicyIdentity, child: PermissionPolicyIdentity) {
@@ -58,76 +29,61 @@ function sameIdentity(parent: PermissionPolicyIdentity, child: PermissionPolicyI
   );
 }
 
-function unrestricted(parent: Policy): boolean {
-  if (parent.backend === "acp") return false;
-  // ADR 0050: Pi has no native sandbox or permission mode. Its process has
-  // the user's OS rights; an ace MCP call still needs separate ace consent.
-  if (parent.provider === "pi") return parent.mode === null;
-  return capability(parent) === 4;
-}
-
 /**
- * A child is within its parent's ceiling when it can do no more than the parent: the same
- * policy, or a mode with known capability at or below the parent's, on any provider.
+ * A child is within its parent's ceiling when it can do no more: a mode ranked at or below the
+ * parent's, on any provider, or exactly the parent's own unranked policy on the same identity.
  */
 export function permissionWithinCeiling(parent: Policy, child: Policy): boolean {
-  if (unrestricted(parent)) return true;
-  // The same execution identity at the same mode is the same authority, even when
-  // that mode is the provider's unreported default or an opaque ACP selector.
-  if (sameIdentity(parent, child) && parent.mode === child.mode) return true;
-  const ceiling = capability(parent);
-  const requested = capability(child);
-  return ceiling !== undefined && requested !== undefined && requested <= ceiling;
+  // Full access is unrestricted: any child, even an agent's unranked default, does no more.
+  if (parent.mode === "full-access") return true;
+  const ceiling = rank(parent.mode);
+  const requested = rank(child.mode);
+  if (ceiling !== undefined && requested !== undefined) return requested <= ceiling;
+  return sameIdentity(parent, child) && parent.mode === child.mode;
 }
 
-/** The modes of `child`'s provider an explicit request may choose under `parent`, most capable last. */
+/** The modes a child's instance offers that an explicit request may choose under `parent`. */
 export function allowedChildModes(
   parent: Policy,
-  child: PermissionPolicyIdentity,
-): PermissionMode[] {
-  return (capabilities[child.provider] ?? [])
-    .filter((entry) => permissionWithinCeiling(parent, { ...child, mode: entry.mode }))
-    .map((entry) => entry.mode);
+  offers: readonly AccessModeOffer[],
+): AccessMode[] {
+  const ceiling = rank(parent.mode);
+  return ceiling === undefined
+    ? []
+    : offers.filter((offer) => accessRank(offer.mode) <= ceiling).map((offer) => offer.mode);
 }
 
 /**
- * The mode a child takes when it names none: its parent's own mode on the same identity,
- * otherwise the most capable inheritable mode of its provider within the parent's ceiling,
- * among the modes the child's instance `offered`, when known.
+ * The mode a child takes when it inherits: the broadest mode its instance offers at or below
+ * the parent's, or the parent's own unranked policy on the same identity. Undefined when no
+ * offered mode is that strict.
  */
 export function inheritedPermissionMode(
   parent: Policy,
   child: PermissionPolicyIdentity,
-  offered?: readonly PermissionMode[],
-): PermissionMode | null {
-  if (
-    parent.provider === child.provider &&
-    permissionWithinCeiling(parent, { ...child, mode: parent.mode })
-  )
-    return parent.mode;
-  const candidates = (capabilities[child.provider] ?? [])
-    .filter((entry) => entry.inheritable !== false)
-    .filter((entry) => !offered || offered.includes(entry.mode))
-    .filter((entry) => permissionWithinCeiling(parent, { ...child, mode: entry.mode }));
-  let best: (typeof candidates)[number] | undefined;
-  for (const entry of candidates) if (!best || entry.level > best.level) best = entry;
-  return best?.mode ?? null;
+  offers: readonly AccessModeOffer[],
+): AccessSelection | null | undefined {
+  const mode = AccessMode.safeParse(parent.mode);
+  if (mode.success)
+    return (
+      stricterOffer(mode.data, offers)?.mode ??
+      (mode.data === "full-access" && !offers.length ? null : undefined)
+    );
+  return sameIdentity(parent, child) ? parent.mode : undefined;
 }
 
 /**
  * The mode a thread's children are measured against while a change is pending: the stricter
- * of the acknowledged and requested modes. An unreported side is unknown, so the reported
- * one stands: a requested mode before the first acknowledgement, the last acknowledged mode
- * after a reset to the provider default.
+ * of the acknowledged and requested modes. An unreported side is unknown, so the reported one
+ * stands.
  */
 export function ceilingMode(
-  identity: PermissionPolicyIdentity,
-  effective: PermissionMode | null,
-  requested: PermissionMode | null,
-): PermissionMode | null {
+  effective: AccessSelection | null,
+  requested: AccessSelection | null,
+): AccessSelection | null {
   if (effective === requested || requested === null) return effective;
   if (effective === null) return requested;
-  const current = capability({ ...identity, mode: effective });
-  const next = capability({ ...identity, mode: requested });
+  const current = rank(effective);
+  const next = rank(requested);
   return current !== undefined && next !== undefined && next < current ? requested : effective;
 }

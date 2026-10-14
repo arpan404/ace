@@ -1,9 +1,11 @@
+import { accessModeOffers } from "@ace/provider-kit/access-modes";
 import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import type { Capabilities } from "@ace/protocol";
 
 const baseCapabilities: Capabilities = {
   approvals: "sandbox-only",
   permissionModes: nativePermissionModes("cursor"),
+  accessModes: accessModeOffers({ provider: "cursor" }),
   permissions: {
     modes: nativePermissionModes("cursor").map((mode) => mode.id),
     permissionModes: nativePermissionModes("cursor"),

@@ -6,6 +6,7 @@ import {
 } from "./session-references.ts";
 import { privateMcpConfig, AceMcpConnectionSchema } from "@ace/mcp-server";
 import { fileURLToPath } from "node:url";
+import { piLaunchArgs } from "./launch-args.ts";
 import type { ProviderSession, SessionContext, Frame } from "@ace/engine-api";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
 import { piVersionRefusal, type DiscoveryResult } from "@ace/provider-kit/discovery";
@@ -76,6 +77,7 @@ export async function openPiSession(
     "-e",
     fileURLToPath(new URL("./extension.ts", import.meta.url)),
     ...(ctx.model ? ["--model", ctx.model] : []),
+    ...piLaunchArgs(ctx.permissionMode, ctx.options?.["effort"]),
   ];
   let configuration: ReturnType<typeof privateMcpConfig>;
   try {

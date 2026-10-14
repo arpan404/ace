@@ -1,3 +1,4 @@
+import { accessModeOffers } from "@ace/provider-kit/access-modes";
 import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import type { Capabilities } from "@ace/protocol";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
@@ -10,6 +11,7 @@ export function capabilities(cli: DiscoveryResult): Capabilities {
     sessionOptions: supported,
     launchOptions: supported ? ["effort"] : [],
     permissionModes: nativePermissionModes("opencode"),
+    accessModes: accessModeOffers({ provider: "opencode" }),
     permissions: {
       modes: nativePermissionModes("opencode").map((mode) => mode.id),
       permissionModes: nativePermissionModes("opencode"),

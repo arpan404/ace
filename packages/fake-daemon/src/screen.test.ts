@@ -26,7 +26,7 @@ async function fixture(deviceId = "owner", scopes?: readonly ("read" | "operate"
     workspaceId: "workspace",
     title: "Computer use",
     provider: "codex",
-    permissionMode: "ask",
+    access: "ask",
   });
   daemon.apply("thread", [{ type: "turn.started", agent: "root", trigger: "user" }]);
   const client = new Client({

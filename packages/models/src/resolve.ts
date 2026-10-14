@@ -17,6 +17,11 @@ export function resolveEffort(
   );
 }
 
+/** The model's native effort id for a native id or canonical level, if it offers one. */
+export function effortId(model: Pick<CatalogModel, "efforts">, effort: string): string | undefined {
+  return model.efforts.find((entry) => entry.id === effort || entry.level === effort)?.id;
+}
+
 export function resolveModel(
   input: ModelRoleSpec,
   models: Iterable<CatalogModel>,
@@ -48,7 +53,7 @@ export function resolveModel(
     )
       continue;
     if (spec.imageInput && !model.inputModalities.includes("image")) continue;
-    if (spec.effort && !model.reasoningEfforts.includes(spec.effort)) continue;
+    if (spec.effort && !effortId(model, spec.effort)) continue;
     if (
       spec.tier &&
       !model.serviceTiers.some(
@@ -86,7 +91,11 @@ export function resolveModel(
       ? option.id === spec.tier || (spec.tier === "fast" && option.speed === "fast")
       : option.id === chosen.defaultTier,
   );
-  const effort = resolveEffort(chosen.reasoningEfforts, spec.effort, chosen.defaultEffort);
+  const effort = resolveEffort(
+    chosen.efforts.map((entry) => entry.id),
+    spec.effort && effortId(chosen, spec.effort),
+    chosen.defaultEffort,
+  );
   const basis = spec.model
     ? "explicit model"
     : preferred

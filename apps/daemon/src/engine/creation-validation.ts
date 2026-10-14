@@ -1,7 +1,6 @@
-import { migratePermissionMode } from "@ace/provider-kit/permission-modes";
+import { reportedOrTable } from "@ace/provider-kit/access-modes";
 import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import { portableContext } from "@ace/context";
-import { supportsPermissionMode } from "@ace/core";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { AcpIdentity, type Command } from "@ace/protocol";
 import { maxMessageBytes } from "./queue-store.ts";
@@ -67,13 +66,14 @@ export function validateCreation(
       models?.permissionCapabilities(p.provider, instanceId, entry.capabilities) ??
       entry.capabilities,
   };
-  if (
-    migratePermissionMode(p.provider, p.permissionMode, entry.capabilities.permissionModes) &&
-    !supportsPermissionMode(
-      entry.capabilities.permissions,
-      migratePermissionMode(p.provider, p.permissionMode, entry.capabilities.permissionModes),
-    )
-  )
+  // An explicit mode must be one the instance genuinely supports; ACP reports its modes
+  // only once a session opens.
+  const access = p.access === "inherit" ? undefined : p.access;
+  const offers =
+    p.provider === "acp"
+      ? entry.capabilities.accessModes
+      : reportedOrTable(p.provider, entry.capabilities.accessModes);
+  if (access && offers && !offers.some((offer) => offer.mode === access))
     return fail("permission_mode_unsupported");
   let handoff: ReturnType<typeof portableContext> | undefined;
   if (p.handoffFrom) {

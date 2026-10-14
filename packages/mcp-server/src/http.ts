@@ -20,7 +20,7 @@ export async function startMcpServer(options: McpServerOptions) {
     return (name, capability) => {
       if (capability && state?.disabled?.[capability] !== undefined) return false;
       if (capability === "screen" || capability === "devices") {
-        if (state?.permissionMode === "read-only") return false;
+        if (state?.access === "read-only") return false;
         if (capability === "screen" && name !== "screen_request_app") {
           screenApproved ??= state?.screenApproved ?? true;
           if (!screenApproved) return false;
@@ -171,7 +171,7 @@ async function createHandler(
           uri: "ace://status",
           name: "ace status",
           description:
-            "Current connection, tool availability and permission mode. Also call ace_status.",
+            "Current connection, tool availability and access mode. Also call ace_status.",
           mimeType: "application/json",
         },
       ],

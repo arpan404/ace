@@ -83,7 +83,7 @@ export const statusToolCatalog = [
     name: "ace_status",
     riskClass: "read-only",
     description:
-      "Describe ace, this connection, which ace tool groups are enabled, and the thread's native permission mode. Groups cover only ace's own tools: use your own workspace tools for files and shell. Also available as ace://status.",
+      "Describe ace, this connection, which ace tool groups are enabled, and the thread's access mode. Groups cover only ace's own tools: use your own workspace tools for files and shell. Also available as ace://status.",
     input: z.strictObject({}),
     output: McpStatus,
     capability: null,

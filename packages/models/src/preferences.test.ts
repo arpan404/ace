@@ -9,7 +9,7 @@ const row = CatalogModel.parse({
   provider: "opencode",
   instance: "work",
   displayName: "Claude Opus 4.8",
-  reasoningEfforts: ["high"],
+  efforts: [{ id: "high", level: "high", label: "High" }],
   serviceTiers: [
     { id: "priority", name: "Fast", speed: "fast", parameters: { service_tier: "priority" } },
   ],
@@ -64,7 +64,7 @@ test("a custom id cannot overwrite provider capabilities or the provider's displ
   expect(rows).toHaveLength(1);
   expect(rows[0]).toMatchObject({
     displayName: "Claude Opus 4.8",
-    reasoningEfforts: ["high"],
+    efforts: [{ id: "high", level: "high", label: "High" }],
     serviceTiers: row.serviceTiers,
     inputModalities: ["text", "image"],
     contextWindow: 200000,

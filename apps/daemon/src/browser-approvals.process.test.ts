@@ -1,8 +1,7 @@
-import { codexReviewerMode } from "@ace/provider-kit/permission-modes";
 import { expect, it } from "vitest";
 import { originFixture } from "./browser-origin-test-support.ts";
 
-it.each([":workspace", codexReviewerMode("auto_review")])(
+it.each(["ask", "auto-review"] as const)(
   "%s separates evaluate once, site read-only grants, revocation and downloads",
   async (mode) => {
     const f = await originFixture(mode),
@@ -89,7 +88,7 @@ it("evaluate site grants survive restart without granting unrestricted JavaScrip
   expect(await evaluate).toBe(false);
 });
 it("native full access still needs human consent for evaluation, downloads and outside uploads", async () => {
-  const f = await originFixture(":danger-full-access"),
+  const f = await originFixture("full-access"),
     approvals = f.context.services.browserApprovals;
   if (!approvals) throw new Error("approvals");
   f.browser.originsGrant(f.thread.id, "https://site.example");

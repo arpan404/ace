@@ -34,9 +34,14 @@ import { incomingRemoteRoot } from "./incoming-root.ts";
 import { recoverLocalUsage } from "./local-usage-recovery.ts";
 import { recoverIncomingUsage } from "./incoming-usage-recovery.ts";
 import { AcpIdentity as importAcpIdentitySchema } from "@ace/protocol";
-import { delegationModel } from "./models.ts";
+import { delegationEffort, selectedDelegationModel } from "./models.ts";
 import { ConversationJournal } from "./conversation-journal.ts";
-import { matchesModel, isDefaultSelection, selectionModelFilter } from "@ace/models";
+import {
+  executionModelId,
+  matchesModel,
+  isDefaultSelection,
+  selectionModelFilter,
+} from "@ace/models";
 
 export interface DelegationDependencies {
   store: Store;
@@ -449,9 +454,11 @@ export class DelegationService {
       provider: thread.provider,
       ...identity,
       instanceId: thread.execution?.instanceId ?? identity?.instanceId,
-      permissionMode: this.deps.engine.permissionMode(thread.id) ?? undefined,
       model: operation.model,
-      options: operation.options,
+      ...(operation.options?.effort ? { effort: operation.options.effort } : {}),
+      ...(operation.options?.serviceTier
+        ? { options: { serviceTier: operation.options.serviceTier } }
+        : {}),
       role: "configuration",
       task: "configure",
     });
@@ -469,7 +476,20 @@ export class DelegationService {
         "model_unavailable",
         "Requested configuration model is unavailable",
       );
-    const model = delegationModel(this.deps.models, request, thread, thread.execution?.instanceId);
+    const chosen = selectedDelegationModel(
+      this.deps.models,
+      request,
+      thread,
+      thread.execution?.instanceId,
+    );
+    const model = executionModelId(chosen);
+    const effort = operation.options?.effort
+      ? delegationEffort(chosen, request, thread)
+      : undefined;
+    const options = {
+      ...(operation.options?.serviceTier ? { serviceTier: operation.options.serviceTier } : {}),
+      ...(effort ? { effort } : {}),
+    };
     const command = Command.parse({
       id: controlCommandId(caller.threadId, operation.requestId, operation.op),
       deviceId: "ace-agent",
@@ -480,7 +500,7 @@ export class DelegationService {
           provider: thread.provider,
           model,
           ...(thread.execution?.instanceId ? { instanceId: thread.execution.instanceId } : {}),
-          ...(operation.options ? { options: operation.options } : {}),
+          ...(Object.keys(options).length ? { options } : {}),
         },
       },
     });

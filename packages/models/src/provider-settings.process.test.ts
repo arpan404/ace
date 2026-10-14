@@ -368,10 +368,12 @@ test("paged cached models retain row order and update visibility across preferen
   expect(() => {
     custom.displayName = "Changed";
   }).toThrow(TypeError);
-  expect(() => custom.reasoningEfforts.push("invented")).toThrow(TypeError);
+  expect(() => custom.efforts.push({ id: "invented", level: null, label: "Invented" })).toThrow(
+    TypeError,
+  );
   expect(catalog.list({ limit: 1, offset: 512 }).models[0]).toMatchObject({
     displayName: "Custom 0",
-    reasoningEfforts: [],
+    efforts: [],
   });
   for (let repeat = 0; repeat < 2; repeat++) {
     expect(catalog.list({ limit: 1, offset: 511 })).toMatchObject({

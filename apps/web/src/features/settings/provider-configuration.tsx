@@ -4,6 +4,7 @@ import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useProviderConfiguration } from "@/lib/provider-configuration.ts";
+import { NativeModeRow } from "./native-mode.tsx";
 
 export function ProviderPreferences(props: { provider: ProviderKind; missing: boolean }) {
   const { value, disabled, update } = useProviderConfiguration(props.provider);
@@ -60,6 +61,7 @@ export function ProviderPreferences(props: { provider: ProviderKind; missing: bo
           Enter the full path to the executable, or clear it to find the CLI automatically.
         </p>
       )}
+      {!props.missing && <NativeModeRow provider={props.provider} />}
     </SettingSection>
   );
 }

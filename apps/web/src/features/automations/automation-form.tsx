@@ -1,4 +1,4 @@
-import { NativePermissionSelect } from "@/components/native-permission-select.tsx";
+import { ProviderAccessSelect } from "@/components/provider-access-select.tsx";
 import { ProviderKind } from "@ace/protocol";
 import { useStore } from "@tanstack/react-form";
 import { useBlocker } from "@tanstack/react-router";
@@ -184,7 +184,6 @@ export function AutomationEditor(props: {
                   value={field.state.value}
                   onChange={(provider, keepsModel) => {
                     field.handleChange(provider);
-                    form.setFieldValue("permissionMode", undefined);
                     if (!keepsModel) form.setFieldValue("model", "");
                   }}
                   currentModel={() => form.getFieldValue("model")}
@@ -227,10 +226,10 @@ export function AutomationEditor(props: {
         <Disclosure className="mt-5" summary="Advanced">
           <form.Subscribe selector={(state) => state.values.provider}>
             {(provider) => (
-              <form.Field name="permissionMode">
+              <form.Field name="access">
                 {(field) => (
-                  <Row label="Permissions">
-                    <NativePermissionSelect
+                  <Row label="Access">
+                    <ProviderAccessSelect
                       provider={provider}
                       value={field.state.value}
                       onChange={field.handleChange}

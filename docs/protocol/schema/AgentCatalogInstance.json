@@ -2,6 +2,13 @@
   "$id": "https://ace.local/protocol/v1/AgentCatalogInstance.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "accessModes": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/AccessModeOffer.json"
+      },
+      "maxItems": 4,
+      "type": "array"
+    },
     "accountLabel": {
       "maxLength": 256,
       "type": "string"
@@ -11,14 +18,11 @@
       "minLength": 1,
       "type": "string"
     },
-    "allowedDefault": {
-      "type": "boolean"
-    },
-    "allowedPermissionModes": {
+    "allowedAccessModes": {
       "items": {
-        "$ref": "https://ace.local/protocol/v1/NativePermissionMode.json"
+        "$ref": "https://ace.local/protocol/v1/AccessMode.json"
       },
-      "maxItems": 256,
+      "maxItems": 4,
       "type": "array"
     },
     "auth": {
@@ -80,18 +84,6 @@
       "maxItems": 2,
       "type": "array"
     },
-    "nextPermissionOffset": {
-      "maximum": 9007199254740991,
-      "minimum": 0,
-      "type": "integer"
-    },
-    "permissionModes": {
-      "items": {
-        "$ref": "https://ace.local/protocol/v1/NativePermissionMode.json"
-      },
-      "maxItems": 256,
-      "type": "array"
-    },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     },
@@ -122,8 +114,7 @@
     "installed",
     "auth",
     "launchOptions",
-    "allowedPermissionModes",
-    "allowedDefault"
+    "allowedAccessModes"
   ],
   "type": "object"
 }

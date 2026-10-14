@@ -2,6 +2,9 @@
   "$id": "https://ace.local/protocol/v1/Automation.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "access": {
+      "$ref": "https://ace.local/protocol/v1/AccessMode.json"
+    },
     "concurrency": {
       "maximum": 32,
       "minimum": 1,
@@ -31,9 +34,6 @@
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
-    },
-    "permissionMode": {
-      "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
     },
     "prompt": {
       "maxLength": 32768,

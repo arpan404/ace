@@ -1,6 +1,7 @@
 import { ultraPreviewModel } from "./ultra-model.ts";
 import { configuredModels } from "@ace/models/preferences";
 import { modelDisplayName } from "@ace/models/display-name";
+import { modelEfforts } from "@ace/models/efforts";
 import { CatalogModel, Device, type ProviderKind, type SettingsValues } from "@ace/protocol";
 
 /**
@@ -94,7 +95,7 @@ function model(
       : {}),
     nativeModelId: id,
     contextWindow: extra.contextWindow,
-    reasoningEfforts: extra.efforts ?? [],
+    efforts: modelEfforts(extra.efforts ?? []),
     ...(extra.defaultEffort ? { defaultEffort: extra.defaultEffort } : {}),
     serviceTiers: extra.fast
       ? [

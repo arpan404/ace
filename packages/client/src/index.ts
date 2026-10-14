@@ -51,7 +51,7 @@ export { accessResponseError } from "./access-http.ts";
 export {
   PermissionClient,
   threadPermission,
-  permissionModes,
+  accessModes,
   permissionReview,
 } from "./permissions.ts";
 export { oppositeFollowUpBehavior } from "./follow-up.ts";

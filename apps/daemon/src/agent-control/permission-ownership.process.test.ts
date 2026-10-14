@@ -4,25 +4,25 @@ import { setup } from "./test-support.ts";
 
 test("a child cannot widen its captured ceiling after its parent widens", async () => {
   const h = setup();
-  const parent = await h.parent(":workspace");
+  const parent = await h.parent("auto-review");
   const child = h.service.delegate(parent, {
     requestId: "narrow",
     task: "inspect",
     role: "reader",
     provider: "codex",
-    permissionMode: ":read-only",
+    access: "read-only",
     wait: false,
     estimatedLoad: 0,
   });
   await h.engine.flush();
-  expect(h.contexts.get(child.childId)?.permissionMode).toBe(":read-only");
+  expect(h.contexts.get(child.childId)?.permissionMode).toContain(":read-only");
   await h.complete(child.childId, "inspected");
   await h.complete(parent.threadId, "ready");
   expect(
     h.service.command("full", {
       type: "thread.permission.set",
       threadId: parent.threadId,
-      permissionMode: ":danger-full-access",
+      access: "full-access",
     }).ok,
   ).toBe(true);
   h.service.command("new-parent-turn", {
@@ -31,27 +31,27 @@ test("a child cannot widen its captured ceiling after its parent widens", async 
     input: [{ type: "text", text: "continue" }],
   });
   await h.engine.flush();
-  expect(h.store.getThread(parent.threadId)?.permission?.effective).toBe(":danger-full-access");
+  expect(h.store.getThread(parent.threadId)?.permission?.effective).toBe("full-access");
   expect(
     h.service.command("widen", {
       type: "thread.permission.set",
       threadId: child.childId,
-      permissionMode: ":danger-full-access",
+      access: "full-access",
     }),
   ).toMatchObject({ ok: false, error: "permission_ceiling_unverifiable" });
-  expect(h.store.getThread(child.childId)?.permission?.override).toBe(":read-only");
+  expect(h.store.getThread(child.childId)?.permission?.override).toBe("read-only");
 });
 
 test("unverifiable cross-provider policies fail before child creation", async () => {
   const h = setup();
-  const parent = await h.parent(":read-only");
+  const parent = await h.parent("read-only");
   expect(() =>
     h.service.delegate(parent, {
       requestId: "cross",
       task: "edit",
       role: "writer",
       provider: "claude",
-      permissionMode: "bypassPermissions",
+      access: "full-access",
       wait: false,
       estimatedLoad: 0,
     }),
@@ -59,7 +59,7 @@ test("unverifiable cross-provider policies fail before child creation", async ()
   expect(h.store.listThreads()).toHaveLength(1);
 });
 
-test("a child cannot delegate under an obsolete ceiling after an ancestor narrows", async () => {
+test("after an ancestor narrows, a child's own delegation is held to the narrowed ceiling", async () => {
   const h = setup();
   const parent = await h.parent();
   const child = h.delegate(parent, "child");
@@ -70,7 +70,7 @@ test("a child cannot delegate under an obsolete ceiling after an ancestor narrow
     h.service.command("narrow-parent", {
       type: "thread.permission.set",
       threadId: parent.threadId,
-      permissionMode: ":read-only",
+      access: "read-only",
     }).ok,
   ).toBe(true);
   h.service.command("apply-narrow-parent", {
@@ -79,13 +79,16 @@ test("a child cannot delegate under an obsolete ceiling after an ancestor narrow
     input: [{ type: "text", text: "continue" }],
   });
   await h.engine.flush();
-  expect(h.store.getThread(parent.threadId)?.permission?.effective).toBe(":read-only");
-  expect(() => h.delegate(h.caller(child.childId), "grandchild")).toThrow();
+  expect(h.store.getThread(parent.threadId)?.permission?.effective).toBe("read-only");
   const catalog = h.service.catalog(
     h.caller(child.childId),
     AgentCatalogInput.parse({ provider: "claude" }),
   );
-  expect(catalog.instances).toHaveLength(1);
-  expect(catalog.instances.flatMap((instance) => instance.allowedPermissionModes)).toHaveLength(0);
-  expect(h.store.listThreads()).toHaveLength(2);
+  expect(catalog.instances.flatMap((instance) => instance.allowedAccessModes)).toEqual([
+    "read-only",
+  ]);
+  const grandchild = h.delegate(h.caller(child.childId), "grandchild");
+  await h.engine.flush();
+  // Claude's read-only access is its plan mode, whatever the child itself last ran.
+  expect(h.contexts.get(grandchild.childId)?.permissionMode).toBe("plan");
 });

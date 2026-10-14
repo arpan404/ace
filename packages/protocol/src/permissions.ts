@@ -16,9 +16,19 @@ export type PermissionPolicyIdentity = z.infer<typeof PermissionPolicyIdentity>;
 
 /** Native provider selector, or serialized native options when the harness has no mode enum. */
 export const PermissionMode = z.string().min(1).max(4096);
-/** Read historical audits; these values are no longer provider policies. */
-export const LegacyPermissionMode = z.enum(["read-only", "ask", "auto-review", "full-access"]);
-export type LegacyPermissionMode = z.infer<typeof LegacyPermissionMode>;
+export type PermissionMode = z.infer<typeof PermissionMode>;
+/**
+ * ace's four access modes, least to most capable (ADR 0075). Each provider maps a mode to exact
+ * native settings; a provider that can't express a mode natively doesn't offer it.
+ */
+export const AccessMode = z.enum(["read-only", "ask", "auto-review", "full-access"]);
+export type AccessMode = z.infer<typeof AccessMode>;
+/** A mode an instance offers, with the exact native selector ace sends for it. */
+export const AccessModeOffer = z.object({ mode: AccessMode, native: PermissionMode });
+export type AccessModeOffer = z.infer<typeof AccessModeOffer>;
+/** A delegated child's access: its parent's, or one of the four. */
+export const AccessRequest = z.union([z.literal("inherit"), AccessMode]);
+export type AccessRequest = z.infer<typeof AccessRequest>;
 export const NativePermissionMode = z.object({
   id: PermissionMode,
   label: z.string().min(1).max(256),
@@ -29,7 +39,6 @@ export const NativePermissionMode = z.object({
   default: z.boolean().optional(),
 });
 export type NativePermissionMode = z.infer<typeof NativePermissionMode>;
-export type PermissionMode = z.infer<typeof PermissionMode>;
 /** Exact provider input, not a display title or a permission glob. */
 export const ApprovalTarget = z.object({
   tool: z.string().min(1).max(256),
@@ -57,8 +66,9 @@ export const PermissionGuarantee = z.object({
 });
 export type PermissionGuarantee = z.infer<typeof PermissionGuarantee>;
 export const PermissionCapabilities = z.object({
-  /** Deprecated compatibility view; use permissionModes. */
+  /** Native selectors the instance accepts; ace modes map onto these. */
   modes: z.array(PermissionMode).max(256),
+  /** Native vocabulary, offered only under Settings → Providers → Advanced. */
   permissionModes: z.array(NativePermissionMode).max(256).optional(),
   /** Native feature availability; this does not mean ace enables it. */
   nativeAutoReview: z.boolean(),
@@ -68,9 +78,16 @@ export const PermissionCapabilities = z.object({
   guarantees: z.array(PermissionGuarantee).max(4).optional(),
 });
 export type PermissionCapabilities = z.infer<typeof PermissionCapabilities>;
+/**
+ * A thread's access. `override` is the explicit choice for the thread (null follows the
+ * defaults) and `effective` the mode the provider runs. `custom` names the native selector
+ * when an Advanced provider override runs instead of an ace mode. Values recorded before the
+ * four modes are mapped once when a daemon loads them (ADR 0078).
+ */
 export const PermissionState = z.object({
-  override: PermissionMode.nullable(),
-  effective: PermissionMode.nullable(),
+  override: AccessMode.nullable(),
+  effective: AccessMode.nullable(),
+  custom: PermissionMode.optional(),
   pending: z.boolean(),
 });
 export type PermissionState = z.infer<typeof PermissionState>;

@@ -1,4 +1,3 @@
-import { codexReviewerMode } from "@ace/provider-kit/permission-modes";
 import { expect, it } from "vitest";
 import { readyServices } from "./services/composition.ts";
 import { originFixture } from "./browser-origin-test-support.ts";
@@ -62,7 +61,7 @@ it("the backend policy grants human main documents and allows temporary cross-or
   expect(await backend.allowed("wss://links.example/live")).toBe(false);
 });
 it("native full access requires consent and keeps a one-shot allowance page-only", async () => {
-  const f = await originFixture(":danger-full-access");
+  const f = await originFixture("full-access");
   let opened = f.opened();
   const first = f.navigation();
   expect(f.resolve(await opened, "allow_once").ok).toBe(true);
@@ -81,7 +80,7 @@ it("native full access requires consent and keeps a one-shot allowance page-only
   f.store.appendEvents(f.thread.id, [
     {
       type: "thread.updated",
-      permission: { override: ":read-only", effective: ":read-only", pending: false },
+      permission: { override: "read-only", effective: "read-only", pending: false },
     },
   ]);
   expect(await backend?.allowed("wss://youtube.com/live")).toBe(false);
@@ -89,7 +88,7 @@ it("native full access requires consent and keeps a one-shot allowance page-only
   expect(await backend?.allowed("wss://other.example/live")).toBe(true);
 });
 it("native read-only leaves browser consent and loopback access independent", async () => {
-  const f = await originFixture(":read-only");
+  const f = await originFixture("read-only");
   f.browser.originsGrant(f.thread.id, "https://youtube.com");
   for (const url of ["https://youtube.com", "http://localhost:1234"])
     expect(await f.navigation(url)).toMatchObject({ url: expect.stringContaining(url) });
@@ -102,7 +101,7 @@ it("native read-only leaves browser consent and loopback access independent", as
     ),
   ).toMatchObject({ url: "https://human.example" });
 });
-it.each([":workspace", codexReviewerMode("auto_review")])(
+it.each(["ask", "auto-review"] as const)(
   "%s requests the exact action and honors once, thread and denial decisions",
   async (mode) => {
     const f = await originFixture(mode);

@@ -12,7 +12,7 @@ export function approvalRetryScenario(
       workspaceId: "ace",
       title: "Approval recovery",
       provider: "codex",
-      permissionMode: "ask",
+      access: "ask",
     });
     daemon.apply("ios-retry", [
       facts.rootAgent("codex"),

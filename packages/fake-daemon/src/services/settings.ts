@@ -1,4 +1,3 @@
-import { providerPermissionDefaults } from "@ace/provider-kit/permission-modes";
 import {
   SettingsKey,
   SettingsValues,
@@ -8,7 +7,7 @@ import {
   type ServerMessage,
 } from "@ace/protocol";
 import { defaults } from "@ace/settings/defaults";
-import { legacyPermissionMode } from "@ace/settings/legacy-permissions";
+import { legacyAccessDefault } from "@ace/settings/legacy-permissions";
 import { z } from "zod";
 
 /** Where a connection's pushes go; the connection owns its own lifetime. */
@@ -51,20 +50,10 @@ export class FakeSettings {
   seed(values: Readonly<Record<string, unknown>>): void {
     for (const [key, value] of Object.entries(values))
       if (SettingsKey.safeParse(key).success) this.global.set(key, value);
-    const legacy =
-      this.global.get("permissions.defaultMode") ??
-      (this.global.has("approvals.policy")
-        ? legacyPermissionMode(this.global.get("approvals.policy"))
-        : undefined);
-    if (typeof legacy === "string")
-      this.global.set("permissions.providerModes", {
-        ...providerPermissionDefaults(legacy),
-        ...SettingsValues.shape["permissions.providerModes"].parse(
-          this.global.get("permissions.providerModes") ?? {},
-        ),
-      });
-    this.global.delete("permissions.defaultMode");
-    this.global.delete("approvals.policy");
+    // Scenarios seeded with the old per-provider keys map once, as the daemon's settings do.
+    const legacy = legacyAccessDefault(values);
+    if (legacy && !this.global.has("access.defaultMode"))
+      this.global.set("access.defaultMode", legacy);
   }
   /** Write a global value as the daemon does for its own commands, telling subscribers. */
   write(key: SettingsKey, value: unknown): void {
@@ -107,22 +96,6 @@ export class FakeSettings {
           : this.global.has(key)
             ? (["global", this.global.get(key)] as const)
             : (["defaults", Reflect.get(defaults, key)] as const);
-      if (key === "permissions.providerModes") {
-        const modes = SettingsValues.shape["permissions.providerModes"];
-        const local = scope.threadId ? thread : scope.workspaceId ? workspace : this.global;
-        return [
-          {
-            key: parsed.data,
-            provenance,
-            localValue: modes.parse(local?.get(key) ?? {}),
-            value: {
-              ...modes.parse(this.global.get(key) ?? {}),
-              ...modes.parse(workspace?.get(key) ?? {}),
-              ...modes.parse(thread?.get(key) ?? {}),
-            },
-          },
-        ];
-      }
       return [{ key: parsed.data, value: z.json().parse(value ?? null), provenance }];
     });
   }
@@ -207,24 +180,7 @@ export class FakeSettings {
           values = new Map();
           this.layers.set(id ?? "", values);
         }
-        if (
-          (key.data === "permissions.defaultMode" && typeof value.data === "string") ||
-          key.data === "approvals.policy"
-        ) {
-          const legacy =
-            key.data === "approvals.policy"
-              ? legacyPermissionMode(value.data)
-              : z.string().parse(value.data);
-          values.set("permissions.providerModes", {
-            ...SettingsValues.shape["permissions.providerModes"].parse(
-              values.get("permissions.providerModes") ?? {},
-            ),
-            ...providerPermissionDefaults(legacy),
-          });
-          values.delete("permissions.defaultMode");
-          values.delete("approvals.policy");
-          this.notify("permissions.providerModes");
-        } else values.set(key.data, value.data);
+        values.set(key.data, value.data);
         this.notify(key.data);
         const scope: SettingsScope =
           layer.kind === "thread"

@@ -24,7 +24,7 @@ it("large jitter cannot skip later nominal occurrences", async () => {
 it("retrying a legacy permission selector retains a pending jittered occurrence across restart", async () => {
   const h = harness();
   h.random = 0.5;
-  const auto = { ...scheduled("run_once", 10_000), permissionMode: "read-only" };
+  const auto = { ...scheduled("run_once", 10_000), access: "read-only" as const };
   if (auto.trigger.kind !== "schedule") throw new Error("Invalid test definition");
   auto.trigger.schedule.expression = "FREQ=DAILY;COUNT=2";
   h.service.put(auto);
@@ -35,9 +35,9 @@ it("retrying a legacy permission selector retains a pending jittered occurrence 
   h.service.put(auto);
   h.now = start + 5000;
   await h.timer.fire();
-  expect(
-    h.inputs.map((input) => ({ prompt: input.prompt, permissionMode: input.permissionMode })),
-  ).toEqual([{ prompt: "Triage 2024-01-01T09:00:00.000Z", permissionMode: ":read-only" }]);
+  expect(h.inputs.map((input) => ({ prompt: input.prompt, access: input.access }))).toEqual([
+    { prompt: "Triage 2024-01-01T09:00:00.000Z", access: "read-only" },
+  ]);
   await h.finish();
   h.now = start + 86_400_000 + 9000;
   await h.timer.fire();

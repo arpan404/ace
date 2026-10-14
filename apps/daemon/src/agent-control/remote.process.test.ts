@@ -40,15 +40,7 @@ async function world(
         provider: "codex",
         model: "model",
         accountId: "account",
-        permissionModes: [
-          {
-            id: f.engine.permissionMode(caller.threadId) ?? ":read-only",
-            label: "Safe",
-            description: "Safe",
-            risk: "low",
-          },
-          { id: "unsafe", label: "Unsafe", description: "Unsafe", risk: "high" },
-        ],
+        accessModes: ["read-only", "ask", "auto-review"],
       },
     ],
   });
@@ -71,7 +63,7 @@ async function world(
       JSON.stringify({
         result,
         parent: f.store.getThread(caller.threadId)?.permission,
-        mode: f.engine.permissionMode(caller.threadId),
+        mode: f.engine.access(caller.threadId),
       }),
     ).toBe(true);
     return RemoteTask.parse(result.data);
@@ -108,7 +100,7 @@ test("agents discover explicit host projects and delegate idempotently without s
   expect(
     await f.remote.execute(
       f.caller,
-      { ...f.operation, requestId: "unsafe", permissionMode: "unsafe" },
+      { ...f.operation, requestId: "unsafe", access: "full-access" },
       new AbortController().signal,
     ),
   ).toMatchObject({ ok: false, code: "forbidden" });
@@ -225,14 +217,7 @@ test("durable ledger survives owner recreation; source hosts namespace otherwise
             provider: "codex",
             model: "model",
             accountId: "account",
-            permissionModes: [
-              {
-                id: f.engine.permissionMode(f.caller.threadId) ?? ":read-only",
-                label: "Safe",
-                description: "Safe",
-                risk: "low",
-              },
-            ],
+            accessModes: ["read-only", "ask", "auto-review", "full-access"],
           },
         ],
       }),
@@ -258,7 +243,7 @@ test("permission changes before admission cancel queued work; remote roots canno
     f.service.command("narrow-parent", {
       type: "thread.permission.set",
       threadId: f.caller.threadId,
-      permissionMode: ":read-only",
+      access: "read-only",
     }).ok,
   ).toBe(true);
   expect(f.remote.poll("window", f.lease)).toMatchObject([
@@ -634,7 +619,7 @@ test.each(["stop", "duration", "permission"])(
         f.service.command("change-policy", {
           type: "thread.permission.set",
           threadId: f.caller.threadId,
-          permissionMode: ":read-only",
+          access: "read-only",
         }).ok,
       ).toBe(true);
     else f.clock.advance(f.clock.now() + f.service.policy.durationMs);

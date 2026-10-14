@@ -2,6 +2,9 @@
   "$id": "https://ace.local/protocol/v1/ThreadPrepareCommand.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "access": {
+      "$ref": "https://ace.local/protocol/v1/AccessRequest.json"
+    },
     "accountId": {
       "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
     },
@@ -17,6 +20,17 @@
       "maxLength": 1024,
       "minLength": 1,
       "type": "string"
+    },
+    "effort": {
+      "anyOf": [
+        {
+          "const": "inherit",
+          "type": "string"
+        },
+        {
+          "$ref": "https://ace.local/protocol/v1/AgentEffort.json"
+        }
+      ]
     },
     "handoffFrom": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
@@ -45,9 +59,6 @@
     },
     "options": {
       "$ref": "https://ace.local/protocol/v1/AgentLaunchOptions.json"
-    },
-    "permissionMode": {
-      "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
     },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"

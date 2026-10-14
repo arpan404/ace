@@ -19,7 +19,12 @@ async function openThread() {
     model.provider === "claude"
       ? {
           ...model,
-          reasoningEfforts: ["light", "medium", "high", "ultra"],
+          efforts: [
+            { id: "light", level: null, label: "Light" },
+            { id: "medium", level: "medium", label: "Medium" },
+            { id: "high", level: "high", label: "High" },
+            { id: "ultra", level: "ultra", label: "Ultra" },
+          ],
           defaultEffort: "medium",
         }
       : model,

@@ -54,6 +54,13 @@
       "minLength": 1,
       "type": "string"
     },
+    "efforts": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ModelEffort.json"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
     "family": {
       "maxLength": 256,
       "minLength": 1,
@@ -151,15 +158,6 @@
       ],
       "type": "object"
     },
-    "reasoningEfforts": {
-      "items": {
-        "maxLength": 256,
-        "minLength": 1,
-        "type": "string"
-      },
-      "maxItems": 32,
-      "type": "array"
-    },
     "resolvedModelId": {
       "maxLength": 256,
       "minLength": 1,
@@ -186,6 +184,9 @@
     },
     "source": {
       "$ref": "https://ace.local/protocol/v1/ModelSource.json"
+    },
+    "thinkingToggle": {
+      "type": "boolean"
     },
     "tier": {
       "enum": [
@@ -217,7 +218,7 @@
     "provider",
     "instance",
     "nativeModelId",
-    "reasoningEfforts",
+    "efforts",
     "serviceTiers",
     "inputModalities",
     "isDefault",

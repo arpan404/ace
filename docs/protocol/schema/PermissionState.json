@@ -2,10 +2,13 @@
   "$id": "https://ace.local/protocol/v1/PermissionState.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "custom": {
+      "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+    },
     "effective": {
       "anyOf": [
         {
-          "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+          "$ref": "https://ace.local/protocol/v1/AccessMode.json"
         },
         {
           "type": "null"
@@ -15,7 +18,7 @@
     "override": {
       "anyOf": [
         {
-          "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+          "$ref": "https://ace.local/protocol/v1/AccessMode.json"
         },
         {
           "type": "null"

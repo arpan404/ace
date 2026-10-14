@@ -132,9 +132,9 @@ test("a two-line message with a file attached starts a thread under the chosen a
     page.getByRole("list", { name: "Attachments" }).getByText("restarts.log"),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: /^Approvals:/ }).click();
-  await page.getByRole("menuitemradio", { name: "Ask first" }).click();
-  await expect(page.getByRole("button", { name: "Approvals: Ask first" })).toBeVisible();
+  await page.getByRole("button", { name: /^Access:/ }).click();
+  await page.getByRole("menuitemradio", { name: "Ask", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Access: Ask" })).toBeVisible();
 
   await message.press("Enter");
   await expect(
@@ -142,7 +142,7 @@ test("a two-line message with a file attached starts a thread under the chosen a
   ).toBeVisible();
   const transcript = page.getByRole("feed", { name: "Transcript" });
   await expect(transcript.getByText(/and keep the last ten in memory/)).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Approvals: Ask first/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Access: Ask/ })).toBeVisible();
 
   // The agent is still reading: a follow-up waits above the composer instead of interrupting.
   const composer = page.getByRole("combobox", { name: "Message" });

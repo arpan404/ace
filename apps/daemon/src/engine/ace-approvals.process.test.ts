@@ -65,7 +65,7 @@ test.each(["auto-review", "ask", "read-only"] as const)(
         },
       ],
       frames,
-      { permissionSettings: async () => mode },
+      { permissionSettings: async () => ({ access: mode }) },
     );
     try {
       const id = await h.create();
@@ -141,7 +141,7 @@ test("in Full access ace answers Codex's gate on its own destructive tool withou
       { on: "resolve", frames: [frames.frame(end)] },
     ],
     frames,
-    { permissionSettings: async () => ":danger-full-access" },
+    { permissionSettings: async () => ({ access: "full-access" as const }) },
   );
   try {
     const id = await h.create();
@@ -161,7 +161,7 @@ test("outside Full access Codex's gate on a destructive ace tool asks the person
   const h = await harness(
     [{ on: "send", frames: [frames.frame(start, ...codexGate("ace_thread_merge", merge))] }],
     frames,
-    { permissionSettings: async () => ":workspace" },
+    { permissionSettings: async () => ({ access: "auto-review" as const }) },
   );
   try {
     const id = await h.create();
@@ -236,7 +236,7 @@ test("ace delegation asks the person outside Full access", async () => {
       { on: "resolve", frames: [frames.frame(end)] },
     ],
     frames,
-    { permissionSettings: async () => ":workspace" },
+    { permissionSettings: async () => ({ access: "auto-review" as const }) },
   );
   try {
     const id = await h.create();

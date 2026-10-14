@@ -13,6 +13,7 @@ import {
   type McpAttribution,
   type ThreadId,
   type DelegationPolicy,
+  type AccessMode,
   type Event,
 } from "@ace/protocol";
 import { Store, Engine, AdapterRegistry, DelegationService } from "@ace/daemon";
@@ -208,13 +209,13 @@ export function setup(
     if (!agentId) throw new Error("Root not materialized");
     return { sessionId: "test-lease", threadId, agentId };
   }
-  async function parent(permissionMode = ":danger-full-access") {
+  async function parent(access: AccessMode = "full-access") {
     await (models ?? catalog).refresh();
     const result = service.command(randomUUID(), {
       type: "thread.create",
       workspaceId: workspace,
       provider: "codex",
-      permissionMode,
+      access,
       input: [{ type: "text", text: "plan" }],
     });
     if (!result.ok || !result.threadId) throw new Error("Creation failed");
@@ -228,7 +229,7 @@ export function setup(
       role: "implementer",
       provider: "claude",
       model: "chosen-model",
-      options: { effort: "high" },
+      effort: "high",
       wait,
       estimatedLoad: 0,
     });

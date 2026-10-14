@@ -131,14 +131,14 @@ export function createRemoteIncomingSession(context: SocketContext): SocketServi
               task.parentThreadId,
               task.parentAgentId,
               task.request,
-              task.permissionMode,
+              task.access,
             ]) !==
               JSON.stringify([
                 input.sourceHostId,
                 input.parentThreadId,
                 input.parentAgentId,
                 input.request,
-                input.permissionMode,
+                input.access,
               ]))
         ) {
           context.send({ ...base, ok: false, error: "invalid" });
@@ -165,11 +165,20 @@ export function createRemoteIncomingSession(context: SocketContext): SocketServi
             threadId: input.threadId,
             workspaceId: input.request.workspaceId,
             provider: input.request.provider,
-            permissionMode: input.permissionMode,
+            access: input.access,
             mode: input.request.mode,
             ...(input.request.model ? { model: input.request.model } : {}),
             ...(input.request.accountId ? { accountId: input.request.accountId } : {}),
-            ...(input.request.options ? { options: input.request.options } : {}),
+            ...(input.request.options || remoteEffort(input.request.effort)
+              ? {
+                  options: {
+                    ...input.request.options,
+                    ...(remoteEffort(input.request.effort)
+                      ? { effort: remoteEffort(input.request.effort) }
+                      : {}),
+                  },
+                }
+              : {}),
             ...(input.request.acpAgentId ? { acpAgentId: input.request.acpAgentId } : {}),
             ...(input.request.installationId
               ? { installationId: input.request.installationId }
@@ -357,4 +366,9 @@ export function createRemoteIncomingSession(context: SocketContext): SocketServi
       return true;
     },
   };
+}
+
+/** An explicit effort travels with a remote task; inherit leaves the target model's default. */
+function remoteEffort(effort: string | undefined): string | undefined {
+  return effort && effort !== "inherit" ? effort : undefined;
 }

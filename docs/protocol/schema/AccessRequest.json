@@ -1,0 +1,13 @@
+{
+  "$id": "https://ace.local/protocol/v1/AccessRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "const": "inherit",
+      "type": "string"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/AccessMode.json"
+    }
+  ]
+}

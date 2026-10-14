@@ -1,4 +1,4 @@
-import { NativePermissionMode } from "./permissions.ts";
+import { AccessModeOffer, NativePermissionMode } from "./permissions.ts";
 import { AcpIdentity } from "./agent-registry.ts";
 import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
@@ -21,6 +21,25 @@ export const ModelTier = z.object({
     .refine((parameters) => Object.keys(parameters).length <= 16)
     .meta({ maxProperties: 16, "x-ace-constraint": "At most 16 entries." }),
 });
+/** ace's effort scale, weakest first; providers spell these differently ("extra-high", "none"). */
+export const EffortLevel = z.enum([
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+  "ultra",
+]);
+export type EffortLevel = z.infer<typeof EffortLevel>;
+/** One effort a model accepts: the exact native value, its canonical level when known, a label. */
+export const ModelEffort = z.object({
+  id: label,
+  level: EffortLevel.nullable(),
+  label,
+});
+export type ModelEffort = z.infer<typeof ModelEffort>;
 export const ModelSource = z.object({
   /** False when the source is available without a sign-in or API key. */
   requiresAuth: z.boolean().optional(),
@@ -77,8 +96,12 @@ export const CatalogModel = z
     modelConfigId: label.optional(),
     selectorMethod: z.enum(["session/set_config_option", "session/set_model"]).optional(),
     contextWindow: z.number().int().positive().optional(),
-    reasoningEfforts: z.array(label).max(32),
+    /** Weakest first. */
+    efforts: z.array(ModelEffort).max(32),
+    /** A native `id` from `efforts`. */
     defaultEffort: label.optional(),
+    /** The model has an on/off extended-thinking switch, separate from effort. */
+    thinkingToggle: z.boolean().optional(),
     serviceTiers: z.array(ModelTier).max(32),
     defaultTier: label.optional(),
     inputModalities: z.array(label).max(16),
@@ -137,6 +160,7 @@ export const ModelListOptions = ModelFilter.extend({
 export type ModelListOptions = z.input<typeof ModelListOptions>;
 export const ModelInstanceStatus = z.object({
   permissionModes: z.array(NativePermissionMode).max(256).optional(),
+  accessModes: z.array(AccessModeOffer).max(4).optional(),
   ...AcpIdentity.partial().shape,
   provider: ProviderKind,
   instance: label,

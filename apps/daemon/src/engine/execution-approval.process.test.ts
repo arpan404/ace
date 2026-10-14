@@ -57,7 +57,7 @@ test.each(["shell", "file.write", "mcp"] as const)(
         },
       ],
       frames,
-      { permissionSettings: async () => "ask", provider: "claude" },
+      { permissionSettings: async () => ({ access: "ask" as const }), provider: "claude" },
     );
     let reopened: Engine | undefined;
     try {
@@ -153,7 +153,7 @@ test.each(["allow_once", "deny", "cancel"] as const)(
         },
       ],
       frames,
-      { permissionSettings: async () => "ask" },
+      { permissionSettings: async () => ({ access: "ask" as const }) },
     );
     try {
       const id = await h.create();

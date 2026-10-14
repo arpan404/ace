@@ -89,7 +89,7 @@ for (const theme of ["light", "dark"])
       ).toBeLessThan(1);
       await expect(environment).toHaveCount(0);
       await expect(environment.getByRole("button", { name: /^Model: / })).toHaveCount(0);
-      await expect(composer.getByRole("button", { name: /^Approvals:/ })).toBeVisible();
+      await expect(composer.getByRole("button", { name: /^Access:/ })).toBeVisible();
       await page.locator("[data-composer-dock]").screenshot({
         animations: "disabled",
         path: `/tmp/ace-multiline-composer-${theme}-${width}.png`,

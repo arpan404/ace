@@ -3,6 +3,7 @@ import { z } from "zod";
 import { WorkspaceId } from "./ids.ts";
 import { BadgeColor } from "./badge-color.ts";
 import { ProviderKind } from "./provider-data.ts";
+import { AccessMode } from "./permissions.ts";
 
 /*
  * Projects as the core stream carries them: the project commands and the workspace and
@@ -98,6 +99,8 @@ export const ProjectDefaults = z
     /** The provider's model id; needs `provider`. */
     model: z.string().min(1).max(256).optional(),
     worktree: z.boolean().optional(),
+    /** Access for new threads in the project, ahead of the daemon's default. */
+    access: AccessMode.optional(),
     baseBranch: z.string().min(1).max(1024).optional(),
   })
   .refine((value) => value.model === undefined || value.provider !== undefined, {

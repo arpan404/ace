@@ -19,6 +19,7 @@ import { z } from "zod";
 import { base } from "./model.ts";
 import { OpenCodeParser } from "./open-code.ts";
 import { chatMetadata } from "./catalog-metadata.ts";
+import { isThinkingToggle, listedEffort, modelEfforts } from "./efforts.ts";
 
 /** Codex's tier ids by speed: `priority` is Fast and `ultrafast` Ultrafast; others (flex) aren't speeds. */
 const codexSpeeds: Readonly<Record<string, "fast" | "ultrafast">> = {
@@ -40,7 +41,9 @@ export function normalizeCodex(payload: unknown, instance: ModelInstance): Catal
         hidden: native.hidden,
         deprecated: native.deprecated,
         contextWindow: native.contextWindow,
-        reasoningEfforts: native.supportedReasoningEfforts.map((option) => option.reasoningEffort),
+        efforts: modelEfforts(
+          native.supportedReasoningEfforts.map((option) => option.reasoningEffort),
+        ),
         defaultEffort: native.defaultReasoningEffort,
         defaultTier: native.defaultServiceTier ?? undefined,
         serviceTiers: native.serviceTiers.length
@@ -67,7 +70,9 @@ export function normalizeClaude(payload: unknown, instance: ModelInstance): Cata
         ...base(instance, native.value, native.displayName, native),
         ...(native.resolvedModel ? { resolvedModelId: native.resolvedModel } : {}),
         contextWindow: native.contextWindow,
-        reasoningEfforts: native.supportedEffortLevels,
+        efforts: modelEfforts(native.supportedEffortLevels),
+        // Claude's effort parameter defaults to high (platform.claude.com, effort).
+        ...(native.supportedEffortLevels.includes("high") ? { defaultEffort: "high" } : {}),
         inputModalities: native.inputModalities,
         isDefault: native.isDefault ?? native.value === "default",
         deprecated: native.deprecated,
@@ -103,7 +108,7 @@ function applyConfig(model: CatalogModel, configs: z.infer<typeof ConfigOption>[
     if (!isSelectConfig(config)) continue;
     const values = options(config);
     if (config.category === "thought_level" || config.id === "reasoning_effort") {
-      model.reasoningEfforts = values.map((value) => value.value);
+      model.efforts = modelEfforts(values.map((value) => ({ id: value.value, label: value.name })));
       if (config.currentValue !== undefined) model.defaultEffort = config.currentValue;
     }
     if (config.id === "fast" && values.some((option) => option.value === "true")) {
@@ -222,11 +227,24 @@ export function normalizeCursorSdk(
     const defaultVariant = metadata.variants?.findIndex((variant) => variant.isDefault);
     if (defaultVariant !== undefined && defaultVariant >= 0)
       model.defaultTier = String(defaultVariant);
-    const effort = metadata.parameters?.find((parameter) =>
-      ["reasoning_effort", "effort", "reasoning"].includes(parameter.id),
-    );
-    model.reasoningEfforts =
-      effort?.values.map((value) => value.value).filter((value) => value.length > 0) ?? [];
+    // Effort is a parameter, or folded into the variants; either way the picker reads it as
+    // effort. On/off values switch thinking and are not effort.
+    const effortIds = new Set(["reasoning_effort", "effort", "reasoning"]);
+    const declared = metadata.parameters?.find((parameter) => effortIds.has(parameter.id));
+    const effortKey =
+      declared?.id ??
+      metadata.variants
+        ?.flatMap((variant) => variant.params)
+        .find((parameter) => effortIds.has(parameter.id))?.id;
+    const values = (
+      declared
+        ? declared.values.map((entry) => entry.value)
+        : (metadata.variants ?? []).flatMap((variant) =>
+            variant.params.filter((p) => p.id === effortKey).map((p) => p.value),
+          )
+    ).filter((entry) => entry.length > 0);
+    if (isThinkingToggle(values)) model.thinkingToggle = true;
+    model.efforts = modelEfforts(values);
     if (
       !model.serviceTiers.some((tier) => tier.speed === "fast") &&
       metadata.parameters?.some(
@@ -241,10 +259,11 @@ export function normalizeCursorSdk(
         parameters: { fast: "true", serviceTier: "fast" },
       });
     const defaultParams = metadata.variants?.find((variant) => variant.isDefault)?.params;
-    const defaultEffort =
-      effort && defaultParams?.find((parameter) => parameter.id === effort.id)?.value;
-    if (defaultEffort && model.reasoningEfforts.includes(defaultEffort))
-      model.defaultEffort = defaultEffort;
+    const defaultEffort = listedEffort(
+      model.efforts,
+      defaultParams?.find((parameter) => parameter.id === effortKey)?.value,
+    );
+    if (defaultEffort) model.defaultEffort = defaultEffort;
     // Arbitrary SDK parameters remain in bounded raw metadata. No guessed defaults/modalities.
     const parsed = CatalogModel.safeParse(model);
     if (parsed.success) return [parsed.data];

@@ -16,9 +16,17 @@ import { nameWorktreeBranch, runWorktreeGit, type WorktreeGit } from "./worktree
 import { CreationAdmissions, type CreationAdmission } from "./creation-admissions.ts";
 import { validateCreation } from "./creation-validation.ts";
 import { workspaceDirectory } from "./workspace-directory.ts";
-import { Command as CommandSchema, type PermissionMode, type CommandResult } from "@ace/protocol";
+import {
+  AccessMode,
+  Command as CommandSchema,
+  type AccessModeOffer,
+  type AccessRequest,
+  type PermissionMode,
+  type CommandResult,
+} from "@ace/protocol";
 import { commandContext } from "../commands.ts";
-import type { PermissionSettings } from "./permissions.ts";
+import { AccessError, type PermissionSettings } from "./permissions.ts";
+import { reportedOrTable } from "@ace/provider-kit/access-modes";
 import { changeEngineWorkspace, type WorkspaceChangeReservation } from "./workspace-change.ts";
 import { CommandId, ProviderKind, ThreadId } from "@ace/protocol";
 import type { PrepareInput } from "./input.ts";
@@ -419,35 +427,41 @@ export class Engine {
   /** Trusted spawn boundary for delegation. Receipt identity is caller-owned. */
   spawn(
     command: Command,
-    scope: { permissionMode?: PermissionMode; parentThreadId?: ThreadId } = {},
+    scope: { access?: AccessRequest; parentThreadId?: ThreadId } = {},
     prepared?: Pick<import("../commands.ts").CommandContext, "preparedWorkspace">,
   ): CommandResult {
     const p = command.payload;
     if (p.type !== "thread.create" && p.type !== "thread.prepare")
       throw new Error("Spawn requires thread.create or thread.prepare");
     const id = p.threadId ?? ThreadId.parse(this.nextThreadId());
-    let requested = scope.permissionMode ?? p.permissionMode;
+    let access: AccessMode | undefined;
+    const requested = scope.access ?? p.access;
     if (scope.parentThreadId) {
       try {
-        requested =
-          this.repo.permissions.narrow(
-            scope.parentThreadId,
-            this.permissionTarget(p.provider, p),
-            requested,
-            0,
-            this.offeredModes(p.provider),
-          ) ?? undefined;
-      } catch {
-        return { commandId: command.id, ok: false, error: "permission_ceiling_unverifiable" };
+        const narrowed = this.repo.permissions.narrow(
+          scope.parentThreadId,
+          this.permissionTarget(p.provider, p),
+          requested,
+          this.offeredModes(p.provider, p),
+        );
+        const parsed = AccessMode.safeParse(narrowed);
+        access = parsed.success ? parsed.data : undefined;
+      } catch (error) {
+        return {
+          commandId: command.id,
+          ok: false,
+          error: error instanceof AccessError ? error.code : "permission_ceiling_unverifiable",
+        };
       }
-    }
+    } else if (requested !== "inherit") access = requested;
     return this.repo.store.recordCommand(command.id, command.deviceId, () =>
       this.repo.store.atomic(() => {
         if (this.repo.store.getThread(id))
           return { commandId: command.id, ok: false, error: "thread_exists" };
         if (scope.parentThreadId && !this.repo.state(scope.parentThreadId))
           return { commandId: command.id, ok: false, error: "permission_parent_not_found" };
-        const payload = { ...p, threadId: id, ...(requested ? { permissionMode: requested } : {}) };
+        const { access: _requested, ...rest } = p;
+        const payload = { ...rest, threadId: id, ...(access ? { access } : {}) };
         const result = this.internalHandler.handle(CommandSchema.parse({ ...command, payload }), {
           ...commandContext(this.repo.store),
           ...prepared,
@@ -461,8 +475,10 @@ export class Engine {
   permissionAuthority(id: ThreadId): PermissionMode {
     return this.repo.permissions.authority(id);
   }
-  permissionMode(id: ThreadId): PermissionMode | null {
-    return this.repo.permissions.effective(id);
+  /** A thread's access as its children see it: an ace mode, or null when unranked. */
+  access(id: ThreadId): AccessMode | null {
+    const parsed = AccessMode.safeParse(this.repo.permissions.effective(id));
+    return parsed.success ? parsed.data : null;
   }
   private permissionTarget(
     provider: ProviderKind,
@@ -473,33 +489,47 @@ export class Engine {
       backend: this.registry.get(provider).adapter.backend,
       ...(provider === "acp"
         ? importAcpIdentity.parse(selection)
-        : {
-            instanceId:
-              selection?.accountId ??
-              selection?.instanceId ??
-              this.selectInstance?.(provider, this.registry.get(provider).adapter.backend) ??
-              `${provider}-cli-default`,
-          }),
+        : { instanceId: this.targetInstance(provider, selection) }),
     });
   }
-  childPermissionMode(
+  private targetInstance(
+    provider: ProviderKind,
+    selection?: Partial<import("@ace/protocol").AgentSelection>,
+  ) {
+    return (
+      selection?.accountId ??
+      selection?.instanceId ??
+      this.selectInstance?.(provider, this.registry.get(provider).adapter.backend) ??
+      `${provider}-cli-default`
+    );
+  }
+  /** The access a delegated child takes; throws AccessError when refused. */
+  childAccess(
     parent: ThreadId,
     provider: ProviderKind,
-    requested?: PermissionMode,
+    requested?: AccessRequest,
     selection?: Partial<import("@ace/protocol").AgentSelection>,
   ) {
     return this.repo.permissions.narrow(
       parent,
       this.permissionTarget(provider, selection),
       requested,
-      0,
-      this.offeredModes(provider),
+      this.offeredModes(provider, selection),
     );
   }
-  /** The native modes an installed provider advertises, for choosing an inherited one. */
-  private offeredModes(provider: ProviderKind): PermissionMode[] | undefined {
-    if (!this.registry.has(provider)) return undefined;
-    return this.registry.get(provider).capabilities.permissionModes?.map((mode) => mode.id);
+  /** The access modes a provider's target instance genuinely supports. */
+  offeredModes(
+    provider: ProviderKind,
+    selection?: Partial<import("@ace/protocol").AgentSelection>,
+  ): AccessModeOffer[] {
+    if (!this.registry.has(provider)) return [];
+    const base = this.registry.get(provider).capabilities;
+    const instance =
+      provider === "acp" ? selection?.instanceId : this.targetInstance(provider, selection);
+    return reportedOrTable(
+      provider,
+      this.models.permissionCapabilities(provider, instance, base).accessModes,
+    );
   }
   /** The parent's ceiling and the child modes it accepts, to explain a refused child policy. */
   childPermissionRefusal(
@@ -510,7 +540,8 @@ export class Engine {
     return this.repo.permissions.refusal(
       parent,
       this.permissionTarget(provider, selection),
-      this.offeredModes(provider),
+      this.offeredModes(provider, selection),
+      selection?.access,
     );
   }
   /** Host-owned summary attachment. Child transcript and native session stay independent. */

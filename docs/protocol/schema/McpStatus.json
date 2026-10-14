@@ -3,6 +3,16 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "access": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/AccessMode.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "agentId": {
       "$ref": "https://ace.local/protocol/v1/AgentId.json"
     },
@@ -41,16 +51,6 @@
       "maxItems": 9,
       "type": "array"
     },
-    "permissionMode": {
-      "anyOf": [
-        {
-          "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
     "threadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     }
@@ -58,7 +58,7 @@
   "required": [
     "threadId",
     "agentId",
-    "permissionMode",
+    "access",
     "groups"
   ],
   "type": "object"

@@ -231,7 +231,7 @@ export function engineHandler(
           if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
           createEngineThread(repo, {
             id: threadId,
-            ...(p.permissionMode ? { permissionMode: p.permissionMode } : {}),
+            ...(p.access && p.access !== "inherit" ? { access: p.access } : {}),
             workspaceId: p.workspaceId,
             title:
               p.title ?? (p.type === "thread.create" ? provisionalTitle(p.input) : "New thread"),

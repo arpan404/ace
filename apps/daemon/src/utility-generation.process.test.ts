@@ -5,6 +5,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { SettingsService, fileIO } from "@ace/settings";
 import { CatalogModel, type ProviderKind, type ThreadId } from "@ace/protocol";
 import type { UtilityModel } from "@ace/models";
+import { modelEfforts } from "@ace/models/efforts";
 import { harness, scriptFrames, start, end } from "./engine/test-support.ts";
 import { createWritingCli } from "./source-control-cli.ts";
 import { createUtility, type UtilityService } from "./utility-models.ts";
@@ -22,7 +23,7 @@ const row = (provider: ProviderKind, id: string) =>
     provider,
     instance: `${provider}-cli-default`,
     nativeModelId: id,
-    reasoningEfforts: ["low", "medium"],
+    efforts: modelEfforts(["low", "medium"]),
     serviceTiers: [],
     inputModalities: ["text"],
     isDefault: false,

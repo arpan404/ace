@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./permission-modes": "./src/permission-modes.ts",
+    "./access-modes": "./src/access-modes.ts",
     "./payload": "./src/payload.ts",
     "./process": "./src/process.ts",
     "./sdk": "./src/sdk.ts",

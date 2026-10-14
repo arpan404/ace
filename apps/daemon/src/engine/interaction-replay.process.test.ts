@@ -15,7 +15,7 @@ test("snapshot and replay preserve resolved native requests across restart witho
       { on: "resolve", frames: [frames.frame(end)] },
     ],
     frames,
-    { permissionSettings: async () => "ask" },
+    { permissionSettings: async () => ({ access: "ask" as const }) },
   );
   let restarted: Engine | undefined;
   let recoveredStore: Store | undefined;
@@ -113,7 +113,7 @@ test("provider exit expires unanswered requests and returns a typed expired rece
   const h = await harness(
     [{ on: "send", frames: [frames.frame(start, question)], exit: { deliberate: false } }],
     frames,
-    { permissionSettings: async () => "ask" },
+    { permissionSettings: async () => ({ access: "ask" as const }) },
   );
   try {
     const id = await h.create();
@@ -144,7 +144,7 @@ test("an answer racing process exit expires and cannot resolve on a replacement 
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const h = await harness([{ on: "send", frames: [frames.frame(start, question)] }], frames, {
-    permissionSettings: async () => "ask",
+    permissionSettings: async () => ({ access: "ask" as const }),
   });
   const base = h.registry.get("codex");
   h.registry.register(

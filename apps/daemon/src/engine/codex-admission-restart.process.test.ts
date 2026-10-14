@@ -38,7 +38,7 @@ test("fatal Codex admission expires pending permission and holds the interrupted
         });
       },
     },
-    permissionSettings: async () => "ask",
+    permissionSettings: async () => ({ access: "ask" as const }),
   });
   let reopened: Engine | undefined;
   let persisted: Store | undefined;

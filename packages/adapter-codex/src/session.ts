@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
+import { accessModeOffers, codexAccessAvailable } from "@ace/provider-kit/access-modes";
 import { codexCapabilities } from "./capabilities.ts";
 import { createExtensionCatalog, optionalCatalogFrames } from "./extension-catalog.ts";
 import { codexMcpControls } from "./mcp-controls.ts";
@@ -399,9 +400,11 @@ export async function openCodexSession(
         auth: "unknown",
         loginHint: "",
       });
+      const allowed = listing.data.filter((profile) => profile.allowed).map((p) => p.id);
       ctx.onCapabilities?.({
         ...capabilities,
         permissionModes,
+        accessModes: accessModeOffers({ provider: "codex" }, codexAccessAvailable(allowed)),
         permissions: {
           modes: permissionModes.map((mode) => mode.id),
           permissionModes,

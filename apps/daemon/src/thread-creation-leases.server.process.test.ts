@@ -1,4 +1,5 @@
 import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
+import { accessModeOffers } from "@ace/provider-kit/access-modes";
 import { GitService } from "@ace/git";
 import { writeFile, readFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -258,6 +259,7 @@ test("a receipt-time admission rejection cleans only its uncommitted worktree an
       capabilities: () => ({
         ...original.capabilities,
         permissionModes: nativeModes,
+        accessModes: accessModeOffers({ provider: "codex" }),
         permissions: {
           modes: nativeModes.map((entry) => entry.id),
           permissionModes: nativeModes,
@@ -278,7 +280,7 @@ test("a receipt-time admission rejection cleans only its uncommitted worktree an
       workspaceId: h.workspace,
       provider: "codex",
       mode: "worktree",
-      permissionMode: ":workspace",
+      access: "auto-review",
       input: [{ type: "text", text: "Keep my draft" }],
     });
     await gitService.entered.promise;
@@ -289,6 +291,9 @@ test("a receipt-time admission rejection cleans only its uncommitted worktree an
         capabilities: () => ({
           ...original.capabilities,
           permissionModes,
+          accessModes: accessModeOffers({ provider: "codex" }).filter(
+            (offer) => offer.mode === "read-only",
+          ),
           permissions: {
             modes: permissionModes.map((entry) => entry.id),
             permissionModes,

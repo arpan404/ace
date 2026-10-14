@@ -25,7 +25,7 @@ test("unknown ACP option semantics preserve models and bounded redacted raw meta
     ["a", true],
     ["b", false],
   ]);
-  expect(rows[0]?.reasoningEfforts).toEqual([]);
+  expect(rows[0]?.efforts.map((effort) => effort.id)).toEqual([]);
   expect(rows[0]?.defaultEffort).toBeUndefined();
   expect(rows[0]?.raw.truncated).toBe(false);
   expect(JSON.parse(rows[0]?.raw.json ?? "null")).toMatchObject({
@@ -82,7 +82,11 @@ test("per-model unknown options do not affect known select effort choices", () =
     },
     instance("acp"),
   );
-  expect(rows[0]).toMatchObject({ id: "a", reasoningEfforts: ["high"], defaultEffort: "high" });
+  expect(rows[0]).toMatchObject({
+    id: "a",
+    efforts: [{ id: "high", level: "high", label: "High" }],
+    defaultEffort: "high",
+  });
   expect(rows[0]?.raw.json).toContain('"currentValue":3');
 });
 
@@ -122,7 +126,7 @@ test("empty per-model configs preserve session extensions without inheriting ses
     ["b", false],
   ]);
   for (const row of rows) {
-    expect(row.reasoningEfforts).toEqual([]);
+    expect(row.efforts.map((effort) => effort.id)).toEqual([]);
     expect(row.defaultEffort).toBeUndefined();
     expect(row.raw.truncated).toBe(false);
   }
@@ -167,7 +171,7 @@ test("session extensions have a deterministic representative when the current mo
   });
   expect(rows[1]?.raw.json).not.toContain("session extension");
   for (const row of rows) {
-    expect(row.reasoningEfforts).toEqual([]);
+    expect(row.efforts.map((effort) => effort.id)).toEqual([]);
     expect(row.defaultEffort).toBeUndefined();
   }
 });
@@ -209,7 +213,7 @@ test("representative session metadata remains redacted and capped when per-model
     },
     instance("acp"),
   );
-  expect(rows[0]).toMatchObject({ id: "a", isDefault: true, reasoningEfforts: [] });
+  expect(rows[0]).toMatchObject({ id: "a", isDefault: true, efforts: [] });
   expect(rows[0]?.raw.truncated).toBe(true);
   expect(Buffer.byteLength(rows[0]?.raw.json ?? "")).toBeLessThanOrEqual(2048);
   expect(rows[0]?.raw.json).toContain('"apiKey":"[redacted]"');

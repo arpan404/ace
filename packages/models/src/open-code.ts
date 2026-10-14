@@ -1,6 +1,7 @@
 import { CatalogModel } from "@ace/protocol";
 import { OpenCodeModel } from "./native-schemas.ts";
 import { base } from "./model.ts";
+import { modelEfforts } from "./efforts.ts";
 import { chatMetadata, legacyMetadata } from "./catalog-metadata.ts";
 import { freeOpenCodeModel } from "./opencode-free.ts";
 import type { ModelInstance } from "./types.ts";
@@ -37,7 +38,7 @@ export class OpenCodeParser {
     model.inputModalities = Object.entries(native.capabilities?.input ?? {})
       .filter(([, enabled]) => enabled)
       .map(([id]) => id);
-    model.reasoningEfforts = Object.keys(native.variants);
+    model.efforts = modelEfforts(Object.keys(native.variants));
     model.deprecated = native.status === "deprecated" || native.status === "legacy";
     model.legacy = legacyMetadata(native);
     if (chatMetadata(native)) this.#rows.push(CatalogModel.parse(model));
@@ -88,7 +89,7 @@ export function normalizeOpenCodeV2(
     model.inputModalities = [
       ...new Set(native.capabilities.input.map((mime) => mime.split("/")[0] ?? mime)),
     ];
-    model.reasoningEfforts = native.variants.map((variant) => variant.id);
+    model.efforts = modelEfforts(native.variants.map((variant) => variant.id));
     model.isDefault = `${native.providerID}/${native.modelID}` === parsed.configuredDefault;
     model.hidden = !native.enabled;
     model.deprecated = native.status === "deprecated" || native.status === "legacy";

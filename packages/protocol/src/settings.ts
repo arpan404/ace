@@ -3,7 +3,7 @@ import { SourceControlPreferences } from "./source-control.ts";
 import { MachineIcon } from "./host-identity.ts";
 import { ProviderConfigurations } from "./provider-configuration.ts";
 import { BrowserOrigin } from "./browser.ts";
-import { PermissionMode } from "./permissions.ts";
+import { AccessMode, PermissionMode } from "./permissions.ts";
 import { z } from "zod";
 import { ThreadId, WorkspaceId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
@@ -44,11 +44,13 @@ export const SettingsValues = z.object({
   "browser.backendLoss": z.enum(["pause", "headless"]),
   /** A thread's browser keeps its own cookies and storage, or opens privately in memory. */
   "browser.profile": z.enum(["persistent", "ephemeral"]),
-  /** Deprecated global input. Migrates to provider-specific native selections. */
-  "permissions.defaultMode": PermissionMode.nullable(),
-  "permissions.providerModes": z.partialRecord(ProviderKind, PermissionMode),
-  /** Deprecated. Explicit values migrate to permissions.providerModes. */
-  "approvals.policy": z.enum(["ask", "on-failure", "never"]),
+  /**
+   * This daemon's access for new threads: the mode the person last chose or set in Settings.
+   * A thread's own choice and its project's default come first.
+   */
+  "access.defaultMode": AccessMode,
+  /** Advanced: a native mode a provider runs instead of ace's modes; its threads show Custom. */
+  "access.nativeModes": z.partialRecord(ProviderKind, PermissionMode),
   "threads.useWorktree": z.boolean(),
   "threads.autoSettleAfter": z.enum(["1d", "2d", "1w", "never"]),
   "threads.unresponsiveAfter": z.enum(["2m", "5m", "15m"]),
@@ -120,7 +122,7 @@ export const SettingsEntry = z.object({
   key: SettingsKey,
   value: z.json(),
   provenance: SettingsProvenance,
-  /** Permission overrides stored on the requested layer, before provider-wise inheritance. */
+  /** The value stored on the requested layer, before inheritance. */
   localValue: z.json().optional(),
 });
 export type SettingsEntry = z.infer<typeof SettingsEntry>;

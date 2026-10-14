@@ -33,7 +33,10 @@ export type SessionCommandsContext = {
   nativeSessionId: string;
   getLaunchOptions?(threadId: string): Promise<{
     mode: PermissionMode | null;
-    options: Pick<TurnStartParams, "effort" | "serviceTier" | "permissions" | "approvalsReviewer">;
+    options: Pick<
+      TurnStartParams,
+      "effort" | "serviceTier" | "permissions" | "approvalPolicy" | "approvalsReviewer"
+    >;
   }>;
   active: Map<string, string>;
   parents: Map<string, string>;

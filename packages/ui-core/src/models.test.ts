@@ -49,7 +49,7 @@ const model = (provider: ProviderKind, instance: string, id: string, isDefault =
     provider,
     instance,
     nativeModelId: id,
-    reasoningEfforts: [],
+    efforts: [],
     serviceTiers: [],
     inputModalities: ["text"],
     isDefault,
@@ -281,7 +281,11 @@ test("a thread's effort can change only where the provider takes it as a session
     [
       CatalogModel.parse({
         ...model("claude", "claude-personal", "opus", true),
-        reasoningEfforts: ["low", "medium", "high"],
+        efforts: [
+          { id: "low", level: "low", label: "Low" },
+          { id: "medium", level: "medium", label: "Medium" },
+          { id: "high", level: "high", label: "High" },
+        ],
         defaultEffort: "medium",
       }),
     ],

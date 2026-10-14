@@ -241,3 +241,17 @@ test("one batch delegation awaits every child on a restarted OpenCode root and r
   expect(retried.data).toEqual({ threadIds: data.threadIds });
   expect(f.daemon.store.listThreads()).toHaveLength(3);
 });
+
+test("single and batch delegation refuse an access mode the target lacks, per task, with its supported list", async () => {
+  const f = await cliDaemon("codex");
+  const unsupported = { ...task("opencode-review"), provider: "opencode", access: "auto-review" };
+  for (const args of [unsupported, { tasks: [unsupported, task("never-reached")] }]) {
+    const result = await f.call("delegate_task", args);
+    expect(result).toMatchObject({
+      isError: true,
+      content: [{ text: expect.stringContaining('"code":"access_unavailable"') }],
+    });
+    expect(JSON.stringify(result)).toContain("opencode supports");
+  }
+  expect(f.daemon.store.listThreads()).toHaveLength(1);
+});

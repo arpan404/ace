@@ -153,14 +153,14 @@ test("choosing the work account before its model launches the work default and p
       id: "gpt-6-sol",
       instance: "personal",
       isDefault: true,
-      reasoningEfforts: ["high"],
+      efforts: [{ id: "high", level: "high", label: "High" }],
     });
     const scope = { provider: "codex", instance: "work" } as const;
     const work = await client.list(scope);
     expect(work.models.find((row) => row.id === "gpt-6-sol")).toMatchObject({
       instance: "work",
       isDefault: false,
-      reasoningEfforts: [],
+      efforts: [],
     });
     const selection = await client.commandSelection(scope);
     expect(selection).toMatchObject({ accountId: "work", model: "gpt-5" });

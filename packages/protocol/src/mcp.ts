@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { AgentId, ThreadId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
-import { PermissionMode } from "./permissions.ts";
+import { AccessMode } from "./permissions.ts";
 
 /**
  * Tool groups ace serves over MCP. Each one has registered tools. Files and shell belong to the
@@ -141,7 +141,7 @@ export const McpProviderResult = z.object({
 export const McpStatus = z.strictObject({
   threadId: ThreadId,
   agentId: AgentId,
-  permissionMode: PermissionMode.nullable(),
+  access: AccessMode.nullable(),
   groups: z
     .array(
       z.strictObject({

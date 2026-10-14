@@ -18,6 +18,9 @@
     {
       "additionalProperties": false,
       "properties": {
+        "access": {
+          "$ref": "https://ace.local/protocol/v1/AccessRequest.json"
+        },
         "accountId": {
           "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
         },
@@ -28,6 +31,17 @@
         },
         "context": {
           "$ref": "https://ace.local/protocol/v1/RemoteContextSelection.json"
+        },
+        "effort": {
+          "anyOf": [
+            {
+              "const": "inherit",
+              "type": "string"
+            },
+            {
+              "$ref": "https://ace.local/protocol/v1/AgentEffort.json"
+            }
+          ]
         },
         "hostId": {
           "$ref": "https://ace.local/protocol/v1/HostId.json"
@@ -60,10 +74,7 @@
           "type": "string"
         },
         "options": {
-          "$ref": "https://ace.local/protocol/v1/AgentLaunchOptions.json"
-        },
-        "permissionMode": {
-          "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+          "$ref": "https://ace.local/protocol/v1/AgentServiceOptions.json"
         },
         "provider": {
           "$ref": "https://ace.local/protocol/v1/ProviderKind.json"

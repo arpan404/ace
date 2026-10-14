@@ -7,7 +7,10 @@ const row = (speed: string) => ({
   provider: "codex",
   instance: "codex-personal",
   nativeModelId: "gpt-5",
-  reasoningEfforts: ["low", "high"],
+  efforts: [
+    { id: "low", level: "low", label: "Low" },
+    { id: "high", level: "high", label: "High" },
+  ],
   serviceTiers: [
     { id: "priority", name: "Fast", speed: "fast", parameters: { serviceTier: "priority" } },
     { id: "warp", name: "Warp", speed, parameters: { serviceTier: "warp" } },

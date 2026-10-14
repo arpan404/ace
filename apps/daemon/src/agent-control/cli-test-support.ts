@@ -88,7 +88,7 @@ export async function cliDaemon(parentProvider: "claude" | "codex" | "opencode" 
     workspaceId,
     provider: parentProvider,
     // Only a known unrestricted root can vouch for a child of another provider (ADR 0013).
-    permissionMode: "full-access",
+    access: "full-access",
     input: [{ type: "text", text: "Hello" }],
   });
   if (!created.ok || !created.threadId) throw new Error(`Parent refused: ${created.error}`);

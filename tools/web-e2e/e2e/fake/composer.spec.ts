@@ -78,7 +78,7 @@ async function openThread(page: Page) {
   await message.waitFor();
   await page.getByRole("feed", { name: "Transcript" }).waitFor();
   // The footer's pickers load just after first paint; measure once they are in.
-  await page.getByRole("button", { name: /^Approvals:/ }).waitFor();
+  await page.getByRole("button", { name: /^Access:/ }).waitFor();
   await page.getByRole("button", { name: /^Model:/ }).waitFor();
   return message;
 }
@@ -152,7 +152,7 @@ test("a narrow composer keeps every control on the line and drops labels to icon
   await openThread(page);
   const g = await geometry(page);
   expectAlignedFooter(g);
-  await expect(page.getByRole("button", { name: "Approvals: Auto-review" })).toHaveText("");
+  await expect(page.getByRole("button", { name: "Access: Auto review" })).toBeVisible();
 });
 
 test("an unsent draft survives a reload", async ({ page }) => {

@@ -215,7 +215,7 @@ export class AutomationService {
         worktree: automation.worktree,
         prompt: renderPrompt(automation.prompt, event.variables),
         ...(automation.model ? { model: automation.model } : {}),
-        ...(automation.permissionMode ? { permissionMode: automation.permissionMode } : {}),
+        ...(automation.access ? { access: automation.access } : {}),
       };
     } catch (error) {
       failure = message(error);

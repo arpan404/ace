@@ -4,7 +4,7 @@ import { AccountProvider } from "@ace/protocol/accounts";
 import { executionModelId, selectionModelFilter } from "@ace/models";
 import { modelsAvailableWithoutAuth } from "@ace/models/availability";
 import { cursorDefaultInstanceId } from "@ace/provider-kit/cursor-selection";
-import { selectedDelegationModel } from "./models.ts";
+import { delegationEffort, selectedDelegationModel } from "./models.ts";
 import { AgentControlError } from "./failure.ts";
 import type { DelegationDependencies } from "./delegations.ts";
 
@@ -92,9 +92,11 @@ export function delegationSelection(
     (input.provider === "cursor" ? cursorDefaultInstanceId : `${input.provider}-cli-default`);
   const model = selectedDelegationModel(deps.models, input, parent, instance, configured);
   checkAuth(deps, input, model, instance);
+  const resolvedEffort = delegationEffort(model, input, parent);
   return {
     ...(selected ? { accountId: selected.id } : {}),
     resolvedModel: executionModelId(model),
+    ...(resolvedEffort ? { resolvedEffort } : {}),
   };
 }
 

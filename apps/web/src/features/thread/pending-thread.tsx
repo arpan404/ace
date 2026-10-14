@@ -1,9 +1,8 @@
 import type { PendingSend } from "@ace/client";
-import type { PermissionMode, WorktreeCreationProgress } from "@ace/protocol";
-import { usePermissionCapabilities } from "@/lib/use-permission-modes.ts";
+import type { AccessMode, WorktreeCreationProgress } from "@ace/protocol";
 import { useConnectionState, useIntent, usePendingSends, useThreadMeta } from "@ace/client-react";
 import {
-  permissionLabel,
+  accessLabel,
   provisionalTitle,
   providerNames,
   type TurnActivity,
@@ -154,7 +153,7 @@ export function PendingThreadView(props: {
             composer={composer}
             model={payload.model}
             options={payload.options}
-            permission={payload.permissionMode}
+            permission={payload.access}
             worktree={isWorktreeCreate(payload)}
             progress={progress}
           />
@@ -195,14 +194,13 @@ function PendingComposer({
   composer: Ref<ComposerHandle>;
   model: string | undefined;
   options: Readonly<Record<string, unknown>> | undefined;
-  permission: PermissionMode | undefined;
+  permission: AccessMode | undefined;
   /** The thread starts in a worktree being made: the strip says how far it got. */
   worktree: boolean;
   progress: WorktreeCreationProgress | undefined;
 }) {
   const reason = useId();
-  const { capabilities } = usePermissionCapabilities(thread.provider, undefined, thread.instanceId);
-  const approvals = permissionLabel(permission, capabilities);
+  const approvals = permission ? accessLabel(permission) : "Default";
   return (
     <ComposerDock>
       <p id={reason} className="sr-only">
@@ -216,11 +214,11 @@ function PendingComposer({
         busy={false}
         onSubmit={never}
         controls={
-          <Tip label={`Approvals: ${approvals}. Available when the thread starts.`} side="top">
+          <Tip label={`Access: ${approvals}. Available when the thread starts.`} side="top">
             <button
               type="button"
               aria-disabled
-              aria-label={`Approvals: ${approvals}`}
+              aria-label={`Access: ${approvals}`}
               className={iconControl}
             >
               <ShieldIcon aria-hidden size={16} />

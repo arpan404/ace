@@ -27,7 +27,7 @@ export function base(
     ...(instance.acpAgentId ? { acpAgentId: instance.acpAgentId } : {}),
     ...(instance.installationId ? { installationId: instance.installationId } : {}),
     ...(instance.instanceId ? { instanceId: instance.instanceId } : {}),
-    reasoningEfforts: [],
+    efforts: [],
     serviceTiers: [],
     inputModalities: [],
     isDefault: false,

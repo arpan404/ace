@@ -3,6 +3,15 @@ import { CatalogModel, ProviderKind, ModelSourceStatus, NativePermissionMode } f
 import { z } from "zod";
 import { freezeCatalogModel } from "./freeze.ts";
 import { discoveryError } from "./discovery-errors.ts";
+import { modelEfforts } from "./efforts.ts";
+
+const Cached = z.object({ reasoningEfforts: z.array(z.string()) }).passthrough();
+function cachedEfforts(value: unknown): unknown {
+  const row = Cached.safeParse(value);
+  if (!row.success || "efforts" in row.data) return value;
+  const { reasoningEfforts, ...rest } = row.data;
+  return { ...rest, efforts: modelEfforts(reasoningEfforts) };
+}
 
 export const CachedEntry = z
   .object({
@@ -18,7 +27,8 @@ export const CachedEntry = z
     loginRevision: z.string().min(1).max(256).optional(),
     revision: z.string().min(1).max(256),
     refreshedAt: z.number().nonnegative(),
-    models: z.array(CatalogModel).max(512),
+    // Rows cached before efforts carried levels list bare native ids; map them once on load.
+    models: z.array(z.preprocess(cachedEfforts, CatalogModel)).max(512),
     permissionModes: z.array(NativePermissionMode).max(256).optional(),
   })
   .refine(

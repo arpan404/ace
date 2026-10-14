@@ -126,7 +126,7 @@ export function createCleanModelView(
             ? model.id.slice(model.id.indexOf("/") + 1)
             : model.id,
           ...(name.upstreamProvider ? { nativeProviderId: name.upstreamProvider } : {}),
-          reasoningEfforts: [],
+          efforts: [],
           serviceTiers: [],
           inputModalities: [],
           isDefault: false,
