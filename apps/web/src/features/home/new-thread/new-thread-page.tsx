@@ -2,7 +2,7 @@ import { useIssueSource, usePrSource } from "@/features/forge/index.ts";
 import { useNavigate } from "@tanstack/react-router";
 import { ProjectPastSessions } from "@/features/history/index.ts";
 import { ProjectPicker } from "./project-picker.tsx";
-import type { BranchRef, PermissionMode, ProviderKind, WorktreeBase } from "@ace/protocol";
+import type { AccessMode, BranchRef, ProviderKind, WorktreeBase } from "@ace/protocol";
 import { Suspense, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
 import { Screen } from "@/features/shell/index.ts";
 import {
@@ -14,7 +14,7 @@ import {
   readDraft,
   writeDraft,
   useDraftScope,
-  usePermissionModes,
+  useAccessModes,
   type Draft,
   type ComposerHandle,
   composerEnvironmentRow,
@@ -28,13 +28,12 @@ import { useProjectMetadata, useRegisteredProjects } from "@/lib/projects.ts";
 import { useStartingProvider } from "@/lib/provider-statuses.ts";
 import { ProjectsEmptyState } from "@/features/projects/index.ts";
 import { useOrganizerState } from "@/features/organize/index.ts";
-import { WorkspaceId } from "@ace/protocol";
 import {
   defaultWorktreeBase,
-  permissionUnavailable,
-  permissionCoverage,
-  permissionOption,
-  permissionOptions,
+  accessChoices,
+  accessLabel,
+  supportedAccess,
+  threadAccessSummary,
   providerNames,
   speedOption,
 } from "@ace/ui-core";
@@ -286,37 +285,38 @@ function PreparationPage(props: {
           );
   const provider = resolved.provider;
 
-  // An explicit choice holds across account and provider changes, shown as unavailable where
-  // the new one doesn't offer it, until the person replaces it; null is an explicit reset to
-  // the provider's default. Omission retains the configured native default (ADR 0069).
-  const [permission, setPermissionState] = useState<PermissionMode | null | undefined>(
-    restored?.permission,
-  );
-  const setPermission = (id: PermissionMode | null) => {
-    setPermissionState(id);
-    remember({ permission: id ?? undefined });
+  // The person's choice for this draft, else the project's default, else this daemon's (their
+  // last choice or Settings value). A mode the provider can't express runs as the nearest
+  // stricter one it supports, never a looser one (ADR 0075).
+  const [access, setAccessState] = useState<AccessMode | undefined>(restored?.permission);
+  const [daemonDefault, rememberDefault] = useDaemonSetting("access.defaultMode");
+  const setDraftAccess = (mode: AccessMode) => {
+    setAccessState(mode);
+    remember({ permission: mode });
   };
-  const [defaultMode] = useDaemonSetting(
-    "permissions.providerModes",
-    project ? { workspaceId: WorkspaceId.parse(project) } : {},
-  );
-  const permissions = usePermissionModes(provider, {
-    instanceId: resolved.account?.id,
-    currentId: permission !== undefined ? permission : provider ? defaultMode?.[provider] : null,
-    setCurrentId: setPermissionState,
-  });
-  const admitted = {
-    mode: permissions.currentId ?? undefined,
-    fallback: provider
-      ? permissionUnavailable(
-          permissions.capabilities,
-          permissions.currentId,
-          providerNames[provider],
-        )
-      : undefined,
+  /** A pick in the chip is also the daemon's default for the next new thread. */
+  const chooseAccess = (mode: AccessMode) => {
+    setDraftAccess(mode);
+    void rememberDefault(mode).catch(() => undefined);
   };
-  const chosen =
-    permission && permissions.modes.some((mode) => mode.id === permission) ? permission : undefined;
+  const accessModes = useAccessModes(provider, undefined, resolved.account?.id);
+  const defaultAccess = projectDefaults?.access ?? daemonDefault;
+  const wantedAccess = access ?? defaultAccess;
+  const admittedAccess = wantedAccess
+    ? supportedAccess(wantedAccess, accessModes.offers)
+    : undefined;
+  const accessSummary = threadAccessSummary(
+    { override: access ?? null, effective: admittedAccess ?? null, pending: false },
+    accessModes.offers,
+    {
+      ...(defaultAccess ? { defaultMode: defaultAccess } : {}),
+      provider: provider ? providerNames[provider] : undefined,
+    },
+  );
+  const noStricterAccess =
+    provider && wantedAccess && accessModes.offers.length && !admittedAccess
+      ? `${providerNames[provider]} has nothing as strict as ${accessLabel(wantedAccess)}. Choose its access before sending.`
+      : undefined;
 
   const remember = (patch: Partial<Preparation> = {}) => {
     const previous = preparation(storage, props.host, draftKey);
@@ -333,7 +333,7 @@ function PreparationPage(props: {
       choices: { ...snapshot(selection ?? previous?.choices ?? choices, resolved), project },
       settingsResolved: completed || !!resolved.model,
       provider: selection ? provider : (previous?.provider ?? provider),
-      permission: permission === undefined ? previous?.permission : (permission ?? undefined),
+      permission: access ?? previous?.permission,
       base: baseChoice ?? base,
       scopeEpoch: previous?.scopeEpoch,
       attachmentsUnavailable: previous?.attachmentsUnavailable && !!content?.attachments.length,
@@ -485,7 +485,7 @@ function PreparationPage(props: {
   const waitingForAdmission =
     !start.loaded ||
     options === undefined ||
-    (!!provider && (defaultMode === undefined || permissions.loading));
+    (!!provider && (daemonDefault === undefined || accessModes.loading));
   const missingSelection =
     restored &&
     options &&
@@ -501,10 +501,6 @@ function PreparationPage(props: {
       (choices.speed !== undefined &&
         choices.speed !== "standard" &&
         !resolved.model?.speeds.some((tier) => tier.speed === choices.speed)));
-  const missingPermission =
-    permission &&
-    permissions.capabilities &&
-    !permissions.modes.some((mode) => mode.id === permission);
   const missingBase =
     !props.pullRequest &&
     resolved.mode === "worktree" &&
@@ -526,23 +522,21 @@ function PreparationPage(props: {
       !!readDraft(storage, draftKey)?.attachments.length);
   const admissionProblem = recovering
     ? "Recovering the previous thread start…"
-    : missingPermission
-      ? "The saved approval mode is unavailable. Choose an available approval mode before sending."
-      : missingBase
-        ? "The saved base branch is unavailable. Choose an available branch before sending."
-        : missingSelection
-          ? "A saved model, account, or reasoning setting is unavailable. Choose an available setting before sending."
-          : missingFiles
-            ? "Saved attachments are unavailable. Remove and add them again before sending."
-            : waitingForAdmission
-              ? "Checking provider settings…"
-              : permissions.failed
-                ? "Couldn't check provider permissions. Reconnect and try again."
-                : !scope.draftId
-                  ? "Preparing attachment storage…"
-                  : !resolved.model
-                    ? "No model selected. Open the model menu to refresh or sign in."
-                    : admitted.fallback;
+    : missingBase
+      ? "The saved base branch is unavailable. Choose an available branch before sending."
+      : missingSelection
+        ? "A saved model, account, or reasoning setting is unavailable. Choose an available setting before sending."
+        : missingFiles
+          ? "Saved attachments are unavailable. Remove and add them again before sending."
+          : waitingForAdmission
+            ? "Checking provider settings…"
+            : accessModes.failed
+              ? "Couldn't check provider access. Reconnect and try again."
+              : !scope.draftId
+                ? "Preparing attachment storage…"
+                : !resolved.model
+                  ? "No model selected. Open the model menu to refresh or sign in."
+                  : noStricterAccess;
   const send = async (draft: Draft) => {
     if (
       !project ||
@@ -576,7 +570,7 @@ function PreparationPage(props: {
       base,
       effort: resolved.effort,
       serviceTier: speedOption(resolved.model.speeds, resolved.speed),
-      permission: chosen,
+      permission: admittedAccess,
       input: draft.input,
       text: draft.text,
       context: {
@@ -705,7 +699,7 @@ function PreparationPage(props: {
               ref={composer}
               key={`${project}:${JSON.stringify(preserveSourceDraft ? null : (prSource.selection?.ref ?? issueSource.ref ?? null))}`}
               onPlan={() => {
-                if (provider === "claude") setPermission("plan");
+                if (provider === "claude") setDraftAccess("read-only");
               }}
               thread={draftThread}
               draftKey={draftKey}
@@ -889,26 +883,16 @@ function PreparationPage(props: {
               }
               controls={
                 <PermissionPicker
-                  current={
-                    waitingForAdmission
-                      ? undefined
-                      : permissionOption(admitted.mode ?? null, permissions.capabilities)
-                  }
-                  detail={
-                    admitted.mode && permissionCoverage(permissions.capabilities, admitted.mode)
-                  }
-                  inherited={!chosen}
+                  summary={waitingForAdmission ? undefined : accessSummary}
                   menu={{
-                    options: permissionOptions(permissions.capabilities),
-                    value: admitted.mode,
+                    choices: accessChoices(accessModes.offers),
+                    value: admittedAccess,
                     loading: waitingForAdmission,
-                    unavailable: permissions.failed
-                      ? "Couldn't load permission modes. Reconnect and try again."
+                    unavailable: accessModes.failed
+                      ? "Couldn't load access modes. Reconnect and try again."
                       : undefined,
-
-                    fallback: admitted.fallback,
                   }}
-                  onChange={(id) => setPermission(id ?? null)}
+                  onChange={chooseAccess}
                 />
               }
             />

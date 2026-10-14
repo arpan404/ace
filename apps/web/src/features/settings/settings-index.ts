@@ -108,10 +108,10 @@ const entries = [
     keywords: ["pull request", "closed"],
   },
   {
-    id: "permissions.providerModes",
+    id: "access.defaultMode",
     page: "/settings/general",
-    title: "Default permissions",
-    keywords: ["approval", "native", "project"],
+    title: "Access",
+    keywords: ["permissions", "approval", "read-only", "ask", "auto review", "full access"],
   },
   {
     id: "projects.roots",

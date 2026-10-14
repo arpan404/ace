@@ -71,7 +71,7 @@ for (const viewport of viewports.slice(0, 3))
     // Where the panel floats over the column (a modal sheet) the composer behind it still keeps
     // its approvals on show rather than folding into the pill.
     await expect(
-      page.locator('[data-slot="composer"] button[aria-label^="Approvals: "]'),
+      page.locator('[data-slot="composer"] button[aria-label^="Access: "]'),
     ).toBeVisible();
     expect(await overflowing(page)).toEqual([]);
   });

@@ -1,4 +1,4 @@
-import { PermissionMode, ProviderKind, WorktreeBase } from "@ace/protocol";
+import { AccessMode, ProviderKind, WorktreeBase } from "@ace/protocol";
 import { readJson, type KeyValueStorage } from "@ace/ui-core";
 import { useSyncExternalStore } from "react";
 import { z } from "zod";
@@ -16,7 +16,8 @@ const Preparation = z.object({
   choices: Choices,
   settingsResolved: z.boolean().optional(),
   provider: ProviderKind.optional(),
-  permission: PermissionMode.optional(),
+  /** The access chosen for this draft; a mode saved before the four ace modes reads as unset. */
+  permission: AccessMode.optional().catch(undefined),
   base: z.union([WorktreeBase, z.string()]).optional(),
   draftId: z.string().optional(),
   scopeEpoch: z.number().int().nonnegative().optional(),

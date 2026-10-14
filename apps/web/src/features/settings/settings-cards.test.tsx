@@ -12,22 +12,15 @@ const disclosureOf = (title: string) => {
 };
 
 test("a settings disclosure stays folded until opened, shows its rows, and folds again", async () => {
-  await harness().open("/settings/general");
-  await screen.findByText("Per-provider defaults", { selector: "summary" });
-  expect(disclosureOf("Per-provider defaults").open).toBe(false);
+  await harness().open("/settings/advanced");
+  await screen.findByText("Development connection", { selector: "summary" });
+  expect(disclosureOf("Development connection").open).toBe(false);
 
-  await userEvent.click(screen.getByText("Per-provider defaults", { selector: "summary" }));
-  expect(disclosureOf("Per-provider defaults").open).toBe(true);
-  expect(await screen.findByRole("combobox", { name: "Claude Code permissions" })).toBeTruthy();
+  await userEvent.click(screen.getByText("Development connection", { selector: "summary" }));
+  expect(disclosureOf("Development connection").open).toBe(true);
 
-  await userEvent.click(screen.getByText("Per-provider defaults", { selector: "summary" }));
-  expect(disclosureOf("Per-provider defaults").open).toBe(false);
-});
-
-test("a link to a setting inside a disclosure opens it", async () => {
-  await harness().open("/settings/general#permissions.providerModes");
-  await screen.findByText("Per-provider defaults", { selector: "summary" });
-  expect(disclosureOf("Per-provider defaults").open).toBe(true);
+  await userEvent.click(screen.getByText("Development connection", { selector: "summary" }));
+  expect(disclosureOf("Development connection").open).toBe(false);
 });
 
 test("a group's explanation reads before its rows, inside the same titled section", async () => {
@@ -45,12 +38,6 @@ test("a group's explanation reads before its rows, inside the same titled sectio
 });
 
 test("a dialog opened from a settings card is its own surface, not a row of the card", async () => {
-  const general = await harness().open("/settings/general");
-  await screen.findByText("Per-provider defaults", { selector: "summary" });
-  // On a card, a disclosure is one of the card's rows.
-  expect(disclosureOf("Per-provider defaults").dataset.settingSurface).toBe("card");
-  general.unmount();
-
   await harness().open("/settings/remote");
   await userEvent.click(await screen.findByRole("button", { name: "Pair a device" }));
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });

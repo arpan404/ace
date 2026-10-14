@@ -24,7 +24,7 @@ function asking(thread: string, requests: readonly Request[]): Scenario {
       workspaceId: "relay",
       title: "Migrate sessions",
       provider: "codex",
-      permissionMode: "ask",
+      access: "ask",
     },
     steps: [
       {

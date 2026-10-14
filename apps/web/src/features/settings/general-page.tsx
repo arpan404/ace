@@ -1,9 +1,8 @@
-import { useLocation } from "@tanstack/react-router";
 import { ProviderReadError, useProviderReadError } from "@/components/provider-read-error.tsx";
 import type { ProviderKind } from "@ace/protocol";
 import { providerChoiceLabel, providerNames } from "@ace/ui-core";
 import { useConnectionState } from "@ace/client-react";
-import { SettingDisclosure, SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
@@ -11,7 +10,7 @@ import { useProfileName } from "@/lib/profile.ts";
 import { useProviderStatuses, useStartingProvider } from "@/lib/provider-statuses.ts";
 import { DesktopAppPreferences } from "./desktop-app.tsx";
 import { ProjectFolders } from "./project-folders.tsx";
-import { PermissionDefaults } from "@/components/permission-defaults.tsx";
+import { AccessDefaultRow } from "./access-default.tsx";
 import { settingKeys, type AutoSettle } from "./data/setting-keys.ts";
 import { useSettingControl, useSettingWrite } from "./data/use-settings.ts";
 import { RecoverySettings } from "./recovery-settings.tsx";
@@ -37,9 +36,6 @@ export function GeneralSettings() {
     settingRow("threads.autoSettleAfter").title,
   );
   const note = useNotConnectedNote();
-  const permissionsTarget = useLocation({
-    select: (location) => location.hash === "permissions.providerModes",
-  });
   return (
     <>
       <DesktopAppPreferences />
@@ -48,6 +44,7 @@ export function GeneralSettings() {
       </SettingSection>
       <SettingSection label="Threads" card scope="daemon" note={note}>
         <DefaultProvider />
+        <AccessDefaultRow />
         <SettingSwitch
           setting={settingKeys.worktree}
           entry="threads.useWorktree"
@@ -71,11 +68,6 @@ export function GeneralSettings() {
         <SettingSwitch setting={settingKeys.settleOnClose} entry="threads.settleOnClose" />
       </SettingSection>
       <GenerationSettings />
-      <SettingSection label="Default permissions" anchor="permissions.providerModes" scope="daemon">
-        <SettingDisclosure title="Per-provider defaults" open={permissionsTarget}>
-          <PermissionDefaults />
-        </SettingDisclosure>
-      </SettingSection>
       <ProjectFolders />
       <RecoverySettings />
       <SettingSection label="Automations" card scope="daemon">

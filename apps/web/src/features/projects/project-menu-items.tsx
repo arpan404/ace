@@ -3,7 +3,6 @@ import {
   ArrowSquareOutIcon,
   PencilSimpleIcon,
   TrashIcon,
-  ShieldIcon,
 } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { Suspense } from "react";
@@ -60,13 +59,6 @@ export function ManageProjectItems(props: { projectId: string; name: string }) {
         onPointerEnter={projects.preload}
       >
         Publish repository…
-      </MenuItem>
-      <MenuItem
-        icon={<Icon icon={ShieldIcon} />}
-        onClick={() => projects.open({ kind: "permissions", projectId: props.projectId })}
-        onPointerEnter={projects.preload}
-      >
-        Project permissions…
       </MenuItem>
       <MenuItem
         icon={<Icon icon={PencilSimpleIcon} className="text-muted-foreground" />}

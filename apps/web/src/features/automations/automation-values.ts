@@ -1,4 +1,4 @@
-import { ProviderKind, type Automation, type AutomationSchedule } from "@ace/protocol";
+import { AccessMode, ProviderKind, type Automation, type AutomationSchedule } from "@ace/protocol";
 import { z } from "zod";
 import { presetToSchedule, scheduleToPreset, weekdays, type SchedulePreset } from "./schedule.ts";
 
@@ -19,7 +19,7 @@ export const AutomationForm = z
     prompt: z.string().trim().min(1, "Say what the agent should do.").max(32_768),
     workspace: z.string().min(1, "Choose a project."),
     provider: ProviderKind,
-    permissionMode: z.string().max(4096).optional(),
+    access: AccessMode.optional(),
     model: z.string().trim().max(256),
     trigger: z.enum(["schedule", "github", "file", "manual"]),
     cadence: z.enum(["daily", "weekdays", "weekly", "hourly", "custom"]),
@@ -132,7 +132,7 @@ export function formFromAutomation(automation: Automation, localZone: string): A
     prompt: automation.prompt,
     provider: automation.provider,
     model: automation.model ?? "",
-    permissionMode: automation.permissionMode,
+    access: automation.access,
     worktree: automation.worktree,
     missedRun: automation.missedRun,
   };
@@ -235,7 +235,7 @@ export function automationFromForm(
     enabled: previous?.enabled ?? true,
     workspace: form.workspace,
     provider: form.provider,
-    ...(form.permissionMode ? { permissionMode: form.permissionMode } : {}),
+    ...(form.access ? { access: form.access } : {}),
     ...(form.model ? { model: form.model } : {}),
     prompt: form.prompt,
     worktree: form.worktree,

@@ -166,15 +166,6 @@ export function useExplicitDaemonSetting<K extends SettingsKey>(
   };
 }
 
-/** Provider selections stored on this scope, before global defaults fill the other providers. */
-export function useLocalPermissionModes(scope: SettingsScope) {
-  const client = useClient();
-  const watch = watchFor(client, "permissions.providerModes", scope);
-  const raw = useSyncExternalStore(watch.subscribe, watch.getLocal, watch.getLocal);
-  const parsed = SettingsValues.shape["permissions.providerModes"].safeParse(raw);
-  return parsed.success ? parsed.data : undefined;
-}
-
 /** Where a daemon setting's value comes from; `environment` means a host variable pins it. */
 export function useDaemonSettingProvenance(
   key: SettingsKey,

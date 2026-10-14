@@ -4,7 +4,6 @@ import { useDaemonConnection } from "@/boot/connection.tsx";
 import { desktopFolders } from "@/boot/desktop-folders.ts";
 import { AddProjectDialog } from "./add-project-dialog.tsx";
 import { useLandInProject } from "./land.ts";
-import { ProjectPermissionsDialog } from "./project-permissions.tsx";
 import { RemoveProjectDialog } from "./manage-dialogs.tsx";
 import { EditProjectDialog } from "./edit-project-dialog.tsx";
 import { projectFailure, useProjectCommands } from "./project-commands.ts";
@@ -113,14 +112,6 @@ export default function ProjectDialogs(props: {
         onOpenChange={onOpenChange}
       />
     ) : null;
-  if (request.kind === "permissions")
-    return (
-      <ProjectPermissionsDialog
-        projectId={request.projectId}
-        open={open}
-        onOpenChange={onOpenChange}
-      />
-    );
   if (request.kind === "edit")
     return open ? (
       <EditProjectDialog

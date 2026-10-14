@@ -56,6 +56,6 @@ test("a pending switch to Full access reads as its modes' names on the approvals
   if (!scenario) throw new Error("Missing pending-full-access scenario");
   app.play(scenario).runUntilBlocked();
   await app.open("/t/thread-ux-pending-full-access");
-  const chip = await screen.findByRole("button", { name: /^Approvals: Full access, applies at/ });
+  const chip = await screen.findByRole("button", { name: /^Access: Full access, applies at/ });
   expect(chip.getAttribute("aria-label")).not.toMatch(/Other mode|Unavailable/);
 });

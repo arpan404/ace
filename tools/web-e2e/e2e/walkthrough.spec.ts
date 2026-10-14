@@ -294,7 +294,7 @@ test("walkthrough of the workspace and composer", async ({ page }) => {
     buffer: Buffer.from("relay soak: 0 drops in 10,000 events"),
   });
   await beat(800);
-  await page.getByRole("button", { name: /^Approvals:/ }).click();
+  await page.getByRole("button", { name: /^Access:/ }).click();
   await beat(1000);
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: /^Model:/ }).click();

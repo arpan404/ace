@@ -18,7 +18,7 @@ const push: Scenario = {
     workspaceId: "relay",
     title: "Push",
     provider: "codex",
-    permissionMode: "full-access",
+    access: "full-access",
   },
   steps: [
     {

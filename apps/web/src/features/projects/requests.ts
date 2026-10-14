@@ -20,7 +20,6 @@ export type ProjectRequest =
   | { kind: "folder"; path: string; target: DaemonTarget }
   /** A folder dropped on the window: its path is read in the desktop app, else it's picked. */
   | { kind: "dropped"; file: File }
-  | { kind: "permissions"; projectId: string }
   | { kind: "publish"; projectId: string }
   | { kind: "edit"; projectId: string }
   | { kind: "remove"; projectId: string };

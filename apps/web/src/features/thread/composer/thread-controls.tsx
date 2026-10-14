@@ -1,6 +1,7 @@
 import { useConnectionState, useThreadMeta } from "@ace/client-react";
-import { ThreadId, WorkspaceId, type ExecutionOptions, type PermissionMode } from "@ace/protocol";
+import type { AccessMode, ExecutionOptions } from "@ace/protocol";
 import {
+  accessChoices,
   accountDisplayName,
   formatClock,
   choiceForModel,
@@ -8,11 +9,7 @@ import {
   modelControlName,
   nextOptions,
   optionEffort,
-  permissionOption,
-  resolvePermissionMode,
-  permissionOptions,
   permissionPendingNote,
-  permissionUnavailable,
   pickerModelsFromChoices,
   pickerProviders,
   providerNames,
@@ -21,10 +18,10 @@ import {
   resolveEffort,
   speedControl,
   speedOption,
+  threadAccessSummary,
   threadEffortControl,
   unavailablePickerModel,
   unavailableModelNotice,
-  threadPermissionSummary,
   type ModelChoice,
 } from "@ace/ui-core";
 import { useEffect, useRef, useState } from "react";
@@ -40,6 +37,7 @@ import {
 } from "@/features/models/index.ts";
 import { failureMessage } from "@/lib/daemon-command.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
+import { useProjectDirectory } from "@/lib/projects.ts";
 import { useProviderStatuses } from "@/lib/provider-statuses.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { SwitchDialog } from "../transitions/switch-dialog.tsx";
@@ -47,58 +45,48 @@ import { useComposerCompact } from "./composer-compact.ts";
 import { chipControl } from "./composer-styles.ts";
 import { selectionIdentity, type PendingTurn } from "./execution.ts";
 import { useModelSwitch } from "./use-model-switch.ts";
-import { usePermissionModes, useThreadPermission } from "./permission-hooks.ts";
+import { useAccessModes, useThreadPermission } from "./permission-hooks.ts";
 import { PermissionPicker } from "./permission-picker.tsx";
 
-/** Native mode changes stay pending until the harness acknowledges the new selection. */
+/** Access changes stay pending until the harness runs the new mode. */
 export function ThreadPermissionControl(props: { thread: ThreadRef }) {
   const meta = useThreadMeta(props.thread.id);
   const toast = useToast();
   const permission = useThreadPermission(props.thread.id, meta?.permission);
-  const [providerModes] = useDaemonSetting("permissions.providerModes", {
-    workspaceId: WorkspaceId.parse(props.thread.workspaceId),
-    threadId: ThreadId.parse(props.thread.id),
-  });
-  const change = (mode: PermissionMode | null) =>
+  const [daemonDefault] = useDaemonSetting("access.defaultMode");
+  const projectDefault = useProjectDirectory().projects.find(
+    (project) => project.id === props.thread.workspaceId,
+  )?.defaults?.access;
+  const change = (mode: AccessMode | null) =>
     void permission
       .change(mode)
       .catch((error: unknown) =>
-        toast.error({ title: "Couldn't change approvals", description: failureMessage(error) }),
+        toast.error({ title: "Couldn't change access", description: failureMessage(error) }),
       );
-  const { capabilities, loading, failed, setCurrentId } = usePermissionModes(meta?.provider, {
-    currentId:
-      permission.chosen !== undefined ? permission.chosen : (meta?.permission?.override ?? null),
-    setCurrentId: change,
-    live: (meta?.effectiveCapabilities ?? meta?.capabilities)?.permissions,
-  });
-  const defaultMode = meta
-    ? resolvePermissionMode(meta.provider, providerModes?.[meta.provider], capabilities)
-    : null;
-  const summary = threadPermissionSummary(meta?.permission, capabilities, {
+  const { offers, loading, failed } = useAccessModes(
+    meta?.provider,
+    (meta?.effectiveCapabilities ?? meta?.capabilities)?.accessModes,
+  );
+  const summary = threadAccessSummary(meta?.permission, offers, {
     chosen: permission.chosen,
-    defaultMode,
+    defaultMode: projectDefault ?? daemonDefault,
+    provider: meta ? providerNames[meta.provider] : undefined,
   });
-  const wanted = summary?.next !== undefined ? summary.next : (summary?.mode ?? defaultMode);
-  const blocked =
-    meta && wanted && permissionUnavailable(capabilities, wanted, providerNames[meta.provider]);
   return (
     <PermissionPicker
-      current={summary && permissionOption(summary.mode ?? defaultMode, capabilities)}
-      next={summary?.next !== undefined ? permissionOption(summary.next, capabilities) : undefined}
-      note={summary?.next !== undefined ? (permission.note ?? permissionPendingNote()) : undefined}
-      detail={summary?.coverage}
-      inherited={summary?.inherited}
+      summary={summary}
+      note={summary?.next ? (permission.note ?? permissionPendingNote()) : undefined}
       menu={{
-        options: permissionOptions(capabilities),
-        value: wanted ?? undefined,
+        choices: accessChoices(offers),
+        value: summary?.next ?? summary?.mode ?? undefined,
         loading: loading || (!meta?.permission && !failed),
         unavailable: failed
-          ? "Couldn't load this thread's permissions. Reconnect and try again."
-          : undefined,
-
-        fallback: blocked ? `${blocked}; choose another mode for this thread` : undefined,
+          ? "Couldn't load this thread's access. Reconnect and try again."
+          : summary?.custom
+            ? "Set by a native mode in Settings → Providers."
+            : undefined,
       }}
-      onChange={setCurrentId}
+      onChange={change}
     />
   );
 }

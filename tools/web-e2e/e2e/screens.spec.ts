@@ -261,7 +261,7 @@ const screens: Record<string, Setup> = {
   },
   "composer-approvals": async (page) => {
     await openThread("/t/thread-replay-cursor")(page);
-    await page.getByRole("button", { name: /^Approvals:/ }).click();
+    await page.getByRole("button", { name: /^Access:/ }).click();
     await page.getByRole("menuitemradio").first().waitFor();
   },
   "composer-model": async (page) => {

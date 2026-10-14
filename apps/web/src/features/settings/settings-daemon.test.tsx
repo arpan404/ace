@@ -62,7 +62,7 @@ test("Reset all settings clears provider choices and native modes along with ord
   await waitFor(() => expect(app.client.state).toBe("ready"));
   for (const [key, value] of [
     ["providers.default", "claude"],
-    ["permissions.providerModes", { codex: "never" }],
+    ["access.defaultMode", "full-access"],
     ["providers.configuration", []],
     ["threads.useWorktree", false],
   ] as const)
@@ -79,7 +79,7 @@ test("Reset all settings clears provider choices and native modes along with ord
   await screen.findByText("Settings reset");
   for (const key of [
     "providers.default",
-    "permissions.providerModes",
+    "access.defaultMode",
     "providers.configuration",
     "threads.useWorktree",
   ] as const) {

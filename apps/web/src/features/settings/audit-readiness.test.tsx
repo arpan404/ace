@@ -115,7 +115,7 @@ test("New thread keeps approvals pending while its starting provider is unknown"
   const made = app();
   made.daemon.holdRequests("providers.request");
   await made.open("/new?project=relay");
-  expect(await screen.findByRole("button", { name: "Approvals: Approvals…" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Access: Access…" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: /Permissions unavailable/ })).toBeNull();
 });
 

@@ -406,23 +406,22 @@ test("slash commands are offered before the thread exists, for the chosen provid
   expect(field.textContent).toBe("Writing ");
 });
 
-test("native approvals chosen for a new thread are the ones it starts with", async () => {
+test("the access chosen for a new thread is the one it starts with", async () => {
   const made = app();
   await made.open("/new?project=relay");
-  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Provider default" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Auto" }));
-  const approvals = await screen.findByRole("button", { name: "Approvals: Auto" });
-  expect(approvals.textContent).toBe("Auto");
+  await userEvent.click(await screen.findByRole("button", { name: "Access: Auto review" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Read-only" }));
+  const access = await screen.findByRole("button", { name: "Access: Read-only" });
+  expect(access.textContent).toBe("Read-only");
   await userEvent.type(await prompt(), "Audit the retry budget{Enter}");
   await screen.findByRole("heading", { level: 1, name: "Audit the retry budget" });
   // The provisional view has this title too; wait for the created thread before its controls.
   expect(await started(made)).toMatchObject({
     provider: "claude",
-    permission: { override: "auto", effective: "auto" },
+    permission: { override: "read-only", effective: "read-only" },
   });
-  expect(await screen.findByRole("button", { name: /^Approvals: Auto/ })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: /^Access: Read-only/ })).toBeTruthy();
 });
-
 test("an unsent New thread draft waits for the next visit, and goes once the thread starts", async () => {
   const storage = memoryKeyValue();
   await app({ storage }).open("/new?project=relay");
@@ -557,57 +556,22 @@ test("Enter opens the new thread at once with the message as its first bubble, e
   );
 });
 
-test("native settings remain inherited while the menu exposes every Claude mode", async () => {
-  const made = app();
-  made.daemon.services.settings.seed({ "permissions.providerModes": { claude: "acceptEdits" } });
-  await made.open("/new?project=relay");
-  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Accept edits" }));
-  const options = await screen.findAllByRole("menuitemradio");
-  expect(options.map((option) => option.getAttribute("aria-label"))).toEqual([
-    "Provider default",
-    "Manual",
-    "Accept edits",
-    "Plan",
-    "Auto",
-    "Don't ask",
-    "Full access",
-  ]);
-  expect(
-    screen.getByRole("menuitemradio", { name: "Accept edits" }).getAttribute("aria-checked"),
-  ).toBe("true");
-  await userEvent.keyboard("{Escape}");
-  await userEvent.type(await prompt(), "Use my approval default{Enter}");
-  await screen.findByRole("heading", { level: 1, name: "Use my approval default" });
-  expect((await started(made))?.permission).toMatchObject({
-    override: null,
-    effective: "acceptEdits",
-  });
-  expect(await screen.findByRole("button", { name: /^Approvals: Accept edits/ })).toBeTruthy();
-});
-
-test("new threads leave the CLI default unpinned without a picker interaction", async () => {
-  const made = app();
-  await made.open("/new?project=relay");
-  expect(await screen.findByRole("button", { name: "Approvals: Provider default" })).toBeTruthy();
-  await userEvent.type(await prompt(), "Review the inherited default{Enter}");
-  await screen.findByRole("heading", { level: 1, name: "Review the inherited default" });
-  expect((await started(made))?.permission).toMatchObject({ override: null, effective: null });
-});
-
 test.each([
-  ["ask", "Manual", "default"],
-  ["on-failure", "Auto", "auto"],
-  ["never", "Full access", "bypassPermissions"],
-])("a persisted %s approval policy supplies inherited native %s", async (policy, label, mode) => {
-  const made = app();
-  made.daemon.services.settings.seed({ "approvals.policy": policy });
-  await made.open("/new?project=relay");
-  expect(await screen.findByRole("button", { name: `Approvals: ${label}` })).toBeTruthy();
-  await userEvent.type(await prompt(), "Use the migrated approval policy{Enter}");
-  await screen.findByRole("heading", { level: 1, name: "Use the migrated approval policy" });
-  expect((await started(made))?.permission).toMatchObject({ override: null, effective: mode });
-  expect(await screen.findByRole("button", { name: `Approvals: ${label}` })).toBeTruthy();
-});
+  [{ "permissions.providerModes": { claude: "acceptEdits" } }, "Auto review", "auto-review"],
+  [{ "approvals.policy": "ask" }, "Ask", "ask"],
+  [{ "approvals.policy": "never" }, "Full access", "full-access"],
+] as const)(
+  "an older stored default %j maps once to the access new threads start in",
+  async (stored, label, mode) => {
+    const made = app();
+    made.daemon.services.settings.seed(stored);
+    await made.open("/new?project=relay");
+    expect(await screen.findByRole("button", { name: `Access: ${label}` })).toBeTruthy();
+    await userEvent.type(await prompt(), "Use the migrated default{Enter}");
+    await screen.findByRole("heading", { level: 1, name: "Use the migrated default" });
+    expect((await started(made))?.permission).toMatchObject({ effective: mode });
+  },
+);
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -621,8 +585,7 @@ test.each(["defaults", "native"])(
     vi.spyOn(made.daemon.services, "handle").mockImplementation((message, push, device) => {
       const selectedRead =
         check === "defaults"
-          ? message.type === "settings.subscribe" &&
-            message.keys.includes("permissions.providerModes")
+          ? message.type === "settings.subscribe" && message.keys.includes("access.defaultMode")
           : message.type === "permissions.capabilities";
       if (holding && selectedRead) {
         delayed.push(() => {
@@ -658,7 +621,7 @@ test.each(["defaults", "native"])(
   },
 );
 
-test("failed native permission checks explain blocked sending and retain the draft", async () => {
+test("failed access checks explain blocked sending and retain the draft", async () => {
   const made = app();
   const handle = made.daemon.services.handle.bind(made.daemon.services);
   vi.spyOn(made.daemon.services, "handle").mockImplementation((message, push, device) => {
@@ -676,7 +639,7 @@ test("failed native permission checks explain blocked sending and retain the dra
   await made.open("/new?project=relay");
   const field = await prompt();
   await userEvent.type(field, "Keep this while permissions recover");
-  await screen.findByText("Couldn't check provider permissions. Reconnect and try again.");
+  await screen.findByText("Couldn't check provider access. Reconnect and try again.");
   expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).toBe("true");
   await userEvent.click(screen.getByRole("button", { name: "Send" }));
   await userEvent.click(field);

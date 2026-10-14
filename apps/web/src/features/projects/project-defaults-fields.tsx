@@ -3,6 +3,7 @@ import { providerNames } from "@ace/ui-core";
 import type { ReactNode } from "react";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
+import { AccessSelect } from "@/components/access-select.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
 import { useBaseRefs } from "@/lib/branches.ts";
 import { useNewThreadOptions } from "@/features/models/index.ts";
@@ -84,6 +85,15 @@ export function ProjectDefaultsFields(props: {
             if (!provider.success || !id) return;
             onChange({ ...value, provider: provider.data, model: id });
           }}
+        />
+      </Row>
+      <Row label="Access">
+        <AccessSelect
+          label="Default access"
+          className="w-56"
+          value={value.access}
+          inheritLabel="Inherit"
+          onChange={(access) => onChange(access ? { ...value, access } : without("access"))}
         />
       </Row>
       <Row label="Worktree">

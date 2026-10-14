@@ -5,7 +5,7 @@ import {
   WorkspaceId,
   type CommandPayload,
   type MessageContext,
-  type PermissionMode,
+  type AccessMode,
   type WorktreeBase,
 } from "@ace/protocol";
 import { useNavigate, useRouter } from "@tanstack/react-router";
@@ -52,7 +52,7 @@ export interface CreateRequest {
   /** The faster tier to run on (`serviceTier`), when the person turned speed on. */
   serviceTier?: string | undefined;
   /** An explicit approval mode for this thread; the daemon's default when omitted. */
-  permission?: PermissionMode | undefined;
+  permission?: AccessMode | undefined;
   text: string;
   input?: import("@ace/protocol").ContentPart[] | undefined;
   context?: MessageContext | undefined;
@@ -84,7 +84,7 @@ export function createPayload(request: CreateRequest): CreatePayload {
       ? { base: request.base, baseBranch: baseName(request.base) }
       : {}),
     ...(Object.keys(options).length ? { options } : {}),
-    ...(request.permission ? { permissionMode: request.permission } : {}),
+    ...(request.permission ? { access: request.permission } : {}),
     input: request.input ?? [{ type: "text", text: request.text }],
     ...(request.context ? { context: request.context } : {}),
   };
