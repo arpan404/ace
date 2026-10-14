@@ -18,7 +18,7 @@ it("a new session already knows its project, branch, access and title state", as
   const { agent } = await world.agent({});
   expect(agent.instructions).toContain('Project "shop"');
   expect(agent.instructions).toContain('branch "feat/login"');
-  expect(agent.instructions).toContain("full access: ace tools never prompt the person");
+  expect(agent.instructions).toContain("Full access: ace tools never prompt the person");
   expect(agent.instructions).toContain("Title is provisional");
   expect(agent.instructions).toMatch(/Delegate with delegate_task to: .*claude/);
 });
