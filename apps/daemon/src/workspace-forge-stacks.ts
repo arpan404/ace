@@ -23,11 +23,21 @@ import {
   reconcileRecordedStackMerge,
   requestedStackScope,
 } from "./forge-stack-state.ts";
+import {
+  StackSyncProgress,
+  abortStackSync,
+  continueStackSync,
+  startStackSync,
+  type StackSyncGit,
+  type StackSyncStep,
+} from "./forge-stack-sync.ts";
 const saved = z.object({
   cwd: z.string(),
   number: z.number().int().positive(),
   operation: ForgeStackOperation,
   expected: ForgeStackExpected,
+  /** An unfinished sync of collaborator commits; `expected` stays the earlier review until done. */
+  sync: StackSyncProgress.optional(),
   // Retain legacy fields for compare-and-swap of receipts written before shared certainty.
   dispatched: z.boolean().optional(),
   version: z.number().int().nonnegative().optional(),
@@ -38,8 +48,10 @@ export class WorkspaceForgeStacks {
   readonly #store: Store;
   readonly #now: () => number;
   readonly #active = new Set<string>();
-  constructor(store: Store, now: () => number) {
+  readonly #git: StackSyncGit | undefined;
+  constructor(store: Store, now: () => number, git?: StackSyncGit) {
     this.#now = now;
+    this.#git = git;
     this.#store = store;
     store.atomic((db) => {
       db.exec(
@@ -60,7 +72,9 @@ export class WorkspaceForgeStacks {
             message:
               entry.operation.stage === "push"
                 ? "ace restarted while publishing. Refresh the stack to compare GitHub with the published revisions."
-                : "ace restarted during this operation. Refresh host and local state before recovery. The write will not be repeated.",
+                : entry.operation.stage === "sync"
+                  ? "ace restarted while bringing in collaborator commits. Abort to restore the rebased layers, then try again."
+                  : "ace restarted during this operation. Refresh host and local state before recovery. The write will not be repeated.",
           };
           db.prepare("UPDATE forge_stack_operations SET value=? WHERE repo=? AND stack_id=?").run(
             JSON.stringify(entry),
@@ -255,6 +269,80 @@ export class WorkspaceForgeStacks {
         : [];
     return { stack, local, localUnavailable, operation, movedLayers };
   }
+  /** Bring collaborator commits into a rebased stack, or continue or abort doing so. */
+  async #sync(
+    cwd: string,
+    backend: GitHubForge,
+    number: number,
+    expected: ForgeStackExpected,
+    action: ForgeStackOperation["action"],
+    previous: z.infer<typeof saved> | undefined,
+    signal: AbortSignal,
+    allowed: () => boolean,
+  ): Promise<ForgeStackOperation> {
+    if (!this.#git) throw new ForgeError("unsupported");
+    if (!previous || previous.cwd !== cwd || previous.expected.id !== expected.id)
+      throw new ForgeError("conflict");
+    const context = { cwd, git: this.#git, backend, signal, allowed };
+    const record = (step: StackSyncStep) => {
+      this.#save(backend.repository, previous.expected.id, {
+        cwd,
+        number,
+        expected: (!step.progress && step.review) || previous.expected,
+        operation: step.operation,
+        ...(step.progress ? { sync: step.progress } : {}),
+      });
+      return step.operation;
+    };
+    // A sync interrupted without a result keeps its progress, so Abort can still restore it.
+    const interrupted = (progress: StackSyncProgress) =>
+      record({
+        operation: {
+          action: "sync",
+          state: "uncertain",
+          stage: "sync",
+          message:
+            "The sync stopped without a result. Abort to restore the rebased layers. Nothing was pushed.",
+        },
+        progress,
+      });
+    if (action === "sync") {
+      if (previous.sync || !awaitsPublication(previous.operation)) throw new ForgeError("conflict");
+      let begun: StackSyncProgress | undefined;
+      try {
+        const step = await startStackSync(context, number, previous.expected, expected, (sync) => {
+          if (!allowed()) throw new ForgeError("forbidden");
+          begun = sync;
+          record({
+            operation: {
+              action: "sync",
+              state: "pending",
+              stage: "sync",
+              message: "Bringing GitHub's newer commits into the local stack. Nothing is pushed.",
+            },
+            progress: sync,
+          });
+        });
+        return "refused" in step ? step.refused : record(step);
+      } catch (error) {
+        if (begun) interrupted(begun);
+        throw error;
+      }
+    }
+    const progress = previous.sync;
+    if (!progress || (action === "continue" && previous.operation.state !== "conflict"))
+      throw new ForgeError("conflict");
+    try {
+      return record(
+        action === "abort"
+          ? await abortStackSync(context, progress)
+          : await continueStackSync(context, progress),
+      );
+    } catch (error) {
+      interrupted(progress);
+      throw error;
+    }
+  }
   async change(
     cwd: string,
     backend: GitHubForge,
@@ -295,6 +383,10 @@ export class WorkspaceForgeStacks {
       const current = await this.read(cwd, backend, number, signal);
       const previous =
         this.#get(backend.repository, expected.id) ?? this.#find(backend.repository, number);
+      if (action === "sync")
+        return await this.#sync(cwd, backend, number, expected, action, previous, signal, allowed);
+      if (previous?.sync && (action === "continue" || action === "abort"))
+        return await this.#sync(cwd, backend, number, expected, action, previous, signal, allowed);
       if (previous && isIncompleteStackOperation(previous.operation)) {
         if (
           previous.operation.action === "merge" ||

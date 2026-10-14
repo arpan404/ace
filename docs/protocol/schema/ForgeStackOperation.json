@@ -8,7 +8,8 @@
         "rebase",
         "continue",
         "abort",
-        "push"
+        "push",
+        "sync"
       ],
       "type": "string"
     },
@@ -20,7 +21,8 @@
     "stage": {
       "enum": [
         "rebase",
-        "push"
+        "push",
+        "sync"
       ],
       "type": "string"
     },

@@ -2,7 +2,9 @@ import { expect, test } from "vitest";
 import type { ForgeLocalStack, ForgeStack, ForgeStackExpected } from "@ace/protocol/forge-stacks";
 import {
   planStackPublication,
+  planStackSync,
   reconcileStackPublication,
+  reviewAfterSync,
   sameReviewedRevisions,
   stackPublishResult,
   stackLayersMovedSinceReview,
@@ -164,4 +166,65 @@ test("a merged layer or a different stack reports no collaborator moves", () => 
   expect(
     stackLayersMovedSinceReview(expected(local(rebased)), { ...moved, id: "STACK_43" }),
   ).toEqual([]);
+});
+
+/** The request the person confirms for a sync: GitHub's heads now and the checkout they saw. */
+function confirmed(heads: Record<(typeof names)[number], string>, stack: ForgeLocalStack) {
+  return {
+    ...expected(stack),
+    layers: names.map((name) => ({ number: numbers[name], headSha: heads[name] })),
+  };
+}
+
+test("only the layers GitHub moved since review are brought into the rebased stack", () => {
+  const after = local(rebased);
+  const now = { ...reviewed, api: "f".repeat(40) };
+  expect(planStackSync(expected(after), confirmed(now, after), after, host(now))).toEqual({
+    ok: true,
+    moves: [{ number: 8, branch: "api", reviewed: reviewed.api, current: "f".repeat(40) }],
+  });
+});
+
+test("a sync is refused when GitHub moved again after confirmation or the checkout changed", () => {
+  const after = local(rebased);
+  const now = { ...reviewed, api: "f".repeat(40) };
+  const again = { ...now, ui: "e".repeat(40) };
+  expect(planStackSync(expected(after), confirmed(now, after), after, host(again))).toEqual({
+    ok: false,
+    reason: "changed",
+  });
+  const elsewhere = local({ ...rebased, ui: "d".repeat(40) });
+  expect(planStackSync(expected(after), confirmed(now, after), elsewhere, host(now))).toEqual({
+    ok: false,
+    reason: "changed",
+  });
+});
+
+test("a stack with no collaborator commits or an unfinished restack has nothing to sync", () => {
+  const after = local(rebased);
+  expect(planStackSync(expected(after), confirmed(reviewed, after), after, host())).toEqual({
+    ok: false,
+    reason: "unmoved",
+  });
+  const half = local(rebased, [trunk, reviewed.model, rebased.api]);
+  const now = { ...reviewed, api: "f".repeat(40) };
+  expect(planStackSync(expected(half), confirmed(now, half), half, host(now))).toEqual({
+    ok: false,
+    reason: "unrestacked",
+  });
+});
+
+test("after a sync the next publication leases each layer to the head GitHub reported at confirmation", () => {
+  const now = { ...reviewed, api: "f".repeat(40) };
+  const synced = { ...rebased, api: "a".repeat(40), ui: "b".repeat(40) };
+  const review = reviewAfterSync(confirmed(now, local(rebased)), local(synced));
+  expect(stackLayersMovedSinceReview(review, host(now))).toEqual([]);
+  expect(planStackPublication(review, local(synced), host(now))).toEqual({
+    ok: true,
+    updates: [
+      { number: 7, branch: "model", lease: reviewed.model, target: rebased.model },
+      { number: 8, branch: "api", lease: "f".repeat(40), target: synced.api },
+      { number: 9, branch: "ui", lease: reviewed.ui, target: synced.ui },
+    ],
+  });
 });

@@ -31,6 +31,7 @@ import {
 import type { GitService } from "@ace/git";
 import type { Store } from "./store.ts";
 import { WorkspaceForgeStacks } from "./workspace-forge-stacks.ts";
+import type { StackSyncGit } from "./forge-stack-sync.ts";
 import { WorkspacePrLinks } from "./workspace-pr-links.ts";
 import { WorkspaceForgeActions } from "./workspace-forge-actions.ts";
 import type { PrOwnerOperation } from "./agent-control/tools.ts";
@@ -41,7 +42,8 @@ export class WorkspaceForge {
   private lifecycle: WorkspaceForgeLifecycle;
   private replyReceipts: ForgeReplyReceipts;
   private git: Pick<GitService, "repositoryInfo"> &
-    Partial<Pick<GitService, "withWritingGuard" | "pushLeased">>;
+    Partial<Pick<GitService, "withWritingGuard" | "pushLeased">> &
+    Partial<StackSyncGit>;
   private issueLinks: WorkspaceIssueLinks;
   private issueActions: IssueActions;
   private reviews: WorkspaceForgeReviews;
@@ -58,7 +60,8 @@ export class WorkspaceForge {
   constructor(
     store: Store,
     git: Pick<GitService, "repositoryInfo"> &
-      Partial<Pick<GitService, "withWritingGuard" | "pushLeased">>,
+      Partial<Pick<GitService, "withWritingGuard" | "pushLeased">> &
+      Partial<StackSyncGit>,
     now: () => number,
     runner: (cwd: string) => CommandRunner,
     sourceControl?: import("./source-control.ts").SourceControl,
@@ -67,7 +70,7 @@ export class WorkspaceForge {
     this.lifecycle = new WorkspaceForgeLifecycle(store, this.owner);
     this.issueLinks = new WorkspaceIssueLinks(store);
     this.issueActions = new IssueActions(store);
-    this.stacks = new WorkspaceForgeStacks(store, now);
+    this.stacks = new WorkspaceForgeStacks(store, now, stackSyncGit(git));
     this.reviews = new WorkspaceForgeReviews(store, this.owner);
     this.replyReceipts = new ForgeReplyReceipts(store);
     this.git = git;
@@ -742,4 +745,33 @@ export class WorkspaceForge {
     this.lifetime.abort();
     this.backends.clear();
   }
+}
+
+/** Syncing collaborator commits needs every one of these Git operations, or none is offered. */
+function stackSyncGit(git: Partial<StackSyncGit>): StackSyncGit | undefined {
+  const {
+    fetchBranch,
+    branchHead,
+    switchBranch,
+    replayStackLayers,
+    continueStackReplay,
+    restoreStackBranches,
+  } = git;
+  if (
+    !fetchBranch ||
+    !branchHead ||
+    !switchBranch ||
+    !replayStackLayers ||
+    !continueStackReplay ||
+    !restoreStackBranches
+  )
+    return undefined;
+  return {
+    fetchBranch: fetchBranch.bind(git),
+    branchHead: branchHead.bind(git),
+    switchBranch: switchBranch.bind(git),
+    replayStackLayers: replayStackLayers.bind(git),
+    continueStackReplay: continueStackReplay.bind(git),
+    restoreStackBranches: restoreStackBranches.bind(git),
+  };
 }

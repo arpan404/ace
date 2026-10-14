@@ -1,4 +1,4 @@
-import type { ForgeStackExpected, ForgeStackOperation } from "@ace/protocol";
+import type { ForgeStackExpected, ForgeStackMovedLayer, ForgeStackOperation } from "@ace/protocol";
 import type { StackPublishUpdate } from "@ace/forge/stack-publish";
 import { Button } from "@/components/ui/button.tsx";
 
@@ -15,6 +15,8 @@ const numbered = (numbers: readonly number[]) => numbers.map((number) => `#${num
 export function StackConfirm(props: {
   confirmation: StackConfirmation;
   publishing: readonly StackPublishUpdate[];
+  /** Layers GitHub moved since review; a sync brings their new commits in. */
+  moved: readonly ForgeStackMovedLayer[];
   disabled: boolean;
   pending: boolean;
   onConfirm(): void;
@@ -39,6 +41,22 @@ export function StackConfirm(props: {
             ))}
           </ul>
         </>
+      ) : confirmation.action === "sync" ? (
+        <>
+          <p>
+            Fetch GitHub's newer commits, replay them onto these local layers and restack the layers
+            above. Nothing is pushed until you publish, which then leases each layer to the head
+            GitHub reports now:
+          </p>
+          <ul aria-label="Layers to bring in" className="font-mono text-sm">
+            {props.moved.map((layer) => (
+              <li key={layer.number}>
+                #{layer.number} {layer.branch} {layer.reviewed.slice(0, 7)}..
+                {layer.current.slice(0, 7)}
+              </li>
+            ))}
+          </ul>
+        </>
       ) : (
         <p>
           {confirmation.action === "merge"
@@ -50,7 +68,11 @@ export function StackConfirm(props: {
         <Button
           size="sm"
           variant="primary"
-          disabled={props.disabled || (confirmation.action === "push" && !props.publishing.length)}
+          disabled={
+            props.disabled ||
+            (confirmation.action === "push" && !props.publishing.length) ||
+            (confirmation.action === "sync" && !props.moved.length)
+          }
           onClick={props.onConfirm}
         >
           Confirm{" "}

@@ -1182,7 +1182,8 @@
             "rebase",
             "continue",
             "abort",
-            "push"
+            "push",
+            "sync"
           ],
           "type": "string"
         },

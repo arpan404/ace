@@ -599,14 +599,14 @@ Example:
 | type | yes | `"forge.pr.stack.change"` |  |
 | link | yes | [ForgeThreadLink.json](schema/ForgeThreadLink.json) |  |
 | expected | yes | [ForgeStackExpected.json](schema/ForgeStackExpected.json) |  |
-| action | yes | ["merge","rebase","continue","abort","push"] |  |
+| action | yes | ["merge","rebase","continue","abort","push","sync"] |  |
 | method | yes | ["merge","squash","rebase"] |  |
 
 Example:
 
 ```json
 {
-  "action": "abort",
+  "action": "push",
   "expected": {
     "id": "example",
     "layers": [
@@ -2832,11 +2832,11 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| action | yes | ["merge","rebase","continue","abort","push"] |  |
+| action | yes | ["merge","rebase","continue","abort","push","sync"] |  |
 | state | yes | ["pending","merged","enqueued","failed","uncertain","conflict","push_partial","rebased","aborted"] |  |
 | raw | no | any JSON value |  |
 | uuid | no | string | {"format":"uuid","pattern":"^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\|00000000-0000-0000-0000-000000000000\|ffffffff-ffff-ffff-ffff-ffffffffffff)$"} |
-| stage | no | ["rebase","push"] |  |
+| stage | no | ["rebase","push","sync"] |  |
 | message | yes | string | {"maxLength":65536} |
 
 Example:
