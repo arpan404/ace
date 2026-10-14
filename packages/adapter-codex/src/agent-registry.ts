@@ -116,17 +116,26 @@ export function createAgentRegistry(config: {
       const preserveObserved = agent.hadTurn;
       const currentSnapshot = !revision || revision.read === revision.current;
       const turns = list(p["turns"]);
+      const replay = (method: string, params: unknown) =>
+        facts.push(
+          ...config.replay(
+            { seq: 0, t: now, dir: "recv", channel: "hydration", data: { method, params } },
+            now,
+          ),
+        );
+      if (
+        currentSnapshot &&
+        revision?.uncertain !== true &&
+        revision?.outputRecovery === true &&
+        agent.turn?.startsWith("observed:") &&
+        obj(p["status"])["type"] === "idle" &&
+        !turns.some((turn) => obj(turn)["status"] === "inProgress")
+      )
+        replay("turn/completed", { threadId: id, turn: { id: agent.turn, status: "completed" } });
       for (const turn of turns) {
         const t = obj(turn);
         const turnId = str(t["id"]);
         if (!turnId) continue;
-        const replay = (method: string, params: unknown) =>
-          facts.push(
-            ...config.replay(
-              { seq: 0, t: now, dir: "recv", channel: "hydration", data: { method, params } },
-              now,
-            ),
-          );
         if (
           currentSnapshot &&
           !agent.ended.has(turnId) &&
@@ -144,9 +153,9 @@ export function createAgentRegistry(config: {
       if (
         currentSnapshot &&
         revision?.uncertain !== true &&
-        Array.isArray(p["liveTerminalItems"])
+        revision?.liveTerminalItems !== undefined
       ) {
-        const live = new Set(list(p["liveTerminalItems"]));
+        const live = new Set(revision.liveTerminalItems);
         for (const itemId of agent.terminalItems ?? [])
           if (!live.has(itemId))
             facts.push({ type: "background.ended", task: shellKey(itemId), status: "completed" });
@@ -205,7 +214,10 @@ export function createAgentRegistry(config: {
         (!agent.hadTurn || turns.length === 0) &&
         obj(p["status"])["type"] === "active"
       ) {
-        agent.turn = `observed:${id}`;
+        agent.turn =
+          revision?.outputRecovery === true
+            ? `observed:${id}:${revision?.current ?? 0}`
+            : `observed:${id}`;
         agent.hadTurn = true;
         facts.push({
           type: "turn.started",

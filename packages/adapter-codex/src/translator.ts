@@ -20,6 +20,8 @@ const recoveryRevision = z.object({
   read: z.number().int().nonnegative(),
   current: z.number().int().nonnegative(),
   uncertain: z.boolean().default(false),
+  outputRecovery: z.boolean().optional(),
+  liveTerminalItems: z.array(z.string()).max(4096).optional(),
 });
 
 export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }): Translator {

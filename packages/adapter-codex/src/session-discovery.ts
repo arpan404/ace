@@ -7,7 +7,7 @@ import {
 import { readBackgroundTerminals } from "./background-terminals.ts";
 import { RecentSet } from "./retention.ts";
 import { rememberHistoricalQuestions } from "./interaction-lifecycle.ts";
-import { obj, str, list } from "./native.ts";
+import { obj, str, list, type Obj } from "./native.ts";
 import { historyNotes, readHistory, withoutHistory, type HistoryNote } from "./history.ts";
 /** Discovery is an I/O shell around native history and revision-fenced controls. */
 export function sessionDiscovery(config: {
@@ -162,7 +162,7 @@ export function sessionDiscovery(config: {
     }
     const read = ++historyReads;
     const omitted: HistoryNote[] = [];
-    const snapshot = {
+    const snapshot: Obj & { turns: Obj[] } = {
       ...thread,
       turns: await readHistory(request, threadId, (note) =>
         omitted.push({ ...note, threadId, read }),
@@ -180,6 +180,9 @@ export function sessionDiscovery(config: {
     const current = revisions.get(threadId) ?? 0;
     const evidence = { read: revision, current };
     const uncertain =
+      (uncertainThreads.has(threadId) &&
+        obj(snapshot["status"])["type"] === "active" &&
+        !snapshot.turns.some((turn) => turn["status"] === "inProgress")) ||
       terminals?.some((terminal) => !terminal.itemId) === true ||
       (uncertainThreads.has(threadId) && revision !== current) ||
       recoveryUncertain(snapshot, evidence, observed);
@@ -206,15 +209,20 @@ export function sessionDiscovery(config: {
     for (const note of notes) emit("note", note);
     emit("note", {
       event: "thread-discovered",
-      thread: {
-        ...thread,
-        turns: [],
+      thread: { ...thread, turns: [] },
+      history: read,
+      revision: {
+        ...evidence,
+        uncertain,
+        ...(uncertainThreads.has(threadId) ? { outputRecovery: true } : {}),
         ...(terminals && !uncertain && revision === current
-          ? { liveTerminalItems: terminals.map((terminal) => terminal.itemId) }
+          ? {
+              liveTerminalItems: terminals.flatMap((terminal) =>
+                terminal.itemId ? [terminal.itemId] : [],
+              ),
+            }
           : {}),
       },
-      history: read,
-      revision: { ...evidence, uncertain },
     });
     if (!uncertain && revision === current) {
       uncertainThreads.delete(threadId);
@@ -281,5 +289,6 @@ export function sessionDiscovery(config: {
     observeRecovery,
     readThread,
     invalidateOutput,
+    isOutputUncertain: () => outputRecovery,
   };
 }

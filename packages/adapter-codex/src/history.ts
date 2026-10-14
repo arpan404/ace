@@ -22,6 +22,7 @@ type OmittedTurn = {
   item: string;
   bytes: number;
   reason: string;
+  bytesAtLeast: true;
 };
 export async function readHistory(
   request: Request,
@@ -68,6 +69,7 @@ export async function readHistory(
           turnId: str(obj(turn)["id"]),
           item: "",
           bytes: droppedBytes,
+          bytesAtLeast: true,
           reason: `Oversized turn history retained as ${itemsView}`,
         });
     }
@@ -127,6 +129,7 @@ export type HistoryNote =
       item: string;
       bytes: number;
       reason?: string;
+      bytesAtLeast?: true;
     };
 
 const bytesOf = (value: unknown) => Buffer.byteLength(JSON.stringify(value));

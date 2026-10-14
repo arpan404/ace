@@ -77,22 +77,31 @@ with it, so the single-process behaviour stays covered.
 ## Amendment: oversized stdout lines (#693, part a)
 
 Shared Codex hosts opt in to dropping a stdout line over the process line limit.
+A pure byte framer owns the line state; the stream wrapper applies its effects.
 The byte gate holds at most one admissible line. Once the limit is crossed it
 releases that buffer and counts/skips bytes until the next CR or LF, preserving
 subsequent lines across chunk boundaries. Attribution inspects complete JSON tokens
 in at most the first 4 KiB, keeping only envelope response IDs and notification
-thread IDs. The prefix itself is never recorded. Every tenant records an
-`output-line-dropped` note with the byte count and attribution.
+thread IDs. The prefix itself is never recorded. Loss is reported as soon as the limit is crossed, before waiting for a newline.
+A split line first reports an observed byte lower bound, then its final count at the
+delimiter. A final report updates diagnostics without rejecting another request or
+invalidating state again. Every tenant records `output-line-dropped` notes with the
+phase, byte count and attribution.
 
 An attributable reply rejects only its pending RPC with `OutputLineDroppedError`.
 A synthetic error reply follows normal routing to release ownership, opening
 counts and turn correlation. A notification or an unattributable line invalidates
 all tenants' recovered state. Each tenant starts a background recovery barrier,
-bump-fences its known and in-flight thread reads, and scans loaded descendants
+increments revisions for its known and in-flight thread reads, and scans loaded descendants
 through the existing discovery path. The barrier ends only after fresh reads and
 the loaded scan agree. Repeated drops coalesce scans and require another pass.
 An idle snapshot taken before a drop cannot clear the barrier. Recovery replaces
-stale session controls only with current evidence.
+stale session controls only with current evidence. Recovery evidence is parsed
+separately from native thread metadata, so provider extensions cannot impersonate it.
+An active thread without a recovered turn ID stays uncertain. A later current idle
+read settles its inferred turn; inferred identities include the revision so another
+cycle cannot reuse a completed turn. Closing before controls are recovered retires
+the host, following the existing rule against leaving unconfirmed work unobserved.
 
 A dropped `thread/turns/list` reply retries the same cursor with one turn, then
 `itemsView: summary`, then `notLoaded`. The last view preserves the turn's status

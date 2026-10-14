@@ -29,7 +29,12 @@ export type ChannelHandlers = {
   frame(dir: "send" | "recv", data: unknown): void;
   notification(message: Notification): void;
   request(message: ServerRequest): unknown;
-  dropped(line: { bytes: number; attributed: LineAttribution }, uncertain: boolean): void;
+  dropped(line: {
+    bytes: number;
+    phase: DroppedOutputLine["phase"];
+    attributed: LineAttribution;
+  }): void;
+  outputUncertain(): void;
   malformed(line: string): void;
   stderr(line: string): void;
   error(error: Error): void;
@@ -388,6 +393,7 @@ export class CodexHost {
     const attributed = attributeDroppedLine(line.prefix);
     const error = new OutputLineDroppedError(line.bytes);
     const rejected =
+      line.phase !== "end" &&
       attributed.response &&
       attributed.id !== undefined &&
       this.#peer.rejectRequest(attributed.id, error);
@@ -400,7 +406,8 @@ export class CodexHost {
     for (const tenant of this.#tenants) {
       if (tenant.closed) continue;
       try {
-        tenant.handlers.dropped({ bytes: line.bytes, attributed }, !rejected);
+        if (line.phase !== "end" && !rejected) tenant.handlers.outputUncertain();
+        tenant.handlers.dropped({ bytes: line.bytes, phase: line.phase, attributed });
       } catch (failure) {
         tenant.handlers.failed(failure instanceof Error ? failure : new Error(String(failure)));
       }

@@ -1,7 +1,19 @@
 // Offline app-server that shares threads and produces oversized readable JSON lines.
 import { createInterface } from "node:readline";
 import { obj, str, list, type Obj } from "../native.ts";
-const write = (data: unknown) => process.stdout.write(`${JSON.stringify(data)}\n`);
+const writeRaw = (data: unknown) => process.stdout.write(`${JSON.stringify(data)}\n`);
+let partialLine = false;
+const queued: unknown[] = [];
+const write = (data: unknown) => {
+  if (partialLine) queued.push(data);
+  else writeRaw(data);
+};
+function flushLine(): void {
+  if (!partialLine) return;
+  process.stdout.write("\n");
+  partialLine = false;
+  for (const data of queued.splice(0)) writeRaw(data);
+}
 const threads = new Map<string, Obj[]>();
 const notify = (method: string, params: unknown) => write({ method, params });
 const message = (id: string, size: number) => ({
@@ -12,6 +24,7 @@ const message = (id: string, size: number) => ({
 let count = 0;
 let turnCount = 0;
 let holdPageFor = "";
+const ephemeral = new Map<string, string>();
 let heldReply: unknown;
 let heldPage: { id: unknown; result: unknown } | undefined;
 for await (const line of createInterface({ input: process.stdin })) {
@@ -19,6 +32,7 @@ for await (const line of createInterface({ input: process.stdin })) {
   const p = obj(m["params"]);
   const method = str(m["method"]);
   const id = m["id"];
+  if (method === "thread/unsubscribe") flushLine();
   const respond = (result: unknown) => write({ id, result });
   if (id === undefined) continue;
   const thread = str(p["threadId"]);
@@ -116,7 +130,12 @@ for await (const line of createInterface({ input: process.stdin })) {
     respond({
       thread: {
         id: thread,
-        status: { type: turns.some((turn) => turn["status"] === "inProgress") ? "active" : "idle" },
+        status: {
+          type:
+            ephemeral.has(thread) || turns.some((turn) => turn["status"] === "inProgress")
+              ? "active"
+              : "idle",
+        },
       },
     });
   } else if (method === "thread/turns/list") {
@@ -142,6 +161,47 @@ for await (const line of createInterface({ input: process.stdin })) {
   } else if (method === "thread/loaded/list") respond({ data: [...threads.keys()] });
   else if (method === "account/rateLimits/read") respond({});
   else if (method === "thread/settings/update") {
+    if (p["model"] === "partial-flush") {
+      flushLine();
+      respond({});
+      continue;
+    }
+    if (p["model"] === "partial-reply") {
+      partialLine = true;
+      process.stdout.write(JSON.stringify({ id, result: { padding: "readable ".repeat(600) } }));
+      continue;
+    }
+    if (p["model"] === "partial-start") {
+      respond({});
+      const turn = `ephemeral-${++turnCount}`;
+      ephemeral.set(thread, turn);
+      partialLine = true;
+      process.stdout.write(
+        JSON.stringify({
+          method: "turn/started",
+          params: { threadId: thread, turn: { id: turn }, output: "readable ".repeat(600) },
+        }),
+      );
+      continue;
+    }
+    if (p["model"] === "ephemeral-start") {
+      const turn = `ephemeral-${++turnCount}`;
+      ephemeral.set(thread, turn);
+      notify("turn/started", {
+        threadId: thread,
+        turn: { id: turn },
+        output: "readable ".repeat(600),
+      });
+    }
+    if (p["model"] === "ephemeral-end") {
+      const turn = ephemeral.get(thread);
+      ephemeral.delete(thread);
+      notify("turn/completed", {
+        threadId: thread,
+        turn: { id: turn, status: "completed" },
+        output: "readable ".repeat(600),
+      });
+    }
     if (p["model"] === "hold-reply") {
       heldReply = id;
       continue;

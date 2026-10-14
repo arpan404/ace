@@ -6,7 +6,7 @@ import { spawnSupervised } from "@ace/provider-kit/process";
 import { ThreadId } from "@ace/protocol";
 import type { Frame } from "@ace/engine-api";
 import { openCodexSession } from "./session.ts";
-import { CodexHostPool } from "./host-pool.ts";
+import { createCodexAdapter, CodexHostPool } from "./index.ts";
 import { replayHarness } from "./replay.test-helper.ts";
 import { obj } from "./native.ts";
 
@@ -19,6 +19,8 @@ async function harness(shared = true) {
   );
   await chmod(binary, 0o755);
   const pool = new CodexHostPool();
+  const openSession: typeof openCodexSession = (ctx, options) =>
+    shared ? createCodexAdapter(options).openSession(ctx) : openCodexSession(ctx, options);
   const sessions: Awaited<ReturnType<typeof openCodexSession>>[] = [];
   let now = 0;
   const scheduled = new Map<() => void, number>();
@@ -32,7 +34,7 @@ async function harness(shared = true) {
     const replay = replayHarness();
     const exits: unknown[] = [];
     const waiters = new Set<{ match(frame: Frame): boolean; resolve(frame: Frame): void }>();
-    const opening = openCodexSession(
+    const opening = openSession(
       {
         threadId: ThreadId.parse("fixture"),
         cwd: directory,
@@ -143,28 +145,37 @@ test.each(["drop-completion", "drop-item", "unattributed"])(
   },
 );
 
-test("a dropped reply rejects only its pending request and keeps both tenants usable", async () => {
-  const h = await harness();
-  const a = await h.open();
-  const b = await h.open();
-  const neighbour = b.session.configure?.({ provider: "codex", model: "hold-reply", options: {} });
-  const neighbourResult = neighbour?.then(
-    () => "resolved",
-    () => "rejected",
-  );
-  await b.wait((f) => f.dir === "send" && obj(obj(f.data)["params"])["model"] === "hold-reply");
-  const failed = a.session.configure?.({ provider: "codex", model: "oversized", options: {} });
-  await expect(failed).rejects.toThrow("reply dropped");
-  await a.wait(note("output-line-dropped"));
-  expect(a.frames.some(note("discovery-start"))).toBe(false);
-  expect(b.frames.some(note("discovery-start"))).toBe(false);
-  await a.session.configure?.({ provider: "codex", model: "release-reply", options: {} });
-  await expect(neighbourResult).resolves.toBe("resolved");
-  await Promise.all([send(a, "next"), send(b, "next")]);
-  await Promise.all([a.wait(completed), b.wait(completed)]);
-  expect(a.exits).toEqual([]);
-  expect(b.exits).toEqual([]);
-});
+test.each(["oversized", "partial-reply"])(
+  "a dropped reply rejects only its pending request and keeps both tenants usable (%s)",
+  async (mode) => {
+    const h = await harness();
+    const a = await h.open();
+    const b = await h.open();
+    const neighbour = b.session.configure?.({
+      provider: "codex",
+      model: "hold-reply",
+      options: {},
+    });
+    const neighbourResult = neighbour?.then(
+      () => "resolved",
+      () => "rejected",
+    );
+    await b.wait((f) => f.dir === "send" && obj(obj(f.data)["params"])["model"] === "hold-reply");
+    const failed = a.session.configure?.({ provider: "codex", model: mode, options: {} });
+    await expect(failed).rejects.toThrow("reply dropped");
+    await a.wait(note("output-line-dropped"));
+    if (mode === "partial-reply")
+      await a.session.configure?.({ provider: "codex", model: "partial-flush", options: {} });
+    expect(a.frames.some(note("discovery-start"))).toBe(false);
+    expect(b.frames.some(note("discovery-start"))).toBe(false);
+    await a.session.configure?.({ provider: "codex", model: "release-reply", options: {} });
+    await expect(neighbourResult).resolves.toBe("resolved");
+    await Promise.all([send(a, "next"), send(b, "next")]);
+    await Promise.all([a.wait(completed), b.wait(completed)]);
+    expect(a.exits).toEqual([]);
+    expect(b.exits).toEqual([]);
+  },
+);
 
 test("oversized history pages retry smaller and omit only turns whose summary is also oversized", async () => {
   const h = await harness();
@@ -235,3 +246,73 @@ test.each(["drop-background", "drop-unseen-background"])(
     expect(a.replay.state.status.state).toBe("done");
   },
 );
+
+test("fresh idle reads settle repeated inferred work after dropped completions with no stored turn", async () => {
+  const h = await harness();
+  const a = await h.open();
+  for (let round = 0; round < 2; round++) {
+    const before = a.frames.at(-1)?.seq ?? 0;
+    await a.session.configure?.({ provider: "codex", model: "ephemeral-start", options: {} });
+    await a.wait(
+      (f) =>
+        f.seq > before &&
+        note("thread-discovered")(f) &&
+        obj(obj(obj(f.data)["thread"])["status"])["type"] === "active",
+    );
+    expect(a.replay.state.status.state).toBe("working");
+    const barrier = a.frames.at(-1)?.seq ?? 0;
+    await a.session.configure?.({ provider: "codex", model: "ephemeral-end", options: {} });
+    await a.wait(
+      (f) =>
+        f.seq > barrier &&
+        note("discovery-finished")(f) &&
+        obj(f.data)["task"] === "codex:output-recovery",
+    );
+    expect(a.replay.state.status.state).toBe("done");
+  }
+});
+
+test("closing a tenant with unrecovered controls stops its unobserved work on the shared host", async () => {
+  const h = await harness();
+  const a = await h.open();
+  const b = await h.open();
+  await send(b, "hold");
+  await b.wait((f) => obj(f.data)["method"] === "item/started");
+  await a.session.configure?.({ provider: "codex", model: "ephemeral-start", options: {} });
+  await a.wait(
+    (f) => note("thread-discovered")(f) && obj(obj(f.data)["revision"])["uncertain"] === true,
+  );
+  expect(a.replay.state.status.state).not.toBe("done");
+  await a.session.close("user");
+  await b.wait(note("codex-session-exit"));
+  expect(b.exits).toEqual([expect.objectContaining({ deliberate: false })]);
+  const c = await h.open();
+  expect(pid(c.frames)).not.toBe(pid(a.frames));
+});
+
+test("an unfinished oversized notification makes every tenant uncertain before its newline", async () => {
+  const h = await harness();
+  const a = await h.open();
+  const b = await h.open();
+  await send(b, "next");
+  await b.wait(completed);
+  await b.wait(note("discovery-finished"));
+  expect(b.replay.state.status.state).toBe("done");
+  await a.session.configure?.({ provider: "codex", model: "partial-start", options: {} });
+  await a.wait((f) => note("output-line-dropped")(f) && obj(f.data)["phase"] === "start");
+  expect(a.replay.state.status.state).not.toBe("done");
+  expect(b.replay.state.status.state).not.toBe("done");
+  await a.session.configure?.({ provider: "codex", model: "partial-flush", options: {} });
+  await b.wait(
+    (f) => note("discovery-finished")(f) && obj(f.data)["task"] === "codex:output-recovery",
+  );
+  expect(b.replay.state.status.state).toBe("done");
+  expect(a.replay.state.status.state).not.toBe("done");
+  await a.session.configure?.({ provider: "codex", model: "ephemeral-end", options: {} });
+  await a.wait(
+    (f) => note("discovery-finished")(f) && obj(f.data)["task"] === "codex:output-recovery",
+  );
+  expect(a.replay.state.status.state).toBe("done");
+  expect(a.exits).toEqual([]);
+  expect(b.exits).toEqual([]);
+});
