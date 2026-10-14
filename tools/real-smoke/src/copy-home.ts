@@ -4,6 +4,7 @@ import { join, resolve, dirname } from "node:path";
 import { backupStore } from "./backup.ts";
 import { inside } from "./paths.ts";
 import { z } from "zod";
+import { JsonValue } from "@ace/protocol";
 
 // Deliberately no directory traversal or glob. Credential stores never enter this list.
 const stores = [
@@ -45,8 +46,8 @@ export async function copyHome(source: string, scratch: string): Promise<string[
         const settings = z
           .object({
             version: z.number(),
-            settings: z.record(z.string(), z.json()).optional(),
-            values: z.record(z.string(), z.json()).optional(),
+            settings: z.record(z.string(), JsonValue).optional(),
+            values: z.record(z.string(), JsonValue).optional(),
           })
           .parse(JSON.parse(await file.readFile("utf8")));
         const values = settings.settings ?? settings.values ?? {};

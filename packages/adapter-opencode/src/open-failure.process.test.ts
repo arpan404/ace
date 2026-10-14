@@ -42,7 +42,7 @@ it.each(["create", "get", "switchAgent", "switchModel"] as const)(
         },
       },
     });
-    const opening =
+    const opening: Promise<unknown> =
       operation === "create"
         ? hPromise
         : hPromise.then((h) => {

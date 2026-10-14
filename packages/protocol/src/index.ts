@@ -15,6 +15,7 @@ export * from "./thread.ts";
 export * from "./terminal.ts";
 export * from "./tools.ts";
 export * from "./wire.ts";
+export * from "./json.ts";
 export * from "./settings.ts";
 export * from "./files.ts";
 

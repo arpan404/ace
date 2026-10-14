@@ -22,7 +22,7 @@
       "type": "integer"
     },
     "raw": {
-      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema1"
+      "$ref": "https://ace.local/protocol/v1/JsonValue.json"
     },
     "repository": {
       "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"

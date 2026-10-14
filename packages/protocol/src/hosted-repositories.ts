@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { JsonValue } from "./json.ts";
 import { WorkspaceId } from "./ids.ts";
 import { ForgeRepository } from "./forge.ts";
 import { GitHubHost, GitHubAccount } from "./source-control.ts";
@@ -15,7 +16,7 @@ export const RepositoryPublishInput = z.object({
 });
 export type RepositoryPublishInput = z.infer<typeof RepositoryPublishInput>;
 export const HostedRepository = z.object({
-  raw: z.json().optional(),
+  raw: JsonValue.optional(),
   id: z.number().int().positive(),
   repository: ForgeRepository,
   description: z.string().max(4096),

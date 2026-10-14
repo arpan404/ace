@@ -1,7 +1,6 @@
 import { subscribeSettings } from "@/lib/settings-subscription.ts";
 import type { ClientApi } from "@ace/client";
-import { SettingsKey, type SettingsEntry } from "@ace/protocol";
-import { z } from "zod";
+import { JsonValue, SettingsKey, type SettingsEntry } from "@ace/protocol";
 import type { SettingsValuesMap, ValuesStore } from "./backend.ts";
 
 /** `settings.subscribe` takes at most 32 keys per subscription. */
@@ -71,7 +70,7 @@ export function daemonValues(client: ClientApi, keys: readonly string[]): Daemon
       const parsedKey = SettingsKey.safeParse(key);
       if (!parsedKey.success)
         throw new Error("That setting is unavailable. Update ace and try again.");
-      const json = z.json().parse(value);
+      const json = JsonValue.parse(value);
       // Optimistic: the page shows the new value at once and goes back if the daemon refuses.
       const before = values;
       apply([{ key: parsedKey.data, value: json, provenance: "global" }], false);

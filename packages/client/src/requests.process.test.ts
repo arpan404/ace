@@ -361,7 +361,7 @@ for (const method of ["command", "enqueue"] as const) {
       const release = Promise.withResolvers<void>();
       const submission = client.submitNew(payload, async (id) => {
         exposed.resolve(id);
-        const nested =
+        const nested: Promise<unknown> =
           method === "command" ? client.command(payload, {}, id) : client.enqueue(payload, id);
         reentrant.resolve(await nested.catch((error: unknown) => error));
         await release.promise;

@@ -57,6 +57,5 @@ export const ProviderConfigurations = z
       new Set(rows.map((row) => JSON.stringify([row.provider, row.instance]))).size === rows.length,
   )
   .meta({ "x-ace-constraint": "Each provider and optional instance pair must be unique." })
-  .and(z.json())
   .meta({ examples: [[]] });
 export type ProviderConfigurations = z.infer<typeof ProviderConfigurations>;

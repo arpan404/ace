@@ -6,13 +6,13 @@
       "$ref": "https://ace.local/protocol/v1/SettingsKey.json"
     },
     "localValue": {
-      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema4"
+      "$ref": "https://ace.local/protocol/v1/JsonValue.json"
     },
     "provenance": {
       "$ref": "https://ace.local/protocol/v1/SettingsProvenance.json"
     },
     "value": {
-      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema3"
+      "$ref": "https://ace.local/protocol/v1/JsonValue.json"
     }
   },
   "required": [
