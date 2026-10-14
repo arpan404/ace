@@ -50,9 +50,8 @@ export function ComposerDock({
       ref={attach}
       data-composer-dock
       style={composerInset}
-      // A backdrop from the window's edge to the composer's middle, fading out above it: the
-      // transcript never shows through the gap beneath the floating composer.
-      className="pointer-events-none relative z-10 col-start-1 row-start-1 w-full self-end pb-4 before:pointer-events-none before:absolute before:inset-x-0 before:bottom-0 before:h-1/2 before:bg-linear-to-t before:from-background before:from-60% before:to-transparent before:content-['']"
+      // Its ::before fades the transcript out beneath the composer (styles/glass.css).
+      className="pointer-events-none relative z-10 col-start-1 row-start-1 w-full self-end pb-4"
     >
       <div data-composer-area className={`pointer-events-auto relative ${readingColumn}`}>
         {children}

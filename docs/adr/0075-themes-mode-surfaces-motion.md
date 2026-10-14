@@ -63,6 +63,8 @@ These are replaced by the theme set and Surfaces:
     AA-safe floor below. Blur and saturation scale with it, and Solid has no backdrop filter.
     Signal and reduced transparency show it disabled at Solid. A stored Solid became 0 and
     Translucent became the default.
+  - Amended 2026-10-14: at 100% the owner said it "still feels like solid", and asked for the
+    composer and its strip to be glass too. See "Glass" for the new floor and the composer.
 - Translucent falls back to Solid while the OS reduces transparency.
 - `<html>` carries the resolved value as `data-surface`.
 - The sidebar, reading column and side panel are always opaque.
@@ -74,8 +76,14 @@ for controls floating above content, never for content, and never glass on glass
 
 - **Glass** (`.ace-floating`): menus, popovers, selects, context menus, hover cards, toasts, the
   command palette, the Turns panel and floating action bars.
-- **Solid** (`.ace-floating-solid`): dialogs, tooltips, the Work card, the composer and its strip,
-  and anything opened from a glass layer. Primitives pick their material with
+- **Solid** (`.ace-floating-solid`): dialogs, tooltips, the Work card, and anything opened from a
+  glass layer.
+- **The composer and its strip** (`.ace-glass-dock`, amended 2026-10-14) are glass too, with the
+  same slider-driven tint, edged by a border rather than a rim and shadow. They are one material:
+  each frosts the transcript directly, and a card attached above the composer is clipped where
+  it tucks under the composer's edge, so the composer never frosts already frosted glass. Under
+  glass the dock's fade covers only the gap below the composer, so the transcript scrolls
+  behind it. Popovers opened from the composer are solid. Primitives pick their material with
   `useFloatingMaterial()`, which reads a context set by the layer they open from, so a menu opened
   from a popover is solid. A DOM-nested floating layer is solid by CSS.
 - Translucent resolves to Solid under the Solid setting, while the OS reduces transparency, and in
@@ -83,8 +91,25 @@ for controls floating above content, never for content, and never glass on glass
 - The material: the backdrop blurred and saturated (per theme); on **Chromium and Electron**, that
   frosted backdrop then bent inside a thin rim by an SVG `feDisplacementMap` through
   `backdrop-filter: url()`, so lensing stays at the edge and never warps text; a tint as thin as
-  WCAG AA over a white or a black backdrop allows; a specular rim lit from above; a hairline edge;
+  WCAG AA over realistic backdrops allows (below); a specular rim lit from above; a hairline edge;
   a soft shadow.
+  - **The readability floor** (amended 2026-10-14). #661 solved the tint against flat pure white
+    and pure black, which forced 74–78% in light and 88–92% in dark and read as solid. A layer
+    never shows its backdrop sharp, so the floor is now solved against what the backdrop filter
+    actually produces. Four busy fixtures (a dark code editor, a white page with a wide margin,
+    a photo with sunlit and shadowed areas, dense black-on-white prose) are blurred with a
+    Gaussian of the theme's radius, run through the rest of the filter, and their darkest and
+    lightest results are the backdrops text must read over (`theme/backdrops.ts`).
+  - Blur alone barely narrows that range, because real content has flat areas wider than any
+    blur. The legibility comes from aids instead of opacity, as in Apple's materials: a
+    stronger saturation boost; a luminosity scrim (`contrast()` 72% then `brightness()` 114% in
+    light, 70% and 72% in dark), which pulls the backdrop's range toward the glass; and text on
+    glass a step stronger than on solid surfaces (`--glass-foreground` and the rest, each level
+    moved 30–40% toward black in light or white in dark).
+  - The floor is the thinnest tint where text and secondary text read at 4.5:1 and quiet hints
+    at 3:1 over both backdrops, a selected row's wash included (`theme/glass-floor.ts`). It comes
+    out at 52–54% in light and 63–67% in dark. The slider eases toward it along a square root,
+    so its middle shows about 70% of what the far end shows instead of reading as solid.
   - Each layer gets a filter sized to its own box at the screen's pixel density, with a rim of at
     most 10px and a 7px bend. The map is encoded off the main thread (`toBlob`).
   - Layers of the same geometry share a filter, and filters are cached.

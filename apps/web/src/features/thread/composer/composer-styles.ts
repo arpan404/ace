@@ -26,12 +26,11 @@ export const iconControl = `${control} size-(--composer-control) shrink-0 px-0`;
 export const chipControl = `${control} min-w-(--composer-control) shrink px-2.5`;
 
 /**
- * One material for the input and its attached panels. Cast shadows would tint the footer. Solid:
- * the composer is where you write, it sits on the dock's opaque fade rather than over the
- * transcript, and its strip tucks under its edge, so glass here would only stack glass on glass.
+ * One material for the input and its attached panels (`.ace-glass-dock`, styles/glass.css):
+ * glass over the scrolling transcript while Translucency is above Solid, solid at Solid. Its
+ * edge is a border; cast shadows would tint the footer. Popovers opened from it are solid.
  */
-export const composerSurface =
-  "ace-floating-solid border border-sidebar-border shadow-none outline-none";
+export const composerSurface = "ace-glass-dock border border-sidebar-border outline-none";
 
 /** The top card's inset, overlap and lower padding share the surface spacing tokens. */
 export const attachedInset = "mx-[calc(var(--surface-gap)*2)]";
@@ -39,8 +38,11 @@ export const attachedOverlap = "-mb-[calc(var(--surface-gap)*2)]";
 export const attachedStripPadding = "pb-[calc(var(--surface-gap)*2)]";
 export const attachedCardPadding = "pb-[calc(var(--surface-gap)*2+var(--surface-inset))]";
 
-/** The same surface, tucked behind the input's edge on a narrower panel. */
-export const attachedSurface = `${composerSurface} rounded-xl`;
+/**
+ * The same surface, tucked behind the input's edge on a narrower panel. Its glass stops at the
+ * input's edge (`.ace-glass-attached`), so the two never blur one another.
+ */
+export const attachedSurface = `${composerSurface} ace-glass-attached rounded-xl`;
 
 /**
  * Notices above a composer that has no thread strip (New thread): the strip's surface, gone

@@ -6,7 +6,8 @@ import { harbor } from "./sources/harbor.ts";
 import { signal } from "./sources/signal.ts";
 import { tty } from "./sources/tty.ts";
 import { umbra } from "./sources/umbra.ts";
-import { glassTintAlpha, paletteSurfaces } from "./surfaces.ts";
+import { glassTintAlpha } from "./glass-floor.ts";
+import { paletteSurfaces } from "./surfaces.ts";
 import type {
   Base,
   Material,
