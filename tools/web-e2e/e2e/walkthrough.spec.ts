@@ -139,16 +139,13 @@ test("walkthrough of the core journeys", async ({ page }) => {
   ).toBeVisible();
   await beat(2000);
 
-  // The palette, Activity and Settings, then Light.
+  // The palette and Settings, then Light.
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByRole("dialog", { name: "Command palette" }).waitFor();
   await page.keyboard.type("replay", { delay: 40 });
   await beat();
   await page.keyboard.press("Escape");
-  for (const [path, name] of [
-    ["/activity", "Activity"],
-    ["/settings/appearance", "Settings"],
-  ] as const) {
+  for (const [path, name] of [["/settings/appearance", "Settings"]] as const) {
     await page.goto(path);
     await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
     await beat(1200);

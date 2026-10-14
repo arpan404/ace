@@ -381,7 +381,6 @@ const screens: Record<string, Setup> = {
     await page.getByRole("menuitemradio", { name: "Daemon" }).click();
     await page.getByText("Event loop").waitFor();
   },
-  activity: visit("/activity", "Activity"),
   // Automations opens on the first automation.
   automations: async (page) => {
     await page.goto("/automations");
@@ -545,7 +544,6 @@ const sized: Record<string, { width: number; height: number; setup: Setup }> = {
   },
   "tablet-thread": { width: 1024, height: 768, setup: openThread("/t/thread-dedupe") },
   "tablet-panel": { width: 1024, height: 768, setup: rightTab("/t/thread-cold-start", /^Changes/) },
-  "tablet-activity": { width: 1024, height: 768, setup: visit("/activity", "Activity") },
   // A sidebar icon's tooltip: its name and shortcut.
   "sidebar-tooltip": {
     width: 1440,

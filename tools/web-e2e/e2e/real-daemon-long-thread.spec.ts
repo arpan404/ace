@@ -89,7 +89,7 @@ test("jump to an early turn, search for one, and catch up after another device's
   // Read to the live end, leave, and let another device add two turns meanwhile.
   await expect(feed.getByText(longAsk(longTurns))).toBeInViewport();
   await page.waitForTimeout(1_500);
-  await page.goto("/activity");
+  await page.goto("/");
   await daemonCommands(
     url,
     token(),

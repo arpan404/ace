@@ -53,12 +53,6 @@ const screens: Record<string, Setup> = {
     });
     await page.getByRole("article", { name: "Let an agent use Notes" }).scrollIntoViewIfNeeded();
   },
-  "activity-app-request": async (page) => {
-    await page.goto("/activity");
-    await expect(page.getByRole("article", { name: "Let an agent use Notes" })).toBeVisible({
-      timeout: 15_000,
-    });
-  },
   "browser-tabs-dialog": async (page) => {
     await openTool(page, "/t/thread-cold-start", /^Browser|^localhost|^status/);
     // Each of the agent's pages is a browser tab of the panel's own.

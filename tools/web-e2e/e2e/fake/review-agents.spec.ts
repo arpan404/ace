@@ -61,7 +61,7 @@ test("a subagent opens as its own tab and Back returns to the tree", async ({ pa
   await expect(panel.getByRole("tab", { name: "Work", selected: true })).toBeVisible();
 });
 
-test("ace's permission reviews read in the transcript and on the request that reached Activity", async ({
+test("ace's permission reviews read in the transcript and in the thread's request card", async ({
   page,
 }) => {
   await page.goto("/t/thread-release-audit");
@@ -71,8 +71,9 @@ test("ace's permission reviews read in the transcript and on the request that re
   await denied.getByRole("button").click();
   await expect(denied.getByText("rm -rf dist")).toBeVisible();
 
-  await page.goto("/activity");
-  const request = page.getByRole("article", { name: /npm publish --dry-run/ });
+  const request = page
+    .getByRole("region", { name: "Waiting for you" })
+    .getByRole("article", { name: /npm publish --dry-run/ });
   await expect(request.getByRole("region", { name: "ace's review" })).toContainText(
     "Command is not in the low-risk allowlist",
   );
