@@ -1,7 +1,6 @@
 import {
   ScreenStatus,
   ScreenPermissions,
-  ScreenGrant,
   ScreenOperation,
   ScreenServerMessage,
   ScreenState,
@@ -62,20 +61,6 @@ export class ScreenClient {
   async enable(enabled: boolean, options?: RequestOptions): Promise<void> {
     await this.call({ op: "enable", enabled }, options);
   }
-  async approve(
-    bundleId: string,
-    allowed: boolean,
-    scope: ScreenGrant["scope"] = "always",
-    threadId?: string,
-    options?: RequestOptions,
-  ): Promise<void> {
-    await this.call({ op: "approve", bundleId, allowed, scope, threadId }, options);
-  }
-  async approvals(threadId?: string, options?: RequestOptions): Promise<ScreenGrant[]> {
-    return ScreenGrant.array()
-      .max(256)
-      .parse(await this.call({ op: "approvals", threadId }, options));
-  }
   async sessions(options?: RequestOptions): Promise<ScreenState[]> {
     return ScreenState.array()
       .max(8)
@@ -110,12 +95,9 @@ export class ScreenClient {
   async mode(
     sessionId: string,
     mode: ScreenState["mode"],
-    reason?: string,
     options?: RequestOptions,
   ): Promise<ScreenState> {
-    return ScreenState.parse(
-      await this.call({ op: "mode", sessionId, mode, reason }, { timeoutMs: 65_000, ...options }),
-    );
+    return ScreenState.parse(await this.call({ op: "mode", sessionId, mode }, options));
   }
   async secureInput(
     sessionId: string,

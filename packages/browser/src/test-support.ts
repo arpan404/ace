@@ -63,7 +63,6 @@ export async function fixture(options: Partial<BrowserServiceOptions> = {}) {
   const service = new BrowserService({
     dataDir: home,
     ...(executablePath ? { executablePath } : {}),
-    evaluatePolicy: () => true,
     ...options,
   });
   cleanups.push(async () => {

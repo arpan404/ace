@@ -69,9 +69,6 @@ export async function browserSandbox(backend: "auto" | "headless" = "auto") {
       browser: {
         executablePath,
         backendPreference: () => backend,
-        originPolicy: () => true,
-        evaluatePolicy: () => true,
-        downloadPolicy: () => true,
       },
     });
     server = createServer((req, res) => {

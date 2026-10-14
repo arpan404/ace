@@ -6,7 +6,7 @@ import { z } from "zod";
 import { Agent, InteractionMeasurement, McpScope } from "@ace/protocol";
 import { ScreenManager } from "@ace/screen";
 import { startDaemon, readConfig, createDevThread } from "./index.ts";
-it("daemon MCP exposes bounded measurement and enforces capability, app and controller grants", async () => {
+it("daemon MCP exposes bounded measurement and enforces capability and controller ownership", async () => {
   const dir = await mkdtemp(join(tmpdir(), "ace-measure-mcp-"));
   let next = 0;
   const screen = new ScreenManager({
@@ -93,7 +93,6 @@ it("daemon MCP exposes bounded measurement and enforces capability, app and cont
         await request(lease.bearer, "tools/call", "screen_measure_interaction", args),
       ).toMatchObject({ isError: true });
     await screen.enable(true);
-    await screen.approve("dev.ace.test", true);
     const tools = z
       .object({ tools: z.array(z.looseObject({ name: z.string(), inputSchema: z.unknown() })) })
       .parse(await request(lease.bearer, "tools/list"));
@@ -101,18 +100,6 @@ it("daemon MCP exposes bounded measurement and enforces capability, app and cont
       tools.tools.find((tool) => tool.name === "screen_measure_interaction")?.inputSchema,
     ).toMatchObject({ properties: { observeMs: { maximum: 10000 }, repeat: { maximum: 5 } } });
     const session = await screen.start({ kind: "window", bundleId: "dev.ace.test", windowId: 1 });
-    screen.configureAccess({
-      enabled: () => true,
-      enable() {},
-      list: () => [{ bundleId: "dev.ace.test", scope: "always", grantedAt: 0 }],
-      allows: (bundle) => bundle === "dev.ace.test",
-      approve() {},
-      async request() {
-        throw new Error("No app approvals in fixture");
-      },
-      async foreground() {},
-      audit() {},
-    });
     const response = z
       .object({
         isError: z.boolean().optional(),
@@ -134,7 +121,8 @@ it("daemon MCP exposes bounded measurement and enforces capability, app and cont
       JSON.parse(response.content.find((part) => part.type === "text")?.text ?? "null"),
     );
     expect(metrics.verdict).toBe("smooth");
-    expect(response.content.map((part) => part.type)).toEqual(["text", "image"]);
+    // The metrics and the filmstrip; an ace/changes note may follow them.
+    expect(response.content.map((part) => part.type).slice(0, 2)).toEqual(["text", "image"]);
     screen.controller(session.sessionId, "human", "person");
     expect(
       await request(lease.bearer, "tools/call", "screen_measure_interaction", {

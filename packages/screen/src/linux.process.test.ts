@@ -10,7 +10,6 @@ import {
   installedLinuxHelper,
   type Frame,
 } from "./index.ts";
-import { allowForeground } from "./testing/foreground.ts";
 import { ids, target, deferred } from "./testing/support.ts";
 const command = {
   command: process.execPath,
@@ -78,7 +77,6 @@ it("one helper survives inspections and sequential captures while semantic tools
   });
   try {
     await manager.enable(true);
-    await manager.approve(target.bundleId, true);
     const first = await manager.capabilities();
     await manager.permissions();
     await manager.targets();
@@ -91,7 +89,7 @@ it("one helper survives inspections and sequential captures while semantic tools
       handler("screen_ui_act", { ref: "stable-entry", action: "setValue", value: "hello" }),
     ).rejects.toThrow("ownership");
     manager.controller(state.sessionId, "agent", "agent-a");
-    await allowForeground(manager, state.sessionId);
+    manager.mode(state.sessionId, "foreground");
     expect(
       (await handler("screen_ui_act", { ref: "stable-entry", action: "setValue", value: "héllo" }))
         .content,
@@ -123,7 +121,6 @@ it("negotiated UI support and capture scope reject unsupported operations", asyn
   });
   try {
     await manager.enable(true);
-    await manager.approve(target.bundleId, true);
     const state = await manager.start(target);
     await expect(
       computerUseHandler(manager, state.sessionId, "agent")("screen_ui_tree", {}),
@@ -149,7 +146,6 @@ it("a failed capture stop removes the session and replaces the unusable helper",
   });
   try {
     await manager.enable(true);
-    await manager.approve(target.bundleId, true);
     const before = await manager.capabilities();
     const state = await manager.start(target);
     await expect(manager.stop(state.sessionId)).rejects.toThrow("Stop failed");
@@ -172,7 +168,6 @@ it("revoked capture permission discards the shared helper before a replacement s
   });
   try {
     await manager.enable(true);
-    await manager.approve(target.bundleId, true);
     const before = await manager.capabilities();
     const state = await manager.start(target);
     manager.controller(state.sessionId, "agent", "agent");
@@ -204,7 +199,6 @@ it("the last Linux viewer releases capture after input drains while retaining th
   });
   try {
     await manager.enable(true);
-    await manager.approve(target.bundleId, true);
     const identity = await manager.capabilities();
     const state = await manager.start(target);
     const stopped = deferred<string>();

@@ -311,30 +311,6 @@ const childWaitingOnHuman: EvalTask = {
   },
 };
 
-const readOnlyNoScreen: EvalTask = {
-  id: "read-only-no-screen",
-  title: "In read-only mode, screen tools are absent and never attempted",
-  gate: true,
-  async run(world) {
-    // Control: with full access the same daemon does serve computer use.
-    const { agent: full } = await world.agent({});
-    const served = full.has("screen_request_app");
-    const { agent, threadId } = await world.agent({ access: "read-only" });
-    const effective = world.store.getThread(threadId)?.permission?.effective;
-    const listed = agent.tools.filter((tool) => /^(screen|device)_/.test(tool.name));
-    // Asked to click Save in a native app: only an offered tool can be tried.
-    if (agent.has("screen_request_app"))
-      await agent.turn(() =>
-        agent.call("screen_request_app", { bundleId: "com.apple.Notes", reason: "click Save" }),
-      );
-    const attempted = agent.calls.filter((call) => /^(screen|device)_/.test(call.tool)).length;
-    return {
-      metrics: agent.finish(served && listed.length === 0 && attempted === 0),
-      note: `effective ${String(effective)}; control serves screen: ${served}; read-only lists ${listed.length}, attempted ${attempted}`,
-    };
-  },
-};
-
 export const evalTasks: readonly EvalTask[] = [
   whereAmI,
   delegateTwo,
@@ -343,7 +319,6 @@ export const evalTasks: readonly EvalTask[] = [
   visualize,
   recoverBadArgument,
   childWaitingOnHuman,
-  readOnlyNoScreen,
 ];
 
 /** `ace_threads_list` returns search hits: one per thread, with its status. */

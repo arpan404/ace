@@ -769,10 +769,8 @@
           "enum": [
             "forbidden",
             "permission_denied",
-            "approval_required",
             "screen_disabled",
             "denied",
-            "read_only",
             "target_gone",
             "not_supported",
             "bounds",
@@ -954,30 +952,6 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/BrowserDownloadProgress.json"
-    },
-    {
-      "properties": {
-        "grants": {
-          "items": {
-            "$ref": "https://ace.local/protocol/v1/BrowserEvaluateGrant.json"
-          },
-          "maxItems": 256,
-          "type": "array"
-        },
-        "threadId": {
-          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
-        },
-        "type": {
-          "const": "browser.evaluate.grants",
-          "type": "string"
-        }
-      },
-      "required": [
-        "type",
-        "threadId",
-        "grants"
-      ],
-      "type": "object"
     },
     {
       "properties": {

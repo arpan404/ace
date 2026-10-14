@@ -1044,7 +1044,6 @@ test("fake human approvals count once on the original turn while a newer turn wo
     { kind: "thread", threadId: ThreadId.parse("review-late") },
     sinceSeq,
   );
-  expect(events.filter((event) => event.payload.type === "permission.reviewed")).toHaveLength(0);
   const closed = events.find((event) => event.payload.type === "interaction.closed");
   if (closed?.payload.type !== "interaction.closed")
     throw new Error("Expected human approval closure");

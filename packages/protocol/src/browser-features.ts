@@ -26,12 +26,6 @@ export const BrowserDownload = z.object({
   path: z.string().optional(),
 });
 export type BrowserDownload = z.infer<typeof BrowserDownload>;
-export const BrowserEvaluateGrant = z.object({
-  origin: z.string().max(8192),
-  mode: z.literal("read-only"),
-  grantedAt: z.number().finite(),
-});
-export type BrowserEvaluateGrant = z.infer<typeof BrowserEvaluateGrant>;
 /** Tab mutations can surface a renderer dialog instead of changing selection. */
 export const BrowserTabsResult = z.union([
   z.object({ activeTabId: id, tabs: z.array(BrowserTab).max(8) }),

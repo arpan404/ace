@@ -31,15 +31,7 @@ function requiredAccess(message: BrowserClientMessage): BrowserAccess {
     ].includes(message.command.action)
   )
     return "read";
-  if (
-    [
-      "browser.tabs.list",
-      "browser.downloads.list",
-      "browser.evaluate.grants.list",
-      "browser.origins.list",
-    ].includes(message.type)
-  )
-    return "read";
+  if (["browser.tabs.list", "browser.downloads.list"].includes(message.type)) return "read";
   return "operate";
 }
 
@@ -106,13 +98,6 @@ export function connectBrowser(
           case "browser.downloads.list":
             respond(service.downloadsList(threadId));
             break;
-          case "browser.evaluate.grants.list":
-            respond(service.evaluateGrantsList(threadId));
-            break;
-          case "browser.evaluate.grants.revoke":
-            service.evaluateGrantsRevoke(threadId, message.origin);
-            respond(service.evaluateGrantsList(threadId));
-            break;
           case "browser.tabs.open":
           case "browser.tabs.switch":
           case "browser.tabs.close":
@@ -143,17 +128,6 @@ export function connectBrowser(
                 { kind: "human", connectionId: options.connectionId },
               ),
             );
-            break;
-          case "browser.origins.list":
-            respond(service.originsList(threadId));
-            break;
-          case "browser.origins.grant":
-            service.originsGrant(threadId, message.origin);
-            respond(service.originsList(threadId));
-            break;
-          case "browser.origins.revoke":
-            service.originsRevoke(threadId, message.origin);
-            respond(service.originsList(threadId));
             break;
           case "browser.open": {
             const stopProgress = service.downloadProgress((progress) => {

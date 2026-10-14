@@ -15,7 +15,7 @@ import {
 } from "@ace/protocol";
 import { commandCatalog, listCommands } from "./services/commands.ts";
 import { FakeFilesWire } from "./files-wire.ts";
-import { bindFakeBrowserOrigins } from "./browser-origins.ts";
+import { bindFakeBrowserPrivate } from "./browser-private.ts";
 import { FakeBrowser } from "./browser.ts";
 import { fakeBrowserSession } from "./browser-wire.ts";
 import { FakeTerminalStream } from "./terminal-stream.ts";
@@ -95,7 +95,7 @@ export class FakeServicesWire {
     this.host = context;
     this.providerStatuses = providerStatuses;
     this.history = new FakeHistory(context);
-    bindFakeBrowserOrigins(this.browser, context, settings);
+    bindFakeBrowserPrivate(this.browser, context);
     this.files = new FakeFilesWire(context);
     this.settings = settings;
     this.context = new FakeContextWire(context, (threadId) => this.files.paths(threadId));

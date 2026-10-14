@@ -155,8 +155,6 @@ export function turnIsSettled(status: ThreadStatus): boolean {
   return status.state === "done" || status.state === "failed" || status.state === "new";
 }
 
-export function approvalAutoReviewed(
-  approval: Pick<Interaction, "autoReviewed" | "review">,
-): boolean {
-  return approval.autoReviewed === true || approval.review?.mode === "auto-review";
+export function approvalAutoReviewed(approval: Pick<Interaction, "autoReviewed">): boolean {
+  return approval.autoReviewed === true;
 }

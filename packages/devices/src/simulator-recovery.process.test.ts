@@ -13,7 +13,7 @@ import { DevicesService, DevicePlatform, type Actor } from "./index.ts";
 const deviceId = "ios:11111111-1111-4111-8111-111111111111";
 const human: Actor = { kind: "human", owner: "reader" };
 function noop() {}
-it("a terminated Simulator whose stop reported an error can be disabled, reapproved and captured again", async () => {
+it("a terminated Simulator whose stop reported an error can be disabled, taken again and captured again", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-simulator-recovery-"));
   onTestFinished(() => rm(root, { recursive: true, force: true }));
   for (const tool of ["xcode-select", "xcrun", "open"]) {
@@ -76,11 +76,19 @@ it("a terminated Simulator whose stop reported an error can be disabled, reappro
   });
   onTestFinished(() => service.close());
   const request = (operation: unknown) => service.request(DeviceOperation.parse(operation), human);
-  const approve = async () => {
+  // Devices on, and the Simulator moved to thread-1 by handing it to its agent and back.
+  const takeForThread = async () => {
     await request({ op: "enable", enabled: true });
-    await request({ op: "approve", deviceId, threadId: "thread-1", allowed: true });
+    await request({
+      op: "controller",
+      deviceId,
+      controller: "agent",
+      threadId: "thread-1",
+      agentId: "agent-1",
+    });
+    await request({ op: "controller", deviceId, controller: "none" });
   };
-  await approve();
+  await takeForThread();
   await request({ op: "start", deviceId });
   expect((await service.screenshot(deviceId, human)).payload.toString()).toBe("simulator-frame");
   const native = processes[0];
@@ -99,7 +107,7 @@ it("a terminated Simulator whose stop reported an error can be disabled, reappro
   await request({ op: "stop", deviceId });
   await request({ op: "enable", enabled: false });
   expect(service.states()).toEqual([]);
-  await approve();
+  await takeForThread();
   await request({ op: "start", deviceId });
   expect(service.states()[0]?.lifecycle).toBe("live");
   expect((await service.screenshot(deviceId, human)).payload.toString()).toBe("simulator-frame");

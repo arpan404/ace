@@ -5,7 +5,7 @@ import { DeviceId, ScreenState, ServerMessage, ClientMessage } from "@ace/protoc
 import type { TransportEvents } from "./types.ts";
 import { ManualScheduler, memoryStorage, ready } from "./test-support.ts";
 
-it("human screen controls use typed busy errors and state pushes while foreground approval waits for a human", async () => {
+it("human screen controls use typed busy errors and state pushes", async () => {
   let events: TransportEvents | undefined;
   const state = ScreenState.parse({
     sessionId: "app",
@@ -23,7 +23,6 @@ it("human screen controls use typed busy errors and state pushes while foregroun
   const receive = (message: unknown) =>
     events?.message(JSON.stringify(ServerMessage.parse(message)));
   const scheduler = new ManualScheduler();
-  const modeReady = Promise.withResolvers<void>();
   const client = new Client({
     deviceId: DeviceId.parse("human"),
     storage: memoryStorage(),
@@ -52,11 +51,8 @@ it("human screen controls use typed busy errors and state pushes while foregroun
         if (message.type !== "screen.request") return;
         const operation = message.operation;
         if (operation.op === "mode") {
-          scheduler.set(40_000, () => {
-            state.mode = operation.mode;
-            receive({ type: "screen.result", requestId: message.requestId, ok: true, data: state });
-          });
-          modeReady.resolve();
+          state.mode = operation.mode;
+          receive({ type: "screen.result", requestId: message.requestId, ok: true, data: state });
           return;
         }
         if (operation.op === "enable") enabled = operation.enabled;
@@ -101,10 +97,7 @@ it("human screen controls use typed busy errors and state pushes while foregroun
     errorCode: "target_busy",
     holder: { sessionId: "app", owner: "agent" },
   });
-  const foreground = screen.mode("app", "foreground");
-  await modeReady.promise;
-  scheduler.advance(40_000);
-  expect((await foreground).mode).toBe("foreground");
+  expect((await screen.mode("app", "foreground")).mode).toBe("foreground");
   await screen.takeover("app");
   expect(pushes).toEqual(["human"]);
   unwatch();

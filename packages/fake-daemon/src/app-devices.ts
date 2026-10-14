@@ -10,7 +10,6 @@ import {
   type DeviceServerMessage,
   DeviceState,
 } from "@ace/protocol/devices";
-import type { FakeScreen } from "./screen.ts";
 import { fakeScreenFrame } from "./screen-frame.ts";
 
 const leaseMs = 5 * 60_000;
@@ -80,7 +79,6 @@ function denied(permission: DevicePermission): Refusal {
  * Recording, screenshots and UI trees answer `not_supported`.
  */
 export class FakeAppDevices {
-  screenHost?: FakeScreen;
   onRecording?: (threadId: string, artifactId: string) => void;
   logsFail = false;
   readonly actions: DeviceOperation[] = [];
@@ -142,8 +140,8 @@ export class FakeAppDevices {
     }
   }
 
-  /** The thread a device is approved for, as tests check what a person allowed. */
-  approval(deviceId: string): string | undefined {
+  /** The thread whose agent or person took a device last. */
+  boundThread(deviceId: string): string | undefined {
     return this.sessions.get(deviceId)?.threadId;
   }
 
@@ -187,7 +185,6 @@ export class FakeAppDevices {
     return DeviceState.parse({
       device: session.device,
       enabled: this.enabled,
-      approved: session.threadId !== undefined,
       ...(session.threadId ? { threadId: session.threadId } : {}),
       lifecycle: session.lifecycle,
       recording: session.recording === true,
@@ -291,13 +288,6 @@ export class FakeAppDevices {
         this.send(open, { type: "devices.enabled", enabled: this.enabled });
       if (!this.enabled)
         for (const session of this.sessions.values()) {
-          if (session.device.platform === "ios" && session.threadId)
-            this.screenHost?.access.approve(
-              "com.apple.iphonesimulator",
-              false,
-              "thread",
-              session.threadId,
-            );
           delete session.threadId;
           session.recording = false;
           delete session.streamId;
@@ -323,31 +313,9 @@ export class FakeAppDevices {
     }
     const session = this.session(operation.deviceId);
     switch (operation.op) {
-      case "approve":
-        if (session.device.platform === "ios" && this.screenHost) {
-          if (session.threadId)
-            this.screenHost.access.approve(
-              "com.apple.iphonesimulator",
-              false,
-              "thread",
-              session.threadId,
-            );
-          if (operation.allowed) {
-            this.screenHost.enable(true);
-            this.screenHost.access.approve(
-              "com.apple.iphonesimulator",
-              true,
-              "thread",
-              operation.threadId,
-            );
-          }
-        }
-        if (operation.allowed) session.threadId = operation.threadId;
-        else delete session.threadId;
-        this.publish(session);
-        return this.state(session, channel);
       case "controller":
         if (operation.controller === "human") {
+          if (operation.threadId) session.threadId = operation.threadId;
           session.controller = "human";
           session.humanOwner = channel;
           delete session.holder;
@@ -358,12 +326,14 @@ export class FakeAppDevices {
           delete session.holder;
           delete session.leaseExpiresAt;
         } else {
-          if (!operation.threadId || !operation.agentId || session.threadId !== operation.threadId)
+          if (!operation.threadId || !operation.agentId)
             throw new Refusal(
               "permission_denied",
-              "Agent must belong to approved thread",
-              "Approve the thread and select an agent.",
+              "Agent and thread required",
+              "Select one of the thread's agents.",
             );
+          // Handing the device to a thread's agent moves the device to that thread.
+          session.threadId = operation.threadId;
           session.controller = "agent";
           delete session.humanOwner;
           session.holder = { threadId: operation.threadId, agentId: operation.agentId };
@@ -385,31 +355,6 @@ export class FakeAppDevices {
         this.publish(session);
         return { completed: true };
       case "start":
-        if (
-          session.threadId &&
-          session.device.platform === "ios" &&
-          this.screenHost &&
-          !this.screenHost.access.enabled
-        )
-          throw new Refusal(
-            "permission_denied",
-            "Computer use is off",
-            "Turn it on in Computer use, then try again.",
-          );
-        if (
-          session.threadId &&
-          session.device.platform === "ios" &&
-          this.screenHost &&
-          !this.screenHost.access.allows(
-            "com.apple.iphonesimulator",
-            session.threadId ? { threadId: session.threadId, agentId: "human" } : undefined,
-          )
-        )
-          throw new Refusal(
-            "permission_denied",
-            "Simulator isn't shared with this thread",
-            "Approve this device first.",
-          );
         if (session.device.state !== "booted")
           throw new Refusal("not_booted", "The device isn't running", "Boot it first.");
         if (session.device.platform === "ios" && !this.permissions.screenRecording)
@@ -483,8 +428,8 @@ export class FakeAppDevices {
         if (!session.threadId)
           throw new Refusal(
             "permission_denied",
-            "Approve this device first",
-            "Approve it for the thread.",
+            "No thread is using this device",
+            "Take control of it in a thread first.",
           );
         session.recording = true;
         this.publish(session);

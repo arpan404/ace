@@ -5,7 +5,7 @@ type Action = {
   riskClass: "read-only" | "thread-write" | "agent-execution" | "external-effect";
   /**
    * Overwrites work or commits future spending. These alone ask the person through the provider;
-   * everything else is governed by the thread's permissions and ace's own consent.
+   * everything else runs under the provider's own permission mode.
    */
   destructive?: true;
 };

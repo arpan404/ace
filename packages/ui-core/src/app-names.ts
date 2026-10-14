@@ -1,8 +1,6 @@
-import { browserApp, sensitiveApp } from "@ace/screen/sensitive-app";
-
 /*
- * What people call a macOS app, from its bundle id. Computer-use approvals, grants and live
- * sessions name apps by bundle id on the wire; people know "TextEdit", not "com.apple.TextEdit".
+ * What people call a macOS app, from its bundle id. Computer use sessions name apps by bundle
+ * id on the wire; people know "TextEdit", not "com.apple.TextEdit".
  */
 
 const known: Record<string, string> = {
@@ -36,17 +34,4 @@ export function appName(bundleId: string): string {
     .replace(/([a-z])([A-Z])/g, "$1 $2")
     .trim();
   return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : bundleId;
-}
-
-/**
- * Apps the daemon always asks about, even with a saved grant (password managers, System
- * Settings, Keychain Access, terminals, ace itself). The same rule the daemon applies.
- */
-export function alwaysAsks(bundleId: string): boolean {
-  return sensitiveApp(bundleId);
-}
-
-/** Web browsers: allowed for a thread at most, never always. The same rule the daemon applies. */
-export function threadOnly(bundleId: string): boolean {
-  return browserApp(bundleId);
 }

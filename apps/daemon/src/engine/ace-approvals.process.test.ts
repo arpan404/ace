@@ -37,8 +37,8 @@ function approval(tool: string, input: unknown, server = "ace"): Fact[] {
   ];
 }
 
-test.each(["auto-review", "ask", "read-only"] as const)(
-  "ace transcript reads in %s resolve automatically with an exact action",
+test.each(["read-only", "ask", "auto-review", "full-access"] as const)(
+  "a provider's own approval for an ace read stays pending for the person in %s",
   async (mode) => {
     const frames = scriptFrames();
     const h = await harness(
@@ -69,24 +69,28 @@ test.each(["auto-review", "ask", "read-only"] as const)(
     );
     try {
       const id = await h.create();
+      await h.engine.flush();
       const interaction = Object.values(h.store.snapshotThread(id).interactions)[0];
+      if (!interaction) throw new Error("No provider approval");
+      // The action still reads as ace's tool; nobody but the person answers it.
       expect(interaction).toMatchObject({
-        state: "resolved",
+        state: "pending",
         request: {
-          target: {
-            tool: "ace_thread_read",
-            origin: "ace",
-            access: "read",
-            riskClass: "read-only",
-            input: { threadId: "child" },
-          },
+          target: { tool: "ace_thread_read", origin: "ace", riskClass: "read-only" },
         },
-        review: { decision: "approve" },
+      });
+      expect(
+        h.command({
+          type: "interaction.resolve",
+          interactionId: interaction.id,
+          resolution: { kind: "approval", optionId: "once" },
+        }).ok,
+      ).toBe(true);
+      await h.engine.flush();
+      expect(h.store.getInteraction(interaction.id)).toMatchObject({
+        state: "resolved",
         resolution: { optionId: "once" },
       });
-      expect(interaction?.request.kind === "approval" && interaction.request.title).toContain(
-        "child",
-      );
       expect(h.errors).toEqual([]);
     } finally {
       await h.close();
@@ -133,52 +137,33 @@ function codexGate(tool: string, input: unknown): Fact[] {
 }
 const merge = { threadId: "child", requestId: "merge-1" };
 
-test("in Full access ace answers Codex's gate on its own destructive tool without asking", async () => {
-  const frames = scriptFrames();
-  const h = await harness(
-    [
-      { on: "send", frames: [frames.frame(start, ...codexGate("ace_thread_merge", merge))] },
-      { on: "resolve", frames: [frames.frame(end)] },
-    ],
-    frames,
-    { permissionSettings: async () => ({ access: "full-access" as const }) },
-  );
-  try {
-    const id = await h.create();
-    const interaction = Object.values(h.store.snapshotThread(id).interactions)[0];
-    expect(interaction).toMatchObject({
-      state: "resolved",
-      review: { decision: "approve", mode: "full-access" },
-      resolution: { optionId: "accept" },
-    });
-  } finally {
-    await h.close();
-  }
-});
+test.each(["full-access", "auto-review"] as const)(
+  "in %s Codex's gate on a destructive ace tool waits for the person on that call's row",
+  async (mode) => {
+    const frames = scriptFrames();
+    const h = await harness(
+      [{ on: "send", frames: [frames.frame(start, ...codexGate("ace_thread_merge", merge))] }],
+      frames,
+      { permissionSettings: async () => ({ access: mode }) },
+    );
+    try {
+      const id = await h.create();
+      await h.engine.flush();
+      const thread = h.store.snapshotThread(id);
+      const interaction = Object.values(thread.interactions)[0];
+      const call = Object.values(thread.items).find((item) => item.type === "tool_call");
+      expect(interaction).toMatchObject({
+        state: "pending",
+        toolCallId: call?.id,
+        request: { target: { tool: "ace_thread_merge", origin: "ace" } },
+      });
+    } finally {
+      await h.close();
+    }
+  },
+);
 
-test("outside Full access Codex's gate on a destructive ace tool asks the person on that call's row", async () => {
-  const frames = scriptFrames();
-  const h = await harness(
-    [{ on: "send", frames: [frames.frame(start, ...codexGate("ace_thread_merge", merge))] }],
-    frames,
-    { permissionSettings: async () => ({ access: "auto-review" as const }) },
-  );
-  try {
-    const id = await h.create();
-    const thread = h.store.snapshotThread(id);
-    const interaction = Object.values(thread.interactions)[0];
-    const call = Object.values(thread.items).find((item) => item.type === "tool_call");
-    expect(interaction).toMatchObject({
-      state: "pending",
-      toolCallId: call?.id,
-      review: { decision: "escalate", target: { tool: "ace_thread_merge", origin: "ace" } },
-    });
-  } finally {
-    await h.close();
-  }
-});
-
-test("ace's own consent asked during an ace tool call reads on that call", async () => {
+test("a request from another machine shown during an ace tool call reads on that call", async () => {
   const frames = scriptFrames();
   const h = await harness(
     [
@@ -187,7 +172,10 @@ test("ace's own consent asked during an ace tool call reads on that call", async
         frames: [
           frames.frame(
             start,
-            ...codexGate("ace_browser_navigate", { url: "https://a.test" }).slice(0, 1),
+            ...codexGate("ace_browser_navigate", {
+              url: "https://a.test",
+              machine: "studio",
+            }).slice(0, 1),
           ),
         ],
       },
@@ -198,12 +186,12 @@ test("ace's own consent asked during an ace tool call reads on that call", async
     const id = await h.create();
     const opened = h.engine.openHostApproval(
       id,
-      "origin",
+      "machine-request:studio:1",
       {
         kind: "approval",
-        title: "open https://a.test in the thread browser",
+        title: "studio: run a command",
         target: { tool: "ace_browser_navigate", access: "execute" },
-        options: [{ id: "allow_thread", label: "Allow for this thread", kind: "allow_session" }],
+        options: [{ id: "allow_once", label: "Allow once", kind: "allow_once" }],
       },
       [],
     );
@@ -215,59 +203,11 @@ test("ace's own consent asked during an ace tool call reads on that call", async
   }
 });
 
-test("ace delegation asks the person outside Full access", async () => {
-  const frames = scriptFrames();
-  const h = await harness(
-    [
-      {
-        on: "send",
-        frames: [
-          frames.frame(
-            start,
-            ...approval("delegate_task", {
-              requestId: "greeter",
-              task: "Say hello",
-              role: "greeter",
-              provider: "claude",
-            }),
-          ),
-        ],
-      },
-      { on: "resolve", frames: [frames.frame(end)] },
-    ],
-    frames,
-    { permissionSettings: async () => ({ access: "auto-review" as const }) },
-  );
-  try {
-    const id = await h.create();
-    const interaction = Object.values(h.store.snapshotThread(id).interactions)[0];
-    if (!interaction) throw new Error("No consent request");
-    expect(interaction).toMatchObject({
-      state: "pending",
-      review: {
-        decision: "escalate",
-        target: { tool: "delegate_task", riskClass: "agent-execution", access: "execute" },
-      },
-    });
-    expect(
-      h.command({
-        type: "interaction.resolve",
-        interactionId: interaction.id,
-        resolution: { kind: "approval", optionId: "once" },
-      }).ok,
-    ).toBe(true);
-    await h.engine.flush();
-    expect(h.store.getInteraction(interaction.id)?.state).toBe("resolved");
-  } finally {
-    await h.close();
-  }
-});
-
 test.each([
   { server: "foreign", input: { threadId: "child" } },
   { server: "ace", input: { threadId: "child", execute: "rm" } },
 ])(
-  "foreign tools and invalid arguments cannot borrow ace read-only authority: $server",
+  "foreign tools and invalid arguments never read as ace's own action: $server",
   async ({ server, input }) => {
     const frames = scriptFrames();
     const h = await harness(
@@ -283,7 +223,8 @@ test.each([
       const id = await h.create();
       const interaction = Object.values(h.store.snapshotThread(id).interactions)[0];
       expect(interaction?.state).toBe("pending");
-      expect(interaction?.review).toBeUndefined();
+      const target = interaction?.request.kind === "approval" ? interaction.request.target : {};
+      expect(target).not.toMatchObject({ origin: "ace" });
     } finally {
       await h.close();
     }

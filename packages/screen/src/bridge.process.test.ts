@@ -57,7 +57,6 @@ it("a disconnect while start is in progress closes the resulting capture", async
   const test = await manager();
   cleanups.push(test.close);
   await test.screen.enable(true);
-  await test.screen.approve("dev.ace.test", true);
   const connection = screenConnection(test.screen, new Simulators("linux"), "human-1", {
     send: () => {},
     frame: async () => {},

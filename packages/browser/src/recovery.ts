@@ -34,8 +34,7 @@ export async function recoverHeadless(options: {
     signal.throwIfAborted();
     replacement.privateMode?.(session.state.takeoverMode === "private");
     if (url !== "about:blank") {
-      if (!(await request.allowed(url)))
-        throw new Error("Browser recovery origin requires approval");
+      if (!(await request.allowed(url))) throw new Error("Browser recovery origin refused");
       signal.throwIfAborted();
       await replacement.navigate(url, 10_000);
     }

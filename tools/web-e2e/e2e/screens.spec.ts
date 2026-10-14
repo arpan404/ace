@@ -166,13 +166,6 @@ const screens: Record<string, Setup> = {
     await panel.getByRole("treeitem", { name: /^resume-sweep:/ }).click();
     await panel.getByRole("region", { name: "Delegation" }).waitFor();
   },
-  // ace's risk policy approving, denying and escalating, the denial opened to its target.
-  "thread-permission-review": async (page) => {
-    await openThread("/t/thread-release-audit")(page);
-    const denied = page.getByRole("article", { name: "Permission review: Denied by ace" });
-    await denied.getByRole("button").click();
-    await denied.getByText("rm -rf dist").waitFor();
-  },
   // A dev server in a Preview tab of its own.
   "thread-port-tab": async (page) => {
     await rightTab("/t/thread-install-page", "Preview")(page);

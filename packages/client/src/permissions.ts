@@ -5,7 +5,6 @@ import {
   type PermissionState,
   type SettingsLayer,
   ThreadId,
-  type PermissionReview,
   type ProviderKind,
 } from "@ace/protocol";
 import type { ClientApi, ThreadSource } from "./api.ts";
@@ -68,11 +67,4 @@ export function accessModes(
   capabilities: Pick<Capabilities, "accessModes"> | undefined,
 ): readonly AccessModeOffer[] {
   return capabilities?.accessModes ?? [];
-}
-/** Select with interaction:<id>. Review notices are also available through source.item(id). */
-export function permissionReview(
-  source: Pick<ThreadSource, "interaction">,
-  id: string,
-): PermissionReview | undefined {
-  return source.interaction(id)?.review;
 }

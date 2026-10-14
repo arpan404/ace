@@ -73,7 +73,7 @@ export class ControllerLease {
       throw new DeviceError(
         "lease_required",
         "Controller lease required",
-        "Ask the user to delegate this device or take control in the device panel.",
+        "Call device_start to take control again; wait while a person controls the device.",
       );
     this.deadline = this.now() + 30000;
   }

@@ -82,7 +82,7 @@ const screen: Record<string, Wording> = {
   }),
   foreground_required: (app) => ({
     title: `${app} needs to be in front for that`,
-    hint: "The agent can ask to bring it to the front; you'll be asked to approve.",
+    hint: "The agent can bring it to the front.",
   }),
   target_busy: (app) => ({
     title: `Another agent is using ${app}`,
@@ -101,16 +101,6 @@ const screen: Record<string, Wording> = {
     title: `macOS hasn't let ace control ${app}`,
     hint: "Allow Screen Recording and Accessibility for Ace Screen Helper in System Settings.",
   }),
-  approval_required: (app) => ({
-    title: `${app} isn't approved yet`,
-    hint: "Allow it when the agent asks.",
-  }),
-  screen_approval_required: (app) => ({
-    title: `${app} isn't approved yet`,
-    hint: "Allow it when the agent asks.",
-  }),
-  screen_approval_denied: (app) => ({ title: `You didn't allow ${app}` }),
-  denied: (app) => ({ title: `You didn't allow ${app}` }),
   screen_disabled: () => ({
     title: "Computer use is off",
     hint: "Turn it on in Settings › Computer use.",
@@ -129,10 +119,6 @@ const screen: Record<string, Wording> = {
   stale_ref: (app) => ({
     title: `${possessive(app)} window changed before the action`,
     hint: readAgain("window"),
-  }),
-  read_only: () => ({
-    title: "This thread is read-only",
-    hint: "Its permission mode doesn't allow computer use.",
   }),
 };
 
@@ -162,25 +148,9 @@ const browser: Record<string, Wording> = {
     hint: readAgain("page"),
   }),
   not_visible: () => ({ title: "That element isn't visible" }),
-  evaluate_approval_required: (site) => ({
-    title: `Scripts on ${site} need your approval`,
-    hint: "Allow them when asked.",
-  }),
-  evaluate_approval_timeout: (site) => ({
-    title: `Scripts on ${site} waited for your approval and timed out`,
-  }),
-  evaluate_approval_superseded: (site) => ({
-    title: `The request to run scripts on ${site} was replaced before you answered`,
-  }),
-  approval_required: (site) => ({
-    title: `${site} needs your approval`,
-    hint: "Allow the site when asked.",
-  }),
-  denied: (site) => ({ title: `You blocked ${site}` }),
-  read_only: () => ({
-    title: "This thread is read-only",
-    hint: "Its permission mode doesn't allow browsing.",
-  }),
+  evaluate_approval_required: (site) => ({ title: `Scripts on ${site} were refused` }),
+  approval_required: (site) => ({ title: `The browser refused ${site}` }),
+  denied: () => ({ title: "The browser refused the request" }),
   invalid_origin: () => ({
     title: "That address isn't one the agent can open",
     hint: "Only http and https addresses, without a password in them.",
@@ -204,14 +174,14 @@ const device: Record<string, Wording> = {
     hint: "Check that it's still connected.",
   }),
   lease_required: (name) => ({
-    title: `The agent no longer controls ${name}`,
-    hint: "Hand it back to the agent from the Devices panel.",
+    title: `The agent doesn't control ${name}`,
+    hint: "It can take the device again once nobody else is controlling it.",
   }),
   command_failed: (name) => ({ title: `${name} couldn't do that` }),
   limit: () => ({ title: "That's more than the device allows at once" }),
   permission_denied: (name) => ({
     title: `ace isn't allowed to use ${name}`,
-    hint: "Check the device's approval and the Mac's permissions.",
+    hint: "Check that devices are on and the Mac's permissions.",
   }),
   busy: (name) => ({ title: `${name} is busy`, hint: "Wait for its current action to finish." }),
   not_supported: (name) => ({ title: `${name} doesn't support that` }),

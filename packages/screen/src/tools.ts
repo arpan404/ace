@@ -37,10 +37,6 @@ export const computerUseSchemas = {
   screen_key: z.union(Key.options.map((schema) => schema.extend(SessionSelection))),
   screen_scroll: z.union(Scroll.options.map((schema) => schema.extend(SessionSelection))),
   screen_paste: Type.extend(SessionSelection),
-  screen_request_app: z.strictObject({
-    bundleId: ScreenBundle,
-    reason: z.string().min(1).max(2048),
-  }),
   screen_open_app: z.strictObject({
     bundleId: ScreenBundle,
     windowId: z.number().int().positive().optional(),
@@ -58,10 +54,7 @@ export const computerUseSchemas = {
     ...SessionSelection,
     path: z.array(z.string().min(1).max(256)).min(1).max(8),
   }),
-  screen_request_foreground: z.strictObject({
-    ...SessionSelection,
-    reason: z.string().min(1).max(2048),
-  }),
+  screen_request_foreground: z.strictObject(SessionSelection),
 };
 // Read enum descriptions from the shared action schema when the expanded helper contract lands.
 const enumNames = (schema: z.ZodType, fallback: readonly string[]) => {
@@ -100,7 +93,7 @@ export const computerUseTools = [
   {
     name: "screen_list_windows",
     description:
-      "List an approved app's candidate windows, including its focused/main window. Use screen_select_window to choose a specific target.",
+      "List an app's candidate windows, including its focused/main window. Use screen_select_window to choose a specific target.",
     get inputSchema() {
       return z.toJSONSchema(computerUseSchemas.screen_list_windows);
     },
@@ -116,7 +109,7 @@ export const computerUseTools = [
   {
     name: "screen_open_url",
     description:
-      "Open a URL or deep link in this approved native app without activating it. For website browsing use ace_browser_open.",
+      "Open a URL or deep link in this native app without activating it. For website browsing use ace_browser_open.",
     get inputSchema() {
       return z.toJSONSchema(computerUseSchemas.screen_open_url);
     },
@@ -132,23 +125,15 @@ export const computerUseTools = [
   {
     name: "screen_measure_interaction",
     description:
-      "Measure an approved macOS window with optional background input, or observe only.\nReturns latency, settle time, active FPS, dropped intervals and a timestamped filmstrip.\nHitch ratio in ms/s: <5 smooth, 5–10 minor hitches, >10 janky.\nIdle time is excluded; few updates, high host load or capture overhead reduce confidence.\nRepeat 1–5 times; at most 10 seconds per run and 20 seconds total. Repeats perform the action again.",
+      "Measure a macOS window with optional background input, or observe only.\nReturns latency, settle time, active FPS, dropped intervals and a timestamped filmstrip.\nHitch ratio in ms/s: <5 smooth, 5–10 minor hitches, >10 janky.\nIdle time is excluded; few updates, high host load or capture overhead reduce confidence.\nRepeat 1–5 times; at most 10 seconds per run and 20 seconds total. Repeats perform the action again.",
     get inputSchema() {
       return z.toJSONSchema(computerUseSchemas.screen_measure_interaction);
     },
   },
   {
-    name: "screen_request_app",
-    description:
-      "Ask the person to approve computer use of one native macOS app by exact bundle id, with a reason. Waits until the person allows or denies it in the thread. Call only when the person asked you to operate that app. For websites use ace_browser_open; request a web browser only to operate the browser app itself.",
-    get inputSchema() {
-      return z.toJSONSchema(computerUseSchemas.screen_request_app);
-    },
-  },
-  {
     name: "screen_open_app",
     description:
-      "Launch an approved app in the background and acquire an agent session. Returns candidate windows, target and sessionId. If ambiguous, supply a listed windowId; use sessionId when controlling multiple apps.",
+      "Launch a native macOS app by exact bundle id in the background and acquire an agent session. For websites use ace_browser_open. Returns candidate windows, target and sessionId. If ambiguous, supply a listed windowId; use sessionId when controlling multiple apps.",
     get inputSchema() {
       return z.toJSONSchema(computerUseSchemas.screen_open_app);
     },
@@ -156,7 +141,7 @@ export const computerUseTools = [
   {
     name: "screen_request_foreground",
     description:
-      "Request human approval for foreground mode for this session. Include why the app requires real cursor and keyboard focus.",
+      "Switch this session to foreground mode: the app is activated and input uses the real cursor and keyboard focus. Use only when the app ignores background input.",
     get inputSchema() {
       return z.toJSONSchema(computerUseSchemas.screen_request_foreground);
     },
@@ -164,7 +149,7 @@ export const computerUseTools = [
   {
     name: "screen_paste",
     description:
-      "Paste text into the approved app, preserving the clipboard. Refuses secure fields without session consent.",
+      "Paste text into the app, preserving the clipboard. Refuses secure fields without session consent.",
     get inputSchema() {
       return z.toJSONSchema(computerUseSchemas.screen_paste);
     },
@@ -172,7 +157,7 @@ export const computerUseTools = [
   {
     name: "screen_ui_tree",
     description:
-      "Use first: inspect the approved app's bounded accessibility tree with stable refs. Prefer semantic actions to pixel clicks.",
+      "Use first: inspect the app's bounded accessibility tree with stable refs. Prefer semantic actions to pixel clicks.",
     get inputSchema() {
       return z.toJSONSchema(computerUseSchemas.screen_ui_tree);
     },
@@ -196,7 +181,7 @@ export const computerUseTools = [
   {
     name: "screen_screenshot",
     description:
-      "Visual check only: inspect the approved app. Use screen_ui_tree or screen_ui_find first; screenshots cost more tokens.",
+      "Visual check only: inspect the app. Use screen_ui_tree or screen_ui_find first; screenshots cost more tokens.",
     get inputSchema() {
       return z.toJSONSchema(computerUseSchemas.screen_screenshot);
     },
@@ -212,14 +197,14 @@ export const computerUseTools = [
   {
     name: "screen_type",
     description:
-      "Type text in the approved native app. Use screen_key for Enter and shortcuts, or screen_ui_act to set a field's whole value.",
+      "Type text in the native app. Use screen_key for Enter and shortcuts, or screen_ui_act to set a field's whole value.",
     get inputSchema() {
       return z.toJSONSchema(computerUseSchemas.screen_type);
     },
   },
   {
     name: "screen_key",
-    description: `Press a key in the approved native app. Named keys: ${namedKeys}. Modifiers: ${namedModifiers}. Example: {"key":"l","modifiers":["command"]}. Legacy sessions accept macOS keyCode.`,
+    description: `Press a key in the native app. Named keys: ${namedKeys}. Modifiers: ${namedModifiers}. Example: {"key":"l","modifiers":["command"]}. Legacy sessions accept macOS keyCode.`,
     get inputSchema() {
       return z.toJSONSchema(computerUseSchemas.screen_key);
     },

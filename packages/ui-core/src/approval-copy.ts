@@ -1,12 +1,11 @@
-import type { ApprovalOption, InteractionRequest, PermissionReview } from "@ace/protocol";
-import { alwaysAsks, appName } from "./app-names.ts";
-import { offeredOptions, reviewReason } from "./approvals.ts";
+import type { ApprovalOption, InteractionRequest } from "@ace/protocol";
+import { offeredOptions } from "./approvals.ts";
 import { addressHost } from "./browser-address.ts";
 import { displayCommand, unwrapShellCommand } from "./step-display.ts";
 
 /*
- * How an approval reads on a card, in the thread and for computer use alike: a
- * title, the one thing it acts on (a command, a script, files, an app), one plain reason, and
+ * How an approval reads on a card, in the thread: a title, the one thing it acts on (a
+ * command, a script, files), one plain reason, and
  * the same three verbs everywhere: Allow once, Always allow (where the request offers a standing
  * grant) and Deny. Everything else (the facts, the medium risk, any other option the request
  * offers) sits behind the card's Details.
@@ -54,7 +53,7 @@ export interface ApprovalChoice {
 }
 
 export interface ApprovalCopy {
-  /** A known ace tool (`screen_request_app`, `browser.evaluate`, ...) or undefined. */
+  /** A known ace tool (`browser.evaluate`, ...) or undefined. */
   tool: string | undefined;
   /** The request's own title, naming what it acts on: a list row's words and the card's name. */
   title: string;
@@ -62,12 +61,9 @@ export interface ApprovalCopy {
   heading: string;
   /** The shell command it would run, as the person would have typed it. */
   command: string | undefined;
-  /** The app an app request is about, by name: drawn as its mark beside the title. */
-  app: string | undefined;
-  bundleId?: string | undefined;
   /**
    * The one plain reason: what the agent said it needs this for, else the request's own
-   * description, else why ace's review sent it on.
+   * description.
    */
   reason: string | undefined;
   /** What approving lets happen, honestly and briefly. `high` reads in the failure tone. */
@@ -99,8 +95,6 @@ interface ToolCopy {
   title: string;
   /** The card's question, when it differs from the title ("Allow Claude to control Safari?"). */
   heading?: string | undefined;
-  app?: string | undefined;
-  bundleId?: string | undefined;
   reason?: string | undefined;
   risk?: ApprovalCopy["risk"];
   facts?: ApprovalFact[];
@@ -108,56 +102,6 @@ interface ToolCopy {
   files?: readonly string[];
   /** What an option grants, where the tool says it better than the provider's label. */
   labels?: Partial<Record<string, string>>;
-}
-
-function screenApp(
-  input: Record<string, unknown>,
-  description: string | undefined,
-  agent: string | undefined,
-): ToolCopy {
-  const bundleId = text(input["bundleId"]) ?? "";
-  const name = appName(bundleId);
-  const sensitive = alwaysAsks(bundleId);
-  return {
-    title: `Let an agent use ${name}`,
-    heading: `Allow ${agent ?? "the agent"} to control ${name}?`,
-    app: name,
-    bundleId,
-    reason: description,
-    risk: sensitive
-      ? {
-          level: "high",
-          text: `${name} can hold passwords or run commands. ace asks again every turn, even if you allow it always.`,
-        }
-      : {
-          level: "medium",
-          text: `The agent can see ${name}'s windows and click and type in them, in the background while you keep working.`,
-        },
-    facts: [{ label: "Bundle ID", value: bundleId, code: true }],
-    labels: {
-      allow_thread: "Allow for this thread",
-      allow_always: sensitive ? "Always allow, still asking each turn" : undefined,
-    },
-  };
-}
-
-function screenForeground(
-  input: Record<string, unknown>,
-  description: string | undefined,
-): ToolCopy {
-  const bundleId = text(input["bundleId"]) ?? "";
-  const name = appName(bundleId);
-  return {
-    title: `Let the agent bring ${name} to the front`,
-    app: name,
-    bundleId,
-    reason: description,
-    risk: {
-      level: "high",
-      text: `It will use your real cursor and keyboard in ${name}. Avoid typing until it hands back; you can take over at any time.`,
-    },
-    facts: [{ label: "Bundle ID", value: bundleId, code: true }],
-  };
 }
 
 function browserEvaluate(input: Record<string, unknown>): ToolCopy {
@@ -215,15 +159,11 @@ function browserUpload(input: Record<string, unknown>): ToolCopy {
   };
 }
 
-function toolCopy(request: ApprovalRequest, agent: string | undefined): ToolCopy | undefined {
+function toolCopy(request: ApprovalRequest): ToolCopy | undefined {
   const target = request.target;
-  if (target?.origin !== "ace" && !target?.tool.startsWith("screen_")) return undefined;
+  if (target?.origin !== "ace") return undefined;
   const input = record(target?.input);
   switch (target?.tool) {
-    case "screen_request_app":
-      return screenApp(input, request.description, agent);
-    case "screen_request_foreground":
-      return screenForeground(input, request.description);
     case "browser.evaluate":
       return browserEvaluate(input);
     case "browser.downloads":
@@ -336,13 +276,9 @@ export function approvalCopy(
     mode?: Parameters<typeof offeredOptions>[1];
     /** The command of the step that asked, when it is a shell step. */
     command?: string | undefined;
-    /** ace's review, whose reason is the card's when the request gives none. */
-    review?: Pick<PermissionReview, "reason" | "decision"> | undefined;
-    /** Who asks, by name ("Claude"), for a heading that names them. */
-    agent?: string | undefined;
   } = {},
 ): ApprovalCopy {
-  const copy = toolCopy(request, context.agent);
+  const copy = toolCopy(request);
   const defaultToNo = request.defaultToNo === true;
   const options = copy ? request.options : offeredOptions(request.options, context.mode).options;
   const target = request.target?.command;
@@ -355,12 +291,7 @@ export function approvalCopy(
     title,
     heading: copy ? (copy.heading ?? title) : heading(title, command),
     command,
-    app: copy?.app,
-    bundleId: copy?.bundleId,
-    reason: copy
-      ? copy.reason
-      : (request.description ??
-        (context.review?.decision === "escalate" ? reviewReason(context.review) : undefined)),
+    reason: copy ? copy.reason : request.description,
     risk: copy?.risk ?? (command ? commandRisk(command) : undefined),
     facts: copy?.facts ?? [],
     code: copy?.code,

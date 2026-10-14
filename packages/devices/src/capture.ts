@@ -67,7 +67,6 @@ export async function startCapture(options: {
     const permissions = await screen.inspectDevicePermissions();
     checkAbort();
     if (!permissions.screenRecording) throw permissionDenied("screenRecording");
-    if (options.scope) screen.requireApproval("com.apple.iphonesimulator", options.scope);
     const selected = await options.platform.simulatorCaptureDevice(options.device);
     checkAbort();
     const window = await simulatorWindow(screen, options, selected.name, checkAbort);
@@ -447,13 +446,12 @@ async function simulatorWindow(
     device: Device;
     platform: DevicePlatform;
     runtime: DeviceRuntime;
-    scope?: ScreenAgentScope;
   },
   name: string,
   checkAbort: () => void,
 ) {
   for (let attempt = 0; ; attempt++) {
-    const inventory = options.scope ? await screen.targets() : await screen.humanDeviceTargets();
+    const inventory = await screen.deviceTargets();
     checkAbort();
     const exact = inventory.windows.filter(
       (window) =>

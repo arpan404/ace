@@ -66,9 +66,9 @@ const actions = new Map(
       description: "List available in-app devices and their current status.",
     },
     device_start: {
-      riskClass: "read-only",
+      riskClass: "external-effect",
       description:
-        "Start capture of a device approved for this thread. Call before device_screenshot. Requires installed capture tools and OS permission; does not grant input control.",
+        "Take the device for this thread and start capture. Call before device_screenshot and input. Refused while a person or another agent controls it. Requires installed capture tools and OS permission.",
     },
     device_stop: {
       riskClass: "external-effect",
@@ -76,55 +76,56 @@ const actions = new Map(
     },
     device_boot: {
       riskClass: "external-effect",
-      description: "Boot the selected emulator or simulator.",
+      description:
+        "Take the device for this thread and boot the emulator or simulator. Refused while a person or another agent controls it.",
     },
     device_open_app: {
       riskClass: "external-effect",
-      description: "Launch the selected app on the approved device.",
+      description: "Launch the selected app on the device.",
     },
     device_open_url: {
       riskClass: "external-effect",
-      description: "Open a URL on the approved device.",
+      description: "Open a URL on the device.",
     },
     device_screenshot: {
       riskClass: "read-only",
-      description: "Read a screenshot of the approved device.",
+      description: "Read a screenshot of the device.",
     },
     device_ui_tree: {
       riskClass: "read-only",
-      description: "Read the approved device's bounded accessibility tree and semantic refs.",
+      description: "Read the device's bounded accessibility tree and semantic refs.",
     },
     device_find: {
       riskClass: "read-only",
-      description: "Find accessible elements on the approved device without changing them.",
+      description: "Find accessible elements on the device without changing them.",
     },
     device_act: {
       riskClass: "external-effect",
-      description: "Perform an accessibility action on the approved device element.",
+      description: "Perform an accessibility action on the device element.",
     },
     device_tap: {
       riskClass: "external-effect",
-      description: "Tap or long-press the selected point on the approved device.",
+      description: "Tap or long-press the selected point on the device.",
     },
     device_swipe: {
       riskClass: "external-effect",
-      description: "Swipe between selected points on the approved device.",
+      description: "Swipe between selected points on the device.",
     },
     device_type: {
       riskClass: "external-effect",
-      description: "Type text into the approved device's focused control.",
+      description: "Type text into the device's focused control.",
     },
     device_key: {
       riskClass: "external-effect",
-      description: "Send a navigation, rotation or power key to the approved device.",
+      description: "Send a navigation, rotation or power key to the device.",
     },
     device_logs: {
       riskClass: "read-only",
-      description: "Read a bounded tail of the approved device's logs.",
+      description: "Read a bounded tail of the device's logs.",
     },
     device_record_start: {
       riskClass: "external-effect",
-      description: "Start recording the approved device's screen.",
+      description: "Start recording the device's screen.",
     },
     device_record_stop: {
       riskClass: "external-effect",
@@ -132,22 +133,14 @@ const actions = new Map(
     },
     device_install: {
       riskClass: "external-effect",
-      description: "Install the selected application package on the approved device.",
+      description: "Install the selected application package on the device.",
     },
   } satisfies Record<
     keyof typeof schemas,
     { riskClass: NonNullable<ApprovalTarget["riskClass"]>; description: string }
   >),
 );
-export function devicesToolkit(
-  service: DevicesService,
-  imageRuntime?: ModelImageRuntime,
-  requestAccess?: (
-    deviceId: string,
-    caller: { threadId: string; agentId: string },
-    signal: AbortSignal,
-  ) => Promise<void>,
-): Toolkit {
+export function devicesToolkit(service: DevicesService, imageRuntime?: ModelImageRuntime): Toolkit {
   return {
     register(registry) {
       for (const [name, input] of Object.entries(schemas)) {
@@ -181,13 +174,12 @@ export function devicesToolkit(
             const abort = () => service.disconnect(owner);
             signal.addEventListener("abort", abort, { once: true });
             try {
-              if (
-                (name === "device_boot" || name === "device_start") &&
-                "deviceId" in args &&
-                typeof args.deviceId === "string" &&
-                requestAccess
-              )
-                await requestAccess(args.deviceId, caller, signal);
+              // Taking a device needs no prompt; the provider's permission mode governs the call.
+              if (name === "device_boot" || name === "device_start")
+                await service.claimForAgent(target.parse(args).deviceId, {
+                  ...actor,
+                  guard: () => signal.throwIfAborted(),
+                });
               if (name === "device_screenshot") {
                 const { deviceId } = target.parse(args);
                 const frame = await service.screenshot(deviceId, actor);

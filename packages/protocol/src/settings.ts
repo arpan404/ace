@@ -2,7 +2,6 @@ import { LogMaxBytes, RetentionDays, StorageRetention } from "./storage.ts";
 import { SourceControlPreferences } from "./source-control.ts";
 import { MachineIcon } from "./host-identity.ts";
 import { ProviderConfigurations } from "./provider-configuration.ts";
-import { BrowserOrigin } from "./browser.ts";
 import { AccessMode, PermissionMode } from "./permissions.ts";
 import { z } from "zod";
 import { JsonValue } from "./json.ts";
@@ -40,7 +39,6 @@ export const SettingsValues = z.object({
   "providers.planner.model": name,
   "providers.planner.tier": tier,
   "providers.planner.reasoningEffort": effort,
-  "browser.allowedOrigins": z.array(BrowserOrigin).max(256),
   "browser.backend": z.enum(["auto", "embedded", "headless"]),
   "browser.backendLoss": z.enum(["pause", "headless"]),
   /** A thread's browser keeps its own cookies and storage, or opens privately in memory. */

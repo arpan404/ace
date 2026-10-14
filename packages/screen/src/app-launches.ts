@@ -1,4 +1,4 @@
-import { ScreenBundle, ScreenAgentScope } from "@ace/protocol";
+import { ScreenBundle } from "@ace/protocol";
 import { HelperCommandError } from "./helper.ts";
 import type { HelperHost } from "./helper-host.ts";
 
@@ -7,22 +7,21 @@ export class AppLaunches {
   private epoch = 0;
   private readonly pending = new Set<Promise<unknown>>();
   private readonly host: HelperHost;
-  private readonly authorize: (bundleId: string, caller?: ScreenAgentScope) => void;
-  constructor(host: HelperHost, authorize: (bundleId: string, caller?: ScreenAgentScope) => void) {
+  private readonly authorize: (bundleId: string) => void;
+  constructor(host: HelperHost, authorize: (bundleId: string) => void) {
     this.host = host;
     this.authorize = authorize;
   }
-  open(rawBundle: string, rawCaller?: ScreenAgentScope, signal?: AbortSignal): Promise<unknown> {
+  open(rawBundle: string, signal?: AbortSignal): Promise<unknown> {
     const bundleId = ScreenBundle.parse(rawBundle);
-    const caller = rawCaller && ScreenAgentScope.parse(rawCaller);
     signal?.throwIfAborted();
-    this.authorize(bundleId, caller);
+    this.authorize(bundleId);
     if (this.pending.size >= 8) return Promise.reject(new Error("Launch reservation limit"));
     const epoch = this.epoch;
     const validate = () => {
       signal?.throwIfAborted();
       if (epoch !== this.epoch) throw new Error("Screen launch cancelled");
-      this.authorize(bundleId, caller);
+      this.authorize(bundleId);
     };
     const operation = this.host.open().then((helper) =>
       this.host.execute(validate, async () => {

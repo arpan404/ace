@@ -2,7 +2,6 @@ import { createTextRedactor } from "@ace/redaction";
 import { htmlPublication } from "../html-publication.ts";
 import { logError } from "@ace/diagnostics";
 import { toolResultObserver } from "../tool-result-mcp.ts";
-import { requestDeviceAccess } from "../device-access.ts";
 import { providerMcpSources } from "../provider-mcp-sources.ts";
 import { measurementObserver } from "../measurement-mcp.ts";
 import {
@@ -118,28 +117,13 @@ export async function startMcp(context: ServiceContext): Promise<void> {
               const machines = services.machines;
               if (!machines) throw new PublicToolError("machine_unavailable");
               return machines.caller.browser(caller, call.machine, call.tool, call.args, {
-                readOnly: call.readOnly,
                 timeoutMs: call.timeoutMs,
                 signal,
               });
             }),
           ]
         : []),
-      ...(services.devices
-        ? [
-            devicesToolkit(services.devices, undefined, async (deviceId, caller, signal) => {
-              const devices = services.devices;
-              if (!devices) throw new Error("Devices unavailable");
-              await requestDeviceAccess(
-                devices,
-                services.screenApprovals,
-                deviceId,
-                caller,
-                signal,
-              );
-            }),
-          ]
-        : []),
+      ...(services.devices ? [devicesToolkit(services.devices)] : []),
       ...(services.screen ? [screenToolkit(services.screen)] : []),
     ],
     observations,
@@ -150,9 +134,6 @@ export async function startMcp(context: ServiceContext): Promise<void> {
       askAvailable:
         store.getThread(caller.threadId)?.provider === "cursor" ||
         !!services.agentControl?.delegations.journal.get(caller.threadId),
-      get screenApproved() {
-        return services.screen?.hasAppApproval(caller) ?? false;
-      },
       disabled: {
         ...(!services.browser
           ? { browser: "ace's built-in browser failed to start in this daemon." }
@@ -179,20 +160,9 @@ export async function startMcp(context: ServiceContext): Promise<void> {
   );
   resources.own(() => mcp.close());
   services.mcp = mcp;
-  if (services.devices) {
-    resources.own(services.devices.watchEnabled(mcp.toolsChanged));
-    const grants = new Map<string, string>();
-    resources.own(
-      services.devices.watch((state) => {
-        const threadId = state.approved ? state.threadId : undefined;
-        if (grants.get(state.device.id) !== threadId) {
-          if (threadId) grants.set(state.device.id, threadId);
-          else grants.delete(state.device.id);
-          mcp.toolsChanged();
-        }
-      }),
-    );
-  }
+  // Turning computer use or devices on or off changes which ace tools are offered.
+  if (services.screen) resources.own(services.screen.watchEnabled(mcp.toolsChanged));
+  if (services.devices) resources.own(services.devices.watchEnabled(mcp.toolsChanged));
   resources.own(
     store.subscribe((events) => {
       if (

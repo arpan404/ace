@@ -1,6 +1,24 @@
 import { z } from "zod";
-import { Interaction, InteractionId, ThreadId } from "@ace/protocol";
+import {
+  Interaction,
+  InteractionId,
+  ThreadId,
+  type Command,
+  type CommandResult,
+} from "@ace/protocol";
+import type { Store } from "./store.ts";
 import type { ServiceContext } from "./services/types.ts";
+
+/** Only taking over privately and handing back ends a private hold; no answer dismisses it. */
+export function refusePrivateBrowserAnswer(
+  store: Pick<Store, "getInteraction">,
+  command: Command,
+): CommandResult | undefined {
+  if (command.payload.type !== "interaction.resolve") return;
+  const interaction = store.getInteraction(command.payload.interactionId);
+  if (!interaction?.raw.some((raw) => raw.type === "ace.browser.private")) return;
+  return { commandId: command.id, ok: false, error: "private_handback_required" };
+}
 
 /** Durable ownership is written before a private lease, including connected takeovers. */
 export function privateBrowserOwnership(context: ServiceContext) {

@@ -18,7 +18,6 @@ import { fingerprint, keyPair } from "@ace/secure-channel";
 import { framePacket, type Frame } from "@ace/screen";
 import { ScreenFrameReader, type PortableFrame } from "@ace/screen/frames-client";
 import { Store } from "./store.ts";
-import { createDevThread } from "./commands.ts";
 import { allows, type Scope } from "./devices.ts";
 import { RemoteAuth } from "./remote-auth.ts";
 import { startFilesRelay } from "./files-relay.ts";
@@ -118,7 +117,6 @@ async function fixture() {
   }
   const store = new Store(join(root, "store.sqlite"));
   cleanup.push(() => store.close());
-  const thread = createDevThread(store, store.createWorkspace(root, "Relay devices"));
   const auth = new RemoteAuth(store.devices, "host-local-token", {
     now: () => 1,
     secret: randomUUID,
@@ -238,17 +236,10 @@ async function fixture() {
     if (!capture) throw new Error("Device capture was not started");
     capture.publish(image(capture.streamId, sequence, byte));
   }
-  return { service, auth, admin, reader, connect, connected, publish, thread, inputs };
+  return { service, auth, admin, reader, connect, connected, publish, inputs };
 }
 
-async function ready(
-  f: Awaited<ReturnType<typeof fixture>>,
-  client: DeviceClient,
-  deviceId: string,
-) {
-  expect(
-    await client.request({ op: "approve", deviceId, threadId: f.thread.id, allowed: true }),
-  ).toMatchObject({ ok: true });
+async function ready(client: DeviceClient, deviceId: string) {
   expect(await client.request({ op: "controller", deviceId, controller: "human" })).toMatchObject({
     ok: true,
   });
@@ -271,7 +262,7 @@ it("a paired phone boots and controls an emulator and reassembles large encrypte
       ?.state,
   ).toBe("shutdown");
   expect(await client.request({ op: "enable", enabled: true })).toMatchObject({ ok: true });
-  await ready(f, client, "android:Tablet");
+  await ready(client, "android:Tablet");
   const after = await client.request({ op: "list" });
   expect(
     DeviceInventory.parse(after.data).devices.find((device) => device.id === "android:Tablet"),
@@ -295,9 +286,9 @@ it("two live device streams and a screenshot retain whole packets over one encry
   const f = await fixture();
   const client = await f.connected();
   await client.request({ op: "enable", enabled: true });
-  await ready(f, client, "android:Pixel");
+  await ready(client, "android:Pixel");
   const pixel = await client.frame();
-  await ready(f, client, "android:Tablet");
+  await ready(client, "android:Tablet");
   const tablet = await client.frame();
   const request = await client.send({ op: "screenshot", deviceId: "android:Pixel" });
   f.publish("android:Pixel", 1, 33);
@@ -355,7 +346,7 @@ it("read-only pairings cannot open the device channel and revocation closes an a
   expect(f.service.states()).toEqual([]);
   const client = await f.connected();
   await client.request({ op: "enable", enabled: true });
-  await ready(f, client, "android:Pixel");
+  await ready(client, "android:Pixel");
   await client.frame();
   const released = new Promise<void>((resolve) => {
     const unwatch = f.service.watch((state) => {

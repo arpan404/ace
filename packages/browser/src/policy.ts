@@ -1,4 +1,4 @@
-import type { BrowserOriginBlock, PermissionMode } from "@ace/protocol";
+import type { BrowserOriginBlock } from "@ace/protocol";
 import { PublicToolError } from "@ace/mcp-server/errors";
 export class BrowserOriginError extends PublicToolError {
   readonly blocked: BrowserOriginBlock;
@@ -29,35 +29,18 @@ export function browserOrigin(raw: string): string | undefined {
     return undefined;
   }
 }
-export function isLocalBrowserOrigin(origin: string): boolean {
+function isLocalBrowserOrigin(origin: string): boolean {
   return ["localhost", "127.0.0.1", "[::1]"].includes(new URL(origin).hostname);
 }
-/** Pure consent decision. The host supplies resolved mode and grant facts. */
-export function originAccess(request: {
-  origin: string;
-  human: boolean;
-  navigation: boolean;
-  mode: PermissionMode;
-  granted: boolean;
-}): "allow" | "human_grant" | "page_grant" | "read_only" | "review" | "block" {
-  if (request.human) return request.navigation ? "human_grant" : "allow";
-  if (request.navigation && request.mode === "read-only") return "read_only";
-  if (isLocalBrowserOrigin(request.origin) || request.granted) return "allow";
-  if (request.mode === "full-access") return request.navigation ? "page_grant" : "allow";
-  return request.navigation ? "review" : "block";
-}
+/** Every valid web origin is reachable. An embedder hook may refuse non-loopback origins. */
 export async function allowedOrigin(
   threadId: string,
   raw: string,
   policy?: OriginPolicy,
-  context: Pick<OriginRequest, "human" | "navigation" | "signal"> & {
-    manageLoopback?: boolean;
-  } = {},
+  context: Pick<OriginRequest, "human" | "navigation" | "signal"> = {},
 ): Promise<boolean> {
   const origin = browserOrigin(raw);
   if (!origin) return false;
-  const local = isLocalBrowserOrigin(origin);
-  if (local && !context.manageLoopback) return true;
-  if (policy) return (await policy({ threadId, origin, url: raw, ...context })) === true;
-  return local;
+  if (!policy || isLocalBrowserOrigin(origin)) return true;
+  return (await policy({ threadId, origin, url: raw, ...context })) === true;
 }

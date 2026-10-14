@@ -2,6 +2,8 @@
 
 Date: 2026-10-02. Status: accepted.
 
+Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provider-native (owner decision). Site approval, origin grants and the approval hook described below no longer gate agents: any http(s) origin opens without asking. Human control (takeover, private mode, leases) is unchanged.
+
 Tab, file, inspection, profile and private-control behavior is superseded by
 [ADR 0067](0067-browser-parity.md).
 

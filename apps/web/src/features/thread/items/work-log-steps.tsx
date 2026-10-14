@@ -1,11 +1,10 @@
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import type { Item, ToolSurface } from "@ace/protocol";
-import { isMeasurementCall, reviewedInteraction, type StepText } from "@ace/ui-core";
+import { isMeasurementCall, type StepText } from "@ace/ui-core";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
 import { Suspense, useId, useState } from "react";
 import { cn } from "@/lib/cn.ts";
 import { DeferredMeasurementStep } from "./deferred-measurement.ts";
-import { DeferredReviewNote } from "./deferred-review.ts";
 import { MessageAttachments } from "@/components/attachment-message.tsx";
 import { StepDetail } from "./step-detail.tsx";
 import { StepImages } from "./ace-steps.tsx";
@@ -20,8 +19,8 @@ import { useStepDisplay } from "./use-step-display.ts";
  */
 
 /**
- * One row of the work log. Expands to its output, diff or reasoning. ace's review of a step
- * sits right under that step; a smoothness measurement opens to its card.
+ * One row of the work log. Expands to its output, diff or reasoning; a smoothness measurement
+ * opens to its card.
  */
 export function ToolStepContent(props: {
   threadId: string;
@@ -42,14 +41,6 @@ export function ToolStepContent(props: {
     return (
       <li className="py-1.5">
         <StepProse threadId={props.threadId} itemId={props.itemId} />
-      </li>
-    );
-  if (item?.type === "notice" && reviewedInteraction(item))
-    return (
-      <li className="py-1">
-        <Suspense fallback={<p className="text-ui text-muted-foreground">{item.text}</p>}>
-          <DeferredReviewNote.Component threadId={props.threadId} item={item} />
-        </Suspense>
       </li>
     );
   const line = <StepLine threadId={props.threadId} data={display} surface={props.surface} />;

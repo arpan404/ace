@@ -202,19 +202,6 @@ export class FakeTurnIndex {
           Number(this.autoReviewed.get(payload.interactionId) ?? false);
         this.autoReviewed.set(payload.interactionId, reviewed);
       }
-    } else if (payload.type === "permission.reviewed") {
-      ordinal = this.interactions.get(payload.review.interactionId);
-      if (ordinal === undefined) return;
-      const interaction = view.interactions[payload.review.interactionId];
-      if (interaction?.request.kind === "approval") {
-        const counters = this.ensure(event, ordinal).counters;
-        const reviewed = approvalAutoReviewed(interaction);
-        counters.approvalsAutoReviewed =
-          (counters.approvalsAutoReviewed ?? 0) +
-          Number(reviewed) -
-          Number(this.autoReviewed.get(payload.review.interactionId) ?? false);
-        this.autoReviewed.set(payload.review.interactionId, reviewed);
-      }
     } else if (payload.type === "usage.updated") {
       if (!countsTowardTurnUsage(payload)) return;
       ordinal = this.agents.get(payload.agentId) ?? ordinal;

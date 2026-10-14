@@ -1,6 +1,6 @@
 import { afterEach, expect, it } from "vitest";
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
-import { deferred, manager, ready, target } from "./testing/support.ts";
+import { deferred, manager, ready } from "./testing/support.ts";
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
@@ -67,7 +67,7 @@ it("the visible indicator remains on until helper termination is confirmed", asy
     await stop;
   }
 });
-it("disabling and revoking approval terminate the owned processes and remove all sessions", async () => {
+it("disabling terminates the owned processes and removes all sessions", async () => {
   const children: SupervisedProcess[] = [];
   const test = await manager(
     {},
@@ -84,11 +84,6 @@ it("disabling and revoking approval terminate the owned processes and remove all
   await test.screen.enable(false);
   expect(test.screen.states()).toEqual([]);
   expect(children.map((child) => child.signal.aborted)).toEqual([true]);
-  await test.screen.enable(true);
-  await test.screen.start(target);
-  await test.screen.approve(target.bundleId, false);
-  expect(test.screen.states()).toEqual([]);
-  expect(children.map((child) => child.signal.aborted)).toEqual([true, true]);
 });
 it("startup cancellation publishes an indicator until termination and then clears it", async () => {
   const test = await manager();

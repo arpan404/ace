@@ -43,7 +43,7 @@ it("Cursor SDK consumes the daemon lease and calls browser, screen and device to
       }),
     },
   ]);
-  await f.approve(thread.id);
+  await f.handOver(thread.id);
   const lease = await openCursorMcp(
     {
       store,

@@ -79,9 +79,6 @@ export function createPermissionTables(repo: EngineRepository): void {
         thread_id TEXT PRIMARY KEY, override TEXT, effective TEXT, parent TEXT,
         ceiling_provider TEXT, ceiling_mode TEXT, ceiling_identity TEXT
       );
-      CREATE TABLE IF NOT EXISTS engine_permission_reviews (
-        interaction_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, review TEXT NOT NULL
-      );
     `),
   );
 }

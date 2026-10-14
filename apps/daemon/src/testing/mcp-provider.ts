@@ -245,7 +245,7 @@ if (provider === "opencode") {
       if (message.type !== "control_request") continue;
       if (request["subtype"] === "initialize") {
         if (process.env["MCP_TOOL_TIMEOUT"] !== "660000")
-          throw new Error("Claude tool deadline cannot accommodate origin approval");
+          throw new Error("Claude tool deadline is shorter than ace's longest tool");
         const config = z
           .object({ mcpServers: z.object({ ace: HttpServer.extend({ type: z.literal("http") }) }) })
           .parse(JSON.parse(readPrivateMcpConfig(args[args.indexOf("--mcp-config") + 1] ?? "")))

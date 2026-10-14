@@ -14,8 +14,8 @@ export async function recordDevice(
   if (!session.threadId)
     throw new DeviceError(
       "permission_denied",
-      "Recording needs an approved thread",
-      "Approve this device for a thread.",
+      "Recording needs a thread using this device",
+      "Call device_start to take this device for the thread.",
     );
   if (session.lifecycle !== "live")
     throw new DeviceError("not_found", "Capture is not live", "Start capture before recording.");
@@ -32,7 +32,7 @@ export async function recordDevice(
   session.recordingStarting = true;
   const generation = session.generation;
   const threadId = session.threadId;
-  const epoch = session.approvalEpoch;
+  const epoch = session.bindingEpoch;
   let recording: Recording | undefined;
   let image: ReturnType<DeviceStreamControl["acquireImage"]> | undefined;
   let released: Promise<void> | undefined;
@@ -53,14 +53,14 @@ export async function recordDevice(
         try {
           result = await options.publishArtifact(artifact, threadId);
         } catch (error) {
-          if (session.approvalEpoch === epoch) {
+          if (session.bindingEpoch === epoch) {
             session.recordingNotice =
               "The recording couldn't be saved. Check the recording tools and try again.";
             changed();
           }
           throw error;
         }
-        if (result && session.approvalEpoch === epoch)
+        if (result && session.bindingEpoch === epoch)
           session.recordingArtifact = {
             id: result.id,
             bytes: result.bytes,
@@ -85,7 +85,7 @@ export async function recordDevice(
     );
     session.recordingOpening = opening;
     recording = await opening;
-    if (session.generation !== generation || session.approvalEpoch !== epoch) {
+    if (session.generation !== generation || session.bindingEpoch !== epoch) {
       await recording.stop();
       throw new DeviceError("busy", "Capture stopped during recording startup", "Restart capture.");
     }
@@ -107,7 +107,7 @@ export async function stopDeviceRecording(
 ): Promise<{ id: string; bytes: number; mimeType: string }> {
   const recording = session.recording ?? session.completed;
   if (!recording) throw new DeviceError("not_found", "No recording", "Start recording first.");
-  const epoch = session.approvalEpoch;
+  const epoch = session.bindingEpoch;
   const closing = recording.stop();
   session.recordingClosing = closing;
   delete session.recording;
@@ -118,10 +118,10 @@ export async function stopDeviceRecording(
   } finally {
     if (session.recordingClosing === closing) delete session.recordingClosing;
   }
-  if (session.approvalEpoch !== epoch)
+  if (session.bindingEpoch !== epoch)
     throw new DeviceError(
       "busy",
-      "Recording approval changed",
+      "Device moved to another thread",
       "Start a new recording for this thread.",
     );
   owner.authorize(session, actor);

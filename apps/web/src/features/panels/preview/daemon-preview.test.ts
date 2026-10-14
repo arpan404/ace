@@ -64,7 +64,7 @@ test("a hidden window stops polling for dev servers and reads them again once sh
   });
   // The retry comes due while hidden: nothing is asked.
   timers.fire();
-  await client.request({ type: "browser.origins.list", threadId: "thread-settings" });
+  await client.request({ type: "browser.tabs.list", threadId: "thread-settings" });
   expect(preview.servers("thread-settings")).toEqual([]);
 
   window.set(true);
@@ -89,7 +89,7 @@ test("native visibility holds the fallback frame until screencast viewing resume
   const before = preview.frame("thread-settings")?.src;
   preview.nativeShown?.("thread-settings", true);
   daemon.browser.type("thread-settings", "native-only-edit");
-  await client.request({ type: "browser.origins.list", threadId: "thread-settings" });
+  await client.request({ type: "browser.tabs.list", threadId: "thread-settings" });
   expect(preview.frame("thread-settings")?.src).toBe(before);
   preview.nativeShown?.("thread-settings", false);
   daemon.browser.type("thread-settings", "remote-edit");
@@ -221,7 +221,7 @@ test("a watched thread lists its detected dev servers and follows the daemon's p
   expect(changes).toBeGreaterThan(before);
   // Another thread's push changes nothing here.
   daemon.services.pushPreviewSuggestions("thread-other", []);
-  await client.request({ type: "browser.origins.list", threadId: "thread-settings" });
+  await client.request({ type: "browser.tabs.list", threadId: "thread-settings" });
   expect(preview.suggestions("thread-settings").map((server) => server.port)).toEqual([4321]);
   stop();
   preview.dispose();

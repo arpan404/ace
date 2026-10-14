@@ -1,36 +1,27 @@
-import type { ApprovalOption, PermissionReview } from "@ace/protocol";
-import { reviewReason, type ApprovalCopy, type ApprovalVerb } from "@ace/ui-core";
+import type { ApprovalOption } from "@ace/protocol";
+import type { ApprovalCopy, ApprovalVerb } from "@ace/ui-core";
 import { CaretRightIcon } from "@phosphor-icons/react";
-import { Suspense, useId, useState, type ReactNode } from "react";
-import { AppMark } from "@/components/app-mark.tsx";
+import { useId, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
-import { deferredComponent } from "@/lib/deferred-component.tsx";
 
 /*
  * One approval, drawn the same on every surface that answers it (the thread's card above the
- * composer, computer use's app requests): the one thing it acts on, one plain reason,
+ * composer): the one thing it acts on, one plain reason,
  * then Allow once, Always allow and Deny, the same choices on every surface (the compact card
- * above the composer included: nothing hides behind a menu there). The rest (who reviewed it, the facts, a medium risk, any
+ * above the composer included: nothing hides behind a menu there). The rest (the facts, a medium risk, any
  * other option the request offers) waits behind Details, so the decision row always fits.
  */
 
 /** On touch, and on a phone's width, an answer is a full 44px target, not a 26px one. */
 const touchAnswer = "pointer-coarse:h-11 pointer-coarse:px-4 max-sm:h-11 max-sm:px-4";
 
-/** ace's review in words: loaded with the Details that show it. */
-const ReviewSummary = deferredComponent(() =>
-  import("./permission-review.tsx").then((module) => module.PermissionReviewSummary),
-);
-/** Warm the Details' review while the browser is idle, so opening them never waits. */
-export const preloadApprovalDetails = ReviewSummary.preload;
-
 const block =
   "max-h-40 overflow-auto rounded-md bg-code px-3 py-[9px] font-mono text-xs leading-[1.5] whitespace-pre-wrap break-words text-foreground";
 
-/** The heading's words, beside the app's mark when the request is about an app. */
+/** The heading's words. */
 export function ApprovalHeading(props: { copy: ApprovalCopy }) {
   const { copy } = props;
   if (copy.command)
@@ -39,13 +30,7 @@ export function ApprovalHeading(props: { copy: ApprovalCopy }) {
         Run <code className="font-mono text-sm">{copy.command}</code>?
       </span>
     );
-  if (!copy.app) return copy.heading;
-  return (
-    <span className="flex items-center gap-2">
-      <AppMark name={copy.app} bundleId={copy.bundleId} />
-      {copy.heading}
-    </span>
-  );
+  return copy.heading;
 }
 
 export interface ApprovalAnswer {
@@ -57,7 +42,6 @@ export interface ApprovalAnswer {
 export function ApprovalRequest(props: {
   copy: ApprovalCopy;
   presentation?: "compact";
-  review?: PermissionReview | undefined;
   disabled?: boolean;
   onAnswer(answer: ApprovalAnswer): void;
   /** Number keys answer, in the thread: each button says its number to assistive tech. */
@@ -80,7 +64,6 @@ export function ApprovalRequest(props: {
     (compact && (!!copy.command || !!copy.reason)) ||
     (!compact && !!medium) ||
     copy.facts.length > 0 ||
-    !!props.review ||
     copy.others.length > 0;
   return (
     <div
@@ -202,15 +185,6 @@ export function ApprovalRequest(props: {
                 </div>
               ))}
             </dl>
-          )}
-          {props.review && (
-            <Suspense fallback={null}>
-              <ReviewSummary.Component
-                review={props.review}
-                reasonShown={copy.reason === reviewReason(props.review)}
-                commandShown={!!copy.command}
-              />
-            </Suspense>
           )}
           {copy.others.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">

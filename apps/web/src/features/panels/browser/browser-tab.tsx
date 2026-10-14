@@ -21,7 +21,7 @@ import { PageNav, PageToolbar } from "./page-toolbar.tsx";
 import { useNativeView } from "./native-view.ts";
 import { LoadFailed, Offline, Opening, Reopen, StartPage } from "./page-states.tsx";
 import { PageView } from "./page-view.tsx";
-import { SiteAccess } from "./site-access.tsx";
+import { ConnectionMark } from "./connection-mark.tsx";
 import { useBrowserTab } from "./use-browser-tab.ts";
 import { usePageSync } from "./use-page-sync.ts";
 import { viewportById } from "./viewports.ts";
@@ -259,7 +259,7 @@ function Browser(props: TabViewProps) {
             }
             autoFocus={!props.tab.data}
             onGo={page.go}
-            lead={<SiteAccess threadId={threadId} browser={browser} url={shownUrl} />}
+            lead={<ConnectionMark url={shownUrl} />}
             trail={
               <>
                 {page.live?.permissionDenied && (

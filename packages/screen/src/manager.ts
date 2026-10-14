@@ -56,7 +56,6 @@ export class ScreenManager {
   private readonly observations: SessionObservations;
   private agentPaused = false;
   private captureGeneration = 0;
-  private authorizationRevision = 0;
 
   constructor(options: ScreenOptions) {
     this.options = options;
@@ -69,15 +68,9 @@ export class ScreenManager {
         try {
           if (frame.header.sequence <= (session.latest?.header.sequence ?? -1))
             throw new Error("Invalid frame sequence or session");
-          if (
-            session.frameAuthorization?.policy !== this.policy.epoch ||
-            session.frameAuthorization.revision !== this.authorizationRevision
-          ) {
-            this.authorize(session.state.target, session.approvalScope, session.humanView);
-            session.frameAuthorization = {
-              policy: this.policy.epoch,
-              revision: this.authorizationRevision,
-            };
+          if (session.frameEpoch !== this.policy.epoch) {
+            this.authorize(session.state.target);
+            session.frameEpoch = this.policy.epoch;
           }
           session.latest = frame;
           session.pixels.frame(frame);
@@ -109,14 +102,14 @@ export class ScreenManager {
     this.observations = new SessionObservations({
       host: this.host,
       live: (id) => this.live(id),
-      authorize: (target, scope, humanView) => this.authorize(target, scope, humanView),
+      authorize: (target) => this.authorize(target),
       options,
       releaseUnused: (session) => this.releaseUnused(session),
     });
     this.controllers = new SessionControllers({
       sessions: this.sessions,
       live: (id) => this.live(id),
-      authorize: (target, scope) => this.authorize(target, scope),
+      authorize: (target) => this.authorize(target),
       paused: () => this.agentPaused,
       emit: (session) => this.emit(session),
       releaseUnused: (session) => this.releaseUnused(session),
@@ -126,17 +119,17 @@ export class ScreenManager {
       host: this.host,
       policy: this.policy,
       sessions: this.sessions,
-      authorize: (target, scope, humanView) => this.authorize(target, scope, humanView),
+      authorize: (target) => this.authorize(target),
       emit: (session) => this.emit(session),
       nextGeneration: () => ++this.captureGeneration,
     });
     this.windows = new AppWindows(
       this.host,
-      (bundleId, caller) => this.authorize({ kind: "app", bundleId }, caller),
+      (bundleId) => this.authorize({ kind: "app", bundleId }),
       options.scheduler,
     );
-    this.launches = new AppLaunches(this.host, (bundleId, caller) =>
-      this.authorize({ kind: "app", bundleId }, caller),
+    this.launches = new AppLaunches(this.host, (bundleId) =>
+      this.authorize({ kind: "app", bundleId }),
     );
     this.accessPolicy = new ScreenAccessPolicy({
       sessions: this.sessions,
@@ -144,7 +137,6 @@ export class ScreenManager {
       host: this.host,
       launches: this.launches,
       stop: (id) => this.stop(id),
-      revalidate: () => this.revalidate(),
       hostClosed: () => this.lifecycle.hostClosed(),
       enabledChanged: (enabled) => this.emitEnabled(enabled),
       resumeAgents: () => {
@@ -172,25 +164,7 @@ export class ScreenManager {
     }
   }
   enable(enabled: boolean): Promise<void> {
-    this.authorizationRevision++;
     return this.accessPolicy.enable(enabled);
-  }
-  /** Device approval keeps screen changes temporary until its tool lifetime commits. */
-  deviceAccess(threadId: string): import("./access.ts").ScreenDeviceAccess {
-    this.authorizationRevision++;
-    return this.accessPolicy.deviceAccess(threadId);
-  }
-  approve(
-    bundleId: string,
-    allowed: boolean,
-    scope: import("@ace/protocol").ScreenGrant["scope"] = "always",
-    threadId?: string,
-  ): Promise<void> {
-    this.authorizationRevision++;
-    return this.accessPolicy.approve(bundleId, allowed, scope, threadId);
-  }
-  allow(bundleId: string): Promise<void> {
-    return this.accessPolicy.allow(bundleId);
   }
   /**
    * The helper's macOS permissions as a newly started helper sees them. macOS applies a grant
@@ -228,39 +202,15 @@ export class ScreenManager {
       this.reservations--;
     }
   }
-  requireApproval(bundleId: string, scope?: ScreenAgentScope): void {
-    this.accessPolicy.requireApproval(bundleId, scope);
-  }
   configureAccess(access: ScreenAccess): void {
-    this.authorizationRevision++;
     this.accessPolicy.configureAccess(access);
   }
-  hasAppApproval(caller: ScreenAgentScope): boolean {
-    return this.accessPolicy.hasAppApproval(caller);
+  /** Computer use must be on; there are no per-app grants. Simulator windows are device views. */
+  private authorize(target: ScreenTarget): void {
+    this.accessPolicy.authorize(target);
   }
-  approvals(threadId?: string) {
-    return this.accessPolicy.approvals(threadId);
-  }
-  private authorize(target: ScreenTarget, scope?: ScreenAgentScope, humanView = false): void {
-    if (
-      humanView &&
-      scope === undefined &&
-      target.kind === "window" &&
-      target.bundleId === "com.apple.iphonesimulator"
-    )
-      return;
-    this.accessPolicy.authorize(target, scope);
-  }
-  requestApp(
-    bundleId: string,
-    reason: string,
-    caller: ScreenAgentScope,
-    signal: AbortSignal,
-  ): Promise<void> {
-    return this.accessPolicy.requestApp(bundleId, reason, caller, signal);
-  }
-  async openApp(bundleId: string, caller?: ScreenAgentScope, signal?: AbortSignal) {
-    return this.launches.open(bundleId, caller, signal);
+  async openApp(bundleId: string, signal?: AbortSignal) {
+    return this.launches.open(bundleId, signal);
   }
   async openAgentApp(
     bundleId: string,
@@ -287,7 +237,7 @@ export class ScreenManager {
       bundles(session.state.target).includes(bundleId),
     );
     if (existing) {
-      this.authorize(existing.state.target, caller);
+      this.authorize(existing.state.target);
       if (replaceableSession(existing)) {
         await this.stop(existing.state.sessionId);
         existing = undefined;
@@ -307,16 +257,16 @@ export class ScreenManager {
           agentOwner(caller),
           () => signal.throwIfAborted(),
         );
-        return { ...state, ...(await this.windows.list(bundleId, caller)) };
+        return { ...state, ...(await this.windows.list(bundleId)) };
       }
       return {
         ...this.state(existing.state.sessionId),
-        ...(await this.windows.list(bundleId, caller)),
+        ...(await this.windows.list(bundleId)),
       };
     }
-    await this.openApp(bundleId, caller, signal);
+    await this.openApp(bundleId, signal);
     signal.throwIfAborted();
-    const windows = await this.windows.ready(bundleId, caller, signal, windowId);
+    const windows = await this.windows.ready(bundleId, signal, windowId);
     const target: ScreenTarget =
       windows.selectedWindowId !== undefined
         ? { kind: "window", bundleId, windowId: windows.selectedWindowId }
@@ -329,10 +279,10 @@ export class ScreenManager {
     this.delegateAgent(state.sessionId, caller);
     return { ...this.state(state.sessionId), ...windows };
   }
-  async listAppWindows(bundleId: string, caller?: ScreenAgentScope) {
+  async listAppWindows(bundleId: string) {
     this.reservations++;
     try {
-      return await this.windows.list(bundleId, caller);
+      return await this.windows.list(bundleId);
     } finally {
       this.reservations--;
     }
@@ -350,7 +300,7 @@ export class ScreenManager {
         this.agentSession(caller, id);
         if (current.epoch !== epoch) throw new Error("Controller changed");
       };
-      const windows = await this.windows.list(target.bundleId, caller);
+      const windows = await this.windows.list(target.bundleId);
       if (
         !windows.windows.some((window) => window.windowId === windowId && window.usable !== false)
       )
@@ -393,71 +343,15 @@ export class ScreenManager {
       operation.op,
     );
   }
-  /** Local device viewing has no agent grant and cannot be requested through screen MCP. */
+  /** Local device viewing, which no agent can be delegated, and cannot be started through MCP. */
   startHumanDeviceView(target: ScreenTarget, fps = 10): Promise<ScreenState> {
     return this.lifecycle.startHumanView(target, fps);
   }
-  async revalidate() {
-    this.authorizationRevision++;
-    for (const session of this.sessions.values()) this.expireForeground(session);
-    await Promise.all(
-      [...this.sessions.values()]
-        .filter((session) => {
-          try {
-            this.authorize(session.state.target, session.approvalScope, session.humanView);
-            session.frameAuthorization = {
-              policy: this.policy.epoch,
-              revision: this.authorizationRevision,
-            };
-            return false;
-          } catch {
-            return true;
-          }
-        })
-        .map((session) => this.stop(session.state.sessionId)),
-    );
-  }
-  async mode(
-    id: string,
-    mode: ScreenState["mode"],
-    signal: AbortSignal = new AbortController().signal,
-    reason = "This app requires foreground input",
-  ) {
-    const session = this.live(id),
-      epoch = session.epoch;
-    const turn =
-      session.approvalScope &&
-      this.accessPolicy.access?.currentTurn?.(session.approvalScope.threadId);
-    if (mode === "foreground") {
-      if (!this.accessPolicy.access) throw new Error("Host approval unavailable");
-      const cancelled = new AbortController();
-      const unwatch = this.watch(() => {
-        if (epoch !== session.epoch || session.state.lifecycle !== "live")
-          cancelled.abort(new Error("Controller changed"));
-      });
-      try {
-        await this.accessPolicy.access.foreground(
-          this.state(id),
-          reason,
-          AbortSignal.any([signal, cancelled.signal]),
-        );
-      } finally {
-        unwatch();
-      }
-    }
-    signal.throwIfAborted();
-    if (epoch !== session.epoch || session.state.lifecycle !== "live")
-      throw new Error("Controller changed");
-    this.authorize(session.state.target, session.approvalScope, session.humanView);
+  /** Foreground mode is the agent's own choice; the provider's permission mode governs it. */
+  mode(id: string, mode: ScreenState["mode"]) {
+    const session = this.live(id);
+    this.authorize(session.state.target);
     session.epoch++;
-    if (
-      mode === "foreground" &&
-      this.accessPolicy.access?.currentTurn &&
-      (!turn ||
-        turn !== this.accessPolicy.access.currentTurn(session.approvalScope?.threadId ?? ""))
-    )
-      throw new Error("Foreground approval turn ended");
-    session.foregroundTurn = mode === "foreground" ? turn : undefined;
     session.state = { ...session.state, mode };
     this.emit(session);
     return this.state(id);
@@ -513,8 +407,8 @@ export class ScreenManager {
   async permissions(): Promise<ScreenPermissions> {
     return ScreenPermissions.parse(await this.inspect("permissions"));
   }
-  /** Device viewers can discover Simulator windows without enabling agent computer use. */
-  async humanDeviceTargets(): Promise<ScreenInventory> {
+  /** Simulator windows, which belong to the Devices switch rather than to computer use. */
+  async deviceTargets(): Promise<ScreenInventory> {
     const inventory = ScreenInventory.parse(await this.inspect("targets"));
     return {
       displays: [],
@@ -743,7 +637,7 @@ export class ScreenManager {
       action.kind,
     );
   }
-  /** Observation needs an approved target, not an input controller or Accessibility grant. */
+  /** Observation needs a live target, not an input controller or Accessibility grant. */
   measurementSession(caller: ScreenAgentScope, requestedId?: string): string {
     const sessions = [...this.sessions.values()].filter((session) => {
       if (
@@ -753,25 +647,24 @@ export class ScreenManager {
       )
         return false;
       try {
-        this.authorize(session.state.target, caller);
+        this.authorize(session.state.target);
         return true;
       } catch {
         return false;
       }
     });
-    if (sessions.length !== 1) throw new Error("Select one approved live session with sessionId");
+    if (sessions.length !== 1) throw new Error("Select one live session with sessionId");
     const session = sessions[0];
-    if (!session) throw new Error("Approved window required");
+    if (!session) throw new Error("Live window required");
     return session.state.sessionId;
   }
   async measureInteraction(id: string, raw: unknown, owner: string, signal: AbortSignal) {
     const options = ScreenMeasurementOptions.parse(raw);
     validateMeasurementBudget(options);
     const session = this.live(id);
-    const scope = agentScope(owner) ?? session.approvalScope;
     const validate = () => {
       signal.throwIfAborted();
-      this.authorize(session.state.target, scope);
+      this.authorize(session.state.target);
       if (session.state.lifecycle !== "live") throw new Error("Screen session is not live");
       if (!options.action && session.owner !== undefined && session.owner !== owner)
         throw new Error("Session belongs to another controller");
@@ -812,14 +705,7 @@ export class ScreenManager {
     return executeSessionAction(
       {
         host: this.host,
-        authorize: (session) => {
-          this.expireForeground(session);
-          this.authorize(
-            session.state.target,
-            session.approvalScope,
-            actor === "human" && session.humanView,
-          );
-        },
+        authorize: (session) => this.authorize(session.state.target),
         emit: (session) => this.emit(session),
         fail: (session, error) => this.fail(session, error),
         audit: (state, action, outcome) => this.accessPolicy.access?.audit(state, action, outcome),
@@ -832,34 +718,6 @@ export class ScreenManager {
     );
   }
 
-  turnEnded(threadId: string, turnId: string): void {
-    this.authorizationRevision++;
-    for (const session of this.sessions.values()) {
-      if (session.approvalScope?.threadId !== threadId) continue;
-      if (
-        session.foregroundTurn === turnId ||
-        this.accessPolicy.access?.currentTurn?.(threadId) === turnId
-      )
-        this.resetForeground(session);
-    }
-  }
-  private resetForeground(session: Session): void {
-    session.epoch++;
-    session.foregroundTurn = undefined;
-    session.state = { ...session.state, mode: "background", secureInputAllowed: false };
-    this.emit(session);
-  }
-  private expireForeground(session: Session): void {
-    if (session.state.mode !== "foreground" || !this.accessPolicy.access?.currentTurn) return;
-    if (
-      session.foregroundTurn &&
-      session.approvalScope &&
-      session.foregroundTurn ===
-        this.accessPolicy.access.currentTurn(session.approvalScope.threadId)
-    )
-      return;
-    this.resetForeground(session);
-  }
   releaseController(owner: string): void {
     this.controllers.releaseController(owner);
   }

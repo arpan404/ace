@@ -23,7 +23,6 @@ it.each([["read"], ["read", "operate"]])(
       { op: "status" } as const,
       { op: "permissions.request", permission: "accessibility" } as const,
       { op: "enable", enabled: true } as const,
-      { op: "approve", bundleId: "dev.ace.test", allowed: true } as const,
     ]) {
       const requestId = operation.op.replaceAll(".", "-");
       client.send({ type: "screen.request", requestId, operation });

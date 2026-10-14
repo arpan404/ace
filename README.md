@@ -37,7 +37,7 @@ Each agent CLI owns its credentials. ace can start its login or hand a pasted AP
 | `docs/research`           | Primary-source research behind the decisions                            |
 
 The [agent browser and computer tool contract](docs/daemon/agent-tools.md) documents
-scoped MCP calls, navigation waits, origin approval and control handback.
+scoped MCP calls, navigation waits and control handback.
 
 The [source-control draft workflow](docs/daemon/source-control-drafts.md) documents
 editable commit and PR text generated through the user's own CLI, source revisions

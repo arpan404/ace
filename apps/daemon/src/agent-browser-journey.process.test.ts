@@ -4,14 +4,10 @@ import { join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
 import { z } from "zod";
 import { detectChromium } from "@ace/browser";
-import { FakeHeadless } from "@ace/browser/testing";
-import { Agent, AgentId, type AccessMode } from "@ace/protocol";
+import { Agent, AgentId } from "@ace/protocol";
 import { providerFeatures } from "./testing/provider-features.ts";
 import { createDevThread } from "./commands.ts";
 import { invoke, Result } from "./browser-mcp-test-support.ts";
-import { originFixture } from "./browser-origin-test-support.ts";
-import { startDaemonMcp } from "./mcp.ts";
-import { browserToolkit } from "./browser-toolkit.ts";
 
 const nodes = z.object({
   nodes: z.array(z.object({ name: z.string(), ref: z.string().optional() })),
@@ -178,38 +174,3 @@ it("an agent completes a form navigation, reads results, rejects stale refs and 
   lease.end();
   expect((await invoke(connection, "ace_browser_open", {})).status).toBe(401);
 });
-
-it.each(["auto-review", "read-only", "full-access"] satisfies AccessMode[])(
-  "%s reports origin decisions through real daemon MCP without external requests",
-  async (mode) => {
-    const f = await originFixture(mode, undefined, new FakeHeadless());
-    const mcp = await startDaemonMcp(f.store, [browserToolkit(f.browser, f.store)]);
-    onTestFinished(() => mcp.close());
-    const root = f.store.getThread(f.thread.id)?.rootAgentId;
-    if (!root) throw new Error("Missing root");
-    const lease = mcp.openSession(
-      {
-        sessionId: "origin-journey",
-        threadId: f.thread.id,
-        agentId: root,
-        capabilities: ["browser"],
-      },
-      new AbortController().signal,
-    );
-    const opened = f.opened();
-    const call = invoke({ url: mcp.url, bearer: lease.bearer }, "ace_browser_open", {
-      url: "https://journey.invalid/",
-    });
-    if (opened) {
-      const approval = await opened;
-      expect(f.store.getInteraction(approval.id)?.state).toBe("pending");
-      expect(f.resolve(approval, "deny").ok).toBe(true);
-    }
-    const result = Result.parse(await (await call).json()).result;
-    expect(result).toMatchObject({
-      isError: true,
-      content: [{ text: expect.stringContaining("denied") }],
-    });
-    lease.end();
-  },
-);

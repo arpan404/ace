@@ -182,38 +182,7 @@ function SelectedDevice(props: { devices: Devices }) {
         <DevicesMenu devices={devices} />
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-2.5 px-3 py-2.5">
-        <div className="flex shrink-0 items-center gap-3 text-ui">
-          <span className="min-w-0 flex-1">
-            {controls.approvedHere
-              ? "Agents in this thread can use it"
-              : "Agents in this thread can't use it yet"}
-            {controls.approvedElsewhere && (
-              <span className="block text-xs text-subtle-foreground">
-                Approved for another thread; approving here moves it.
-              </span>
-            )}
-          </span>
-          {controls.approvedHere ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={view.pending}
-              onClick={() => devices.approve(false)}
-            >
-              Revoke
-            </Button>
-          ) : (
-            <Button size="sm" disabled={view.pending} onClick={() => devices.approve(true)}>
-              Approve
-            </Button>
-          )}
-        </div>
-        {selected.platform === "ios" && !controls.approvedHere && (
-          <p className="text-xs text-subtle-foreground">
-            Approve to let this thread’s agents use Simulator. You can watch without approving.
-          </p>
-        )}
-        {controls.approvedHere && controls.running && (
+        {controls.running && (
           <Holder devices={devices} threadId={devices.threadId} controlled={controlled} />
         )}
         {view.problem && !needsPermission(view.problem) && <Problem problem={view.problem} />}

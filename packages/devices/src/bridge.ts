@@ -27,7 +27,7 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
   };
   const deviceAccess = (id: string) => {
     access();
-    const thread = service.approvedThread(id);
+    const thread = service.boundThread(id);
     if (thread && !peer.canReadThread(thread)) throw new Error("Device thread access denied");
   };
   const send = async (message: DeviceServerMessage) => {
@@ -169,9 +169,7 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
                       .map(stateForPeer),
                     enabled: service.isEnabled(),
                   }
-                : ["controller", "approve", "start", "stop", "subscribe", "unsubscribe"].includes(
-                      operation.op,
-                    )
+                : ["controller", "start", "stop", "subscribe", "unsubscribe"].includes(operation.op)
                   ? stateForPeer(DeviceState.parse(data))
                   : data;
             await send({

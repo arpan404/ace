@@ -103,8 +103,6 @@ export async function setup(
     dataDir: home,
     ...(executablePath ? { executablePath } : {}),
     workspaceRoot: () => home,
-    evaluatePolicy: () => true,
-    downloadPolicy: () => true,
     onArtifact: (_thread, artifact) => {
       artifacts.push(artifact);
       changed();

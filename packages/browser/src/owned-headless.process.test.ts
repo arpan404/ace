@@ -50,10 +50,7 @@ it("an ace-owned first-use headless browser preserves the public policy, ref, sc
         action: "evaluate",
         expression: "document.querySelector('input').value",
       }),
-    ).rejects.toThrow("approval");
-    await expect(
-      service.execute("thread", { action: "navigate", url: "https://example.invalid" }),
-    ).rejects.toThrow("approval");
+    ).rejects.toThrow("refused");
     approved = true;
     expect(
       await service.execute("thread", {

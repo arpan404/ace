@@ -12,10 +12,9 @@ import {
   type Command,
   type CommandResult,
   type Capabilities,
-  type EventPayload,
   type ProviderKind,
 } from "@ace/protocol";
-import { supportsPermissionMode, type ThreadState } from "@ace/core";
+import { supportsPermissionMode } from "@ace/core";
 import type { EngineRepository } from "./repository.ts";
 import {
   allowedChildModes,
@@ -33,7 +32,6 @@ import {
   migrateRecordedPermissionStates,
   permissionState,
 } from "./permission-storage.ts";
-import { reviewAceToolConsent } from "./permission-reviews.ts";
 
 export interface CeilingRefusal {
   provider: ProviderKind;
@@ -122,14 +120,6 @@ export class Permissions {
   }
   effective(id: ThreadId): AccessSelection | null {
     return this.read(id).effective;
-  }
-  /** Whether the thread runs in Full access. */
-  private fullAccess(id: ThreadId): boolean {
-    return this.read(id).effective === "full-access";
-  }
-  /** ace-owned Mac tools have their own manual consent, independent of the harness mode. */
-  authority(_id: ThreadId): PermissionMode {
-    return "ask";
   }
   state(id: ThreadId): PermissionState {
     return permissionState(this.read(id));
@@ -359,12 +349,6 @@ export class Permissions {
     const provider = this.repo.requireState(id).config.provider;
     if (this.contained(id, provider, selection, this.offers(id)) !== selection)
       throw new Error("permission_ceiling_unverifiable");
-  }
-  observe(state: ThreadState, events: EventPayload[], at: number, wake: () => void): void {
-    // A provider asking about ace's own tool in Full access answers itself; ace's consent for
-    // origins, apps and devices still asks inside the tool, in every mode.
-    const mode = this.fullAccess(state.threadId) ? "full-access" : "ask";
-    reviewAceToolConsent(this.repo, state, events, at, wake, mode);
   }
   accept(command: Command, capabilities: Capabilities, at: number): CommandResult | undefined {
     const p = command.payload;

@@ -192,10 +192,9 @@ it.each([
   { tool: "screen_ui_tree", input: {} },
   { tool: "screen_ui_find", input: { query: { name: "Click" } } },
   { tool: "screen_open_app", input: { bundleId: "dev.ace.test" } },
-  { tool: "screen_request_foreground", input: { reason: "Confirm target" } },
-  { tool: "screen_request_app", input: { bundleId: "dev.ace.test", reason: "Inspect document" } },
+  { tool: "screen_request_foreground", input: {} },
 ])(
-  "$tool records a linked result notice, including reads and approval actions",
+  "$tool records a linked result notice, including reads and foreground switches",
   async ({ tool, input }) => {
     const f = await toolFixture("claude", { tool, input });
     try {
@@ -224,28 +223,6 @@ it.each([
           raw: [{ data: { toolCallId: item.id, bundleId: "dev.ace.test", outcome: "completed" } }],
         },
       ]);
-    } finally {
-      await f.close();
-    }
-  },
-);
-
-it.each(["denied", "timeout", "read_only"] as const)(
-  "screen approval %s uses screen wording",
-  async (code) => {
-    const f = await toolFixture("claude", {
-      tool: "screen_request_app",
-      input: { bundleId: "dev.ace.test", reason: "Inspect" },
-      approvalFailure: code,
-      error: true,
-    });
-    try {
-      const item = Object.values(f.daemon.store.snapshotThread(f.thread.id).items).find(
-        (entry) => entry.type === "tool_call",
-      );
-      if (item?.type !== "tool_call") throw new Error("No tool");
-      expect(item.call.error).toMatch(/Screen/);
-      expect(item.call.error).not.toMatch(/Browser|navigation/);
     } finally {
       await f.close();
     }

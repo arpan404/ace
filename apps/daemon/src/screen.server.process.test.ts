@@ -64,9 +64,6 @@ it("authenticated devices receive visible screen state and binary frames and dis
       );
     });
   expect(await request({ op: "enable", enabled: true })).toMatchObject({ ok: true });
-  expect(await request({ op: "approve", bundleId: "dev.ace.test", allowed: true })).toMatchObject({
-    ok: true,
-  });
   const started = await request({
     op: "start",
     target: { kind: "window", bundleId: "dev.ace.test", windowId: 1 },
@@ -152,13 +149,6 @@ it("screen state reaches the main channel only, never a devices channel that can
       type: "screen.request",
       requestId: "enable",
       operation: { op: "enable", enabled: true },
-    }),
-  );
-  main.socket.send(
-    JSON.stringify({
-      type: "screen.request",
-      requestId: "approve",
-      operation: { op: "approve", bundleId: "dev.ace.test", allowed: true },
     }),
   );
   main.socket.send(

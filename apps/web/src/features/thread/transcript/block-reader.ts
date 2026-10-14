@@ -172,7 +172,6 @@ export function createBlockReader(
         const agent = reader.agent(id);
         return !agent || !isRunning(agent);
       },
-      reviewedCall: (interactionId) => reader.interaction(interactionId)?.toolCallId,
       approvalRecord: (interactionId) => {
         const interaction = reader.interaction(interactionId);
         return interaction && approvalRecordLabel(interaction);

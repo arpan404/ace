@@ -30,7 +30,6 @@ it("paired viewers cannot approve applications, enable capture, or acquire input
   expect(await client.next()).toMatchObject({ type: "welcome" });
   for (const [operation] of [
     [{ op: "enable", enabled: true }, "admin"],
-    [{ op: "approve", bundleId: "dev.ace.test", allowed: true }, "admin"],
     [{ op: "controller", sessionId: "missing", controller: "human" }, "operate"],
   ] as const) {
     client.send({ type: "screen.request", requestId: operation.op, operation });
@@ -52,19 +51,7 @@ it("paired viewers cannot approve applications, enable capture, or acquire input
   const operatorTicket = await f.ticket(operator.token);
   const operatorClient = await f.connectTicket(operator.device.id, operatorTicket.ticket);
   expect(await operatorClient.next()).toMatchObject({ type: "welcome" });
-  operatorClient.send({
-    type: "screen.request",
-    requestId: "approve",
-    operation: { op: "approve", bundleId: "dev.ace.test", allowed: true },
-  });
-  expect(await operatorClient.next()).toMatchObject({
-    type: "screen.result",
-    requestId: "approve",
-    ok: false,
-    errorCode: "forbidden",
-  });
   await screen.enable(true);
-  await screen.approve("dev.ace.test", true);
   operatorClient.send({
     type: "screen.request",
     requestId: "start",

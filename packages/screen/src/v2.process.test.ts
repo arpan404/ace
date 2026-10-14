@@ -11,7 +11,7 @@ import {
   Helper,
   localFrameEndpoint,
 } from "./index.ts";
-import { deferred, fakeCommand, ids, manager, ready, target } from "./testing/support.ts";
+import { deferred, fakeCommand, ids, manager, ready } from "./testing/support.ts";
 
 it("negotiates capabilities and preserves v1 helpers without inventing semantic support", async () => {
   for (const v2 of [false, true]) {
@@ -109,7 +109,7 @@ it("semantic tools enforce approvals, owner takeover, stale refs and bounded tre
   await expect(handler("screen_ui_act", { ref: "button", action: "press" })).rejects.toThrow(
     "ownership",
   );
-  await f.screen.approve(target.bundleId, false);
+  await f.screen.enable(false);
   await expect(handler("screen_ui_tree", {})).rejects.toThrow();
 });
 it("v2 damage and scale survive fragmented framing alongside legacy packets", () => {
@@ -271,7 +271,7 @@ it("malformed capabilities fail closed rather than silently downgrading to v1", 
   expect(f.screen.states()).toEqual([]);
 });
 
-it("approval revocation cannot return a tree that was pending when access was removed", async () => {
+it("turning computer use off cannot return a tree that was pending when it went off", async () => {
   const gate = await helperGate();
   const f = await manager({ FAKE_V2: "1", READ_GATE_PORT: gate.port });
   onTestFinished(async () => {
@@ -280,11 +280,11 @@ it("approval revocation cannot return a tree that was pending when access was re
     await gate.close();
   });
   const state = await ready(f.screen);
-  const pending = expect(f.screen.uiTree(state.sessionId, {})).rejects.toThrow("approval");
+  const pending = expect(f.screen.uiTree(state.sessionId, {})).rejects.toThrow();
   await gate.reached;
-  const revoked = f.screen.approve(target.bundleId, false);
+  const disabled = f.screen.enable(false);
   gate.release();
-  await revoked;
+  await disabled;
   await pending;
 });
 it("v2 stops capture before stalled publication and disable still terminates the idle host", async () => {

@@ -1,19 +1,14 @@
 import { settingsScope } from "../settings.ts";
 import { z } from "zod";
-import { privateBrowserOwnership } from "../browser-private.ts";
-import { browserArtifactAccess } from "../browser-artifacts.ts";
-import { BrowserApprovals } from "../browser-approvals.ts";
-import { BrowserOrigins } from "../browser-origins.ts";
+import { privateBrowserOwnership, refusePrivateBrowserAnswer } from "../browser-private.ts";
 import { BrowserService } from "@ace/browser";
 import {
   ItemId,
-  BrowserOrigin,
   ThreadId,
   BrowserBackendClientMessage,
   BrowserBackendPreference,
   BrowserBackendLossPolicy,
 } from "@ace/protocol";
-import { InteractionId as importInteractionId } from "@ace/protocol";
 import { desktopCredential } from "../browser-desktop.ts";
 import { BrowserForget } from "../browser-forget.ts";
 import type { ServiceContext } from "./types.ts";
@@ -22,134 +17,12 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
   const { config, options, store, now, id, resources, services } = context;
 
   await desktopCredential(config.dataDir, store.devices, now);
-  const origins = new BrowserOrigins({
-    store,
-    now,
-    id,
-    mode: async () => "ask",
-    deferRecovery: true,
-    root: (threadId) => services.engine?.rootAgent(threadId),
-    open: (interaction) => {
-      if (!services.engine) {
-        store.appendEvents(
-          interaction.threadId,
-          [{ type: "interaction.opened", interaction }],
-          now(),
-        );
-        return interaction;
-      }
-      const raw = interaction.raw.find((entry) => entry.type === "ace.browser.origin");
-      const key = z
-        .object({ key: z.string() })
-        .parse(raw && "data" in raw ? raw.data : undefined).key;
-      const interactionId = services.engine.openHostApproval(
-        interaction.threadId,
-        key,
-        interaction.request,
-        interaction.raw,
-      );
-      const opened = store.getInteraction(interactionId);
-      if (!opened) throw new Error("Browser approval unavailable");
-      return opened;
-    },
-    closeInteraction: (threadId, interactionId, result) => {
-      if (!services.engine) {
-        store.appendEvents(
-          threadId,
-          [{ type: "interaction.closed", interactionId, closedAt: now(), ...result }],
-          now(),
-        );
-        return;
-      }
-      const raw = store
-        .getInteraction(interactionId)
-        ?.raw.find((entry) => entry.type === "ace.browser.origin");
-      const key = z
-        .object({ key: z.string() })
-        .parse(raw && "data" in raw ? raw.data : undefined).key;
-      services.engine.resolveHostApproval(threadId, key, result);
-    },
-    allowlist: async () =>
-      BrowserOrigin.array()
-        .max(256)
-        .parse((await services.settings?.get("browser.allowedOrigins", {}))?.value ?? []),
-  });
-  services.browserOrigins = origins;
-  resources.own(() => origins.close());
-  resources.onShutdown(() => origins.close());
-  const approvals = new BrowserApprovals(
-    {
-      store,
-      now,
-      id,
-      mode: async () => "ask",
-      root: (threadId) =>
-        services.engine?.rootAgent(threadId) ?? store.getThread(threadId)?.rootAgentId,
-      open: (interaction) => {
-        if (services.engine) {
-          const raw = interaction.raw.find((entry) => entry.type === "ace.browser.permission");
-          const key = z
-            .object({ key: z.string() })
-            .parse(raw && "data" in raw ? raw.data : undefined).key;
-          const interactionId = services.engine.openHostApproval(
-            interaction.threadId,
-            key,
-            interaction.request,
-            interaction.raw,
-          );
-          const opened = store.getInteraction(interactionId);
-          if (!opened) throw new Error("Browser approval unavailable");
-          return opened;
-        }
-        store.appendEvents(
-          interaction.threadId,
-          [{ type: "interaction.opened", interaction }],
-          now(),
-        );
-        return interaction;
-      },
-      close: (threadId, key, result, rawInteractionId) => {
-        if (services.engine) services.engine.resolveHostApproval(threadId, key, result);
-        else {
-          const interactionId = importInteractionId.parse(rawInteractionId);
-          if (interactionId)
-            store.appendEvents(
-              threadId,
-              [{ type: "interaction.closed", interactionId, closedAt: now(), ...result }],
-              now(),
-            );
-        }
-      },
-    },
-    options.browser?.navigationClock ?? {
-      set: (delay, work) => {
-        const timer = setTimeout(work, delay);
-        return () => clearTimeout(timer);
-      },
-    },
-  );
-  services.browserApprovals = approvals;
+  services.browserPrivateAnswers = (command) => refusePrivateBrowserAnswer(store, command);
   let forget: BrowserForget | undefined;
-  resources.own(() => approvals.close());
-  resources.onShutdown(() => approvals.close());
   const browser = new BrowserService({
     ...options.browser,
     dataDir: config.dataDir,
-    originPolicy: (request) => origins.allowed(request),
-    origins,
     ...privateBrowserOwnership(context),
-    evaluatePolicy:
-      options.browser?.evaluatePolicy ??
-      ((threadId, url, signal, mode, expression) =>
-        approvals.evaluate(threadId, url, signal, mode, expression)),
-    evaluateGrants: approvals,
-    downloadPolicy:
-      options.browser?.downloadPolicy ??
-      ((threadId, url, signal) => approvals.downloads(threadId, url, signal)),
-    uploadPolicy:
-      options.browser?.uploadPolicy ??
-      ((threadId, paths, signal) => approvals.upload(threadId, paths, signal)),
-    artifactAllowed: options.browser?.artifactAllowed ?? browserArtifactAccess(store),
     workspaceRoot:
       options.browser?.workspaceRoot ??
       ((threadId) => {
@@ -157,7 +30,6 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
         if (!binding.ready) throw new Error("workspace_preparing");
         return binding.path;
       }),
-    onNavigation: (threadId) => origins.clearPage(threadId),
     cleanup: {
       ...options.browser?.cleanup,
       onTimeout(message) {
@@ -236,10 +108,6 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
     context.log.log("warn", `Browser cleanup for a deleted thread: ${String(error)}`),
   );
   resources.own(() => forget?.close());
-  if (services.engine || options.handler) {
-    origins.recover();
-    approvals.recover();
-  }
   services.browser = browser;
 }
 

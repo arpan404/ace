@@ -124,7 +124,7 @@ describe.skipIf(!executablePath)("authorized agent browser MCP", () => {
     }
   }, 60_000);
 
-  it("denies missing capability, cross-thread arguments and navigation without origin approval", async () => {
+  it("denies missing capability, cross-thread arguments and non-web addresses", async () => {
     const f = await fixture();
     const registry = new ToolRegistry({ scheduler: nodeScheduler });
     browserToolkit(f.service).register(registry);

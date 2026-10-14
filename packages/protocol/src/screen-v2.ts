@@ -31,10 +31,8 @@ export const ScreenError = z.object({
   code: z.enum([
     "forbidden",
     "permission_denied",
-    "approval_required",
     "screen_disabled",
     "denied",
-    "read_only",
     "target_gone",
     "not_supported",
     "bounds",

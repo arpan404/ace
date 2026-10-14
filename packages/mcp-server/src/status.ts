@@ -7,8 +7,6 @@ export type StatusReader = (caller: McpAttribution) => {
   /** False hides ace_ask: the provider has its own ask tool and this is not a child thread. */
   askAvailable?: boolean;
   disabled?: Partial<Record<McpCapability, string>>;
-  /** Whether this caller has a current app grant. False stages computer use discovery. */
-  screenApproved?: boolean;
 };
 
 /**
@@ -48,7 +46,7 @@ export function createStatusRegistry(
         threadId: caller.threadId,
         agentId: caller.agentId,
         access: state.access,
-        groups: mcpStatusGroups(registered, capabilities, state.disabled, state.access),
+        groups: mcpStatusGroups(registered, capabilities, state.disabled),
       };
     },
   });
@@ -60,16 +58,12 @@ export function mcpStatusGroups(
   registered: ReadonlySet<McpCapability>,
   capabilities: readonly McpCapability[],
   disabled?: Partial<Record<McpCapability, string>>,
-  access?: McpStatus["access"],
 ): McpStatus["groups"] {
   return [
     { name: "thread", enabled: true },
     ...McpCapability.options.map((name) => {
       const reason =
         disabled?.[name] ??
-        (access === "read-only" && (name === "screen" || name === "devices")
-          ? "Read-only mode refuses this tool group."
-          : undefined) ??
         (!registered.has(name) ? "This ace daemon is not running this tool group." : undefined) ??
         (!capabilities.includes(name)
           ? "ace does not offer this tool group to this provider session."

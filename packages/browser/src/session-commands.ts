@@ -31,7 +31,6 @@ interface CommandContext {
   read(): void;
   blocked(): BrowserOriginBlock | undefined;
   clearBlocked(): void;
-  finishNavigation(): void;
   check(actor: Actor, signal?: AbortSignal, generation?: number): void;
   refDispatch(
     ref: string,
@@ -134,7 +133,7 @@ export async function executeBrowserCommand(
           throw new BrowserOriginError(
             browserOrigin(command.url) ?? command.url,
             browserOrigin(command.url) ? "approval_required" : "invalid_origin",
-            "Browser origin requires approval",
+            "Browser origin refused",
           );
         context.check(actor, task.signal, generation);
         await task.run(() => {
@@ -164,7 +163,6 @@ export async function executeBrowserCommand(
         if (task.signal.aborted) void page.cdp.send("Page.stopLoading").catch(() => {});
         task.close();
         context.policies.finish(task);
-        context.finishNavigation();
       }
     }
     case "snapshot":
@@ -385,7 +383,10 @@ export async function executeBrowserCommand(
       return { ok: true };
     case "evaluate": {
       const document = context.refs.documentGuard();
-      if (!(await evaluatePolicy?.(threadId, page.url(), command.mode, command.expression, signal)))
+      if (
+        evaluatePolicy &&
+        !(await evaluatePolicy(threadId, page.url(), command.mode, command.expression, signal))
+      )
         throw new BrowserActionError("evaluate_approval_required");
       context.check(actor, signal, generation);
       document();

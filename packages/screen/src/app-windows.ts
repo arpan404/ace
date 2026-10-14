@@ -1,4 +1,4 @@
-import { ScreenAppWindows, ScreenInventory, type ScreenAgentScope } from "@ace/protocol";
+import { ScreenAppWindows, ScreenInventory } from "@ace/protocol";
 import type { HelperHost } from "./helper-host.ts";
 import { HelperCommandError } from "./helper.ts";
 import { nodeScheduler } from "./runtime.ts";
@@ -8,7 +8,7 @@ import type { ScreenOptions } from "./options.ts";
 export class AppWindows {
   constructor(
     privateHost: HelperHost,
-    authorize: (bundleId: string, caller?: ScreenAgentScope) => void,
+    authorize: (bundleId: string) => void,
     scheduler: NonNullable<ScreenOptions["scheduler"]> = nodeScheduler,
   ) {
     this.host = privateHost;
@@ -16,10 +16,10 @@ export class AppWindows {
     this.scheduler = scheduler;
   }
   private readonly host: HelperHost;
-  private readonly authorize: (bundleId: string, caller?: ScreenAgentScope) => void;
+  private readonly authorize: (bundleId: string) => void;
   private readonly scheduler: NonNullable<ScreenOptions["scheduler"]>;
-  async list(bundleId: string, caller?: ScreenAgentScope): Promise<ScreenAppWindows> {
-    this.authorize(bundleId, caller);
+  async list(bundleId: string): Promise<ScreenAppWindows> {
+    this.authorize(bundleId);
     const helper = await this.host.open();
     let result: ScreenAppWindows;
     try {
@@ -27,7 +27,7 @@ export class AppWindows {
         throw new HelperCommandError("not_supported", "Native resolver is unavailable");
       result = ScreenAppWindows.parse(
         await helper.request({ op: "windows.list", bundleId, allowlist: [bundleId] }, () =>
-          this.authorize(bundleId, caller),
+          this.authorize(bundleId),
         ),
       );
     } catch (error) {
@@ -47,18 +47,13 @@ export class AppWindows {
         ))
     )
       throw new Error("Invalid helper window selection");
-    this.authorize(bundleId, caller);
+    this.authorize(bundleId);
     return result;
   }
-  async ready(
-    bundleId: string,
-    caller: ScreenAgentScope,
-    signal: AbortSignal,
-    windowId?: number,
-  ): Promise<ScreenAppWindows> {
+  async ready(bundleId: string, signal: AbortSignal, windowId?: number): Promise<ScreenAppWindows> {
     for (let attempt = 0; ; attempt++) {
       signal.throwIfAborted();
-      const result = await this.list(bundleId, caller);
+      const result = await this.list(bundleId);
       signal.throwIfAborted();
       const candidates = result.windows.filter((window) => window.usable !== false);
       if (windowId !== undefined) {

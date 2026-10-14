@@ -9,8 +9,6 @@ import { BrowserService, installChromium } from "@ace/browser";
 
 const browser = new BrowserService({
   dataDir: "/path/to/ace-data",
-  originPolicy: async ({ threadId, origin }) => approvedSites.has(`${threadId}:${origin}`),
-  evaluatePolicy: async (threadId) => approvedEvaluation.has(threadId),
   onArtifact: async (threadId, artifact) => saveThreadArtifact(threadId, artifact),
 });
 
@@ -47,28 +45,29 @@ cannot open a view ([ADR 0069](../../docs/adr/0069-shared-native-browser.md)).
 deleted thread's browser and purges its persistent profiles.
 Desktop disconnect emits `browser.backend.lost` and pauses by default; the
 agent's next open resumes a paused page headlessly unless a person holds it.
-`browser.backendLoss: headless` reopens the last approved URL in an ephemeral
+`browser.backendLoss: headless` reopens the last URL in an ephemeral
 headless profile, keeps the controller lease and reports `pageStateLost: true`.
 It preserves subscriptions, advances frame sequence numbers and invalidates
 old refs. Pending commands fail and never replay.
 
 `execute` accepts commands defined by `BrowserCommand` in `@ace/protocol`.
-Client screenshots return local paths; logs return bounded inline entries. Evaluate requires its own injected
-approval and limits serialized output to 256 KiB of UTF-8. Renderer preflight
+Client screenshots return local paths; logs return bounded inline entries. Evaluate
+limits serialized output to 256 KiB of UTF-8. Renderer preflight
 uses primitive string operations; the daemon validates byte size and parses JSON,
 so page replacements of builtins cannot bypass the result cap. Navigation and intercepted HTTP,
-redirect and WebSocket requests allow exact loopback names, and ask the origin
-hook for every other site. The hook should store approval decisions outside this
-package. Service workers and native permissions remain disabled. Headless sessions admit policy-checked popup tabs and quarantined downloads. CDP interception
-also attaches to isolated iframe and worker targets.
-One service-wide admission limit allows at most 32 unsettled approval hooks across
-navigation, HTTP/redirect/worker interception, WebSockets and evaluate. Excess
-requests fail closed without invoking the hook or allocating a timeout. Hooks
-receive a session-scoped `AbortSignal` (origin request `signal`, or evaluate's
-third argument) and have a ten-second caller deadline. Closing a thread cancels
-its calls; service shutdown cancels all calls. A hook that ignores cancellation
-keeps its admission slot until it settles, so retries cannot accumulate work.
-Future interactions should store approvals separately and let the hook return a decision.
+redirect and WebSocket requests reach any `http(s)`/`ws(s)` origin without URL
+credentials; `file:`, `chrome:` and other schemes are refused as `invalid_origin`.
+ace asks nobody before an agent browses, evaluates, uploads or downloads: approval
+belongs to the provider that called the tool. Service workers and native
+permissions remain disabled. Headless sessions admit popup tabs and quarantined
+downloads. CDP interception also attaches to isolated iframe and worker targets.
+
+`originPolicy`, `evaluatePolicy`, `downloadPolicy` and `uploadPolicy` are optional
+embedder hooks; the daemon installs none. When present, one service-wide admission
+limit allows at most 32 unsettled hook calls. Excess requests fail closed without
+invoking the hook. Hooks receive a session-scoped `AbortSignal`; closing a thread
+or the service cancels them, and a hook that ignores cancellation keeps its slot
+until it settles. Loopback origins never reach `originPolicy`.
 
 Snapshots include AX nodes, parent-child links, ignored-node markers and stable
 DOM refs. Only refs from the latest snapshot remain actionable. A navigation
@@ -166,7 +165,7 @@ Browser/encoder and transport costs are measured separately from the pure delive
 `headlessBackend` replaces the backend itself. `acquisition.fetch` and a pinned
 artifact replace the download boundary. `spawn` controls encoder and diagnostic
 processes. `now` and `id` remain injectable. The backend contract exposes native
-permission/download denial hooks. Both implementations deny permissions. The legacy Electron bridge denies downloads; the background headless backend quarantines approved downloads.
+permission/download denial hooks. Both implementations deny permissions. The legacy Electron bridge denies downloads; the background headless backend quarantines downloads.
 
 New behavior tests cover a real socket fake desktop and a local HTTP archive
 server. Relay and acquisition benchmarks live in `bench/relay.ts` and
@@ -182,12 +181,11 @@ this toolkit before opening provider sessions. Arguments cannot override the
 credential's thread identity. The daemon adds `ace_browser_open` and `ace_browser_close`, deriving workspace
 identity from the attributed thread and automatically selecting the backend.
 Command registration lives in this package; the daemon supplies lazy opening.
-Agents cannot approve origins or evaluation.
 
 MCP screenshots return bounded JPEG image content directly from the owned page.
 The client browser screenshot command still writes a PNG artifact. Human takeover
 blocks agent input, and ending the MCP credential cancels input awaiting dispatch.
-The queue and origin/evaluation policy checks are the same as the public browser API.
+The queue and controller checks are the same as the public browser API.
 
 The MCP browser and provider-composition behavior tests were written but not run.
 They need run at merge under the owner's current verification policy.
@@ -208,14 +206,12 @@ visible desktop view. `ace_browser_upload`, `dialog`, `hover`, `drag`, `select`,
 join the existing MCP commands. Actions select the active tab by default; an
 optional tabId selects it explicitly. Tab switching expires the old snapshot.
 
-Downloads need origin permission and the injected download policy. They have a
-64 MiB file cap, a 256 MiB session aggregate cap, and executable/archive flags.
-Completed downloads use the existing artifact sink. Uploads resolve workspace and
-artifact paths; outside paths need the injected upload policy. Dialogs remain in
+Downloads have a 64 MiB file cap, a 256 MiB session aggregate cap, and executable/archive flags.
+Completed downloads use the existing artifact sink. Uploads resolve workspace,
+artifact and other local paths to regular files. Dialogs remain in
 state as pending_dialog until answered. Read-only evaluate uses an isolated world
 and CDP throwOnSideEffect. It cannot read page-world variables and can refuse
-harmless operations it cannot prove safe. Full evaluation still needs the separate
-policy. The daemon wires these policies to canonical engine host interactions.
+harmless operations it cannot prove safe.
 
 Logs return entries inline, filtered by kind, level, URL substring and status,
 with at most 200 entries. Network bodies are retrieved individually, capped and
@@ -232,7 +228,7 @@ command and viewer WebSocket routing. Run timing comparisons on an otherwise idl
 `interaction` using the existing click/type/press/scroll/drag command shape. The
 recording window defaults to 2 seconds, is capped at 10 seconds, and `repeat` is
 1–5 with at most 20 seconds recorded in total. Observation uses read access;
-input and explicit tab selection retain existing controller and approval fences.
+input and explicit tab selection retain existing controller fences.
 
 Frame updates come from renderer-scoped CDP compositor trace events, with refresh
 cadence inferred from BeginFrame events. An isolated-world trace marker correlates

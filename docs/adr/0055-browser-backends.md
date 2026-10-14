@@ -2,6 +2,8 @@
 
 Date: 2026-10-02. Status: proposed. Amends ADR 0009.
 
+Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provider-native (owner decision). Evaluation and origin approval mentioned below are removed; scheme checks and request interception for non-http(s) URLs remain.
+
 The background backend default, tabs, files and private-control behavior is amended by
 [ADR 0067](0067-browser-parity.md). Agent backend choice, unseen-view rendering, profiles and
 thread deletion are amended by [ADR 0069](0069-shared-native-browser.md).

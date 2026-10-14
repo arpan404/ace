@@ -1,5 +1,5 @@
-import type { ScreenGrant, ScreenPermissions, ScreenState } from "@ace/protocol";
-import { alwaysAsks, appName } from "./app-names.ts";
+import type { ScreenPermissions, ScreenState } from "@ace/protocol";
+import { appName } from "./app-names.ts";
 import type { Tone } from "./status.ts";
 
 /*
@@ -25,7 +25,6 @@ export interface ScreenSessionView {
   /** One line: who has it and what it is doing. */
   status: string;
   tone: Tone;
-  sensitive: boolean;
   secureInputAllowed: boolean;
   error: string | undefined;
   /** Stop can still matter: live, starting, or a failure that may still be capturing. */
@@ -106,7 +105,6 @@ export function screenSession(
     capturing: state.indicator,
     status,
     tone,
-    sensitive: alwaysAsks(bundleId),
     secureInputAllowed: state.secureInputAllowed,
     error: state.error,
     stoppable:
@@ -158,47 +156,10 @@ export function indicatorSessions(states: readonly ScreenState[]): ScreenState[]
   return visibleSessions(states);
 }
 
-export interface GrantView {
-  key: string;
-  bundleId: string;
-  app: string;
-  scope: ScreenGrant["scope"];
-  /** "This turn", "This thread", "Always". */
-  scopeLabel: string;
-  threadId: string | undefined;
-  sensitive: boolean;
-  grantedAt: number;
-}
-
-const scopeLabels: Record<ScreenGrant["scope"], string> = {
-  turn: "This turn",
-  thread: "This thread",
-  always: "Always",
-};
-const scopeOrder: Record<ScreenGrant["scope"], number> = { always: 0, thread: 1, turn: 2 };
-
-/** Grants by app name, the widest scope of an app first. */
-export function grantRows(grants: readonly ScreenGrant[]): GrantView[] {
-  return grants
-    .map((grant) => ({
-      key: `${grant.bundleId}:${grant.scope}:${grant.threadId ?? ""}:${grant.turnId ?? ""}`,
-      bundleId: grant.bundleId,
-      app: appName(grant.bundleId),
-      scope: grant.scope,
-      scopeLabel: scopeLabels[grant.scope],
-      threadId: grant.threadId,
-      sensitive: alwaysAsks(grant.bundleId),
-      grantedAt: grant.grantedAt,
-    }))
-    .toSorted((a, b) => a.app.localeCompare(b.app) || scopeOrder[a.scope] - scopeOrder[b.scope]);
-}
-
 export type ScreenErrorCode =
   | "permission_denied"
-  | "approval_required"
   | "screen_disabled"
   | "denied"
-  | "read_only"
   | "target_gone"
   | "not_supported"
   | "bounds"
@@ -254,12 +215,10 @@ export function screenProblem(
     case "foreground_required":
       return {
         title: "This app ignores background input",
-        hint: "The agent can ask to bring it to the front; you'll be asked to approve.",
+        hint: "The agent can bring it to the front.",
       };
     case "screen_disabled":
       return { title: "Computer use is off", hint: "Turn it on in Settings › Computer use." };
-    case "approval_required":
-      return { title: "This app isn't approved", hint: "Allow it when the agent asks, or here." };
     case "permission_denied":
       return {
         title: "macOS hasn't granted a permission",
@@ -300,11 +259,6 @@ export function screenProblem(
       return {
         title: "No answer in time",
         hint: "Nothing changed. Try again if you still need it.",
-      };
-    case "read_only":
-      return {
-        title: "Read-only mode",
-        hint: "This thread's permission mode refuses computer use.",
       };
     case "forbidden":
       return { title: "This device can't manage computer use", hint: "Use the Mac running ace." };
@@ -359,4 +313,4 @@ export function permissionsReading(input: {
   return { state: "checking" };
 }
 
-export { alwaysAsks, appName, threadOnly } from "./app-names.ts";
+export { appName } from "./app-names.ts";

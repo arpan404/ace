@@ -212,15 +212,10 @@ export function readyServices(
   services: Partial<Services>,
 ): asserts services is Partial<Services> & Pick<Services, "handler"> {
   const handler = requireService(services.handler, "engine");
-  services.browserOrigins?.recover();
-  services.screenApprovals?.recover();
-  services.browserApprovals?.recover();
   services.handler = {
     handle: (command, store) =>
       services.asks?.resolve(command) ??
-      services.screenApprovals?.resolve(command) ??
-      services.browserApprovals?.resolve(command) ??
-      services.browserOrigins?.resolve(command) ??
+      services.browserPrivateAnswers?.(command) ??
       handler.handle(command, store),
   };
 }

@@ -68,13 +68,6 @@ export function fakeBrowserSession(
         case "browser.downloads.list":
           result = browser.downloadsList(id);
           break;
-        case "browser.evaluate.grants.list":
-          result = browser.evaluateGrantsList(id);
-          break;
-        case "browser.evaluate.grants.revoke":
-          browser.evaluateRevoke(id, message.origin);
-          result = browser.evaluateGrantsList(id);
-          break;
         case "browser.tabs.open":
         case "browser.tabs.switch":
         case "browser.tabs.close":
@@ -87,7 +80,7 @@ export function fakeBrowserSession(
             break;
           }
           if (message.type === "browser.tabs.open") {
-            if (message.url) browser.navigate(id, message.url, host.now());
+            if (message.url) browser.navigate(id, message.url);
           } else if (message.type === "browser.tabs.switch") browser.tabSwitch(id, message.tabId);
           else if (message.type === "browser.tabs.close") browser.tabClose(id, message.tabId);
           else {
@@ -99,17 +92,6 @@ export function fakeBrowserSession(
               : { activeTabId: browser.view(id)?.activeTabId, tabs: browser.tabsList(id) };
           break;
         }
-        case "browser.origins.list":
-          result = browser.originsList(id);
-          break;
-        case "browser.origins.grant":
-          browser.originsGrant(id, message.origin, host.now());
-          result = browser.originsList(id);
-          break;
-        case "browser.origins.revoke":
-          browser.originsRevoke(id, message.origin);
-          result = browser.originsList(id);
-          break;
         case "browser.open": {
           if (thread.thread.workspaceId !== message.options.workspaceId)
             throw new Error("workspace_mismatch");
@@ -189,7 +171,7 @@ export function fakeBrowserSession(
           if (command.action === "tabs") {
             if (command.operation === "open") {
               browser.tabOpen(id);
-              if (command.url) browser.navigate(id, command.url, host.now());
+              if (command.url) browser.navigate(id, command.url);
             } else if (command.operation === "switch" && command.tabId)
               browser.tabSwitch(id, command.tabId);
             else if (command.operation === "close" && command.tabId)
@@ -199,7 +181,7 @@ export function fakeBrowserSession(
             browser.dialogAnswer(id, command.dialogId);
             result = { ok: true };
           } else if (command.action === "navigate") {
-            browser.navigate(id, command.url, host.now());
+            browser.navigate(id, command.url);
             result = BrowserState.parse(browser.view(id));
           } else if (command.action === "navigation_history")
             result = browser.navigationHistory(id);

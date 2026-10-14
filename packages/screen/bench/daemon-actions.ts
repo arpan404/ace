@@ -20,7 +20,6 @@ const screen = new module.ScreenManager({
 });
 try {
   await screen.enable(true);
-  await screen.approve("dev.ace.test", true);
   const state = await screen.start({ kind: "window", bundleId: "dev.ace.test", windowId: 2 });
   screen.controller(state.sessionId, "agent", "agent");
   const tools = module.computerUseHandler(screen, state.sessionId, "agent");

@@ -52,10 +52,7 @@ export function DevicesMenu(props: { devices: ReturnType<typeof useDevices> }) {
               <MenuItem disabled={view.pending || !controls.live} onClick={devices.screenshot}>
                 Screenshot
               </MenuItem>
-              <MenuItem
-                disabled={view.pending || !controls.live || !controls.approvedHere}
-                onClick={devices.record}
-              >
+              <MenuItem disabled={view.pending || !controls.live} onClick={devices.record}>
                 {devices.recording ? "Stop recording" : "Record"}
               </MenuItem>
               <MenuSeparator />
@@ -116,7 +113,7 @@ export function DevicesMenu(props: { devices: ReturnType<typeof useDevices> }) {
             <DialogTitle>Disable devices on this machine?</DialogTitle>
             <DialogDescription>
               This turns devices off for every thread, not just this one. Agents lose the devices
-              you approved, and live views stop.
+              they are using, and live views stop.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

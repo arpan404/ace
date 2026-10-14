@@ -80,18 +80,17 @@ describe("browser stream backpressure", () => {
     stream.publish(frame(1));
     expect(delivered).toBe(64);
   });
-  it("allows exact localhost names and delegates other sites to the approval hook", async () => {
+  it("allows any web address by default, defers to a host hook when set, and never loads non-web schemes", async () => {
     expect(await allowedOrigin("t", "http://localhost:3000")).toBe(true);
     expect(await allowedOrigin("t", "http://[::1]:3000")).toBe(true);
-    expect(await allowedOrigin("t", "http://localhost.attacker.test")).toBe(false);
-    expect(await allowedOrigin("t", "https://example.test")).toBe(false);
+    expect(await allowedOrigin("t", "https://example.test")).toBe(true);
     expect(
       await allowedOrigin(
         "t",
         "https://example.test",
-        ({ origin }) => origin === "https://example.test",
+        ({ origin }) => origin !== "https://example.test",
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(await allowedOrigin("t", "file:///tmp/a", () => true)).toBe(false);
     expect(await allowedOrigin("t", "https://user:pass@example.test", () => true)).toBe(false);
   });

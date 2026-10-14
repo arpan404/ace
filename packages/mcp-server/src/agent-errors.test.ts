@@ -25,10 +25,10 @@ it("only intentional fixed failures reach agents; raw messages, hints, stacks an
         class OriginFailure extends PublicToolError {
           readonly blocked = {
             origin: `https://${lease.bearer}.example.invalid/path`,
-            reason: "denied" as const,
+            reason: "timeout" as const,
           };
         }
-        throw new OriginFailure("denied");
+        throw new OriginFailure("timeout");
       }
       if (args.ref === "plain")
         return Promise.reject({

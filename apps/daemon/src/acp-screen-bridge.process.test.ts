@@ -68,7 +68,6 @@ test("the ACP stdio child delivers exact production screenshot bytes above 256 K
   const rpc = new JsonRpcPeer(proc);
   try {
     await screen.enable(true);
-    await screen.approve("dev.ace.test", true);
     const session = await screen.start({ kind: "window", windowId: 1, bundleId: "dev.ace.test" });
     screen.delegateAgent(session.sessionId, lease.principal.scope);
     const direct = decode(

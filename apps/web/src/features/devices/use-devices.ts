@@ -103,7 +103,7 @@ export function useDevices(threadId: string, deviceId?: string) {
     noticed.current = notice;
   }, [notice, notify, noticed]);
   const now = useSeconds(state?.controller === "human");
-  const controls = device && deviceControls(device, state, threadId, now);
+  const controls = device && deviceControls(device, state, now);
 
   // Watch the selected device's stream while it is live; viewing is safe to restore. Every
   // view of one device shares a single stream, closed when the last of them leaves.
@@ -166,6 +166,7 @@ export function useDevices(threadId: string, deviceId?: string) {
         op: "controller",
         deviceId: selected.id,
         controller: "human",
+        threadId: ThreadId.parse(threadId),
       }).finally(() => {
         claim.current = undefined;
       });
@@ -208,12 +209,6 @@ export function useDevices(threadId: string, deviceId?: string) {
         await run({ op: "list" });
         await run({ op: "states" });
       }),
-    approve: (allowed: boolean) =>
-      target &&
-      act(async () => {
-        await run({ op: "approve", deviceId: target, threadId: ThreadId.parse(threadId), allowed });
-        if (selected?.running) await run({ op: "start", deviceId: target, fps: 60 });
-      }),
     /** Boot, then show its screen: booting is how a person asks to see the device. */
     boot: () =>
       target &&
@@ -235,10 +230,18 @@ export function useDevices(threadId: string, deviceId?: string) {
     /** Try the live view again, as after granting a permission. */
     retry: () => target && act(() => run({ op: "start", deviceId: target, fps: 60 })),
     takeControl: () =>
-      target && act(() => run({ op: "controller", deviceId: target, controller: "human" })),
+      target &&
+      act(() =>
+        run({
+          op: "controller",
+          deviceId: target,
+          controller: "human",
+          threadId: ThreadId.parse(threadId),
+        }),
+      ),
     release: () =>
       target && act(() => run({ op: "controller", deviceId: target, controller: "none" })),
-    /** Hand the device to one of this thread's agents; the daemon checks it is approved here. */
+    /** Hand the device to one of this thread's agents, which moves the device to this thread. */
     delegate: (agentId: string) =>
       target &&
       act(() =>
@@ -263,7 +266,10 @@ export function useDevices(threadId: string, deviceId?: string) {
     record: () =>
       target &&
       act(async () => {
-        await run({ op: state?.recording ? "record.stop" : "record.start", deviceId: target });
+        await withControl({
+          op: state?.recording ? "record.stop" : "record.start",
+          deviceId: target,
+        });
       }),
     screenshot: () =>
       target &&

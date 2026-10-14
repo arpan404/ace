@@ -150,7 +150,6 @@ export class BrowserService {
       if (session && this.sessions.get(options.threadId) === session)
         this.sessions.delete(options.threadId);
       scope.abort();
-      this.options.onNavigation?.(options.threadId);
       if (this.policyScopes.get(options.threadId) === scope)
         this.policyScopes.delete(options.threadId);
       await profileLease.release();
@@ -313,7 +312,6 @@ export class BrowserService {
         cancelPolicy: () => scope.abort(),
         privatePaused: () => this.options.onPrivatePaused?.(options.threadId),
         privateResumed: () => this.options.onPrivateResumed?.(options.threadId),
-        clearPageGrants: () => this.options.onNavigation?.(options.threadId),
         ...(this.options.spawn ? { spawn: this.options.spawn } : {}),
         ...(ffmpeg ? { ffmpeg } : {}),
         ...policies.session,
@@ -374,26 +372,8 @@ export class BrowserService {
     if (!session || session.state.closed) throw new Error("Browser session not open");
     return session;
   }
-  evaluateGrantsList(threadId: string) {
-    return this.options.evaluateGrants?.list(threadId) ?? [];
-  }
-  evaluateGrantsRevoke(threadId: string, origin: string): void {
-    if (!this.options.evaluateGrants) throw new Error("Evaluate grants unavailable");
-    this.options.evaluateGrants.revoke(threadId, origin);
-  }
   downloadsList(threadId: string) {
     return this.get(threadId).state.downloads ?? [];
-  }
-  originsList(threadId: string) {
-    return this.options.origins?.list(threadId) ?? [];
-  }
-  originsGrant(threadId: string, origin: string): void {
-    if (!this.options.origins) throw new Error("Browser origin grants unavailable");
-    this.options.origins.grant(threadId, origin);
-  }
-  originsRevoke(threadId: string, origin: string): void {
-    if (!this.options.origins) throw new Error("Browser origin grants unavailable");
-    this.options.origins.revoke(threadId, origin);
   }
   generation(threadId: string): number {
     const generation = this.generations.get(this.get(threadId));

@@ -28,7 +28,7 @@ test("turning computer use on is what the daemon records, and Stop all turns it 
   await page();
 
   await userEvent.click(await screen.findByRole("switch", { name: "Let agents use apps" }));
-  await waitFor(() => expect(app.daemon.screen.access.enabled).toBe(true));
+  await waitFor(() => expect(app.daemon.screen.enabled).toBe(true));
 
   await world.agentApp("com.apple.TextEdit");
   await world.agentApp("com.apple.calculator");
@@ -37,7 +37,7 @@ test("turning computer use on is what the daemon records, and Stop all turns it 
 
   await userEvent.click(screen.getAllByRole("button", { name: "Stop all computer use" })[0]!);
 
-  await waitFor(() => expect(app.daemon.screen.access.enabled).toBe(false));
+  await waitFor(() => expect(app.daemon.screen.enabled).toBe(false));
   expect(await world.sessions()).toEqual([]);
   expect(screen.queryByRole("list", { name: "Live sessions" })).toBeNull();
   expect(
@@ -49,7 +49,7 @@ test("turning computer use on is what the daemon records, and Stop all turns it 
 
 test("Stop all says it's stopping and takes no second press, then says what it stopped", async () => {
   const { app, world } = await openSettings();
-  app.daemon.screen.access.enabled = true;
+  app.daemon.screen.enabled = true;
   await world.agentApp("com.apple.TextEdit");
   await world.agentApp("com.apple.calculator");
   const held = Promise.withResolvers<void>();
@@ -62,16 +62,16 @@ test("Stop all says it's stopping and takes no second press, then says what it s
   const busy = await screen.findByRole("button", { name: "Stopping all computer use…" });
   expect(busy.getAttribute("aria-busy")).toBe("true");
   expect((busy as HTMLButtonElement).disabled).toBe(true);
-  expect(app.daemon.screen.access.enabled).toBe(true);
+  expect(app.daemon.screen.enabled).toBe(true);
 
   await act(async () => held.resolve());
   expect(await screen.findByText("Stopped 2 apps. Computer use is off.")).toBeTruthy();
-  expect(app.daemon.screen.access.enabled).toBe(false);
+  expect(app.daemon.screen.enabled).toBe(false);
 });
 
 test("a Stop all the daemon can't finish says why", async () => {
   const { app, world } = await openSettings();
-  app.daemon.screen.access.enabled = true;
+  app.daemon.screen.enabled = true;
   await world.agentApp("com.apple.TextEdit");
   app.daemon.screen.stopAllHold = {
     until: Promise.resolve(),
@@ -158,41 +158,10 @@ test("leaving the page closes the live view's decoded frames", async () => {
   expect(browser.bitmaps.every((bitmap) => bitmap.closed)).toBe(true);
 });
 
-test("revoking an approved app removes the daemon's grant; a sensitive app says it asks every turn", async () => {
-  const { app, world } = await openSettings();
-  await world.call({ op: "enable", enabled: true });
-  await world.call({
-    op: "approve",
-    bundleId: "com.apple.TextEdit",
-    allowed: true,
-    scope: "always",
-  });
-  await world.call({
-    op: "approve",
-    bundleId: "com.apple.systempreferences",
-    allowed: true,
-    scope: "always",
-  });
-  await app.open("/settings/computer-use");
-
-  const grants = await screen.findByRole("list", { name: "Approved apps" });
-  expect(within(grants).getByText(/Ask each turn/)).toBeTruthy();
-
-  await userEvent.click(within(grants).getByRole("button", { name: "Actions for TextEdit" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Revoke" }));
-
-  await waitFor(() =>
-    expect(app.daemon.screen.access.list().map((grant) => grant.bundleId)).toEqual([
-      "com.apple.systempreferences",
-    ]),
-  );
-  await waitFor(() => expect(within(grants).queryByText("TextEdit")).toBeNull());
-});
-
 test("a missing macOS permission offers Request, which asks the daemon's Mac", async () => {
   const { app } = await openSettings();
   app.daemon.screen.permissions.accessibility = false;
-  app.daemon.screen.access.enabled = true;
+  app.daemon.screen.enabled = true;
   await app.open("/settings/computer-use");
 
   const permissions = await screen.findByRole("region", { name: "macOS permissions" });
@@ -295,40 +264,9 @@ test("permissions refused because computer use is off point at turning it on, an
   expect(screen.queryByText("Granted", { exact: true })).toBeNull();
 });
 
-test("a person grants Safari's native UI for one thread from Computer use, then can revoke it", async () => {
-  const { app } = await openSettings();
-  app.daemon.screen.access.enabled = true;
-  await app.open("/t/thread-checkout");
-  await screen.findByRole("heading", { level: 1, name: "Fix flaky checkout test" });
-  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
-  const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
-  const tools = await within(panel).findByRole("list", { name: "Tools" });
-  await userEvent.click(within(tools).getByRole("button", { name: /^Computer use/ }));
-  await userEvent.click(await within(panel).findByRole("button", { name: "Add an app" }));
-  await userEvent.click(await within(panel).findByRole("combobox", { name: "App to approve" }));
-  await userEvent.click(await screen.findByRole("option", { name: "Safari" }));
-  expect(within(panel).queryByRole("button", { name: /Always/ })).toBeNull();
-  await userEvent.click(within(panel).getByRole("button", { name: "Allow for this thread" }));
-  await waitFor(() =>
-    expect(app.daemon.screen.access.list("thread-checkout")).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          bundleId: "com.apple.Safari",
-          scope: "thread",
-          threadId: "thread-checkout",
-        }),
-      ]),
-    ),
-  );
-  await userEvent.click(await within(panel).findByRole("button", { name: "Actions for Safari" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Revoke" }));
-  await waitFor(() => expect(app.daemon.screen.access.list("thread-checkout")).toEqual([]));
-});
-
-test("sharing a window grants only this thread, starts capture and delegates to its agent", async () => {
+test("sharing a window starts capture and delegates it to this thread's agent", async () => {
   const { app, world } = await openSettings();
-  app.daemon.screen.access.enabled = true;
+  app.daemon.screen.enabled = true;
   await app.open("/t/thread-checkout");
   await userEvent.keyboard("{Control>}{Shift>}m{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
@@ -346,13 +284,6 @@ test("sharing a window grants only this thread, starts capture and delegates to 
   await userEvent.click(within(dialog).getByRole("button", { name: "Share with agent" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(await world.sessions()).toEqual([expect.objectContaining({ controller: "agent" })]);
-  expect(app.daemon.screen.access.list()).toEqual([
-    expect.objectContaining({
-      bundleId: "com.apple.TextEdit",
-      scope: "thread",
-      threadId: "thread-checkout",
-    }),
-  ]);
   expect(await within(panel).findByRole("article", { name: "TextEdit" })).toBeTruthy();
 });
 

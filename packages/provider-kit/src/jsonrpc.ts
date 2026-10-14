@@ -142,13 +142,6 @@ export class JsonRpcPeer {
     });
   }
 
-  /** A framing layer lost one reply; leave all other requests and the pipe alive. */
-  rejectRequest(id: RpcId, error: Error): boolean {
-    if (!this.#pending.has(id)) return false;
-    this.#settle(id, error);
-    return true;
-  }
-
   notify(method: string, params?: unknown): Promise<void> {
     const sent = this.#send({
       jsonrpc: "2.0",

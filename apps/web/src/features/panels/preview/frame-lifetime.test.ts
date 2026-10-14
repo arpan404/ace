@@ -114,7 +114,7 @@ test.each(["paused", "recovering", "backend replacement"])(
   "removing the last watcher while hidden after %s leaves room for eight later previews",
   async (transition) => {
     const t = await setup();
-    await t.client.request({ type: "browser.origins.list", threadId: t.threadId });
+    await t.client.request({ type: "browser.tabs.list", threadId: t.threadId });
     const previous = t.source.view(t.threadId);
     t.quiet();
     t.hide();
@@ -139,7 +139,7 @@ test.each(["paused", "recovering", "backend replacement"])(
     t.stop();
     // Drain last-watcher cleanup through the real client/daemon connection.
     await Promise.resolve();
-    await t.client.request({ type: "browser.origins.list", threadId: t.threadId });
+    await t.client.request({ type: "browser.tabs.list", threadId: t.threadId });
 
     // An abandoned subscription consumes one of the daemon's eight slots. All eight
     // later previews must be admitted without a reconnect or detaching the client.
@@ -189,7 +189,7 @@ test.each(["local close", "remote close", "unwatch", "disconnect"])(
       t.client.networkOnline(true);
       await waitFor(() => expect(t.client.state).toBe("ready"));
     }
-    await t.client.request({ type: "browser.origins.list", threadId: t.threadId });
+    await t.client.request({ type: "browser.tabs.list", threadId: t.threadId });
     await Promise.resolve();
     t.frame("pending-new");
     await t.finish("pending-new");
@@ -207,7 +207,7 @@ test("an obsolete decode failure cannot acknowledge the replacement browser's fr
   t.frame("pending-old");
   await t.source.close(t.threadId);
   await t.source.open(t.threadId, failingSubagent().thread.workspaceId);
-  await t.client.request({ type: "browser.origins.list", threadId: t.threadId });
+  await t.client.request({ type: "browser.tabs.list", threadId: t.threadId });
   await Promise.resolve();
   t.frame("pending-new");
   const acks = t.sent.filter((message) => message.type === "browser.ack").length;
@@ -233,7 +233,7 @@ test.each(["backend replacement", "recovery"])(
     });
     t.receive({ type: "browser.state", state });
     t.stop();
-    await t.client.request({ type: "browser.origins.list", threadId: t.threadId });
+    await t.client.request({ type: "browser.tabs.list", threadId: t.threadId });
     const fanout = new FrameFanout();
     const publish = (sequence: number, data: string) =>
       fanout.publish({

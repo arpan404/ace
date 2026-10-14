@@ -58,8 +58,8 @@ function DeviceList(props: {
 
 /**
  * Devices: the catalog of the iOS Simulators and Android emulators on the daemon's machine.
- * Enable them here; each device opens as its own tab, where it is approved for the thread,
- * booted, watched live and driven. Opening another device opens another tab beside it.
+ * Enable them here; each device opens as its own tab, where it is booted, watched live,
+ * driven and handed to the thread's agents. Opening another device opens another tab beside it.
  */
 export function DevicesTab(props: { threadId: string }) {
   const devices = useDevices(props.threadId);

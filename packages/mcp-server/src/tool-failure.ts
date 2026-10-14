@@ -20,7 +20,7 @@ export function parseToolArguments<T extends z.ZodType>(schema: T, value: unknow
 const Origin = z.object({
   blocked: z.object({
     origin: z.string().max(8192),
-    reason: z.enum(["approval_required", "denied", "read_only", "timeout", "invalid_origin"]),
+    reason: z.enum(["approval_required", "timeout", "invalid_origin"]),
   }),
 });
 function publicOrigin(raw: string): string {

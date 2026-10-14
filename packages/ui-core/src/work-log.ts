@@ -46,9 +46,7 @@ export interface StepText {
 /** What a step row needs beyond its item: where it ran, and the approval that gated it. */
 export interface StepContext extends PathContext {
   /** The approval interaction whose `toolCallId` is this step. */
-  interaction?:
-    | Pick<Interaction, "state" | "request" | "resolution" | "review" | "autoReviewed">
-    | undefined;
+  interaction?: Pick<Interaction, "state" | "request" | "resolution" | "autoReviewed"> | undefined;
   /** The option the person just picked on this device, before the daemon confirms it. */
   answering?: string | undefined;
   labels?: StepLabels | undefined;
@@ -235,7 +233,7 @@ function noteFor(call: ToolCall, text: CallText, context: StepContext) {
     const exit = call.detail.kind === "shell" ? text.note : undefined;
     return { note: exit ?? context.labels?.error(call.error) ?? "Failed" };
   }
-  // The approval reads on its step, settled or not: "Approved by you", "Denied by ace".
+  // The approval reads on its step, settled or not: "Approved by you", "Denied by you".
   if (context.labels && context.interaction?.request.kind === "approval") {
     const outcome = context.labels.approval(context.interaction, context.answering);
     return { note: outcome.text, needsYou: outcome.state === "pending", outcome };

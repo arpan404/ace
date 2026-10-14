@@ -7,9 +7,9 @@ import {
 } from "@ace/protocol";
 
 /**
- * The fake daemon's computer use, set up over its own screen wire the way an agent's tools and
- * the person's approvals would leave it: computer use on, apps approved and sessions held by a
- * thread's root agent. Tests then act through the app and read the daemon back.
+ * The fake daemon's computer use, set up over its own screen wire the way an agent's tools would
+ * leave it: computer use on and sessions held by a thread's root agent. Tests then act through
+ * the app and read the daemon back.
  */
 export function screenWorld(daemon: FakeDaemon, threadId: string) {
   const replies = new Map<string, Extract<ScreenServerMessage, { type: "screen.result" }>>();
@@ -42,10 +42,9 @@ export function screenWorld(daemon: FakeDaemon, threadId: string) {
         secureInputAllowed: boolean;
       }[];
     },
-    /** Computer use on and `bundleId` approved always, held by the thread's root agent. */
+    /** Computer use on and `bundleId` held by the thread's root agent. */
     async agentApp(bundleId: string): Promise<string> {
       await call({ op: "enable", enabled: true });
-      await call({ op: "approve", bundleId, allowed: true, scope: "always" });
       const started = (await call({ op: "start", target: { kind: "app", bundleId }, fps: 10 })) as {
         sessionId: string;
       };

@@ -21,7 +21,8 @@ export async function uploadPaths(options: {
   for (const path of paths)
     if (!roots.some((root) => within(root, path)) && !(await options.artifactAllowed?.(path)))
       outside.push(path);
-  if (outside.length && !(await options.policy?.(outside))) throw new BrowserActionError("denied");
+  if (outside.length && options.policy && !(await options.policy(outside)))
+    throw new BrowserActionError("denied");
   let bytes = 0;
   for (const path of paths) {
     const info = await stat(path);

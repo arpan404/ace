@@ -4,7 +4,6 @@ export { connectBrowser } from "./bridge.ts";
 export { FrameFanout, captureSettings, type FrameSink } from "./fanout.ts";
 export { SessionLogs } from "./logs.ts";
 export {
-  originAccess,
   BrowserOriginError,
   browserOrigin,
   allowedOrigin,

@@ -127,14 +127,13 @@ function startHost(
         idleMs,
         schedule: io.schedule,
         onRetired: retired,
-        spawn: (flow, dropped) =>
+        spawn: (flow) =>
           io.spawn({
             command,
             args: [...(ctx.builtinSkills?.args ?? []), "app-server"],
             // A shared process outlives any one workspace; threads carry their own cwd.
             cwd: dedicated ? ctx.cwd : io.homeDir(),
             outputFlow: flow,
-            ...(!dedicated ? { onStdoutLineDropped: dropped } : {}),
             elideStdout: codexElision,
             env: { ...env, ACE_MCP_BEARER_TOKEN: undefined },
             name: "ace-codex",

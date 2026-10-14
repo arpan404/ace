@@ -13,6 +13,7 @@ const safeMessages = new Set([
   "Screen Recording permission revoked",
   "macOS permission denied",
   "macOS permission denied or target unavailable",
+  // The native helpers' own check that a request stays inside its session's target.
   "Approved window target required",
   "Approved controllable target required",
   "Approved installed application required",
@@ -26,15 +27,7 @@ export function screenPublicFailure(
   permissionHint?: "screenRecording" | "accessibility",
 ): unknown {
   if (!(error instanceof Error) || !("code" in error)) return error;
-  const mapping = {
-    denied: "screen_approval_denied",
-    // The bare `approval_required` is the browser's origin approval.
-    approval_required: "screen_approval_required",
-    timeout: "screen_approval_timeout",
-    read_only: "screen_read_only",
-  } as const;
-  const source = typeof error.code === "string" ? error.code : "";
-  const code = PublicToolCode.safeParse(Reflect.get(mapping, source) ?? source);
+  const code = PublicToolCode.safeParse(typeof error.code === "string" ? error.code : "");
   if (!code.success) return error;
   const explicit = permission.safeParse("permission" in error ? error.permission : undefined);
   const inferred = error.message.startsWith("Screen Recording permission")

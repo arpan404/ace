@@ -342,17 +342,10 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     log.log("warn", "Abandoned skill projection cleanup failed", logError(error)),
   );
   engine.bindHostInteractions(
-    (command) =>
-      services.asks?.resolve(command) ??
-      services.screenApprovals?.resolve(command) ??
-      services.browserApprovals?.resolve(command) ??
-      services.browserOrigins?.resolve(command),
+    (command) => services.asks?.resolve(command) ?? services.browserPrivateAnswers?.(command),
   );
   services.engine = engine;
   services.historyAdapters = historyEnginePort(context, engine, registry);
-  services.browserOrigins?.recover();
-  services.screenApprovals?.recover();
-  services.browserApprovals?.recover();
   services.handler = engine.handler;
 }
 

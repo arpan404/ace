@@ -37,34 +37,6 @@ test("devices stay off until enabled, then list the simulator and emulator", asy
   expect(rows).toHaveLength(2);
 });
 
-test("approving a device for the thread is what the daemon records", async () => {
-  const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
-  const iphone = await openDevice(panel, "iPhone 16 Pro");
-
-  await userEvent.click(within(iphone).getByRole("button", { name: "Approve" }));
-
-  expect(await within(iphone).findByText("Agents in this thread can use it")).toBeTruthy();
-  expect(app.daemon.appDevices.approval("ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b")).toBe(
-    "thread-checkout",
-  );
-});
-
-test("a person watches an unapproved simulator; approval removes the access hint", async () => {
-  const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
-  const iphone = await openDevice(panel, "iPhone 16 Pro");
-  const image = await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
-  await shows(image);
-  expect(
-    app.daemon.appDevices.approval("ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b"),
-  ).toBeUndefined();
-  expect(within(iphone).getByText(/You can watch without approving/)).toBeTruthy();
-  await userEvent.click(within(iphone).getByRole("button", { name: "Approve" }));
-  await within(iphone).findByText("Agents in this thread can use it");
-  expect(within(iphone).queryByText(/You can watch without approving/)).toBeNull();
-});
-
 test("booting an emulator shows its live screen, which takes keys and text while you're in control", async () => {
   const { app, panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
@@ -94,12 +66,11 @@ test("booting an emulator shows its live screen, which takes keys and text while
   );
 });
 
-test("an approved running simulator shows its screen, and only watches until you take control", async () => {
+test("a running simulator shows its screen, and only watches until you take control", async () => {
   const { app, panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const iphone = await openDevice(panel, "iPhone 16 Pro");
 
-  await userEvent.click(within(iphone).getByRole("button", { name: "Approve" }));
   const screenImage = await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
   await shows(screenImage);
   expect(within(iphone).getByRole("button", { name: "Home" }).hasAttribute("disabled")).toBe(true);
@@ -124,7 +95,6 @@ test("the device's ⋯ menu stops the live view and shuts the device down", asyn
   const { panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const iphone = await openDevice(panel, "iPhone 16 Pro");
-  await userEvent.click(within(iphone).getByRole("button", { name: "Approve" }));
   await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
 
   await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
@@ -166,20 +136,6 @@ test("the device's logs appear while the log section is open", async () => {
 
   const logs = await within(panel).findByRole("log", { name: "Device logs" });
   expect(await within(logs).findByText(/SpringBoard launched/)).toBeTruthy();
-});
-
-test("revoking approval takes the device away from the thread's agents", async () => {
-  const { app, panel } = await openDevices();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
-  const iphone = await openDevice(panel, "iPhone 16 Pro");
-  await userEvent.click(within(iphone).getByRole("button", { name: "Approve" }));
-
-  await userEvent.click(await within(iphone).findByRole("button", { name: "Revoke" }));
-
-  expect(await within(iphone).findByText("Agents in this thread can't use it yet")).toBeTruthy();
-  expect(
-    app.daemon.appDevices.approval("ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b"),
-  ).toBeUndefined();
 });
 
 test("a dropped devices channel says so, and Reconnect opens a fresh one", async () => {
@@ -253,7 +209,6 @@ test("when macOS hasn't allowed screen recording, the simulator tab says how to 
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const iphone = await openDevice(panel, "iPhone 16 Pro");
 
-  await userEvent.click(within(iphone).getByRole("button", { name: "Approve" }));
   const guide = await within(iphone).findByRole("alert", {
     name: "Screen Recording permission needed",
   });
@@ -279,7 +234,6 @@ test("a simulator key refused for want of Accessibility says how to allow it, ab
   app.daemon.appDevices.permissions.accessibility = false;
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const iphone = await openDevice(panel, "iPhone 16 Pro");
-  await userEvent.click(within(iphone).getByRole("button", { name: "Approve" }));
   await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
 
   await userEvent.click(within(iphone).getByRole("button", { name: /Take control/ }));
@@ -295,12 +249,10 @@ test("a simulator key refused for want of Accessibility says how to allow it, ab
   await waitFor(() => expect(app.daemon.appDevices.requested).toEqual(["accessibility"]));
 });
 
-test("an approved device can be delegated to one of the thread's agents, who then holds it, and taken back", async () => {
-  const { panel } = await openDevices();
+test("a device delegated to one of the thread's agents moves to the thread, the agent holds it, and it can be taken back", async () => {
+  const { app, panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const iphone = await openDevice(panel, "iPhone 16 Pro");
-  await userEvent.click(within(iphone).getByRole("button", { name: "Approve" }));
-  await within(iphone).findByText("Agents in this thread can use it");
 
   await userEvent.click(
     await within(iphone).findByRole("button", { name: "Delegate to an agent" }),
@@ -312,12 +264,15 @@ test("an approved device can be delegated to one of the thread's agents, who the
   // The daemon's state names the agent that holds it now.
   expect(await within(iphone).findByText(`${chosen} is using it`)).toBeTruthy();
   expect(statusLine(iphone)).toMatch(/The agent is in control$/);
+  expect(app.daemon.appDevices.boundThread("ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b")).toBe(
+    "thread-checkout",
+  );
 
   await userEvent.click(within(iphone).getByRole("button", { name: "Take back" }));
   expect(await within(iphone).findByText("You're using it")).toBeTruthy();
 });
 
-test("Simulator can restart its live view without granting agent access", async () => {
+test("Simulator can restart its live view", async () => {
   const { panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const iphone = await openDevice(panel, "iPhone 16 Pro");
@@ -398,7 +353,6 @@ test("booting has a visible status until the emulator finishes", async () => {
           state: "shutdown",
         },
         enabled: true,
-        approved: false,
         lifecycle: "idle",
         booting: true,
         controller: "human",
@@ -448,7 +402,6 @@ test.each(["booted", "shutdown", "offline"] as const)(
             state: deviceState,
           },
           enabled: true,
-          approved: false,
           lifecycle: "failed",
           cleanupRequired: true,
           controller: "none",

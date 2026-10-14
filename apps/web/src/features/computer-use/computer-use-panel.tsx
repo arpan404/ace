@@ -1,12 +1,12 @@
 import { Link } from "@tanstack/react-router";
 import type { TabViewProps } from "@/lib/workspace/index.ts";
-import { ApprovedApps, EnableRow, LiveSessions, StopAllButton } from "./sections.tsx";
+import { EnableRow, LiveSessions, StopAllButton } from "./sections.tsx";
 import { SharePicker } from "./share-picker.tsx";
 import { useComputerUse } from "./use-computer-use.ts";
 
 /**
  * Computer use beside a thread: every live session (this thread's first) with Take over,
- * Delegate to this thread's agents and Stop, and the apps this thread's agents may use.
+ * Delegate to this thread's agents and Stop.
  */
 export default function ComputerUsePanel(props: TabViewProps) {
   const threadId = props.scope;
@@ -26,14 +26,8 @@ export default function ComputerUsePanel(props: TabViewProps) {
             </div>
             <LiveSessions use={use} threadId={threadId} narrow />
           </section>
-          <section aria-label="Approved for this thread" className="mt-6">
-            <h2 className="mb-1 text-xs font-medium text-subtle-foreground">
-              Approved for this thread
-            </h2>
-            <ApprovedApps use={use} threadId={threadId} />
-          </section>
           <p className="mt-6 text-xs text-subtle-foreground">
-            Permissions and every app's grants are in{" "}
+            macOS permissions are in{" "}
             <Link
               to="/settings/computer-use"
               className="text-link focus-ring rounded-xs hover:underline"

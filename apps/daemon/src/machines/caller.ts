@@ -14,7 +14,6 @@ import {
 } from "@ace/protocol";
 import { HostId } from "@ace/protocol";
 import type { Store } from "../store.ts";
-import type { Engine } from "../engine/index.ts";
 import { AgentControlError } from "../agent-control/failure.ts";
 import { clip } from "../agent-control/watch-view.ts";
 import type { MachineDirectory } from "./directory.ts";
@@ -24,7 +23,6 @@ import { MachineFailure } from "./transport.ts";
 
 export interface CallerDeps {
   store: Store;
-  engine(): Engine | undefined;
   hostId: string;
   hostName(): Promise<string>;
   directory: MachineDirectory;
@@ -35,9 +33,8 @@ export interface CallerDeps {
 }
 
 /**
- * What agents on this machine do on other machines. This side applies the calling thread's
- * own ceiling (a read-only thread only reads elsewhere); the target applies its own access,
- * pairing scope and consent on top.
+ * What agents on this machine do on other machines. The target applies its own pairing scope;
+ * permissions stay with the calling provider (ace's tools are always allowed).
  */
 export class MachineCaller {
   private deps: CallerDeps;
@@ -51,9 +48,6 @@ export class MachineCaller {
       threadId,
       threadTitle: clip(this.deps.store.getThread(threadId)?.title ?? "", 256),
     };
-  }
-  private readOnly(threadId: ThreadId): boolean {
-    return this.deps.engine()?.permissionAuthority(threadId) === "read-only";
   }
   async list(caller: McpAttribution): Promise<AgentControlResult> {
     const machines = await this.deps.directory.list(await this.origin(caller.threadId));
@@ -73,13 +67,6 @@ export class MachineCaller {
         "workspace_with_machine",
         undefined,
         "Name a project on that machine with project; workspace selects this machine's checkout.",
-      );
-    if (this.readOnly(caller.threadId))
-      throw new AgentControlError(
-        "machine_forbidden",
-        "read_only_thread",
-        undefined,
-        "This thread is read-only, so it can't start work on another machine.",
       );
     const requestKey = `${caller.threadId}:${request.requestId}`;
     const existing = this.deps.children.byRequest(requestKey);
@@ -167,21 +154,16 @@ export class MachineCaller {
   }
   /**
    * A browser tool on another machine. While it runs, that machine's requests for this call
-   * (a new site, running a script) show here too, so the person can answer from either one.
+   * (a private takeover there) show here too, so the person can answer from either one.
    */
   async browser(
     caller: McpAttribution,
     machine: string,
     tool: string,
     args: Record<string, unknown>,
-    options: { readOnly: boolean; timeoutMs: number; signal: AbortSignal },
+    options: { timeoutMs: number; signal: AbortSignal },
   ) {
     const { directory } = this.deps;
-    if (!options.readOnly && this.readOnly(caller.threadId))
-      throw directory.toolError(
-        machine,
-        new MachineFailure("refused", "machine_forbidden", "This thread is read-only."),
-      );
     const origin = await this.origin(caller.threadId);
     let session: ThreadId;
     try {

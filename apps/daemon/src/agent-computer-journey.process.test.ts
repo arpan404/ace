@@ -1,7 +1,7 @@
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { expect, it, onTestFinished, vi } from "vitest";
+import { expect, it, onTestFinished } from "vitest";
 import { z } from "zod";
 import { ScreenManager, framePacket, type Frame } from "@ace/screen";
 import { DevicesService, DevicePlatform, agentOwner } from "@ace/devices";
@@ -10,7 +10,6 @@ import { Command, Capabilities, McpScope } from "@ace/protocol";
 import { DeviceOperation } from "@ace/protocol/devices";
 import { startDaemon, readConfig, AdapterRegistry } from "./index.ts";
 import { invoke } from "./browser-mcp-test-support.ts";
-import { approveForeground } from "./testing/screen-foreground.ts";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
 import { scriptFrames, start } from "./engine/test-support.ts";
 import { deviceInputProcess } from "./testing/device-input-process.ts";
@@ -175,7 +174,6 @@ it("screen and device agents edit, submit, resume expired leases and respect tak
   );
   if (!created.ok || !created.threadId) throw new Error("Journey thread was not created");
   const thread = { id: created.threadId };
-  await vi.waitFor(() => expect(engine.screenTurn(thread.id)).toBeDefined());
   const root = engine.rootAgent(thread.id);
   if (!root) throw new Error("Missing root agent");
   const scope = McpScope.parse({
@@ -197,13 +195,12 @@ it("screen and device agents edit, submit, resume expired leases and respect tak
     { text: "Tool unavailable or capability denied" },
   ]);
   await screen.enable(true);
-  await screen.approve("dev.ace.journey", true);
   const session = await screen.start({ kind: "window", windowId: 1, bundleId: "dev.ace.journey" });
   screen.delegateAgent(session.sessionId, scope);
   expect(data(await call("screen_type", { text: "denied" }, true))).toMatchObject({
     code: "foreground_required",
   });
-  await approveForeground(daemon, screen, session.sessionId, thread.id);
+  expect(data(await call("screen_request_foreground"))).toMatchObject({ mode: "foreground" });
   expect(
     Tree.parse(data(await call("screen_ui_find", { query: { name: "Name" } }))).nodes[0]?.ref,
   ).toBe("name");
@@ -224,14 +221,13 @@ it("screen and device agents edit, submit, resume expired leases and respect tak
   screen.controller(session.sessionId, "human", "person");
   await call("screen_type", { text: "forbidden" }, true);
   screen.delegateAgent(session.sessionId, scope);
-  await approveForeground(daemon, screen, session.sessionId, thread.id);
+  await call("screen_request_foreground");
   await call("screen_scroll", { dx: 0, dy: 10 });
   await call("screen_click", { x: 1, y: 2 });
   await call("screen_screenshot", { threadId: "other" }, true);
   const human = { kind: "human", owner: "person" } as const;
   const request = (operation: unknown) => devices.request(DeviceOperation.parse(operation), human);
   await request({ op: "enable", enabled: true });
-  await request({ op: "approve", deviceId: "android:Pixel", threadId: thread.id, allowed: true });
   const delegate = () =>
     request({
       op: "controller",
@@ -290,7 +286,7 @@ it("screen and device agents edit, submit, resume expired leases and respect tak
   ).toMatchObject({ code: "lease_required" });
   await delegate();
   await call("device_stop", { deviceId: "android:Pixel" });
-  await request({ op: "approve", deviceId: "android:Pixel", threadId: thread.id, allowed: false });
+  await request({ op: "enable", enabled: false });
   await call("device_screenshot", { deviceId: "android:Pixel" }, true);
   lease.end();
   expect(

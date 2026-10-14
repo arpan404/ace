@@ -377,7 +377,6 @@ async function simulator(duplicate = false) {
   });
   cleanup.push(() => screen.close());
   await screen.enable(true);
-  await screen.approve(simulatorTarget.bundleId, true);
   const start = (publish: (frame: Frame) => void = noop) =>
     startCapture({
       device: {

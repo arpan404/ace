@@ -1,4 +1,4 @@
-import type { ScreenState, ScreenTarget, ScreenAgentScope } from "@ace/protocol";
+import type { ScreenState, ScreenTarget } from "@ace/protocol";
 import { FrameHub, type Frame } from "./frames.ts";
 import type { Helper } from "./helper.ts";
 import { helperSession, type HelperPort } from "./helper-session.ts";
@@ -12,12 +12,11 @@ export interface ControllerBinding {
 }
 import type { ModelCoordinates } from "./model-coordinates.ts";
 export type Session = {
-  foregroundTurn?: string | undefined;
-  frameAuthorization?: { policy: number; revision: number };
+  /** The policy epoch the latest frame was authorized under. */
+  frameEpoch?: number;
   modelCoordinates: ModelCoordinates | undefined;
   state: ScreenState;
   helper: HelperPort;
-  approvalScope: ScreenAgentScope | undefined;
   humanView: boolean;
   nativeStarted: boolean;
   hub: FrameHub;
@@ -50,7 +49,6 @@ export function createSession(
   nextGeneration: () => number,
 ): Session {
   const session: Session = {
-    approvalScope: undefined,
     humanView: false,
     nativeStarted: false,
     helper,

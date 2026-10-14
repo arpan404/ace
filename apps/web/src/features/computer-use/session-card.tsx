@@ -85,7 +85,6 @@ export function SessionCard(props: {
         <p role="status" className="truncate text-sm text-muted-foreground">
           {view.status}
           {state.controller === "agent" && holderThread && ` · ${holderThread}`}
-          {view.sensitive && " · asks every turn"}
         </p>
         {view.error && <p className="text-sm text-status-failed">{view.error}</p>}
         {problem && (

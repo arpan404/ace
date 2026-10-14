@@ -39,7 +39,7 @@ export function browserToolkit(
       registry.registerContent({
         name: "ace_browser_open",
         description:
-          "Use for every website or web app, including localhost, instead of Safari or Chrome via screen_*. Open this thread's ace browser. Optional url must be HTTP(S) without credentials. New origins follow the thread permission mode and may wait for human approval. Then call ace_browser_snapshot for element refs. Do not use cua_repl or another provider's browser for this thread.",
+          "Use for every website or web app, including localhost, instead of Safari or Chrome via screen_*. Open this thread's ace browser. Optional url must be HTTP(S) without credentials. Then call ace_browser_snapshot for element refs. Do not use cua_repl or another provider's browser for this thread.",
         input: z.strictObject({
           url: z.string().max(8192).optional(),
           newTab: z.boolean().default(false),
@@ -58,7 +58,6 @@ export function browserToolkit(
                 machine: target,
                 tool: "ace_browser_open",
                 args,
-                readOnly: false,
                 timeoutMs: 295_000,
               },
               context,
@@ -113,7 +112,6 @@ export function browserToolkit(
                 machine: input.machine,
                 tool: "ace_browser_close",
                 args: {},
-                readOnly: false,
                 timeoutMs: 55_000,
               },
               context,

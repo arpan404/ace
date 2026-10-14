@@ -13,12 +13,6 @@ export { nextDeadline, DeadlineIndex } from "./deadlines.ts";
 export { isActionableInteraction } from "./human.ts";
 
 export { readyForChildResults } from "./external.ts";
-export {
-  reviewPermission,
-  permissionDecisionOption,
-  containsSecretReference,
-} from "./ace-tool-consent.ts";
-export type { RiskDecision, PathRisk } from "./ace-tool-consent.ts";
 
 export { ExpiryMap } from "./expiry-map.ts";
 export {
@@ -28,8 +22,6 @@ export {
 } from "./provider-admission.ts";
 
 export { factRaw } from "./fact-raw.ts";
-
-export { inspectionCommand } from "./permission-commands.ts";
 
 export { providerReadiness, onboardingChecklist } from "./provider-readiness.ts";
 

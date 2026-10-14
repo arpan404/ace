@@ -143,11 +143,8 @@ const screen = (words: AceToolSpec["words"], input?: InputKind): AceToolSpec => 
 
 const screenSpecs: Record<string, AceToolSpec> = {
   screen_open_app: screen(({ subject }) => say(verbs.opened, ` ${subject ?? "an app"}`)),
-  screen_request_app: screen(({ subject }) =>
-    say(["Asked to use", "Asking to use", "Ask to use"], ` ${subject ?? "an app"}`),
-  ),
   screen_request_foreground: screen(({ subject }) =>
-    say(["Asked to bring", "Asking to bring", "Ask to bring"], ` ${subject ?? "the app"} forward`),
+    say(["Brought", "Bringing", "Bring"], ` ${subject ?? "the app"} forward`),
   ),
   screen_screenshot: screen(({ subject }) => say(verbs.took, ` a screenshot${at(subject, "of")}`)),
   screen_click: screen((facts) => {

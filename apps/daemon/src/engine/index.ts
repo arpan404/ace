@@ -21,7 +21,6 @@ import {
   Command as CommandSchema,
   type AccessModeOffer,
   type AccessRequest,
-  type PermissionMode,
   type CommandResult,
 } from "@ace/protocol";
 import { commandContext } from "../commands.ts";
@@ -298,7 +297,6 @@ export class Engine {
       }
     });
     this.repo.observe = (state, facts, events, at) => {
-      this.repo.permissions.observe(state, events, at, () => this.wake(state.threadId));
       if (facts.some((fact) => fact.type === "process.started"))
         this.meters.invalidate(state.threadId, at);
       if (
@@ -471,9 +469,6 @@ export class Engine {
         return result;
       }),
     );
-  }
-  permissionAuthority(id: ThreadId): PermissionMode {
-    return this.repo.permissions.authority(id);
   }
   /** A thread's access as its children see it: an ace mode, or null when unranked. */
   access(id: ThreadId): AccessMode | null {
@@ -868,18 +863,6 @@ export class Engine {
     if (rootOf() === undefined) this.actor(threadId).apply([{ type: "tick" }]);
     return rootOf();
   }
-  screenTurn(threadId: ThreadId): string | undefined {
-    const state = this.repo.state(threadId);
-    if (!state) return undefined;
-    const root = state.rootKey === undefined ? undefined : state.agents[state.rootKey];
-    const status = this.repo.store.getThread(threadId)?.status.state;
-    return (
-      root?.activeRun ??
-      (status === "working" || status === "waiting" || status === "needs_you"
-        ? root?.lastRun
-        : undefined)
-    );
-  }
   openHostApproval(
     threadId: ThreadId,
     key: string,
@@ -888,7 +871,8 @@ export class Engine {
   ) {
     const state = this.repo.requireState(threadId);
     const agent = state.rootKey ?? "root";
-    // ace's consent asked while one of its own tools runs: the answer reads on that tool's row.
+    // A host approval (one mirrored from another machine) raised while one of ace's own tools
+    // runs reads on that tool's row.
     const item =
       request.kind === "approval" ? liveAceCall(state, agent, request.target?.tool) : undefined;
     this.actor(threadId).apply([
@@ -916,7 +900,7 @@ export class Engine {
     },
   ): void {
     this.actor(threadId).apply([{ type: "interaction.closed", interaction: key, ...result }]);
-    // A host gate (private browser, screen, browser approvals) may be the last hold on the
+    // A host gate (private browser, an ace_ask question) may be the last hold on the
     // queue. Provider frames wake the thread on their own; a host-side close must too.
     this.wake(threadId);
   }

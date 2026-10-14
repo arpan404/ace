@@ -3,6 +3,8 @@
 Date: 2026-10-05. Status: accepted. Agent backend choice (MCP opens no longer force headless)
 is superseded by [ADR 0069](0069-shared-native-browser.md).
 
+Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provider-native (owner decision). Evaluate, download and upload approvals described below are removed; agents run them without a prompt. Private human control is unchanged.
+
 ## Context
 
 Agents need several pages in one thread and independent browser work across threads.

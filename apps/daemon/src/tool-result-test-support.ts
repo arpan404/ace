@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { expect } from "vitest";
-import { PublicToolError } from "@ace/mcp-server";
 import { z } from "zod";
 import { apply, createThreadState, type Fact } from "@ace/core";
 import { createCodexTranslator } from "@ace/adapter-codex";
@@ -36,7 +35,6 @@ export async function toolFixture(
     helperEnv?: NodeJS.ProcessEnv;
     error?: boolean;
     secureConsent?: boolean;
-    approvalFailure?: "denied" | "timeout" | "read_only";
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "ace-measure-step-"));
@@ -105,22 +103,8 @@ export async function toolFixture(
                   genericQuirks,
                 );
   await screen.enable(true);
-  await screen.approve("dev.ace.test", true);
   const session = await screen.start({ kind: "window", bundleId: "dev.ace.test", windowId: 1 });
-  screen.configureAccess({
-    enabled: () => true,
-    enable() {},
-    list: () => [{ bundleId: "dev.ace.test", scope: "always", grantedAt: 0 }],
-    allows: () => true,
-    approve() {},
-    async request() {
-      if (options.approvalFailure) throw new PublicToolError(options.approvalFailure);
-      return;
-    },
-    async foreground() {},
-    audit() {},
-  });
-  if (options.tool?.startsWith("screen_") && options.tool !== "screen_request_app")
+  if (options.tool?.startsWith("screen_"))
     screen.controller(session.sessionId, "agent", JSON.stringify([thread.id, agentId]));
   if (options.secureConsent) screen.secureInput(session.sessionId, true);
   let mcp = daemon.mcp;
@@ -178,9 +162,7 @@ export async function toolFixture(
     (options.browser ? "ace_browser_measure_interaction" : "screen_measure_interaction");
   const args = options.browser
     ? { observeMs: 2000 }
-    : options.tool &&
-        (!options.tool.startsWith("screen_") ||
-          ["screen_open_app", "screen_request_app"].includes(options.tool))
+    : options.tool && (!options.tool.startsWith("screen_") || options.tool === "screen_open_app")
       ? (options.input ?? {})
       : { sessionId: session.sessionId, ...(options.input ?? { observeMs: 2000 }) };
   const frames = measurementFrames(provider, args, tool);

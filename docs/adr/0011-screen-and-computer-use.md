@@ -2,6 +2,8 @@
 
 Date: 2026-10-02. Status: accepted.
 
+Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provider-native (owner decision). Per-app approvals described below are gone: an agent's computer use runs without an app prompt. Enabling screen access, controller ownership and human takeover are unchanged.
+
 ## Context
 
 The supplied competitor inventories describe t3code's desktop browser automation and simulator streaming, Codex and Claude's per-app computer-use approvals, Cursor's desktop takeover and video artifacts, and Antigravity's action recordings. t3code's browser automation needs an Electron host and does not stream desktop applications to remote clients. The inventories are feature references only; no implementation is reused.

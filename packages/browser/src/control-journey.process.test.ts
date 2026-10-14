@@ -43,7 +43,7 @@ it("takeover and handback invalidate both queued and resolving agent input", asy
 });
 
 it.each(["URL", "element"])(
-  "a %s wait submitted after a click's policy check started retains its load budget through approval",
+  "a %s wait submitted after a click's origin hook started retains its load budget while the hook is slow",
   async (condition) => {
     const clock = new TestNavigationClock();
     const entered = Promise.withResolvers<void>();
@@ -64,7 +64,6 @@ it.each(["URL", "element"])(
     const f = await backendFixture({
       backendPreference: () => "headless",
       navigationClock: clock,
-      origins: { list: () => [], grant() {}, revoke() {} },
       originPolicy: () => {
         entered.resolve();
         return approval.promise;

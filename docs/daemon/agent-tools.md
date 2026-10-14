@@ -6,8 +6,9 @@ credential in tool arguments. A closed provider session loses its MCP authority.
 Discover the tool catalog for the current session before choosing tools.
 
 Use ace's tools for the thread browser and delegated devices. Provider-specific
-browser extensions and `cua_repl.js` do not control ace's thread browser, do not
-share its origin approvals, and are not part of this contract.
+browser extensions and `cua_repl.js` do not control ace's thread browser and are
+not part of this contract. ace's own tools never ask for approval: the provider
+that calls them applies its own permissions, so every call ace receives proceeds.
 
 ## Browser journey
 
@@ -35,8 +36,6 @@ Choose exactly one wait condition: `url`, `text`, or `ref` with
 `state: "visible" | "hidden"`. The element form applies to the current document;
 it cannot wait for a destination element whose ref does not exist yet. Wait and
 navigation `timeout` values are milliseconds, default 10000, maximum 30000.
-Origin approval pauses the load budget, including an approval begun by a click
-before the wait was submitted. The total approval reserve is at most 65000 ms.
 Cancellation does not return a late success. Each text poll visits at most 1024 DOM nodes
 and 65536 text characters, and rejects documents over the 20000-node snapshot cap.
 Larger searches return `page_text_limit` instead of repeatedly scanning the page.
@@ -46,25 +45,22 @@ stable across snapshots of an unchanged element in the same document, but only
 the latest snapshot grants actionable refs. Navigation, detached elements and
 backend replacement require a fresh snapshot. A ref is not a CSS selector.
 
-| Tool                   | Arguments and result                                                                              |
-| ---------------------- | ------------------------------------------------------------------------------------------------- |
-| `ace_browser_navigate` | `url`, optional `timeout`; HTTP(S), no URL credentials; returns browser state                     |
-| `ace_browser_scroll`   | `x`, `y` are horizontal/vertical pixel distances, not target coordinates                          |
-| `ace_browser_evaluate` | `expression`, optional `mode: read-only / unrestricted`; bounded JSON; separate evaluate approval |
-| `ace_browser_logs`     | optional kind, level, url substring, status, limit; returns bounded redacted inline entries       |
-| `ace_browser_resize`   | `width`, `height`, 100–4096 CSS pixels                                                            |
-| `ace_browser_emulate`  | `width`, `height`, optional `deviceScaleFactor`, `mobile`, `touch`, `colorScheme`                 |
-| `ace_browser_close`    | `{}`; closes the thread browser after agent control is restored                                   |
+| Tool                   | Arguments and result                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------- |
+| `ace_browser_navigate` | `url`, optional `timeout`; HTTP(S), no URL credentials; returns browser state               |
+| `ace_browser_scroll`   | `x`, `y` are horizontal/vertical pixel distances, not target coordinates                    |
+| `ace_browser_evaluate` | `expression`, optional `mode: read-only / unrestricted`; bounded JSON                       |
+| `ace_browser_logs`     | optional kind, level, url substring, status, limit; returns bounded redacted inline entries |
+| `ace_browser_resize`   | `width`, `height`, 100–4096 CSS pixels                                                      |
+| `ace_browser_emulate`  | `width`, `height`, optional `deviceScaleFactor`, `mobile`, `touch`, `colorScheme`           |
+| `ace_browser_close`    | `{}`; closes the thread browser after agent control is restored                             |
 
-## Origin consent and control
+## Sites and control
 
-Read-only refuses agent navigation, including loopback and previously granted
-origins. Ask and Auto-review allow loopback or granted origins. A new external
-origin opens a blocking host approval for the exact origin. The agent waits; it
-must never resolve its own approval. Human choices are Allow once, Allow for this
-thread, and Deny. Full access allows new origins without human work and without
-creating permanent grants. Resources, redirects and WebSockets share the origin
-policy. Site consent does not grant JavaScript evaluation.
+An agent may open any `http(s)` address without URL credentials, in every
+permission mode, without a question to a person. Resources, redirects and
+WebSockets reach any `http(s)`/`ws(s)` origin. Other schemes such as `file:` and
+`chrome:` fail with `invalid_origin`.
 
 Browser takeover and handback are authenticated human operations, not agent
 tools. A human lease blocks agent input and agent close. Takeover invalidates
@@ -76,7 +72,7 @@ already dispatched cannot be undone. Shared disconnect returns browser control; 
 `ace_browser_tabs({operation:"list"})` returns stable IDs and the active tab.
 Use operation open with optional url, or switch/close with tabId. The last tab
 requires ace_browser_close. Each thread has at most eight tabs; the daemon has
-at most 32. Popups are policy-checked background tabs. Commands accept optional
+at most 32. Popups are background tabs. Commands accept optional
 tabId to select their target; snapshot again after switching.
 
 `ace_browser_find({role:"button",name:"Save"})` returns matching snapshot nodes;
@@ -85,9 +81,8 @@ and select takes ref and option values. Frame-qualified refs target same-origin
 and cross-origin frame elements through their CDP sessions.
 
 `ace_browser_upload({ref,files:["relative/workspace/file.txt"]})` sets a file input.
-Workspace and thread artifact files are allowed; outside paths require a human.
-Downloads are quarantined and need a separate browser.downloads approval in
-Ask/Auto-review. Completed downloads announce an artifact with filename, size,
+Relative paths resolve against the workspace; absolute paths are uploaded too.
+Downloads are quarantined. Completed downloads announce an artifact with filename, size,
 MIME and executable/archive flags. Never execute or open a flagged file by default.
 
 A tab may carry pending_dialog with dialogId, tabId, type and message. Answer with
@@ -97,9 +92,7 @@ prompts and file chooser windows do not grant capabilities.
 
 Evaluate defaults to unrestricted. Use mode read-only to read DOM in an isolated
 world with side-effect checking. It refuses mutation, navigation and network calls;
-it cannot read page-world variables and may refuse harmless operations. Evaluation
-has its own Allow once / Deny approval, plus a read-only site/thread grant option.
-Full access evaluates directly. A site grant never permits unrestricted JavaScript.
+it cannot read page-world variables and may refuse harmless operations.
 
 `ace_browser_network_body({requestId})` reads one completed bounded text response
 from a request ID in logs. Binary, incomplete, evicted or oversized bodies fail.
@@ -107,16 +100,15 @@ Known secrets are redacted; arbitrary page text can still be sensitive.
 `ace_browser_record_start({})` and record_stop reuse the recording/artifact pipeline.
 Recording captures the active view; private frames are excluded. Recording is not replay.
 
-The [UI wire handoff](browser-parity-ui.md) defines tab/download/dialog state,
-grants, private reconnect and the human approval controls.
+The [UI wire handoff](browser-parity-ui.md) defines tab/download/dialog state
+and private reconnect.
 
 ## Screen journey
 
-A human enables screen access and grants the helper's OS permissions. Call
-`screen_request_app({bundleId, reason})` for a host approval (this turn, this thread,
-always or deny), then `screen_open_app({bundleId})` to launch without activation
-and acquire a background session. Sensitive apps always ask. A human can also
-start and delegate a session. Up to eight distinct macOS apps share one helper;
+A human turns computer use on and grants the helper's OS permissions. ace adds no
+per-app approval: the provider's own permission mode decides each call, using the tools'
+MCP annotations. Call `screen_open_app({bundleId})` to launch without activation and
+acquire a background session. A human can also start and delegate a session. Up to eight distinct macOS apps share one helper;
 `target_busy` identifies the existing holder. Session tools accept `sessionId`;
 include it whenever the agent controls multiple apps. Cross-agent selection fails.
 
@@ -147,23 +139,26 @@ ffmpeg on the daemon host for resizing; a missing encoder returns a typed remedy
 Live-view frames retain their original resolution.
 
 Background input never activates the app or uses HID input. `foreground_required`
-means the app needs an explicitly approved escalation; request it with
-`screen_request_foreground({sessionId, reason})`. Unsupported background events
+means the app needs foreground input; switch with `screen_request_foreground({sessionId})`. Unsupported background events
 are never silently retried in foreground. Every action waits for a bounded UI
 settle; agents do not need to sleep. Occluded windows can be captured; minimized
 or off-display windows report explicit errors. Locked-Mac compatibility needs a
 live check. Windows/Linux background input remains a follow-up.
 
-Human takeover removes screen delegation. The human must delegate again before
-agent tools resume. Ending the provider lease releases its delegated control. The global human kill
+Human takeover removes screen delegation, and agent calls on that app are refused while
+the person holds it. Once they hand it back or release it, the agent resumes (or reacquires
+it with `screen_open_app`). Ending the provider lease releases its delegated control. The global human kill
 switch stops all sessions and blocks reacquisition until enablement is renewed.
 See the [UI wire handoff](background-computer-use.md).
 
 ## Device journey
 
-A human enables devices, approves one for the thread, and delegates its controller
-lease. `device_list({})` returns only devices approved for that thread. All other
-device tools take `deviceId`, for example `"android:Pixel"` or `"ios:UUID"`.
+A human turns devices on. `device_list({})` returns every device. All other device
+tools take `deviceId`, for example `"android:Pixel"` or `"ios:UUID"`. There is no
+per-device approval: `device_boot({deviceId})` and `device_start({deviceId})` take the
+device for the agent's thread and give it the controller lease, unless a person controls
+it or another agent holds it (`lease_required` / `busy`). A device idle after its last
+holder's lease expired moves to the new thread.
 
 Call `device_boot({deviceId})` if needed, then `device_start({deviceId})` to start
 capture before `device_screenshot({deviceId})`. Use `device_ui_tree`,
@@ -176,13 +171,14 @@ Coordinate tools are `device_tap`, with `x`, `y` and optional `durationMs`, and
 `device_swipe`, with `x`, `y`, `toX`, `toY`, and optional `durationMs`.
 Coordinates use target points, with screenshot scale reported in text.
 `device_open_app`, `device_open_url`, `device_install`, `device_logs`,
-`device_record_start`, `device_record_stop`, and `device_stop` use the same approved
+`device_record_start`, `device_record_stop`, and `device_stop` use the same
 device. Installation paths are local to the daemon, not the agent's remote client.
 
 Input renews the 30-second device controller lease. Human takeover, lease expiry,
-disconnect, revocation and daemon restart invalidate queued agent input. A human
-must delegate again after expiry or takeover. Viewing or taking a screenshot does
-not grant or renew input authority. Restart never restores approval/control.
+disconnect, turning devices off and daemon restart invalidate queued agent input. After
+expiry or once the person hands it back, the agent takes it again with `device_start`.
+Viewing or taking a screenshot does not grant or renew input authority. Restart never
+restores control.
 
 ## Errors and provider delivery
 
@@ -192,15 +188,15 @@ Only ace-authored public failure types expose fixed messages and remedies. Arbit
 backend messages, hints, stacks, strings and code-shaped objects become a fixed
 `execution_failed` response. Schema errors expose no private issue literals.
 Examples include `stale_ref`, `controller_changed`, `delegation_required`,
-`lease_required`, `read_only`, `denied`, and `invalid_arguments`. Malformed backend
+`lease_required`, `denied`, and `invalid_arguments`. Malformed backend
 results return `invalid_data` so the agent is not told to change valid arguments. Allowlisted native screen
 error codes, including `target_gone` and `permission_denied`, are retained with
 fixed guidance. Unknown native codes use a generic failure.
 Capacity, cancellation and result-limit failures also return readable text.
 Stack traces, input dumps and echoed ace bearer credentials are not returned.
-Read the error before retrying; delegation and approval failures require a human.
+Read the error before retrying; human control and disabled groups require the person.
 
-Daemon tool deadlines include lazy browser startup and origin approval. Device installs
+Daemon tool deadlines include lazy browser startup. Device installs
 allow ten minutes of native execution and another 30 seconds for dispatch and completion.
 Codex gets `mcp_servers.ace.tool_timeout_sec=660`; Claude gets `MCP_TOOL_TIMEOUT=660000`;
 OpenCode 2.0.22 gets the remote server's `timeout.execution=660000`. These settings
@@ -272,7 +268,8 @@ suites, not development commands:
 
 - `apps/daemon/src/agent-browser-journey.process.test.ts`: real daemon MCP and
   installed Chromium against a gated localhost form, results, screenshots,
-  refs, takeover and origin modes. External approval cases use a fake backend.
+  refs and takeover. `browser-agent-access.process.test.ts` uses a fake backend to show
+  external sites open in every mode without a question, and private control refusing agents.
 - `apps/daemon/src/agent-computer-journey.process.test.ts`: real daemon MCP,
   helper subprocess and fake device I/O, with observable edited screens and
   lease/revocation behavior.
@@ -290,7 +287,7 @@ suites, not development commands:
 - `packages/mcp-server/src/model-image-failures.process.test.ts`: injected encoder
   discovery and deadlines with local fake child processes.
 - `packages/browser/src/control-journey.process.test.ts`: queued input and
-  click-origin approval races with injected time.
+  slow click-origin hook races with injected time.
 - `apps/daemon/src/screen-queued-cancel.process.test.ts`: cancelled input never
   dispatches after an earlier native action finishes.
 - `packages/mcp-server/src/model-image.process.test.ts`: real local image encoder.

@@ -88,30 +88,6 @@
     },
     {
       "properties": {
-        "allowed": {
-          "type": "boolean"
-        },
-        "deviceId": {
-          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
-        },
-        "op": {
-          "const": "approve",
-          "type": "string"
-        },
-        "threadId": {
-          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
-        }
-      },
-      "required": [
-        "op",
-        "deviceId",
-        "threadId",
-        "allowed"
-      ],
-      "type": "object"
-    },
-    {
-      "properties": {
         "deviceId": {
           "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
         },

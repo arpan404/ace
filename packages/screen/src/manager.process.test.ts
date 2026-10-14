@@ -11,19 +11,10 @@ async function setup(env: NodeJS.ProcessEnv = {}) {
   cleanups.push(test.close);
   return test.screen;
 }
-it("capture is off by default and requires approval for every selected application", async () => {
+it("capture is off until computer use is turned on, then needs no per-app approval", async () => {
   const screen = await setup();
   await expect(screen.start(target)).rejects.toThrow("disabled");
   await screen.enable(true);
-  await expect(screen.start(target)).rejects.toThrow("approval");
-  await screen.approve(target.bundleId, true);
-  await expect(
-    screen.start({
-      kind: "display",
-      displayId: 1,
-      bundleIds: [target.bundleId, "com.apple.systempreferences"],
-    }),
-  ).rejects.toThrow("approval");
   const state = await screen.start(target);
   expect(state.indicator).toBe(true);
 });
@@ -38,7 +29,7 @@ it("denied Screen Recording prevents capture and denied Accessibility prevents i
   ).rejects.toThrow("permission denied");
   expect(await screen.permissions()).toEqual({ screenRecording: true, accessibility: false });
 });
-it("live screenshots and MCP actions use the approved session and human takeover removes agent access", async () => {
+it("live screenshots and MCP actions use the delegated session and human takeover removes agent access", async () => {
   const screen = await setup({ FAKE_V2: "1" });
   const state = await ready(screen);
   const id = state.sessionId;
@@ -76,13 +67,12 @@ it("live screenshots and MCP actions use the approved session and human takeover
   await screen.action(id, "human", { kind: "type", text: "hello" }, "human-1");
   screen.releaseController("human-1");
   expect(screen.state(id).controller).toBe("none");
-  await screen.approve(target.bundleId, false);
+  await screen.enable(false);
   expect(() => screen.screenshot(id)).toThrow("Unknown");
 });
-it("display streams cannot inject input even with an approved controller", async () => {
+it("display streams cannot inject input even with a controller", async () => {
   const screen = await setup();
   await screen.enable(true);
-  await screen.approve(target.bundleId, true);
   const state = await screen.start({ kind: "display", displayId: 1, bundleIds: [target.bundleId] });
   screen.controller(state.sessionId, "human");
   await expect(

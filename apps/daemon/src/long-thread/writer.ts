@@ -18,7 +18,6 @@ const Head = z.object({ ordinal: z.number(), root: z.string().nullable(), status
 const ApprovalData = Interaction.pick({
   state: true,
   autoReviewed: true,
-  review: true,
   request: true,
   agentId: true,
 });
@@ -289,17 +288,6 @@ export class TurnWriter {
           ...ApprovalData.parse(JSON.parse(String(row.data))),
           state: p.state,
           ...(p.autoReviewed === undefined ? {} : { autoReviewed: p.autoReviewed }),
-        });
-    } else if (p.type === "permission.reviewed") {
-      const row = this.data
-        .sql(
-          "SELECT ordinal,data FROM long_entities WHERE thread_id=? AND kind='approval' AND id=?",
-        )
-        .get(event.threadId, p.review.interactionId);
-      if (row)
-        this.approval(event, p.review.interactionId, Number(row.ordinal), {
-          ...ApprovalData.parse(JSON.parse(String(row.data))),
-          review: p.review,
         });
     } else if (p.type === "background_task.started") {
       const task = p.task;

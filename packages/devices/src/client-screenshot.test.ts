@@ -77,7 +77,6 @@ it("renders a screenshot without requiring a stream subscription", async () => {
     state: {
       device: { id: deviceId, platform: "android", name: "Pixel", state: "booted" },
       enabled: true,
-      approved: false,
       lifecycle: "live",
       streamId: "snapshot",
       controller: "none",

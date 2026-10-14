@@ -81,7 +81,7 @@ export type DevicePermissions = z.infer<typeof DevicePermissions>;
 export const DeviceState = z.object({
   device: AppDevice,
   enabled: z.boolean(),
-  approved: z.boolean(),
+  /** The thread whose agent or person took the device last. */
   threadId: ThreadId.optional(),
   lifecycle: z.enum(["idle", "starting", "live", "stopping", "failed"]),
   booting: z.boolean().optional(),
@@ -114,7 +114,6 @@ export const DeviceOperation = z.discriminatedUnion("op", [
    * matching Privacy & Security pane in System Settings. Human only.
    */
   z.object({ op: z.literal("permissions.request"), permission: DevicePermission }),
-  z.object({ op: z.literal("approve"), ...target, threadId: ThreadId, allowed: z.boolean() }),
   z.object({ op: z.literal("boot"), ...target }),
   z.object({ op: z.literal("shutdown"), ...target }),
   z.object({ op: z.literal("install"), ...target, path: z.string().min(1).max(4096) }),

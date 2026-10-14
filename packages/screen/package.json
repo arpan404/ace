@@ -5,8 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./frames-client": "./src/frame-reader.ts",
-    "./sensitive-app": "./src/sensitive-app.ts"
+    "./frames-client": "./src/frame-reader.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

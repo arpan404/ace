@@ -2,6 +2,8 @@
 
 Date: 2026-10-05. Status: accepted, live compatibility verification pending.
 
+Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provider-native (owner decision). The approval and safety model below (app grants, `screen_request_app`, sensitive-app turn grants, foreground consent) no longer gates agents. Sessions, leases, background mode and human takeover are unchanged.
+
 ## Context
 
 A person must be able to keep working while agents operate approved applications. ADR 0011's single target competes with Simulator sessions and its focus clicks can disturb that person. The public [OpenAI workspace controls](https://help.openai.com/en/articles/20001510-manage-browser-and-computer-use-in-your-enterprise-workspace), [release notes](https://help.openai.com/en/articles/6825453-chatgpt-release-notes) and the supplied `/tmp/codex-ref/cua/CAPABILITIES.md` describe application identities, scoped grants, background launch and accessibility actions. They are interface references only. No third-party bundles or implementation code were read.

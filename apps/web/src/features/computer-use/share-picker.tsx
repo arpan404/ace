@@ -1,7 +1,7 @@
 import { useThreadMeta } from "@ace/client-react";
 import { ScreenInventory, ScreenState, type ScreenTarget } from "@ace/protocol";
 import { CheckIcon } from "@phosphor-icons/react";
-import { appName, alwaysAsks } from "@ace/ui-core/computer-use";
+import { appName } from "@ace/ui-core/computer-use";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -48,13 +48,6 @@ export function SharePicker(props: { use: ComputerUse; threadId: string }) {
     setError("");
     let started: string | undefined;
     try {
-      await session.request({
-        op: "approve",
-        bundleId: target.bundleId,
-        allowed: true,
-        scope: alwaysAsks(target.bundleId) ? "turn" : "thread",
-        threadId: props.threadId,
-      });
       const state = await session.request({
         op: "start",
         target,
@@ -100,8 +93,7 @@ export function SharePicker(props: { use: ComputerUse; threadId: string }) {
           <DialogHeader>
             <DialogTitle>Share an app or window</DialogTitle>
             <DialogDescription>
-              Share with this thread's agent only. Sensitive apps ask again each turn. You can
-              revoke access at any time.
+              Share with this thread's agent only. You can take it back at any time.
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-80 overflow-auto py-2">

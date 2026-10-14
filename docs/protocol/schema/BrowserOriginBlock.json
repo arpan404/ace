@@ -9,8 +9,6 @@
     "reason": {
       "enum": [
         "approval_required",
-        "denied",
-        "read_only",
         "timeout",
         "invalid_origin"
       ],

@@ -27,7 +27,7 @@ export class AndroidOperations {
     if (device.platform !== "android")
       throw new DeviceError(
         "not_supported",
-        "Simulator tree uses the approved screen session",
+        "Simulator tree uses the screen session",
         "Use the device service's Simulator tree operation.",
       );
     if (this.queuedUIReads >= 32)
