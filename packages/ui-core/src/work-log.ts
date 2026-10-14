@@ -287,13 +287,17 @@ export function describeStep(item: Item, context: StepContext = {}): StepText {
     : callText(call, context);
   const { forms, ...shown } = text;
   const { note, needsYou, outcome } = noteFor(call, text, context);
-  // An approval the person just gave runs next; one they refused never ran.
+  // An approval the person just gave runs next; one they refused never ran, even once the
+  // turn's end has cancelled the call still waiting on it.
   const status =
-    call.status === "awaiting_approval" && outcome && outcome.state !== "pending"
-      ? outcome.tone === "approved"
-        ? "running"
-        : "declined"
-      : call.status;
+    outcome?.tone === "denied" &&
+    (call.status === "awaiting_approval" || call.status === "cancelled")
+      ? "declined"
+      : call.status === "awaiting_approval" && outcome && outcome.state !== "pending"
+        ? outcome.tone === "approved"
+          ? "running"
+          : "declined"
+        : call.status;
   const verb = forms
     ? status === "awaiting_approval" || status === "declined"
       ? forms.awaiting

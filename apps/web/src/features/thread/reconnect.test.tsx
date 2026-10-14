@@ -57,6 +57,12 @@ test("after a dropped connection the transcript catches up by replay, without du
   expect(
     screen.queryByRole("article", { name: "Run rm -rf node_modules/.cache/vitest?" }),
   ).toBeNull();
-  expect(within(feed).getByRole("note").textContent).toContain("Denied:");
+  // The refusal reads on its call, once, as a command that never ran; no separate line repeats it.
+  expect(
+    within(feed).getAllByRole("button", {
+      name: "Run rm -rf node_modules/.cache/vitest Denied by you",
+    }),
+  ).toHaveLength(1);
+  expect(within(feed).queryByRole("note")).toBeNull();
   expect(screen.getByRole("button", { name: /^Model:/ })).toBeTruthy();
 });
