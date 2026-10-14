@@ -76,7 +76,7 @@ export function UsagePage() {
     ready: zone.ready,
   };
   const usage = useEnvironmentUsage(environments, span, provider === all ? undefined : [provider]);
-  const refresh = useRefreshUsage();
+  const refresh = useRefreshUsage(environments);
   const catalog = useModelCatalog();
   const modelName = useMemo(() => catalogModelNames(catalog ?? []), [catalog]);
   const modelId = useMemo(() => catalogModelIds(catalog ?? []), [catalog]);

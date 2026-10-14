@@ -117,11 +117,23 @@ export function useEnvironmentUsage(
 }
 
 /** Read everything on the page again: accounts and usage, in every environment. */
-export function useRefreshUsage() {
+export function useRefreshUsage(environments: readonly Machine[]) {
   const queries = useQueryClient();
-  return () =>
-    Promise.all([
+  return async () => {
+    // Each environment asks its CLIs for current limits (no model turn); a daemon that can't
+    // still answers with the limits it last recorded.
+    await Promise.allSettled(
+      environments.map(async (environment) => {
+        const reply = await reach(environment).request({ type: "accounts.refreshLimits" });
+        queries.setQueryData(
+          environment.primary ? ["accounts", "list"] : ["usage-page", environment.id, "accounts"],
+          reply.accounts.map(accountView),
+        );
+      }),
+    );
+    await Promise.all([
       queries.invalidateQueries({ queryKey: ["accounts"] }),
       queries.invalidateQueries({ queryKey: ["usage-page"] }),
     ]);
+  };
 }

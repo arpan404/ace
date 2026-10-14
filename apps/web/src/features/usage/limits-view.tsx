@@ -1,4 +1,5 @@
 import {
+  formatAgo,
   resetCountdown,
   type AccountLimits,
   type AccountWindow,
@@ -83,11 +84,18 @@ function Account(props: { entry: AccountLimits; provider: string; now: number })
           </Tip>
         )}
       </div>
-      <ul aria-label={`${entry.account.label} limits`} className="flex flex-col gap-3">
-        {entry.windows.map((window) => (
-          <WindowLine key={window.id} window={window} now={props.now} />
-        ))}
-      </ul>
+      <div className="flex min-w-0 flex-col gap-3">
+        <ul aria-label={`${entry.account.label} limits`} className="flex flex-col gap-3">
+          {entry.windows.map((window) => (
+            <WindowLine key={window.id} window={window} now={props.now} />
+          ))}
+        </ul>
+        {entry.noSessionWindow && (
+          <p className="text-xs text-subtle-foreground">
+            No 5-hour limit reported for this account
+          </p>
+        )}
+      </div>
     </article>
   );
 }
@@ -121,10 +129,15 @@ function Pace(props: { pace: LimitPace | undefined }) {
   );
 }
 
+/** A reading older than this says how old it is. */
+const freshMs = 30 * 60_000;
+
 function WindowLine(props: { window: AccountWindow; now: number }) {
   const { window, now } = props;
+  if (window.stale) return <StaleLine window={window} now={now} />;
   const countdown = resetCountdown(window.resetsAt, now);
   const out = window.leftPercent === 0;
+  const old = now - window.observedAt > freshMs;
   return (
     <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 sm:grid-cols-[13.75rem_5.25rem_minmax(0,1fr)_7.5rem]">
       <div className="min-w-0">
@@ -148,7 +161,7 @@ function WindowLine(props: { window: AccountWindow; now: number }) {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={window.leftPercent}
-        aria-valuetext={`${window.leftPercent}% left${countdown ? `, resets in ${countdown}` : ""}`}
+        aria-valuetext={`${window.leftPercent}% left${countdown ? `, resets in ${countdown}` : ""}${old ? `, as of ${formatAgo(window.observedAt, now)}` : ""}`}
         className={cn(
           "relative col-span-2 h-0.5 sm:col-span-1",
           out ? "bg-status-failed/50" : "bg-border",
@@ -160,21 +173,52 @@ function WindowLine(props: { window: AccountWindow; now: number }) {
           className="absolute inset-y-0 left-0 bg-foreground"
         />
       </div>
-      <p
-        className={cn(
-          "col-span-2 text-xs whitespace-nowrap sm:col-span-1 sm:text-right sm:text-ui",
-          out ? "text-status-failed" : "text-subtle-foreground",
+      <div className="col-span-2 sm:col-span-1 sm:text-right">
+        <p
+          className={cn(
+            "text-xs whitespace-nowrap sm:text-ui",
+            out ? "text-status-failed" : "text-subtle-foreground",
+          )}
+        >
+          {countdown === null || window.resetsAt === null ? (
+            "Reset not reported"
+          ) : (
+            <Tip label={formatResets(window.resetsAt, now)}>
+              <span tabIndex={0} className="rounded-xs tabular-nums focus-ring">
+                {out ? "Back in" : "Resets in"} {countdown}
+              </span>
+            </Tip>
+          )}
+        </p>
+        {old && (
+          <p className="text-2xs text-faint-foreground">
+            As of {formatAgo(window.observedAt, now)}
+          </p>
         )}
-      >
-        {countdown === null || window.resetsAt === null ? (
-          "Reset not reported"
-        ) : (
-          <Tip label={formatResets(window.resetsAt, now)}>
-            <span tabIndex={0} className="rounded-xs tabular-nums focus-ring">
-              {out ? "Back in" : "Resets in"} {countdown}
-            </span>
-          </Tip>
-        )}
+      </div>
+    </li>
+  );
+}
+
+/**
+ * A window whose reset passed after its last reading: what is left now is unknown until the
+ * provider reports again, so it shows no figure, only how old the reading is.
+ */
+function StaleLine(props: { window: AccountWindow; now: number }) {
+  const { window, now } = props;
+  return (
+    <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 sm:grid-cols-[13.75rem_5.25rem_minmax(0,1fr)_7.5rem]">
+      <span className="text-ui break-words text-muted-foreground">{window.label}</span>
+      <p className="text-right font-prose text-lg leading-none text-faint-foreground">—</p>
+      <div
+        aria-hidden
+        className="col-span-2 h-0.5 border-t border-dashed border-border sm:col-span-1"
+      />
+      <p className="col-span-2 text-xs text-subtle-foreground sm:col-span-1 sm:text-right">
+        {window.resetsAt !== null && `Reset ${formatAgo(window.resetsAt, now)}`}
+        <span className="block text-2xs text-faint-foreground">
+          Read {formatAgo(window.observedAt, now)}
+        </span>
       </p>
     </li>
   );

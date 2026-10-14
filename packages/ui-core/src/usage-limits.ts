@@ -1,5 +1,5 @@
 import type { ProviderKind } from "@ace/protocol";
-import { liveWindows, type AccountView } from "./accounts.ts";
+import type { AccountView } from "./accounts.ts";
 import { formatCountdown } from "./time.ts";
 
 /*
@@ -24,6 +24,10 @@ export interface AccountWindow {
   leftPercent: number;
   resetsAt: number | null;
   pace: LimitPace | undefined;
+  /** When the provider last reported this window. */
+  observedAt: number;
+  /** Its reset has passed since that reading: what is left now is unknown until the next one. */
+  stale: boolean;
 }
 
 export interface AccountLimits {
@@ -35,6 +39,11 @@ export interface AccountLimits {
   bankedExpiresAt: number | null;
   /** Shortest window first, as the account lists them. */
   windows: AccountWindow[];
+  /**
+   * The provider has a 5-hour window for some plans but reported none for this account, so the
+   * page can say so instead of leaving it out silently.
+   */
+  noSessionWindow: boolean;
 }
 
 export interface ProviderLimits {
@@ -84,16 +93,19 @@ export function limitPace(
   return "on_pace";
 }
 
+const sessionProviders = new Set(["codex", "claude"]);
+
 /**
- * Group accounts with live windows by provider, in the order they first appear. A provider whose
- * accounts report no live window joins the quiet line instead.
+ * Group accounts with reported windows by provider, in the order they first appear. Windows past
+ * their reset stay, marked stale, so an old reading reads as old instead of vanishing. A
+ * provider whose accounts report no window joins the quiet line instead.
  */
 export function usageLimits(accounts: readonly UsageAccount[], now: number): UsageLimits {
   const groups = new Map<string, ProviderLimits>();
   const silent = new Map<string, string>();
   for (const { account, environment } of accounts) {
     const key = `${account.provider}:${account.acpAgentId ?? ""}`;
-    const windows = liveWindows(account, now);
+    const windows = account.windows;
     if (!windows.length) {
       if (!groups.has(key)) silent.set(key, account.providerLabel);
       continue;
@@ -116,13 +128,23 @@ export function usageLimits(accounts: readonly UsageAccount[], now: number): Usa
       environment,
       bankedResets: account.resetCredits?.available,
       bankedExpiresAt: account.resetCredits?.nextExpiresAt ?? null,
-      windows: windows.map((window) => ({
-        id: window.id,
-        label: window.label,
-        leftPercent: leftPercent(window.usedPercent),
-        resetsAt: window.resetsAt,
-        pace: limitPace(window.usedPercent, window.resetsAt, window.windowDurationMins, now),
-      })),
+      windows: windows.map((window) => {
+        const stale = window.resetsAt !== null && window.resetsAt <= now;
+        return {
+          id: window.id,
+          label: window.label,
+          leftPercent: leftPercent(window.usedPercent),
+          resetsAt: window.resetsAt,
+          pace: stale
+            ? undefined
+            : limitPace(window.usedPercent, window.resetsAt, window.windowDurationMins, now),
+          observedAt: window.observedAt ?? account.quota.observedAt,
+          stale,
+        };
+      }),
+      noSessionWindow:
+        sessionProviders.has(account.provider) &&
+        !windows.some((window) => window.label === "5-hour"),
     });
   }
   return { providers: [...groups.values()], quiet: [...new Set(silent.values())] };

@@ -71,6 +71,15 @@ export function startAccountManagement(context: ServiceContext): void {
     configuration: (provider, instance) =>
       services.providerConfigurations?.for(provider, instance) ?? { provider },
     terminal: options.accounts?.terminal,
+    limitsError: (instance, error) =>
+      context.log.log(
+        "warn",
+        "Account limits unavailable",
+        logFields([
+          ["instance", instance],
+          ["reason", error instanceof Error ? error.message : String(error)],
+        ]),
+      ),
     authChanged: async () => {
       await services.providerStatuses?.refresh();
       services.providerStatuses?.publish();
@@ -157,6 +166,34 @@ export function createAccountsSession(context: SocketContext): SocketService {
           })().finally(() => context.tasks.delete(task));
           context.tasks.add(task);
         }
+        return true;
+      }
+      if (message.type === "accounts.refreshLimits") {
+        if (!context.authorize("read")) {
+          context.fail("forbidden", "read scope required", false, {
+            requestId: message.requestId,
+          });
+          return true;
+        }
+        const accounts = context.options.accounts;
+        const task = (async () => {
+          await context.options.accountManagement?.refreshLimits();
+          if (!accounts) throw new Error("Accounts unavailable");
+          const listed = await accounts.handle({
+            type: "accounts.list",
+            requestId: message.requestId,
+          });
+          if (context.connected() && context.authorize("read")) context.send(listed);
+        })()
+          .catch((cause: unknown) => {
+            context.options.log?.(cause);
+            if (context.connected())
+              context.fail("accounts_failed", "Account limits couldn't be read", false, {
+                requestId: message.requestId,
+              });
+          })
+          .finally(() => context.tasks.delete(task));
+        context.tasks.add(task);
         return true;
       }
       const management = AccountManagementRequest.safeParse(message);

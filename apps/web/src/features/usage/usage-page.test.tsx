@@ -53,11 +53,11 @@ const source = (provider: string, account: string, model: string, price: number 
   }) satisfies UsageSource;
 
 /** One account's block on Limits: "Codex · Personal · <environment>". */
-const account = (provider: string, name: string) =>
+const accountBlock = (provider: string, name: string) =>
   screen.findByRole("article", { name: new RegExp(`^${provider} · ${name} · `) });
 /** One of an account's windows, as a meter of what is left. */
 const meter = async (provider: string, name: string, window: string) =>
-  within(await account(provider, name)).getByRole("meter", { name: window });
+  within(await accountBlock(provider, name)).getByRole("meter", { name: window });
 
 /** A figure in Totals, by its label. */
 function stat(label: string) {
@@ -80,9 +80,9 @@ test("limits say what is left, from the share the provider reports used", async 
   const personal = await meter("Claude Code", "Personal", "5-hour");
   expect(personal.getAttribute("aria-valuenow")).toBe("38");
   expect(personal.getAttribute("aria-valuetext")).toBe("38% left, resets in 2h");
-  expect((await account("Claude Code", "Personal")).textContent).toContain("38% left");
+  expect((await accountBlock("Claude Code", "Personal")).textContent).toContain("38% left");
   // An account with nothing left says when it is back.
-  const work = await account("Claude Code", "Work");
+  const work = await accountBlock("Claude Code", "Work");
   expect(work.textContent).toContain("0% left");
   expect(work.textContent).toContain("Back in 3h");
   expect(document.body.textContent).not.toMatch(/\d+% used/);
@@ -95,7 +95,7 @@ test("each window's reset reads as a countdown to the minute, then in days", asy
     seven_day: [10, 6 * day + 12 * hour],
   });
   await app.open("/usage");
-  const personal = await account("Codex", "Personal");
+  const personal = await accountBlock("Codex", "Personal");
   expect(personal.textContent).toContain("Resets in 2h 14m");
   expect(personal.textContent).toContain("Resets in 6d 12h");
 });
@@ -107,9 +107,9 @@ test("banked resets show under an account only when its provider reports some", 
   report(app.daemon, "claude-personal", { five_hour: [40, hour] });
   await app.open("/usage");
 
-  expect((await account("Codex", "Personal")).textContent).toContain("3 banked resets");
-  expect((await account("Codex", "Team")).textContent).not.toContain("banked");
-  expect((await account("Claude Code", "Personal")).textContent).not.toContain("banked");
+  expect((await accountBlock("Codex", "Personal")).textContent).toContain("3 banked resets");
+  expect((await accountBlock("Codex", "Team")).textContent).not.toContain("banked");
+  expect((await accountBlock("Claude Code", "Personal")).textContent).not.toContain("banked");
 });
 
 test("each account is listed once, with each of its windows beneath it", async () => {
@@ -124,12 +124,12 @@ test("each account is listed once, with each of its windows beneath it", async (
       .getAllByRole("article")
       .map((each) => each.getAttribute("aria-label")?.split(" · ")[1]),
   ).toEqual(["Personal", "Team"]);
-  const personal = within(await account("Codex", "Personal"));
+  const personal = within(await accountBlock("Codex", "Personal"));
   expect(personal.getAllByRole("meter").map((each) => each.getAttribute("aria-label"))).toEqual([
     "5-hour",
     "Weekly",
   ]);
-  const team = within(await account("Codex", "Team"));
+  const team = within(await accountBlock("Codex", "Team"));
   expect(team.getAllByRole("meter").map((each) => each.getAttribute("aria-label"))).toEqual([
     "5-hour",
   ]);
@@ -143,9 +143,73 @@ test("a window used faster than it runs says it is ahead of pace", async () => {
     seven_day: [5, 4 * day, 10080],
   });
   await app.open("/usage");
-  const personal = await account("Codex", "Personal");
+  const personal = await accountBlock("Codex", "Personal");
   expect(within(personal).getByText("Ahead of pace")).toBeTruthy();
   expect(within(personal).getByText("Under pace")).toBeTruthy();
+});
+
+test("a window whose reset passed since its reading keeps its place and says how old it is", async () => {
+  const app = harness();
+  report(app.daemon, "claude-personal", { seven_day: [64, 3 * day] });
+  const account = app.daemon.services.accounts.find((entry) => entry.id === "claude-personal");
+  if (!account) throw new Error("no account");
+  // Read three hours ago; the 5-hour window reset an hour ago and nothing has reported since.
+  account.quota.windows["five_hour"] = {
+    usedPercent: 91,
+    resetsAt: now - hour,
+    observedAt: now - 3 * hour,
+  };
+  await app.open("/usage");
+  const personal = await accountBlock("Claude Code", "Personal");
+  expect(personal.textContent).toContain("5-hour");
+  expect(personal.textContent).toContain("Reset 1h ago");
+  expect(personal.textContent).toContain("Read 3h ago");
+  // No stale figure poses as current, and the live weekly reading stays.
+  expect(personal.textContent).not.toContain("9% left");
+  expect(
+    within(personal).getByRole("meter", { name: "Weekly" }).getAttribute("aria-valuenow"),
+  ).toBe("36");
+});
+
+test("Claude's Fable limit shows as its own weekly window", async () => {
+  const app = harness();
+  report(app.daemon, "claude-personal", {
+    five_hour: [10, 2 * hour],
+    seven_day: [64, 3 * day],
+    seven_day_overage_included: [27, 3 * day],
+  });
+  await app.open("/usage");
+  const personal = within(await accountBlock("Claude Code", "Personal"));
+  expect(personal.getAllByRole("meter").map((each) => each.getAttribute("aria-label"))).toEqual([
+    "5-hour",
+    "Weekly",
+    "Weekly · Fable",
+  ]);
+  expect(
+    personal.getByRole("meter", { name: "Weekly · Fable" }).getAttribute("aria-valuenow"),
+  ).toBe("73");
+});
+
+test("an account that reports no 5-hour window says so instead of leaving it out", async () => {
+  const app = harness();
+  report(app.daemon, "codex-personal", { "codex:primary": [2, 29 * day, 43200] });
+  await app.open("/usage");
+  const personal = await accountBlock("Codex", "Personal");
+  expect(personal.textContent).toContain("Monthly");
+  expect(personal.textContent).toContain("No 5-hour limit reported for this account");
+});
+
+test("Refresh asks each environment for current limits and shows what comes back", async () => {
+  const app = harness();
+  report(app.daemon, "codex-personal", { five_hour: [40, hour] });
+  await app.open("/usage");
+  expect((await meter("Codex", "Personal", "5-hour")).getAttribute("aria-valuenow")).toBe("60");
+  report(app.daemon, "codex-personal", { five_hour: [10, hour] }, 3);
+  await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  await waitFor(async () =>
+    expect((await meter("Codex", "Personal", "5-hour")).getAttribute("aria-valuenow")).toBe("90"),
+  );
+  expect((await accountBlock("Codex", "Personal")).textContent).toContain("3 banked resets");
 });
 
 test("the range and the provider filter change the totals", async () => {
