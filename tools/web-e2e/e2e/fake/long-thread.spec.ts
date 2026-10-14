@@ -73,8 +73,8 @@ test("the timeline jumps across days and Jump to live comes back", async ({ page
   await expect(jumped).toContainText("Jumped to turn 3");
   await expect(jumped).toContainText("of 24");
   await expect(feed.getByText(ask(3))).toBeInViewport();
-  // Older turns above the jump fold to one line with their digest.
-  await expect(feed.getByRole("button", { name: `Turn 2: ${ask(2)} Show the turn` })).toBeVisible();
+  // Turns above the jump show whole, never as folded turn rows.
+  await expect(feed.getByRole("button", { name: /Show the turn$/ })).toHaveCount(0);
   await page.keyboard.press("Escape");
 
   await page

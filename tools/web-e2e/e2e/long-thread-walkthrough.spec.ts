@@ -56,14 +56,9 @@ test("walkthrough of a long thread", async ({ page }) => {
   await page.keyboard.press("Escape");
   await beat(500);
 
-  // Older turns above fold to one line; one opens.
+  // Older turns above read whole, like the rest of the transcript.
   await feed.hover();
   await page.mouse.wheel(0, -400);
-  await beat(800);
-  await feed
-    .getByRole("button", { name: /Show the turn$/ })
-    .first()
-    .click();
   await beat(1_200);
 
   // Reading on toward the present: the window slides, never leaving a hole.

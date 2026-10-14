@@ -465,7 +465,7 @@ test("an open turn has a quiet work log that becomes timed history when the turn
   expect(within(feed).getByRole("button", { name: /^Worked for 1m 40s/ })).toBeTruthy();
 });
 
-test("a question still waiting in an old turn keeps that turn open in a long thread", async () => {
+test("a question still waiting in an old turn stays in view in a long thread", async () => {
   const app = harness();
   type Facts = Parameters<typeof app.daemon.apply>[1][number][];
   // One step per turn, so each turn happens at its own time.
@@ -514,10 +514,7 @@ test("a question still waiting in an old turn keeps that turn open in a long thr
     .runUntilBlocked();
   await app.open("/t/thread-old-question");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  // Fourteen turns: the older ones fold, but not the one whose question still waits.
-  expect(
-    await within(feed).findByRole("button", { name: /^Turn 2: Question 2\. Show the turn$/ }),
-  ).toBeTruthy();
+  // Fourteen turns, every one whole: the oldest turn's waiting question is never hidden.
   expect(await screen.findByRole("article", { name: "Keep the legacy flag reader?" })).toBeTruthy();
   expect(within(feed).getByText("Answer 1")).toBeTruthy();
 });
