@@ -1,5 +1,5 @@
 import { longHistory, replayCursor } from "@ace/fake-daemon";
-import { CommandId, ThreadId } from "@ace/protocol";
+import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -55,7 +55,10 @@ async function queuedEditButton(queued = screen.getByRole("list", { name: "Queue
 
 async function takeBackButton(queued: HTMLElement) {
   await userEvent.click(await queuedEditButton(queued));
-  return screen.findByRole("button", { name: "Take back to composer" });
+  // Within the edit dialog: a button role query over the page weighs every queued row's
+  // controls, which with hundreds of rows costs seconds on a loaded machine.
+  const dialog = await screen.findByRole("dialog", { name: "Edit queued message" });
+  return within(dialog).getByRole("button", { name: "Take back to composer" });
 }
 
 async function queueTwo(message: HTMLElement) {
@@ -481,23 +484,29 @@ test("a held queue explains why steering is disabled", async () => {
 
 test("loading more keeps every queued message beyond the first page reachable", async () => {
   const { app } = await openBusy();
-  await act(async () => {
+  // Another device queues them, straight into the daemon: 35 round trips through this
+  // client's outbox would spend most of the test's time budget on a loaded machine.
+  act(() => {
     for (let index = 0; index < 35; index++)
-      await app.client.command(
-        {
-          type: "thread.send",
-          threadId: ThreadId.parse(threadId),
-          input: [{ type: "text", text: `Queued ${index}` }],
-          delivery: "queue",
-        },
-        {},
-        `page-message-${index}`,
-      );
+      expect(
+        app.daemon.command({
+          id: CommandId.parse(`page-message-${index}`),
+          deviceId: DeviceId.parse("other-device"),
+          payload: {
+            type: "thread.send",
+            threadId: ThreadId.parse(threadId),
+            input: [{ type: "text", text: `Queued ${index}` }],
+            delivery: "queue",
+          },
+        }).ok,
+      ).toBe(true);
   });
   await waitFor(() => expect(pills()).toHaveLength(16));
-  await userEvent.click(await screen.findByRole("button", { name: "Load more queued messages" }));
+  // One button grows the list; finding it again by role weighs every queued row's controls.
+  const more = await screen.findByRole("button", { name: "Load more queued messages" });
+  await userEvent.click(more);
   await waitFor(() => expect(pills()).toHaveLength(32));
-  await userEvent.click(screen.getByRole("button", { name: "Load more queued messages" }));
+  await userEvent.click(more);
   await waitFor(() => expect(pills()).toHaveLength(35));
   const beforeHead = await app.client.request({
     type: "queue.get",
@@ -546,8 +555,13 @@ test("loading more keeps every queued message beyond the first page reachable", 
 
 test("saved messages beyond the visible page do not reappear as saving rows or transcript bubbles", async () => {
   const { app, feed, message } = await openBusy();
-  for (let index = 0; index < 18; index++)
-    await userEvent.type(message, `Follow-up ${index}{Enter}`);
+  // Pasted, not typed key by key: 18 typed messages re-render the composer and the growing
+  // tray for every key, which on a loaded machine outruns the test's time budget.
+  await userEvent.click(message);
+  for (let index = 0; index < 18; index++) {
+    await userEvent.paste(`Follow-up ${index}`);
+    await userEvent.keyboard("{Enter}");
+  }
   await waitFor(() => expect(pills()).toHaveLength(16));
   await screen.findByText("2 more queued messages");
   expect(within(feed).queryByText("Follow-up 17")).toBeNull();
@@ -603,15 +617,13 @@ test.each([17, 33, 257])(
       expect(
         within(screen.getByRole("feed", { name: "Transcript" })).queryByText(lastInput),
       ).toBeNull();
-      // One button grows the list; finding it again by role scans every row's controls.
+      // One button grows the list.
       const more =
         count > 16
           ? await screen.findByRole("button", { name: "Load more queued messages" })
           : undefined;
       if (more) for (let shown = 16; shown < count; shown += 16) await userEvent.click(more);
-      const last = await within(screen.getByRole("list", { name: "Queued messages" })).findByText(
-        lastInput,
-      );
+      const last = await within(tray).findByText(lastInput);
       const row = last.closest("li");
       if (!row) throw new Error("Missing queued row");
       await userEvent.click(await takeBackButton(row));

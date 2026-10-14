@@ -8,3 +8,5 @@ export { SignInNotice } from "./sign-in-notice.tsx";
 export { ReadinessAction, SignInButton } from "./sign-in-button.tsx";
 
 export { useInlineSignIn } from "./inline-sign-in.tsx";
+/** The app hands sign-in the panels' terminal for a CLI's own prompts. */
+export { AuthTerminalProvider, type AuthTerminalProps } from "./auth-terminal-slot.tsx";

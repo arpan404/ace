@@ -2,7 +2,7 @@ import { ClientError } from "@ace/client";
 import { useConnectionState } from "@ace/client-react";
 import type { Attachment } from "@ace/protocol";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ChipAttachment } from "@/components/attachment-chips.tsx";
+import type { ChipAttachment } from "@/components/attachment-format.ts";
 import type { LocalAttachment } from "@/components/attachment-format.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";

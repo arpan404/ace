@@ -1,8 +1,7 @@
 import { useState, type KeyboardEvent } from "react";
 import { XIcon } from "@phosphor-icons/react";
 import { VisibleImageUrl } from "./visible-image-url.tsx";
-import type { ImageSource } from "./attachment-format.ts";
-import type { ChipAttachment } from "./attachment-chips.tsx";
+import type { ChipAttachment, ImageSource } from "./attachment-format.ts";
 import { FileGlyph, FileName } from "./attachment-face.tsx";
 import { Skeleton } from "./ui/skeleton.tsx";
 import { fileMeta } from "./attachment-kind.ts";

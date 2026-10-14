@@ -5,7 +5,7 @@ import { once } from "node:events";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DeviceId } from "@ace/protocol";
+import { DeviceId, type ServerMessage } from "@ace/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { startDaemon } from "./index.ts";
 import { readConfig } from "./config.ts";
@@ -56,6 +56,23 @@ async function connect(url: string, home: string): Promise<Client> {
   });
   return client;
 }
+/**
+ * A restarted daemon kept everything committed before it stopped: same host, nothing lost, and
+ * the original history replays. On startup it refreshes each thread's git details, which may
+ * already have appended newer events, so the head can only have moved forward.
+ */
+async function expectRestored(client: Client, before: ServerMessage) {
+  if (before.type !== "welcome") throw new Error(`Expected a welcome, got ${before.type}`);
+  const welcome = await client.next();
+  if (welcome.type !== "welcome") throw new Error(`Expected a welcome, got ${welcome.type}`);
+  expect(welcome.hostId).toBe(before.hostId);
+  expect(welcome.protocolVersion).toBe(before.protocolVersion);
+  expect(welcome.headSeq).toBeGreaterThanOrEqual(before.headSeq);
+  client.send({ type: "subscribe", subscriptionId: "s", scope: { kind: "threads" }, afterSeq: 0 });
+  const replay = await client.next();
+  if (replay.type !== "events") throw new Error(`Expected events, got ${replay.type}`);
+  expect(replay.events[0]).toMatchObject({ seq: 1, payload: { type: "thread.created" } });
+}
 describe("daemon lifecycle", () => {
   it("starts from config, keeps its token private and permits a graceful reopen", async () => {
     const home = tempHome();
@@ -92,8 +109,7 @@ describe("daemon lifecycle", () => {
     expect((await first.exited)[0]).toBe(0);
     await closed;
     const third = launch(home);
-    const restarted = await connect(await third.ready, home);
-    expect(await restarted.next()).toEqual(welcome);
+    await expectRestored(await connect(await third.ready, home), welcome);
   }, 30_000);
   it("releases the instance lock after a crash and preserves committed events", async () => {
     const home = tempHome();
@@ -105,13 +121,7 @@ describe("daemon lifecycle", () => {
     await first.exited;
     await closed;
     const restarted = launch(home);
-    const again = await connect(await restarted.ready, home);
-    expect(await again.next()).toEqual(welcome);
-    again.send({ type: "subscribe", subscriptionId: "s", scope: { kind: "threads" }, afterSeq: 0 });
-    expect(await again.next()).toMatchObject({
-      type: "events",
-      events: [{ seq: 1, payload: { type: "thread.created" } }],
-    });
+    await expectRestored(await connect(await restarted.ready, home), welcome);
   }, 30_000);
   it("unwinds a failed bind so the same data directory can start again", async () => {
     const firstHome = tempHome();

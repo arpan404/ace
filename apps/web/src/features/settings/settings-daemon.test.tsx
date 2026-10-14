@@ -90,6 +90,7 @@ test("Reset all settings clears provider choices and native modes along with ord
 
 test("Settings does not offer a silence timeout that the engine cannot use", async () => {
   await harness().open("/settings/general");
-  await screen.findByRole("switch", { name: "Continue threads after a restart" });
+  // The thread settings have loaded, so a silence timeout would show among them by now.
+  await screen.findByRole("switch", { name: "Settle when the PR merges" });
   expect(screen.queryByText("Unresponsive after")).toBeNull();
 });

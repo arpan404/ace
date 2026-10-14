@@ -1,4 +1,3 @@
-import type { Attachment } from "@ace/protocol";
 import { XIcon } from "@phosphor-icons/react";
 import { useRef, useState, type KeyboardEvent } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -6,32 +5,9 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { AttachmentChipImage } from "./attachment-chip-image.tsx";
 import { FileGlyph, FileName } from "./attachment-face.tsx";
-import type { FileSource, ShownImage } from "./attachment-format.ts";
+import type { ChipAttachment, FileSource, ShownImage } from "./attachment-format.ts";
 import { describeFile, fileMeta } from "./attachment-kind.ts";
 import { useFilePreview, useLightbox } from "./attachment-open.tsx";
-
-/** A file being added to the next message, as the composer's chip shows it. */
-export interface ChipAttachment {
-  key: number;
-  name: string;
-  /** Object URL for image previews; a draft restored after a reload has none. */
-  preview?: string | undefined;
-  /** The file itself, for its preview; a draft restored after a reload has none. */
-  file?: File | undefined;
-  mimeType?: string | undefined;
-  /** The daemon's reading of the bytes, once it holds them. */
-  kind?: Attachment["kind"] | undefined;
-  bytes?: number | undefined;
-  /** Set once the daemon holds the file. */
-  sha256?: string | undefined;
-  state: "uploading" | "ready" | "failed";
-  /** 0..1 */
-  progress: number;
-  /** Why it failed, in words. */
-  error?: string | undefined;
-  /** Whether trying again can help (a file over the limit can't). */
-  retryable?: boolean | undefined;
-}
 
 /**
  * The attachments of the message being written, as chips that wrap onto a few rows (then the
