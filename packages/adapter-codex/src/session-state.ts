@@ -27,11 +27,13 @@ export function hydrateControls(
   thread: Obj,
   active: Map<string, string>,
   shells: Map<string, string>,
+  ended: { has(turn: string): boolean } = { has: () => false },
 ): void {
   const id = str(thread["id"]);
   for (const entry of list(thread["turns"])) {
     const turn = obj(entry);
-    if (turn["status"] === "inProgress") active.set(id, str(turn["id"]));
+    if (turn["status"] === "inProgress" && !ended.has(str(turn["id"])))
+      active.set(id, str(turn["id"]));
     for (const value of list(turn["items"])) {
       const item = obj(value);
       if (item["type"] === "commandExecution" && item["status"] === "inProgress")

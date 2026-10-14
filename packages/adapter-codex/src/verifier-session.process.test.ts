@@ -34,24 +34,26 @@ test("truncated child recovery retries a failed read even after ancestry becomes
     await h.dispose();
   }
 });
-test("a read without turn history keeps recovery pending and retries the complete transcript", async () => {
+test("a history page without turns keeps recovery pending and retries the complete transcript", async () => {
   const h = await sessionHarness(false, "omitted-history");
   try {
     await h.session.send(text("overflow-read"), "steer");
     await h.wait(note("discovery-finished"));
     h.runTimers();
-    const firstBarrier = h.frames.at(-1)?.seq ?? 0;
-    // A provider round trip completes even if the malformed read was incorrectly accepted.
-    await h.session.send(text("finish"), "steer");
-    await h.wait((f) => f.seq > firstBarrier && note("discovery-finished")(f));
-    expect(
-      h.frames.some((f) => f.dir === "stderr" && String(f.data).includes("omitted turn history")),
-    ).toBe(true);
+    // Recovery reads metadata, then history pages; the malformed page must be refused.
+    await h.wait((f) => f.dir === "stderr" && String(f.data).includes("omitted its turns"));
     expect(h.replay.state.status.state).not.toBe("done");
     const retryBarrier = h.frames.at(-1)?.seq ?? 0;
     h.runTimers();
+    await h.wait(
+      (f) =>
+        f.seq > retryBarrier &&
+        note("thread-discovered")(f) &&
+        obj(obj(f.data)["thread"])["id"] === "overflow-child",
+    );
+    const recoveredBarrier = h.frames.at(-1)?.seq ?? 0;
     await h.session.send(text("finish"), "steer");
-    await h.wait((f) => f.seq > retryBarrier && note("discovery-finished")(f));
+    await h.wait((f) => f.seq > recoveredBarrier && note("discovery-finished")(f));
     expect(
       Object.values(h.replay.state.items).some(
         (i) =>

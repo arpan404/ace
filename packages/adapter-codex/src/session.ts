@@ -16,6 +16,7 @@ import { ProviderPayload } from "@ace/provider-kit/payload";
 import { isInteractiveRequest } from "./interactions.ts";
 import { runtime, type CodexRuntime } from "./runtime.ts";
 import { hydrateControls } from "./session-state.ts";
+import { compactHistoryReply } from "./history.ts";
 import type { ProviderSession } from "@ace/engine-api";
 import type { CodexSessionContext } from "./session-context.ts";
 import { type DiscoveryOptions, type DiscoveryResult } from "@ace/provider-kit/discovery";
@@ -60,7 +61,14 @@ export async function openCodexSession(
   const active = new Map<string, string>();
   const controlRequests = new Map<
     unknown,
-    { method: string; thread: string; mode: string | null; completed: Set<string> }
+    {
+      method: string;
+      thread: string;
+      mode: string | null;
+      completed: Set<string>;
+      /** History follows in bounded pages instead of in this reply (#693). */
+      excludesTurns: boolean;
+    }
   >();
   const correlationDeadlines = new Map<unknown, () => void>();
   function awaitCorrelation(id: unknown, thread: string): void {
@@ -84,6 +92,8 @@ export async function openCodexSession(
   const scopedReads = new Set<unknown>();
   const parents = new Map<string, string>();
   const known = new Set<string>();
+  const endedTurns = new RecentSet();
+  const historyReplies = new Set<unknown>();
   // Confirmed ancestry does not prove that retained history is complete.
   const recovered = new Set<string>();
   const shells = new Map<string, string>();
@@ -146,9 +156,11 @@ export async function openCodexSession(
           thread,
           mode: submittedMode,
           completed: new RecentSet(),
+          excludesTurns: p["excludeTurns"] === true,
         });
       if (dir === "recv") {
         observeRecovery(thread, method, str(obj(p["turn"])["id"]));
+        if (method === "turn/completed") endedTurns.add(str(obj(p["turn"])["id"]));
         if (method === "turn/completed")
           for (const [id, submitted] of controlRequests)
             if (submitted.method === "turn/start" && submitted.thread === thread) {
@@ -175,9 +187,11 @@ export async function openCodexSession(
             nativeSessionId = str(snapshot["id"]);
             if (nativeSessionId) {
               known.add(nativeSessionId);
-              if (Array.isArray(snapshot["turns"])) recovered.add(nativeSessionId);
-              rememberHistoricalQuestions(snapshot, seenQuestions);
-              hydrateControls(snapshot, active, shells);
+              if (!control.excludesTurns) {
+                if (Array.isArray(snapshot["turns"])) recovered.add(nativeSessionId);
+                rememberHistoricalQuestions(snapshot, seenQuestions);
+                hydrateControls(snapshot, active, shells, endedTurns);
+              }
             }
           }
         }
@@ -197,8 +211,16 @@ export async function openCodexSession(
       if (dir === "send" && method === "thread/read") {
         scopedReads.add(m["id"]);
       }
+      if (dir === "send" && method === "thread/turns/list") historyReplies.add(m["id"]);
       const scoped = dir === "recv" && scopedReads.delete(m["id"]);
-      emit(dir, data, scoped ? "codex-discovery" : "stdio", optionalFrames.method(dir, data));
+      const history = dir === "recv" && (historyReplies.delete(m["id"]) || scoped);
+      emit(
+        dir,
+        // History replies grow with the thread; their turns are recorded as bounded notes.
+        history ? compactHistoryReply(m) : data,
+        scoped ? "codex-discovery" : history ? "codex-history" : "stdio",
+        optionalFrames.method(dir, data),
+      );
       if (dir !== "recv") return;
       if (thread && !known.has(thread) && !timers.has(thread) && timers.size < 256)
         scheduleRecovery(thread);
@@ -285,24 +307,26 @@ export async function openCodexSession(
   };
   const request = (method: string, params: unknown, interactive = false) =>
     rpc.request(method, params, { timeoutMs: interactive ? null : 30_000, signal: ctx.signal });
-  const { scheduleRecovery, reconcileLoaded, refreshQueue, observeRecovery } = sessionDiscovery({
-    request,
-    emit,
-    diagnostic,
-    schedule: io.schedule,
-    isClosed: () => closed,
-    isForeign: (thread) => link?.foreign(thread) ?? false,
-    getRoot: () => nativeSessionId,
-    known,
-    recovered,
-    parents,
-    active,
-    shells,
-    reading,
-    revisions,
-    timers,
-    seenQuestions,
-  });
+  const { scheduleRecovery, reconcileLoaded, refreshQueue, observeRecovery, readThread } =
+    sessionDiscovery({
+      request,
+      emit,
+      diagnostic,
+      schedule: io.schedule,
+      isClosed: () => closed,
+      isForeign: (thread) => link?.foreign(thread) ?? false,
+      getRoot: () => nativeSessionId,
+      known,
+      recovered,
+      parents,
+      active,
+      shells,
+      reading,
+      revisions,
+      timers,
+      seenQuestions,
+      endedTurns,
+    });
   const catalog = createExtensionCatalog(
     rpc,
     ctx.cwd,
@@ -447,17 +471,23 @@ export async function openCodexSession(
               ...params,
               threadId: ctx.fork.nativeSessionId,
               ...(ctx.fork.point.type === "turn" ? { lastTurnId: ctx.fork.point.nativeId } : {}),
-              excludeTurns: false,
+              excludeTurns: true,
               deferGoalContinuation: true,
             }
           : ctx.resume
-            ? ({ ...params, threadId: ctx.resume.nativeSessionId } satisfies ThreadResumeParams)
+            ? ({
+                ...params,
+                threadId: ctx.resume.nativeSessionId,
+                excludeTurns: true,
+              } satisfies ThreadResumeParams)
             : params,
       ),
     );
     nativeSessionId = str(obj(result["thread"])["id"]);
     if (!nativeSessionId) throw new Error("Codex did not return a thread id");
     known.add(nativeSessionId);
+    // An existing thread's history, in bounded pages, before anything can act on it.
+    if (ctx.fork || ctx.resume) await readThread(nativeSessionId);
 
     model = str(result["model"], model);
     if (ctx.options !== undefined)

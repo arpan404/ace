@@ -7,6 +7,7 @@ import {
 import { RecentSet } from "./retention.ts";
 import { rememberHistoricalQuestions } from "./interaction-lifecycle.ts";
 import { obj, str, list } from "./native.ts";
+import { historyNotes, readHistory, withoutHistory } from "./history.ts";
 /** Discovery is an I/O shell around native history and revision-fenced controls. */
 export function sessionDiscovery(config: {
   request(method: string, params: unknown): Promise<unknown>;
@@ -26,6 +27,8 @@ export function sessionDiscovery(config: {
   revisions: Map<string, number>;
   timers: Map<string, () => void>;
   seenQuestions: Set<string>;
+  /** Turns already seen completing live; a history snapshot cannot make them active again. */
+  endedTurns: { has(turn: string): boolean };
 }) {
   const {
     request,
@@ -40,6 +43,7 @@ export function sessionDiscovery(config: {
     revisions,
     timers,
     seenQuestions,
+    endedTurns,
   } = config;
   const recovering = new Set<string>();
   const reads = new Map<string, Promise<void>>();
@@ -47,6 +51,7 @@ export function sessionDiscovery(config: {
   const dependencies = new Map<string, string>();
   const queueCounts = new Map<string, number>();
   let unknownRecoveries = 0;
+  let historyReads = 0;
   function scheduleRecovery(threadId: string): void {
     if (config.isClosed() || timers.has(threadId)) return;
     timers.set(
@@ -103,11 +108,13 @@ export function sessionDiscovery(config: {
   ): Promise<void> {
     // This evidence belongs to this request, including while ancestry is being loaded.
     const revision = revisions.get(threadId) ?? 0;
-    const result = obj(await request("thread/read", { threadId, includeTurns: true }));
-    const thread = obj(result["thread"]);
+    // Metadata only: history arrives in bounded pages below (#693).
+    const result = obj(await request("thread/read", { threadId }));
+    const thread = withoutHistory(obj(result["thread"]));
     if (str(thread["id"]) !== threadId)
       throw new Error("Codex thread read returned a different id");
-    const parent = parentOf(thread);
+    // The session's own root is the top of its tree, whatever Codex records above it.
+    const parent = threadId === config.getRoot() ? "" : parentOf(thread);
     if (parent && !known.has(parent)) {
       dependencies.set(threadId, parent);
       const seen = new Set(ancestors);
@@ -121,12 +128,12 @@ export function sessionDiscovery(config: {
       revisions.delete(threadId);
       return;
     }
-    if (!Array.isArray(thread["turns"])) throw new Error("Codex read omitted turn history");
+    const snapshot = { ...thread, turns: await readHistory(request, threadId) };
     known.add(threadId);
     if (parent) parents.set(threadId, parent);
     const current = revisions.get(threadId) ?? 0;
     const evidence = { read: revision, current };
-    const uncertain = recoveryUncertain(thread, evidence, observed);
+    const uncertain = recoveryUncertain(snapshot, evidence, observed);
     if (uncertain) {
       recovered.delete(threadId);
       scheduleRecovery(threadId);
@@ -135,11 +142,14 @@ export function sessionDiscovery(config: {
       timers.get(threadId)?.();
       timers.delete(threadId);
     }
-    if (revision === current) hydrateControls(thread, active, shells);
-    rememberHistoricalQuestions(thread, seenQuestions);
+    if (revision === current) hydrateControls(snapshot, active, shells, endedTurns);
+    rememberHistoricalQuestions(snapshot, seenQuestions);
+    const read = ++historyReads;
+    for (const note of historyNotes(threadId, read, snapshot.turns)) emit("note", note);
     emit("note", {
       event: "thread-discovered",
-      thread,
+      thread: { ...thread, turns: [] },
+      history: read,
       revision: { ...evidence, uncertain },
     });
   }
@@ -189,5 +199,5 @@ export function sessionDiscovery(config: {
     if (method === "turn/started") observed.started = turn;
     if (method === "turn/completed") observed.completed.add(turn);
   }
-  return { scheduleRecovery, reconcileLoaded, refreshQueue, observeRecovery };
+  return { scheduleRecovery, reconcileLoaded, refreshQueue, observeRecovery, readThread };
 }
