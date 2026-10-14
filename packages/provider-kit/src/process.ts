@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+export { OutputLineDroppedError, type DroppedOutputLine } from "./output-line-drop.ts";
+import type { DroppedOutputLine } from "./output-line-drop.ts";
 export { lineReader } from "./line-reader.ts";
 import type { Interface } from "node:readline";
 import { lineReader } from "./line-reader.ts";
@@ -54,6 +56,8 @@ export type SpawnOptions = {
   killGroupOnExit?: boolean;
   /** UTF-8 bytes per stdout/stderr line, checked before framing. Defaults to 16 MiB. */
   maxLineBytes?: number;
+  /** Opt in to dropping oversized stdout lines. Stderr and total budgets still kill. */
+  onStdoutLineDropped?: (line: DroppedOutputLine) => void;
   onOutputLimit?: (error: Error) => void;
   /**
    * Elide heavy JSON strings on stdout before any limit sees them, so inline images never
@@ -112,9 +116,9 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
       /* Observation cannot delay process termination. */
     }
   };
-  const gateOutput = (input: Readable): Readable => {
+  const gateOutput = (input: Readable, dropped?: (line: DroppedOutputLine) => void): Readable => {
     if (maxLineBytes === undefined && maxOutputBytes === undefined) return input;
-    const gate = outputGate(maxLineBytes, admit, failOutput);
+    const gate = outputGate(maxLineBytes, admit, failOutput, dropped);
     // Spawn failure can close a pipe without emitting end. Finish framing there too.
     input.once("close", () => gate.end());
     gate.once("close", () => input.destroy());
@@ -122,6 +126,7 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
   };
   const stdout = gateOutput(
     options.elideStdout ? elide(child.stdout, options.elideStdout) : child.stdout,
+    options.onStdoutLineDropped,
   );
   const stderr = gateOutput(child.stderr);
 
