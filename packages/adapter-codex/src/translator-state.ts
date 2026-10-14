@@ -9,6 +9,8 @@ export type Agent = {
   known: boolean;
   unknownTask?: boolean;
   recoveryUncertain?: boolean;
+  /** Live shells recovered without transcript items, until terminal evidence settles them. */
+  terminalItems?: Set<string>;
   bufferLost?: boolean;
   turn?: string;
   latestTurn?: string;

@@ -4,10 +4,11 @@ import {
   recoveryUncertain,
   type ReadObservation,
 } from "./session-state.ts";
+import { readBackgroundTerminals } from "./background-terminals.ts";
 import { RecentSet } from "./retention.ts";
 import { rememberHistoricalQuestions } from "./interaction-lifecycle.ts";
 import { obj, str, list } from "./native.ts";
-import { historyNotes, readHistory, withoutHistory } from "./history.ts";
+import { historyNotes, readHistory, withoutHistory, type HistoryNote } from "./history.ts";
 /** Discovery is an I/O shell around native history and revision-fenced controls. */
 export function sessionDiscovery(config: {
   request(method: string, params: unknown): Promise<unknown>;
@@ -52,6 +53,35 @@ export function sessionDiscovery(config: {
   const queueCounts = new Map<string, number>();
   let unknownRecoveries = 0;
   let historyReads = 0;
+  const uncertainThreads = new Set<string>();
+  let outputRecovery = false;
+  let outputScan = false;
+  let outputRevision = 0;
+  const outputTask = "codex:output-recovery";
+  function finishOutputRecovery(): void {
+    if (!outputRecovery || outputScan || uncertainThreads.size) return;
+    outputRecovery = false;
+    emit("note", { event: "discovery-finished", threadId: config.getRoot(), task: outputTask });
+  }
+  function invalidateOutput(): void {
+    if (!outputRecovery) {
+      outputRecovery = true;
+      emit("note", { event: "discovery-start", threadId: config.getRoot(), task: outputTask });
+    }
+    for (const thread of new Set([...known, ...reading])) {
+      const revision = (revisions.get(thread) ?? 0) + 1;
+      revisions.set(thread, revision);
+      uncertainThreads.add(thread);
+      recovered.delete(thread);
+      scheduleRecovery(thread);
+    }
+    // A dropped spawn notification may have hidden a descendant nobody knows about yet.
+    outputRevision++;
+    if (!outputScan) {
+      outputScan = true;
+      void reconcileLoaded(outputTask);
+    }
+  }
   function scheduleRecovery(threadId: string): void {
     if (config.isClosed() || timers.has(threadId)) return;
     timers.set(
@@ -126,14 +156,33 @@ export function sessionDiscovery(config: {
     }
     if (threadId !== config.getRoot() && (!parent || !known.has(parent))) {
       revisions.delete(threadId);
+      uncertainThreads.delete(threadId);
+      finishOutputRecovery();
       return;
     }
-    const snapshot = { ...thread, turns: await readHistory(request, threadId) };
+    const read = ++historyReads;
+    const omitted: HistoryNote[] = [];
+    const snapshot = {
+      ...thread,
+      turns: await readHistory(request, threadId, (note) =>
+        omitted.push({ ...note, threadId, read }),
+      ),
+    };
+    const notes = historyNotes(threadId, read, snapshot.turns);
+    // Summaries omit commands. Only Codex's live-terminal list can rule out a background shell.
+    const terminals =
+      uncertainThreads.has(threadId) &&
+      (omitted.length || notes.some((note) => note.event === "thread-history-omitted"))
+        ? await readBackgroundTerminals(request, threadId)
+        : undefined;
     known.add(threadId);
     if (parent) parents.set(threadId, parent);
     const current = revisions.get(threadId) ?? 0;
     const evidence = { read: revision, current };
-    const uncertain = recoveryUncertain(snapshot, evidence, observed);
+    const uncertain =
+      terminals?.some((terminal) => !terminal.itemId) === true ||
+      (uncertainThreads.has(threadId) && revision !== current) ||
+      recoveryUncertain(snapshot, evidence, observed);
     if (uncertain) {
       recovered.delete(threadId);
       scheduleRecovery(threadId);
@@ -142,16 +191,35 @@ export function sessionDiscovery(config: {
       timers.get(threadId)?.();
       timers.delete(threadId);
     }
-    if (revision === current) hydrateControls(snapshot, active, shells, endedTurns);
+    if (!uncertain && revision === current) {
+      // A dropped completion leaves stale controls; a current read replaces them.
+      if (uncertainThreads.has(threadId)) {
+        active.delete(threadId);
+        for (const [item, owner] of shells) if (owner === threadId) shells.delete(item);
+      }
+      hydrateControls(snapshot, active, shells, endedTurns);
+      for (const terminal of terminals ?? [])
+        if (terminal.itemId) shells.set(terminal.itemId, threadId);
+    }
     rememberHistoricalQuestions(snapshot, seenQuestions);
-    const read = ++historyReads;
-    for (const note of historyNotes(threadId, read, snapshot.turns)) emit("note", note);
+    for (const note of omitted) emit("note", note);
+    for (const note of notes) emit("note", note);
     emit("note", {
       event: "thread-discovered",
-      thread: { ...thread, turns: [] },
+      thread: {
+        ...thread,
+        turns: [],
+        ...(terminals && !uncertain && revision === current
+          ? { liveTerminalItems: terminals.map((terminal) => terminal.itemId) }
+          : {}),
+      },
       history: read,
       revision: { ...evidence, uncertain },
     });
+    if (!uncertain && revision === current) {
+      uncertainThreads.delete(threadId);
+      finishOutputRecovery();
+    }
   }
   async function refreshQueue(threadId: string): Promise<void> {
     let cursor: unknown = undefined;
@@ -169,7 +237,7 @@ export function sessionDiscovery(config: {
       count: [...queueCounts.values()].reduce((total, value) => total + value, 0),
     });
   }
-  async function reconcileLoaded(task: string): Promise<void> {
+  async function reconcileLoaded(task: string, scanRevision = outputRevision): Promise<void> {
     try {
       let cursor: unknown = undefined;
       do {
@@ -179,8 +247,15 @@ export function sessionDiscovery(config: {
             await readThread(entry);
         cursor = result["nextCursor"];
       } while (cursor);
-      if (!config.isClosed())
-        emit("note", { event: "discovery-finished", threadId: config.getRoot(), task });
+      if (!config.isClosed()) {
+        if (task === outputTask) {
+          if (scanRevision !== outputRevision) void reconcileLoaded(outputTask);
+          else {
+            outputScan = false;
+            finishOutputRecovery();
+          }
+        } else emit("note", { event: "discovery-finished", threadId: config.getRoot(), task });
+      }
     } catch (error) {
       diagnostic(error);
       if (!config.isClosed() && !timers.has(task))
@@ -199,5 +274,12 @@ export function sessionDiscovery(config: {
     if (method === "turn/started") observed.started = turn;
     if (method === "turn/completed") observed.completed.add(turn);
   }
-  return { scheduleRecovery, reconcileLoaded, refreshQueue, observeRecovery, readThread };
+  return {
+    scheduleRecovery,
+    reconcileLoaded,
+    refreshQueue,
+    observeRecovery,
+    readThread,
+    invalidateOutput,
+  };
 }

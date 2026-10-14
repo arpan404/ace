@@ -291,6 +291,10 @@ export async function openCodexSession(
           plans.set(planKey(str(p["turnId"])), { thread, markdown: str(item["text"]) });
       }
     },
+    dropped(line, uncertain) {
+      emit("note", { event: "output-line-dropped", ...line });
+      if (uncertain) invalidateOutput();
+    },
     malformed: (line) => emit("recv", { malformed: line }),
     error: diagnostic,
     notification: (message) => onNotification(message),
@@ -307,26 +311,32 @@ export async function openCodexSession(
   };
   const request = (method: string, params: unknown, interactive = false) =>
     rpc.request(method, params, { timeoutMs: interactive ? null : 30_000, signal: ctx.signal });
-  const { scheduleRecovery, reconcileLoaded, refreshQueue, observeRecovery, readThread } =
-    sessionDiscovery({
-      request,
-      emit,
-      diagnostic,
-      schedule: io.schedule,
-      isClosed: () => closed,
-      isForeign: (thread) => link?.foreign(thread) ?? false,
-      getRoot: () => nativeSessionId,
-      known,
-      recovered,
-      parents,
-      active,
-      shells,
-      reading,
-      revisions,
-      timers,
-      seenQuestions,
-      endedTurns,
-    });
+  const {
+    scheduleRecovery,
+    reconcileLoaded,
+    refreshQueue,
+    observeRecovery,
+    readThread,
+    invalidateOutput,
+  } = sessionDiscovery({
+    request,
+    emit,
+    diagnostic,
+    schedule: io.schedule,
+    isClosed: () => closed,
+    isForeign: (thread) => link?.foreign(thread) ?? false,
+    getRoot: () => nativeSessionId,
+    known,
+    recovered,
+    parents,
+    active,
+    shells,
+    reading,
+    revisions,
+    timers,
+    seenQuestions,
+    endedTurns,
+  });
   const catalog = createExtensionCatalog(
     rpc,
     ctx.cwd,

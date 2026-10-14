@@ -1,3 +1,4 @@
+import { OutputLineDroppedError } from "@ace/provider-kit/process";
 import { maxProviderPayloadBytes } from "@ace/provider-kit/payload";
 import { list, obj, str, type Obj } from "./native.ts";
 
@@ -15,29 +16,61 @@ const noteBudget = maxProviderPayloadBytes - 64 * 1024;
 type Request = (method: string, params: unknown) => Promise<unknown>;
 
 /** Every turn of a thread, oldest first, a page at a time. */
-export async function readHistory(request: Request, threadId: string): Promise<Obj[]> {
+type OmittedTurn = {
+  event: "thread-history-omitted";
+  turnId: string;
+  item: string;
+  bytes: number;
+  reason: string;
+};
+export async function readHistory(
+  request: Request,
+  threadId: string,
+  omitted: (note: OmittedTurn) => void = () => {},
+): Promise<Obj[]> {
   const turns: Obj[] = [];
   const seen = new Set<string>();
   let cursor: string | undefined;
   for (let page = 0; page < maxHistoryPages; page++) {
     let result: Obj;
-    try {
-      result = obj(
-        await request("thread/turns/list", {
-          threadId,
-          limit: historyPageTurns,
-          sortDirection: "asc",
-          itemsView: "full",
-          ...(cursor ? { cursor } : {}),
-        }),
-      );
-    } catch (error) {
-      // Servers without paged history still answer the deprecated whole-history read.
-      if (page === 0 && methodMissing(error)) return wholeHistory(request, threadId);
-      throw error;
+    let limit = historyPageTurns;
+    let itemsView: "full" | "summary" | "notLoaded" = "full";
+    let droppedBytes = 0;
+    for (;;) {
+      try {
+        result = obj(
+          await request("thread/turns/list", {
+            threadId,
+            limit,
+            sortDirection: "asc",
+            itemsView,
+            ...(cursor ? { cursor } : {}),
+          }),
+        );
+        break;
+      } catch (error) {
+        // Servers without paged history still answer the deprecated whole-history read.
+        if (page === 0 && methodMissing(error)) return wholeHistory(request, threadId);
+        if (!(error instanceof OutputLineDroppedError)) throw error;
+        droppedBytes = error.bytes;
+        if (limit !== 1) limit = 1;
+        else if (itemsView === "full") itemsView = "summary";
+        else if (itemsView === "summary") itemsView = "notLoaded";
+        else throw error; // No cursor survived even in the envelope; never invent one.
+      }
     }
     if (!Array.isArray(result["data"])) throw new Error("Codex history page omitted its turns");
-    for (const turn of result["data"]) turns.push(obj(turn));
+    for (const turn of result["data"]) {
+      turns.push(obj(turn));
+      if (itemsView !== "full")
+        omitted({
+          event: "thread-history-omitted",
+          turnId: str(obj(turn)["id"]),
+          item: "",
+          bytes: droppedBytes,
+          reason: `Oversized turn history retained as ${itemsView}`,
+        });
+    }
     const next = str(result["nextCursor"]);
     if (!next) return turns;
     if (seen.has(next)) throw new Error("Codex history repeated a page cursor");
@@ -93,6 +126,7 @@ export type HistoryNote =
       turnId: string;
       item: string;
       bytes: number;
+      reason?: string;
     };
 
 const bytesOf = (value: unknown) => Buffer.byteLength(JSON.stringify(value));

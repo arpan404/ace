@@ -3,7 +3,7 @@ import { RecentSet } from "./retention.ts";
 import type { Fact, Key } from "@ace/core";
 import type { Frame } from "@ace/engine-api";
 import type { Agent, RecoveryRevision } from "./translator-state.ts";
-import { obj, str, list, type Obj } from "./native.ts";
+import { obj, str, list, shellKey, type Obj } from "./native.ts";
 export function createAgentRegistry(config: {
   agents: Map<string, Agent>;
   rootKey: Key;
@@ -140,6 +140,64 @@ export function createAgentRegistry(config: {
           replay(incomplete ? "item/started" : "item/completed", { threadId: id, turnId, item });
         }
         if (t["status"] !== "inProgress") replay("turn/completed", { threadId: id, turn: t });
+      }
+      if (
+        currentSnapshot &&
+        revision?.uncertain !== true &&
+        Array.isArray(p["liveTerminalItems"])
+      ) {
+        const live = new Set(list(p["liveTerminalItems"]));
+        for (const itemId of agent.terminalItems ?? [])
+          if (!live.has(itemId))
+            facts.push({ type: "background.ended", task: shellKey(itemId), status: "completed" });
+        const recoveredTerminals = new Set<string>();
+        for (const itemId of live) {
+          if (typeof itemId !== "string" || agent.open.has(itemId)) continue;
+          recoveredTerminals.add(itemId);
+          if (!agent.terminalItems?.has(itemId))
+            facts.push({
+              type: "background.started",
+              agent: agent.key,
+              task: shellKey(itemId),
+              kind: "shell",
+              title: "Codex background command",
+              stoppable: true,
+            });
+        }
+        agent.terminalItems = recoveredTerminals;
+        const settled = new Set(
+          turns
+            .map(obj)
+            .filter((turn) => turn["status"] !== "inProgress")
+            .map((turn) => str(turn["id"])),
+        );
+        for (const [itemId, open] of agent.open) {
+          if (
+            open.data["type"] !== "commandExecution" ||
+            !settled.has(open.turn) ||
+            live.has(itemId)
+          )
+            continue;
+          facts.push(
+            ...config.replay(
+              {
+                seq: 0,
+                t: now,
+                dir: "recv",
+                channel: "hydration",
+                data: {
+                  method: "item/completed",
+                  params: {
+                    threadId: id,
+                    turnId: open.turn,
+                    item: { ...open.data, status: "completed" },
+                  },
+                },
+              },
+              now,
+            ),
+          );
+        }
       }
       if (
         currentSnapshot &&

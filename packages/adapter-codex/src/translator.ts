@@ -114,8 +114,8 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       translation.answerEchoes.note(message);
       if (message["event"] === "session-scope") scope = str(message["scope"]);
       if (message["event"] === "thread-history") histories.add(message);
-      if (message["event"] === "thread-history-omitted")
-        facts.push(note(init.rootKey, "thread-history-omitted", frame.data));
+      if (["thread-history-omitted", "output-line-dropped"].includes(str(message["event"])))
+        facts.push(note(init.rootKey, str(message["event"]), frame.data));
       if (message["event"] === "thread-discovered") {
         const thread = histories.complete(message);
         const source = obj(obj(obj(thread["source"])["subAgent"])["thread_spawn"]);

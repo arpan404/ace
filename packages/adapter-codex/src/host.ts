@@ -5,7 +5,13 @@ import {
   type ServerRequest,
 } from "@ace/provider-kit/jsonrpc";
 import type { OutputFlow } from "@ace/provider-kit/flow-control";
-import type { ProcessExit, SupervisedProcess } from "@ace/provider-kit/process";
+import {
+  OutputLineDroppedError,
+  type DroppedOutputLine,
+  type ProcessExit,
+  type SupervisedProcess,
+} from "@ace/provider-kit/process";
+import { attributeDroppedLine, type LineAttribution } from "./dropped-line.ts";
 import { HostRouter, type Route } from "./host-routing.ts";
 import { obj, str } from "./native.ts";
 import { parentOf } from "./session-state.ts";
@@ -23,6 +29,7 @@ export type ChannelHandlers = {
   frame(dir: "send" | "recv", data: unknown): void;
   notification(message: Notification): void;
   request(message: ServerRequest): unknown;
+  dropped(line: { bytes: number; attributed: LineAttribution }, uncertain: boolean): void;
   malformed(line: string): void;
   stderr(line: string): void;
   error(error: Error): void;
@@ -54,7 +61,7 @@ export interface CodexChannel {
 }
 
 export type HostConfig = {
-  spawn(flow: OutputFlow): SupervisedProcess;
+  spawn(flow: OutputFlow, dropped: (line: DroppedOutputLine) => void): SupervisedProcess;
   /** A dedicated host serves one channel and stops with it; every frame goes to that channel. */
   dedicated: boolean;
   initialize: unknown;
@@ -165,17 +172,20 @@ export class CodexHost {
     this.#config = config;
     this.dedicated = config.dedicated;
     const tenants = this.#tenants;
-    this.#proc = config.spawn({
-      // Shared stdout pauses while any channel is out of room; no channel loses a frame.
-      paused: () => [...tenants].some((tenant) => tenant.handlers.flow?.paused() ?? false),
-      wait: async () => {
-        await Promise.all(
-          [...tenants].map((tenant) =>
-            tenant.handlers.flow?.paused() ? tenant.handlers.flow.wait() : undefined,
-          ),
-        );
+    this.#proc = config.spawn(
+      {
+        // Shared stdout pauses while any channel is out of room; no channel loses a frame.
+        paused: () => [...tenants].some((tenant) => tenant.handlers.flow?.paused() ?? false),
+        wait: async () => {
+          await Promise.all(
+            [...tenants].map((tenant) =>
+              tenant.handlers.flow?.paused() ? tenant.handlers.flow.wait() : undefined,
+            ),
+          );
+        },
       },
-    });
+      (line) => this.#dropped(line),
+    );
     const proc = this.#proc;
     const drain = () => {
       // Leader exit is independent of inherited pipe EOF. Bound the final drain.
@@ -372,6 +382,29 @@ export class CodexHost {
     if (!this.dedicated || route.to === "host") return route;
     const [only] = this.#tenants;
     return only ? { to: "tenant", tenant: only, claimed: [] } : { to: "drop" };
+  }
+
+  #dropped(line: DroppedOutputLine): void {
+    const attributed = attributeDroppedLine(line.prefix);
+    const error = new OutputLineDroppedError(line.bytes);
+    const rejected =
+      attributed.response &&
+      attributed.id !== undefined &&
+      this.#peer.rejectRequest(attributed.id, error);
+    if (rejected) {
+      // Follow normal reply routing to clear request ownership and session correlation too.
+      this.#received({ id: attributed.id, error: { code: -32099, message: error.message } });
+      this.#last = undefined;
+      if (this.#router.opening === 0) this.#settleWaiting();
+    }
+    for (const tenant of this.#tenants) {
+      if (tenant.closed) continue;
+      try {
+        tenant.handlers.dropped({ bytes: line.bytes, attributed }, !rejected);
+      } catch (failure) {
+        tenant.handlers.failed(failure instanceof Error ? failure : new Error(String(failure)));
+      }
+    }
   }
 
   #received(data: unknown): void {

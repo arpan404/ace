@@ -73,3 +73,37 @@ with it, so the single-process behaviour stays covered.
 - Process-level stderr appears in every attached session's diagnostics.
 - MCP server controls (reload, enable, disable) act on the shared process, so a change made from
   one thread applies to every thread on that account, as the account's config already does.
+
+## Amendment: oversized stdout lines (#693, part a)
+
+Shared Codex hosts opt in to dropping a stdout line over the process line limit.
+The byte gate holds at most one admissible line. Once the limit is crossed it
+releases that buffer and counts/skips bytes until the next CR or LF, preserving
+subsequent lines across chunk boundaries. Attribution inspects complete JSON tokens
+in at most the first 4 KiB, keeping only envelope response IDs and notification
+thread IDs. The prefix itself is never recorded. Every tenant records an
+`output-line-dropped` note with the byte count and attribution.
+
+An attributable reply rejects only its pending RPC with `OutputLineDroppedError`.
+A synthetic error reply follows normal routing to release ownership, opening
+counts and turn correlation. A notification or an unattributable line invalidates
+all tenants' recovered state. Each tenant starts a background recovery barrier,
+bump-fences its known and in-flight thread reads, and scans loaded descendants
+through the existing discovery path. The barrier ends only after fresh reads and
+the loaded scan agree. Repeated drops coalesce scans and require another pass.
+An idle snapshot taken before a drop cannot clear the barrier. Recovery replaces
+stale session controls only with current evidence.
+
+A dropped `thread/turns/list` reply retries the same cursor with one turn, then
+`itemsView: summary`, then `notLoaded`. The last view preserves the turn's status
+and continuation cursor while omitting its content. Downgrades record
+`thread-history-omitted` and later turns remain readable. If even the turn envelope
+cannot fit, fail the read rather than invent an opaque cursor. When a recovery
+summary omits commands, a bounded live-terminal read supplies the missing shell
+evidence: a known shell settles only when its turn has ended and Codex no longer
+lists it. Unidentified terminals keep recovery uncertain.
+
+Private Codex hosts and every other supervised-process caller retain termination
+on oversized lines. Stderr line limits and aggregate stdout/stderr budgets retain
+their termination behaviour even when stdout dropping is enabled. This amendment
+does not change the separate provider payload admission limit.
