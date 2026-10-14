@@ -99,7 +99,8 @@ for await (const line of createInterface({ input: process.stdin })) {
         platformOs: "macos",
       });
   } else if (method === "app/list" && process.env["ACE_FAKE_RESUME"] === "oversized-catalog") {
-    const data = [{ id: "large-app", name: "Large app", description: "x".repeat(1100000) }];
+    // Readable text: a run of one letter would look like base64 and be elided on the way in.
+    const data = [{ id: "large-app", name: "Large app", description: "x ".repeat(550000) }];
     if (!appCatalogNotified) {
       appCatalogNotified = true;
       notify("app/list/updated", { data });
@@ -391,7 +392,7 @@ for await (const line of createInterface({ input: process.stdin })) {
         id: "large-shell",
         command: "offline",
         status: "completed",
-        aggregatedOutput: "x".repeat(1_100_000),
+        aggregatedOutput: "x ".repeat(550_000),
       });
       end();
       continue;

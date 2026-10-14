@@ -32,6 +32,21 @@ function start(threadId: string): string {
   return turn;
 }
 
+// Codex keeps each generated image inline as base64 and resumes with full history: six
+// 3 MiB images put one response line past the 16 MiB process line limit.
+function history(thread: string) {
+  if (!thread.startsWith("images")) return {};
+  const items = Array.from({ length: 6 }, (_, index) => ({
+    type: "imageGeneration",
+    id: `image-${index}`,
+    status: "completed",
+    revisedPrompt: null,
+    result: `iVBORw0KGgo${"QUJD".repeat(768 * 1024)}`,
+    savedPath: `/generated/image-${index}.png`,
+  }));
+  return { turns: [{ id: "turn-images", status: "completed", items }] };
+}
+
 for await (const line of createInterface({ input: process.stdin })) {
   const frame = obj(JSON.parse(line));
   const id = frame["id"];
@@ -45,7 +60,8 @@ for await (const line of createInterface({ input: process.stdin })) {
     const thread =
       method === "thread/resume" ? str(p["threadId"]) : `thread-${process.pid}-${++threads}`;
     loaded.add(thread);
-    const opened = () => respond({ thread: { id: thread, cwd: p["cwd"] }, model: "fake" });
+    const opened = () =>
+      respond({ thread: { id: thread, cwd: p["cwd"], ...history(thread) }, model: "fake" });
     // A slow workspace holds its open so a caller can cancel while Codex is still starting.
     if (str(p["cwd"]).endsWith("slow")) setTimeout(opened, 2000);
     else opened();

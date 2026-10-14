@@ -32,6 +32,7 @@ async function open(
   name: string,
   shared = true,
   controller = new AbortController(),
+  resume?: string,
 ) {
   const cwd = join(fake.directory, name);
   await mkdir(cwd, { recursive: true });
@@ -52,6 +53,7 @@ async function open(
           }
       },
       onExit: (result) => exit.resolve(result),
+      ...(resume ? { resume: { nativeSessionId: resume } } : {}),
     },
     {
       cli: {
@@ -83,8 +85,9 @@ async function opened(
   fake: Awaited<ReturnType<typeof fakeCodex>>,
   name: string,
   controller = new AbortController(),
+  resume?: string,
 ) {
-  const handle = await open(fake, name, true, controller);
+  const handle = await open(fake, name, true, controller, resume);
   const session = await handle.opening;
   cleanups.push(() => session.close("shutdown"));
   return { ...handle, session };
@@ -244,3 +247,29 @@ test.each([true, false])(
     await expect(handle.opening).rejects.toThrow("Opening cancelled by the user");
   },
 );
+
+test("a thread whose generated images outgrow the line limit resumes beside a working neighbour", async () => {
+  const fake = await fakeCodex();
+  const neighbour = await opened(fake, "a");
+  const images = await opened(fake, "b", new AbortController(), "images-thread");
+  expect(images.session.nativeSessionId).toBe("images-thread");
+  expect(pidOf(images.frames)).toBe(pidOf(neighbour.frames));
+
+  const resumed = images.frames
+    .map((frame) => obj(obj(obj(frame.data)["result"])["thread"]))
+    .find((thread) => thread["id"] === "images-thread");
+  const items = (Array.isArray(resumed?.["turns"]) ? resumed["turns"] : []).flatMap((turn) => {
+    const listed = obj(turn)["items"];
+    return Array.isArray(listed) ? listed.map(obj) : [];
+  });
+  expect(items.map((item) => item["savedPath"])).toEqual(
+    Array.from({ length: 6 }, (_, index) => `/generated/image-${index}.png`),
+  );
+  for (const item of items)
+    expect(item["result"]).toMatch(/^\[ace: \d+ bytes of base64 data elided\]$/);
+
+  await neighbour.session.send([{ type: "text", text: "still here" }], "steer");
+  await neighbour.wait(completed(neighbour.session.nativeSessionId));
+  await images.session.send([{ type: "text", text: "after images" }], "steer");
+  await images.wait(completed("images-thread"));
+});

@@ -5,6 +5,7 @@ import { lineReader } from "./line-reader.ts";
 import type { OutputFlow } from "./flow-control.ts";
 import type { Readable, Writable } from "node:stream";
 import { byteLimit } from "./byte-limit.ts";
+import { jsonElision, type ElisionLimits } from "./elision.ts";
 import { outputGate, OutputLimitError } from "./output-budget.ts";
 import { killGroup, registerGroup, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
 export {
@@ -54,6 +55,11 @@ export type SpawnOptions = {
   /** UTF-8 bytes per stdout/stderr line, checked before framing. Defaults to 16 MiB. */
   maxLineBytes?: number;
   onOutputLimit?: (error: Error) => void;
+  /**
+   * Elide heavy JSON strings on stdout before any limit sees them, so inline images never
+   * count toward `maxLineBytes` or `maxOutputBytes`. Stderr is left as written.
+   */
+  elideStdout?: ElisionLimits;
   /** Optional aggregate raw stdout/stderr budget, primarily for probes. */
   maxOutputBytes?: number;
 };
@@ -61,6 +67,14 @@ export type SpawnOptions = {
 export interface ProcessLease {
   preparing(): void;
   spawned(pid: number): void;
+}
+
+/** Spawn failure can close a pipe without emitting end. Finish the elider there too. */
+function elide(input: Readable, limits: ElisionLimits): Readable {
+  const elider = jsonElision(limits);
+  input.once("close", () => elider.end());
+  elider.once("close", () => input.destroy());
+  return input.pipe(elider);
 }
 
 /** Own a POSIX process group, including grandchildren that keep its pipes open. */
@@ -106,7 +120,9 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
     gate.once("close", () => input.destroy());
     return input.pipe(gate);
   };
-  const stdout = gateOutput(child.stdout);
+  const stdout = gateOutput(
+    options.elideStdout ? elide(child.stdout, options.elideStdout) : child.stdout,
+  );
   const stderr = gateOutput(child.stderr);
 
   let stopped = false;

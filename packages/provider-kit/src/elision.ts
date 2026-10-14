@@ -1,19 +1,20 @@
 /**
- * Streaming elision of heavy JSON strings in OpenCode transport bodies.
+ * Streaming elision of heavy JSON strings in provider output.
  *
- * OpenCode stores attachments and image tool output inline as base64: user `files[].data`
- * and tool `content[].uri` data URLs. One screenshot is megabytes, and every history page or
- * SSE event that carries it would be too. ace never reads those bytes back; it needs the
+ * Providers store images inline as base64: OpenCode attachments and tool output as data URLs,
+ * Codex generated images as raw base64. One image is megabytes, and every history page, event
+ * or JSON-RPC line that carries it would be too. ace never reads those bytes back; it needs the
  * structure around them. So a string that outgrows `holdBytes` and looks binary is replaced
  * with a short placeholder, and any other string keeps its first `textBytes` plus a marker.
  *
  * Work is one pass over the bytes and memory is `holdBytes` per stream, whatever the input
  * size. A raw line feed closes any open string: valid JSON never has one inside a string, and
- * SSE frames are line-delimited, so a malformed frame cannot desynchronise the next one.
+ * SSE and JSON-RPC frames are line-delimited, so a malformed frame cannot desynchronise the
+ * next one.
  */
+import { Transform } from "node:stream";
+
 export type ElisionLimits = { holdBytes: number; textBytes: number };
-/** Base64 under 16 KiB passes untouched; readable text keeps 256 KiB. */
-export const openCodeElision: ElisionLimits = { holdBytes: 16 * 1024, textBytes: 256 * 1024 };
 
 const quote = 34,
   backslash = 92,
@@ -139,4 +140,25 @@ export class JsonElider {
   #emit(bytes: Uint8Array): void {
     if (bytes.byteLength) this.#out(bytes);
   }
+}
+
+/** Byte-stream form for process pipes: each input chunk yields at most one output chunk. */
+export function jsonElision(limits: ElisionLimits): Transform {
+  let pieces: Uint8Array[] = [];
+  const elider = new JsonElider(limits, (piece) => pieces.push(piece));
+  const take = () => {
+    const out = pieces.length === 1 ? pieces[0] : Buffer.concat(pieces);
+    pieces = [];
+    return out?.byteLength ? out : undefined;
+  };
+  return new Transform({
+    transform(chunk: Buffer, _encoding, done) {
+      elider.push(chunk);
+      done(null, take());
+    },
+    flush(done) {
+      elider.end();
+      done(null, take());
+    },
+  });
 }

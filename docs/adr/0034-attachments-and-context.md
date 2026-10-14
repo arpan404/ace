@@ -86,7 +86,10 @@ OpenCode 2 receives `file://` attachments it reads and resizes itself (up to its
 images. Negotiated capabilities and inline byte limits still apply. OpenCode stores
 those images, and image tool output, inline as base64 in session history and events;
 the adapter elides such strings while streaming them in, so a thread with a large
-image in its history still reopens. Unsupported media now produce a visible diagnostic naming the file and
+image in its history still reopens. Codex likewise keeps each generated image inline as
+base64 and returns it with history on resume; its app-server stdout goes through the same
+provider-kit elider before line framing, so those images never count toward the 16 MiB
+line limit that would otherwise kill the account's shared app-server. Unsupported media now produce a visible diagnostic naming the file and
 provider; the fallback does not suggest opening a daemon path. HEIC upload fails with
 an explicit export-to-PNG/JPEG message. Animated containers remain rejected.
 

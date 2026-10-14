@@ -6,7 +6,9 @@ import { maxProviderPayloadBytes } from "@ace/provider-kit/payload";
 export type Observe = (dir: Frame["dir"], channel: string, data: unknown) => void;
 export { sanitize } from "./redaction.ts";
 import { sanitize } from "./redaction.ts";
-import { JsonElider, openCodeElision } from "./elision.ts";
+import { JsonElider, type ElisionLimits } from "@ace/provider-kit/elision";
+/** Base64 under 16 KiB passes untouched; readable text keeps 256 KiB. */
+const openCodeElision: ElisionLimits = { holdBytes: 16 * 1024, textBytes: 256 * 1024 };
 /**
  * Kept bytes of one JSON body after heavy strings are elided. History pages hold 128 messages,
  * and ordinary tool output alone can push one past 2 MiB with no attachment. 8 MiB leaves room

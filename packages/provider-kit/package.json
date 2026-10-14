@@ -12,6 +12,7 @@
     "./ipc": "./src/ipc.ts",
     "./jsonrpc": "./src/jsonrpc.ts",
     "./sse": "./src/sse.ts",
+    "./elision": "./src/elision.ts",
     "./discovery": "./src/discovery/index.ts",
     "./installers": "./src/installers/index.ts",
     "./process-bytes": "./src/process-bytes.ts",
