@@ -5,6 +5,7 @@ import { ProviderConfigurations } from "./provider-configuration.ts";
 import { BrowserOrigin } from "./browser.ts";
 import { AccessMode, PermissionMode } from "./permissions.ts";
 import { z } from "zod";
+import { JsonValue } from "./json.ts";
 import { ThreadId, WorkspaceId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
 import { UtilityModelChoice } from "./utility-model.ts";
@@ -19,10 +20,10 @@ export const SettingsValues = z.object({
   "storage.retentionDays": RetentionDays,
   /** Disk cap in bytes for each log stream, rotated segments included. */
   "logs.maxBytes": LogMaxBytes,
-  "sourceControl.preferences": SourceControlPreferences.and(z.json()),
+  "sourceControl.preferences": SourceControlPreferences,
   "providers.configuration": ProviderConfigurations,
   "host.displayName": z.string().max(256),
-  "host.icon": MachineIcon.and(z.json()),
+  "host.icon": MachineIcon,
   "projects.roots": z.array(z.string().min(1).max(4096)).max(32),
   "threads.followUpBehavior": z.enum(["steer", "queue"]),
   "threads.limitPolicy": z.enum(["manual", "resume_at_reset", "snooze_until_reset", "migrate_now"]),
@@ -86,11 +87,11 @@ export const SettingsValues = z.object({
     }),
   "automations.enabled": z.boolean(),
   /** Titles and commit/PR drafts; null picks one from the ready providers. */
-  "generation.model": UtilityModelChoice.and(z.json()).nullable(),
+  "generation.model": UtilityModelChoice.nullable(),
   /** The Commit dialog drafts its message as it opens. */
   "generation.autoDraftCommits": z.boolean(),
-  "clients.theme": z.json(),
-  "clients.keybindings": z.json(),
+  "clients.theme": JsonValue,
+  "clients.keybindings": JsonValue,
 });
 export type SettingsValues = z.infer<typeof SettingsValues>;
 export const SettingsKey = SettingsValues.keyof();
@@ -98,9 +99,9 @@ export type SettingsKey = z.infer<typeof SettingsKey>;
 export const SettingsDocument = z
   .object({
     version: z.literal(2),
-    settings: SettingsValues.partial().catchall(z.json()),
+    settings: SettingsValues.partial().catchall(JsonValue),
   })
-  .catchall(z.json());
+  .catchall(JsonValue);
 export type SettingsDocument = z.infer<typeof SettingsDocument>;
 export const SettingsScope = z.object({
   workspaceId: WorkspaceId.optional(),
@@ -120,10 +121,10 @@ export const SettingsProvenance = z.enum([...SettingsLayerKind.options, "environ
 export type SettingsProvenance = z.infer<typeof SettingsProvenance>;
 export const SettingsEntry = z.object({
   key: SettingsKey,
-  value: z.json(),
+  value: JsonValue,
   provenance: SettingsProvenance,
   /** The value stored on the requested layer, before inheritance. */
-  localValue: z.json().optional(),
+  localValue: JsonValue.optional(),
 });
 export type SettingsEntry = z.infer<typeof SettingsEntry>;
 export const SettingsDiagnostic = z.object({
@@ -144,7 +145,7 @@ export const SettingsSet = z.object({
   type: z.literal("settings.set"),
   requestId,
   key: z.string().min(1).max(256),
-  value: z.json(),
+  value: JsonValue,
   layer: SettingsLayer,
 });
 /** Reset global preferences atomically; host/remote preferences are local-only. */

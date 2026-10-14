@@ -93,15 +93,15 @@ export interface Anchor {
   key: string | number;
   index: number;
   offset: number;
-  /** An item the row shows, to find it again once it folds into its turn or opens out of it. */
+  /** An item the row shows, to find it again if its row's key changes. */
   itemId?: string | undefined;
 }
 
 /**
  * Keep the anchored row where the reader saw it when rows change above it: older history
- * prepended, a jumped window sliding newer (its oldest rows leave) or older, or turns folding.
- * A row that folded into its turn (or opened out of it) is found by an item it shows; a row
- * that is gone (left the window) leaves the scroll as it is.
+ * prepended, or a jumped window sliding newer (its oldest rows leave) or older. A row whose key
+ * changed is found by an item it shows; a row that is gone (left the window) leaves the scroll
+ * as it is.
  */
 export function useKeepPlace(
   keys: readonly (string | number)[],

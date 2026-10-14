@@ -42,7 +42,7 @@ const readLoaded = (reader: SidebarReader) => reader.loaded;
 export function useSidebarLoaded(): boolean {
   return useSidebar(["ids"], readLoaded) ?? false;
 }
-export function useSidebarThread(threadId: string) {
+export function useSidebarThread(threadId: string): ReturnType<SidebarReader["thread"]> {
   const selector = useCallback((reader: SidebarReader) => reader.thread(threadId), [threadId]);
   return useSidebar([`thread:${threadId}`], selector);
 }

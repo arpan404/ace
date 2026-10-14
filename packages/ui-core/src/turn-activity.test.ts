@@ -618,8 +618,9 @@ test("a child's status update visits only current requests even after a thousand
   ) {
     const cursor = iterate.call(this);
     const next = cursor.next.bind(cursor);
-    cursor.next = (...args) => {
-      const result = next(...args);
+    // A Set iterator ignores the value passed to next().
+    cursor.next = () => {
+      const result = next();
       if (!result.done) visits++;
       return result;
     };

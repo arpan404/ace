@@ -6,7 +6,8 @@ import type { Scheme, ThemeId } from "@/theme/palettes.ts";
  * The ace window in miniature, for the mode and theme pickers. Its tokens are scoped to it the way
  * `<html>` scopes them for the app (`data-theme` + `data-scheme`), so it shows the theme's real
  * surfaces, borders, type and accent. It is drawn in `em` off a font size in container units, so
- * it keeps its proportions at any card size.
+ * it keeps its proportions at any card size. A faint inset top light rounds it into the card, and
+ * its edge answers the card's hover and checked states through the `group`.
  */
 
 function Line(props: { className: string }) {
@@ -61,7 +62,7 @@ export function AppPreview(props: {
     <span
       aria-hidden
       className={cn(
-        "relative block overflow-hidden rounded-sm border border-border [container-type:size]",
+        "relative block overflow-hidden rounded-md border border-border shadow-[inset_0_1px_0_rgb(255_255_255/0.08)] transition-[border-color,box-shadow] duration-(--motion-base) group-hover:border-border-strong group-aria-checked:border-border-strong [container-type:size]",
         props.className,
       )}
     >

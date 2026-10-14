@@ -255,13 +255,15 @@ test("a thread whose generated images outgrow the line limit resumes beside a wo
   expect(images.session.nativeSessionId).toBe("images-thread");
   expect(pidOf(images.frames)).toBe(pidOf(neighbour.frames));
 
-  const resumed = images.frames
-    .map((frame) => obj(obj(obj(frame.data)["result"])["thread"]))
-    .find((thread) => thread["id"] === "images-thread");
-  const items = (Array.isArray(resumed?.["turns"]) ? resumed["turns"] : []).flatMap((turn) => {
-    const listed = obj(turn)["items"];
-    return Array.isArray(listed) ? listed.map(obj) : [];
-  });
+  // History arrives as bounded notes after the metadata-only resume (#693).
+  const items = images.frames
+    .map((frame) => obj(frame.data))
+    .filter((data) => data["event"] === "thread-history" && data["threadId"] === "images-thread")
+    .flatMap((data) => (Array.isArray(data["turns"]) ? data["turns"] : []))
+    .flatMap((turn) => {
+      const listed = obj(turn)["items"];
+      return Array.isArray(listed) ? listed.map(obj) : [];
+    });
   expect(items.map((item) => item["savedPath"])).toEqual(
     Array.from({ length: 6 }, (_, index) => `/generated/image-${index}.png`),
   );

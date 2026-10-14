@@ -5,7 +5,7 @@ import { openTurns } from "./thread-header.ts";
 /**
  * The long-thread screens against the fake daemon, in Dark and Light at 1440x900, to
  * /tmp/aceshots-web/long-<screen>-<theme>.png: the turn timeline, a jumped view with Jump to
- * live, search with its hits, the conversation rail and older turns folded to digests. Run on
+ * live, search with its hits, the conversation rail and a long transcript read whole. Run on
  * demand with the other screens: `bun run --filter @ace/web-e2e screens`.
  */
 const out = process.env.ACE_SHOTS_DIR ?? "/tmp/aceshots-web";
@@ -29,7 +29,7 @@ async function showTurns(page: Page) {
 
 /**
  * A week of short release-triage turns (a test run, an edit, an answer; every fourth run
- * failing), so the transcript's own window holds a dozen turns and the older ones fold.
+ * failing), so the transcript's own window holds a dozen turns.
  */
 const triage = `
   const id = "thread-release-triage";
@@ -101,11 +101,10 @@ const screens: Record<string, Setup> = {
     await bar.getByRole("textbox", { name: "Search this thread" }).click();
     await bar.getByRole("listbox", { name: "Results" }).waitFor();
   },
-  "long-folded": staged(triage, async (page) => {
+  "long-history": staged(triage, async (page) => {
     await page.goto("/t/thread-release-triage");
     const feed = page.getByRole("feed", { name: "Transcript" });
     await feed.waitFor();
-    await feed.getByRole("button", { name: /^Turn 3: / }).waitFor();
     await feed.hover();
     await page.mouse.wheel(0, -3_000);
     await page.waitForTimeout(400);

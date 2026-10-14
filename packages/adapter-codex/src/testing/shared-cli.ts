@@ -1,6 +1,7 @@
 // Offline multi-thread app-server. One process hosts many threads, as a real Codex app-server does.
 import { createInterface } from "node:readline";
 import { obj, str } from "../native.ts";
+import { historyStore } from "./history-store.ts";
 
 // Process-level `-c key=value` overrides (built-in skills) precede the subcommand.
 const argv = process.argv.slice(2);
@@ -12,7 +13,11 @@ if (args === "--version") {
 if (args !== "app-server") process.exit(64);
 
 const write = (data: unknown) => process.stdout.write(`${JSON.stringify(data)}\n`);
-const notify = (method: string, params: unknown) => write({ method, params });
+const stored = historyStore();
+const notify = (method: string, params: unknown) => {
+  stored.notified(method, params);
+  write({ method, params });
+};
 const parents = new Map<string, string>();
 const loaded = new Set<string>();
 const active = new Map<string, string>();
@@ -32,8 +37,8 @@ function start(threadId: string): string {
   return turn;
 }
 
-// Codex keeps each generated image inline as base64 and resumes with full history: six
-// 3 MiB images put one response line past the 16 MiB process line limit.
+// Codex keeps each generated image inline as base64 in thread history: six 3 MiB images put
+// one history line past the 16 MiB process line limit.
 function history(thread: string) {
   if (!thread.startsWith("images")) return {};
   const items = Array.from({ length: 6 }, (_, index) => ({
@@ -52,7 +57,7 @@ for await (const line of createInterface({ input: process.stdin })) {
   const id = frame["id"];
   const method = str(frame["method"]);
   const p = obj(frame["params"]);
-  const respond = (result: unknown) => write({ id, result });
+  const respond = (result: unknown) => write({ id, result: stored.reply(method, p, result) });
   if (!method || id === undefined) continue;
   if (method === "initialize") respond({ userAgent: "codex/0.159.1", pid: process.pid });
   else if (method === "permissionProfile/list") respond({ data: [] });
@@ -115,7 +120,8 @@ for await (const line of createInterface({ input: process.stdin })) {
   } else if (method === "thread/unsubscribe") {
     respond({ status: "unsubscribed" });
     notify("thread/closed", { threadId: str(p["threadId"]) });
-  } else if (method === "thread/loaded/list") respond({ data: [...loaded] });
+  } else if (method === "thread/turns/list") respond(stored.page(p));
+  else if (method === "thread/loaded/list") respond({ data: [...loaded] });
   else if (method === "thread/backgroundTerminals/list") respond({ data: [] });
   else write({ id, error: { code: -32601, message: `unsupported ${method}` } });
 }

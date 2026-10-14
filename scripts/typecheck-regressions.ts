@@ -14,7 +14,8 @@ import { fileURLToPath } from "node:url";
 import { cleanTypecheck, prepareTypecheck } from "./typecheck-projects.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const tsc = fileURLToPath(new URL("./bin/tsc", import.meta.resolve("typescript/package.json")));
+// The compiler is tsc-rs, a Rust port of TypeScript 7; `typescript` still supplies the config API.
+const tsc = fileURLToPath(new URL("./bin/tsc-rs", import.meta.resolve("tsc-rs/package.json")));
 process.env.GOMAXPROCS = "2";
 mkdirSync(join(root, ".cache/typecheck"), { recursive: true });
 const fixture = mkdtempSync(join(root, ".cache/typecheck/regression-"));
