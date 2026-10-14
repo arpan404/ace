@@ -117,14 +117,7 @@ test("every animation the production stylesheet plays has its keyframes", () => 
 });
 
 test("reduced motion keeps every live indicator animating, so loading never looks hung", () => {
-  const live = [
-    "spin-ring",
-    "fx-spin-slow",
-    "fx-walk",
-    "fx-breathe",
-    "fx-indeterminate",
-    "animate-pulse",
-  ];
+  const live = ["spin-ring", "aperture-part", "fx-breathe", "fx-indeterminate", "animate-pulse"];
   const defined = keyframes();
   const theme = themeAnimations();
   const stopped = rules().flatMap(({ selector, body }) => {
@@ -142,8 +135,7 @@ test("live indicators and every animate-* utility the app uses animate unless mo
   const classes = [
     ...animateUtilities(),
     "spin-ring",
-    "fx-spin-slow",
-    "fx-walk",
+    "aperture-part",
     "fx-breathe",
     "fx-indeterminate",
   ];

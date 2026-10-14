@@ -1,4 +1,3 @@
-import { openActivityRequest } from "@/test/activity-request.ts";
 import type { Scenario } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -66,44 +65,6 @@ async function focusIn(button: HTMLElement) {
   });
 }
 
-test("in Activity, A doesn't approve a request that defaults to no; a click does", async () => {
-  const app = harness();
-  app.play(asking("drop-table", "Drop the legacy sessions table?", true)).runUntilBlocked();
-  await app.open("/activity");
-  const card = await openActivityRequest("Drop the legacy sessions table?");
-  await waitFor(() => expect(card.getAttribute("aria-current")).toBe("true"));
-  // Allow once carries no A key to press.
-  expect(within(card).getByRole("button", { name: "Allow once" }).textContent).toBe("Allow once");
-
-  await userEvent.keyboard("a");
-  expect(await within(card).findByText(/Read the request, then click Allow once/)).toBeTruthy();
-  expect(app.daemon.isPending("thread-drop-table", "drop-table")).toBe(true);
-
-  await userEvent.click(within(card).getByRole("button", { name: "Allow once" }));
-  await waitFor(() =>
-    expect(app.daemon.resolution("thread-drop-table", "drop-table")).toEqual({
-      kind: "approval",
-      optionId: "allow",
-    }),
-  );
-});
-
-test("in Activity, A still approves an ordinary request", async () => {
-  const app = harness();
-  app.play(asking("add-index", "Add an index on sessions.user_id?", false)).runUntilBlocked();
-  await app.open("/activity");
-  const card = await openActivityRequest("Add an index on sessions.user_id?");
-  await waitFor(() => expect(card.getAttribute("aria-current")).toBe("true"));
-
-  await userEvent.keyboard("a");
-  await waitFor(() =>
-    expect(app.daemon.resolution("thread-add-index", "add-index")).toEqual({
-      kind: "approval",
-      optionId: "allow",
-    }),
-  );
-});
-
 test("in the thread, a number key can deny a request that defaults to no but never approve it", async () => {
   const app = harness();
   app.play(asking("truncate-logs", "Truncate the audit log?", true)).runUntilBlocked();
@@ -148,16 +109,13 @@ test("in the thread, a number key approves an ordinary request", async () => {
   );
 }, 15_000);
 
-test("in Activity, Enter on a focused default-to-no Deny answers without granting or folding the request", async () => {
+test("in the thread, Enter on a focused default-to-no Deny answers without granting the request", async () => {
   const app = harness();
   app.play(asking("deny-enter", "Remove the old audit data?", true)).runUntilBlocked();
-  await app.open("/activity");
-  const card = await openActivityRequest("Remove the old audit data?");
+  await app.open("/t/thread-deny-enter");
+  const card = await screen.findByRole("article", { name: "Remove the old audit data?" });
   const deny = within(card).getByRole("button", { name: "Deny" });
-  await waitFor(() => {
-    deny.focus();
-    expect(document.activeElement).toBe(deny);
-  });
+  await focusIn(deny);
   expect(app.daemon.isPending("thread-deny-enter", "deny-enter")).toBe(true);
   await userEvent.keyboard("{Enter}");
   await waitFor(() =>

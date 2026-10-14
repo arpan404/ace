@@ -107,3 +107,7 @@ These numbers are measured on the fake-daemon build. ADR 0056 now enforces budge
 - The inbox subscribes to each needs-you thread separately. That is fine at the client's 32-thread cache, but a daemon-side inbox scope will be needed for large hosts.
 - Daemon health uses `client.command`, which records a durable intent for a read. A non-durable request API in `@ace/client` for settings, models, usage and search reads should replace it.
 - Still to build: the composer and `thread.send`, question and plan-review answering, full shell output through `output.read`, markdown rendering, the Electron shell, and CI checks for the budgets above.
+
+## Activity page removed
+
+Activity page removed (owner decision, 2026-10-14).

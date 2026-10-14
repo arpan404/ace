@@ -8,7 +8,8 @@ export { reviewedInteraction } from "./review-pointer.ts";
  * ace's permission review (ADR 0061): before an approval reaches a person, ace's risk policy
  * approves it, denies it or sends it on ("escalate"), with a reason and the exact provider input
  * it judged. The daemon records the decision on the interaction and as a notice item whose raw
- * payload carries the review; these turn either into the words the transcript and Activity show.
+ * payload carries the review; these turn either into the words the transcript and the thread's
+ * request card show.
  */
 
 export type ReviewTone = "approved" | "denied" | "escalated";

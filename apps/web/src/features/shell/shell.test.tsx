@@ -15,7 +15,6 @@ test("every view and settings page opens in the shell under its own title", asyn
   const pages: [string, string][] = [
     ["/", "Home"],
     ["/new", "New thread"],
-    ["/activity", "Activity"],
     ["/automations", "Automations"],
     ["/skills", "Skills"],
     ["/usage", "Usage"],
@@ -47,6 +46,7 @@ test("removed pages are gone: their addresses show Not found and the palette nev
     "/pull-requests",
     "/issues",
     "/accounts",
+    "/activity",
   ]) {
     const view = await harness().open(path);
     await title("Not found");
@@ -58,7 +58,7 @@ test("removed pages are gone: their addresses show Not found and the palette nev
   const search = await screen.findByRole("combobox", { name: "Search commands" });
   await userEvent.type(search, "Usage");
   expect(await screen.findByRole("option", { name: /^Usage/ })).toBeTruthy();
-  for (const removed of ["Pull requests", "Issues", "Deck", "Offshifts"]) {
+  for (const removed of ["Pull requests", "Issues", "Deck", "Offshifts", "Activity"]) {
     await userEvent.clear(search);
     await userEvent.type(search, removed);
     // The palette has answered once it offers to search the threads for the words.
@@ -103,17 +103,17 @@ test("⌘\\ hides the sidebar and the header offers to bring it back", async () 
   expect(threadList()).toBeTruthy();
 });
 
-test("G then A jumps to Activity, but not while typing", async () => {
+test("G then U jumps to Automations, but not while typing", async () => {
   await harness().open("/");
   await title("Home");
   await userEvent.keyboard("{Meta>}k{/Meta}");
   const search = await screen.findByRole("combobox", { name: "Search commands" });
-  await userEvent.type(search, "ga");
-  expect(screen.queryByRole("heading", { level: 1, name: "Activity" })).toBeNull();
+  await userEvent.type(search, "gu");
+  expect(screen.queryByRole("heading", { level: 1, name: "Automations" })).toBeNull();
   await userEvent.keyboard("{Escape}");
 
-  await userEvent.keyboard("ga");
-  await title("Activity");
+  await userEvent.keyboard("gu");
+  await title("Automations");
 });
 
 test("⌘K finds a thread by title and opens it", async () => {

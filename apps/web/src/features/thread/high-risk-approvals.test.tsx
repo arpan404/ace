@@ -91,7 +91,7 @@ for (const command of ["rm -rf ./cache", "git push --force origin main"])
     );
   });
 
-test("Activity reads risk from the actual linked shell step and blocks A", async () => {
+test("the thread reads risk from the actual linked shell step and blocks A", async () => {
   const app = harness({
     matchMedia: (query) => ({
       matches: query.includes("min-width"),
@@ -105,14 +105,14 @@ test("Activity reads risk from the actual linked shell step and blocks A", async
     }),
   });
   app.play(request("rm -rf ./cache")).runUntilBlocked();
-  await app.open("/activity");
+  await app.open("/t/thread-risk");
   const card = await screen.findByRole("article", { name: "Run cleanup" });
-  await waitFor(() => expect(card.getAttribute("aria-current")).toBe("true"));
-  expect(within(card).getByRole("button", { name: "Deny" })).toBeTruthy();
-  await userEvent.keyboard("a");
+  const deny = within(card).getByRole("button", { name: "Deny" });
+  await waitFor(() => expect(document.activeElement).toBe(deny));
+  await userEvent.keyboard("1");
   expect(await within(card).findByText(/Read the request/)).toBeTruthy();
   expect(app.daemon.isPending("thread-risk", "risk")).toBe(true);
-  await userEvent.keyboard("d");
+  await userEvent.keyboard("3");
   await waitFor(() =>
     expect(app.daemon.resolution("thread-risk", "risk")).toEqual({
       kind: "approval",

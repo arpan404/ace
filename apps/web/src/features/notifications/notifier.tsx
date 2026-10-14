@@ -15,11 +15,10 @@ import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { notifyInBrowser, useTitleCount } from "@/lib/browser-notify.ts";
 import { documentVisibility } from "@/lib/page-visibility.ts";
-import { interactionKey } from "@/lib/activity-item-keys.ts";
 import { useNotificationPrefs } from "./notification-prefs.ts";
 import { requestTitle } from "./request-title.ts";
 import { threadToasts, type ToastCause } from "./toast-rules.ts";
-import { useNeedsYouCount } from "./use-needs-you.ts";
+import { useNeedsYouCount } from "./needs-you-count.ts";
 import { useProjectName } from "@/lib/projects.ts";
 
 // Automation runs and account limits are read after first paint: their toasts can wait.
@@ -40,7 +39,7 @@ const readStatuses = (reader: SidebarReader) =>
  * browser tab that allowed it shows a system notification). The tab's title carries the
  * needs-you count. Mounted once in the shell; renders nothing.
  */
-export function ActivityNotifier() {
+export function Notifier() {
   useTitleCount(useNeedsYouCount());
   return (
     <>
@@ -73,8 +72,8 @@ function ThreadNotifier() {
     const needsYou = cause.kind === "needs_you";
     const visible = documentVisibility.visible();
     const description = `${projectName(thread.workspaceId)} · ${thread.title}`;
+    const open = () => void navigate({ to: "/t/$threadId", params: { threadId: thread.id } });
     if (needsYou) {
-      const open = () => void navigate({ to: "/activity" });
       if (!visible) {
         if (context.current.prefs.browser)
           notifyInBrowser({
@@ -97,7 +96,6 @@ function ThreadNotifier() {
       setWaiting((ids) => (ids.includes(thread.id) ? ids : [...ids, thread.id]));
       return;
     }
-    const open = () => void navigate({ to: "/t/$threadId", params: { threadId: thread.id } });
     if (!visible) {
       if (context.current.prefs.browser)
         notifyInBrowser({
@@ -130,16 +128,15 @@ function ThreadNotifier() {
     if (!previous) return;
     const { prefs: current, pathname: path } = context.current;
     const viewing = /^\/t\/([^/]+)/.exec(path)?.[1];
-    for (const cause of threadToasts(previous, next, current, viewing))
-      if (!(cause.kind === "needs_you" && path.startsWith("/activity"))) showRef.current(cause);
+    for (const cause of threadToasts(previous, next, current, viewing)) showRef.current(cause);
   }, [statuses, sidebar, ready]);
   return waiting.map((threadId) => <NeedsYouToast key={threadId} threadId={threadId} />);
 }
 
 /**
  * Keeps one needs-you toast true to its thread: it names the open request ("Allow a force
- * push to fix/restart-retry?") and Review opens that request in Activity; once the thread no
- * longer waits (answered, archived or settled) the toast goes.
+ * push to fix/restart-retry?") and Review opens the thread, where the request waits; once the
+ * thread no longer waits (answered, archived or settled) the toast goes.
  */
 function NeedsYouToast(props: { threadId: string }) {
   const { threadId } = props;
@@ -158,7 +155,6 @@ function NeedsYouToast(props: { threadId: string }) {
   const id = needsToastId(threadId);
   const left =
     pathname === `/t/${threadId}` ||
-    pathname.startsWith("/activity") ||
     (thread !== undefined &&
       (thread.status.state !== "needs_you" ||
         thread.archivedAt !== undefined ||
@@ -174,11 +170,7 @@ function NeedsYouToast(props: { threadId: string }) {
       title,
       actionProps: {
         children: "Review",
-        onClick: () =>
-          void latest.current.navigate({
-            to: "/activity",
-            search: { item: interactionKey(threadId, first) },
-          }),
+        onClick: () => void latest.current.navigate({ to: "/t/$threadId", params: { threadId } }),
       },
     });
   }, [left, title, first, id, threadId]);

@@ -12,9 +12,7 @@ async function openApp(path = "/") {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open(path);
-  if (path === "/activity") await screen.findByRole("heading", { level: 1, name: "Activity" });
-  else
-    await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
   return app;
 }
 const palette = async () => {
@@ -52,7 +50,7 @@ test("typing finds threads that are absent from the empty palette", async () => 
 });
 
 test("picking a project narrows Home to it", async () => {
-  await openApp("/activity");
+  await openApp("/");
   const search = await palette();
   await userEvent.type(search, "billing");
   const project = await screen.findByRole("option", { name: /^billing-api.*Projects$/ });

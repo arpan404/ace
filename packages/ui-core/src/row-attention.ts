@@ -45,8 +45,8 @@ export interface RowAttentionInput {
 }
 
 /**
- * One rule for every surface that shows a thread's status: the Home row, its hover card, the
- * settled row and Activity read it, so they never disagree. Pure.
+ * One rule for every surface that shows a thread's status: the Home row, its hover card and the
+ * settled row read it, so they never disagree. Pure.
  */
 export function rowAttention(input: RowAttentionInput): RowAttention {
   return currentAttention(levelOf(input), input.current === true);

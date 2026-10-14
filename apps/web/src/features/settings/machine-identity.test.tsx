@@ -108,7 +108,7 @@ test("empty threads stay out of tasks until a user message is sent, even after a
   expect(await screen.findByRole("link", { name: /^New thread\./ })).toBeTruthy();
 });
 
-test("Activity keeps device names in thread hover details instead of compact rows", async () => {
+test("thread rows name the device only in hover details", async () => {
   const app = harness({ machines: [{ hostId: "build", name: "Build server" }] });
   const scenario = flakyCheckout();
   app
@@ -120,12 +120,6 @@ test("Activity keeps device names in thread hover details instead of compact row
       },
     })
     .runThrough("approval-requested");
-  await app.open("/activity");
-  const feed = await within(
-    await screen.findByRole("complementary", { name: "Activity" }),
-  ).findByRole("list", { name: "Activity" });
-  expect(feed.textContent).not.toContain("Stale server");
-  expect(feed.textContent).not.toContain("Build server");
   await app.open("/t/thread-checkout");
   const row = await screen.findByRole("link", {
     name: /Fix flaky checkout test.*Running on Build server/,

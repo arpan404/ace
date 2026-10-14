@@ -64,41 +64,21 @@ const verbs = (card: HTMLElement) =>
     .filter((label) => /^(Allow once|Always allow|Deny)/.test(label))
     .map((label) => label.replace(/[A-Z]$/, ""));
 
-test("an approval offers identical choices in the thread and on Activity's card, Always allow included", async () => {
+test("an approval offers Allow once, Always allow and Deny in the thread", async () => {
   const app = harness();
   app.play(push).runUntilBlocked();
   await app.open("/t/thread-push");
   const region = await screen.findByRole("region", { name: "Waiting for you" });
-  const inThread = await within(region).findByRole("article", { name: title });
-  expect(verbs(inThread)).toEqual(["Allow once", "Always allow", "Deny"]);
-  // Nothing waits behind a menu in the thread that Activity shows as a button.
-  expect(within(inThread).queryByRole("button", { name: "More approval options" })).toBeNull();
+  const card = await within(region).findByRole("article", { name: title });
+  expect(verbs(card)).toEqual(["Allow once", "Always allow", "Deny"]);
+  // Nothing waits behind a menu in the thread.
+  expect(within(card).queryByRole("button", { name: "More approval options" })).toBeNull();
   // None of the provider's own labels reach the buttons.
-  expect(within(inThread).queryByText(/Approve once|Decline/)).toBeNull();
-
-  await userEvent.keyboard("{Meta>}k{/Meta}");
-  await userEvent.type(
-    await screen.findByRole("combobox", { name: "Search commands" }),
-    "Activity",
-  );
-  await userEvent.click(await screen.findByRole("option", { name: /^Activity/ }));
-  await screen.findByRole("heading", { level: 1, name: "Activity" });
-  const inActivity = await within(screen.getByRole("main")).findByRole("article", {
-    name: title,
-  });
-  expect(verbs(inActivity)).toEqual(["Allow once", "Always allow", "Deny"]);
-  const list = await screen.findByRole("list", { name: "Activity" });
-  const row = within(list).getByText(title).closest("li");
-  if (!row) throw new Error("No row for the approval");
-  expect(within(row).queryByRole("button", { name: "Allow once" })).toBeNull();
-  expect(within(row).queryByRole("button", { name: "Deny" })).toBeNull();
-  await userEvent.click(within(row).getByText(title));
-  const selected = await within(screen.getByRole("main")).findByRole("article", { name: title });
-  expect(verbs(selected)).toEqual(["Allow once", "Always allow", "Deny"]);
+  expect(within(card).queryByText(/Approve once|Decline/)).toBeNull();
 
   // The provider's other option keeps its words, behind Details.
-  await userEvent.click(within(selected).getByRole("button", { name: "Details" }));
-  await userEvent.click(within(selected).getByRole("button", { name: "Abort the turn" }));
+  await userEvent.click(within(card).getByRole("button", { name: "Details" }));
+  await userEvent.click(within(card).getByRole("button", { name: "Abort the turn" }));
   await waitFor(() =>
     expect(app.daemon.resolution("thread-push", "approve-push")).toEqual({
       kind: "approval",

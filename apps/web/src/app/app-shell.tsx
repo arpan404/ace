@@ -3,7 +3,7 @@ import { AddAccountHost } from "@/features/account-management/index.ts";
 import { useConnectionState } from "@ace/client-react";
 import { Outlet, useRouter, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
-import { ActivityNotifier } from "@/features/activity/index.ts";
+import { Notifier } from "@/features/notifications/index.ts";
 import { DeleteConfirmationHost, MoveToProjectHost } from "@/features/organize/index.ts";
 import { CommandPalette } from "@/features/palette/index.ts";
 import { ProjectsHost, useProjectDialogs } from "@/features/projects/index.ts";
@@ -90,7 +90,7 @@ export function AppShell() {
               <ThreadStepKeys />
             </LocalBoundary>
             <LocalBoundary label="notifications" fallback={null}>
-              <ActivityNotifier />
+              <Notifier />
             </LocalBoundary>
           </div>
         </AddAccountHost>

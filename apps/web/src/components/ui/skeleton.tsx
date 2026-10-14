@@ -56,7 +56,7 @@ function LoadingRegion(props: { label: string; className?: string; children: Rea
 function ListSkeleton(props: {
   label: string;
   /**
-   * `card`: an Activity card; `thread`: a Home thread row, its project's tile and title; `row`:
+   * `card`: an approval card; `thread`: a Home thread row, its project's tile and title; `row`:
    * a one-line list or settings row.
    */
   shape: "card" | "thread" | "row";

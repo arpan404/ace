@@ -1,4 +1,3 @@
-import { flakyCheckout, teamAtLimit } from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -73,58 +72,6 @@ async function workAtLimit(app: App) {
   const work = await findWorkMeter();
   expect(work.getAttribute("aria-valuetext")).toMatch(/^0% left/);
 }
-
-test("Activity lists threads paused at a usage limit by account and moves them to one with room", async () => {
-  const app = harness();
-  report(app, "codex-team", { five_hour: [100, 87 * minute] });
-  report(app, "codex-personal", { five_hour: [38, 3 * hour] });
-  for (const scenario of teamAtLimit()) app.play(scenario).runThrough("limited");
-  await app.open("/activity");
-
-  const team = await screen.findByRole("article", { name: "Codex · Team" });
-  expect(
-    within(team).getByText(/^Codex · Team — Resets \d{1,2}:\d{2}(?: [ap]m)? · in 1h 27m$/i),
-  ).toBeTruthy();
-  expect(
-    within(team)
-      .getAllByRole("link")
-      .map((link) => link.textContent),
-  ).toEqual([
-    "Split the CI matrix by package",
-    "Rank workspace search by recent edits",
-    "Remove the legacy feature-flag reader",
-  ]);
-
-  await userEvent.click(within(team).getByRole("button", { name: "Move to Codex · Personal" }));
-
-  expect(
-    await within(await toasts()).findByText("Moved 3 threads to Codex · Personal"),
-  ).toBeTruthy();
-  await waitFor(() =>
-    expect(screen.queryByRole("heading", { name: "Paused at a usage limit" })).toBeNull(),
-  );
-});
-
-test("usage-limit reset information and Move stay available beside a pending approval", async () => {
-  const app = harness();
-  report(app, "codex-team", { five_hour: [100, 87 * minute] });
-  report(app, "codex-personal", { five_hour: [38, 3 * hour] });
-  for (const scenario of teamAtLimit()) app.play(scenario).runThrough("limited");
-  app.play(flakyCheckout()).runThrough("approval-requested");
-  await app.open("/activity");
-  await screen.findByRole("article", { name: "Run rm -rf node_modules/.cache/vitest?" });
-  const team = await screen.findByRole("article", { name: "Codex · Team" });
-  expect(within(team).getByText(/in 1h 27m$/)).toBeTruthy();
-  expect(within(team).getAllByRole("link")).toHaveLength(3);
-  await userEvent.click(within(team).getByRole("button", { name: "Move to Codex · Personal" }));
-  expect(
-    await within(await toasts()).findByText("Moved 3 threads to Codex · Personal"),
-  ).toBeTruthy();
-  expect(app.daemon.isPending("thread-checkout", "approve-clear-cache")).toBe(true);
-  expect(
-    screen.getByRole("article", { name: "Run rm -rf node_modules/.cache/vitest?" }),
-  ).toBeTruthy();
-});
 
 test("toasts say when an account nears its limit, reaches it and can work again", async () => {
   const app = harness();

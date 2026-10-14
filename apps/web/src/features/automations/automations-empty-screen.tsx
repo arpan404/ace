@@ -50,7 +50,7 @@ export function AutomationsEmptyScreen() {
         icon={ClockIcon}
         heading
         title="No automations yet"
-        description="Run a prompt on a schedule, on a GitHub event, or by hand. Results land in Activity."
+        description="Run a prompt on a schedule, on a GitHub event, or by hand. Results land in the automation's history."
         action={
           <Link
             to="/automations/new"

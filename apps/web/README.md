@@ -79,13 +79,12 @@ As in desktop chat apps: one sidebar (composed in `app/app-shell.tsx`), no rail.
   pairing, connection settings), Search (⇧⌘K: a dialog over any screen, `features/search`; the
   palette's "Search all threads for …" opens it too). Automations (`g u`) and Skills (`g s`)
   live in the profile dropdown, with their entries defined in `features/shell/views.ts`.
-  Activity is available through the command palette and its `g a` shortcut.
 - **Body**: a compact toolbar has the project filter on the left and the icon-only New thread
   action on the right, with its label and shortcut in the tooltip. With no projects, Add project
   replaces the filter and New thread is hidden. Below is the thread list (`ThreadsSidebar`), the
   only part that scrolls. A view's list is the
   `sidebar` of its layout route's `<ViewFrame>`, placed by `place`: `threads` (Home and pages that
-  keep the thread list) or `sidebar` (Settings, Automations, Skills and Activity take the body
+  keep the thread list) or `sidebar` (Settings, Automations and Skills take the body
   through a portal, keeping the route's providers).
 - **Foot**: the profile, full width (initials, name, the connection dot; its menu holds
   Automations, Skills, Appearance, Keyboard shortcuts, Usage & accounts and Archived threads), the sign of
@@ -142,7 +141,6 @@ Each slice owns `src/features/<slice>/` and the route files for its screens:
 | Thread (transcript, composer, header actions)                                      | `features/thread`      | `_home.t.$threadId.tsx`                                       |
 | Thread workspace tools (Changes, Files, Browser, Preview, Agents, Terminal, Logs)  | `features/panels`      | tab kinds of the thread screen (`threadWorkspace`)            |
 | Devices (a catalog of simulators and emulators, a tab per device)                  | `features/devices`     | none; loaded with the panel tabs                              |
-| Activity                                                                           | `features/activity`    | `activity.tsx`, `activity.index.tsx`                          |
 | Automations                                                                        | `features/automations` | `automations.tsx`, `automations.index.tsx`                    |
 | Skills                                                                             | `features/skills`      | `skills.tsx`, `skills.index.tsx`                              |
 | Thread organization (actions, Undo, the shared thread menu)                        | `features/organize`    | none; used by Home, the thread ⋯ menu and the palette         |
@@ -406,8 +404,7 @@ server queue with its recovery and limit controls (`queue.get`, `queue.*`, `thre
 (`terminal.request`, credit-paced `terminal.output`), the browser relay (`browser.*`, ACKed
 frames), dev servers (`preview.request`), shell output (`output.read`) and More › Files (each
 thread's `items.page`), automations
-(`automation.*`), skills and plugins (`pluginRequest`), and the Activity feed (forge `pr.status`
-and thread requests). In fake mode `@ace/fake-daemon` serves the same messages from its catalogs
+(`automation.*`), skills and plugins (`pluginRequest`), and forge `pr.status` and thread requests). In fake mode `@ace/fake-daemon` serves the same messages from its catalogs
 (`packages/fake-daemon/src/services/`), so a feature has one code path.
 
 Beside the socket, the connection carries its `endpoint` (`boot/connection.tsx`): the daemon's HTTP

@@ -40,13 +40,13 @@ test("a retained failure shows its message in the transcript, and an available m
   expect(within(screen.getByRole("main")).getAllByText("Not sent")).toHaveLength(1);
 });
 
-test("a retained failed input appears in Activity Needs you", async () => {
+test("a retained failed input reads Not sent in the sidebar", async () => {
   const app = harness();
   seedColdStartState(app.daemon);
-  await app.open("/activity");
-  expect(
-    await screen.findAllByRole("link", { name: "Fix the reconnect: Not sent" }),
-  ).not.toHaveLength(0);
+  await app.open("/new");
+  const list = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const row = await list.findByRole("link", { name: /^Fix the reconnect/ });
+  expect(within(row).getByText("Not sent")).toBeTruthy();
 });
 
 test("a thread with no prior turn offers the first message without restart recovery", async () => {

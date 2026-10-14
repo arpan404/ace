@@ -5,7 +5,7 @@ import { addressHost } from "./browser-address.ts";
 import { displayCommand, unwrapShellCommand } from "./step-display.ts";
 
 /*
- * How an approval reads on a card, in the thread, in Activity and for computer use alike: a
+ * How an approval reads on a card, in the thread and for computer use alike: a
  * title, the one thing it acts on (a command, a script, files, an app), one plain reason, and
  * the same three verbs everywhere: Allow once, Always allow (where the request offers a standing
  * grant) and Deny. Everything else (the facts, the medium risk, any other option the request

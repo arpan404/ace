@@ -1,4 +1,4 @@
-import { NotificationPreferences } from "@/features/activity/index.ts";
+import { NotificationPreferences } from "@/features/notifications/index.ts";
 import { lazy, Suspense } from "react";
 import { useId } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";

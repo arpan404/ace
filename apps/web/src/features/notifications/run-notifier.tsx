@@ -36,8 +36,11 @@ export default function RunNotifier() {
       if (cause.kind !== "automation") continue;
       const { run } = cause;
       toasted.current.add(run.id);
+      // The run's own thread when it started one, else its automation.
       const open = () =>
-        void go({ to: "/activity", search: { item: `run:${run.id}` } satisfies { item: string } });
+        void (run.threadId
+          ? go({ to: "/t/$threadId", params: { threadId: run.threadId } })
+          : go({ to: "/automations/$automationId", params: { automationId: run.automationId } }));
       const title = run.status === "failed" ? `${run.title} failed` : `${run.title} finished`;
       if (!documentVisibility.visible()) {
         // No run output on a lock screen: the system notification says only what happened.

@@ -13,7 +13,7 @@ export function windowTone(used: number): string {
 
 /**
  * One quota window as a labelled bar: its name, how much is used and when it resets, with the
- * time left. Where a ring has no room (the composer's usage tooltip, Activity).
+ * time left. Where a ring has no room (the composer's usage tooltip).
  */
 export function WindowBar(props: { window: QuotaWindowView; now: number }) {
   const used = props.window.usedPercent;

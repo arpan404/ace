@@ -164,31 +164,15 @@ test("Mark as unread brings Done back, and Mark as read quiets it, from the row'
   expect(word(title, "Done")).toBeTruthy();
 });
 
-test("the sidebar row and Activity give the same thread the same word and colour", async () => {
-  const history = createMemoryHistory({ initialEntries: ["/activity"] });
-  const app = harness({ history });
+test("the sidebar row names unsent and interrupted threads with their tones", async () => {
+  const app = harness();
   seedRealThreadState(app.daemon);
-  await app.open("/activity");
-  const activity = await screen.findByRole("complementary", { name: "Activity" });
-  const pairs = [
-    ["Check the saved message", "Not sent"],
-    ["Finish the background build", "Stopped by a restart"],
-  ] as const;
-  const fromActivity = new Map<string, string | undefined>();
-  for (const [title, label] of pairs) {
-    const [entry] = await within(activity).findAllByRole("link", { name: `${title}: ${label}` });
-    if (!entry) throw new Error(`No Activity row for ${title}`);
-    fromActivity.set(
-      title,
-      within(entry).getByText(label).closest<HTMLElement>("[data-tone]")?.dataset.tone,
-    );
-  }
-  expect(fromActivity.get("Check the saved message")).toBe("needs-you");
-  await act(() => history.push("/new"));
+  await app.open("/new");
   const list = within(await screen.findByRole("navigation", { name: "Threads" }));
-  for (const [title, label] of pairs) {
+  const toneOf = async (title: string, label: string) => {
     const link = await list.findByRole("link", { name: new RegExp(`^${title}`) });
-    const tone = within(link).getByText(label).closest<HTMLElement>("[data-tone]")?.dataset.tone;
-    expect(tone).toBe(fromActivity.get(title));
-  }
+    return within(link).getByText(label).closest<HTMLElement>("[data-tone]")?.dataset.tone;
+  };
+  expect(await toneOf("Check the saved message", "Not sent")).toBe("needs-you");
+  expect(await toneOf("Finish the background build", "Stopped by a restart")).toBe("waiting");
 });

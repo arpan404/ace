@@ -1,4 +1,4 @@
-import { CaretRightIcon, ChatsIcon, NotePencilIcon } from "@phosphor-icons/react";
+import { ChatsIcon, NotePencilIcon } from "@phosphor-icons/react";
 import { useSidebar, useSidebarLoaded } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
 import { Suspense } from "react";
@@ -54,7 +54,6 @@ export function HomeSidebar() {
           </Tip>
         )}
       </div>
-      {list.needsYou.length > 0 && <NeedsYouLink count={list.needsYou.length} />}
       <nav aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
         {loaded && (
           <Suspense fallback={null}>
@@ -96,24 +95,5 @@ export function HomeSidebar() {
         <ThreadPagination settledOpen={settledOpen} />
       </nav>
     </>
-  );
-}
-
-/**
- * While threads wait on the person, one quiet row over the list opens Activity, where every
- * approval and question across them can be answered in one place.
- */
-function NeedsYouLink(props: { count: number }) {
-  const label = `${props.count} ${props.count === 1 ? "needs" : "need"} you`;
-  return (
-    <Link
-      to="/activity"
-      aria-label={`Activity: ${label}`}
-      className="mx-2 mb-1 flex h-8 shrink-0 items-center gap-2 rounded-md px-2.5 text-ui text-muted-foreground focus-ring-inset hover:bg-sidebar-accent hover:text-foreground pointer-coarse:h-11"
-    >
-      <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-status-needs-you" />
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      <Icon icon={CaretRightIcon} size={12} />
-    </Link>
   );
 }

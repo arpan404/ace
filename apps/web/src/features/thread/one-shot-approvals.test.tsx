@@ -1,6 +1,5 @@
-import { openActivityRequest } from "@/test/activity-request.ts";
 import type { Scenario } from "@ace/fake-daemon";
-import { waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -77,11 +76,10 @@ test("native auto mode preserves and returns the provider session grant", async 
   const app = harness();
   const scenario = pushRequest("auto-review");
   app.play(scenario).runUntilBlocked();
-  await app.open("/activity");
-  const card = await openActivityRequest(title);
+  await app.open(`/t/${scenario.thread.id}`);
+  const card = await screen.findByRole("article", { name: title });
   expect(within(card).getByRole("button", { name: "Allow once" })).toBeTruthy();
   expect(within(card).getByRole("button", { name: "Always allow" })).toBeTruthy();
-  expect(within(card).queryByText(/Always-allow isn't available/)).toBeNull();
   // The command reads as typed, not as the login shell that ran it.
   expect(within(card).getByText("git push origin main")).toBeTruthy();
 
@@ -98,8 +96,8 @@ test("native bypass mode preserves the provider session grant", async () => {
   const app = harness();
   const scenario = pushRequest("full-access");
   app.play(scenario).runUntilBlocked();
-  await app.open("/activity");
-  const card = await openActivityRequest(title);
+  await app.open(`/t/${scenario.thread.id}`);
+  const card = await screen.findByRole("article", { name: title });
   await userEvent.click(within(card).getByRole("button", { name: "Always allow" }));
   await waitFor(() =>
     expect(app.daemon.resolution(scenario.thread.id, "approve-push")).toEqual({

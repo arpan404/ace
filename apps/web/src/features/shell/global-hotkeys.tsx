@@ -29,7 +29,6 @@ export function GlobalHotkeys(props: {
   useHotkey(keymap.forward.keys, nav.forward);
   useHotkey(keymap.settings.keys, () => void navigate({ to: "/settings" }));
   useHotkey(keymap.goHome.keys, () => void navigate({ to: "/" }));
-  useHotkey(keymap.goActivity.keys, () => void navigate({ to: "/activity" }));
   useHotkey(keymap.goAutomations.keys, () => void navigate({ to: "/automations" }));
   useHotkey(keymap.goSkills.keys, () => void navigate({ to: "/skills" }));
   return null;

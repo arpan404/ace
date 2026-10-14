@@ -1,9 +1,12 @@
-import { openActivityRequest } from "@/test/activity-request.ts";
 import type { Scenario } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { answerStore } from "./interactions/answers.ts";
+
+beforeEach(() => localStorage.clear());
+afterEach(() => answerStore.forgetAll());
 
 const threadId = "thread-totals";
 
@@ -113,18 +116,20 @@ test("a sensitive app's request says it asks again every turn", async () => {
   expect(within(card).getByRole("button", { name: "Always allow" })).toBeTruthy();
 });
 
-test("Activity's card for an app request can't be approved by a reflex key, only denied", async () => {
+test("the thread's card for an app request can't be approved by a number key, only denied", async () => {
   const app = harness();
   app.play(working).runUntilBlocked();
-  await app.open("/activity");
+  await app.open(`/t/${threadId}`);
   const asked = askForApp(app, "com.apple.calculator");
 
-  const card = await openActivityRequest("Let an agent use Calculator");
-  await waitFor(() => expect(card.getAttribute("aria-current")).toBe("true"));
-  await userEvent.keyboard("a");
+  const card = await screen.findByRole("article", { name: "Let an agent use Calculator" });
+  const deny = within(card).getByRole("button", { name: "Deny" });
+  deny.focus();
+  await userEvent.keyboard("1");
+  expect(await within(card).findByText(/Read the request/)).toBeTruthy();
   expect(app.daemon.screen.access.list(threadId)).toEqual([]);
 
-  await userEvent.keyboard("d");
+  await userEvent.keyboard("3");
 
   await expect(asked).rejects.toMatchObject({ code: "denied" });
   expect(app.daemon.screen.access.list(threadId)).toEqual([]);

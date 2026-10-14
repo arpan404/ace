@@ -4,7 +4,7 @@ import { readJson, writeJson, type KeyValueStorage } from "./storage.ts";
 /*
  * When this device first opened Home: activity before it counts as seen, so a first launch
  * isn't all unread. Kept in the organizer's record (`organizer.ts`), which reads it from here,
- * so Home and Activity judge unread against the same moment. zod/mini: it is read on the
+ * so Home judges unread against a stable moment. zod/mini: it is read on the
  * first paint.
  */
 

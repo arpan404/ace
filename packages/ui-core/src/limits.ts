@@ -12,7 +12,7 @@ import {
 } from "./accounts.ts";
 
 /*
- * Usage limits as the composer, the header, Activity, toasts and Usage & accounts word them: how
+ * Usage limits as the composer, the header, toasts and Usage & accounts word them: how
  * close an account is to a limit, when it resets, which account has room, and what changed
  * between two `accounts.list` reads. Pure; callers pass the clock.
  */
@@ -266,7 +266,7 @@ export function nextLimitReset(accounts: readonly AccountView[], now: number): n
   return next;
 }
 
-/** A thread held at its account's limit, as Activity lists it. */
+/** A thread held at its account's limit. */
 export interface LimitedThread {
   id: string;
   title: string;
