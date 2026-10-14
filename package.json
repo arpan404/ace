@@ -19,6 +19,7 @@
     "record": "bun run --filter @ace/recorder record",
     "record:cursor-sdk": "node tools/recorder/src/record-cursor-sdk.ts",
     "check:size": "node scripts/check-file-size.ts",
+    "eval:mcp": "ACE_EVAL_REPORT=${ACE_EVAL_REPORT:-output/evals/mcp-latest} vitest run --project process apps/daemon/src/evals --no-file-parallelism --testTimeout=180000",
     "check:ui": "node scripts/check-ui-values.ts",
     "icons:providers": "node scripts/provider-icons.ts",
     "check:deps": "depcruise apps/android/src apps/android/modules/ace-native/index.tsx apps/web/src packages/client/src packages/client-worker/src packages/client-react/src packages/fake-daemon/src packages/ui-core/src --config .dependency-cruiser.cjs --output-type err",

@@ -30,3 +30,6 @@ native/screen-helper-windows/target/
 
 # Incremental typecheck declarations, generated project configs and compiler caches.
 **/.cache/typecheck/
+
+# Local MCP eval reports (bun run eval:mcp); committed reports live in docs/evals/.
+/output/evals/

@@ -59,6 +59,9 @@ export function isolatedTestEnvironment(
     // This flag opts into only the dedicated native fixture, never a user app or home.
     ...(ambient.ACE_SCREEN_INTEGRATION === "1" ? { ACE_SCREEN_INTEGRATION: "1" } : {}),
     ...(ambient.ACE_DEVICE_LIVE === "1" ? { ACE_DEVICE_LIVE: "1" } : {}),
+    // `bun run eval:mcp` names where the MCP eval harness writes its report.
+    ...(ambient.ACE_EVAL_REPORT !== undefined ? { ACE_EVAL_REPORT: ambient.ACE_EVAL_REPORT } : {}),
+    ...(ambient.ACE_EVAL_LABEL !== undefined ? { ACE_EVAL_LABEL: ambient.ACE_EVAL_LABEL } : {}),
     ...(ambient.ACE_DEVICE_VIDEO_LIVE === "1" ? { ACE_DEVICE_VIDEO_LIVE: "1" } : {}),
     ...(ambient.ACE_DEVICE_GESTURE_LIVE === "1" ? { ACE_DEVICE_GESTURE_LIVE: "1" } : {}),
     ...(ambient.ACE_DEVICE_LIVE_IOS_UUID !== undefined
