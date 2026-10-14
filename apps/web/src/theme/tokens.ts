@@ -1,6 +1,7 @@
 import { oklchToHex } from "./colour.ts";
 import { dangerFill } from "./danger.ts";
 import { rampSteps, sharedStatus, type Palette, type Scheme } from "./palettes.ts";
+import { glassText } from "./glass-floor.ts";
 import { defaultTranslucency, glassVariables } from "./translucency.ts";
 
 /*
@@ -80,6 +81,7 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
     ? "inset 0 1px 0 0 rgb(255 255 255 / 0.95), inset 0 0 0 1px rgb(255 255 255 / 0.4), inset 0 -1px 0 0 rgb(255 255 255 / 0.3)"
     : "inset 0 1px 0 0 rgb(255 255 255 / 0.16), inset 0 0 0 1px rgb(255 255 255 / 0.06), inset 0 -1px 0 0 rgb(255 255 255 / 0.04)";
   const danger = dangerFill(p.failed);
+  const glassInk = glassText(p, scheme);
   return {
     // The neutral ramp, by step (`--neutral-1` canvas … `--neutral-12` text).
     ...neutralRamp(p),
@@ -177,9 +179,13 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
     // Floating layers: solid edge and shadow, and the glass material (styles/glass.css).
     "--float-edge": light ? `color-mix(in srgb, ${p.border}, ${p.t1} 4%)` : p.border,
     "--float-shadow": floatShadow,
-    // The tint at the chosen translucency, never thinner than AA over a white or a black
-    // backdrop allows (`glassTintAlpha`), with the blur and saturation that go with it.
-    ...glassVariables(p, translucency),
+    // The tint at the chosen translucency, never thinner than AA over realistic blurred
+    // backdrops allows (`glassTintAlpha`), with the blur, colour boost and scrim that go with it.
+    ...glassVariables(p, scheme, translucency),
+    // Text a step stronger on glass (`glassText`); glass.css swaps it in on translucent layers.
+    "--glass-foreground": glassInk.t1,
+    "--glass-muted-foreground": glassInk.t2,
+    "--glass-subtle-foreground": glassInk.t3,
     "--glass-rim": glassRim,
     // A hairline just outside the rim, so the layer's silhouette holds over its own colour.
     "--glass-edge": light ? `rgb(${p.shadow} / 0.12)` : "rgb(0 0 0 / 0.55)",

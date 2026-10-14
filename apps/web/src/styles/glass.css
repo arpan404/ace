@@ -1,20 +1,23 @@
 /*
  * Floating material (docs/design/visual-language.md, "Glass"), after Apple's Liquid Glass: glass
  * is for controls floating above content (menus, popovers, toasts, the command palette, floating
- * action bars), never for content, and never glass on glass.
+ * action bars, the composer and its strip), never for content, and never glass on glass.
  *
  *   .ace-floating        glass while Translucency is above Solid, solid otherwise
- *   .ace-floating-solid  always solid (dialogs, tooltips, the composer, anything that is content)
+ *   .ace-glass-dock      the composer and the cards attached to it: the same glass, edged by a
+ *                        border instead of a rim and shadow
+ *   .ace-floating-solid  always solid (dialogs, tooltips, anything that is content)
  *
  * <html> carries the resolved choice: `data-surface` is "solid" with Translucency at Solid, while
  * the OS reduces transparency, and in a theme with no glass (Signal); `data-glass-engine` is
  * "liquid" only where SVG backdrop filters render (Chromium and Electron; src/theme/glass.ts).
  *
- * The material, in order: the backdrop blurred and saturated (per theme, `--glass-blur` and
- * `--glass-saturate`); on Chromium, that frosted backdrop bent inside a thin rim by a filter
- * sized to the layer (theme/liquid-glass.ts), so lensing lives at the edge and never warps text;
- * the tint, never thinner than AA over a white or a black backdrop allows (`--glass-tint`,
- * thicker as Translucency moves toward Solid); a specular
+ * The material, in order: the backdrop blurred, its colour boosted and its range pulled toward
+ * the glass (`--glass-blur`, `--glass-saturate`, `--glass-contrast`, `--glass-brightness`); on
+ * Chromium, floating layers then bend that frosted backdrop inside a thin rim with a filter sized
+ * to the layer (theme/liquid-glass.ts), so lensing lives at the edge and never warps text; the
+ * tint (`--glass-tint`), never thinner than AA over realistic blurred backdrops allows
+ * (theme/glass-floor.ts) and thicker toward Solid; stronger text colours on glass; a specular
  * rim lit from above (`--glass-rim`); a hairline outside it; and the soft floating shadow.
  * No per-frame script, and filters sit only on floating layers, never on a scrolling area.
  */
@@ -28,27 +31,63 @@
       var(--float-shadow);
   }
 
-  /* A floating layer inside another one stays solid: one glass layer, never glass on glass. */
-  :root[data-surface="translucent"] :is(.ace-floating, .glass):not(:is(.ace-floating, .glass) *) {
+  /*
+   * The composer, its strip and the cards attached to it (`.ace-glass-dock`): solid under Solid,
+   * glass over the scrolling transcript otherwise. Its edge is a border, not a cast shadow.
+   */
+  .ace-glass-dock {
+    background: var(--surface-2);
+  }
+
+  /*
+   * The frost every glass surface shares: the backdrop blurred, its colour boosted and its range
+   * pulled toward the glass (the luminosity scrim), then the tint. Text on glass takes its
+   * stronger colours (`--glass-foreground` and the rest), so the tint can stay thin.
+   * A floating layer inside another glass surface stays solid: never glass on glass.
+   */
+  :root[data-surface="translucent"]
+    :is(.ace-floating, .glass, .ace-glass-dock):not(:is(.ace-floating, .glass, .ace-glass-dock) *) {
+    --foreground: var(--glass-foreground);
+    --muted-foreground: var(--glass-muted-foreground);
+    --subtle-foreground: var(--glass-subtle-foreground);
     background: var(--glass-tint);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate))
+      contrast(var(--glass-contrast)) brightness(var(--glass-brightness));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate))
+      contrast(var(--glass-contrast)) brightness(var(--glass-brightness));
+  }
+  :root[data-surface="translucent"]
+    :is(.ace-floating, .glass):not(:is(.ace-floating, .glass, .ace-glass-dock) *) {
     box-shadow:
       var(--glass-rim),
       0 0 0 0.5px var(--glass-edge),
       var(--float-shadow);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  }
+
+  /*
+   * A card attached above the composer tucks its bottom behind the composer's top edge. Its glass
+   * stops at that edge, so the composer frosts the transcript itself and never a second, already
+   * frosted layer: one material, one blur, however the two overlap. The clip leaves room around
+   * the other three sides for the card's edge.
+   */
+  :root[data-surface="translucent"] .ace-glass-dock.ace-glass-attached {
+    clip-path: inset(-24px -24px calc(var(--surface-gap) * 2) -24px);
   }
 
   /* --liquid-filter is this layer's own rim filter, after the blur; frosted alone until it's set. */
   :root[data-surface="translucent"][data-glass-engine="liquid"]
-    :is(.ace-floating, .glass):not(.ace-modal, :is(.ace-floating, .glass) *) {
-    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) var(--liquid-filter,);
+    :is(.ace-floating, .glass):not(.ace-modal, :is(.ace-floating, .glass, .ace-glass-dock) *) {
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate))
+      contrast(var(--glass-contrast)) brightness(var(--glass-brightness)) var(--liquid-filter,);
   }
 
   /* A layer announces itself to liquid-glass.ts when it appears: a 1ms marker animation on a
      zero-size ::before, whose animationstart bubbles to the document. */
   :root[data-surface="translucent"][data-glass-engine="liquid"]
-    :is(.ace-floating, .glass):not(.ace-modal, :is(.ace-floating, .glass) *)::before {
+    :is(.ace-floating, .glass):not(
+      .ace-modal,
+      :is(.ace-floating, .glass, .ace-glass-dock) *
+    )::before {
     content: "";
     position: absolute;
     width: 0;
@@ -74,6 +113,24 @@
    */
   .ace-backdrop {
     background: var(--scrim);
+  }
+
+  /*
+   * Beneath the composer, a fade from the window's edge keeps the transcript from showing in the
+   * gap under it. Solid: up to the composer's middle. Glass: only the gap itself, so the
+   * transcript scrolls behind the whole composer and shows through it.
+   */
+  [data-composer-dock]::before {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    height: 50%;
+    background: linear-gradient(to top, var(--background) 60%, transparent);
+  }
+  :root[data-surface="translucent"] [data-composer-dock]::before {
+    height: 1rem;
   }
   :root[data-surface="translucent"] .ace-backdrop {
     background: var(--scrim-glass);

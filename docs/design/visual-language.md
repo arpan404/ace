@@ -160,9 +160,9 @@ Static tokens (`tokens.css`):
 Settings → Appearance → Translucency is a slider in ten steps from Solid (0) to the theme's most
 translucent glass (100%, the default). The most translucent end is the AA-safe tint described
 under Glass, so no position can make text unreadable. Toward Solid the tint thickens to opaque
-and the blur and saturation fade with it (`glassVariables` in `theme/translucency.ts`). Dragging
-changes only `--glass-tint`, `--glass-blur` and `--glass-saturate` on `<html>`; liquid glass
-filters are kept.
+and the blur, colour boost and luminosity scrim fade with it, along a square root so the middle
+of the slider looks halfway (`glassVariables` in `theme/translucency.ts`). Dragging changes only
+the `--glass-*` variables on `<html>`; liquid glass filters are kept.
 
 `<html>` carries the resolved value as `data-surface`, which is `solid` (no backdrop filter at
 all) in any of these cases:
@@ -172,7 +172,8 @@ all) in any of these cases:
 - the OS reports `prefers-reduced-transparency: reduce`. The slider is disabled at Solid and
   says why.
 
-The sidebar, page and right panel are always opaque. Glass only appears on floating layers.
+The sidebar, page and right panel are always opaque. Glass only appears on floating layers and
+on the composer.
 
 ## Glass
 
@@ -182,13 +183,20 @@ Glass follows Apple's Liquid Glass guidance
 controls and navigation floating above content, never for content itself, and never glass on
 glass.
 
-There are two classes:
+There are three classes:
 
-- **`.ace-floating`** is glass under Translucent and `--surface-2` with an edge and shadow under
+- **`.ace-floating`** is glass under Translucency and `--surface-2` with an edge and shadow at
   Solid. Use it for menus, popovers, selects, context menus, hover cards, toasts, the command
   palette, the Turns panel and floating action bars.
-- **`.ace-floating-solid`** is always solid. Use it for dialogs, tooltips, the Work card, the
-  composer and its strip, and anything that holds content.
+- **`.ace-glass-dock`** is the same glass for the composer and the cards attached above it (the
+  strip, the environment row, notices), edged by a border. They form one material. A card
+  attached above the composer (`.ace-glass-attached`) has its glass clipped where it tucks
+  under the composer's edge, so the composer frosts the transcript and never the card's glass:
+  no double blur. Under glass the dock's fade (`[data-composer-dock]::before`) covers only the
+  gap below the composer, so the transcript scrolls behind it. Menus opened from the composer
+  are solid.
+- **`.ace-floating-solid`** is always solid. Use it for dialogs, tooltips, the Work card and
+  anything that holds content.
 
 The shared primitives pick the material themselves: `useFloatingMaterial()`
 (`components/ui/floating-material.tsx`) returns `ace-floating-solid` for a layer opened from a
@@ -202,10 +210,11 @@ theme with no glass (Signal). Nothing the stylesheet ships has a backdrop filter
 
 The material, in order:
 
-1. The backdrop is blurred and saturated: `--glass-blur` and `--glass-saturate`, set per theme
-   and scheme in `theme/sources/` (dark schemes blur more).
+1. The backdrop is blurred, saturated and pulled toward the glass: `--glass-blur` and
+   `--glass-saturate` set per theme and scheme in `theme/sources/` (dark schemes blur more), then
+   the luminosity scrim `--glass-contrast` and `--glass-brightness` (`theme/glass-floor.ts`).
 2. **Chromium and Electron** (`data-glass-engine="liquid"`) then bend that frosted backdrop at the
-   rim: `backdrop-filter: blur() saturate() var(--liquid-filter)`.
+   rim: `backdrop-filter: blur() saturate() contrast() brightness() var(--liquid-filter)`.
    - `--liquid-filter` points at an SVG `feDisplacementMap` sized to that layer's box, corner
      radius and pixel density (`theme/liquid-glass.ts`).
    - The rim is at most 10px deep and bends at most 7px, on a smooth curve that meets the flat
@@ -216,10 +225,13 @@ The material, in order:
    - A layer registers itself when it appears: a 1ms marker animation on its `::before` fires
      `animationstart`. One ResizeObserver re-measures it only when it resizes.
    - Until its filter is ready, a layer shows the frosted backdrop only.
-3. The tint is `--glass-tint`: `--surface-2` at the thinnest opacity over which text and
-   secondary text read at AA (4.5:1) and quiet hints at 3:1 over a white and a black backdrop,
-   selected rows included (`glassTintAlpha` in `theme/surfaces.ts`). That is the slider's most
-   translucent end; every other position is thicker.
+3. The tint is `--glass-tint`: `--surface-2` at the thinnest opacity over which glass text
+   reads at AA (4.5:1, quiet hints 3:1) over the darkest and lightest backdrop that busy content
+   (code, a white page, a photo, prose) still shows after the backdrop filter, selected rows
+   included (`glassTintAlpha` in `theme/glass-floor.ts`, fixtures in `theme/backdrops.ts`). That
+   is the slider's most translucent end, 52–54% in light and 63–67% in dark; every other
+   position is thicker. Text on glass uses `--glass-foreground`, `--glass-muted-foreground` and
+   `--glass-subtle-foreground`, a step stronger than on solid surfaces.
 4. The specular rim is `--glass-rim`: inset hairlines lit from above (a bright crescent along the
    top, a faint line all round, a weaker return at the bottom).
 5. The edge is `--glass-edge` and the shadow is `--float-shadow`.

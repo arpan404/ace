@@ -11,8 +11,8 @@ export const ace: ThemeSource = {
   name: "ace",
   character: "Neutral greys with the ink as the accent; status is the only colour",
   fonts: sansFonts,
-  // Neutral glass: a small colour boost, so it stays as grey as the rest of ace.
-  material: glassy({ blur: 24, saturate: 140 }, { blur: 28, saturate: 130 }),
+  // Neutral glass: the glass stays as grey as the rest of ace; the boost is on what is behind it.
+  material: glassy({ blur: 24, saturate: 180 }, { blur: 28, saturate: 165 }),
   light: {
     canvas: "#FFFFFF",
     sidebar: "#F7F7F7",

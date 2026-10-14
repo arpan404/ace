@@ -11,7 +11,7 @@ export const harbor: ThemeSource = {
   character: "Cool slate with a petrol accent, for daylight",
   fonts: sansFonts,
   // Slate glass: the most saturated, closest to the system material.
-  material: glassy({ blur: 24, saturate: 170 }, { blur: 28, saturate: 155 }),
+  material: glassy({ blur: 24, saturate: 200 }, { blur: 28, saturate: 185 }),
   light: {
     canvas: "#F3F5F8",
     sidebar: "#E9ECF1",

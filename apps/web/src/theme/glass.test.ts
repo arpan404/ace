@@ -4,6 +4,7 @@ import { themeDeclarations } from "./css.ts";
 import { edgeMap, fitStep, glassEngine, glassGeometry, mapSize } from "./glass.ts";
 import { themeIds, themes } from "./palettes.ts";
 import { over } from "./surfaces.ts";
+import { backdropExtremes } from "./backdrops.ts";
 import { themeAccent } from "./accent.ts";
 import { defaultTranslucency, translucencyMax, translucencyStep } from "./translucency.ts";
 
@@ -107,36 +108,64 @@ function tint(value: string | undefined): { rgb: Rgb; alpha: number } {
   return { rgb, alpha: Number(match[2]) / 100 };
 }
 
-const backdrops: Record<string, Rgb> = {
-  "white backdrop": [255, 255, 255],
-  "black backdrop": [0, 0, 0],
+/** Glass text levels: text and secondary text at AA over anything behind glass; quiet hints at 3:1. */
+const levels = {
+  "--glass-foreground": 4.5,
+  "--glass-muted-foreground": 4.5,
+  "--glass-subtle-foreground": 3,
 };
-/** Text and secondary text at AA over anything; quiet hints at 3:1. */
-const levels = { "--foreground": 4.5, "--muted-foreground": 4.5, "--subtle-foreground": 3 };
+const percent = (value: string | undefined) => Number.parseFloat(value ?? "") / 100;
 
 /** The slider's least, middle and most translucent glass, and Solid. */
 const sliderStops = [0, translucencyStep, translucencyMax / 2, translucencyMax];
 
-test("text on glass reads at AA over a white and a black backdrop in every theme, light and dark, anywhere on the Translucency slider", () => {
+test("text on glass reads at AA over blurred busy backdrops in every theme, light and dark, anywhere on the Translucency slider", () => {
   const failures: string[] = [];
   for (const id of themeIds)
     for (const scheme of ["light", "dark"] as const)
       for (const translucency of sliderStops) {
         const tokens = themeDeclarations(id, scheme, themeAccent, translucency);
         const glass = tint(tokens["--glass-tint"]);
-        for (const [backdrop, behind] of Object.entries(backdrops)) {
-          const surface = over(glass.rgb, glass.alpha, behind);
+        // What the page's backdrop filter makes of code, a white page, a photo and prose.
+        const behind = backdropExtremes(Number.parseFloat(tokens["--glass-blur"] ?? ""), {
+          saturate: percent(tokens["--glass-saturate"]),
+          contrast: percent(tokens["--glass-contrast"]),
+          brightness: percent(tokens["--glass-brightness"]),
+        });
+        const ink = parseOpaqueColor(tokens["--glass-foreground"]) ?? [0, 0, 0];
+        for (const [backdrop, colour] of Object.entries(behind)) {
+          const surface = over(glass.rgb, glass.alpha, colour);
+          // A selected row's ink wash on top, the strongest wash text sits on.
+          const selected = over(ink, scheme === "light" ? 0.07 : 0.08, surface);
           for (const [token, minimum] of Object.entries(levels)) {
-            const colour = parseOpaqueColor(tokens[token]);
-            const ratio = colour ? contrastRatio(colour, surface) : 0;
+            const text = parseOpaqueColor(tokens[token]);
+            const ratio = text
+              ? Math.min(contrastRatio(text, surface), contrastRatio(text, selected))
+              : 0;
             if (ratio < minimum)
               failures.push(
-                `${id} ${scheme} at ${translucency}: ${token} on glass over a ${backdrop} ${ratio.toFixed(2)}`,
+                `${id} ${scheme} at ${translucency}: ${token} on glass over the ${backdrop} backdrop ${ratio.toFixed(2)}`,
               );
           }
         }
       }
   expect(failures).toEqual([]);
+});
+
+test("glass text is stronger than the same level on solid surfaces", () => {
+  for (const id of themeIds)
+    for (const scheme of ["light", "dark"] as const) {
+      const tokens = themeDeclarations(id, scheme);
+      const page = parseOpaqueColor(tokens["--surface-2"]) ?? [0, 0, 0];
+      for (const [solid, glass] of [
+        ["--foreground", "--glass-foreground"],
+        ["--muted-foreground", "--glass-muted-foreground"],
+        ["--subtle-foreground", "--glass-subtle-foreground"],
+      ] as const) {
+        const on = (token: string) => contrastRatio(parseOpaqueColor(tokens[token]) ?? page, page);
+        expect(on(glass), `${id} ${scheme} ${glass}`).toBeGreaterThanOrEqual(on(solid));
+      }
+    }
 });
 
 test("the slider runs from a solid tint with no blur to the theme's AA-safe glass", () => {
@@ -148,10 +177,17 @@ test("the slider runs from a solid tint with no blur to the theme's AA-safe glas
           alpha: tint(tokens["--glass-tint"]).alpha,
           blur: Number.parseFloat(tokens["--glass-blur"] ?? ""),
           saturate: Number.parseFloat(tokens["--glass-saturate"] ?? ""),
+          // The luminosity scrim: how far the backdrop's range is pulled toward the glass.
+          scrim: Math.abs(1 - percent(tokens["--glass-contrast"])),
+          dim: Math.abs(1 - percent(tokens["--glass-brightness"])),
         };
       };
       const solid = at(0);
-      expect([id, scheme, solid]).toEqual([id, scheme, { alpha: 1, blur: 0, saturate: 100 }]);
+      expect([id, scheme, solid]).toEqual([
+        id,
+        scheme,
+        { alpha: 1, blur: 0, saturate: 100, scrim: 0, dim: 0 },
+      ]);
       // The most translucent end is the floor the theme was solved for, and the default.
       const most = at(translucencyMax);
       expect(most).toEqual(at(defaultTranslucency));
@@ -167,16 +203,33 @@ test("the slider runs from a solid tint with no blur to the theme's AA-safe glas
         expect(next.alpha).toBeLessThanOrEqual(previous.alpha);
         expect(next.blur).toBeGreaterThanOrEqual(previous.blur);
         expect(next.saturate).toBeGreaterThanOrEqual(previous.saturate);
+        expect(next.scrim).toBeGreaterThanOrEqual(previous.scrim);
+        expect(next.dim).toBeGreaterThanOrEqual(previous.dim);
         previous = next;
       }
     }
 });
 
-test("glass stays visibly glass where a theme has it, and Signal has none", () => {
+test("the most translucent glass clearly shows what's behind it, and Signal has none", () => {
+  // At most 60% tint in light and 70% in dark: well over a third of the backdrop shows through.
+  const thickest = { light: 0.6, dark: 0.7 };
   for (const id of themeIds)
     for (const scheme of ["light", "dark"] as const) {
       const { alpha } = tint(themeDeclarations(id, scheme)["--glass-tint"]);
-      if (themes[id][scheme].material.glass) expect(alpha, `${id} ${scheme}`).toBeLessThan(0.95);
+      if (themes[id][scheme].material.glass)
+        expect(alpha, `${id} ${scheme}`).toBeLessThanOrEqual(thickest[scheme]);
       else expect(alpha, `${id} ${scheme}`).toBe(1);
+    }
+});
+
+test("the middle of the slider is genuinely in between: well over half the glass of the far end", () => {
+  for (const id of themeIds)
+    for (const scheme of ["light", "dark"] as const) {
+      if (!themes[id][scheme].material.glass) continue;
+      const shows = (translucency: number) =>
+        1 - tint(themeDeclarations(id, scheme, themeAccent, translucency)["--glass-tint"]).alpha;
+      const ratio = shows(translucencyMax / 2) / shows(translucencyMax);
+      expect(ratio, `${id} ${scheme}`).toBeGreaterThan(0.6);
+      expect(ratio, `${id} ${scheme}`).toBeLessThan(0.8);
     }
 });

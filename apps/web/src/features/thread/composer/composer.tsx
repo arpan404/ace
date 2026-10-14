@@ -1,3 +1,4 @@
+import { FloatingContents } from "@/components/ui/floating-material.tsx";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { receiveComposerMentions } from "@/lib/composer-insert.ts";
 import { ThreadId, type CatalogMention } from "@ace/protocol";
@@ -734,124 +735,127 @@ function ComposerBody({
         </p>
       )}
       <ComposerCompact value={compact}>
-        {props.attached}
-        {props.environment}
-        <div
-          data-slot="composer"
-          onDragOver={(event) => {
-            if (carriesFiles(event.dataTransfer)) event.preventDefault();
-          }}
-          onDrop={(event) => {
-            if (!carriesFiles(event.dataTransfer)) return;
-            event.preventDefault();
-            intake(event.dataTransfer);
-          }}
-          // The pill (see `pill`): typing or a file opens it; the same elements stay mounted,
-          // so focus never moves.
-          data-pill={pill ? "" : undefined}
-          className={cn(composerSurface, "relative z-10 flex flex-col rounded-xl")}
-        >
-          <AttachmentChips
-            items={chips}
-            onRemove={attachments.remove}
-            onRetry={attachments.retry}
-            threadId={props.thread.draft ? undefined : props.thread.id}
-          />
-          <div data-slot="composer-input" className="px-4 pt-3.5 pb-1.5">
-            <MessageInput
-              input={input}
-              text={text}
-              tokens={tokens}
-              disabled={!!off}
-              aria-describedby={props.unavailable?.describedBy}
-              autoFocus={props.autoFocus}
-              aria-label={props.label ?? "Message"}
-              placeholder={placeholder}
-              role="combobox"
-              aria-autocomplete="list"
-              aria-expanded={expanded}
-              aria-controls={expanded ? listId : undefined}
-              aria-activedescendant={expanded ? `${listId}-${active}` : undefined}
-              onChange={(next, at) => {
-                setTokens(editComposerTokens(text, next, tokens));
-                setText(next);
-                setCaret(at);
-                setDismissed(undefined);
-              }}
-              onCaret={setCaret}
-              onKeyDown={onKeyDown}
-              onPaste={(event) => {
-                if (event.clipboardData.files.length) {
-                  event.preventDefault();
-                  intake(event.clipboardData);
-                  return;
-                }
-                event.preventDefault();
-                const el = input.current;
-                const selection = document.getSelection();
-                if (!el || !selection?.rangeCount) return;
-                const range = selection.getRangeAt(0);
-                range.deleteContents();
-                const node = document.createTextNode(event.clipboardData.getData("text/plain"));
-                range.insertNode(node);
-                range.setStartAfter(node);
-                range.collapse(true);
-                selection.removeAllRanges();
-                selection.addRange(range);
-                el.dispatchEvent(new Event("input", { bubbles: true }));
-              }}
-              style={{ minHeight: inputLine * (pill ? 1 : inputMinLines) }}
-              className="message-input block min-w-0 w-full overflow-y-auto bg-transparent p-0 text-base leading-5 whitespace-pre-wrap text-foreground outline-none"
-            />
-          </div>
-          {/* Clicking the footer's empty space writes in the message, as the input's own area does. */}
+        {/* The composer and its strip are glass: popovers opened from them are solid. */}
+        <FloatingContents glass>
+          {props.attached}
+          {props.environment}
           <div
-            data-slot="composer-footer"
-            onMouseDown={(event) => {
-              if (event.target !== event.currentTarget) return;
-              event.preventDefault();
-              input.current?.focus();
+            data-slot="composer"
+            onDragOver={(event) => {
+              if (carriesFiles(event.dataTransfer)) event.preventDefault();
             }}
-            className="mb-1.5 flex h-11 min-w-0 items-center justify-between gap-0.5 px-2"
+            onDrop={(event) => {
+              if (!carriesFiles(event.dataTransfer)) return;
+              event.preventDefault();
+              intake(event.dataTransfer);
+            }}
+            // The pill (see `pill`): typing or a file opens it; the same elements stay mounted,
+            // so focus never moves.
+            data-pill={pill ? "" : undefined}
+            className={cn(composerSurface, "relative z-10 flex flex-col rounded-xl")}
           >
-            <div data-slot="composer-add" className="flex shrink-0 items-center">
-              <AddButton
-                handle={addMenu}
-                onFiles={attach}
-                onOpen={() => {
+            <AttachmentChips
+              items={chips}
+              onRemove={attachments.remove}
+              onRetry={attachments.retry}
+              threadId={props.thread.draft ? undefined : props.thread.id}
+            />
+            <div data-slot="composer-input" className="px-4 pt-3.5 pb-1.5">
+              <MessageInput
+                input={input}
+                text={text}
+                tokens={tokens}
+                disabled={!!off}
+                aria-describedby={props.unavailable?.describedBy}
+                autoFocus={props.autoFocus}
+                aria-label={props.label ?? "Message"}
+                placeholder={placeholder}
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={expanded}
+                aria-controls={expanded ? listId : undefined}
+                aria-activedescendant={expanded ? `${listId}-${active}` : undefined}
+                onChange={(next, at) => {
+                  setTokens(editComposerTokens(text, next, tokens));
+                  setText(next);
+                  setCaret(at);
                   setDismissed(undefined);
-                  setAdding(true);
-                  placeCaret.current = caret;
-                  input.current?.focus();
                 }}
-                unavailable={props.unavailable}
+                onCaret={setCaret}
+                onKeyDown={onKeyDown}
+                onPaste={(event) => {
+                  if (event.clipboardData.files.length) {
+                    event.preventDefault();
+                    intake(event.clipboardData);
+                    return;
+                  }
+                  event.preventDefault();
+                  const el = input.current;
+                  const selection = document.getSelection();
+                  if (!el || !selection?.rangeCount) return;
+                  const range = selection.getRangeAt(0);
+                  range.deleteContents();
+                  const node = document.createTextNode(event.clipboardData.getData("text/plain"));
+                  range.insertNode(node);
+                  range.setStartAfter(node);
+                  range.collapse(true);
+                  selection.removeAllRanges();
+                  selection.addRange(range);
+                  el.dispatchEvent(new Event("input", { bubbles: true }));
+                }}
+                style={{ minHeight: inputLine * (pill ? 1 : inputMinLines) }}
+                className="message-input block min-w-0 w-full overflow-y-auto bg-transparent p-0 text-base leading-5 whitespace-pre-wrap text-foreground outline-none"
               />
             </div>
-            {/* The pill keeps only +, the model and send: these wait until it opens. */}
+            {/* Clicking the footer's empty space writes in the message, as the input's own area does. */}
             <div
-              data-slot="composer-controls"
-              hidden={pill}
-              className="flex flex-1 items-center gap-0.5"
+              data-slot="composer-footer"
+              onMouseDown={(event) => {
+                if (event.target !== event.currentTarget) return;
+                event.preventDefault();
+                input.current?.focus();
+              }}
+              className="mb-1.5 flex h-11 min-w-0 items-center justify-between gap-0.5 px-2"
             >
-              {props.controls}
-            </div>
-            <div data-slot="composer-trailing" className="flex min-w-0 shrink items-center">
-              {props.trailing}
-            </div>
-            <div data-slot="composer-primary" className="flex shrink-0 items-center">
-              <PrimaryAction
-                mode={mode}
-                blocked={blocked}
-                off={!!off}
-                canSteer={props.canSteer !== false}
-                stopping={!!props.stopping}
-                describedBy={props.unavailable?.describedBy ?? props.sendBlocked?.describedBy}
-                onSend={() => submit(false)}
-                onStop={() => props.onStop?.()}
-              />
+              <div data-slot="composer-add" className="flex shrink-0 items-center">
+                <AddButton
+                  handle={addMenu}
+                  onFiles={attach}
+                  onOpen={() => {
+                    setDismissed(undefined);
+                    setAdding(true);
+                    placeCaret.current = caret;
+                    input.current?.focus();
+                  }}
+                  unavailable={props.unavailable}
+                />
+              </div>
+              {/* The pill keeps only +, the model and send: these wait until it opens. */}
+              <div
+                data-slot="composer-controls"
+                hidden={pill}
+                className="flex flex-1 items-center gap-0.5"
+              >
+                {props.controls}
+              </div>
+              <div data-slot="composer-trailing" className="flex min-w-0 shrink items-center">
+                {props.trailing}
+              </div>
+              <div data-slot="composer-primary" className="flex shrink-0 items-center">
+                <PrimaryAction
+                  mode={mode}
+                  blocked={blocked}
+                  off={!!off}
+                  canSteer={props.canSteer !== false}
+                  stopping={!!props.stopping}
+                  describedBy={props.unavailable?.describedBy ?? props.sendBlocked?.describedBy}
+                  onSend={() => submit(false)}
+                  onStop={() => props.onStop?.()}
+                />
+              </div>
             </div>
           </div>
-        </div>
+        </FloatingContents>
       </ComposerCompact>
     </div>
   );

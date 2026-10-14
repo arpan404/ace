@@ -128,7 +128,7 @@ export function ThemeProvider(props: { environment: Environment; children: React
   const { theme, scheme, translucency } = resolved;
   useLayoutEffect(() => {
     if (!root) return;
-    const variables = glassVariables(themes[theme][scheme], translucency);
+    const variables = glassVariables(themes[theme][scheme], scheme, translucency);
     for (const [name, value] of Object.entries(variables))
       if (translucency > 0) root.style.setProperty(name, value);
       else root.style.removeProperty(name);

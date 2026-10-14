@@ -49,12 +49,14 @@ const blurs = (element: Element) => /blur\(/.test(backdrop(element));
 
 test("glass frosts the backdrop under Translucent, and bends it after the blur on Chromium", () => {
   setRoot("translucent", "blur");
-  expect(backdrop(layers("ace-floating").outer)).toMatch(/^blur\(.*\) saturate\(.*\)$/);
+  expect(backdrop(layers("ace-floating").outer)).toMatch(
+    /^blur\(.*\)\s+saturate\(.*\)\s+contrast\(.*\)\s+brightness\(.*\)$/s,
+  );
   setRoot("translucent", "liquid");
   const { outer } = layers("ace-floating");
   outer.style.setProperty("--liquid-filter", "url(#rim)");
   // The rim filter comes last: it bends frosted colour at the edge, never sharp text.
-  expect(backdrop(outer)).toMatch(/^blur\(.*\) saturate\(.*\) var\(--liquid-filter,\s*\)$/);
+  expect(backdrop(outer)).toMatch(/^blur\(.*\)\s+brightness\(.*\)\s+var\(--liquid-filter,\s*\)$/s);
 });
 
 test("Solid surfaces and reduced transparency render no backdrop filter on any layer", () => {

@@ -11,7 +11,7 @@ export const umbra: ThemeSource = {
   character: "Deep, low-glare focus for night work",
   fonts: sansFonts,
   // Night glass: deeper frosting, so bright content behind blooms softly.
-  material: glassy({ blur: 24, saturate: 160 }, { blur: 32, saturate: 150 }),
+  material: glassy({ blur: 24, saturate: 190 }, { blur: 32, saturate: 180 }),
   light: {
     canvas: "#E7E8EA",
     sidebar: "#E7E8EA",
