@@ -37,6 +37,8 @@ export const attachedInset = "mx-[calc(var(--surface-gap)*2)]";
 export const attachedOverlap = "-mb-[calc(var(--surface-gap)*2)]";
 export const attachedStripPadding = "pb-[calc(var(--surface-gap)*2)]";
 export const attachedCardPadding = "pb-[calc(var(--surface-gap)*2+var(--surface-inset))]";
+/** The thread strip's lower padding: 4px showing above the input, as dense as its rows. */
+export const attachedStripCardPadding = "pb-[calc(var(--surface-gap)*2.5)]";
 
 /**
  * The same surface, tucked behind the input's edge on a narrower panel. Its glass stops at the

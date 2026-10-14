@@ -40,12 +40,12 @@ export function HeldSend(props: { threadId: string }) {
       )}
       <div
         role="alert"
-        className="mt-[5px] flex flex-wrap items-center justify-end gap-x-2 gap-y-1"
+        className="mt-[5px] flex flex-wrap items-center justify-end gap-x-1 gap-y-0.5"
       >
         <NotSent reason={shortReason(failure)} />
         <span className="flex gap-1">
           <Button
-            size="sm"
+            size="xs"
             variant="ghost"
             disabled={busy}
             onClick={() => queue.act({ id: "resume", label: "Try again" })}
@@ -56,7 +56,7 @@ export function HeldSend(props: { threadId: string }) {
           {message && (
             <>
               <Button
-                size="sm"
+                size="xs"
                 variant="ghost"
                 disabled={busy}
                 onClick={() => queue.takeBack(message)}
@@ -65,7 +65,7 @@ export function HeldSend(props: { threadId: string }) {
                 Edit
               </Button>
               <Button
-                size="sm"
+                size="xs"
                 variant="ghost"
                 disabled={busy}
                 onClick={() => queue.remove(message)}
@@ -79,7 +79,7 @@ export function HeldSend(props: { threadId: string }) {
       {detail && (
         <Disclosure
           summary="Details"
-          summaryClassName="ml-auto"
+          summaryClassName="ml-auto text-xs"
           className="mt-1 flex max-w-[82%] flex-col self-end"
         >
           <p className="mt-1 text-xs whitespace-pre-wrap text-muted-foreground wrap-break-word">

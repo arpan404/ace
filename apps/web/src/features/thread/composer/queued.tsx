@@ -20,7 +20,7 @@ const Edit = deferredComponent(() =>
   import("./queued-edit.tsx").then((module) => module.QueuedEdit),
 );
 const handleStyle =
-  "focus-ring size-6 shrink-0 cursor-grab rounded-sm text-subtle-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing aria-disabled:cursor-default aria-disabled:opacity-40";
+  "focus-ring inline-grid size-5 shrink-0 cursor-grab place-items-center rounded-sm text-subtle-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing aria-disabled:cursor-default aria-disabled:opacity-40";
 
 /** Every queued message: the listed ones, this window's on their way, and those behind Load more. */
 export function queuedCount(queue: QueueControls, pending: readonly PendingQueued[]): number {
@@ -105,9 +105,9 @@ export function QueuedTray(props: {
   };
   return (
     <>
-      <section aria-label="Message queue" className="w-full text-ui text-muted-foreground">
-        <div className="flex h-9 min-w-0 items-center gap-2 px-1">
-          <Icon icon={TrayIcon} size={14} className="shrink-0" />
+      <section aria-label="Message queue" className="w-full text-xs text-muted-foreground">
+        <div className="flex h-5.5 min-w-0 items-center gap-1.5 px-1">
+          <Icon icon={TrayIcon} size={12} className="shrink-0" />
           <span className="min-w-0 truncate">
             Queued
             {count > 0 && (
@@ -120,7 +120,7 @@ export function QueuedTray(props: {
           {props.indicators}
         </div>
         {props.notice}
-        <div className="max-h-48 overflow-y-auto overscroll-contain pb-1">
+        <div className="max-h-48 overflow-y-auto overscroll-contain">
           <p id={hintId} className="sr-only">
             Drag to reorder, or focus a handle and press Alt+Arrow Up or Alt+Arrow Down.
           </p>
@@ -151,7 +151,7 @@ export function QueuedTray(props: {
                           ? "Queued message, paused after Stop"
                           : "Queued message, not yet sent"
                   }
-                  className="flex min-w-0 items-center gap-1 py-0.5"
+                  className="flex min-h-6.5 min-w-0 items-center gap-0.5 py-px"
                   onDragOver={(event) => {
                     if (drag.current && !saving && !moving && !uncertain) event.preventDefault();
                   }}
@@ -197,10 +197,10 @@ export function QueuedTray(props: {
                       move(index, index + (event.key === "ArrowUp" ? -1 : 1), event.currentTarget);
                     }}
                   >
-                    <Icon icon={DotsSixVerticalIcon} size={14} />
+                    <Icon icon={DotsSixVerticalIcon} size={12} />
                   </button>
                   <div className="min-w-0 flex-1 px-1">
-                    <p className="truncate" title={text}>
+                    <p className="truncate text-foreground/80" title={text}>
                       {text}
                     </p>
                     <QueuedAttachments
@@ -209,8 +209,8 @@ export function QueuedTray(props: {
                       metadata={props.attachments ?? []}
                     />
                   </div>
-                  {saving && <span className="text-xs">Saving…</span>}
-                  {ambiguous && <span className="text-xs">May have been sent</span>}
+                  {saving && <span>Saving…</span>}
+                  {ambiguous && <span>May have been sent</span>}
                   <IconButton
                     icon={PencilSimpleIcon}
                     label="Edit queued message"
@@ -228,7 +228,7 @@ export function QueuedTray(props: {
                   {ambiguous ? (
                     <Button
                       variant="ghost"
-                      size="sm"
+                      size="xs"
                       disabled={busy}
                       title="This message may have been sent. Sending again may deliver it twice."
                       onClick={() => {
@@ -240,8 +240,8 @@ export function QueuedTray(props: {
                   ) : (
                     <Button
                       variant="ghost"
-                      size="sm"
-                      className="shrink-0 gap-1"
+                      size="xs"
+                      className="shrink-0"
                       disabled={!!reason}
                       focusableWhenDisabled
                       aria-description={reason}
@@ -250,7 +250,7 @@ export function QueuedTray(props: {
                         if (!saving) queue.sendNow(message);
                       }}
                     >
-                      <Icon icon={ArrowBendUpRightIcon} size={14} />
+                      <Icon icon={ArrowBendUpRightIcon} size={12} />
                       {/* A phone keeps the room for the message: the arrow alone, still named. */}
                       <span className={compact ? "sr-only" : undefined}>Steer</span>
                     </Button>
@@ -269,19 +269,19 @@ export function QueuedTray(props: {
             })}
           </ul>
           {queue.page?.next && queue.loadMore && (
-            <Button variant="ghost" size="sm" disabled={queue.loadingMore} onClick={queue.loadMore}>
+            <Button variant="ghost" size="xs" disabled={queue.loadingMore} onClick={queue.loadMore}>
               Load more queued messages
             </Button>
           )}
           {hidden > 0 && (
-            <p className="px-2 py-1 text-xs text-subtle-foreground">
+            <p className="px-1 py-0.5 text-subtle-foreground">
               {hidden} more queued {hidden === 1 ? "message" : "messages"}
             </p>
           )}
           {queue.failed && (
-            <p role="status" className="px-2 py-1 text-sm">
+            <p role="status" className="px-1 py-0.5">
               Couldn't refresh the queue.{" "}
-              <Button variant="ghost" size="sm" onClick={queue.refresh}>
+              <Button variant="ghost" size="xs" onClick={queue.refresh}>
                 Retry
               </Button>
             </p>

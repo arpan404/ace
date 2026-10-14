@@ -99,23 +99,23 @@ export function QueueNotice(props: {
   return (
     <section
       aria-label={notice.title}
-      className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1 py-1 text-ui"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 py-1 text-xs"
     >
       <div className="flex min-w-0 basis-full items-start gap-2">
         {notice.kind === "model" ? (
           <Dot tone="needs-you" />
         ) : notice.kind === "limited" && account ? (
-          <ProviderAccountIcon provider={account.provider} account={account} size={16} />
+          <ProviderAccountIcon provider={account.provider} account={account} size={14} />
         ) : (
           <Icon
             icon={icons[notice.kind]}
-            size={16}
-            className="mt-0.5 shrink-0 text-muted-foreground"
+            size={14}
+            className="mt-px shrink-0 text-muted-foreground"
           />
         )}
         <div className="min-w-0">
           <p className="font-medium text-foreground">{notice.title}</p>
-          {detail && <p className="text-sm text-muted-foreground">{detail}</p>}
+          {detail && <p className="text-muted-foreground">{detail}</p>}
         </div>
       </div>
       <div className="flex items-center gap-1">
