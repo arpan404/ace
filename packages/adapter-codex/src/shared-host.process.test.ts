@@ -164,13 +164,13 @@ test("a child that speaks before its parent reveals it reaches only the parent's
   expect(threadsIn(b.frames).has(child)).toBe(false);
 });
 
+const asked = (data: Record<string, unknown>) => data["method"] === "mcpServer/elicitation/request";
+
 test("a request that names only its turn reaches the session that owns the turn", async () => {
   const fake = await fakeCodex();
   const a = await opened(fake, "a");
   const b = await opened(fake, "b");
   await b.session.send([{ type: "text", text: "ask-by-turn" }], "steer");
-  const asked = (data: Record<string, unknown>) =>
-    data["method"] === "mcpServer/elicitation/request";
   await b.wait(asked);
   expect(a.frames.some((frame) => asked(obj(frame.data)))).toBe(false);
 });
