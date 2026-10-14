@@ -17,6 +17,29 @@ export interface LocalAttachment {
   previewUrl?: string | undefined;
 }
 
+/** A file being added to the next message, as the composer's chip shows it. */
+export interface ChipAttachment {
+  key: number;
+  name: string;
+  /** Object URL for image previews; a draft restored after a reload has none. */
+  preview?: string | undefined;
+  /** The file itself, for its preview; a draft restored after a reload has none. */
+  file?: File | undefined;
+  mimeType?: string | undefined;
+  /** The daemon's reading of the bytes, once it holds them. */
+  kind?: Attachment["kind"] | undefined;
+  bytes?: number | undefined;
+  /** Set once the daemon holds the file. */
+  sha256?: string | undefined;
+  state: "uploading" | "ready" | "failed";
+  /** 0..1 */
+  progress: number;
+  /** Why it failed, in words. */
+  error?: string | undefined;
+  /** Whether trying again can help (a file over the limit can't). */
+  retryable?: boolean | undefined;
+}
+
 /** Where an image's bytes come from. Attachments resolve through the owning connection. */
 export type ImageSource =
   | { kind: "attachment"; threadId: string; sha256: string; bytes: number; thumbnail: boolean }

@@ -27,9 +27,8 @@ export { pullRequestTab, PullRequestTabData } from "./pull-request-tab.ts";
 export { PullRequestViewProvider } from "./pull-request-view.tsx";
 export { useScriptConfigurations } from "./files/script-configurations.ts";
 export const loadCreateFile = () => import("./files/create-file.tsx");
-/** A provider's sign-in terminal, outside any thread (the sign-in dialog shows it). */
+/** A provider's sign-in terminal, outside any thread (the app hands it to the sign-in dialog). */
 export const loadAuthTerminal = () => import("./terminal/auth-terminal.tsx");
-export type { AuthTerminalProps } from "./terminal/auth-terminal.tsx";
 
 export const loadThreadBrowser = () => import("./browser/thread-browser.tsx");
 

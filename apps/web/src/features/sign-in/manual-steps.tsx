@@ -4,19 +4,15 @@ import { useAccountViews } from "@/lib/account-views.ts";
 import type { ProviderLoginProgress } from "@ace/protocol";
 import { CheckIcon, TerminalWindowIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { CopyCommand } from "@/components/copy-command.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { refreshProviders, type ProviderReadiness } from "@/lib/provider-readiness.ts";
 import type { LoginController } from "./login-controller.ts";
+import { AuthTerminal } from "./auth-terminal-slot.tsx";
 import { StepTitle } from "./login-parts.tsx";
-
-/** The terminal and its renderer load only when someone opens it. */
-const AuthTerminal = lazy(() =>
-  import("@/features/panels/index.ts").then((panels) => panels.loadAuthTerminal()),
-);
 
 type Manual = NonNullable<ProviderLoginProgress["manual"]>;
 

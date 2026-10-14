@@ -18,9 +18,14 @@ import { LayoutProvider } from "@/lib/layout.tsx";
 import { MachinePoolProvider, MachinePoolFactoryProvider } from "@/lib/machine-pool.ts";
 import { type KeyValueStorage } from "@ace/ui-core";
 import { ThemeProvider, type Environment } from "@/theme/theme-provider.tsx";
-import { disposePanelServices } from "@/features/panels/index.ts";
+import { disposePanelServices, loadAuthTerminal } from "@/features/panels/index.ts";
 import { organizerFor } from "@/features/organize/index.ts";
+import { AuthTerminalProvider } from "@/features/sign-in/index.ts";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { createAppRouter } from "./router.ts";
+
+/** A provider CLI's sign-in terminal: its code and renderer load when someone opens one. */
+const AuthTerminal = deferredComponent(() => loadAuthTerminal().then((m) => m.default));
 
 export function createQueryClient(): QueryClient {
   // Daemon reads are local and cheap; retry once, then show the error.
@@ -94,7 +99,9 @@ export function App(props: {
         <LayoutProvider storage={props.storage}>
           <MachinePoolFactoryProvider value={props.ensureMachines}>
             <MachinePoolProvider value={props.machines}>
-              <RouterProvider router={router} />
+              <AuthTerminalProvider value={AuthTerminal.Component}>
+                <RouterProvider router={router} />
+              </AuthTerminalProvider>
             </MachinePoolProvider>
           </MachinePoolFactoryProvider>
         </LayoutProvider>
