@@ -189,6 +189,14 @@ export class GitHubForge implements Forge, ForgeBrowser {
     if (!stack || !sameStack(revisions, stack)) throw new ForgeError("conflict");
     return this.#localStacks.rebase(action, revisions, stack, signal, allowed, dispatch);
   }
+  /** Restack the layers above the checked-out one, or continue or abort that restack. */
+  restackStack(
+    step: "upstack" | "continue" | "abort",
+    signal: AbortSignal,
+    allowed: () => boolean,
+  ) {
+    return this.#localStacks.restack(step, signal, allowed);
+  }
   prActivity(number: number, page: number, signal: AbortSignal) {
     return this.#browser.activity(number, page, signal);
   }

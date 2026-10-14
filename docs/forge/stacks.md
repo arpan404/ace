@@ -102,12 +102,42 @@ The decision rules are pure (`@ace/forge/stack-publish`):
   publication was refused or never confirmed, every stack read compares GitHub's
   layer heads with the reviewed revisions (`stackLayersMovedSinceReview`). A layer
   at any other revision than the reviewed or the rebased one carries commits the
-  local rebase lacks. The workspace lists it with both heads and disables Publish.
-  Merged layers and a different native stack are not compared.
+  local rebase lacks. The workspace lists it with both heads and disables Publish
+  until those commits are brought in. Merged layers and a different native stack
+  are not compared.
 
-After a refused publication, bring collaborator commits into the stack with
-`gh stack`, then rebase again. ace does not yet replay the rebased layers onto
-the collaborator heads itself.
+## Bringing collaborator commits into the stack
+
+While moved layers are listed, **Bring in GitHub commits** lists each moved layer
+with its commit range (`reviewed..current`). Confirming it runs a sync in the task
+checkout that holds the rebase. Nothing is pushed.
+
+1. **Preflight** (`planStackSync`, pure). GitHub must still report the heads the
+   person confirmed, and the checkout must still hold the restacked layers they
+   saw. Merged layers, queued layers and a different native stack are refused.
+2. **Fetch.** Through the daemon's Git owner, each moved layer's branch is fetched
+   from `origin` into its remote-tracking ref. If GitHub's head has moved again,
+   the sync is refused, and the person reviews the newer head first.
+3. **Replay** (`GitService.replayStackLayers`). Each new head must contain the
+   reviewed revision. A force-pushed layer is refused, and so is one that gained
+   merge commits. Recovering either stays with `gh stack`. Every collaborator commit
+   is cherry-picked onto the local rebased layer, top layer first. Commits whose
+   changes are already present are kept as empty commits, never dropped. Repository
+   hooks don't run.
+4. **Restack.** From the lowest moved layer, `gh stack rebase --upstack --remote
+origin` replays the layers above it. gh stack owns their saved bases, so its view
+   of the stack stays consistent.
+5. **New review point** (`reviewAfterSync`). The confirmed GitHub heads become the
+   reviewed revisions. The next Publish needs a fresh confirmation and leases each
+   layer to those heads.
+
+A conflict in either step stops as `conflict`. Resolve and stage the files, then
+**Continue sync**. Continue finishes the cherry-pick (or runs `gh stack rebase
+--continue`) and runs the remaining steps. **Abort sync** clears any cherry-pick
+or gh stack restack and resets every layer to its recorded rebased head. The moved
+layers are then listed again. The record stores the sync's progress and the
+recorded heads. A restart, or a step that ends without a result, settles as
+`uncertain`, and Abort is then the only recovery offered.
 
 ## Sources and verification
 
@@ -119,6 +149,8 @@ The JSON interface and exit codes are documented in the official extension's
 [CLI skill reference](https://github.com/github/gh-stack/blob/main/skills/gh-stack/SKILL.md).
 Publication follows [`git push`](https://git-scm.com/docs/git-push)'s
 `--atomic`, `--force-with-lease=<refname>:<expect>` and `--porcelain` contracts.
+Syncing follows [`git cherry-pick`](https://git-scm.com/docs/git-cherry-pick)'s
+`--allow-empty`, `--keep-redundant-commits` and `--continue`/`--abort` contracts.
 The implementation is written fresh from those interfaces.
 
 Behavior tests use real child processes with a fake `gh` at the process boundary,

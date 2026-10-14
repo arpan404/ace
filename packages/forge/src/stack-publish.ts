@@ -5,7 +5,7 @@ import type {
   ForgeStackMovedLayer,
   ForgeStackOperation,
 } from "@ace/protocol/forge-stacks";
-import { matchesStackBranches, sameStack } from "./stack-plan.ts";
+import { matchesStackBranches, sameLocalStack, sameStack } from "./stack-plan.ts";
 
 /** One layer to publish: move `branch` from the revision reviewed before rebase to `target`. */
 export type StackPublishUpdate = { number: number; branch: string; lease: string; target: string };
@@ -136,6 +136,46 @@ export function stackLayersMovedSinceReview(
     });
   }
   return moves;
+}
+
+export type StackSyncPlan =
+  | { ok: true; moves: StackLayerMove[] }
+  | { ok: false; reason: "membership" | "changed" | "unrestacked" | "unmoved" };
+
+/**
+ * Collaborator commits can be brought into a rebased stack while GitHub still reports the
+ * heads the person confirmed (`requested`), the checkout still holds the restacked layers
+ * they saw, and some layer moved since `reviewed`. Only the moved layers are replayed.
+ */
+export function planStackSync(
+  reviewed: ForgeStackExpected,
+  requested: ForgeStackExpected,
+  local: ForgeLocalStack,
+  stack: ForgeStack,
+): StackSyncPlan {
+  if (!matchesStackBranches(local, stack)) return { ok: false, reason: "membership" };
+  if (
+    reviewed.id !== stack.id ||
+    !sameStack(requested, stack) ||
+    !requested.local ||
+    !sameLocalStack(requested.local, local)
+  )
+    return { ok: false, reason: "changed" };
+  if (!isRestacked(local)) return { ok: false, reason: "unrestacked" };
+  const moves = stackLayersMovedSinceReview(reviewed, stack);
+  return moves.length ? { ok: true, moves } : { ok: false, reason: "unmoved" };
+}
+
+/**
+ * Once collaborator commits are in, the GitHub heads the person confirmed become the reviewed
+ * revisions: the next publication leases each layer to them and needs a fresh confirmation.
+ */
+export function reviewAfterSync(
+  requested: ForgeStackExpected,
+  local: ForgeLocalStack,
+): ForgeStackExpected {
+  const { raw: _raw, ...synced } = local;
+  return { id: requested.id, trunk: requested.trunk, layers: requested.layers, local: synced };
 }
 
 /** Continuing or publishing a rebase keeps the host revisions reviewed when it started. */

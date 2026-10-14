@@ -139,7 +139,7 @@ export const ForgeCommand = z.discriminatedUnion("type", [
     type: z.literal("forge.pr.stack.change"),
     link: ForgeThreadLink,
     expected: ForgeStackExpected,
-    action: z.enum(["merge", "rebase", "continue", "abort", "push"]),
+    action: z.enum(["merge", "rebase", "continue", "abort", "push", "sync"]),
     method: z.enum(["merge", "squash", "rebase"]),
   }),
   z.object({ type: z.literal("forge.pr.status"), link: ForgeThreadLink }),

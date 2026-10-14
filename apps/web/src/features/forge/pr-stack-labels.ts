@@ -10,7 +10,9 @@ export function stackOperationLabel(operation: ForgeStackOperation): string {
         ? "Publish"
         : action === "abort"
           ? "Abort"
-          : "Rebase";
+          : action === "sync"
+            ? "Sync"
+            : "Rebase";
   switch (state) {
     case "pending":
       return `${noun} in progress`;
@@ -23,9 +25,9 @@ export function stackOperationLabel(operation: ForgeStackOperation): string {
     case "uncertain":
       return `${noun} outcome unknown`;
     case "conflict":
-      return "Rebase conflict";
+      return `${action === "sync" ? "Sync" : "Rebase"} conflict`;
     case "push_partial":
-      return "Rebased, not pushed";
+      return action === "sync" ? "GitHub commits brought in, not pushed" : "Rebased, not pushed";
     case "rebased":
       return action === "push" ? "Published" : "Rebased";
     case "aborted":

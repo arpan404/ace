@@ -125,6 +125,30 @@ export class LocalStacks {
       };
     return { action, state: "push_partial", message: stackRebasedLocally };
   }
+  /**
+   * Restack every layer above the checked-out one onto it with gh stack, which owns the saved
+   * bases, worktree locks and conflict state; or continue or abort that restack. Never pushes.
+   */
+  async restack(
+    step: "upstack" | "continue" | "abort",
+    signal: AbortSignal,
+    allowed: () => boolean,
+  ): Promise<"restacked" | "conflict" | "failed" | "uncertain"> {
+    if (!allowed()) throw new ForgeError("forbidden");
+    const response = await this.#runner({
+      command: this.#command,
+      args: [
+        "stack",
+        "rebase",
+        ...(step === "upstack" ? ["--upstack", "--remote", "origin"] : [`--${step}`]),
+      ],
+      mode: "json",
+      signal,
+    });
+    if (response.code === 0) return "restacked";
+    if (response.code === 3 || response.code === 7) return "conflict";
+    return [2, 5, 9].includes(response.code ?? 1) ? "failed" : "uncertain";
+  }
   /** One atomic Git push; every layer is leased to the host revision reviewed before rebase. */
   async #push(
     reviewed: ForgeStackExpected,
@@ -172,7 +196,7 @@ function publishOutcome(
     return {
       action: "push",
       state: "failed",
-      message: `GitHub refused the push, or a layer changed after review. Nothing was published to ${layers}. Bring collaborator commits into the stack with gh stack, then rebase again.`,
+      message: `GitHub refused the push, or a layer changed after review. Nothing was published to ${layers}. Bring GitHub's newer commits into the stack, then publish again.`,
     };
   return {
     action: "push",

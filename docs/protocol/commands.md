@@ -951,14 +951,14 @@ Example:
 | type | yes | `"forge.pr.stack.change"` |  |
 | link | yes | [ForgeThreadLink.json](schema/ForgeThreadLink.json) |  |
 | expected | yes | [ForgeStackExpected.json](schema/ForgeStackExpected.json) |  |
-| action | yes | ["merge","rebase","continue","abort","push"] |  |
+| action | yes | ["merge","rebase","continue","abort","push","sync"] |  |
 | method | yes | ["merge","squash","rebase"] |  |
 
 Example:
 
 ```json
 {
-  "action": "abort",
+  "action": "push",
   "expected": {
     "id": "example",
     "layers": [

@@ -332,6 +332,62 @@ test("layers a collaborator moved on GitHub are listed with both heads and block
   expect(publish.disabled).toBe(true);
 });
 
+test("moved layers can be brought into the stack after reviewing each layer's new commits", async () => {
+  const theirs = "9".repeat(40);
+  const app = setup(
+    rebasedStack([{ number: 42, branch: "api", reviewed: "b".repeat(40), current: theirs }]),
+  );
+  app.daemon.refuseCommands("forge_conflict", "forge.pr.stack.change");
+  await openPullRequest(app, { project: "api", number: 42 });
+  const section = await screen.findByRole("region", { name: "Pull request stack" });
+  const bring = await within(section).findByRole<HTMLButtonElement>("button", {
+    name: "Bring in GitHub commits",
+  });
+  await waitFor(() => expect(bring.disabled).toBe(false));
+  await userEvent.click(bring);
+  const confirmation = within(section).getByRole("group", { name: "Confirm stack action" });
+  expect(
+    within(within(confirmation).getByRole("list", { name: "Layers to bring in" }))
+      .getAllByRole("listitem")
+      .map((item) => item.textContent),
+  ).toEqual(["#42 api bbbbbbb..9999999"]);
+  expect(within(section).queryByText(/The GitHub resource changed while reading/)).toBeNull();
+  await userEvent.click(within(confirmation).getByRole("button", { name: "Confirm stack action" }));
+  expect(
+    await within(section).findByText(/The GitHub resource changed while reading/),
+  ).toBeTruthy();
+});
+
+test("a sync stopped on a conflict offers Continue and Abort", async () => {
+  const conflict = rebasedStack();
+  conflict.operation = {
+    action: "sync",
+    state: "conflict",
+    message: "Replaying collaborator commits onto api needs conflict resolution.",
+  };
+  const app = setup(conflict);
+  await openPullRequest(app, { project: "api", number: 42 });
+  const section = await screen.findByRole("region", { name: "Pull request stack" });
+  await within(section).findByText(/Sync conflict/);
+  expect(within(section).getByRole("button", { name: "Continue sync" })).toBeTruthy();
+  expect(within(section).getByRole("button", { name: "Abort sync" })).toBeTruthy();
+  expect(within(section).queryByRole("button", { name: "Bring in GitHub commits" })).toBeNull();
+});
+
+test("a sync interrupted without a result can only be aborted", async () => {
+  const interrupted = rebasedStack();
+  interrupted.operation = {
+    action: "sync",
+    state: "uncertain",
+    message: "The sync stopped without a result. Abort to restore the rebased layers.",
+  };
+  const app = setup(interrupted);
+  await openPullRequest(app, { project: "api", number: 42 });
+  const section = await screen.findByRole("region", { name: "Pull request stack" });
+  expect(await within(section).findByRole("button", { name: "Abort sync" })).toBeTruthy();
+  expect(within(section).queryByRole("button", { name: "Continue sync" })).toBeNull();
+});
+
 test.each([
   { error: "forge_forbidden", message: /This account cannot access the repository/ },
   { error: "forge_conflict", message: /The GitHub resource changed while reading/ },

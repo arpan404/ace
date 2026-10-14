@@ -26,6 +26,13 @@ import {
 import { integrateRevision } from "./integration.ts";
 import { commitChanges, pushBranch, listBranches, switchBranch } from "./actions.ts";
 import { pushLeasedRefs, type LeasedPushOptions } from "./leased-push.ts";
+import {
+  continueStackReplay,
+  replayStackLayers,
+  restoreStackBranches,
+  type LayerReplay,
+  type StackReplayOptions,
+} from "./stack-sync.ts";
 import { changedFiles, changeSummary } from "./changed-files.ts";
 import { deleteBranch, type BranchCleanup } from "./branch-cleanup.ts";
 import { GitCli } from "./cli.ts";
@@ -66,6 +73,7 @@ export type {
   LeasedRefUpdate,
 } from "./leased-push.ts";
 export type { CreateWorktreeOptions, WorktreeProgress } from "./worktrees.ts";
+export type { LayerReplay, StackReplayResult } from "./stack-sync.ts";
 export type { RevisionLineOptions } from "./revision-lines.ts";
 export type { BranchRefs, FetchBranchOptions, FetchPrHeadOptions } from "./remote-branches.ts";
 
@@ -228,6 +236,25 @@ export class GitService {
     return this.repository.cli.withAuthorizedTransfer(options.worktree, () =>
       pushLeasedRefs(this.repository, options),
     );
+  }
+  /** Replay collaborator commits onto locally rebased stack layers (see `stack-sync.ts`). */
+  replayStackLayers(options: StackReplayOptions) {
+    return replayStackLayers(this.repository, options);
+  }
+  continueStackReplay(options: {
+    worktree: string;
+    remaining: readonly LayerReplay[];
+    signal?: AbortSignal;
+  }) {
+    return continueStackReplay(this.repository, options);
+  }
+  restoreStackBranches(options: {
+    worktree: string;
+    heads: readonly { branch: string; head: string }[];
+    current: string;
+    signal?: AbortSignal;
+  }) {
+    return restoreStackBranches(this.repository, options);
   }
   switchBranch(options: {
     worktree: string;

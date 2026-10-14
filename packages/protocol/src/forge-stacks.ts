@@ -58,7 +58,7 @@ export const ForgeLocalStack = z.object({
 });
 export type ForgeLocalStack = z.infer<typeof ForgeLocalStack>;
 export const ForgeStackOperation = z.object({
-  action: z.enum(["merge", "rebase", "continue", "abort", "push"]),
+  action: z.enum(["merge", "rebase", "continue", "abort", "push", "sync"]),
   state: z.enum([
     "pending",
     "merged",
@@ -72,7 +72,7 @@ export const ForgeStackOperation = z.object({
   ]),
   raw: z.unknown().optional(),
   uuid: z.uuid().optional(),
-  stage: z.enum(["rebase", "push"]).optional(),
+  stage: z.enum(["rebase", "push", "sync"]).optional(),
   message: text,
 });
 export type ForgeStackOperation = z.infer<typeof ForgeStackOperation>;

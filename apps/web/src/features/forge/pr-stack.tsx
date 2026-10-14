@@ -151,6 +151,7 @@ export function PrStack(props: {
     operation.action !== "merge" &&
     operation.action !== "push" &&
     ["conflict", "uncertain"].includes(operation.state);
+  const syncing = operation?.action === "sync";
   const prepare = (action: StackConfirmation["action"]) => {
     if (!stack || disabled) return;
     setConfirmation({
@@ -164,7 +165,9 @@ export function PrStack(props: {
       },
       numbers: (action === "merge"
         ? scope
-        : stack.layers.filter((layer) => layer.state !== "MERGED")
+        : action === "sync"
+          ? moved
+          : stack.layers.filter((layer) => layer.state !== "MERGED")
       ).map((layer) => layer.number),
     });
   };
@@ -281,20 +284,28 @@ export function PrStack(props: {
           </StackAction>
           {recovering && (
             <>
-              <StackAction reason={recoverReason} onClick={() => prepare("continue")}>
-                Continue local rebase
-              </StackAction>
+              {/* A sync interrupted without a result can only be restored, not continued. */}
+              {!(syncing && operation?.state === "uncertain") && (
+                <StackAction reason={recoverReason} onClick={() => prepare("continue")}>
+                  {syncing ? "Continue sync" : "Continue local rebase"}
+                </StackAction>
+              )}
               <StackAction reason={abortReason} onClick={() => prepare("abort")}>
-                Abort rebase
+                {syncing ? "Abort sync" : "Abort rebase"}
               </StackAction>
             </>
+          )}
+          {moved.length > 0 && (
+            <StackAction reason={recoverReason} onClick={() => prepare("sync")}>
+              Bring in GitHub commits
+            </StackAction>
           )}
           {operation && canPublishAfter(operation) && (
             <StackAction
               reason={
                 recoverReason ??
                 (moved.length
-                  ? "GitHub has newer commits on some layers. Bring them into the stack with gh stack, then rebase again."
+                  ? "GitHub has newer commits on some layers. Bring them into the stack first."
                   : undefined)
               }
               onClick={() => prepare("push")}
@@ -308,6 +319,7 @@ export function PrStack(props: {
         <StackConfirm
           confirmation={confirmation}
           publishing={publishing}
+          moved={moved}
           disabled={disabled}
           pending={pending}
           onConfirm={() => void run()}
