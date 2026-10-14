@@ -13,9 +13,11 @@ test("Codex's usable sibling and Gemini's daily quota agree on Usage and provide
   const history = createMemoryHistory({ initialEntries: ["/usage"] });
   await harness({ history }).open("/usage");
   // Usage says what is left: 38% of the 5-hour window used leaves 62%, 71% of a day leaves 29%.
-  const codex = await screen.findByRole("meter", { name: "Codex · Personal · 5-hour" });
+  const personal = await screen.findByRole("article", { name: /^Codex · Personal · / });
+  const codex = within(personal).getByRole("meter", { name: "5-hour" });
   expect(codex.getAttribute("aria-valuenow")).toBe("62");
-  const gemini = await screen.findByRole("meter", { name: "gemini · Google · Daily" });
+  const google = await screen.findByRole("article", { name: /^gemini · Google · / });
+  const gemini = within(google).getByRole("meter", { name: "Daily" });
   expect(gemini.getAttribute("aria-valuenow")).toBe("29");
   await act(() => history.push("/settings/providers"));
   const row = await screen.findByRole("group", { name: "Codex" });

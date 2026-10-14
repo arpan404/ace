@@ -3,58 +3,50 @@ import { liveWindows, type AccountView } from "./accounts.ts";
 import { formatCountdown } from "./time.ts";
 
 /*
- * The Usage page's limits: each provider's windows as rows, each row one segment per account.
- * Everything is phrased as what is LEFT (100 − used), so a figure never reads two ways.
+ * The Usage page's limits, account first: each provider's accounts, each listed once with its
+ * windows beneath it. Every figure is what is LEFT (100 − used), so it never reads two ways.
  */
 
 /** An account as the Usage page lists it, with the environment (daemon) that reported it. */
 export interface UsageAccount {
   account: AccountView;
-  /** The environment's name, when more than one environment is shown. */
-  environment?: string | undefined;
+  environment: string;
 }
 
 /** How a window's use compares with the time it has run. */
 export type LimitPace = "ahead" | "on_pace" | "behind";
 
-/** One account's share of a window row. */
-export interface LimitSegment {
-  accountId: string;
-  /**
-   * The account's name ("Personal"), with its environment ("Personal · Build server") when the
-   * provider's accounts come from more than one environment.
-   */
+/** One of an account's windows. */
+export interface AccountWindow {
+  id: string;
+  /** "5-hour", "Weekly", "Weekly · GPT-5.3-Codex-Spark". */
   label: string;
-  environment?: string | undefined;
-  account: AccountView;
   leftPercent: number;
-  resetsAt: number | null;
-  /** Banked resets the provider reports for the account; undefined when it doesn't report them. */
-  bankedResets: number | undefined;
-  bankedExpiresAt: number | null;
-}
-
-/** One window kind ("5-hour", "Weekly", "Weekly · GPT-5.3-Codex-Spark") across a provider's accounts. */
-export interface LimitRow {
-  label: string;
-  /** Mean of the segments' remaining shares: the bar's overall fill. */
-  leftPercent: number;
-  /** The soonest reset among the segments. */
   resetsAt: number | null;
   pace: LimitPace | undefined;
-  segments: LimitSegment[];
 }
 
-export interface ProviderLimitGroup {
+export interface AccountLimits {
+  key: string;
+  account: AccountView;
+  environment: string;
+  /** Banked resets the provider reports; undefined when it doesn't report them. */
+  bankedResets: number | undefined;
+  bankedExpiresAt: number | null;
+  /** Shortest window first, as the account lists them. */
+  windows: AccountWindow[];
+}
+
+export interface ProviderLimits {
   key: string;
   provider: ProviderKind;
   acpAgentId: string | undefined;
   providerLabel: string;
-  rows: LimitRow[];
+  accounts: AccountLimits[];
 }
 
 export interface UsageLimits {
-  providers: ProviderLimitGroup[];
+  providers: ProviderLimits[];
   /** Providers with accounts but no live limits, by name: one quiet line. */
   quiet: string[];
 }
@@ -66,7 +58,7 @@ export function leftPercent(usedPercent: number): number {
   return Math.round(Math.min(100, Math.max(0, 100 - usedPercent)));
 }
 
-/** "4h 59m", "6d 12h": the time until a reset, for the reset chip. Null when not reported. */
+/** "4h 59m", "6d 12h": the time until a reset. Null when not reported. */
 export function resetCountdown(resetsAt: number | null, now: number): string | null {
   if (resetsAt === null) return null;
   return formatCountdown(resetsAt - now);
@@ -92,25 +84,13 @@ export function limitPace(
   return "on_pace";
 }
 
-const order = (label: string) =>
-  label.startsWith("5-hour") || /^\d+-hour/.test(label)
-    ? 0
-    : label.startsWith("Daily")
-      ? 1
-      : label.startsWith("Weekly")
-        ? 2
-        : label.startsWith("Monthly")
-          ? 3
-          : 4;
-
 /**
- * Group accounts' live windows by provider and window kind. Providers keep the order they first
- * appear in; rows run shortest window first; segments keep the accounts' order.
+ * Group accounts with live windows by provider, in the order they first appear. A provider whose
+ * accounts report no live window joins the quiet line instead.
  */
 export function usageLimits(accounts: readonly UsageAccount[], now: number): UsageLimits {
-  const groups = new Map<string, ProviderLimitGroup & { byLabel: Map<string, LimitRow> }>();
+  const groups = new Map<string, ProviderLimits>();
   const silent = new Map<string, string>();
-  const durations = new Map<LimitRow, number | undefined>();
   for (const { account, environment } of accounts) {
     const key = `${account.provider}:${account.acpAgentId ?? ""}`;
     const windows = liveWindows(account, now);
@@ -126,65 +106,24 @@ export function usageLimits(accounts: readonly UsageAccount[], now: number): Usa
         provider: account.provider,
         acpAgentId: account.acpAgentId,
         providerLabel: account.providerLabel,
-        rows: [],
-        byLabel: new Map(),
+        accounts: [],
       };
       groups.set(key, group);
     }
-    for (const window of windows) {
-      let row = group.byLabel.get(window.label);
-      if (!row) {
-        row = {
-          label: window.label,
-          leftPercent: 0,
-          resetsAt: null,
-          pace: undefined,
-          segments: [],
-        };
-        group.byLabel.set(window.label, row);
-        group.rows.push(row);
-      }
-      if (!durations.has(row)) durations.set(row, window.windowDurationMins);
-      row.segments.push({
-        accountId: account.id,
-        label: account.label,
-        environment,
-        account,
+    group.accounts.push({
+      key: `${environment}\0${account.id}`,
+      account,
+      environment,
+      bankedResets: account.resetCredits?.available,
+      bankedExpiresAt: account.resetCredits?.nextExpiresAt ?? null,
+      windows: windows.map((window) => ({
+        id: window.id,
+        label: window.label,
         leftPercent: leftPercent(window.usedPercent),
         resetsAt: window.resetsAt,
-        bankedResets: account.resetCredits?.available,
-        bankedExpiresAt: account.resetCredits?.nextExpiresAt ?? null,
-      });
-    }
+        pace: limitPace(window.usedPercent, window.resetsAt, window.windowDurationMins, now),
+      })),
+    });
   }
-  const providers = [...groups.values()].map((group): ProviderLimitGroup => {
-    const places = new Set(group.rows.flatMap((row) => row.segments.map((s) => s.environment)));
-    return {
-      key: group.key,
-      provider: group.provider,
-      acpAgentId: group.acpAgentId,
-      providerLabel: group.providerLabel,
-      rows: group.rows
-        .map((row) => {
-          if (places.size > 1)
-            for (const segment of row.segments)
-              if (segment.environment) segment.label = `${segment.label} · ${segment.environment}`;
-          const left =
-            row.segments.reduce((sum, segment) => sum + segment.leftPercent, 0) /
-            row.segments.length;
-          const resets = row.segments
-            .map((segment) => segment.resetsAt)
-            .filter((at): at is number => at !== null);
-          const resetsAt = resets.length ? Math.min(...resets) : null;
-          return {
-            ...row,
-            leftPercent: Math.round(left),
-            resetsAt,
-            pace: limitPace(100 - left, resetsAt, durations.get(row), now),
-          };
-        })
-        .toSorted((a, b) => order(a.label) - order(b.label) || a.label.localeCompare(b.label)),
-    };
-  });
-  return { providers, quiet: [...new Set(silent.values())] };
+  return { providers: [...groups.values()], quiet: [...new Set(silent.values())] };
 }

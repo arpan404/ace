@@ -1,16 +1,9 @@
 import {
-  ArrowClockwiseIcon,
-  ArrowRightIcon,
-  StackSimpleIcon,
-  TrendDownIcon,
-  TrendUpIcon,
-} from "@phosphor-icons/react";
-import {
   resetCountdown,
+  type AccountLimits,
+  type AccountWindow,
   type LimitPace,
-  type LimitRow,
-  type LimitSegment,
-  type ProviderLimitGroup,
+  type ProviderLimits,
   type UsageLimits,
 } from "@ace/ui-core";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
@@ -18,28 +11,31 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { formatResets } from "@/features/accounts/index.ts";
 
-/** Each provider's windows, one row per window, every figure what is LEFT. */
+/**
+ * Limits, account first: each provider's accounts listed once, each with its windows beneath it.
+ * Every figure says what is left; resets, banked resets and pace are plain words.
+ */
 export function LimitsView(props: { limits: UsageLimits; now: number }) {
   const { providers, quiet } = props.limits;
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-10">
       {providers.map((group) => (
-        <ProviderLimits key={group.key} group={group} now={props.now} />
+        <ProviderSection key={group.key} group={group} now={props.now} />
       ))}
       {quiet.length > 0 && (
-        <p className="text-ui text-subtle-foreground">No limits reported · {quiet.join(", ")}</p>
+        <p className="text-xs text-subtle-foreground">No limits reported · {quiet.join(", ")}</p>
       )}
     </div>
   );
 }
 
-function ProviderLimits(props: { group: ProviderLimitGroup; now: number }) {
+function ProviderSection(props: { group: ProviderLimits; now: number }) {
   const { group } = props;
   return (
-    <section aria-labelledby={`limits-${group.key}`} data-provider={group.provider}>
+    <section aria-labelledby={`limits-${group.key}`}>
       <h2
         id={`limits-${group.key}`}
-        className="mb-2 flex items-center gap-2 text-ui font-medium text-foreground"
+        className="flex items-center gap-2 border-b border-border pb-3.5 font-prose text-base font-semibold"
       >
         <ProviderIcon
           provider={group.provider}
@@ -49,149 +45,137 @@ function ProviderLimits(props: { group: ProviderLimitGroup; now: number }) {
         />
         {group.providerLabel}
       </h2>
-      <ul className="flex flex-col gap-2">
-        {group.rows.map((row) => (
-          <LimitRowView key={row.label} row={row} provider={group.providerLabel} now={props.now} />
-        ))}
-      </ul>
+      {group.accounts.map((entry) => (
+        <Account key={entry.key} entry={entry} provider={group.providerLabel} now={props.now} />
+      ))}
     </section>
   );
 }
 
-const paceText: Record<LimitPace, string> = {
-  ahead: "Running out faster than the window resets",
-  on_pace: "On pace to last until the window resets",
-  behind: "Plenty to last until the window resets",
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+const expiry = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+
+function Account(props: { entry: AccountLimits; provider: string; now: number }) {
+  const { entry } = props;
+  const banked = entry.bankedResets;
+  return (
+    <article
+      aria-label={`${props.provider} · ${entry.account.label} · ${entry.environment}`}
+      className="grid gap-x-8 gap-y-3 border-b border-border-soft py-4 last:border-b-0 sm:grid-cols-[15rem_minmax(0,1fr)]"
+    >
+      <div className="min-w-0">
+        <h3 className="text-sm font-semibold break-words">{entry.account.label}</h3>
+        <p className="text-ui text-subtle-foreground">{entry.environment}</p>
+        {banked !== undefined && banked > 0 && (
+          <Tip
+            label={`${plural(banked, "banked reset")}: each one resets this account's limits once, when you redeem it in ${props.provider}.${
+              entry.bankedExpiresAt !== null
+                ? ` The next expires ${expiry.format(entry.bankedExpiresAt)}.`
+                : ""
+            }`}
+          >
+            <span
+              tabIndex={0}
+              className="mt-2.5 inline-block rounded-xs text-xs text-muted-foreground underline decoration-faint-foreground decoration-dotted underline-offset-3 focus-ring"
+            >
+              {plural(banked, "banked reset")}
+            </span>
+          </Tip>
+        )}
+      </div>
+      <ul aria-label={`${entry.account.label} limits`} className="flex flex-col gap-3">
+        {entry.windows.map((window) => (
+          <WindowLine key={window.id} window={window} now={props.now} />
+        ))}
+      </ul>
+    </article>
+  );
+}
+
+const paceText: Record<Exclude<LimitPace, "on_pace">, { label: string; tip: string }> = {
+  ahead: {
+    label: "Ahead of pace",
+    tip: "Ahead of pace: at this rate the window runs out before it resets.",
+  },
+  behind: {
+    label: "Under pace",
+    tip: "Under pace: this window will last until it resets with room to spare.",
+  },
 };
 
-function Pace(props: { pace: LimitPace }) {
-  const Icon =
-    props.pace === "ahead" ? TrendUpIcon : props.pace === "behind" ? TrendDownIcon : ArrowRightIcon;
+function Pace(props: { pace: LimitPace | undefined }) {
+  if (!props.pace || props.pace === "on_pace") return null;
+  const text = paceText[props.pace];
   return (
-    <Tip label={paceText[props.pace]}>
+    <Tip label={text.tip}>
       <span
-        role="img"
-        aria-label={paceText[props.pace]}
         tabIndex={0}
         className={cn(
-          "inline-flex rounded-xs focus-ring",
+          "block w-fit rounded-xs text-2xs underline decoration-dotted underline-offset-3 focus-ring",
           props.pace === "ahead" ? "text-status-needs-you" : "text-subtle-foreground",
         )}
       >
-        <Icon size={14} aria-hidden />
+        {text.label}
       </span>
     </Tip>
   );
 }
 
-function LimitRowView(props: { row: LimitRow; provider: string; now: number }) {
-  const { row } = props;
+function WindowLine(props: { window: AccountWindow; now: number }) {
+  const { window, now } = props;
+  const countdown = resetCountdown(window.resetsAt, now);
+  const out = window.leftPercent === 0;
   return (
-    <li
-      aria-label={`${props.provider} ${row.label}`}
-      className="grid items-center gap-x-6 gap-y-2 rounded-lg border border-border-soft bg-surface-1 px-4 py-3 sm:grid-cols-[11rem_minmax(0,1fr)]"
-    >
-      <div className="flex min-w-0 flex-col">
-        <span className="line-clamp-2 text-xs break-words text-muted-foreground">{row.label}</span>
-        <span className="flex items-baseline gap-1.5">
-          <span className="text-2xl leading-tight font-medium tabular-nums">
-            {row.leftPercent}%{" "}
-            <span className="text-ui font-normal text-muted-foreground">left</span>
-          </span>
-          {row.pace && <Pace pace={row.pace} />}
-        </span>
+    <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 sm:grid-cols-[13.75rem_5.25rem_minmax(0,1fr)_7.5rem]">
+      <div className="min-w-0">
+        <span className="block text-ui break-words text-muted-foreground">{window.label}</span>
+        <Pace pace={window.pace} />
       </div>
-      {/* Side by side while each account has room; stacked, one bar per account, when not. */}
-      <div className="@container/bar min-w-0">
-        <div
-          role="group"
-          aria-label={`${row.label} by account`}
+      <p className="text-right whitespace-nowrap">
+        <span
           className={cn(
-            "flex min-w-0 gap-0.5 overflow-hidden rounded-md",
-            row.segments.length > 1 && "@max-[38rem]/bar:flex-col",
+            "font-prose text-lg leading-none font-semibold tabular-nums",
+            out && "text-status-failed",
           )}
         >
-          {row.segments.map((segment) => (
-            <Segment key={segment.accountId} segment={segment} window={row.label} now={props.now} />
-          ))}
-        </div>
-      </div>
-    </li>
-  );
-}
-
-const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
-
-function Segment(props: { segment: LimitSegment; window: string; now: number }) {
-  const { segment, now } = props;
-  const countdown = resetCountdown(segment.resetsAt, now);
-  const banked = segment.bankedResets;
-  return (
-    <div
-      role="meter"
-      aria-label={`${segment.account.providerLabel} · ${segment.label} · ${props.window}`}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={segment.leftPercent}
-      aria-valuetext={`${segment.leftPercent}% left${countdown ? `, resets in ${countdown}` : ""}`}
-      className={cn(
-        "@container relative h-7 min-w-0 flex-1",
-        segment.leftPercent === 0 ? "bg-status-failed/20" : "bg-(--provider)/12",
-      )}
-    >
-      <span
-        aria-hidden
-        style={{ width: `${segment.leftPercent}%` }}
-        className={cn("absolute inset-y-0 left-0", "bg-(--provider)/40")}
-      />
-      <span className="relative flex h-full items-center gap-1.5 px-2 text-xs text-foreground">
-        <span className="min-w-0 truncate @max-[11rem]:hidden">{segment.label}</span>
-        <span aria-hidden className="tabular-nums">
-          {segment.leftPercent}%
-        </span>
-        <span className="ml-auto flex shrink-0 items-center gap-1">
-          {countdown && segment.resetsAt !== null && (
-            <Chip label={formatResets(segment.resetsAt, now)}>
-              <ArrowClockwiseIcon size={11} aria-hidden />
-              <span>
-                <span className="sr-only">Resets in </span>
-                {countdown}
-              </span>
-            </Chip>
-          )}
-          {banked !== undefined && banked > 0 && (
-            <Chip
-              label={`${plural(banked, "banked reset")}: each one resets this account's limits once, when you redeem it in ${segment.account.providerLabel}.${
-                segment.bankedExpiresAt !== null
-                  ? ` The next expires ${new Intl.DateTimeFormat(undefined, {
-                      month: "short",
-                      day: "numeric",
-                    }).format(segment.bankedExpiresAt)}.`
-                  : ""
-              }`}
-            >
-              <StackSimpleIcon size={11} aria-hidden />
-              <span>
-                {banked}
-                <span className="sr-only"> banked {banked === 1 ? "reset" : "resets"}</span>
-              </span>
-            </Chip>
-          )}
-        </span>
-      </span>
-    </div>
-  );
-}
-
-function Chip(props: { label: string; children: React.ReactNode }) {
-  return (
-    <Tip label={props.label}>
-      <span
-        tabIndex={0}
-        className="inline-flex h-5 items-center gap-1 rounded-sm bg-background/70 px-1.5 text-2xs text-foreground tabular-nums focus-ring"
+          {window.leftPercent}%
+        </span>{" "}
+        <span className="text-xs text-subtle-foreground">left</span>
+      </p>
+      <div
+        role="meter"
+        aria-label={window.label}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={window.leftPercent}
+        aria-valuetext={`${window.leftPercent}% left${countdown ? `, resets in ${countdown}` : ""}`}
+        className={cn(
+          "relative col-span-2 h-0.5 sm:col-span-1",
+          out ? "bg-status-failed/50" : "bg-border",
+        )}
       >
-        {props.children}
-      </span>
-    </Tip>
+        <span
+          aria-hidden
+          style={{ width: `${window.leftPercent}%` }}
+          className="absolute inset-y-0 left-0 bg-foreground"
+        />
+      </div>
+      <p
+        className={cn(
+          "col-span-2 text-xs whitespace-nowrap sm:col-span-1 sm:text-right sm:text-ui",
+          out ? "text-status-failed" : "text-subtle-foreground",
+        )}
+      >
+        {countdown === null || window.resetsAt === null ? (
+          "Reset not reported"
+        ) : (
+          <Tip label={formatResets(window.resetsAt, now)}>
+            <span tabIndex={0} className="rounded-xs tabular-nums focus-ring">
+              {out ? "Back in" : "Resets in"} {countdown}
+            </span>
+          </Tip>
+        )}
+      </p>
+    </li>
   );
 }
