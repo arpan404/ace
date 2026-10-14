@@ -1,4 +1,4 @@
-import { PermissionMode } from "./permissions.ts";
+import { AccessMode } from "./permissions.ts";
 import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
 
@@ -39,7 +39,7 @@ export const Automation = z.object({
   enabled: z.boolean(),
   workspace: z.string().min(1).max(4096),
   provider: ProviderKind,
-  permissionMode: PermissionMode.optional(),
+  access: AccessMode.optional(),
   model: text.optional(),
   prompt: z.string().min(1).max(32_768),
   worktree: z.boolean(),

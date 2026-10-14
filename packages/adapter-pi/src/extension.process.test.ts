@@ -198,7 +198,7 @@ test("Pi adds newly enabled screen tools and withdraws them on revocation withou
     registry,
     credentials,
     status: () => ({
-      permissionMode: "full-access",
+      access: "full-access",
       disabled: enabled ? {} : { screen: "Computer use is disabled." },
       screenApproved: approved,
     }),

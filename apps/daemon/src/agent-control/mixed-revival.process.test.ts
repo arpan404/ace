@@ -85,14 +85,7 @@ test.each(cases)(
               {
                 provider: "codex",
                 model: "chosen-model",
-                permissionModes: [
-                  {
-                    id: f.engine.permissionMode(parent.threadId) ?? ":read-only",
-                    label: "Safe",
-                    description: "safe",
-                    risk: "low",
-                  },
-                ],
+                accessModes: ["read-only", "ask", "auto-review", "full-access"],
               },
             ],
           }),

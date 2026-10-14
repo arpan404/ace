@@ -44,7 +44,7 @@ export function cursorModelParams(model: CatalogModel, options: ExecutionOptions
     if (key !== "serviceTier" && typeof value === "string") params.set(key, value);
   const effort = options["effort"];
   if (typeof effort === "string") {
-    if (!effortKey || !model.reasoningEfforts.includes(effort))
+    if (!effortKey || !model.efforts.some((entry) => entry.id === effort))
       throw new Error("Cursor model does not support this effort");
     params.set(effortKey, effort);
   }

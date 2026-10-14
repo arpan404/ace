@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ModelFilter, CatalogModel, ModelInstanceStatus } from "./models.ts";
-import { NativePermissionMode, PermissionMode } from "./permissions.ts";
+import { AccessMode } from "./permissions.ts";
 import { ThreadId, WorkspaceId } from "./ids.ts";
 import { WorktreeBase } from "./worktree-base.ts";
 
@@ -15,26 +15,27 @@ export const AgentCatalogInput = ModelFilter.extend({
   offset: z.number().int().min(0).max(40960).default(0),
   limit: z.number().int().min(1).max(20).default(10),
   instanceOffset: z.number().int().min(0).max(64).default(0),
-  permissionOffset: z.number().int().min(0).max(256).default(0),
 });
 const { raw: _raw, ...catalogModelShape } = CatalogModel.shape;
 export const AgentCatalogModel = z.object(catalogModelShape);
-export const AgentCatalogInstance = ModelInstanceStatus.omit({ sources: true }).extend({
+export const AgentCatalogInstance = ModelInstanceStatus.omit({
+  sources: true,
+  permissionModes: true,
+}).extend({
   installed: z.boolean(),
   auth: z.enum(["logged_in", "logged_out", "unknown"]),
   accountLabel: z.string().max(256).optional(),
   availability: z.string().max(64).optional(),
   launchOptions: z.array(z.enum(["effort", "serviceTier"])).max(2),
-  allowedPermissionModes: z.array(NativePermissionMode).max(256),
-  allowedDefault: z.boolean(),
-  nextPermissionOffset: z.number().int().nonnegative().optional(),
+  /** The access modes a delegated child may take on this instance: offered and within the caller's. */
+  allowedAccessModes: z.array(AccessMode).max(4),
 });
 export const AgentCatalogPage = z.object({
   models: z.array(AgentCatalogModel).max(20),
   instances: z.array(AgentCatalogInstance).max(64),
   nextOffset: z.number().int().nonnegative().optional(),
   nextInstanceOffset: z.number().int().nonnegative().optional(),
-  caller: z.object({ threadId: ThreadId, permissionMode: PermissionMode.nullable() }),
+  caller: z.object({ threadId: ThreadId, access: AccessMode.nullable() }),
 });
 export type AgentCatalogPage = z.infer<typeof AgentCatalogPage>;
 export const AgentTaskState = z.enum([

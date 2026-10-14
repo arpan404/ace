@@ -32,7 +32,7 @@ test("explicit work restores a filtered intermediate member while its unmatched 
       task: "Intermediate work",
       role: "delegate",
       provider: "claude",
-      permissionMode: "bypassPermissions",
+      access: "full-access",
       wait: false,
       estimatedLoad: 0,
     });

@@ -33,6 +33,9 @@ export const PublicToolCode = z.enum([
   "delegation_limit",
   "workspace_unavailable",
   "delegation_denied",
+  "access_escalation_denied",
+  "access_unavailable",
+  "effort_unavailable",
   "stale_ref",
   "controller_changed",
   "human_controlled",
@@ -188,7 +191,19 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   delegation_denied: {
     message: "Child permissions exceed the parent permission ceiling",
-    hint: "Choose a permission mode allowed by the parent thread.",
+    hint: "Choose an access mode allowed by the parent thread.",
+  },
+  access_escalation_denied: {
+    message: "The requested access is broader than the parent thread's",
+    hint: "Use access inherit or one of the allowed modes listed in the error.",
+  },
+  access_unavailable: {
+    message: "The target provider does not support the requested access mode",
+    hint: "Use access inherit or one of the modes listed in the error.",
+  },
+  effort_unavailable: {
+    message: "The selected model does not offer the requested effort",
+    hint: "Use effort inherit or one of the levels listed in the error.",
   },
   execution_failed: {
     message: "Tool execution failed",

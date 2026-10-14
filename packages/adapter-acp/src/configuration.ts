@@ -1,4 +1,5 @@
 import { acpPermissionModes } from "@ace/provider-kit/permission-modes";
+import { accessModeOffers } from "@ace/provider-kit/access-modes";
 import type { SessionContext } from "@ace/engine-api";
 import type { Capabilities, AcpSessionSupport } from "@ace/protocol";
 import { sessionSelectors, selectorRequest, type SelectorState } from "@ace/agent-registry";
@@ -61,6 +62,10 @@ export class AcpConfiguration {
     this.capabilities = {
       ...this.negotiated.capabilities,
       permissionModes,
+      accessModes: accessModeOffers(
+        { provider: this.#quirks.provider, profile: this.#launch.profile?.id },
+        (native) => permissionModes.some((mode) => mode.id === native),
+      ),
       permissions: {
         modes: permissionModes.map((mode) => mode.id),
         permissionModes,

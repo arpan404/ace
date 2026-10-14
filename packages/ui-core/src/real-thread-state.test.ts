@@ -13,7 +13,7 @@ const row = (id: string) =>
     displayName: "Muse Spark 1.3 Contributor",
     nativeModelId: id,
     nativeProviderId: "opencode-go",
-    reasoningEfforts: [],
+    efforts: [],
     serviceTiers: [],
     inputModalities: ["text"],
     isDefault: true,

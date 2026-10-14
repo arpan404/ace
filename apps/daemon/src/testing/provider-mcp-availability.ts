@@ -66,7 +66,7 @@ export async function availability(url: string, authorization: string) {
   return {
     threadId: status.threadId,
     agentId: status.agentId,
-    permissionMode: status.permissionMode,
+    access: status.access,
     tools,
     resources,
     instructions,

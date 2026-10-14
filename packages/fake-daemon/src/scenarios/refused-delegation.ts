@@ -43,7 +43,7 @@ export function refusedDelegation(id = "thread-refused-delegation"): Scenario {
       "can you delegate the task to a subagent using ace to claude haiku 5.5",
     ),
   );
-  for (const [index, permissionMode] of ["bypassPermissions", undefined, "dontAsk"].entries()) {
+  for (const [index, access] of ["full-access", undefined, "ask"].entries()) {
     const item = `delegate-${index}`;
     facts.push(
       aceCall(
@@ -55,7 +55,7 @@ export function refusedDelegation(id = "thread-refused-delegation"): Scenario {
           model: "claude-haiku-5-5",
           role: "helper",
           task: "Take over the task",
-          ...(permissionMode ? { permissionMode } : {}),
+          ...(access ? { access } : {}),
         },
         [{ type: "text", text: failed }],
         true,

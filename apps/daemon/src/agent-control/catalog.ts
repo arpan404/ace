@@ -1,6 +1,10 @@
-import { AgentCatalogPage, type AgentCatalogInput, type McpAttribution } from "@ace/protocol";
+import {
+  AgentCatalogPage,
+  type AccessMode,
+  type AgentCatalogInput,
+  type McpAttribution,
+} from "@ace/protocol";
 import { withinJsonBudget } from "@ace/mcp-server";
-import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import { callerThread } from "./authorization.ts";
 import type { z } from "zod";
 import type { DelegationDependencies } from "./delegations.ts";
@@ -12,12 +16,11 @@ export function readAgentCatalog(
   input: z.infer<typeof AgentCatalogInput>,
 ) {
   const parent = callerThread(deps.store, caller);
-  const { instanceOffset, permissionOffset, ...filter } = input;
+  const { instanceOffset, ...filter } = input;
   const page = deps.models.list(filter);
-  const ceiling = { provider: parent.provider, mode: deps.engine.permissionMode(parent.id) };
-  const allows = (status: import("@ace/protocol").ModelInstanceStatus, mode?: string) => {
+  const allows = (status: import("@ace/protocol").ModelInstanceStatus, mode: AccessMode) => {
     try {
-      deps.engine.childPermissionMode(parent.id, status.provider, mode, {
+      deps.engine.childAccess(parent.id, status.provider, mode, {
         ...status,
         accountId: status.instanceId ?? status.instance,
       });
@@ -32,16 +35,11 @@ export function readAgentCatalog(
       ? deps.engine.capabilities(status.provider)
       : undefined;
     const account = deps.accounts?.get(status.instanceId ?? status.instance);
-    const modes =
-      status.permissionModes ??
-      capabilities?.permissionModes ??
-      nativePermissionModes(status.provider);
-    const selected = modes
-      .slice(permissionOffset, permissionOffset + 8)
-      .map((mode) => Object.assign({}, mode, { description: mode.description.slice(0, 256) }));
+    const offers = status.accessModes ?? capabilities?.accessModes ?? [];
     return Object.assign({}, status, {
       sources: undefined,
-      permissionModes: selected,
+      permissionModes: undefined,
+      accessModes: offers,
       installed: installed.installed,
       auth: account?.quota.auth ?? installed.auth,
       enabled:
@@ -56,11 +54,7 @@ export function readAgentCatalog(
           }
         : {}),
       launchOptions: capabilities?.launchOptions ?? [],
-      allowedPermissionModes: selected.filter((mode) => allows(status, mode.id)),
-      allowedDefault: allows(status),
-      ...(permissionOffset + selected.length < modes.length
-        ? { nextPermissionOffset: permissionOffset + selected.length }
-        : {}),
+      allowedAccessModes: offers.map((offer) => offer.mode).filter((mode) => allows(status, mode)),
     });
   });
   const models = page.models.map(({ raw: _raw, ...model }) => model);
@@ -76,7 +70,7 @@ export function readAgentCatalog(
     ...(instanceOffset + instances.length < page.instances.length
       ? { nextInstanceOffset: instanceOffset + instances.length }
       : {}),
-    caller: { threadId: parent.id, permissionMode: ceiling.mode },
+    caller: { threadId: parent.id, access: deps.engine.access(parent.id) },
   });
   if (
     !withinJsonBudget(result, 240 * 1024) ||

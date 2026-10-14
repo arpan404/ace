@@ -6,7 +6,7 @@ import { afterEach } from "vitest";
 import { FakeHeadless } from "@ace/browser/testing";
 import { createLogger } from "@ace/diagnostics";
 import { SettingsService } from "@ace/settings";
-import { SocketTicket, Agent, Command, type Interaction, type PermissionMode } from "@ace/protocol";
+import { SocketTicket, Agent, Command, type Interaction, type AccessMode } from "@ace/protocol";
 import { Store } from "./store.ts";
 import { createDevThread, stubHandler } from "./commands.ts";
 import { startBrowser } from "./services/browser.ts";
@@ -23,7 +23,7 @@ afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
 export async function originFixture(
-  mode: PermissionMode = "ask",
+  mode: AccessMode = "ask",
   existingHome?: string,
   headless = new FakeHeadless(),
   navigationClock?: import("@ace/browser").NavigationClock,

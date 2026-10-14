@@ -1,6 +1,6 @@
 # 0069: Provider-native permission modes
 
-Date: 2026-10-07. Status: accepted by owner decision.
+Date: 2026-10-07. Status: accepted by owner decision; superseded in part by [ADR 0078](0078-unified-access-modes.md).
 
 This supersedes [ADR 0061](0061-permission-modes.md)'s ace-wide permission modes,
 default, reviewer, enforcement guarantees, synthetic tool gates and parent
@@ -437,3 +437,11 @@ The levels are: 0, read and plan; 1, act only on approval or prior grants;
   modes. An explicit request still can.
 - A refusal tells the calling agent the parent's mode and the child modes it
   would accept, so the agent can retry correctly.
+
+## Superseded in part (2026-10-13): unified access modes
+
+ADR 0078 replaces this ADR's composer picker, per-provider defaults and the delegation
+capability table with four ace access modes, each mapped to exact native settings and offered
+only where a provider supports it natively. The owner reversed the audit correction above:
+for Ask and Full access ace now writes OpenCode permission rules on the session (never the
+project's config). Native modes remain reachable as an Advanced "Custom" setting.

@@ -55,7 +55,7 @@ daemon.createThread({
   title: "Fix the flaky queue test",
   provider: "codex",
   details: details("fix/queue"),
-  permissionMode: "ask",
+  access: "ask",
 });
 daemon.apply("ios-approval", [
   facts.rootAgent("codex"),

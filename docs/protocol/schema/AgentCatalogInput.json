@@ -40,12 +40,6 @@
       "minimum": 0,
       "type": "integer"
     },
-    "permissionOffset": {
-      "default": 0,
-      "maximum": 256,
-      "minimum": 0,
-      "type": "integer"
-    },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     }

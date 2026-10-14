@@ -37,7 +37,7 @@ export async function externalMcp(context: ServiceContext) {
     registry,
     credentials: enrollments.credentials,
     status: (caller) => ({
-      permissionMode: enrollments.caller(caller).scope === "read" ? "read-only" : null,
+      access: enrollments.caller(caller).scope === "read" ? "read-only" : null,
     }),
   });
   return {

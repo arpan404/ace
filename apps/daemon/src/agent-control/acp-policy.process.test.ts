@@ -56,19 +56,17 @@ const request = (requestId: string, identity: typeof one) =>
     requestId,
     provider: "acp",
     ...identity,
-    permissionMode: "plan",
     role: "reader",
     task: "Inspect",
   });
 
-test("identical opaque ACP mode names cannot cross approved installations before or after SQLite restart", async () => {
+test("an unprofiled ACP agent's own default policy cannot cross approved installations before or after SQLite restart", async () => {
   const h = setup();
   await install(h);
   const created = h.service.command("acp-parent", {
     type: "thread.create",
     provider: "acp",
     ...one,
-    permissionMode: "plan",
     workspaceId: h.store.createWorkspace(h.home, "project"),
     input: [{ type: "text", text: "Plan" }],
   });
@@ -77,7 +75,7 @@ test("identical opaque ACP mode names cannot cross approved installations before
   const caller = h.caller(created.threadId);
   const child = h.service.delegate(caller, request("same-policy", one));
   await h.engine.flush();
-  expect(h.contexts.get(child.childId)?.permissionMode).toBe("plan");
+  expect(h.contexts.get(child.childId)?.permissionMode).toBeUndefined();
   expect(() => h.service.delegate(caller, request("different-policy", two))).toThrow(
     "permission_ceiling_unverifiable",
   );
@@ -90,7 +88,7 @@ test("identical opaque ACP mode names cannot cross approved installations before
     reopened.service.command("retain-captured-policy", {
       type: "thread.permission.set",
       threadId: child.childId,
-      permissionMode: "plan",
+      access: null,
     }).ok,
   ).toBe(true);
   expect(() =>
@@ -121,7 +119,6 @@ test("a captured ACP account ceiling survives restart and remains binding after 
     type: "thread.create",
     provider: "acp",
     ...one,
-    permissionMode: "plan",
     workspaceId: h.store.createWorkspace(h.home, "project"),
     input: [{ type: "text", text: "Plan" }],
   });
@@ -129,7 +126,8 @@ test("a captured ACP account ceiling survives restart and remains binding after 
   await h.engine.flush();
   const child = h.service.delegate(h.caller(created.threadId), request("captured-child", one));
   await h.engine.flush();
-  expect(h.contexts.get(child.childId)).toMatchObject({ acpIdentity: one, permissionMode: "plan" });
+  expect(h.contexts.get(child.childId)).toMatchObject({ acpIdentity: one });
+  expect(h.contexts.get(child.childId)?.permissionMode).toBeUndefined();
   await h.close();
   const reopened = setup({}, h.dbPath);
   await install(reopened, two.instanceId);
@@ -145,7 +143,7 @@ test("a captured ACP account ceiling survives restart and remains binding after 
     reopened.service.command("broaden-mode", {
       type: "thread.permission.set",
       threadId: created.threadId,
-      permissionMode: ":danger-full-access",
+      access: "full-access",
     }).ok,
   ).toBe(true);
   reopened.service.command("apply-broad-mode", {
@@ -154,9 +152,7 @@ test("a captured ACP account ceiling survives restart and remains binding after 
     input: [{ type: "text", text: "Continue" }],
   });
   await reopened.engine.flush();
-  expect(reopened.store.getThread(created.threadId)?.permission?.effective).toBe(
-    ":danger-full-access",
-  );
+  expect(reopened.store.getThread(created.threadId)?.permission?.effective).toBe("full-access");
   expect(
     reopened.service.message(
       reopened.caller(created.threadId),

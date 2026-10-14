@@ -31,7 +31,7 @@ test.each(["codex", "claude", "opencode", "cursor", "pi", "acp"])(
       registry,
       credentials,
       status: () => ({
-        permissionMode: "full-access",
+        access: "full-access",
         disabled: { screen: "Computer use is disabled.", devices: "Devices are disabled." },
       }),
     });
@@ -101,7 +101,7 @@ test.each([
       registry,
       credentials,
       status: () => ({
-        permissionMode: readOnly ? "read-only" : "full-access",
+        access: readOnly ? ("read-only" as const) : ("full-access" as const),
         disabled: enabled
           ? {}
           : { screen: "Computer use is disabled.", devices: "Devices are disabled." },
@@ -247,7 +247,7 @@ test("status names why a group is off without pointing at a setting that does no
   const server = await startMcpServer({
     registry,
     credentials,
-    status: () => ({ permissionMode: null }),
+    status: () => ({ access: null }),
   });
   onTestFinished(() => server.close());
   const lease = credentials.issue(scope("root", ["browser"]), new AbortController().signal);

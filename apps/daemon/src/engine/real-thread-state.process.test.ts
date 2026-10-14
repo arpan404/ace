@@ -81,7 +81,7 @@ test("startup migrates a bare OpenCode model to its unique cached provider route
     nativeModelId: "opencode-go/muse-spark-1.3-contributor",
     nativeProviderId: "opencode-go",
     displayName: "Muse Spark",
-    reasoningEfforts: [],
+    efforts: [],
     serviceTiers: [],
     inputModalities: ["text"],
     isDefault: true,

@@ -1,4 +1,4 @@
-import { PermissionMode } from "./permissions.ts";
+import { AccessMode } from "./permissions.ts";
 import { z } from "zod";
 import { ThreadId, WorkspaceId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
@@ -20,7 +20,7 @@ const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const LaneSpec = z.object({
   provider: ProviderKind,
   model: ref,
-  permissionMode: PermissionMode.optional(),
+  access: AccessMode.optional(),
 });
 export type LaneSpec = z.infer<typeof LaneSpec>;
 export const OrchestrationChecks = z

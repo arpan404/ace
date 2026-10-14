@@ -12,6 +12,9 @@ import type { SessionContext } from "@ace/engine-api";
 import type { ThreadId } from "@ace/protocol";
 import type { ThreadActor, EngineClock } from "./actor.ts";
 import type { EngineRepository } from "./repository.ts";
+import { nativeFor } from "./permissions.ts";
+import { customNative } from "./permission-ceiling.ts";
+import { reportedOrTable } from "@ace/provider-kit/access-modes";
 import type { AdapterRegistry } from "./registry.ts";
 import { z } from "zod";
 import { unavailableNativeHistory } from "./resume-open-error.ts";
@@ -92,27 +95,35 @@ export class Sessions {
         this.dependencies.repo.session(actor.id).instanceId,
       entry.capabilities,
     );
-    const mode = ownLive
-      ? this.dependencies.repo.permissions.effective(actor.id)
-      : await this.dependencies.repo.permissions.resolve(
+    const permissions = this.dependencies.repo.permissions;
+    const { selection: access, native: mode } = ownLive
+      ? {
+          selection: permissions.effective(actor.id),
+          native: nativeFor(
+            permissions.effective(actor.id),
+            reportedOrTable(stateBefore.config.provider, nativeCapabilities.accessModes),
+          ),
+        }
+      : await permissions.resolve(
           actor.id,
           this.dependencies.permissionSettings,
           nativeCapabilities,
         );
     await this.dependencies.repo.store.writable();
-    if (mode && !supportsPermissionMode(nativeCapabilities.permissions, mode))
+    // ace modes come from the instance's own offers; only a Custom native needs checking.
+    if (mode && customNative(access) && !supportsPermissionMode(nativeCapabilities, mode))
       throw new Error(
         `permission_mode_unsupported: ${stateBefore.config.provider} cannot honor ${mode}`,
       );
-    if (actor.session && this.dependencies.repo.permissions.effective(actor.id) !== mode)
+    if (actor.session && permissions.effective(actor.id) !== access)
       await this.close(actor, "idle");
     if (actor.session) {
       await this.assertWorkspaceAvailable(this.dependencies.repo.session(actor.id).cwd);
-      this.dependencies.repo.permissions.applied(actor.id, mode, this.dependencies.clock.now());
+      permissions.applied(actor.id, access, this.dependencies.clock.now());
       return;
     }
     if (stateBefore.config.provider !== "codex")
-      this.dependencies.repo.permissions.applied(actor.id, mode, this.dependencies.clock.now());
+      permissions.applied(actor.id, access, this.dependencies.clock.now());
     this.dependencies.repo.beginSessionOpen(actor.id);
     const lifetime = new AbortController();
     actor.lifetime = lifetime;
@@ -204,11 +215,12 @@ export class Sessions {
           if (generation !== actor.generation || lifetime.signal.aborted)
             throw new Error("Codex turn policy requested after session closed");
           if (
-            next &&
-            !supportsPermissionMode((actor.effectiveCapabilities ?? capabilities).permissions, next)
+            next.native &&
+            customNative(next.selection) &&
+            !supportsPermissionMode(actor.effectiveCapabilities ?? capabilities, next.native)
           )
             throw new Error("permission_mode_unsupported");
-          return next;
+          return next.native;
         },
         interactionId: (key: string) =>
           this.dependencies.repo.requireState(actor.id).interactions[key]?.id,
@@ -279,7 +291,7 @@ export class Sessions {
               instanceId: parsed.instanceId,
               ...(parsed.nativeSessionId ? { nativeSessionId: parsed.nativeSessionId } : {}),
             });
-            this.dependencies.repo.permissions.validateIdentity(actor.id, mode);
+            this.dependencies.repo.permissions.validateIdentity(actor.id, access);
           });
         },
         onSessionConfirmed: (nativeId) => {
@@ -307,9 +319,10 @@ export class Sessions {
             if (permission.success)
               actor.enqueue(() => {
                 if (generation !== actor.generation || lifetime.signal.aborted) return;
-                this.dependencies.repo.permissions.applied(
+                this.dependencies.repo.permissions.appliedNative(
                   actor.id,
                   permission.data.mode,
+                  actor.effectiveCapabilities ?? capabilities,
                   this.dependencies.clock.now(),
                 );
               });
@@ -373,7 +386,7 @@ export class Sessions {
       }
       actor.session = session;
       if (state.config.provider === "codex" && this.turnPermissions.get(actor.id) !== generation)
-        this.dependencies.repo.permissions.applied(actor.id, mode, this.dependencies.clock.now());
+        this.dependencies.repo.permissions.applied(actor.id, access, this.dependencies.clock.now());
       actor.effectiveCapabilities = session.effectiveCapabilities ?? capabilities;
       this.dependencies.repo.store.atomic(() => {
         // Account/backend selection is durable even before the native ID is confirmed.
@@ -383,7 +396,7 @@ export class Sessions {
           session.backend ?? adapter.backend,
           session.instanceId,
         );
-        this.dependencies.repo.permissions.validateIdentity(actor.id, mode);
+        this.dependencies.repo.permissions.validateIdentity(actor.id, access);
         delete transition.fork;
         if (transition.selection && session.instanceId)
           transition.selection.instanceId = session.instanceId;

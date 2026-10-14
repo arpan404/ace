@@ -1,0 +1,17 @@
+{
+  "$id": "https://ace.local/protocol/v1/AccessModeOffer.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "mode": {
+      "$ref": "https://ace.local/protocol/v1/AccessMode.json"
+    },
+    "native": {
+      "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+    }
+  },
+  "required": [
+    "mode",
+    "native"
+  ],
+  "type": "object"
+}

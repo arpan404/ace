@@ -140,7 +140,7 @@ createInterface({input:process.stdin}).on('line', line => {
         payload: {
           type: "thread.create",
           provider: "cursor",
-          permissionMode: "full-access",
+          access: "full-access",
           workspaceId,
           input: [{ type: "text", text: "offline boundary" }],
         },

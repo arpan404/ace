@@ -17,7 +17,7 @@ See [ADR 0015](../adr/0015-automations.md). Schedule and trigger contracts belon
 | enabled | yes | boolean |  |
 | workspace | yes | string | {"minLength":1,"maxLength":4096} |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
-| permissionMode | no | [PermissionMode.json](schema/PermissionMode.json) |  |
+| access | no | [AccessMode.json](schema/AccessMode.json) |  |
 | model | no | string | {"minLength":1,"maxLength":256} |
 | prompt | yes | string | {"minLength":1,"maxLength":32768} |
 | worktree | yes | boolean |  |
@@ -30,19 +30,20 @@ Example:
 
 ```json
 {
+  "access": "auto-review",
   "concurrency": 10,
   "enabled": false,
   "id": "example",
   "jitterMs": 4,
-  "missedRun": "skip",
+  "missedRun": "run_once",
   "prompt": "example",
-  "provider": "pi",
+  "provider": "codex",
   "title": "example",
   "trigger": {
     "kind": "manual"
   },
   "workspace": "example",
-  "worktree": false
+  "worktree": true
 }
 ```
 
@@ -77,7 +78,7 @@ Example:
 
 ```json
 {
-  "before": null,
+  "before": 2,
   "runs": []
 }
 ```
@@ -95,7 +96,7 @@ Example:
 
 ```json
 {
-  "at": 6,
+  "at": 8,
   "message": "example"
 }
 ```
@@ -117,19 +118,17 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 3,
+    "concurrency": 10,
     "enabled": false,
     "id": "example",
-    "jitterMs": 3,
+    "jitterMs": 4,
     "missedRun": "run_once",
+    "model": "example",
     "prompt": "example",
-    "provider": "antigravity",
+    "provider": "claude",
     "title": "example",
     "trigger": {
-      "kind": "file",
-      "paths": [
-        "example"
-      ]
+      "kind": "manual"
     },
     "workspace": "example",
     "worktree": false
@@ -207,7 +206,7 @@ Example:
 
 ```json
 {
-  "limit": 10,
+  "limit": 1,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -232,8 +231,22 @@ Example:
 
 ```json
 {
+  "inbox": {
+    "before": null,
+    "runs": []
+  },
   "ok": false,
   "requestId": "example",
+  "run": {
+    "automationId": "example",
+    "eventKey": "example",
+    "id": "example",
+    "result": "example",
+    "startedAt": 2,
+    "status": "skipped",
+    "title": "example",
+    "trigger": "file"
+  },
   "type": "automation.result"
 }
 ```
@@ -262,12 +275,10 @@ Example:
   "automationId": "example",
   "eventKey": "example",
   "id": "example",
-  "result": "example",
-  "startedAt": 1,
-  "status": "failed",
-  "threadId": "example",
+  "startedAt": 7,
+  "status": "skipped",
   "title": "example",
-  "trigger": "file"
+  "trigger": "manual"
 }
 ```
 
@@ -347,10 +358,11 @@ Example:
 
 ```json
 {
-  "event": "issue_labelled",
+  "event": "review_comment",
   "kind": "github",
-  "pollIntervalMs": 60003,
-  "repository": "Am/77"
+  "pollIntervalMs": 60006,
+  "pullRequest": 1,
+  "repository": "3sN/azuJDmqa"
 }
 ```
 

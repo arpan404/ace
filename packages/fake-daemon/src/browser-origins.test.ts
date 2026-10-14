@@ -1,17 +1,16 @@
-import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import { expect, it } from "vitest";
 import { Client, BrowserOriginsClient } from "@ace/client";
-import { DeviceId, ThreadId, ThreadView } from "@ace/protocol";
+import { DeviceId, ThreadId, ThreadView, type AccessMode } from "@ace/protocol";
 import { FakeDaemon, fakeTransport } from "./index.ts";
 
-async function fixture(mode: string = ":workspace") {
+async function fixture(mode: AccessMode = "auto-review") {
   const daemon = new FakeDaemon({ clock: () => 1000 });
   daemon.createThread({
     id: "thread",
     workspaceId: "workspace",
     title: "Browser origins",
     provider: "codex",
-    permissionMode: mode,
+    access: mode,
   });
   daemon.apply("thread", [{ type: "turn.started", agent: "root", trigger: "user" }]);
   daemon.browser.drive("thread", { url: "about:blank" });
@@ -101,7 +100,7 @@ it("the typed client grant API lists consent, grants exact origins, revokes and 
     await f.client.close();
   }
 });
-it.each(nativePermissionModes("codex").map((entry) => entry.id))(
+it.each(["ask", "auto-review"] as const)(
   "fake %s navigation waits on the real client approval command and honors thread grants",
   async (mode) => {
     const f = await fixture(mode);
@@ -147,7 +146,7 @@ it.each(nativePermissionModes("codex").map((entry) => entry.id))(
   },
 );
 it("fake native modes honor the global allowlist without granting other origins", async () => {
-  for (const mode of [":danger-full-access", ":workspace", ":read-only"]) {
+  for (const mode of ["ask", "auto-review"] as const) {
     const f = await fixture(mode);
     try {
       f.daemon.services.settings.seed({ "browser.allowedOrigins": ["https://youtube.com"] });

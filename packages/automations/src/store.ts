@@ -12,7 +12,7 @@ import { canAdmit } from "./decisions.ts";
 import type { ExecutionInput, ExecutionResult } from "./contracts.ts";
 
 const JobMetadata = z.object({
-  automation: Automation,
+  automation: z.unknown().transform(normalizeAutomation),
   nominal: z.number().nullable(),
   due: z.number().nullable(),
   lastPollError: AutomationPollError.optional(),
@@ -26,7 +26,7 @@ const Input = z.object({
   title: Automation.shape.title.optional(),
   provider: Automation.shape.provider,
   model: z.string().optional(),
-  permissionMode: Automation.shape.permissionMode,
+  access: Automation.shape.access,
   workspace: z.string(),
   prompt: z.string().max(65_536),
   worktree: z.boolean(),

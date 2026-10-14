@@ -29,14 +29,7 @@ async function world(resolveArtifacts: (task: RemoteTask) => Promise<unknown>) {
           {
             provider: "codex",
             model: "model",
-            permissionModes: [
-              {
-                id: f.engine.permissionMode(caller.threadId) ?? ":read-only",
-                label: "Safe",
-                description: "safe",
-                risk: "low",
-              },
-            ],
+            accessModes: ["read-only", "ask", "auto-review", "full-access"],
           },
         ],
       }),

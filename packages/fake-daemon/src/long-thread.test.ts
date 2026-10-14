@@ -67,7 +67,7 @@ test("fake catch-up includes already pending approvals and later linked child co
       workspaceId: "ace",
       title: id,
       provider: "codex",
-      permissionMode: "ask",
+      access: "ask",
     });
   const root = {
     type: "agent.seen" as const,
@@ -669,7 +669,7 @@ test("fake catch-up counts an approval answer after the cursor and preserves bac
     workspaceId: "ace",
     title: "Background migration",
     provider: "codex",
-    permissionMode: "ask",
+    access: "ask",
   });
   daemon.apply("background", [
     {
@@ -958,7 +958,7 @@ test("fake human approvals count once on the original turn while a newer turn wo
     workspaceId: "ace",
     title: "Late worker review",
     provider: "codex",
-    permissionMode: ":workspace",
+    access: "auto-review",
   });
   daemon.apply("review-late", [
     {

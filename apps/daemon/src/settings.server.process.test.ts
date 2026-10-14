@@ -398,7 +398,7 @@ test("a local reset clears every preference in one commit while keeping the proj
   const f = await setup();
   const layer = { kind: "global" } as const;
   await f.settings.set("providers.default", "claude", layer);
-  await f.settings.set("permissions.providerModes", { codex: "never" }, layer);
+  await f.settings.set("access.defaultMode", "full-access", layer);
   await f.settings.set("providers.configuration", [], layer);
   await f.settings.set("host.displayName", "Renamed", layer);
   await f.settings.set("threads.useWorktree", false, layer);
@@ -407,12 +407,7 @@ test("a local reset clears every preference in one commit while keeping the proj
     type: "settings.subscribe",
     requestId: "watch-reset",
     subscriptionId: "reset-watch",
-    keys: [
-      "providers.default",
-      "permissions.providerModes",
-      "host.displayName",
-      "threads.useWorktree",
-    ],
+    keys: ["providers.default", "access.defaultMode", "host.displayName", "threads.useWorktree"],
     scope: {},
   });
   await f.client.next();
@@ -422,7 +417,7 @@ test("a local reset clears every preference in one commit while keeping the proj
     entries: [
       { key: "host.displayName", provenance: "defaults" },
       { key: "providers.default", provenance: "defaults" },
-      { key: "permissions.providerModes", provenance: "defaults" },
+      { key: "access.defaultMode", provenance: "defaults" },
       { key: "threads.useWorktree", provenance: "defaults" },
     ],
   });
@@ -434,7 +429,7 @@ test("a local reset clears every preference in one commit while keeping the proj
   });
   for (const key of [
     "providers.default",
-    "permissions.providerModes",
+    "access.defaultMode",
     "providers.configuration",
     "host.displayName",
     "threads.useWorktree",

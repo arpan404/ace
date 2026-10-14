@@ -18,6 +18,9 @@
     {
       "additionalProperties": false,
       "properties": {
+        "access": {
+          "$ref": "https://ace.local/protocol/v1/AccessRequest.json"
+        },
         "accountId": {
           "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
         },
@@ -28,6 +31,17 @@
         },
         "context": {
           "$ref": "https://ace.local/protocol/v1/RemoteContextSelection.json"
+        },
+        "effort": {
+          "anyOf": [
+            {
+              "const": "inherit",
+              "type": "string"
+            },
+            {
+              "$ref": "https://ace.local/protocol/v1/AgentEffort.json"
+            }
+          ]
         },
         "hostId": {
           "$ref": "https://ace.local/protocol/v1/HostId.json"
@@ -60,10 +74,7 @@
           "type": "string"
         },
         "options": {
-          "$ref": "https://ace.local/protocol/v1/AgentLaunchOptions.json"
-        },
-        "permissionMode": {
-          "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+          "$ref": "https://ace.local/protocol/v1/AgentServiceOptions.json"
         },
         "provider": {
           "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
@@ -310,12 +321,6 @@
           "const": "agents.catalog",
           "type": "string"
         },
-        "permissionOffset": {
-          "default": 0,
-          "maximum": 256,
-          "minimum": 0,
-          "type": "integer"
-        },
         "provider": {
           "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
         }
@@ -453,6 +458,9 @@
     {
       "additionalProperties": false,
       "properties": {
+        "access": {
+          "$ref": "https://ace.local/protocol/v1/AccessRequest.json"
+        },
         "accountId": {
           "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
         },
@@ -460,6 +468,17 @@
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
+        },
+        "effort": {
+          "anyOf": [
+            {
+              "const": "inherit",
+              "type": "string"
+            },
+            {
+              "$ref": "https://ace.local/protocol/v1/AgentEffort.json"
+            }
+          ]
         },
         "installationId": {
           "maxLength": 256,
@@ -481,10 +500,7 @@
           "type": "string"
         },
         "options": {
-          "$ref": "https://ace.local/protocol/v1/AgentLaunchOptions.json"
-        },
-        "permissionMode": {
-          "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+          "$ref": "https://ace.local/protocol/v1/AgentServiceOptions.json"
         },
         "provider": {
           "$ref": "https://ace.local/protocol/v1/ProviderKind.json"

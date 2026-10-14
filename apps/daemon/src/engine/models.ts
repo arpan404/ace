@@ -47,6 +47,7 @@ export class EngineModels {
     return {
       ...base,
       permissionModes: modes,
+      ...(status?.accessModes ? { accessModes: status.accessModes } : {}),
       permissions: {
         ...base.permissions,
         permissionModes: modes,

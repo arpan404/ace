@@ -96,7 +96,7 @@ it("agents discover ace through initialize, resources and status even when compu
       threadId: thread.id,
       agentId: agent.id,
       // The thread's own native selector, never a placeholder.
-      permissionMode: daemon.store.getThread(thread.id)?.permission?.effective ?? null,
+      access: daemon.store.getThread(thread.id)?.permission?.effective ?? null,
     });
     expect(disabled.groups).toContainEqual({
       name: "screen",

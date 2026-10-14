@@ -12,23 +12,34 @@ export class AgentControlError extends Error {
   }
 }
 
+const quoted = (modes: readonly string[]) => modes.map((mode) => `"${mode}"`).join(", ");
 /**
- * A refused child policy in words the agent can act on: the parent's mode and the child
- * modes it would accept. Mode IDs are provider vocabulary from ace's own tables.
+ * A refused child access in words the agent can act on: why, the parent's mode and the modes
+ * the target would accept (ADR 0075).
  */
 export function ceilingRefusal(
   child: import("@ace/protocol").ProviderKind,
-  refusal: { provider: string; mode: string | null; allowed: readonly string[] } | undefined,
+  refusal: import("../engine/permissions.ts").CeilingRefusal | undefined,
 ): AgentControlError {
-  const parent = refusal
-    ? `The parent thread runs ${refusal.provider} in ${refusal.mode === null ? "its provider default" : `"${refusal.mode}"`}.`
-    : "The parent thread's permission policy can't be verified.";
+  const parent =
+    refusal?.mode == null || refusal.mode.startsWith("custom:")
+      ? "The parent thread runs a provider-native mode ace can't rank, so a child must match it."
+      : `The parent thread runs in "${refusal.mode}".`;
+  if (refusal?.reason === "access_unavailable")
+    return new AgentControlError(
+      "access_unavailable",
+      "access_unavailable",
+      undefined,
+      `${child} supports ${quoted(refusal.offered)}. Allowed under the parent: ${quoted(refusal.allowed) || "none"}.`,
+    );
   const allowed = refusal?.allowed.length
-    ? `Allowed ${child} modes: ${refusal.allowed.map((mode) => `"${mode}"`).join(", ")}.`
+    ? `Allowed ${child} access: ${quoted(refusal.allowed)}.`
     : `No ${child} mode fits under it; delegate to ${refusal?.provider ?? "the parent's provider"} or ask the person to change the parent's mode.`;
   return new AgentControlError(
-    "delegation_denied",
-    "permission_ceiling_unverifiable",
+    refusal?.reason === "access_escalation_denied"
+      ? "access_escalation_denied"
+      : "delegation_denied",
+    refusal?.reason ?? "permission_ceiling_unverifiable",
     undefined,
     `${parent} ${allowed}`,
   );
@@ -52,6 +63,9 @@ export function controlAdmissionError(reason: string): AgentControlError {
     permission_mode_unsupported: "not_supported",
     permission_exceeds_parent: "delegation_denied",
     permission_ceiling_unverifiable: "delegation_denied",
+    access_escalation_denied: "access_escalation_denied",
+    access_unavailable: "access_unavailable",
+    access_mode_unavailable: "access_unavailable",
   };
   return new AgentControlError(codes[reason] ?? "execution_failed", reason);
 }

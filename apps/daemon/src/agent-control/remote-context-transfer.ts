@@ -140,8 +140,8 @@ export async function remoteContextTransfer(
       let record = read(options, task.id);
       if (
         record &&
-        JSON.stringify([record.task.request, record.task.context, record.task.permissionMode]) !==
-          JSON.stringify([task.request, task.context, task.permissionMode])
+        JSON.stringify([record.task.request, record.task.context, record.task.access]) !==
+          JSON.stringify([task.request, task.context, task.access])
       )
         return fail("invalid");
       if (op.op === "prepare") {

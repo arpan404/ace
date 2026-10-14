@@ -150,7 +150,7 @@ export function multiDayDemo(
       workspaceId: "ace",
       title: "Five-day migration: checkpoints and worker reports",
       provider: "codex",
-      permissionMode: "ask",
+      access: "ask",
     },
     steps,
   };

@@ -1,6 +1,6 @@
 import { ForgePrWorktree } from "./forge-worktree.ts";
 import { RemoteContextSelection } from "./remote-context.ts";
-import { PermissionMode } from "./permissions.ts";
+import { AccessRequest } from "./permissions.ts";
 import { z } from "zod";
 import { WorktreeBase } from "./worktree-base.ts";
 import { AgentId, ThreadId, Timestamp, WorkspaceId, InteractionId, HostId } from "./ids.ts";
@@ -18,18 +18,23 @@ const key = z
   .min(1)
   .max(128)
   .regex(/^[a-zA-Z0-9_.-]+$/);
-export const AgentLaunchOptions = z.strictObject({
-  effort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]).optional(),
+/** A model effort: the catalog's native id or its canonical level ("xhigh" names "extra-high"). */
+export const AgentEffort = z.string().min(1).max(64);
+export const AgentServiceOptions = z.strictObject({
   serviceTier: z.enum(["default", "priority", "flex"]).optional(),
 });
+export const AgentLaunchOptions = AgentServiceOptions.extend({ effort: AgentEffort.optional() });
 export type AgentLaunchOptions = z.infer<typeof AgentLaunchOptions>;
 export const AgentSelection = z.object({
   provider: ProviderKind,
-  permissionMode: PermissionMode.optional(),
+  /** The child's access: its parent's (the default) or a mode no broader than the parent's. */
+  access: AccessRequest.optional(),
   ...AcpIdentity.partial().shape,
   model: z.string().min(1).max(256).optional(),
   accountId: AccountInstanceId.optional(),
-  options: AgentLaunchOptions.optional(),
+  /** `inherit` (the default) keeps the parent's effort on the same model, else the model default. */
+  effort: z.union([z.literal("inherit"), AgentEffort]).optional(),
+  options: AgentServiceOptions.optional(),
 });
 export type AgentSelection = z.infer<typeof AgentSelection>;
 export const DelegationRequest = z.strictObject({
@@ -104,6 +109,8 @@ export const DelegateTaskOperation = z
         provider: "claude",
         machine: "studio",
         project: "relay",
+        access: "read-only",
+        effort: "high",
       },
     ],
   });
@@ -139,6 +146,8 @@ export const DelegationRecord = z.object({
   generation: z.number().int().nonnegative().default(0),
   outcome: DelegationOutcome.optional(),
   resolvedModel: z.string().min(1).max(256).optional(),
+  /** The child model's native effort id the request resolved to; absent keeps the model default. */
+  resolvedEffort: z.string().min(1).max(256).optional(),
   resultDelivery: z.enum(["parent", "owner"]).optional(),
 });
 export type DelegationRecord = z.infer<typeof DelegationRecord>;
@@ -364,6 +373,8 @@ export const ThreadPrepareCommand = z.object({
   workspaceId: WorkspaceId,
   title: z.string().min(1).max(256),
   ...AgentSelection.shape,
+  /** The resolved native effort and service tier the prepared thread starts with. */
+  options: AgentLaunchOptions.optional(),
 });
 
 export type ThreadPrepareCommand = z.infer<typeof ThreadPrepareCommand>;

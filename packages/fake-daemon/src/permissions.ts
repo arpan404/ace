@@ -1,4 +1,5 @@
 import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
+import { accessModeOffers } from "@ace/provider-kit/access-modes";
 import {
   reviewPermission,
   permissionDecisionOption,
@@ -7,6 +8,7 @@ import {
   type PathRisk,
 } from "@ace/core";
 import type {
+  AccessModeOffer,
   Capabilities,
   EventPayload,
   PermissionCapabilities,
@@ -33,6 +35,11 @@ export const fakePermissionCapabilities: Capabilities = {
   launchOptions: ["effort", "serviceTier"],
   permissions: { modes: [], permissionModes: [], nativeAutoReview: false, toolGate: true },
 };
+/** The ace modes each fake provider supports, from the same table the daemon uses. */
+export function fakeAccessModes(provider: ProviderKind): AccessModeOffer[] {
+  // A fake ACP agent stands for a profiled one (Gemini) so its partial set shows.
+  return accessModeOffers(provider === "acp" ? { provider, profile: "gemini-043" } : { provider });
+}
 export function fakeProviderPermissions(provider: ProviderKind): PermissionCapabilities {
   const permissionModes = nativePermissionModes(provider);
   return {

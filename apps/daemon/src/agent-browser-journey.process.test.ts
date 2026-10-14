@@ -5,7 +5,7 @@ import { expect, it, onTestFinished } from "vitest";
 import { z } from "zod";
 import { detectChromium } from "@ace/browser";
 import { FakeHeadless } from "@ace/browser/testing";
-import { Agent, AgentId, type PermissionMode } from "@ace/protocol";
+import { Agent, AgentId, type AccessMode } from "@ace/protocol";
 import { providerFeatures } from "./testing/provider-features.ts";
 import { createDevThread } from "./commands.ts";
 import { invoke, Result } from "./browser-mcp-test-support.ts";
@@ -179,7 +179,7 @@ it("an agent completes a form navigation, reads results, rejects stale refs and 
   expect((await invoke(connection, "ace_browser_open", {})).status).toBe(401);
 });
 
-it.each([":workspace", ":read-only", ":danger-full-access"] satisfies PermissionMode[])(
+it.each(["auto-review", "read-only", "full-access"] satisfies AccessMode[])(
   "%s reports origin decisions through real daemon MCP without external requests",
   async (mode) => {
     const f = await originFixture(mode, undefined, new FakeHeadless());

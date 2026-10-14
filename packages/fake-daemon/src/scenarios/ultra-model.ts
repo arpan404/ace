@@ -9,7 +9,13 @@ export const ultraPreviewModel = CatalogModel.parse({
   source: { kind: "account", id: "codex-personal", label: "Personal" },
   nativeModelId: "simulated-ultra-reasoning-extended-context-demonstration-model",
   contextWindow: 400_000,
-  reasoningEfforts: ["minimal", "low", "medium", "high", "ultra"],
+  efforts: [
+    { id: "minimal", level: "minimal", label: "Minimal" },
+    { id: "low", level: "low", label: "Low" },
+    { id: "medium", level: "medium", label: "Medium" },
+    { id: "high", level: "high", label: "High" },
+    { id: "ultra", level: "ultra", label: "Ultra" },
+  ],
   defaultEffort: "medium",
   serviceTiers: [
     { id: "default", name: "Standard", speed: "standard", parameters: { serviceTier: "default" } },

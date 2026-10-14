@@ -18,6 +18,7 @@ import type { Store } from "../store.ts";
 import type { Engine } from "../engine/index.ts";
 import type { EngineClock } from "../engine/actor.ts";
 import { RemoteTaskJournal } from "./remote-journal.ts";
+import { remoteAccessHolds, remoteChildAccess } from "./remote-access.ts";
 import type { DelegationService } from "./delegations.ts";
 
 export const remoteTerminal = (task: RemoteTask) =>
@@ -319,8 +320,7 @@ export class RemoteDelegations {
     if (
       !parent ||
       parent.provider !== task.parentProvider ||
-      this.engine.permissionMode(parent.id) !== task.parentPermissionMode ||
-      (parent.permission?.override ?? null) !== task.parentPermissionOverride ||
+      !remoteAccessHolds(this.engine.access(parent.id), parent, task.access) ||
       this.local.journal.stopped(parent.id) ||
       this.local.journal.ancestorStopped(parent.id) ||
       this.now() - tree.startedAt >= this.local.policy.durationMs ||
@@ -471,21 +471,10 @@ export class RemoteDelegations {
         !agent
       )
         return { ok: false, code: "unavailable" };
-      // Native policies have no cross-provider ordering. Reuse the exact parent policy on the
-      // same provider; cross-provider delegates are restricted to a native low-risk policy.
-      const inherited = this.engine.permissionMode(parent.id);
-      const mode = agent.permissionModes.find(
-        (candidate) =>
-          (request.permissionMode
-            ? candidate.id === request.permissionMode
-            : request.provider === parent.provider && inherited !== null
-              ? candidate.id === inherited
-              : candidate.risk === "low") &&
-          (request.provider === parent.provider && inherited !== null
-            ? candidate.id === inherited
-            : candidate.risk === "low"),
-      );
-      if (!mode) return { ok: false, code: "forbidden" };
+      // ace modes rank across providers and daemons; an unranked parent can't delegate remotely.
+      const inherited = this.engine.access(parent.id);
+      const access = remoteChildAccess(inherited, request.access, agent.accessModes);
+      if (!access || !inherited) return { ok: false, code: "forbidden" };
       const tree = this.admission(parent.id);
       if (!tree) return { ok: false, code: "limit" };
       if (incomingRemoteRoot(this.store, tree.root)) return { ok: false, code: "forbidden" };
@@ -494,13 +483,12 @@ export class RemoteDelegations {
         sourceHostId: HostId.parse(this.hostId),
         rootThreadId: tree.root,
         parentProvider: parent.provider,
-        parentPermissionMode: inherited,
-        parentPermissionOverride: parent.permission?.override ?? null,
+        parentAccess: inherited,
         parentThreadId: caller.threadId,
         parentAgentId: caller.agentId,
         threadId: ThreadId.parse(`remote-${id}`),
         request,
-        permissionMode: mode.id,
+        access,
         usage: { tokens: 0, cost: 0 },
         phase: "queued",
         dispatched: false,
@@ -523,9 +511,7 @@ export class RemoteDelegations {
         !this.admit() ||
         !this.store.getMcpAgent(caller.threadId, caller.agentId) ||
         !this.current()?.hosts.some((candidate) => candidate.hostId === request.hostId) ||
-        this.engine.permissionMode(parent.id) !== inherited ||
-        (this.store.getThread(parent.id)?.permission?.override ?? null) !==
-          task.parentPermissionOverride
+        !remoteAccessHolds(this.engine.access(parent.id), this.store.getThread(parent.id), access)
       )
         return { ok: false, code: "forbidden" };
       const duplicate = this.journal.get(id);

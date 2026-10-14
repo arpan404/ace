@@ -15,7 +15,7 @@ export function seedIndex(): Scenario {
       title: "Seed the docs search index",
       provider: "claude",
       // This scenario explicitly demonstrates a permanent native grant.
-      permissionMode: "full-access",
+      access: "full-access",
     },
     steps: [
       {

@@ -30,6 +30,9 @@
     },
     {
       "properties": {
+        "access": {
+          "$ref": "https://ace.local/protocol/v1/AccessRequest.json"
+        },
         "accountId": {
           "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
         },
@@ -45,6 +48,17 @@
           "maxLength": 1024,
           "minLength": 1,
           "type": "string"
+        },
+        "effort": {
+          "anyOf": [
+            {
+              "const": "inherit",
+              "type": "string"
+            },
+            {
+              "$ref": "https://ace.local/protocol/v1/AgentEffort.json"
+            }
+          ]
         },
         "handoffFrom": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
@@ -73,9 +87,6 @@
         },
         "options": {
           "$ref": "https://ace.local/protocol/v1/AgentLaunchOptions.json"
-        },
-        "permissionMode": {
-          "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
         },
         "provider": {
           "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
@@ -120,10 +131,10 @@
     },
     {
       "properties": {
-        "permissionMode": {
+        "access": {
           "anyOf": [
             {
-              "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+              "$ref": "https://ace.local/protocol/v1/AccessMode.json"
             },
             {
               "type": "null"
@@ -141,7 +152,7 @@
       "required": [
         "type",
         "threadId",
-        "permissionMode"
+        "access"
       ],
       "type": "object"
     },
@@ -1769,6 +1780,9 @@
     },
     {
       "properties": {
+        "access": {
+          "$ref": "https://ace.local/protocol/v1/AccessMode.json"
+        },
         "account": {
           "maxLength": 256,
           "minLength": 1,
@@ -1835,9 +1849,6 @@
         },
         "origin": {
           "$ref": "https://ace.local/protocol/v1/MessageOrigin.json"
-        },
-        "permissionMode": {
-          "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
         },
         "provider": {
           "$ref": "https://ace.local/protocol/v1/ProviderKind.json"

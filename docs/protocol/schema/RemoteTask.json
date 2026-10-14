@@ -3,6 +3,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "access": {
+      "$ref": "https://ace.local/protocol/v1/AccessMode.json"
+    },
     "artifacts": {
       "$ref": "https://ace.local/protocol/v1/RemoteArtifactManifest.json"
     },
@@ -38,42 +41,24 @@
       "pattern": "^[a-f0-9]{64}$",
       "type": "string"
     },
-    "parentAgentId": {
-      "$ref": "https://ace.local/protocol/v1/AgentId.json"
-    },
-    "parentPermissionMode": {
+    "parentAccess": {
       "anyOf": [
         {
-          "maxLength": 4096,
-          "type": "string"
+          "$ref": "https://ace.local/protocol/v1/AccessMode.json"
         },
         {
           "type": "null"
         }
       ]
     },
-    "parentPermissionOverride": {
-      "anyOf": [
-        {
-          "maxLength": 4096,
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
+    "parentAgentId": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
     },
     "parentProvider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     },
     "parentThreadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
-    },
-    "permissionMode": {
-      "maxLength": 4096,
-      "minLength": 1,
-      "type": "string"
     },
     "phase": {
       "$ref": "https://ace.local/protocol/v1/RemoteTaskPhase.json"
@@ -110,12 +95,12 @@
     "sourceHostId",
     "rootThreadId",
     "parentProvider",
-    "parentPermissionMode",
+    "parentAccess",
     "parentThreadId",
     "parentAgentId",
     "threadId",
     "request",
-    "permissionMode",
+    "access",
     "phase",
     "dispatched",
     "delivered",

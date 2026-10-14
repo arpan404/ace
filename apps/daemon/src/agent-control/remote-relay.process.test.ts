@@ -108,7 +108,6 @@ async function world() {
     headSeq: () => target.daemon.store.headSeq(),
   });
   cleanup.push(() => host.close());
-  const safe = source.daemon.engine!.permissionMode(source.caller.threadId) ?? ":read-only";
   const lease = source.controls.remote.register(
     "broker",
     [
@@ -120,13 +119,13 @@ async function world() {
           {
             provider: "claude",
             model: "chosen-model",
-            permissionModes: [{ id: "plan", label: "Safe", description: "safe", risk: "low" }],
+            accessModes: ["read-only"],
           },
           {
             provider: "codex",
             model: "chosen-model",
             accountId: "codex-cli-default",
-            permissionModes: [{ id: safe, label: "Safe", description: "safe", risk: "low" }],
+            accessModes: ["read-only", "ask", "auto-review", "full-access"],
           },
         ],
       }),

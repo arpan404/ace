@@ -19,7 +19,7 @@ it("a native permission change during a browser approval wait preserves independ
   f.store.appendEvents(f.thread.id, [
     {
       type: "thread.updated",
-      permission: { override: ":read-only", effective: ":read-only", pending: false },
+      permission: { override: "read-only", effective: "read-only", pending: false },
     },
   ]);
   expect(f.resolve(interaction, "allow_once").ok).toBe(true);

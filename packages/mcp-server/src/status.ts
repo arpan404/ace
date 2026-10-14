@@ -3,7 +3,7 @@ import { statusToolCatalog } from "./catalog.ts";
 import { ToolRegistry, nodeScheduler } from "./registry.ts";
 
 export type StatusReader = (caller: McpAttribution) => {
-  permissionMode: McpStatus["permissionMode"];
+  access: McpStatus["access"];
   disabled?: Partial<Record<McpCapability, string>>;
   /** Whether this caller has a current app grant. False stages computer use discovery. */
   screenApproved?: boolean;
@@ -14,7 +14,7 @@ export const aceInstructions =
 
 export function createStatusRegistry(
   registry: ToolRegistry,
-  read: StatusReader = () => ({ permissionMode: null }),
+  read: StatusReader = () => ({ access: null }),
 ) {
   // Discovery is mandatory server metadata, independent of the backend tool admission limit.
   const status = new ToolRegistry({
@@ -31,8 +31,8 @@ export function createStatusRegistry(
       return {
         threadId: caller.threadId,
         agentId: caller.agentId,
-        permissionMode: state.permissionMode,
-        groups: mcpStatusGroups(registered, capabilities, state.disabled, state.permissionMode),
+        access: state.access,
+        groups: mcpStatusGroups(registered, capabilities, state.disabled, state.access),
       };
     },
   });
@@ -44,14 +44,14 @@ export function mcpStatusGroups(
   registered: ReadonlySet<McpCapability>,
   capabilities: readonly McpCapability[],
   disabled?: Partial<Record<McpCapability, string>>,
-  permissionMode?: McpStatus["permissionMode"],
+  access?: McpStatus["access"],
 ): McpStatus["groups"] {
   return [
     { name: "thread", enabled: true },
     ...McpCapability.options.map((name) => {
       const reason =
         disabled?.[name] ??
-        (permissionMode === "read-only" && (name === "screen" || name === "devices")
+        (access === "read-only" && (name === "screen" || name === "devices")
           ? "Read-only mode refuses this tool group."
           : undefined) ??
         (!registered.has(name) ? "This ace daemon is not running this tool group." : undefined) ??

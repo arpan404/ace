@@ -6,6 +6,16 @@
     "agents": {
       "items": {
         "properties": {
+          "access": {
+            "$ref": "https://ace.local/protocol/v1/AccessRequest.json"
+          },
+          "accessModes": {
+            "items": {
+              "$ref": "https://ace.local/protocol/v1/AccessMode.json"
+            },
+            "maxItems": 4,
+            "type": "array"
+          },
           "accountId": {
             "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
           },
@@ -13,6 +23,17 @@
             "maxLength": 256,
             "minLength": 1,
             "type": "string"
+          },
+          "effort": {
+            "anyOf": [
+              {
+                "const": "inherit",
+                "type": "string"
+              },
+              {
+                "$ref": "https://ace.local/protocol/v1/AgentEffort.json"
+              }
+            ]
           },
           "installationId": {
             "maxLength": 256,
@@ -30,17 +51,7 @@
             "type": "string"
           },
           "options": {
-            "$ref": "https://ace.local/protocol/v1/AgentLaunchOptions.json"
-          },
-          "permissionMode": {
-            "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
-          },
-          "permissionModes": {
-            "items": {
-              "$ref": "https://ace.local/protocol/v1/NativePermissionMode.json"
-            },
-            "maxItems": 256,
-            "type": "array"
+            "$ref": "https://ace.local/protocol/v1/AgentServiceOptions.json"
           },
           "provider": {
             "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
@@ -49,7 +60,7 @@
         "required": [
           "provider",
           "model",
-          "permissionModes"
+          "accessModes"
         ],
         "type": "object"
       },

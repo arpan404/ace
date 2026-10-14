@@ -1,4 +1,4 @@
-import { NativePermissionMode, PermissionCapabilities } from "./permissions.ts";
+import { AccessModeOffer, NativePermissionMode, PermissionCapabilities } from "./permissions.ts";
 import { AcpIdentity } from "./agent-registry.ts";
 import { z } from "zod";
 
@@ -30,6 +30,8 @@ export type NativeRef = z.infer<typeof NativeRef>;
 export const Capabilities = z.object({
   permissions: PermissionCapabilities.optional(),
   permissionModes: z.array(NativePermissionMode).max(256).optional(),
+  /** The ace access modes the instance genuinely supports, least capable first. */
+  accessModes: z.array(AccessModeOffer).max(4).optional(),
   /** Omitted by older backends. Clients must retain their existing control policy. */
   approvals: z.enum(["interactive", "sandbox-only", "none"]).optional(),
   steeringMode: z.enum(["native", "interrupt-restart", "queue"]).optional(),

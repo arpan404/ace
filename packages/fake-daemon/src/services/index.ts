@@ -27,7 +27,7 @@ import { listModels, resolveModel } from "./models.ts";
 import { FakeSettings, type Push } from "./settings.ts";
 import { FakeActivityReads } from "./activity-reads.ts";
 import { FakeRegistry } from "./registry.ts";
-import { fakeProviderPermissions } from "../permissions.ts";
+import { fakeAccessModes, fakeProviderPermissions } from "../permissions.ts";
 
 type AccountSummary = z.infer<typeof Summary>;
 
@@ -670,6 +670,7 @@ export class FakeServices {
               requestId: message.requestId,
               ok: true,
               permissions: fakeProviderPermissions(message.provider),
+              accessModes: fakeAccessModes(message.provider),
             }
           : {
               type: "permissions.capabilities.result",

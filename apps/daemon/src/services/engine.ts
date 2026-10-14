@@ -19,6 +19,8 @@ import { activateCursorProvider } from "./cursor-activation.ts";
 import type { ProviderAdapter } from "@ace/engine-api";
 import { recoveryPorts, prepareQueuedInput } from "./recovery.ts";
 import { Engine } from "../engine/index.ts";
+import { accessDefaults } from "../engine/access-defaults.ts";
+import { projectAccess } from "../project-access.ts";
 import { discoverAdapters } from "../engine/adapters.ts";
 import type { ServiceContext } from "./types.ts";
 export async function startEngine(context: ServiceContext): Promise<void> {
@@ -238,12 +240,11 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       (async (id) => {
         const thread = store.getThread(id);
         if (!thread) throw new Error("Thread unavailable");
-        const workspace = store.getWorkspace(thread.workspaceId);
-        const entry = await services.settings?.get("permissions.providerModes", {
-          thread: id,
-          ...(workspace ? { workspace: workspace.path } : {}),
+        return accessDefaults({
+          project: projectAccess(store, thread.workspaceId),
+          daemon: (await services.settings?.get("access.defaultMode"))?.value,
+          custom: (await services.settings?.get("access.nativeModes"))?.value[thread.provider],
         });
-        return entry?.value[thread.provider] ?? null;
       }),
     selectInstance:
       engineOptions.selectInstance ??

@@ -46,12 +46,7 @@ export class DelegationAdmission {
         `No installed provider adapter for ${input.provider}`,
       );
     try {
-      this.deps.engine.childPermissionMode(
-        caller.threadId,
-        input.provider,
-        input.permissionMode,
-        input,
-      );
+      this.deps.engine.childAccess(caller.threadId, input.provider, input.access, input);
     } catch {
       throw ceilingRefusal(
         input.provider,
@@ -130,7 +125,7 @@ export class DelegationAdmission {
         now,
         configuredModel,
       );
-      const resolvedModel = selected.resolvedModel;
+      const { resolvedModel, resolvedEffort } = selected;
       const reservation: DelegationReservation = {
         record: {
           childId: ThreadId.parse(this.deps.id()),
@@ -140,6 +135,7 @@ export class DelegationAdmission {
           requestId: input.requestId,
           request: input,
           ...(resolvedModel ? { resolvedModel } : {}),
+          ...(resolvedEffort ? { resolvedEffort } : {}),
           depth: tree.depth + 1,
           createdAt: now,
           phase: "created",
@@ -218,13 +214,20 @@ export class DelegationAdmission {
             title: r.request.role.slice(0, 256),
             titleSource: "agent",
             ...(r.resolvedModel ? { model: r.resolvedModel } : {}),
-            ...(r.request.options ? { options: r.request.options } : {}),
+            ...(r.request.options || r.resolvedEffort
+              ? {
+                  options: {
+                    ...r.request.options,
+                    ...(r.resolvedEffort ? { effort: r.resolvedEffort } : {}),
+                  },
+                }
+              : {}),
             ...(current.accountId ? { accountId: current.accountId } : {}),
           },
         }),
         {
           parentThreadId: r.parentId,
-          ...(r.request.permissionMode ? { permissionMode: r.request.permissionMode } : {}),
+          ...(r.request.access ? { access: r.request.access } : {}),
         },
         prepared,
       );

@@ -11,9 +11,9 @@ test("permission retirement cannot expire the unsent command for the replacement
   const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames);
   cleanups.push(h.close);
   const id = await h.create();
-  expect(
-    h.command({ type: "thread.permission.set", threadId: id, permissionMode: "full-access" }).ok,
-  ).toBe(true);
+  expect(h.command({ type: "thread.permission.set", threadId: id, access: "full-access" }).ok).toBe(
+    true,
+  );
   h.command(
     { type: "thread.send", threadId: id, input: [{ type: "text", text: "continue" }] },
     "device",

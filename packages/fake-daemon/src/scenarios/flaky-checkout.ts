@@ -25,7 +25,7 @@ export function flakyCheckout(id = "thread-checkout"): Scenario {
       title: "Fix flaky checkout test",
       provider: "claude",
       // Manual approval/reconnect scenario; auto-review has its own audit scenarios.
-      permissionMode: "ask",
+      access: "ask",
       details: checkout({
         workspaceId: "billing-api",
         branch: "fix/checkout-flake",

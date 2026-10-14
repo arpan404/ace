@@ -80,7 +80,7 @@ export async function hostileWorkspace() {
   const created = h.service.command("plan-caller", {
     type: "thread.create",
     provider: "claude",
-    permissionMode: "plan",
+    access: "read-only",
     workspaceId: h.store.createWorkspace(h.home, "project"),
     input: [{ type: "text", text: "Plan only" }],
   });
@@ -117,7 +117,7 @@ export async function partialCloneWorkspace() {
   const result = h.service.command("plan-caller", {
     type: "thread.create",
     provider: "claude",
-    permissionMode: "plan",
+    access: "read-only",
     workspaceId: h.store.createWorkspace(h.home, "project"),
     input: [{ type: "text", text: "Plan only" }],
   });

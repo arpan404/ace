@@ -2,7 +2,7 @@ import { ForgePrWorktree } from "./forge-worktree.ts";
 import { ForgeIssueCommands, ForgeIssueRef } from "./forge-issues.ts";
 import { ProjectCommands } from "./projects.ts";
 import { ThreadMarkReadCommand } from "./thread-mark-read.ts";
-import { PermissionMode } from "./permissions.ts";
+import { AccessMode } from "./permissions.ts";
 import { WorkspaceCommands } from "./workspace-actions.ts";
 import { ForgeCommand } from "./forge.ts";
 import { ThreadOrganizationCommands, TurnOptions } from "./thread-client.ts";
@@ -53,7 +53,8 @@ export const CommandPayload = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("thread.permission.set"),
     threadId: ThreadId,
-    permissionMode: PermissionMode.nullable(),
+    /** The thread's own access mode; null follows the project, then the daemon default. */
+    access: AccessMode.nullable(),
   }),
   ...QueueCommands,
   ...TransitionCommands,
@@ -71,7 +72,7 @@ export const CommandPayload = z.discriminatedUnion("type", [
     type: z.literal("thread.create"),
     pullRequest: ForgePrWorktree.optional(),
     issue: ForgeIssueRef.optional(),
-    permissionMode: PermissionMode.optional(),
+    access: AccessMode.optional(),
     /** Explicit portable fork/migration, preserving the source and allocating fresh native state. */
     handoffFrom: ThreadId.optional(),
     workspaceId: WorkspaceId,

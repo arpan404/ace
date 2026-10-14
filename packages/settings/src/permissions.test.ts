@@ -1,169 +1,83 @@
 import { expect, test } from "vitest";
 import { readFile } from "node:fs/promises";
 import { fixture } from "./test-support.ts";
-test("new settings leave native defaults alone and provider overrides survive reopening", async () => {
+
+test("a new daemon starts new threads in Auto review and remembers the person's choice", async () => {
   const f = await fixture();
   try {
-    expect((await f.service.get("permissions.providerModes")).value).toEqual({});
-    await f.service.set(
-      "permissions.providerModes",
-      { claude: "acceptEdits", opencode: "plan" },
-      { kind: "global" },
+    expect((await f.service.get("access.defaultMode")).value).toBe("auto-review");
+    await f.service.set("access.defaultMode", "ask", { kind: "global" });
+    expect((await f.service.get("access.defaultMode")).value).toBe("ask");
+    expect(JSON.parse(await readFile(f.globalPath, "utf8")).settings["access.defaultMode"]).toBe(
+      "ask",
     );
-    expect((await f.service.get("permissions.providerModes")).value).toEqual({
-      claude: "acceptEdits",
-      opencode: "plan",
-    });
-    expect(
-      JSON.parse(await readFile(f.globalPath, "utf8")).settings["permissions.providerModes"],
-    ).toEqual({ claude: "acceptEdits", opencode: "plan" });
   } finally {
     await f.close();
   }
 });
+
 test.each([
-  ["ask", "default", ":read-only"],
-  ["auto-review", "auto", '{"permissions":":workspace","approvalsReviewer":"auto_review"}'],
-  ["full-access", "bypassPermissions", ":danger-full-access"],
+  [{ claude: "default", codex: ":read-only", opencode: "plan" }, "read-only"],
+  [{ claude: "acceptEdits", codex: ":workspace", cursor: "{}" }, "auto-review"],
+  [{ claude: "bypassPermissions", codex: ":danger-full-access" }, "full-access"],
+  // A tie goes to the stricter mode.
+  [{ claude: "dontAsk", codex: ":danger-full-access" }, "ask"],
 ] as const)(
-  "stored %s migrates once into separate native selections",
-  async (old, claude, codex) => {
+  "stored per-provider modes %j map once to the daemon default %s",
+  async (providerModes, expected) => {
     const f = await fixture();
     try {
-      await f.write(f.globalPath, { "permissions.defaultMode": old, "future.setting": "retained" });
-      expect((await f.service.get("permissions.providerModes")).value).toMatchObject({
-        claude,
-        codex,
+      await f.write(f.globalPath, {
+        "permissions.providerModes": providerModes,
+        "future.setting": "retained",
       });
+      expect((await f.service.get("access.defaultMode")).value).toBe(expected);
       await f.service.set("threads.autoSettleAfter", "1w", { kind: "global" });
       const text = await readFile(f.globalPath, "utf8");
       expect(text).toContain('"future.setting"');
-      expect(text).not.toContain(`"permissions.defaultMode": "${old}"`);
-      expect((await f.service.get("permissions.providerModes")).value).toMatchObject({
-        claude,
-        codex,
-      });
+      expect(text).not.toContain("permissions.providerModes");
+      expect((await f.service.get("access.defaultMode")).value).toBe(expected);
     } finally {
       await f.close();
     }
   },
 );
-test("a legacy client can replace a provider default without persisting the ace mode", async () => {
+
+test.each([
+  [{ "permissions.defaultMode": "full-access" }, "full-access"],
+  [{ "approvals.policy": "never" }, "full-access"],
+  [{ "approvals.policy": "on-failure" }, "auto-review"],
+] as const)("an older global mode %j maps once to %s", async (stored, expected) => {
   const f = await fixture();
   try {
-    await f.service.set("permissions.defaultMode", "ask", { kind: "global" });
-    await f.service.set("approvals.policy", "never", { kind: "global" });
-    expect((await f.service.get("permissions.providerModes")).value.claude).toBe(
-      "bypassPermissions",
-    );
-    expect(
-      JSON.parse(await readFile(f.globalPath, "utf8")).settings["approvals.policy"],
-    ).toBeUndefined();
+    await f.write(f.globalPath, stored);
+    expect((await f.service.get("access.defaultMode")).value).toBe(expected);
+    const text = await readFile(f.globalPath, "utf8");
+    expect(text).not.toContain("permissions.defaultMode");
+    expect(text).not.toContain("approvals.policy");
   } finally {
     await f.close();
   }
 });
 
-test("a project overrides one provider and keeps following other global defaults after restart", async () => {
-  const f = await fixture();
-  const scope = { workspace: f.workspace };
-  try {
-    await f.service.set(
-      "permissions.providerModes",
-      { claude: "default", opencode: "plan" },
-      { kind: "global" },
-    );
-    await f.service.set(
-      "permissions.providerModes",
-      { claude: "acceptEdits" },
-      { kind: "workspace", workspace: f.workspace },
-    );
-    expect((await f.service.get("permissions.providerModes", scope)).value).toEqual({
-      claude: "acceptEdits",
-      opencode: "plan",
-    });
-    await f.service.set(
-      "permissions.providerModes",
-      { claude: "auto", opencode: "build" },
-      { kind: "global" },
-    );
-    expect((await f.service.get("permissions.providerModes", scope)).value).toEqual({
-      claude: "acceptEdits",
-      opencode: "build",
-    });
-    const { SettingsService } = await import("./index.ts");
-    const restarted = new SettingsService({ dataDir: f.dataDir });
-    try {
-      expect((await restarted.get("permissions.providerModes", scope)).value).toEqual({
-        claude: "acceptEdits",
-        opencode: "build",
-      });
-    } finally {
-      await restarted.close();
-    }
-    await f.service.set(
-      "permissions.providerModes",
-      {},
-      { kind: "workspace", workspace: f.workspace },
-    );
-    expect((await f.service.get("permissions.providerModes", scope)).value.claude).toBe("auto");
-  } finally {
-    await f.close();
-  }
-});
-
-test("a legacy null permission default remains absence rather than a saved choice", async () => {
-  const f = await fixture();
-  try {
-    await f.write(f.globalPath, { "permissions.defaultMode": null });
-    expect((await f.service.get("permissions.providerModes")).value).toEqual({});
-  } finally {
-    await f.close();
-  }
-});
-
-test("preset ids stored per provider migrate once and removed OpenCode effects restore native defaults", async () => {
+test("an explicit daemon default wins over the mapping of older keys", async () => {
   const f = await fixture();
   try {
     await f.write(f.globalPath, {
-      "permissions.providerModes": {
-        claude: "auto-review",
-        codex: "full-access",
-        cursor: "ask",
-        opencode: "allow",
-        acp: "ask",
-      },
-      "future.setting": "retained",
+      "access.defaultMode": "read-only",
+      "permissions.providerModes": { claude: "bypassPermissions" },
     });
-    const expected = {
-      claude: "auto",
-      codex: ":danger-full-access",
-      cursor: '{"sandboxOptions":{"enabled":true},"autoReview":false}',
-      acp: "ask",
-    };
-    expect((await f.service.get("permissions.providerModes")).value).toEqual(expected);
-    const stored = JSON.parse(await readFile(f.globalPath, "utf8"));
-    expect(stored.settings["permissions.providerModes"]).toEqual(expected);
-    expect(stored.settings["future.setting"]).toBe("retained");
-    await f.service.set("threads.autoSettleAfter", "1w", { kind: "global" });
-    expect((await f.service.get("permissions.providerModes")).value).toEqual(expected);
+    expect((await f.service.get("access.defaultMode")).value).toBe("read-only");
   } finally {
     await f.close();
   }
 });
 
-test.each(["read-only", "ask"])("native ACP %s survives saving and reopening", async (id) => {
+test("an Advanced native mode is stored per provider", async () => {
   const f = await fixture();
   try {
-    await f.service.set("permissions.providerModes", { acp: id }, { kind: "global" });
-    expect((await f.service.get("permissions.providerModes")).value).toEqual({ acp: id });
-    const { SettingsService } = await import("./index.ts");
-    const restarted = new SettingsService({ dataDir: f.dataDir });
-    try {
-      expect((await restarted.get("permissions.providerModes")).value).toEqual({ acp: id });
-    } finally {
-      await restarted.close();
-    }
+    await f.service.set("access.nativeModes", { codex: "my-profile" }, { kind: "global" });
+    expect((await f.service.get("access.nativeModes")).value).toEqual({ codex: "my-profile" });
   } finally {
     await f.close();
   }

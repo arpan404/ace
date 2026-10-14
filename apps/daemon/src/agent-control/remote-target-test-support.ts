@@ -56,7 +56,7 @@ export async function remoteTarget(policy: Partial<DelegationPolicy> = {}) {
           {
             provider: "claude",
             model: "chosen-model",
-            permissionModes: [{ id: "plan", label: "Safe", description: "safe", risk: "low" }],
+            accessModes: ["read-only"],
           },
         ],
       }),

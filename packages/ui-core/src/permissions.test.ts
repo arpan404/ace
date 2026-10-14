@@ -1,92 +1,61 @@
 import { expect, test } from "vitest";
-import {
-  permissionAdmission,
-  permissionChoices,
-  permissionFallback,
-  threadPermissionSummary,
-} from "./permissions.ts";
-import { offeredOptions } from "./approvals.ts";
-const capabilities = {
-  modes: ["default", "acceptEdits"],
-  nativeAutoReview: false,
-  toolGate: true,
-  permissionModes: [
-    { id: "default", label: "Manual", description: "Native manual", risk: "medium" as const },
-    {
-      id: "acceptEdits",
-      label: "Accept edits",
-      description: "Native edits",
-      risk: "medium" as const,
-    },
-  ],
-};
-test("pickers preserve native labels and reset a different provider's id to the native default", () => {
-  expect(permissionChoices(capabilities).map((choice) => choice.label)).toEqual([
-    "Manual",
-    "Accept edits",
+import { accessModeOffers } from "@ace/provider-kit/access-modes";
+import { accessChoices, supportedAccess, threadAccessSummary } from "./permissions.ts";
+
+const offers = (provider: "claude" | "opencode" | "cursor") => accessModeOffers({ provider });
+
+test("the access menu shows ace's four modes, without the ones a provider can't express", () => {
+  expect(accessChoices(offers("claude")).map((choice) => choice.label)).toEqual([
+    "Read-only",
+    "Ask",
+    "Auto review",
+    "Full access",
   ]);
-  expect(permissionAdmission(capabilities, "deny", "Claude").mode).toBeUndefined();
-  expect(permissionFallback(capabilities, "acceptEdits")).toBe("acceptEdits");
-});
-test("native permanent approval options remain available in every provider mode", () => {
-  const options = [
-    { id: "always", label: "Always allow", kind: "allow_always" as const },
-    { id: "deny", label: "Deny", kind: "deny" as const },
-  ];
-  expect(offeredOptions(options, "default")).toEqual({ options, hidden: 0 });
+  expect(accessChoices(offers("opencode")).map((choice) => choice.label)).toEqual([
+    "Read-only",
+    "Ask",
+    "Full access",
+  ]);
+  expect(accessChoices(offers("cursor")).map((choice) => choice.label)).toEqual([
+    "Auto review",
+    "Full access",
+  ]);
+  expect(accessChoices(offers("claude")).filter((choice) => choice.attention)).toEqual([
+    expect.objectContaining({ mode: "full-access" }),
+  ]);
 });
 
-test("returning to the provider default remains visible while the previous native mode is still effective", () => {
-  const summary = threadPermissionSummary(
-    { override: "acceptEdits", effective: "acceptEdits", pending: false },
-    capabilities,
-    { chosen: null },
+test("a default a provider lacks runs as its nearest stricter mode and the chip says why", () => {
+  expect(supportedAccess("auto-review", offers("opencode"))).toBe("ask");
+  expect(supportedAccess("ask", offers("cursor"))).toBeUndefined();
+  const summary = threadAccessSummary(
+    { override: null, effective: "ask", pending: false },
+    offers("opencode"),
+    { defaultMode: "auto-review", provider: "OpenCode" },
   );
-  expect(summary).toMatchObject({ mode: "acceptEdits", next: null, inherited: true });
+  expect(summary).toMatchObject({
+    mode: "ask",
+    label: "Ask",
+    inherited: true,
+    stricter: "Auto review isn't available for OpenCode",
+  });
 });
 
-test("verified full access names preserve the native selection, risk and provider-specific coverage", () => {
-  const native = {
-    ...capabilities,
-    permissionModes: [
-      {
-        id: "yolo",
-        label: "YOLO",
-        description: "Native policy applies",
-        risk: "high" as const,
-        presentation: "full-access" as const,
-      },
-      {
-        id: "review",
-        label: "Guardian review",
-        description: "Separate reviewer",
-        risk: "medium" as const,
-      },
-    ],
-  };
-  const choices = permissionChoices(native);
-  expect(choices).toEqual([
-    {
-      mode: "yolo",
-      label: "Full access",
-      description: "Native policy applies",
-      coverage: "Native policy applies",
-      attention: true,
-    },
-    {
-      mode: "review",
-      label: "Guardian review",
-      description: "Separate reviewer",
-      coverage: "Separate reviewer",
-      attention: false,
-    },
-  ]);
-  expect(permissionAdmission(native, choices[0]?.mode, "Gemini").mode).toBe("yolo");
+test("a chosen mode shows as pending until the provider runs it", () => {
+  const summary = threadAccessSummary(
+    { override: "ask", effective: "ask", pending: false },
+    offers("claude"),
+    { chosen: "full-access" },
+  );
+  expect(summary).toMatchObject({ mode: "ask", next: "full-access", inherited: false });
+});
+
+test("an Advanced native override reads as Custom", () => {
   expect(
-    threadPermissionSummary({ override: "yolo", effective: "yolo", pending: false }, native)?.label,
-  ).toBe("Full access");
-  expect(
-    threadPermissionSummary({ override: "yolo", effective: "yolo", pending: false }, capabilities)
-      ?.label,
-  ).toBe("Other mode");
+    threadAccessSummary(
+      { override: null, effective: null, custom: "my-profile", pending: false },
+      offers("claude"),
+      { defaultMode: "auto-review" },
+    ),
+  ).toMatchObject({ label: "Custom", custom: "my-profile", mode: null, stricter: undefined });
 });

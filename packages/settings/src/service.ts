@@ -3,7 +3,6 @@ import { resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
   SettingsKey,
-  SettingsValues as SettingsSchemas,
   type SettingsValues,
   type SettingsDiagnostic,
   type SettingsProvenance,
@@ -136,24 +135,6 @@ export class SettingsService {
         value: this.overrides[key] as SettingsValues[K],
         provenance: "environment",
       });
-    if (key === "permissions.providerModes") {
-      let value: SettingsValues["permissions.providerModes"] = {};
-      let provenance: SettingsProvenance = "defaults";
-      for (const { file, layer } of files) {
-        const own = file.document.settings["permissions.providerModes"];
-        if (own !== undefined) {
-          Object.assign(value, own);
-          provenance = layer;
-        }
-      }
-      const localValue = files.at(-1)?.file.document.settings["permissions.providerModes"] ?? {};
-      return freeze({
-        key,
-        value: SettingsSchemas.shape[key].parse(value) as SettingsValues[K],
-        provenance,
-        localValue,
-      });
-    }
     for (let index = files.length - 1; index >= 0; index--) {
       const file = files[index];
       if (file && Object.hasOwn(file.file.document.settings, key)) {
