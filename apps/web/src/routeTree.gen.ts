@@ -10,7 +10,6 @@
 
 import { Route as rootRouteImport } from "./routes/__root"
 import { Route as HomeRouteImport } from "./routes/_home"
-import { Route as ActivityRouteImport } from "./routes/activity"
 import { Route as AutomationsRouteImport } from "./routes/automations"
 import { Route as PairRouteImport } from "./routes/pair"
 import { Route as SettingsRouteImport } from "./routes/settings"
@@ -20,7 +19,6 @@ import { Route as UsageRouteImport } from "./routes/usage"
 import { Route as HomeIndexRouteImport } from "./routes/_home.index"
 import { Route as HomeArchivedRouteImport } from "./routes/_home.archived"
 import { Route as HomeNewRouteImport } from "./routes/_home.new"
-import { Route as ActivityIndexRouteImport } from "./routes/activity.index"
 import { Route as AutomationsIndexRouteImport } from "./routes/automations.index"
 import { Route as AutomationsNewRouteImport } from "./routes/automations.new"
 import { Route as SettingsIndexRouteImport } from "./routes/settings.index"
@@ -45,11 +43,6 @@ import { Route as HomeTThreadIdAgentsAgentIdRouteImport } from "./routes/_home.t
 
 const HomeRoute = HomeRouteImport.update({
   id: "/_home",
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ActivityRoute = ActivityRouteImport.update({
-  id: "/activity",
-  path: "/activity",
   getParentRoute: () => rootRouteImport,
 } as any)
 const AutomationsRoute = AutomationsRouteImport.update({
@@ -96,11 +89,6 @@ const HomeNewRoute = HomeNewRouteImport.update({
   id: "/new",
   path: "/new",
   getParentRoute: () => HomeRoute,
-} as any)
-const ActivityIndexRoute = ActivityIndexRouteImport.update({
-  id: "/",
-  path: "/",
-  getParentRoute: () => ActivityRoute,
 } as any)
 const AutomationsIndexRoute = AutomationsIndexRouteImport.update({
   id: "/",
@@ -214,7 +202,6 @@ const HomeTThreadIdAgentsAgentIdRoute =
 
 export interface FileRoutesByFullPath {
   "/": typeof HomeIndexRoute
-  "/activity": typeof ActivityRouteWithChildren
   "/automations": typeof AutomationsRouteWithChildren
   "/pair": typeof PairRoute
   "/settings": typeof SettingsRouteWithChildren
@@ -235,7 +222,6 @@ export interface FileRoutesByFullPath {
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
-  "/activity/": typeof ActivityIndexRoute
   "/automations/": typeof AutomationsIndexRoute
   "/settings/": typeof SettingsIndexRoute
   "/skills/": typeof SkillsIndexRoute
@@ -265,7 +251,6 @@ export interface FileRoutesByTo {
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
   "/": typeof HomeIndexRoute
-  "/activity": typeof ActivityIndexRoute
   "/automations": typeof AutomationsIndexRoute
   "/settings": typeof SettingsIndexRoute
   "/skills": typeof SkillsIndexRoute
@@ -279,7 +264,6 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   "/_home": typeof HomeRouteWithChildren
-  "/activity": typeof ActivityRouteWithChildren
   "/automations": typeof AutomationsRouteWithChildren
   "/pair": typeof PairRoute
   "/settings": typeof SettingsRouteWithChildren
@@ -301,7 +285,6 @@ export interface FileRoutesById {
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
   "/_home/": typeof HomeIndexRoute
-  "/activity/": typeof ActivityIndexRoute
   "/automations/": typeof AutomationsIndexRoute
   "/settings/": typeof SettingsIndexRoute
   "/skills/": typeof SkillsIndexRoute
@@ -316,7 +299,6 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | "/"
-    | "/activity"
     | "/automations"
     | "/pair"
     | "/settings"
@@ -337,7 +319,6 @@ export interface FileRouteTypes {
     | "/settings/source-control"
     | "/settings/storage"
     | "/skills/$skillId"
-    | "/activity/"
     | "/automations/"
     | "/settings/"
     | "/skills/"
@@ -367,7 +348,6 @@ export interface FileRouteTypes {
     | "/settings/storage"
     | "/skills/$skillId"
     | "/"
-    | "/activity"
     | "/automations"
     | "/settings"
     | "/skills"
@@ -380,7 +360,6 @@ export interface FileRouteTypes {
   id:
     | "__root__"
     | "/_home"
-    | "/activity"
     | "/automations"
     | "/pair"
     | "/settings"
@@ -402,7 +381,6 @@ export interface FileRouteTypes {
     | "/settings/storage"
     | "/skills/$skillId"
     | "/_home/"
-    | "/activity/"
     | "/automations/"
     | "/settings/"
     | "/skills/"
@@ -416,7 +394,6 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   HomeRoute: typeof HomeRouteWithChildren
-  ActivityRoute: typeof ActivityRouteWithChildren
   AutomationsRoute: typeof AutomationsRouteWithChildren
   PairRoute: typeof PairRoute
   SettingsRoute: typeof SettingsRouteWithChildren
@@ -432,13 +409,6 @@ declare module "@tanstack/react-router" {
       path: ""
       fullPath: "/"
       preLoaderRoute: typeof HomeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    "/activity": {
-      id: "/activity"
-      path: "/activity"
-      fullPath: "/activity"
-      preLoaderRoute: typeof ActivityRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/automations": {
@@ -503,13 +473,6 @@ declare module "@tanstack/react-router" {
       fullPath: "/new"
       preLoaderRoute: typeof HomeNewRouteImport
       parentRoute: typeof HomeRoute
-    }
-    "/activity/": {
-      id: "/activity/"
-      path: "/"
-      fullPath: "/activity/"
-      preLoaderRoute: typeof ActivityIndexRouteImport
-      parentRoute: typeof ActivityRoute
     }
     "/automations/": {
       id: "/automations/"
@@ -679,18 +642,6 @@ const HomeRouteChildren: HomeRouteChildren = {
 
 const HomeRouteWithChildren = HomeRoute._addFileChildren(HomeRouteChildren)
 
-interface ActivityRouteChildren {
-  ActivityIndexRoute: typeof ActivityIndexRoute
-}
-
-const ActivityRouteChildren: ActivityRouteChildren = {
-  ActivityIndexRoute: ActivityIndexRoute,
-}
-
-const ActivityRouteWithChildren = ActivityRoute._addFileChildren(
-  ActivityRouteChildren,
-)
-
 interface AutomationsRouteChildren {
   AutomationsNewRoute: typeof AutomationsNewRoute
   AutomationsIndexRoute: typeof AutomationsIndexRoute
@@ -760,7 +711,6 @@ const SkillsRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   HomeRoute: HomeRouteWithChildren,
-  ActivityRoute: ActivityRouteWithChildren,
   AutomationsRoute: AutomationsRouteWithChildren,
   PairRoute: PairRoute,
   SettingsRoute: SettingsRouteWithChildren,
