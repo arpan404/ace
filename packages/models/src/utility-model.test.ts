@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { CatalogModel, ProviderStatus, type ProviderKind } from "@ace/protocol";
+import { modelEfforts } from "./efforts.ts";
 import { readyProviders, resolveUtilityModel } from "./utility-model.ts";
 
 const ready = (provider: ProviderKind, readiness: ProviderStatus["readiness"] = "signed_in") =>
@@ -20,7 +21,7 @@ const model = (provider: ProviderKind, id: string, extra: Partial<CatalogModel> 
     provider,
     instance: `${provider}-cli-default`,
     nativeModelId: id,
-    reasoningEfforts: [],
+    efforts: modelEfforts([]),
     serviceTiers: [],
     inputModalities: ["text"],
     isDefault: false,
@@ -30,10 +31,13 @@ const model = (provider: ProviderKind, id: string, extra: Partial<CatalogModel> 
     ...extra,
   });
 const catalog = [
-  model("codex", "gpt-6.1-sol", { reasoningEfforts: ["low", "medium", "high"], isDefault: true }),
-  model("codex", "gpt-6-luna", { reasoningEfforts: ["medium", "minimal", "high"] }),
+  model("codex", "gpt-6.1-sol", {
+    efforts: modelEfforts(["low", "medium", "high"]),
+    isDefault: true,
+  }),
+  model("codex", "gpt-6-luna", { efforts: modelEfforts(["medium", "minimal", "high"]) }),
   model("claude", "claude-opus-5-5", { isDefault: true }),
-  model("claude", "claude-haiku-4-5", { reasoningEfforts: ["high", "low"] }),
+  model("claude", "claude-haiku-4-5", { efforts: modelEfforts(["high", "low"]) }),
   model("opencode", "anthropic/claude-sonnet-5-2"),
   model("opencode", "opencode/big-pickle", { free: true }),
 ];

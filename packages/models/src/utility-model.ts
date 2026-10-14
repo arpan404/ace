@@ -42,15 +42,15 @@ export const utilityProviders: readonly ProviderKind[] = utilityFallbacks.map(
   (entry) => entry.provider,
 );
 
-const effortOrder = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
-/** The lowest effort the model takes, or none when it has no effort choice. */
-export function lowestEffort(model: Pick<CatalogModel, "reasoningEfforts">): string | undefined {
-  let best: string | undefined;
-  for (const effort of model.reasoningEfforts) {
-    const rank = effortOrder.indexOf(effort);
-    if (rank >= 0 && (best === undefined || rank < effortOrder.indexOf(best))) best = effort;
+const effortOrder = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
+/** The lowest effort the model takes (its native id), or none when it has no effort choice. */
+export function lowestEffort(model: Pick<CatalogModel, "efforts">): string | undefined {
+  let best: { id: string; rank: number } | undefined;
+  for (const effort of model.efforts) {
+    const rank = effort.level ? effortOrder.indexOf(effort.level) : -1;
+    if (rank >= 0 && (best === undefined || rank < best.rank)) best = { id: effort.id, rank };
   }
-  return best;
+  return best?.id ?? model.efforts[0]?.id;
 }
 
 /** The providers the daemon reports installed, enabled and signed in. */
