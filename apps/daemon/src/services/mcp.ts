@@ -5,7 +5,7 @@ import { toolResultObserver } from "../tool-result-mcp.ts";
 import { requestDeviceAccess } from "../device-access.ts";
 import { providerMcpSources } from "../provider-mcp-sources.ts";
 import { measurementObserver } from "../measurement-mcp.ts";
-import { type CallObserver, agentControlToolkit } from "@ace/mcp-server";
+import { type CallObserver, agentControlToolkit, PublicToolError } from "@ace/mcp-server";
 import { devicesToolkit } from "@ace/devices";
 import { browserToolkit } from "../browser-toolkit.ts";
 import { screenToolkit } from "@ace/screen";
@@ -75,7 +75,19 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         },
       }),
       ...(options.toolkits ?? []),
-      ...(services.browser ? [browserToolkit(services.browser, store)] : []),
+      ...(services.browser
+        ? [
+            browserToolkit(services.browser, store, async (call, { caller, signal }) => {
+              const machines = services.machines;
+              if (!machines) throw new PublicToolError("machine_unavailable");
+              return machines.caller.browser(caller, call.machine, call.tool, call.args, {
+                readOnly: call.readOnly,
+                timeoutMs: call.timeoutMs,
+                signal,
+              });
+            }),
+          ]
+        : []),
       ...(services.devices
         ? [
             devicesToolkit(services.devices, undefined, async (deviceId, caller, signal) => {

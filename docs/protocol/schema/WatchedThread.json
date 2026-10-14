@@ -11,6 +11,10 @@
       "maxLength": 160,
       "type": "string"
     },
+    "machine": {
+      "maxLength": 64,
+      "type": "string"
+    },
     "needs": {
       "items": {
         "$ref": "https://ace.local/protocol/v1/WatchedRequest.json"

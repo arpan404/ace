@@ -138,27 +138,69 @@ const actions = {
   { riskClass: NonNullable<ApprovalTarget["riskClass"]>; description: string }
 >;
 
+/**
+ * Sends a browser tool to another paired machine's browser (ADR 0078). That machine runs it
+ * with its own origin consent; this side passes the tool, its arguments and whether it reads.
+ */
+export type BrowserMachineRoute = (
+  call: {
+    machine: string;
+    tool: string;
+    args: Record<string, unknown>;
+    readOnly: boolean;
+    timeoutMs: number;
+  },
+  context: import("@ace/mcp-server").ToolContext,
+) => Promise<unknown>;
+/** The optional `machine` argument every browser tool takes when routing is available. */
+export const browserMachineInput = {
+  machine: z
+    .string()
+    .regex(/^[a-zA-Z0-9_.-]{1,64}$/)
+    .optional()
+    .describe("Run in the browser of another paired machine from ace_machines."),
+};
+
 /** Agents use the human-opened browser and its existing origin/evaluate policy. */
 export function browserToolkit(
   service: Pick<BrowserService, "execute" | "screenshot">,
   startupReserveMs = 0,
+  route?: BrowserMachineRoute,
 ): BrowserToolkit {
   return {
     capability: "browser",
     register(registry) {
       for (const command of BrowserCommand.options) {
         const action = command.shape.action.value;
+        const timeoutMs = Math.min(300_000, startupReserveMs + 100_000);
+        const name = `ace_browser_${action}`;
         registry.registerContent({
-          name: `ace_browser_${action}`,
+          name,
           description: `In this thread's ace browser: ${actions[action].description}`,
           riskClass: actions[action].riskClass,
-          input: z.strictObject(
-            Object.fromEntries(Object.entries(command.shape).filter(([key]) => key !== "action")),
-          ),
+          input: z.strictObject<Record<string, z.ZodType>>({
+            ...Object.fromEntries(
+              Object.entries(command.shape).filter(([key]) => key !== "action"),
+            ),
+            ...(route ? browserMachineInput : {}),
+          }),
           capability: "browser",
-          timeoutMs: Math.min(300_000, startupReserveMs + 100_000),
-          async run(args, { caller, signal }) {
+          timeoutMs,
+          async run(input, context) {
+            const { caller, signal } = context;
             signal.throwIfAborted();
+            const { machine, ...args } = input;
+            if (route && typeof machine === "string")
+              return route(
+                {
+                  machine,
+                  tool: name,
+                  args,
+                  readOnly: actions[action].riskClass === "read-only",
+                  timeoutMs: timeoutMs - 5_000,
+                },
+                context,
+              );
             if (action === "measure_interaction") {
               // Registry reconstructs the command object schema, so apply the total-time refinement here.
               validateMeasurementBudget(

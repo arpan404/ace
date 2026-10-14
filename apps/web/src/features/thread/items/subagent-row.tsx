@@ -79,9 +79,11 @@ export function SubagentRow(props: { threadId: string; entry: SubagentEntry; fre
   const { entry } = props;
   const workspace = useWorkspaceActions(props.threadId);
   const status = subagentLabels[entry.state];
-  const label = entry.childThreadId
-    ? `Open ${entry.title}'s thread, ${status}`
-    : `Open ${entry.title}, ${status}`;
+  const label = entry.machine
+    ? `${entry.title} on ${entry.machine}, ${status}`
+    : entry.childThreadId
+      ? `Open ${entry.title}'s thread, ${status}`
+      : `Open ${entry.title}, ${status}`;
   // Status shows once: the avatar's dot, or, when it needs attention, words in its tone instead.
   const attention = needsAttention(entry.state);
   const stale = !props.fresh && !subagentTerminal(entry.state);
@@ -94,6 +96,11 @@ export function SubagentRow(props: { threadId: string; entry: SubagentEntry; fre
       />
       <span className="flex min-w-0 flex-1 items-center gap-2">
         <span className="min-w-0 truncate text-ui font-medium">{entry.title}</span>
+        {entry.machine && (
+          <span className="shrink-0 truncate text-xs text-muted-foreground">
+            on {entry.machine}
+          </span>
+        )}
         {(attention || stale) && (
           <span className={cn("shrink-0 text-xs", subagentTones[entry.state])}>
             {stale ? `Last seen: ${status}` : status}
@@ -113,7 +120,8 @@ export function SubagentRow(props: { threadId: string; entry: SubagentEntry; fre
     "flex min-h-(--row-height) pointer-coarse:min-h-11 w-full items-center gap-(--surface-gap) rounded-md px-(--surface-inset) py-[calc(var(--setting-row-padding)/2)] text-left transition-colors duration-(--motion-fast) hover:bg-accent focus-ring-inset";
   return (
     <li>
-      {entry.agentId || entry.childThreadId ? (
+      {/* A child on another machine has no thread here: it opens the Summary instead. */}
+      {!entry.machine && (entry.agentId || entry.childThreadId) ? (
         <SubagentLink
           subagent={{
             threadId: props.threadId,

@@ -50,3 +50,24 @@ test("administrator access still requires explicit Projects and Accounts grants"
   );
   expect(within(dialog).getByText("Administrator, Projects")).toBeTruthy();
 });
+
+test("agents on other devices stay out until the person lets them in, read-only first", async () => {
+  const app = harness();
+  await app.open("/settings/remote");
+  const control = await screen.findByRole("switch", {
+    name: "Agents on other devices can use this machine",
+  });
+  expect(control.getAttribute("aria-checked")).toBe("false");
+  expect(screen.queryByRole("combobox", { name: "Scope" })).toBeNull();
+  await waitFor(() => expect(control.hasAttribute("disabled")).toBe(false));
+  await userEvent.click(control);
+  await waitFor(() => expect(app.daemon.services.settings.get("remote.agentAccess")).toBe("read"));
+  const scope = await screen.findByRole("combobox", { name: "Scope" });
+  await userEvent.click(scope);
+  await userEvent.click(await screen.findByRole("option", { name: "Read and act" }));
+  await waitFor(() =>
+    expect(app.daemon.services.settings.get("remote.agentAccess")).toBe("operate"),
+  );
+  await userEvent.click(control);
+  await waitFor(() => expect(app.daemon.services.settings.get("remote.agentAccess")).toBe("off"));
+});

@@ -200,6 +200,14 @@
           ],
           "type": "string"
         },
+        "remote.agentAccess": {
+          "enum": [
+            "off",
+            "read",
+            "operate"
+          ],
+          "type": "string"
+        },
         "remote.enabled": {
           "type": "boolean"
         },

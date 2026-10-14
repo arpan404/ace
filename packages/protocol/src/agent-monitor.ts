@@ -37,6 +37,8 @@ export const WatchedThread = z.object({
   last: z.string().max(160).optional(),
   /** Requests waiting on the person, in this thread or its descendants. */
   needs: z.array(WatchedRequest).max(8).optional(),
+  /** The paired machine this child runs on, when it is not this one (ADR 0078). */
+  machine: z.string().max(64).optional(),
 });
 export type WatchedThread = z.infer<typeof WatchedThread>;
 export const WaitStatus = z.enum([
@@ -69,6 +71,7 @@ export const MonitoredChild = z.object({
   needs: z.number().int().positive().optional(),
   ask: z.string().max(100).optional(),
   last: z.string().max(100).optional(),
+  machine: z.string().max(64).optional(),
 });
 export type MonitoredChild = z.infer<typeof MonitoredChild>;
 export const MonitorSnapshot = z.object({

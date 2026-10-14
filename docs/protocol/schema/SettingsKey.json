@@ -40,6 +40,7 @@
     "threads.settleOnClose",
     "remote.enabled",
     "remote.transport",
+    "remote.agentAccess",
     "remote.relayUrl",
     "automations.enabled",
     "clients.theme",

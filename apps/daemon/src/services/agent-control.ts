@@ -7,6 +7,7 @@ import { RemoteDelegations } from "../agent-control/remote.ts";
 import { RemoteTaskJournal } from "../agent-control/remote-journal.ts";
 import { logError } from "@ace/diagnostics";
 import { agentControlCall } from "./agent-control-failure.ts";
+import { AgentControlError } from "../agent-control/failure.ts";
 import { createAgentOwners } from "../agent-control/owners.ts";
 import { DelegationService } from "../agent-control/delegations.ts";
 import { createAgentControlPort } from "../agent-control/tools.ts";
@@ -160,6 +161,24 @@ export function startAgentControl(context: ServiceContext): void {
   const port = createAgentControlPort(store, delegations, {
     ...options.agentControl?.extensions,
     delegateWorkspace: createWorkspaceDelegations(context, delegations),
+    // Machine calls start after this service; each call reads the live owner.
+    machines: {
+      list: async (caller) =>
+        services.machines
+          ? services.machines.caller.list(caller)
+          : { ok: false, code: "unsupported" },
+      delegate: async (caller, request, signal) => {
+        const machines = services.machines;
+        if (!machines) throw new AgentControlError("machine_unavailable", "machines_not_ready");
+        return machines.caller.delegate(caller, request, signal);
+      },
+      owns: (caller, child) => services.machines?.children.owns(caller, child) ?? false,
+      status: (child) => services.machines?.children.watched(child)?.view,
+      cancel: async (child) =>
+        services.machines
+          ? services.machines.caller.cancel(child)
+          : { ok: false, code: "not_found" },
+    },
     startConversation: createConversationStarts(context, delegations, delegations.conversations),
     remote: (caller, operation, signal) =>
       (operation.op === "device.task_publish"

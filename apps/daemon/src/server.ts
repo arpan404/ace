@@ -16,6 +16,7 @@ import { createServer as httpsServer } from "node:https";
 import { attachmentsHttp } from "./attachments-http.ts";
 import { iconsHttp } from "./icons-http.ts";
 import { accessHttp } from "./access-http.ts";
+import { machineCallsHttp } from "./machines/http.ts";
 import { webOriginAllowlist } from "./web-origins.ts";
 import { PreAuthAdmission } from "./socket-admission.ts";
 import { allows, type Device } from "./devices.ts";
@@ -132,27 +133,31 @@ export async function startServer(options: ServerOptions): Promise<{
       ),
     ),
   );
-  const remote = options.remote
-    ? httpsServer(
-        { ...options.remote.identity, minVersion: "TLSv1.2" },
-        webHttp(
-          options.webRoot,
-          attachmentsHttp(
+  // Paired devices only: one chain for the static and the runtime-toggled TLS listener.
+  const remoteHttp = () =>
+    machineCallsHttp(
+      () => options.machineCalls,
+      auth.deviceBearer.bind(auth),
+      webHttp(
+        options.webRoot,
+        attachmentsHttp(
+          options,
+          auth,
+          true,
+          iconsHttp(
             options,
             auth,
             true,
-            iconsHttp(
-              options,
-              auth,
-              true,
-              previewHttp(
-                () => preview,
-                accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
-              ),
+            previewHttp(
+              () => preview,
+              accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
             ),
           ),
         ),
-      )
+      ),
+    );
+  const remote = options.remote
+    ? httpsServer({ ...options.remote.identity, minVersion: "TLSv1.2" }, remoteHttp())
     : undefined;
   for (const listener of [local, remote])
     if (listener) {
@@ -694,23 +699,7 @@ export async function startServer(options: ServerOptions): Promise<{
       dynamicRemote = remoteRuntime(
         options,
         auth,
-        webHttp(
-          options.webRoot,
-          attachmentsHttp(
-            options,
-            auth,
-            true,
-            iconsHttp(
-              options,
-              auth,
-              true,
-              previewHttp(
-                () => preview,
-                accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
-              ),
-            ),
-          ),
-        ),
+        remoteHttp(),
         (listener) => attach(listener, false),
         () => {
           for (const socket of remoteSockets) socket.terminate();

@@ -17,6 +17,8 @@ export interface SubagentEntry {
   childThreadId?: string | undefined;
   provider?: ProviderKind | undefined;
   model?: string | undefined;
+  /** The paired machine it runs on, when that is not this one. */
+  machine?: string | undefined;
   title: string;
   state: SubagentState;
   startedAt: number;
@@ -116,6 +118,7 @@ export function readSubagentGroup(
       childThreadId: launch?.childThreadId ?? agent?.childThreadId,
       provider: launch?.provider ?? agent?.native.provider,
       model: launch?.model ?? agent?.model,
+      machine: launch?.machine?.name,
       title: launch?.title ?? (agent ? agentName(agent) : (spawn?.call.title ?? "Subagent")),
       state,
       startedAt: launch?.createdAt ?? agent?.createdAt ?? spawn?.createdAt ?? 0,
@@ -218,6 +221,7 @@ export function subagentEntriesEqual(
         entry.childThreadId === other.childThreadId &&
         entry.provider === other.provider &&
         entry.model === other.model &&
+        entry.machine === other.machine &&
         entry.title === other.title &&
         entry.state === other.state &&
         entry.startedAt === other.startedAt &&

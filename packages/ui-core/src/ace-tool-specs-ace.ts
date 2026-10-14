@@ -63,6 +63,7 @@ const aceSpecs: Record<string, AceToolSpec> = {
     const task = str(args, "task");
     return say(delegated, ` ${task ? quote(task, 56) : "a task"}`);
   }),
+  ace_machines: fixed("device", say(verbs.listed, " your machines")),
   ace_list_agents: fixed("agents", say(verbs.listed, " agents")),
   ace_wait: fixed("agents", say(verbs.waited, " subagents")),
   ace_agents_status: fixed("agents", say(["Checked", "Checking", "Check"], " subagents")),

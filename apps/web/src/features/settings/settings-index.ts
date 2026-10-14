@@ -209,6 +209,12 @@ const entries = [
     keywords: ["lan", "tailscale", "relay"],
   },
   {
+    id: "remote.agentAccess",
+    page: "/settings/remote",
+    title: "Agents on other devices can use this machine",
+    keywords: ["machines", "delegate", "cross-device", "mcp", "agents", "browser"],
+  },
+  {
     id: "host.displayName",
     page: "/settings/remote",
     title: "Machine name and icon",

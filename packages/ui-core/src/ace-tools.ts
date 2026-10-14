@@ -197,10 +197,28 @@ export function aceToolView(
   return spec && viewOf(spec, call, context);
 }
 
+/** "Went to github.com on studio": a call made on another paired machine says where. */
+function onMachine(words: ToolWords, args: Record<string, unknown>): ToolWords {
+  const machine = str(args, "machine");
+  if (!machine) return words;
+  // A code target follows the words, so the machine leads: "On studio, went to `x.com`".
+  const place = (text: string) =>
+    words.target ? `On ${machine}, ${lowerFirst(text)}` : `${text} on ${machine}`;
+  return {
+    ...words,
+    past: place(words.past),
+    running: place(words.running),
+    awaiting: place(words.awaiting),
+  };
+}
+
 function viewOf(spec: AceToolSpec, call: AceToolCall, context: AceToolContext): AceToolView {
   const args = record(call.args);
   const subject = subjectOf(spec, args, context);
-  let words = spec.words({ args, subject: subject.name, element: context.element });
+  let words = onMachine(
+    spec.words({ args, subject: subject.name, element: context.element }),
+    args,
+  );
   const raw: readonly RawPayload[] =
     call.result === undefined ? call.raw : [{ type: "result", data: call.result }, ...call.raw];
   const parts =
@@ -278,7 +296,10 @@ export function aceToolWords(server: string, tool: string, args?: unknown): Tool
   const spec = aceToolSpec(server, tool);
   if (!spec) return undefined;
   const facts = record(args);
-  return spec.words({ args: facts, subject: subjectOf(spec, facts, {}).name, element: undefined });
+  return onMachine(
+    spec.words({ args: facts, subject: subjectOf(spec, facts, {}).name, element: undefined }),
+    facts,
+  );
 }
 
 /* ---------------------------------------------------------------------------------------- */

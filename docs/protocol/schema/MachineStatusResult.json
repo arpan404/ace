@@ -1,0 +1,17 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineStatusResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "threads": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MachineThreadView.json"
+      },
+      "maxItems": 16,
+      "type": "array"
+    }
+  },
+  "required": [
+    "threads"
+  ],
+  "type": "object"
+}

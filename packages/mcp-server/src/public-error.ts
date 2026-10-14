@@ -67,6 +67,10 @@ export const PublicToolCode = z.enum([
   "command_failed",
   "lease_required",
   "limit",
+  "machine_offline",
+  "machine_unavailable",
+  "machine_forbidden",
+  "machine_disconnected",
 ]);
 export type PublicToolCode = z.infer<typeof PublicToolCode>;
 const candidateIds = z
@@ -323,6 +327,22 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   limit: {
     message: "Device operation exceeds its limit",
     hint: "Reduce the request or wait for current work to finish.",
+  },
+  machine_offline: {
+    message: "That machine is offline",
+    hint: "Ask the person to wake it and start ace there, then call ace_machines again, or do the work on this machine.",
+  },
+  machine_unavailable: {
+    message: "That machine is not available to agents",
+    hint: "Call ace_machines for the machines you may use. The person turns on agent access in Settings › Remote devices on that machine.",
+  },
+  machine_forbidden: {
+    message: "Not allowed on that machine",
+    hint: "Its agent access or pairing is read-only, or this thread is read-only. Use a read-only tool, or ask the person to change access.",
+  },
+  machine_disconnected: {
+    message: "The connection to that machine dropped during the call",
+    hint: "The action may or may not have run there. Check with a read-only tool before trying again.",
   },
 };
 export class PublicToolError extends Error {

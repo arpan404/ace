@@ -111,6 +111,10 @@ export const AgentItem = z.discriminatedUnion("type", [
     updatedAt: Timestamp,
     generation: z.number().int().nonnegative(),
     outcome: DelegationOutcome.nullable().default(null),
+    /** Set when the child runs on another paired machine; its thread lives there (ADR 0078). */
+    machine: z
+      .object({ machine: z.string().min(1).max(64), name: z.string().min(1).max(256) })
+      .optional(),
     raw: z.array(RawPayload).default([]),
   }),
   ItemBase.extend({

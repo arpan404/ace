@@ -2,6 +2,17 @@
   "$id": "https://ace.local/protocol/v1/DelegateTaskOperation.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
+  "examples": [
+    {
+      "machine": "studio",
+      "op": "delegate_task",
+      "project": "relay",
+      "provider": "claude",
+      "requestId": "review-on-studio",
+      "role": "Reviewer",
+      "task": "Review the 0.9 build and list failing benchmarks"
+    }
+  ],
   "properties": {
     "accountId": {
       "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
@@ -34,6 +45,9 @@
       "minLength": 1,
       "type": "string"
     },
+    "machine": {
+      "$ref": "https://ace.local/protocol/v1/MachineName.json"
+    },
     "model": {
       "maxLength": 256,
       "minLength": 1,
@@ -48,6 +62,11 @@
     },
     "permissionMode": {
       "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+    },
+    "project": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
     },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"

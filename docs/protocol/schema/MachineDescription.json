@@ -1,0 +1,51 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineDescription.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "access": {
+      "enum": [
+        "read",
+        "operate"
+      ],
+      "type": "string"
+    },
+    "hostId": {
+      "$ref": "https://ace.local/protocol/v1/HostId.json"
+    },
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "projects": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MachineProject.json"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "providers": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "tools": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MachineToolGroup.json"
+      },
+      "maxItems": 8,
+      "type": "array"
+    }
+  },
+  "required": [
+    "hostId",
+    "name",
+    "access",
+    "projects",
+    "tools",
+    "providers"
+  ],
+  "type": "object"
+}

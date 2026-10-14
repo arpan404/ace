@@ -54,6 +54,13 @@ export interface Services {
     delegations: import("../agent-control/delegations.ts").DelegationService;
     port: import("@ace/mcp-server").AgentControlPort;
   };
+  /** Agent calls from other paired machines, answered here (ADR 0078). */
+  machineCalls?: import("../machines/target.ts").MachineTarget;
+  /** Agents here using other paired machines (ADR 0078). */
+  machines?: {
+    caller: import("../machines/caller.ts").MachineCaller;
+    children: import("../machines/children.ts").MachineChildren;
+  };
   transitions?: import("../engine/transitions.ts").TransitionIO;
   pi?: import("./pi.ts").PiService;
   screen?: ScreenManager;

@@ -13,6 +13,10 @@ export function RemoteAccess() {
   const enabled = useSettingControl(settingKeys.remoteEnabled, "Remote access");
   const transport = useSettingControl(settingKeys.remoteTransport, "Transport");
   const relay = useSettingControl(settingKeys.relayUrl, "Relay address");
+  const agents = useSettingControl(
+    settingKeys.agentAccess,
+    "Agents on other devices can use this machine",
+  );
   const status = useRemoteStatus();
   const overridden =
     (status.data?.listenOverride !== null && status.data?.listenOverride !== undefined) ||
@@ -82,6 +86,36 @@ export function RemoteAccess() {
             ? "Encrypted access on your private Tailscale network. Tailscale must be running; ace never falls back to LAN."
             : "Use a relay you host yourself for encrypted files, delegation, browser and computer controls. Direct LAN access stays on for pairing and conversations."}
       </SettingNote>
+      <SettingRow
+        id="remote.agentAccess"
+        title="Agents on other devices can use this machine"
+        htmlFor={`${id}-agents`}
+        inline
+        compact
+      >
+        <DaemonSlot control={agents}>
+          <Switch
+            id={`${id}-agents`}
+            checked={agents.value !== "off"}
+            disabled={agents.offline || agents.pending}
+            onCheckedChange={(on) => agents.set(on ? "read" : "off")}
+          />
+        </DaemonSlot>
+      </SettingRow>
+      {agents.value !== "off" && (
+        <SettingRow title="Scope" inline compact>
+          <Select
+            label="Scope"
+            value={agents.value}
+            options={[
+              { value: "read", label: "Read only" },
+              { value: "operate", label: "Read and act" },
+            ]}
+            disabled={agents.offline || agents.pending}
+            onValueChange={agents.set}
+          />
+        </SettingRow>
+      )}
       {selected === "relay" && (
         <SettingRow title="Relay address" htmlFor={`${id}-relay`} compact>
           <Input

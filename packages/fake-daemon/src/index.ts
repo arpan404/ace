@@ -11,6 +11,7 @@ export { ScenarioPlayer } from "./scenario.ts";
 export type { PlayOptions, Scenario, Step, Timer } from "./scenario.ts";
 export { flakyCheckout } from "./scenarios/flaky-checkout.ts";
 export { delegatedDocs, delegatedDocsIds } from "./scenarios/delegated-docs.ts";
+export { crossDevice } from "./scenarios/cross-device.ts";
 export {
   childStatus,
   delegatedQuestion,

@@ -1318,7 +1318,7 @@ Example:
 
 ```json
 {
-  "key": "browser.allowedOrigins",
+  "key": "browser.backend",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"

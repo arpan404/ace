@@ -50,6 +50,7 @@ export const defaults: SettingsValues = {
   "threads.settleOnClose": false,
   "remote.enabled": false,
   "remote.transport": "local",
+  "remote.agentAccess": "off",
   "remote.relayUrl": "",
   "automations.enabled": false,
   "clients.theme": {},
