@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/ace_note_add.output.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "noteId": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "noteId",
+    "notes"
+  ],
+  "type": "object"
+}

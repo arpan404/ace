@@ -8,7 +8,10 @@ import {
   developerInstructions,
   openCodeInjection,
 } from "@ace/mcp-server";
-import { evalTasks } from "./tasks.ts";
+import { evalTasks as coreTasks } from "./tasks.ts";
+import { knowledgeTasks } from "./tasks-knowledge.ts";
+
+const evalTasks = [...coreTasks, ...knowledgeTasks];
 import { evalWorld } from "./world.ts";
 import { measureCatalogue, renderMarkdown, type CatalogueMetrics, type TaskRow } from "./report.ts";
 

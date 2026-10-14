@@ -7,6 +7,7 @@ import {
 } from "./status.ts";
 import { SessionAwareness, type AwarenessPort } from "./awareness.ts";
 import { withChanges } from "./changes.ts";
+import { knowledgeResources } from "./knowledge-tools.ts";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import { CredentialRegistry, type Principal } from "./credentials.ts";
@@ -28,6 +29,7 @@ export async function startMcpServer(options: McpServerOptions) {
     let screenApproved: boolean | undefined;
     return (name, capability) => {
       if (capability && state?.disabled?.[capability] !== undefined) return false;
+      if (name === "ace_ask" && state?.askAvailable === false) return false;
       if (capability === "screen" || capability === "devices") {
         if (state?.access === "read-only") return false;
         if (capability === "screen" && name !== "screen_request_app") {
@@ -202,6 +204,13 @@ async function createHandler(
               },
             ]
           : []),
+        ...(options.registry.capability("ace_context") === null
+          ? knowledgeResources.map((resource) => ({
+              uri: resource.uri,
+              name: resource.name,
+              mimeType: "application/json",
+            }))
+          : []),
         {
           uri: "ace://status",
           name: "ace status",
@@ -221,6 +230,25 @@ async function createHandler(
               uri: "ace://session",
               mimeType: "application/json",
               text: JSON.stringify({ brief: awareness.brief(principal), facts }),
+            },
+          ],
+        };
+      }
+      const knowledge = knowledgeResources.find((entry) => entry.uri === request.params.uri);
+      if (knowledge) {
+        const result = await options.registry.call(
+          "ace_context",
+          { topics: [knowledge.topic] },
+          principal,
+          context.mcpReq.signal,
+        );
+        if (result.isError || !result.structuredContent) throw new Error("Context unavailable");
+        return {
+          contents: [
+            {
+              uri: knowledge.uri,
+              mimeType: "application/json",
+              text: JSON.stringify(result.structuredContent),
             },
           ],
         };

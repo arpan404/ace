@@ -1,0 +1,31 @@
+{
+  "$id": "https://ace.local/protocol/v1/ace_ask.output.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "answer": {
+      "items": {
+        "maxLength": 4096,
+        "type": "string"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "askId": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "answered",
+        "declined",
+        "pending"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "askId"
+  ],
+  "type": "object"
+}

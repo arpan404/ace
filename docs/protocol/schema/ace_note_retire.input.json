@@ -1,0 +1,16 @@
+{
+  "$id": "https://ace.local/protocol/v1/ace_note_retire.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "noteId": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "noteId"
+  ],
+  "type": "object"
+}

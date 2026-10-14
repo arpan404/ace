@@ -3,6 +3,7 @@ import {
   maxBriefChars,
   maxBriefLines,
   maxDigestChars,
+  maxNotesChars,
   renderBrief,
   renderDigest,
   type SessionFacts,
@@ -21,6 +22,7 @@ const facts: SessionFacts = {
   children: [],
   pendingRequests: 0,
   lastFailure: null,
+  notes: [],
 };
 
 test("the brief states where the agent is and what its access allows", () => {
@@ -95,4 +97,17 @@ test("a settled child, a new access mode and an answered request are all reporte
   );
   expect(short).toContain("access is now read-only");
   expect(short).toContain("the person answered a request");
+});
+
+test("project notes ride along with the brief, quoted as data and capped", () => {
+  const brief = renderBrief({
+    ...facts,
+    notes: ["Use bun run test", ...Array.from({ length: 30 }, () => "n".repeat(300))],
+  });
+  expect(brief).toContain('- "Use bun run test"');
+  const notes = brief.slice(brief.indexOf("Project notes"));
+  expect(notes.length).toBeLessThanOrEqual(maxNotesChars);
+  expect(renderDigest(facts, { ...facts, notes: ["Port 4000"] })).toContain(
+    "project notes changed",
+  );
 });

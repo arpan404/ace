@@ -18,6 +18,8 @@ export interface AwarenessPort {
 export class SessionAwareness {
   private readonly seen = new WeakMap<Principal, SessionFacts>();
   private readonly failures = new WeakMap<Principal, string>();
+  /** Recent failed calls per session id, newest last; bounded in sessions and entries. */
+  private readonly failureLog = new Map<string, { tool: string; code: string; count: number }[]>();
   private readonly port: AwarenessPort;
   private readonly groups: (principal: Principal) => string[];
   constructor(port: AwarenessPort, groups: (principal: Principal) => string[]) {
@@ -58,5 +60,25 @@ export class SessionAwareness {
   }
   failed(principal: Principal, tool: string, code: string): void {
     this.failures.set(principal, `${tool} ${code}`.slice(0, 120));
+    const session = principal.scope.sessionId;
+    const log = this.failureLog.get(session) ?? [];
+    this.failureLog.delete(session);
+    const last = log.at(-1);
+    if (last && last.tool === tool && last.code === code) last.count++;
+    else log.push({ tool: tool.slice(0, 128), code: code.slice(0, 64), count: 1 });
+    if (log.length > 20) log.shift();
+    this.failureLog.set(session, log);
+    if (this.failureLog.size > 1024) {
+      const oldest = this.failureLog.keys().next().value;
+      if (oldest !== undefined) this.failureLog.delete(oldest);
+    }
+  }
+  /** This session's failed ace calls, newest first; repeats of the same failure are counted. */
+  recentFailures(sessionId: string): { tool: string; code: string; count: number }[] {
+    return (this.failureLog.get(sessionId) ?? []).toReversed().map(({ tool, code, count }) => ({
+      tool,
+      code,
+      count,
+    }));
   }
 }

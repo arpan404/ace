@@ -4,6 +4,7 @@ import { WorkspaceId } from "./ids.ts";
 import { BadgeColor } from "./badge-color.ts";
 import { ProviderKind } from "./provider-data.ts";
 import { AccessMode } from "./permissions.ts";
+import { ProjectNote, ProjectNoteEdit, maxProjectNotes } from "./project-notes.ts";
 
 /*
  * Projects as the core stream carries them: the project commands and the workspace and
@@ -116,6 +117,7 @@ export const Project = z.object({
   defaultIcon: ProjectIcon.nullable().optional(),
   badge: ProjectBadgeStyle.optional(),
   defaults: ProjectDefaults.optional(),
+  notes: z.array(ProjectNote).max(maxProjectNotes).optional(),
 });
 export type Project = z.infer<typeof Project>;
 export const ProjectInspection = z.object({
@@ -178,6 +180,8 @@ export const ProjectCommands = [
     badge: ProjectBadgeStyle.nullable().optional(),
     /** Replaces the project's new-thread defaults; null inherits every global setting. */
     defaults: ProjectDefaults.nullable().optional(),
+    /** Replaces the project's notes, in order. Omitted keeps them. */
+    notes: z.array(ProjectNoteEdit).max(maxProjectNotes).optional(),
   }),
   z.object({ type: z.literal("workspace.rename"), workspaceId: WorkspaceId, name: ProjectName }),
   z.object({

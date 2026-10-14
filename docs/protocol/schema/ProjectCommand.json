@@ -198,6 +198,13 @@
         "name": {
           "$ref": "https://ace.local/protocol/v1/ProjectName.json"
         },
+        "notes": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ProjectNoteEdit.json"
+          },
+          "maxItems": 50,
+          "type": "array"
+        },
         "type": {
           "const": "workspace.update",
           "type": "string"

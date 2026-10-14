@@ -80,6 +80,8 @@ export async function startDaemonMcp(
     url: server.url,
     toolNames: () => ["ace_status", ...registry.names()],
     toolsChanged: server.toolsChanged,
+    /** This session's failed ace calls, for diagnostics. */
+    failures: (sessionId: string) => server.awareness?.recentFailures(sessionId) ?? [],
     // ace_status lives in its own registry; its static catalog entry still attributes it.
     action: (name: string, input: unknown) =>
       registry.action(name, input) ?? aceToolAction(name, input),

@@ -86,3 +86,13 @@ export {
 export { SessionAwareness, type AwarenessPort } from "./awareness.ts";
 export { aceInstructions } from "./status.ts";
 export type { SessionGuidance } from "./injection.ts";
+export {
+  knowledgeToolkit,
+  knowledgeToolCatalog,
+  knowledgeResources,
+  ContextTopic,
+  ContextResult,
+  AskInput,
+  AskResult,
+  type KnowledgePort,
+} from "./knowledge-tools.ts";

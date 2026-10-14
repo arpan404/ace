@@ -217,6 +217,7 @@ export function readyServices(
   services.browserApprovals?.recover();
   services.handler = {
     handle: (command, store) =>
+      services.asks?.resolve(command) ??
       services.screenApprovals?.resolve(command) ??
       services.browserApprovals?.resolve(command) ??
       services.browserOrigins?.resolve(command) ??

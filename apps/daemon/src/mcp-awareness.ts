@@ -15,6 +15,8 @@ const liveStates = ["working", "needs_you", "waiting"];
 export function mcpAwareness(deps: {
   store: Store;
   delegations(): DelegationService | undefined;
+  /** Project notes for the brief; absent before projects start. */
+  notes(workspace: Thread["workspaceId"]): readonly string[];
   machine: string | null;
   /** Reads `.git/HEAD`; injected so tests and odd layouts can substitute it. */
   readHead?(cwd: string): string | null;
@@ -39,6 +41,7 @@ export function mcpAwareness(deps: {
         liveSiblings: liveSiblings(deps.store, thread),
         children: children(deps.store, deps.delegations(), thread.id),
         pendingRequests: thread.status.state === "needs_you" ? thread.status.interactions : 0,
+        notes: deps.notes(thread.workspaceId),
       };
     },
     delegates(caller: McpAttribution) {

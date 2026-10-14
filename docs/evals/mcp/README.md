@@ -29,6 +29,9 @@ Tasks:
 | `recent-work`                 | Find the project's earlier thread and its outcome                                                                                                        |
 | `visualize`                   | Render a small HTML comparison                                                                                                                           |
 | `recover-bad-argument`        | Six tools, one slipped argument each; repair using only the error payload (proposal P3, test a)                                                          |
+| `pr-and-changes`              | Say whether this work already has a PR and what is uncommitted                                                                                           |
+| `notes-respected`             | A lesson one thread saved reaches the next thread: no wrong test command                                                                                 |
+| `ask-waits-on-person`         | A delegated child asks the person through ace; it waits on them and gets the answer                                                                      |
 | `child-waits-on-human` (gate) | A delegated child is waiting on the person; it must never be reported done                                                                               |
 | `read-only-no-screen` (gate)  | In a read-only thread, screen and device tools are absent and never attempted, while a full-access control thread on the same daemon is offered them     |
 
@@ -62,6 +65,11 @@ Committed reports:
   The oracle policies read the brief when the instructions carry one, and repair arguments from
   the error's `issues` paths. The browser fixture now draws its heading only after its failing
   request settles, so `wait_for` makes the network check deterministic.
+
+- [`before-stage4.md`](before-stage4.md) and [`after-stage4.md`](after-stage4.md): the stage-4
+  tasks (`pr-and-changes`, `notes-respected`, `ask-waits-on-person`), run on the stage 2 branch
+  and then with project knowledge (`ace_context`), project notes, the built-in workflow skills,
+  `ace_ask` and diagnostics.
 
 ## Tier B: live models (owner-triggered only, never in CI)
 

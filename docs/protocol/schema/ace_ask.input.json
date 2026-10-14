@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/ace_ask.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "allowOther": {
+      "default": true,
+      "type": "boolean"
+    },
+    "options": {
+      "items": {
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "question": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "type": "string"
+    },
+    "timeoutSeconds": {
+      "default": 240,
+      "maximum": 240,
+      "minimum": 5,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "question"
+  ],
+  "type": "object"
+}
