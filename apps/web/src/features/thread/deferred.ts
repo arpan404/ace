@@ -62,13 +62,6 @@ export const DeferredGapRow = deferredComponent(() =>
 export const DeferredLivePill = deferredComponent(() =>
   import("./long/live-pill.tsx").then((module) => module.LivePill),
 );
-/** Older turns folded to a digest line, and the header that folds an opened one again. */
-export const DeferredFoldedTurn = deferredComponent(() =>
-  import("./long/turn-row.tsx").then((module) => module.FoldedTurn),
-);
-export const DeferredOpenTurnHead = deferredComponent(() =>
-  import("./long/turn-row.tsx").then((module) => module.OpenTurnHead),
-);
 /** ⌥⌘↑ and ⌥⌘↓ between turns, bound once the thread screen is idle. */
 export const DeferredTurnKeys = deferredComponent(() =>
   import("./long/turn-keys.tsx").then((module) => module.TurnKeys),
@@ -97,8 +90,6 @@ export function preloadDeferred(): Promise<unknown> {
     DeferredGapRow.preload(),
     DeferredJumpFailed.preload(),
     DeferredLivePill.preload(),
-    DeferredFoldedTurn.preload(),
-    DeferredOpenTurnHead.preload(),
     DeferredTurnKeys.preload(),
     DeferredSubagents.preload(),
     DeferredBackgroundTask.preload(),

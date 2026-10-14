@@ -81,29 +81,11 @@ test("a turn already in the live tail is scrolled to without leaving it", async 
   expect(screen.queryByRole("status", { name: "Jumped" })).toBeNull();
 });
 
-test("a short thread never folds its turns", async () => {
-  const { feed } = await openLong(6, 200);
-  expect(within(feed).getByText(answer(6))).toBeTruthy();
-  expect(within(feed).getByText(answer(1))).toBeTruthy();
-  expect(within(feed).queryByRole("button", { name: /Show the turn$/ })).toBeNull();
-});
-
-test("past twelve turns, older turns fold into one-line digests that open and fold again", async () => {
-  const user = userEvent.setup();
+test("a long thread shows every turn whole, with no folded turn rows", async () => {
   const { feed } = await openLong(14, 200, undefined, 2);
-  // The five newest turns show whole; the others are one row each.
-  expect(within(feed).getByText(answer(14))).toBeTruthy();
-  expect(within(feed).getByText(answer(10))).toBeTruthy();
-  expect(within(feed).queryByText(answer(9))).toBeNull();
-  const folded = within(feed).getByRole("button", { name: `Turn 9: ${ask(9)} Show the turn` });
-  expect(folded.textContent).toContain("Turn 9");
-  await waitFor(() => expect(folded.textContent).toMatch(/\d+ steps/));
-  expect(folded.textContent).toContain("1 approval");
-
-  await user.click(folded);
-  expect(await within(feed).findByText(answer(9))).toBeTruthy();
-  await user.click(within(feed).getByRole("button", { name: "Turn 9. Fold the turn" }));
-  await waitFor(() => expect(within(feed).queryByText(answer(9))).toBeNull());
+  for (const turn of [1, 9, 14]) expect(within(feed).getByText(answer(turn))).toBeTruthy();
+  expect(within(feed).queryByRole("button", { name: /Show the turn$/ })).toBeNull();
+  expect(within(feed).queryByText(/^Turn \d+$/)).toBeNull();
 });
 
 test("hovering a turn on the rail previews its ask and the start of its reply", async () => {

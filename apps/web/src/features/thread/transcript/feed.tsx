@@ -1,8 +1,6 @@
 import { StoppedPill } from "../long/stopped-pill.tsx";
 import { listenScrollIntent } from "./scroll-intent.ts";
-import type { ThreadReader } from "@ace/client";
 import type { HistoryPager } from "@ace/client-react";
-import { ledgerOf } from "@ace/ui-core";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import {
   memo,
@@ -23,12 +21,10 @@ import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 import { LiveFrames, LiveFramesContext } from "../items/live-frames.ts";
 import { usePlaceBeforePaint } from "@/lib/virtual-paint.ts";
 import {
-  DeferredFoldedTurn,
   DeferredGapRow,
   DeferredJumpBar,
   DeferredJumpFailed,
   DeferredLivePill,
-  DeferredOpenTurnHead,
   DeferredSearchBar,
   DeferredTurnKeys,
   DeferredTurnRail,
@@ -43,53 +39,14 @@ import type { ThreadNav } from "../long/nav.tsx";
 import { blockItems, type Block } from "./blocks.ts";
 import { LiveHead } from "../items/live-head.tsx";
 import { useDropTurnSteps } from "../lib/turn-steps.ts";
-import {
-  newestOrdinal,
-  recentFrom,
-  rowOf,
-  sameRow,
-  transcriptRows,
-  turnCount,
-  type Row,
-} from "./rows.ts";
+import { rowOf, sameRow, transcriptRows, type Row } from "./rows.ts";
 import { useDockShift, useGutter, useKeepPlace, useStayPinned, type Anchor } from "./scroll.ts";
 import { useRunOrdinals } from "./run-ordinals.ts";
 import { useBlocks } from "./use-blocks.ts";
 import { useTurnActivity } from "./use-turn-activity.ts";
-import { useWatched, type Watched } from "@/lib/use-watched.ts";
 import { useReadMarker } from "./seen.ts";
 import { AgentPageReveal } from "./agent-page-reveal.tsx";
 
-const unsettledKeys = ["order", "interactions"] as const;
-interface Unsettled {
-  /** Steps still in flight (or awaiting approval) and the steps open requests came from. */
-  items: ReadonlySet<string>;
-  /** Requests still waiting on the person. */
-  requests: ReadonlySet<string>;
-}
-const settledNothing: Unsettled = { items: new Set(), requests: new Set() };
-const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
-  a.size === b.size && [...a].every((id) => b.has(id));
-const sameUnsettled = (a: Unsettled, b: Unsettled) =>
-  sameSet(a.items, b.items) && sameSet(a.requests, b.requests);
-/**
- * What must never fold away, from the thread's shared ledger (costs what changed): the steps in
- * flight, each watched so its settling lets its turn fold, and the open requests.
- */
-function readUnsettled(reader: ThreadReader): Watched<Unsettled> {
-  const ledger = ledgerOf(reader);
-  const flying = [...ledger.inFlight()];
-  const items = new Set(flying);
-  const requests = new Set<string>();
-  for (const interaction of ledger.pending()) {
-    requests.add(interaction.id);
-    if (interaction.toolCallId) items.add(interaction.toolCallId);
-  }
-  return {
-    value: items.size || requests.size ? { items, requests } : settledNothing,
-    watch: flying.map((id) => `item:${id}`),
-  };
-}
 const nearEdge = 64;
 const tailLive: Block = { kind: "live", key: "live:tail", askId: undefined };
 /** Room above a row brought into view, for the bars that float over the transcript's top. */
@@ -142,7 +99,7 @@ function placedAt(
     key: row.key,
     index,
     offset: start - el.scrollTop,
-    itemId: itemId ?? rowItem(row),
+    itemId: itemId ?? blockItems(row.block)[0],
   };
 }
 /**
@@ -151,15 +108,8 @@ function placedAt(
  * its changed files sit close.
  */
 function rowGap(row: Row, next: Row | undefined): string {
-  if (row.kind !== "block") return "pb-1";
-  if (row.block.kind === "message" && next?.kind === "block" && next.block.kind === "message")
-    return "pb-1.5";
-  if (
-    row.block.kind === "message" &&
-    row.block.headed &&
-    next?.kind === "block" &&
-    next.block.kind === "files"
-  )
+  if (row.block.kind === "message" && next?.block.kind === "message") return "pb-1.5";
+  if (row.block.kind === "message" && row.block.headed && next?.block.kind === "files")
     return "pb-1.5";
   return gap[row.block.kind];
 }
@@ -211,41 +161,9 @@ export function Feed(props: FeedProps) {
     (id: string) => runOrdinals.get(id) ?? seqTurns?.get(id),
     [runOrdinals, seqTurns],
   );
-  // Older turns the reader opened, and the turn a jump is still bringing into view.
-  const [opened, setOpened] = useState<ReadonlySet<number>>(() => new Set());
   const handled = useRef(0);
   const focus = jump.focus;
-  const focusOrdinal = focus ? ordinalOf(focus.itemId) : undefined;
-  // Turns with a step still running or a request still open never fold.
-  const unsettled =
-    useWatched(threadId, unsettledKeys, readUnsettled, sameUnsettled) ?? settledNothing;
-  const keep = useCallback(
-    (block: Block) =>
-      (block.kind === "question" && unsettled.requests.has(block.interactionId)) ||
-      blockItems(block).some((id) => unsettled.items.has(id)),
-    [unsettled],
-  );
-  const open = useMemo(() => {
-    const set = new Set(opened);
-    if (focus && handled.current !== focus.nonce && focusOrdinal !== undefined)
-      set.add(focusOrdinal);
-    return set;
-  }, [opened, focus, focusOrdinal]);
-  // Live, every turn shows whole until the window is long; then the newest ones do. In a jumped
-  // window the reader reads on from the turn they jumped to: it and every later turn show
-  // whole, the turns before it fold.
-  const latest = newestOrdinal(blocks, ordinalOf);
-  const recent = recentFrom(latest, turnCount(blocks, ordinalOf));
-  // A window not joined to the tail holds no recent turns: only its own from the jump on.
-  const openFrom = detached
-    ? (jump.turn ?? Infinity)
-    : window
-      ? Math.min(jump.turn ?? Infinity, recent)
-      : recent;
-  const rows = useMemo(
-    () => transcriptRows(blocks, { ordinalOf, open, openFrom, keep }),
-    [blocks, ordinalOf, open, openFrom, keep],
-  );
+  const rows = useMemo(() => transcriptRows(blocks, ordinalOf), [blocks, ordinalOf]);
   const keys = useMemo(() => rows.map(rowKey), [rows]);
   const { rows: motionRows } = useListMotion(blocks, (block: Block) => block.key);
   const entering = useMemo(
@@ -278,7 +196,7 @@ export function Feed(props: FeedProps) {
     measureElement: placed.measureElement,
     onChange: placed.onChange,
     getScrollElement: () => viewport.current,
-    estimateSize: (index) => (rows[index]?.kind === "block" ? 96 : 36),
+    estimateSize: () => 96,
     // Rows are tall (a message, a log): four either side cover a fast flick with no gap, and
     // half the eight it was halves what mounts per scrolled frame on a slow device.
     overscan: 4,
@@ -317,7 +235,7 @@ export function Feed(props: FeedProps) {
   );
   const rowOfItem = useCallback((itemId: string) => rowOf(rows, itemId), [rows]);
   useKeepPlace(keys, anchor, pinnedRef, restore, rowOfItem);
-  // Rows changing (a slide, a fold, history paging in) move the view by themselves; those
+  // Rows changing (a slide, history paging in) move the view by themselves; those
   // scroll events are not the reader's.
   useLayoutEffect(() => {
     placedUntil.current = performance.now() + 250;
@@ -355,10 +273,7 @@ export function Feed(props: FeedProps) {
   // The turn in the middle of the view: what the jump bar says the reader is looking at.
   const [reading, setReading] = useState<number>();
   // The live header scrolled out of view above: a copy stays pinned at the top.
-  const liveRow = useMemo(
-    () => rows.findIndex((row) => row.kind === "block" && row.block.kind === "live"),
-    [rows],
-  );
+  const liveRow = useMemo(() => rows.findIndex((row) => row.block.kind === "live"), [rows]);
   const [livePinned, setLivePinned] = useState(false);
   /** The first row in view, which turn the reader is in, and where its top sits. */
   const readTop = () => {
@@ -380,7 +295,7 @@ export function Feed(props: FeedProps) {
         key: row?.key ?? String(first.key),
         index: first.index,
         offset: first.start - el.scrollTop,
-        itemId: row ? rowItem(row) : undefined,
+        itemId: row ? blockItems(row.block)[0] : undefined,
       };
     const turnFrom = (index: number) => {
       for (let at = index; at < Math.min(rows.length, index + 8); at++) {
@@ -456,19 +371,15 @@ export function Feed(props: FeedProps) {
     if (index < 0) return;
     handled.current = focus.nonce;
     setPinned(false);
-    if (focusOrdinal !== undefined && rows[index]?.kind !== "turn")
-      setOpened((previous) =>
-        previous.has(focusOrdinal) ? previous : new Set(previous).add(focusOrdinal),
-      );
     virtualizer.scrollToIndex(index, { align: focus.query ? "center" : "start" });
     settle(virtualizer, viewport.current, placedUntil);
     const key = rows[index]?.key;
     if (key) setFlash({ key, hit: focus.query !== undefined });
-    // The jump's row is the reader's place from now on, so rows folding or sliding around it
+    // The jump's row is the reader's place from now on, so rows sliding around it
     // (the window's turns arriving, say) keep it where it landed.
     placedAt(anchor, virtualizer, viewport.current, rows, index, focus.itemId);
     if (key) keepLanding(key, focus.itemId, focus.query ? "center" : "start");
-  }, [focus, rows, focusOrdinal, virtualizer, setPinned, keepLanding]);
+  }, [focus, rows, virtualizer, setPinned, keepLanding]);
   useEffect(() => {
     if (!flash) return;
     const timer = setTimeout(() => setFlash(undefined), 1_600);
@@ -518,20 +429,6 @@ export function Feed(props: FeedProps) {
     else if (viewport.current) glideToEnd(viewport.current, true);
   };
 
-  // Stable, so a row re-renders only when its own row changes, not on every scroll or delta.
-  const openTurn = useCallback(
-    (ordinal: number) => setOpened((previous) => new Set(previous).add(ordinal)),
-    [],
-  );
-  const foldTurn = useCallback(
-    (ordinal: number) =>
-      setOpened((previous) => {
-        const next = new Set(previous);
-        next.delete(ordinal);
-        return next;
-      }),
-    [],
-  );
   const lastWindowOrdinal = window ? ordinalOf(window.items.at(-1)?.id ?? "") : undefined;
   // The floating controls stay mounted through their exit.
   const livePill = usePresence(!pinned || detached);
@@ -616,13 +513,7 @@ export function Feed(props: FeedProps) {
                           className={entering.has(row.key) ? "fx-rise-in" : undefined}
                           style={lit ? highlight : undefined}
                         >
-                          <RowView
-                            threadId={threadId}
-                            row={row}
-                            live={false}
-                            onOpen={openTurn}
-                            onFold={foldTurn}
-                          />
+                          <RowView threadId={threadId} row={row} live={false} />
                         </div>
                       </div>
                     );
@@ -720,64 +611,18 @@ interface RowViewProps {
   threadId: string;
   row: Row;
   live: boolean;
-  onOpen(ordinal: number): void;
-  onFold(ordinal: number): void;
 }
 /** Rows are rebuilt when blocks change (history paging in); an unchanged row draws nothing. */
 const sameRowView = (a: RowViewProps, b: RowViewProps) =>
-  a.threadId === b.threadId &&
-  a.live === b.live &&
-  a.onOpen === b.onOpen &&
-  a.onFold === b.onFold &&
-  sameRow(a.row, b.row);
+  a.threadId === b.threadId && a.live === b.live && sameRow(a.row, b.row);
 
 const RowView = memo(function RowView(props: RowViewProps) {
-  const { row } = props;
-  switch (row.kind) {
-    case "block":
-      return (
-        <BlockView
-          threadId={props.threadId}
-          block={row.block}
-          live={props.live}
-          ordinal={row.ordinal}
-        />
-      );
-    case "turn":
-      return (
-        <Suspense fallback={<TurnLine ordinal={row.ordinal} />}>
-          <DeferredFoldedTurn.Component
-            threadId={props.threadId}
-            ordinal={row.ordinal}
-            askId={row.askId}
-            onOpen={() => props.onOpen(row.ordinal)}
-          />
-        </Suspense>
-      );
-    case "head":
-      return (
-        <Suspense fallback={<TurnLine ordinal={row.ordinal} />}>
-          <DeferredOpenTurnHead.Component
-            ordinal={row.ordinal}
-            onFold={() => props.onFold(row.ordinal)}
-          />
-        </Suspense>
-      );
-  }
-}, sameRowView);
-
-/** An item a row shows, for finding it again once it folds or opens. */
-function rowItem(row: Row): string | undefined {
-  if (row.kind === "turn") return row.itemIds[0];
-  if (row.kind === "block") return blockItems(row.block)[0];
-  return undefined;
-}
-
-/** A turn's line while its row's code loads (it loads while idle, so rarely seen). */
-function TurnLine(props: { ordinal: number }) {
   return (
-    <p className="flex h-8 items-center font-mono text-xs tabular-nums text-subtle-foreground">
-      Turn {props.ordinal}
-    </p>
+    <BlockView
+      threadId={props.threadId}
+      block={props.row.block}
+      live={props.live}
+      ordinal={props.row.ordinal}
+    />
   );
-}
+}, sameRowView);
