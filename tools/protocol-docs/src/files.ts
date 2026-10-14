@@ -2,6 +2,7 @@ import { mkdir, readdir, unlink, writeFile, open } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { z } from "zod";
+import { JsonValue } from "@ace/protocol";
 import { dictionary, type Snapshot, type JsonSchema } from "./model.ts";
 import { jsonValidator } from "./examples.ts";
 import { ownedOutputRoot } from "./output-boundary.ts";
@@ -105,7 +106,7 @@ export async function writeFiles(
 }
 const snapshotSchema = z.strictObject({
   protocolVersion: z.number().int().positive(),
-  schemas: z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9_.]*$/), z.record(z.string(), z.json())),
+  schemas: z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9_.]*$/), z.record(z.string(), JsonValue)),
 });
 /** Reject deep documents before recursive schema parsing or validator compilation. */
 export function parseSnapshot(raw: unknown): Snapshot {

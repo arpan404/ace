@@ -1,4 +1,5 @@
 import {
+  JsonValue,
   SettingsKey,
   SettingsValues,
   type SettingsEntry,
@@ -8,7 +9,6 @@ import {
 } from "@ace/protocol";
 import { defaults } from "@ace/settings/defaults";
 import { legacyAccessDefault } from "@ace/settings/legacy-permissions";
-import { z } from "zod";
 
 /** Where a connection's pushes go; the connection owns its own lifetime. */
 export type Push = (message: ServerMessage) => void;
@@ -96,7 +96,7 @@ export class FakeSettings {
           : this.global.has(key)
             ? (["global", this.global.get(key)] as const)
             : (["defaults", Reflect.get(defaults, key)] as const);
-      return [{ key: parsed.data, value: z.json().parse(value ?? null), provenance }];
+      return [{ key: parsed.data, value: JsonValue.parse(value ?? null), provenance }];
     });
   }
   handle(message: SettingsRequest, push: Push): ServerMessage {

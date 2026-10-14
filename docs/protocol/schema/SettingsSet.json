@@ -20,7 +20,7 @@
       "type": "string"
     },
     "value": {
-      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema0"
+      "$ref": "https://ace.local/protocol/v1/JsonValue.json"
     }
   },
   "required": [

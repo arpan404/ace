@@ -1331,7 +1331,7 @@ Example:
 | type | yes | `"settings.set"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
 | key | yes | string | {"minLength":1,"maxLength":256} |
-| value | yes | [schema0](schema/schema0) |  |
+| value | yes | [JsonValue.json](schema/JsonValue.json) |  |
 | layer | yes | [SettingsLayer.json](schema/SettingsLayer.json) |  |
 
 Example:

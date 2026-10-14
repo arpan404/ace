@@ -41,7 +41,7 @@ const readOrder = (reader: ThreadReader) => reader.order;
 const readError = (reader: ThreadReader) => reader.error;
 const readSyncing = (reader: ThreadReader) => reader.syncing ?? false;
 
-export function useThreadMeta(threadId: string | undefined) {
+export function useThreadMeta(threadId: string | undefined): ThreadReader["thread"] | undefined {
   return useThread(threadId, ["thread"], readMeta);
 }
 export function useThreadError(threadId: string | undefined) {
@@ -59,11 +59,17 @@ export function useItem(threadId: string | undefined, itemId: string): Item | un
   const selector = useCallback((reader: ThreadReader) => reader.item(itemId), [itemId]);
   return useThread(threadId, [`item:${itemId}`], selector);
 }
-export function useAgent(threadId: string | undefined, agentId: string) {
+export function useAgent(
+  threadId: string | undefined,
+  agentId: string,
+): ReturnType<ThreadReader["agent"]> {
   const selector = useCallback((reader: ThreadReader) => reader.agent(agentId), [agentId]);
   return useThread(threadId, [`agent:${agentId}`], selector);
 }
-export function useTask(threadId: string | undefined, taskId: string) {
+export function useTask(
+  threadId: string | undefined,
+  taskId: string,
+): ReturnType<ThreadReader["task"]> {
   const selector = useCallback((reader: ThreadReader) => reader.task(taskId), [taskId]);
   return useThread(threadId, [`task:${taskId}`], selector);
 }

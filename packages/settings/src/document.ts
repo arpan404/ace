@@ -3,7 +3,7 @@ import { guardSecrets, MAX_CLIENT_BYTES, MAX_DOCUMENT_BYTES, SettingsError } fro
 import { parseDocument, type ScalarRange } from "./jsonc.ts";
 export { MAX_DOCUMENT_BYTES, MAX_CLIENT_BYTES, SettingsError } from "./validation.ts";
 import { applyEdits, modify } from "jsonc-parser";
-import { SettingsDocument, SettingsValues, SettingsKey } from "@ace/protocol";
+import { JsonValue, SettingsDocument, SettingsValues, SettingsKey } from "@ace/protocol";
 import { z } from "zod";
 import { legacyAccessDefault, legacyAccessKeys } from "./legacy-permissions.ts";
 
@@ -48,7 +48,7 @@ export function edit(text: string, path: string[], value: unknown): string {
 const knownValues = SettingsValues.partial();
 const envelope = z.object({ version: z.number().int() }).passthrough();
 const v1 = z
-  .object({ version: z.literal(1), values: z.record(z.string(), z.json()) })
+  .object({ version: z.literal(1), values: z.record(z.string(), JsonValue) })
   .passthrough();
 export interface DecodedDocument {
   document: { version: 2; settings: z.infer<typeof knownValues> };

@@ -3,6 +3,7 @@ import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { JsonValue } from "@ace/protocol";
 import { SettingsService } from "@ace/settings";
 import { createCommandRunner } from "@ace/forge";
 import { SourceControl } from "./source-control.ts";
@@ -12,7 +13,7 @@ const stateSchema = z.object({
   account: z.string(),
   loseReply: z.boolean(),
   hold: z.boolean(),
-  remote: z.json().nullable(),
+  remote: JsonValue.nullable(),
   users: z.number(),
   invalidUser: z.number(),
   conflict: z.boolean(),
