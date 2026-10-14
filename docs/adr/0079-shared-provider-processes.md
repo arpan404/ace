@@ -1,6 +1,6 @@
 # 0079: Shared provider processes
 
-Date: 2026-10-14. Status: accepted. Refines the lifecycle section of ADR 0007 for Codex.
+Date: 2026-10-14. Status: accepted by owner decision. Refines the lifecycle section of ADR 0007 for Codex.
 
 ## Context
 
@@ -71,3 +71,5 @@ with it, so the single-process behaviour stays covered.
 - Backpressure is shared: the process pauses its output while any session is out of room,
   so no session loses a frame.
 - Process-level stderr appears in every attached session's diagnostics.
+- MCP server controls (reload, enable, disable) act on the shared process, so a change made from
+  one thread applies to every thread on that account, as the account's config already does.
