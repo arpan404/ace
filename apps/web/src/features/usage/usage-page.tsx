@@ -80,13 +80,12 @@ export function UsagePage() {
   const catalog = useModelCatalog();
   const modelName = useMemo(() => catalogModelNames(catalog ?? []), [catalog]);
   const modelId = useMemo(() => catalogModelIds(catalog ?? []), [catalog]);
-  const named = environments.length > 1;
   const listed: UsageAccount[] = accounts.flatMap((entry) =>
     (entry.accounts ?? [])
       .filter((account) => provider === all || account.provider === provider)
       .map((account) => ({
         account,
-        environment: named ? entry.environment.name : undefined,
+        environment: entry.environment.name,
       })),
   );
   const providerOptions = [

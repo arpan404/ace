@@ -52,8 +52,12 @@ const source = (provider: string, account: string, model: string, price: number 
     threads: [`thread-${provider}`],
   }) satisfies UsageSource;
 
-const meter = (name: string) => screen.findByRole("meter", { name });
-const row = (name: string) => screen.findByRole("listitem", { name });
+/** One account's block on Limits: "Codex · Personal · <environment>". */
+const account = (provider: string, name: string) =>
+  screen.findByRole("article", { name: new RegExp(`^${provider} · ${name} · `) });
+/** One of an account's windows, as a meter of what is left. */
+const meter = async (provider: string, name: string, window: string) =>
+  within(await account(provider, name)).getByRole("meter", { name: window });
 
 /** A figure in Totals, by its label. */
 function stat(label: string) {
@@ -70,56 +74,78 @@ async function show(view: "Cost" | "Tokens" | "Limits") {
 test("limits say what is left, from the share the provider reports used", async () => {
   const app = harness();
   report(app.daemon, "claude-personal", { five_hour: [62, 2 * hour] });
-  report(app.daemon, "claude-work", { five_hour: [23, 3 * hour] });
+  report(app.daemon, "claude-work", { five_hour: [100, 3 * hour] });
   await app.open("/usage");
 
-  const personal = await meter("Claude Code · Personal · 5-hour");
+  const personal = await meter("Claude Code", "Personal", "5-hour");
   expect(personal.getAttribute("aria-valuenow")).toBe("38");
   expect(personal.getAttribute("aria-valuetext")).toBe("38% left, resets in 2h");
-  expect((await meter("Claude Code · Work · 5-hour")).getAttribute("aria-valuenow")).toBe("77");
-  // The row's figure is the accounts' remaining share taken together, and says "left".
-  expect((await row("Claude Code 5-hour")).textContent).toContain("58% left");
+  expect((await account("Claude Code", "Personal")).textContent).toContain("38% left");
+  // An account with nothing left says when it is back.
+  const work = await account("Claude Code", "Work");
+  expect(work.textContent).toContain("0% left");
+  expect(work.textContent).toContain("Back in 3h");
   expect(document.body.textContent).not.toMatch(/\d+% used/);
 });
 
-test("each window's reset shows as a countdown to the minute, then in days", async () => {
+test("each window's reset reads as a countdown to the minute, then in days", async () => {
   const app = harness();
   report(app.daemon, "codex-personal", {
     five_hour: [10, 2 * hour + 14 * minute],
     seven_day: [10, 6 * day + 12 * hour],
   });
   await app.open("/usage");
-  expect((await meter("Codex · Personal · 5-hour")).textContent).toContain("Resets in 2h 14m");
-  expect((await meter("Codex · Personal · Weekly")).textContent).toContain("Resets in 6d 12h");
+  const personal = await account("Codex", "Personal");
+  expect(personal.textContent).toContain("Resets in 2h 14m");
+  expect(personal.textContent).toContain("Resets in 6d 12h");
 });
 
-test("a banked-resets chip shows only for accounts whose provider reports banked resets", async () => {
+test("banked resets show under an account only when its provider reports some", async () => {
   const app = harness();
   report(app.daemon, "codex-personal", { five_hour: [40, hour] }, 3);
   report(app.daemon, "codex-team", { five_hour: [100, hour] }, 0);
   report(app.daemon, "claude-personal", { five_hour: [40, hour] });
   await app.open("/usage");
 
-  expect((await meter("Codex · Personal · 5-hour")).textContent).toContain("3 banked resets");
-  expect((await meter("Codex · Team · 5-hour")).textContent).not.toContain("banked");
-  expect((await meter("Claude Code · Personal · 5-hour")).textContent).not.toContain("banked");
+  expect((await account("Codex", "Personal")).textContent).toContain("3 banked resets");
+  expect((await account("Codex", "Team")).textContent).not.toContain("banked");
+  expect((await account("Claude Code", "Personal")).textContent).not.toContain("banked");
 });
 
-test("a window shared by several accounts has one segment per account, named for it", async () => {
+test("each account is listed once, with each of its windows beneath it", async () => {
   const app = harness();
   report(app.daemon, "codex-personal", { five_hour: [30, hour], seven_day: [10, day] });
   report(app.daemon, "codex-team", { five_hour: [90, hour] });
   await app.open("/usage");
 
-  const five = within(await row("Codex 5-hour"));
-  expect(five.getAllByRole("meter").map((each) => each.getAttribute("aria-label"))).toEqual([
-    "Codex · Personal · 5-hour",
-    "Codex · Team · 5-hour",
+  const codex = await screen.findByRole("region", { name: "Codex" });
+  expect(
+    within(codex)
+      .getAllByRole("article")
+      .map((each) => each.getAttribute("aria-label")?.split(" · ")[1]),
+  ).toEqual(["Personal", "Team"]);
+  const personal = within(await account("Codex", "Personal"));
+  expect(personal.getAllByRole("meter").map((each) => each.getAttribute("aria-label"))).toEqual([
+    "5-hour",
+    "Weekly",
   ]);
-  const weekly = within(await row("Codex Weekly"));
-  expect(weekly.getAllByRole("meter").map((each) => each.getAttribute("aria-label"))).toEqual([
-    "Codex · Personal · Weekly",
+  const team = within(await account("Codex", "Team"));
+  expect(team.getAllByRole("meter").map((each) => each.getAttribute("aria-label"))).toEqual([
+    "5-hour",
   ]);
+});
+
+test("a window used faster than it runs says it is ahead of pace", async () => {
+  const app = harness();
+  // Four of five hours left with half used: running out early. A week barely used: room to spare.
+  report(app.daemon, "codex-personal", {
+    five_hour: [50, 4 * hour, 300],
+    seven_day: [5, 4 * day, 10080],
+  });
+  await app.open("/usage");
+  const personal = await account("Codex", "Personal");
+  expect(within(personal).getByText("Ahead of pace")).toBeTruthy();
+  expect(within(personal).getByText("Under pace")).toBeTruthy();
 });
 
 test("the range and the provider filter change the totals", async () => {
@@ -178,14 +204,16 @@ test("the environment filter shows every connected environment, or just the one 
   server.services.usage.sources = [source("codex", "codex-team", "gpt-5.3-codex", 5)];
   await app.open("/usage");
 
-  // Both environments' Codex accounts, told apart by where they run.
-  expect(await meter("Codex · Team · Build server · 5-hour")).toBeTruthy();
-  expect(await meter("Codex · Personal · This Mac · 5-hour")).toBeTruthy();
+  // Both environments' Codex accounts, each named with where it runs.
+  expect(await screen.findByRole("article", { name: "Codex · Team · Build server" })).toBeTruthy();
+  expect(await screen.findByRole("article", { name: "Codex · Personal · This Mac" })).toBeTruthy();
 
   await userEvent.click(screen.getByRole("button", { name: "Environment: All environments" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "Build server" }));
-  await waitFor(() => expect(screen.queryByRole("meter", { name: /Personal/ })).toBeNull());
-  expect((await meter("Codex · Team · 5-hour")).getAttribute("aria-valuenow")).toBe("50");
+  await waitFor(() =>
+    expect(screen.queryByRole("article", { name: /^Codex · Personal/ })).toBeNull(),
+  );
+  expect((await meter("Codex", "Team", "5-hour")).getAttribute("aria-valuenow")).toBe("50");
 
   await show("Tokens");
   await userEvent.click(await screen.findByRole("button", { name: "7 days" }));

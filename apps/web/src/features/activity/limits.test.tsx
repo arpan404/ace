@@ -55,13 +55,22 @@ function visibility(state: DocumentVisibilityState) {
 }
 
 /** Usage's 5-hour bar for Claude Code · Work: what is left of it. */
-const workMeter = "Claude Code · Work · 5-hour";
+const workMeter = () => {
+  const work = screen.queryByRole("article", { name: /^Claude Code · Work · / });
+  return work ? within(work).queryByRole("meter", { name: "5-hour" }) : null;
+};
+const findWorkMeter = () =>
+  waitFor(() => {
+    const meter = workMeter();
+    if (!meter) throw new Error("no 5-hour meter for Claude Code · Work");
+    return meter;
+  });
 
 /** Claude Code · Work at its 5-hour limit, a moment before that window resets, on Usage. */
 async function workAtLimit(app: App) {
   report(app, "claude-work", { five_hour: [100, 1] });
   await app.open("/usage");
-  const work = await screen.findByRole("meter", { name: workMeter });
+  const work = await findWorkMeter();
   expect(work.getAttribute("aria-valuetext")).toMatch(/^0% left/);
 }
 
@@ -124,7 +133,7 @@ test("toasts say when an account nears its limit, reaches it and can work again"
   await act(async () => {
     await app.open("/usage");
   });
-  await screen.findByRole("meter", { name: workMeter });
+  await findWorkMeter();
 
   report(app, "claude-work", { five_hour: [92, 2 * hour] });
   await refresh();
@@ -149,14 +158,12 @@ test("with limit toasts turned off, an account reaching its limit stays quiet", 
   const app = harness();
   report(app, "claude-work", { five_hour: [60, 2 * hour] });
   await app.open("/usage");
-  await screen.findByRole("meter", { name: workMeter });
+  await findWorkMeter();
 
   report(app, "claude-work", { five_hour: [100, 2 * hour] });
   await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
   // The page has the new reading, and no toast came with it.
-  await waitFor(() =>
-    expect(screen.getByRole("meter", { name: workMeter }).getAttribute("aria-valuenow")).toBe("0"),
-  );
+  await waitFor(() => expect(workMeter()?.getAttribute("aria-valuenow")).toBe("0"));
   expect(screen.queryByText("Claude Code · Work reached its usage limit")).toBeNull();
 });
 
@@ -167,7 +174,7 @@ test("losing track of an account at its limit doesn't say it can work again; a r
   // Its CLI stops saying it is signed in and reports no windows: nothing is known either way.
   report(app, "claude-work", {}, "unknown");
   await refresh();
-  await waitFor(() => expect(screen.queryByRole("meter", { name: workMeter })).toBeNull());
+  await waitFor(() => expect(workMeter()).toBeNull());
   expect(screen.queryByText("Claude Code · Work can work again")).toBeNull();
 
   report(app, "claude-work", { five_hour: [4, 5 * hour] });
