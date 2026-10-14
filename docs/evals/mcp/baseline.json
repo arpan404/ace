@@ -1,5 +1,5 @@
 {
-  "label": "baseline (main dcdf6861d)",
+  "label": "baseline (main bb84cd3ed)",
   "tasks": [
     {
       "id": "where-am-i",
@@ -12,8 +12,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 4,
-        "contextBytes": 67997,
-        "tokens": 17000
+        "contextBytes": 68313,
+        "tokens": 17079
       },
       "note": "all facts correct"
     },
@@ -28,8 +28,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 3,
-        "contextBytes": 66020,
-        "tokens": 16505
+        "contextBytes": 67446,
+        "tokens": 16862
       },
       "note": "both results collected"
     },
@@ -44,8 +44,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 4,
-        "contextBytes": 64600,
-        "tokens": 16150
+        "contextBytes": 64916,
+        "tokens": 16229
       },
       "note": "console error found, 500 found"
     },
@@ -60,8 +60,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 3,
-        "contextBytes": 68601,
-        "tokens": 17151
+        "contextBytes": 68971,
+        "tokens": 17243
       },
       "note": "outcome found"
     },
@@ -76,8 +76,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 3,
-        "contextBytes": 63715,
-        "tokens": 15929
+        "contextBytes": 64029,
+        "tokens": 16008
       },
       "note": "rendered"
     },
@@ -92,8 +92,8 @@
         "failedCalls": 12,
         "identicalRetries": 6,
         "turns": 13,
-        "contextBytes": 65965,
-        "tokens": 16492
+        "contextBytes": 66279,
+        "tokens": 16570
       },
       "note": "0/6 recovered on the second call"
     },
@@ -108,8 +108,8 @@
         "failedCalls": 1,
         "identicalRetries": 0,
         "turns": 4,
-        "contextBytes": 63957,
-        "tokens": 15990
+        "contextBytes": 64271,
+        "tokens": 16068
       },
       "note": "wait needs_you, child needs_you"
     },
@@ -118,23 +118,23 @@
       "title": "In read-only mode, screen tools are absent and never attempted",
       "gate": true,
       "metrics": {
-        "success": false,
-        "aceCalls": 1,
+        "success": true,
+        "aceCalls": 0,
         "ownToolCalls": 0,
-        "failedCalls": 1,
+        "failedCalls": 0,
         "identicalRetries": 0,
-        "turns": 2,
-        "contextBytes": 63266,
-        "tokens": 15817
+        "turns": 1,
+        "contextBytes": 62854,
+        "tokens": 15714
       },
-      "note": "effective :read-only; control serves screen: true; read-only lists 1, attempted 1"
+      "note": "effective read-only; control serves screen: true; read-only lists 0, attempted 0"
     }
   ],
   "catalogue": {
     "tools": 82,
-    "toolsListBytes": 177125,
-    "descriptorBytes": 59549,
-    "outputSchemaBytes": 103183,
+    "toolsListBytes": 178127,
+    "descriptorBytes": 59863,
+    "outputSchemaBytes": 103871,
     "largestOutputSchemas": [
       {
         "name": "ace_read_handoff",
@@ -142,7 +142,7 @@
       },
       {
         "name": "ace_thread_info",
-        "bytes": 27809
+        "bytes": 28489
       },
       {
         "name": "ace_list_agents",

@@ -21,16 +21,16 @@ so nothing reaches a provider and no quota is spent.
 
 Tasks:
 
-| Id                            | What the agent must do                                                                                                                               |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `where-am-i`                  | Report project, branch, access mode, whether the title is provisional and how many sibling threads are live                                          |
-| `delegate-two`                | Delegate two tasks to another provider and collect both results                                                                                      |
-| `browser-check`               | Open the dev server in ace's browser and report its console error and failing request (skipped without Chromium)                                     |
-| `recent-work`                 | Find the project's earlier thread and its outcome                                                                                                    |
-| `visualize`                   | Render a small HTML comparison                                                                                                                       |
-| `recover-bad-argument`        | Six tools, one slipped argument each; repair using only the error payload (proposal P3, test a)                                                      |
-| `child-waits-on-human` (gate) | A delegated child is waiting on the person; it must never be reported done                                                                           |
-| `read-only-no-screen` (gate)  | In a read-only thread, screen and device tools are absent and never attempted, while a full-access control thread on the same daemon is offered them |
+| Id                            | What the agent must do                                                                                                                                   |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `where-am-i`                  | Report project, branch, access mode (Read-only, Ask, Auto review or Full access), whether the title is provisional and how many sibling threads are live |
+| `delegate-two`                | Delegate two tasks to another provider and collect both results                                                                                          |
+| `browser-check`               | Open the dev server in ace's browser and report its console error and failing request (skipped without Chromium)                                         |
+| `recent-work`                 | Find the project's earlier thread and its outcome                                                                                                        |
+| `visualize`                   | Render a small HTML comparison                                                                                                                           |
+| `recover-bad-argument`        | Six tools, one slipped argument each; repair using only the error payload (proposal P3, test a)                                                          |
+| `child-waits-on-human` (gate) | A delegated child is waiting on the person; it must never be reported done                                                                               |
+| `read-only-no-screen` (gate)  | In a read-only thread, screen and device tools are absent and never attempted, while a full-access control thread on the same daemon is offered them     |
 
 Metrics per task: success, ace calls, calls to the model's own tools (for example `git branch`),
 failed calls, identical retries (a failed call repeated with the same arguments), turns (model
@@ -52,10 +52,10 @@ It also runs in CI as part of `bun run test` (process project). Reports are writ
 
 Committed reports:
 
-- [`baseline.md`](baseline.md) / `baseline.json`: `main` at dcdf6861d (after #672 and #675), before any change. The
-  read-only gate **failed** on `main`: a Codex thread in `:read-only` was still offered
-  `screen_request_app`, because ace's MCP availability check compared the native selector with
-  the literal `"read-only"`. The same PR fixes that (see below), so the gate passes from now on.
+- [`baseline.md`](baseline.md) / `baseline.json`: `main` at bb84cd3ed (after #672, #675 and
+  #685's access modes), before any change. Before #685 the read-only gate failed: a Codex thread
+  in `:read-only` was still offered `screen_request_app`, because the check compared native mode
+  names. #685's canonical access mode makes that check correct, and the gate keeps it so.
 
 ## Tier B: live models (owner-triggered only, never in CI)
 

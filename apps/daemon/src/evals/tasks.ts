@@ -38,7 +38,7 @@ const whereAmI: EvalTask = {
     const truth = {
       project: "shop",
       branch: world.branch,
-      permissionMode: thread?.permission?.effective ?? null,
+      access: thread?.permission?.effective ?? null,
       provisional: thread?.titleSource === "provisional",
       liveSiblings: liveOthers(world, threadId),
     };
@@ -48,7 +48,7 @@ const whereAmI: EvalTask = {
         agent.call("ace_status", {}),
         agent.call("ace_thread_info", {}),
       ]);
-      seen["permissionMode"] = record(status.data)?.["permissionMode"] ?? null;
+      seen["access"] = record(status.data)?.["access"] ?? null;
       const own = record(record(info.data)?.["thread"]);
       seen["provisional"] = own?.["titleSource"] === "provisional";
       const details = record(own?.["details"]);
@@ -294,7 +294,7 @@ const readOnlyNoScreen: EvalTask = {
     // Control: with full access the same daemon does serve computer use.
     const { agent: full } = await world.agent({});
     const served = full.has("screen_request_app");
-    const { agent, threadId } = await world.agent({ permissionMode: "read-only" });
+    const { agent, threadId } = await world.agent({ access: "read-only" });
     const effective = world.store.getThread(threadId)?.permission?.effective;
     const listed = agent.tools.filter((tool) => /^(screen|device)_/.test(tool.name));
     // Asked to click Save in a native app: only an offered tool can be tried.

@@ -6,7 +6,7 @@ import { detectChromium } from "@ace/browser";
 import { claudeInjection, codexInjection, type AceMcpConnection } from "@ace/mcp-server";
 import { ScreenManager } from "@ace/screen";
 import type { Fact } from "@ace/core";
-import type { ThreadId, ProviderKind } from "@ace/protocol";
+import type { AccessMode, ThreadId, ProviderKind } from "@ace/protocol";
 import { readConfig, startDaemon } from "../index.ts";
 import { setup } from "../agent-control/test-support.ts";
 import { end, start } from "../engine/test-support.ts";
@@ -75,11 +75,7 @@ export async function evalWorld(options: { browser: boolean }) {
   });
   // Screen is on, so a read-only thread is the only thing keeping screen tools away.
   await screen.enable(true);
-  await daemon.settings.set(
-    "permissions.providerModes",
-    { codex: ":danger-full-access", claude: "bypassPermissions" },
-    { kind: "global" },
-  );
+  await daemon.settings.set("access.defaultMode", "full-access", { kind: "global" });
   for (const provider of ["codex", "claude"] as const)
     await seedScriptedModels(daemon.models, scriptedModelInstance(provider, h.home));
   const controls = daemon.agentControl;
@@ -90,12 +86,12 @@ export async function evalWorld(options: { browser: boolean }) {
   const threads: ThreadId[] = [];
   let sequence = 0;
 
-  async function createThread(provider: ProviderKind, permissionMode: string, text: string) {
+  async function createThread(provider: ProviderKind, access: AccessMode, text: string) {
     const result = controls?.delegations.command(`create-${++sequence}`, {
       type: "thread.create",
       workspaceId,
       provider,
-      permissionMode,
+      access,
       input: [{ type: "text", text }],
     });
     await engine?.flush();
@@ -124,13 +120,13 @@ export async function evalWorld(options: { browser: boolean }) {
     browser: Boolean(executablePath),
     /** A person's new thread, with the scripted model attached to its real ace MCP lease. */
     async agent(input: {
-      permissionMode?: string;
+      access?: AccessMode;
       prompt?: string;
       delivery?: Delivery;
     }): Promise<{ agent: EvalAgent; threadId: ThreadId; connection: AceMcpConnection }> {
       const thread = await createThread(
         "codex",
-        input.permissionMode ?? ":danger-full-access",
+        input.access ?? "full-access",
         input.prompt ?? "help me with the login page",
       );
       const connection = h.contexts.get(thread.id)?.aceMcp;
@@ -151,13 +147,13 @@ export async function evalWorld(options: { browser: boolean }) {
     },
     /** Earlier work in the same project: a finished thread with a final answer. */
     async finishedThread(prompt: string, answer: string) {
-      const thread = await createThread("claude", "bypassPermissions", prompt);
+      const thread = await createThread("claude", "full-access", prompt);
       await this.complete(thread.id, answer);
       return thread.id;
     },
     /** Another thread in the project whose model is still working. */
     async liveThread(prompt: string) {
-      return (await createThread("claude", "bypassPermissions", prompt)).id;
+      return (await createThread("claude", "full-access", prompt)).id;
     },
     /** The scripted child model writes its answer and ends its turn. */
     async complete(thread: ThreadId, text: string) {
