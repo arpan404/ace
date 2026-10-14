@@ -103,13 +103,45 @@ export function isBareErrorCode(text: string): boolean {
   return bareCode.test(text.trim());
 }
 
+/*
+ * A subscription limit in the provider's own words, when it gives no code: Claude Code's "You've
+ * hit your session limit · resets 8:30pm (America/Chicago)", Codex's "You've hit your usage
+ * limit. Try again at 8:30 PM." Read leniently; text that doesn't match stays as it was.
+ */
+const limitWords =
+  /\b(?:hit|reached|exceeded)\s+(?:your|the)\s+(?:[\w-]+\s+){0,2}limit\b|\b(?:usage|session) limit\b|\blimit reached\b/i;
+const resetWords = /\b(resets?|try again)\s+((?:at|in|on)\s+)?(.+?)\s*(?:[.·]\s|[.·]?$)/i;
+
+/** True when the provider's text says a usage or session limit stopped it. */
+export function isLimitText(text: string): boolean {
+  return limitWords.test(text);
+}
+
+/**
+ * When the limit lifts, in the provider's words: "Resets 8:30pm (America/Chicago)", "Resets at
+ * 8:30 PM". Undefined when the text names no reset.
+ */
+export function limitReset(text: string): string | undefined {
+  const match = resetWords.exec(text);
+  const when = match?.[3]?.trim();
+  return when ? `Resets ${match?.[2] ?? ""}${when}` : undefined;
+}
+
+/** A usage, session or rate limit: it lifts on its own, so it reads as a pause, not an alarm. */
+export function isLimitError(view: Pick<ErrorView, "code">): boolean {
+  return view.code === "quota" || view.code === "rate_limit";
+}
+
 /** A failure as one readable row: title, the fixing action and the raw text behind "Details". */
 export function describeProviderError(input: ErrorInput): ErrorView {
   const tagged =
     parseTaggedError(input.text) ?? (input.detail ? parseTaggedError(input.detail) : undefined);
   const rawCode =
     input.code ?? tagged?.code ?? (isBareErrorCode(input.text) ? input.text.trim() : undefined);
-  const code = rawCode ? (codeAliases[rawCode] ?? rawCode) : input.kind && codeAliases[input.kind];
+  const code = rawCode
+    ? (codeAliases[rawCode] ?? rawCode)
+    : ((input.kind ? codeAliases[input.kind] : undefined) ??
+      (isLimitText(input.text) ? "quota" : undefined));
   const provider = input.provider ?? tagged?.provider;
   const who = provider ? providerNames[provider] : "The provider";
   const model =
@@ -147,7 +179,7 @@ export function describeProviderError(input: ErrorInput): ErrorView {
     case "quota":
       return {
         title: "Usage limit reached",
-        message: message(plain),
+        message: (plain && limitReset(plain)) ?? message(plain),
         action: "switch_account",
         raw,
         code,

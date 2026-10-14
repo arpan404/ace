@@ -121,6 +121,11 @@ export interface ThreadInit {
   hasSentMessage?: boolean;
   /** What the thread's provider can do, over the fake's defaults (a provider that reads no images). */
   capabilities?: Partial<Capabilities>;
+  /**
+   * How long an agent with an open turn may stay silent before core reads it as not responding.
+   * Scripts send no liveness ticks, so by default silence never counts.
+   */
+  silenceMs?: number;
 }
 type ResolvedListener = (threadId: string, key: Key, resolution?: InteractionResolution) => void;
 
@@ -513,7 +518,7 @@ export class FakeDaemon implements Host {
       createdAt: now,
       updatedAt: now,
     };
-    const host = new ThreadHost(thread);
+    const host = new ThreadHost(thread, init.silenceMs);
     host.permissionParent = parentId;
     this.threads.set(init.id, host);
     this.append(host, [{ type: "thread.created", thread }], now);

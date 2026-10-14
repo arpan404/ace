@@ -1,6 +1,6 @@
 import type { Item, ProviderKind } from "@ace/protocol";
-import { describeProviderError, type ErrorInput, type ErrorView } from "@ace/ui-core";
-import { CaretRightIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { describeProviderError, isLimitError, type ErrorInput, type ErrorView } from "@ace/ui-core";
+import { CaretRightIcon, HourglassMediumIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
@@ -8,6 +8,8 @@ import { cn } from "@/lib/cn.ts";
 import { useSignIn } from "@/features/sign-in/index.ts";
 
 const linkButton = buttonVariants({ variant: "primary", size: "sm" });
+/** A limit's way out is an option, not the one fix: it stays quiet beside the row. */
+const quietLinkButton = buttonVariants({ variant: "ghost", size: "sm" });
 
 /** The composer's own model control: the one place a thread's model changes. */
 function openModelPicker(from: HTMLElement | null) {
@@ -68,7 +70,12 @@ export function ErrorRow(props: {
       className={cn("text-ui", props.className)}
     >
       <div className="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1">
-        <WarningCircleIcon aria-hidden size={16} className="shrink-0 text-status-failed" />
+        {/* A limit lifts on its own: a quiet hourglass, not an alarm. */}
+        {isLimitError(view) ? (
+          <HourglassMediumIcon aria-hidden size={16} className="shrink-0 text-muted-foreground" />
+        ) : (
+          <WarningCircleIcon aria-hidden size={16} className="shrink-0 text-status-failed" />
+        )}
         <span className="font-medium text-foreground">{title}</span>
         {(props.count ?? 1) > 1 && (
           <span
@@ -101,7 +108,7 @@ export function ErrorRow(props: {
               </Link>
             ))}
           {view.action === "switch_account" && (
-            <Link to="/usage" className={linkButton}>
+            <Link to="/usage" className={quietLinkButton}>
               Use another account
             </Link>
           )}

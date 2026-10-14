@@ -28,6 +28,28 @@ test("structured codes win over the text, and known kinds get their own words", 
   );
 });
 
+test("a limit the provider names only in words reads as a usage limit with when it resets", () => {
+  expect(
+    describeProviderError({
+      text: "You've hit your session limit · resets 8:30pm (America/Chicago)",
+      kind: "provider",
+    }),
+  ).toMatchObject({
+    title: "Usage limit reached",
+    message: "Resets 8:30pm (America/Chicago)",
+    code: "quota",
+  });
+  expect(
+    describeProviderError({ text: "You've hit your usage limit. Try again at 8:30 PM." }),
+  ).toMatchObject({ title: "Usage limit reached", message: "Resets at 8:30 PM" });
+  // No reset named: the provider's own line stays.
+  expect(describeProviderError({ text: "Claude AI usage limit reached" }).message).toBe(
+    "Claude AI usage limit reached",
+  );
+  // A failure that only mentions a limit in passing is not one.
+  expect(describeProviderError({ text: "Raised the retry limit to 5" }).code).toBeUndefined();
+});
+
 test("an unknown failure keeps its own first line, never an empty row", () => {
   expect(describeProviderError({ text: "2 tests failing on #74" }).title).toBe(
     "2 tests failing on #74",

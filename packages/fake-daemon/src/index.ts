@@ -18,6 +18,7 @@ export {
   delegatedQuestionIds,
 } from "./scenarios/delegated-question.ts";
 export { failingSubagent } from "./scenarios/failing-subagent.ts";
+export { childActions, childActionsIds, sessionLimitText } from "./scenarios/child-actions.ts";
 export { refusedDelegation } from "./scenarios/refused-delegation.ts";
 export { interruptedTurn, seedInterruptedTurn } from "./scenarios/interrupted-turn.ts";
 export {
