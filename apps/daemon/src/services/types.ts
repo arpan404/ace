@@ -66,6 +66,8 @@ export interface Services {
   pi?: import("./pi.ts").PiService;
   screen?: ScreenManager;
   screenApprovals?: import("../screen-approvals.ts").ScreenApprovals;
+  /** `ace_ask` questions waiting on the person. */
+  asks?: import("../asks.ts").Asks;
   devices?: DevicesService;
   accounts?: AccountService;
   accountManagement?: import("../account-management.ts").AccountManagement;

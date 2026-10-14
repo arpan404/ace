@@ -5,7 +5,12 @@ import { toolResultObserver } from "../tool-result-mcp.ts";
 import { requestDeviceAccess } from "../device-access.ts";
 import { providerMcpSources } from "../provider-mcp-sources.ts";
 import { measurementObserver } from "../measurement-mcp.ts";
-import { type CallObserver, agentControlToolkit, PublicToolError } from "@ace/mcp-server";
+import {
+  type CallObserver,
+  agentControlToolkit,
+  knowledgeToolkit,
+  PublicToolError,
+} from "@ace/mcp-server";
 import { devicesToolkit } from "@ace/devices";
 import { browserToolkit } from "../browser-toolkit.ts";
 import { screenToolkit } from "@ace/screen";
@@ -13,10 +18,26 @@ import { handoffToolkit } from "./handoff-tools.ts";
 import { startDaemonMcp } from "../mcp.ts";
 import { hostname } from "node:os";
 import { mcpAwareness } from "../mcp-awareness.ts";
+import { knowledgePort } from "../knowledge.ts";
+import { Asks } from "../asks.ts";
+import { GitService } from "@ace/git";
 import type { ServiceContext } from "./types.ts";
 export async function startMcp(context: ServiceContext): Promise<void> {
   const { options, store, resources, services } = context;
 
+  const asks = new Asks({
+    store,
+    engine: () => services.engine,
+    id: context.id,
+    schedule: (run, ms) => {
+      const timer = setTimeout(run, ms);
+      timer.unref();
+      return () => clearTimeout(timer);
+    },
+  });
+  services.asks = asks;
+  const contextGit = new GitService({ timeoutMs: 10_000 });
+  resources.own(() => contextGit.close());
   const measurements = measurementObserver({
     store,
     now: context.now,
@@ -69,6 +90,20 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         redactTitle: createTextRedactor({ env: process.env }),
       }),
       handoffToolkit(store),
+      knowledgeToolkit(
+        knowledgePort({
+          store,
+          projects: () => services.projects?.catalog,
+          delegations: () => services.agentControl?.delegations,
+          prStatus: async (thread, cwd) =>
+            (await services.workspaceActions?.forge.status(thread, cwd)) ?? null,
+          git: contextGit,
+          failures: (sessionId) => services.mcp?.failures(sessionId) ?? [],
+          asks,
+          now: context.now,
+          id: context.id,
+        }),
+      ),
       agentControlToolkit({
         async execute(caller, operation, signal) {
           return services.agentControl
@@ -111,6 +146,10 @@ export async function startMcp(context: ServiceContext): Promise<void> {
     (caller) => ({
       // Report the thread's own native selector; a fixed placeholder misleads agents.
       access: store.getThread(caller.threadId)?.permission?.effective ?? null,
+      // Providers with their own ask tool keep it; delegated children and Cursor get ace_ask.
+      askAvailable:
+        store.getThread(caller.threadId)?.provider === "cursor" ||
+        !!services.agentControl?.delegations.journal.get(caller.threadId),
       get screenApproved() {
         return services.screen?.hasAppApproval(caller) ?? false;
       },
@@ -133,6 +172,8 @@ export async function startMcp(context: ServiceContext): Promise<void> {
     mcpAwareness({
       store,
       delegations: () => services.agentControl?.delegations,
+      notes: (workspace) =>
+        (services.projects?.catalog.get(workspace).notes ?? []).map((note) => note.text),
       machine: hostname(),
     }),
   );

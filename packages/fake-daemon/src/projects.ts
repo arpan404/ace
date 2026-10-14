@@ -712,5 +712,17 @@ function edited(
   else if (p.badge !== undefined) next.badge = p.badge;
   if (p.defaults === null) delete next.defaults;
   else if (p.defaults !== undefined) next.defaults = p.defaults;
+  if (p.notes) {
+    // Like the daemon: an unchanged note keeps its author; anything edited is the person's.
+    const before = new Map((project.notes ?? []).map((note) => [note.id, note]));
+    const notes = p.notes.map((edit, index) => {
+      const kept = edit.id === undefined ? undefined : before.get(edit.id);
+      return kept && kept.text === edit.text
+        ? kept
+        : { id: kept?.id ?? `note-${index}-${edit.text.length}`, text: edit.text, createdAt: 0 };
+    });
+    if (notes.length) next.notes = notes;
+    else delete next.notes;
+  }
   return next;
 }

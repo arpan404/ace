@@ -35,6 +35,13 @@
       "maxLength": 256,
       "type": "string"
     },
+    "notes": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ProjectNote.json"
+      },
+      "maxItems": 50,
+      "type": "array"
+    },
     "path": {
       "maxLength": 4096,
       "minLength": 1,

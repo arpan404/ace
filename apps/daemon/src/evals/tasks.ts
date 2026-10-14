@@ -23,8 +23,8 @@ export interface EvalTask {
  * (instructions, the tool list and tool results). They measure what the surface makes possible.
  */
 const Control = z.object({ ok: z.boolean(), code: z.string().optional(), data: z.unknown() });
-const control = (result: CallResult) => Control.safeParse(result.data);
-const record = (value: unknown) =>
+export const control = (result: CallResult) => Control.safeParse(result.data);
+export const record = (value: unknown) =>
   z.record(z.string(), z.unknown()).safeParse(value).data ?? undefined;
 
 const whereAmI: EvalTask = {
@@ -174,6 +174,12 @@ const recentWork: EvalTask = {
       "Fixed the redirect loop in src/auth.ts; the session cookie is now SameSite=Lax";
     await world.finishedThread("Fix the login redirect loop", outcome);
     const { agent, threadId } = await world.agent({});
+    // One read when ace offers project context.
+    if (agent.has("ace_context")) {
+      const context = await agent.turn(() => agent.call("ace_context", { topics: ["recent"] }));
+      const success = context.text.includes(outcome);
+      return { metrics: agent.finish(success), note: success ? "outcome found" : "outcome missed" };
+    }
     const list = await agent.turn(() => agent.call("ace_threads_list", {}));
     const other = threadEntries(control(list).data?.data).find((entry) => entry.id !== threadId);
     if (!other) return { metrics: agent.finish(false), note: "no earlier thread found" };

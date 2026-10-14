@@ -5,6 +5,7 @@ import type {
   Project,
   ProjectBadgeStyle,
   ProjectDefaults,
+  ProjectNoteEdit,
   ProjectsResult,
 } from "@ace/protocol";
 import { projectProblem, type ProjectProblem } from "@ace/ui-core";
@@ -79,6 +80,8 @@ export interface ProjectEdit {
   icon?: string | null;
   badge?: ProjectBadgeStyle | null;
   defaults?: ProjectDefaults | null;
+  /** Replaces the project's notes in order; a note without an id is new. */
+  notes?: ProjectNoteEdit[];
 }
 
 export interface CreateInput {

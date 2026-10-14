@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { RepositoryPublications } from "./repository-publications.ts";
 import type { SourceControl } from "./source-control.ts";
 import { discoverProjectFavicon } from "./project-favicon.ts";
@@ -38,11 +39,14 @@ import {
   assertProjectPath,
   canonicalProjectRoots,
 } from "./project-policy.ts";
+import { applyNoteEdits } from "./project-notes.ts";
 import { ProjectStorage } from "./project-storage.ts";
 import { browseProjects } from "./project-browse.ts";
 import type { Store } from "./store.ts";
 
 export interface ProjectsOptions {
+  /** Ids for project notes the person adds in Edit project. */
+  noteId?: () => string;
   sourceControl?: SourceControl;
   home?: string;
   /** Monotonic clock at the filesystem I/O boundary, for scan budgets and cache expiry. */
@@ -79,8 +83,12 @@ export class Projects {
   private progressListeners = new Set<(device: string, progress: WorkspaceCloneProgress) => void>();
   private closed = false;
   private stopRevocation: () => void;
+  private now: () => number;
+  private noteId: () => string;
   constructor(store: Store, now: () => number, options: ProjectsOptions = {}) {
     this.store = store;
+    this.now = now;
+    this.noteId = options.noteId ?? randomUUID;
     this.options = options;
     this.home = options.home ?? homedir();
     this.paths = new ProjectPaths(this.home, options.roots ?? (async () => []));
@@ -327,6 +335,11 @@ export class Projects {
                 defaultIcon,
                 badge: p.badge,
                 defaults: p.defaults,
+                ...(p.notes
+                  ? {
+                      notes: applyNoteEdits(project.notes ?? [], p.notes, this.now(), this.noteId),
+                    }
+                  : {}),
               }),
             };
           }

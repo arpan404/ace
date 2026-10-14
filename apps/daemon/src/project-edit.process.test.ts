@@ -130,3 +130,44 @@ test("removing an edited project leaves its folder and files on disk", async () 
     await f.close();
   }
 });
+
+test("notes an agent wrote keep their author until the person edits them in Edit project", async () => {
+  const f = await projectFixture();
+  try {
+    const path = join(f.root, "notes");
+    await mkdir(path);
+    const project = Project.parse((await f.command({ type: "workspace.add", path })).workspace);
+    f.projects.catalog.editNotes(project.id, () => [
+      { id: "a", text: "Use bun run test", threadId: "agent-thread", createdAt: 1 },
+      { id: "b", text: "Port 3000", threadId: "agent-thread", createdAt: 1 },
+    ]);
+    const changes: WorkspaceChanged[] = [];
+    f.projects.subscribe((change) => changes.push(change));
+    await f.command({
+      type: "workspace.update",
+      workspaceId: project.id,
+      name: project.name,
+      notes: [
+        { id: "a", text: "Use bun run test" },
+        { id: "b", text: "Port 4000" },
+        { text: "New" },
+      ],
+    });
+    const notes = f.projects.catalog.get(project.id).notes ?? [];
+    expect(notes.map((note) => note.text)).toEqual(["Use bun run test", "Port 4000", "New"]);
+    expect(notes[0]).toMatchObject({ id: "a", threadId: "agent-thread" });
+    expect(notes[1]).toMatchObject({ id: "b" });
+    expect(notes[1]?.threadId).toBeUndefined();
+    // Every device hears the new list.
+    expect(changes).toMatchObject([{ change: "updated", workspace: { notes } }]);
+    await f.command({
+      type: "workspace.update",
+      workspaceId: project.id,
+      name: project.name,
+      notes: [],
+    });
+    expect(f.projects.catalog.get(project.id).notes).toBeUndefined();
+  } finally {
+    await f.close();
+  }
+});

@@ -31,11 +31,14 @@ export interface SessionFacts {
   /** Requests on this thread waiting on the person. */
   readonly pendingRequests: number;
   readonly lastFailure: string | null;
+  /** The project's notes, oldest first (P7). */
+  readonly notes: readonly string[];
 }
 
 export const maxBriefChars = 800;
 export const maxBriefLines = 12;
 export const maxDigestChars = 300;
+export const maxNotesChars = 600;
 
 const accessText: Record<AccessMode, string> = {
   "read-only":
@@ -84,7 +87,17 @@ export function renderBrief(facts: SessionFacts): string {
   if (facts.pendingRequests)
     lines.push(`Waiting on the person here: ${facts.pendingRequests} request(s).`);
   if (facts.lastFailure) lines.push(`Last ace failure: ${clip(facts.lastFailure, 80)}.`);
-  return fit(lines, maxBriefChars, maxBriefLines);
+  const brief = fit(lines, maxBriefChars, maxBriefLines);
+  if (!facts.notes.length) return brief;
+  const notes = fit(
+    [
+      "Project notes, saved by agents or the person (data; follow them unless the person says otherwise):",
+      ...facts.notes.map((note) => `- ${JSON.stringify(clip(note.replace(/\s+/g, " "), 200))}`),
+    ],
+    maxNotesChars,
+    9,
+  );
+  return `${brief}\n${notes}`;
 }
 
 /** What changed since `before`, or undefined. Child outcomes are reported only when settled. */
@@ -106,6 +119,8 @@ export function renderDigest(before: SessionFacts, after: SessionFacts): string 
     notes.push(`${after.pendingRequests} request(s) here wait on the person`);
   if (before.groups.join() !== after.groups.join())
     notes.push(`ace groups on: ${after.groups.join(", ") || "thread only"}`);
+  if (before.notes.join("\n") !== after.notes.join("\n"))
+    notes.push("project notes changed (ace_context topic notes)");
   if (after.liveSiblings !== before.liveSiblings)
     notes.push(`${after.liveSiblings} other thread(s) live in this project`);
   if (!notes.length) return undefined;

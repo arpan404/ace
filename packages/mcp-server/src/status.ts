@@ -4,6 +4,8 @@ import { ToolRegistry, nodeScheduler } from "./registry.ts";
 
 export type StatusReader = (caller: McpAttribution) => {
   access: McpStatus["access"];
+  /** False hides ace_ask: the provider has its own ask tool and this is not a child thread. */
+  askAvailable?: boolean;
   disabled?: Partial<Record<McpCapability, string>>;
   /** Whether this caller has a current app grant. False stages computer use discovery. */
   screenApproved?: boolean;
@@ -20,6 +22,7 @@ export const aceInstructions = [
   "- show a chart, diagram, comparison or mockup inline: ace_html_render;",
   "- read or retitle this thread, or find other threads in this project: ace_thread_read, ace_thread_rename, ace_threads_list;",
   "- link a pull request you opened or found for this work: ace_thread_link_pr;",
+  "- see what this project already knows (recent threads and outcomes, uncommitted changes, PRs and CI, notes, failed ace calls) before git or gh: ace_context; save a lasting project fact for every future thread: ace_note_add;",
   "- operate a native desktop app the person named: screen_* (computer use).",
   "ace has no file or shell tools. Read, create and edit files and run shell commands with your own workspace tools: no ace tool group, enabled or not, limits them.",
   "If an ace tool reports disabled, denied, read-only or human control, stop that ace action and tell the person; don't work around it with other ace tools. Agents never resolve approvals. ace_status lists the enabled ace groups.",

@@ -6,7 +6,7 @@ import { detectChromium } from "@ace/browser";
 import { claudeInjection, codexInjection, type AceMcpConnection } from "@ace/mcp-server";
 import { ScreenManager } from "@ace/screen";
 import type { Fact } from "@ace/core";
-import type { AccessMode, ThreadId, ProviderKind } from "@ace/protocol";
+import { Command, type AccessMode, type ThreadId, type ProviderKind } from "@ace/protocol";
 import { readConfig, startDaemon } from "../index.ts";
 import { setup } from "../agent-control/test-support.ts";
 import { end, start } from "../engine/test-support.ts";
@@ -131,9 +131,20 @@ export async function evalWorld(options: { browser: boolean }) {
         input.access ?? "full-access",
         input.prompt ?? "help me with the login page",
       );
+      return this.attach(thread.id, input.delivery);
+    },
+    /** The scripted model of an existing thread (a delegated child, say) on its own lease. */
+    async attach(
+      threadId: ThreadId,
+      delivery: Delivery = "claude",
+    ): Promise<{ agent: EvalAgent; threadId: ThreadId; connection: AceMcpConnection }> {
+      for (let attempt = 0; attempt < 200 && !h.contexts.get(threadId)?.aceMcp; attempt++) {
+        await engine.flush();
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      const thread = { id: threadId };
       const connection = h.contexts.get(thread.id)?.aceMcp;
       if (!connection) throw new Error("The provider session received no ace MCP lease");
-      const delivery = input.delivery ?? "claude";
       const agent = await EvalAgent.connect({
         url: connection.url,
         bearer: connection.bearer,
@@ -152,6 +163,71 @@ export async function evalWorld(options: { browser: boolean }) {
       const thread = await createThread("claude", "full-access", prompt);
       await this.complete(thread.id, answer);
       return thread.id;
+    },
+    /** Link a pull request to a thread, as the forge owner records it. */
+    linkPr(thread: ThreadId, number: number) {
+      const current = daemon.store.getThread(thread);
+      daemon.store.appendEvents(thread, [
+        {
+          type: "thread.client.updated",
+          changes: {
+            details: {
+              ...current?.details,
+              linkedPrs: [
+                {
+                  number,
+                  repo: { forge: "github", host: "github.com", owner: "acme", name: "shop" },
+                  url: `https://github.com/acme/shop/pull/${number}`,
+                  state: "open",
+                  title: "Login page",
+                  updatedAt: 1,
+                },
+              ],
+            },
+          },
+        },
+      ]);
+    },
+    /** Leave uncommitted work in the project checkout. */
+    editFile(name: string, text: string) {
+      writeFileSync(join(project, name), text);
+    },
+    /** The thread's status once its ace_ask question is open. */
+    async whileAsking(thread: ThreadId) {
+      for (let attempt = 0; attempt < 400; attempt++) {
+        const open = daemon.store.atomic((db) =>
+          db.prepare("SELECT 1 FROM ace_ask_pending WHERE thread_id=?").get(thread),
+        );
+        if (open) break;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      await engine.flush();
+      return daemon.store.getThread(thread)?.status.state;
+    },
+    /** The person answers a pending ace_ask on `thread`, from their own device. */
+    async answerAsk(thread: ThreadId, text: string) {
+      const pending = () =>
+        daemon.store.atomic((db) =>
+          db.prepare("SELECT interaction_id FROM ace_ask_pending WHERE thread_id=?").get(thread),
+        );
+      // The question reaches ace over the agent's own HTTP call.
+      for (let attempt = 0; attempt < 400 && !pending(); attempt++)
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      const row = pending();
+      const interactionId = row?.["interaction_id"];
+      if (typeof interactionId !== "string") throw new Error("No pending question");
+      const command = Command.parse({
+        id: `answer-${++sequence}`,
+        deviceId: "person",
+        payload: {
+          type: "interaction.resolve",
+          interactionId,
+          resolution: { kind: "question", answers: { answer: [text] } },
+        },
+      });
+      return daemon.store.recordCommand(command.id, command.deviceId, () =>
+        engine.handler.handle(command, daemon.store),
+      );
     },
     /** Another thread in the project whose model is still working. */
     async liveThread(prompt: string) {

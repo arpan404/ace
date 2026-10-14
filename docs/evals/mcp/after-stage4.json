@@ -1,0 +1,210 @@
+{
+  "label": "after stage 4 (knowledge, notes, skills, ask, diagnostics)",
+  "tasks": [
+    {
+      "id": "where-am-i",
+      "title": "Find where I am: project, branch, access mode, title state, live siblings",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 0,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 1,
+        "contextBytes": 64618,
+        "tokens": 16155
+      },
+      "note": "all facts from the brief"
+    },
+    {
+      "id": "delegate-two",
+      "title": "Delegate two tasks and collect both results",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 1,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 2,
+        "contextBytes": 65468,
+        "tokens": 16367
+      },
+      "note": "both results collected"
+    },
+    {
+      "id": "browser-check",
+      "title": "Open the dev server in the browser and report console and network errors",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 3,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 4,
+        "contextBytes": 66041,
+        "tokens": 16511
+      },
+      "note": "console error found, 500 found"
+    },
+    {
+      "id": "recent-work",
+      "title": "Read the project's recent work and its outcome",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 1,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 2,
+        "contextBytes": 64876,
+        "tokens": 16219
+      },
+      "note": "outcome found"
+    },
+    {
+      "id": "visualize",
+      "title": "Render a small comparison as HTML",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 1,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 2,
+        "contextBytes": 64892,
+        "tokens": 16223
+      },
+      "note": "rendered"
+    },
+    {
+      "id": "recover-bad-argument",
+      "title": "Recover from a wrong argument using only the error",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 12,
+        "ownToolCalls": 0,
+        "failedCalls": 6,
+        "identicalRetries": 0,
+        "turns": 13,
+        "contextBytes": 68925,
+        "tokens": 17232
+      },
+      "note": "6/6 recovered on the second call"
+    },
+    {
+      "id": "child-waits-on-human",
+      "title": "A child waiting on the person is never reported done",
+      "gate": true,
+      "metrics": {
+        "success": true,
+        "aceCalls": 3,
+        "ownToolCalls": 0,
+        "failedCalls": 1,
+        "identicalRetries": 0,
+        "turns": 4,
+        "contextBytes": 65782,
+        "tokens": 16446
+      },
+      "note": "wait needs_you, child needs_you"
+    },
+    {
+      "id": "read-only-no-screen",
+      "title": "In read-only mode, screen tools are absent and never attempted",
+      "gate": true,
+      "metrics": {
+        "success": true,
+        "aceCalls": 0,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 1,
+        "contextBytes": 63717,
+        "tokens": 15930
+      },
+      "note": "effective read-only; control serves screen: true; read-only lists 0, attempted 0"
+    },
+    {
+      "id": "pr-and-changes",
+      "title": "Is there already a PR for this work, and what is uncommitted?",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 1,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 2,
+        "contextBytes": 64956,
+        "tokens": 16239
+      },
+      "note": "PR #42 and login.ts found"
+    },
+    {
+      "id": "notes-respected",
+      "title": "A lesson from one thread reaches the next thread on another provider",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 0,
+        "ownToolCalls": 1,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 2,
+        "contextBytes": 64803,
+        "tokens": 16201
+      },
+      "note": "0 wrong test invocation(s)"
+    },
+    {
+      "id": "ask-waits-on-person",
+      "title": "A child's question waits on the person and its answer comes back",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 1,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 2,
+        "contextBytes": 65516,
+        "tokens": 16379
+      },
+      "note": "while asking: needs_you; answer [\"GitHub\"]"
+    }
+  ],
+  "catalogue": {
+    "tools": 83,
+    "toolsListBytes": 107247,
+    "descriptorBytes": 61037,
+    "outputSchemaBytes": 31348,
+    "largestOutputSchemas": [
+      {
+        "name": "ace_list_agents",
+        "bytes": 4634
+      },
+      {
+        "name": "ace_context",
+        "bytes": 2366
+      },
+      {
+        "name": "delegate_task",
+        "bytes": 2045
+      }
+    ],
+    "readOnlyWithoutHint": [],
+    "instructionBytes": {
+      "claude": 3581,
+      "codex": 3482,
+      "opencode": 3563,
+      "cursor": 3487,
+      "pi": 3099,
+      "acp": 3074
+    }
+  }
+}

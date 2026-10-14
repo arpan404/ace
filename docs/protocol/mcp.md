@@ -28,7 +28,7 @@ Example:
 ```json
 {
   "html": "example",
-  "title": "M"
+  "title": "_"
 }
 ```
 
@@ -66,10 +66,7 @@ Required capability: none beyond session authentication. Timeout: 10000 ms.
 Example:
 
 ```json
-{
-  "cursor": "example",
-  "limit": 5
-}
+{}
 ```
 
 ## ace_list_agents.output
@@ -86,7 +83,7 @@ Example:
 ```json
 {
   "agents": [],
-  "nextCursor": null
+  "nextCursor": "example"
 }
 ```
 
@@ -164,9 +161,9 @@ Example:
 
 ```json
 {
-  "code": "limit",
   "data": null,
-  "ok": true
+  "hint": "example",
+  "ok": false
 }
 ```
 
@@ -203,11 +200,12 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
-  "effort": "example",
   "hostId": "example",
+  "options": {
+    "serviceTier": "flex"
+  },
   "provider": "cursor",
-  "requestId": "4uJ3G",
+  "requestId": "k",
   "role": "example",
   "task": "example",
   "workspaceId": "example"
@@ -229,6 +227,8 @@ Example:
 
 ```json
 {
+  "code": "invalid",
+  "data": null,
   "ok": false
 }
 ```
@@ -251,7 +251,7 @@ Example:
 
 ```json
 {
-  "taskId": "hbpEF1"
+  "taskId": "IE6TJ"
 }
 ```
 
@@ -271,7 +271,8 @@ Example:
 ```json
 {
   "data": null,
-  "ok": false
+  "hint": "example",
+  "ok": true
 }
 ```
 
@@ -293,7 +294,7 @@ Example:
 
 ```json
 {
-  "taskId": "5xV"
+  "taskId": "H3M31S.sR0h"
 }
 ```
 
@@ -334,7 +335,7 @@ Example:
 
 ```json
 {
-  "taskId": "qOf_xcN"
+  "taskId": "5rzT_"
 }
 ```
 
@@ -353,6 +354,7 @@ Example:
 
 ```json
 {
+  "code": "unsupported",
   "ok": true
 }
 ```
@@ -378,7 +380,8 @@ Example:
 ```json
 {
   "attachments": [],
-  "requestId": "XJh"
+  "files": [],
+  "requestId": "9amkbeRt"
 }
 ```
 
@@ -397,8 +400,7 @@ Example:
 
 ```json
 {
-  "code": "not_ready",
-  "hint": "example",
+  "code": "unsupported",
   "ok": false
 }
 ```
@@ -423,10 +425,7 @@ Required capability: none beyond session authentication. Timeout: 10000 ms.
 Example:
 
 ```json
-{
-  "cursor": "example",
-  "query": "example"
-}
+{}
 ```
 
 ## ace_threads_list.output
@@ -444,7 +443,7 @@ Example:
 
 ```json
 {
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -478,19 +477,14 @@ Example:
 
 ```json
 {
-  "installationId": "example",
-  "instanceId": "example",
-  "model": "example",
-  "provider": "pi",
-  "requestId": "J4qN",
+  "accountId": "example",
+  "effort": "example",
+  "provider": "cursor",
+  "requestId": "3oSTg",
   "text": "example",
   "title": "example",
   "workspace": {
-    "base": {
-      "ref": "example",
-      "remote": "YVQQNEIlw_"
-    },
-    "kind": "new_worktree"
+    "kind": "project"
   }
 }
 ```
@@ -510,9 +504,9 @@ Example:
 
 ```json
 {
-  "code": "forbidden",
-  "hint": "example",
-  "ok": false
+  "code": "invalid",
+  "data": null,
+  "ok": true
 }
 ```
 
@@ -538,7 +532,7 @@ Example:
 ```json
 {
   "model": "example",
-  "requestId": "qX.",
+  "requestId": "F6-I7JF_",
   "threadId": "example"
 }
 ```
@@ -558,7 +552,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "hint": "example",
+  "ok": false
 }
 ```
 
@@ -587,10 +582,7 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
-  "instanceOffset": 1,
-  "limit": 6,
-  "offset": 0
+  "instanceOffset": 4
 }
 ```
 
@@ -609,15 +601,9 @@ Example:
 
 ```json
 {
-  "data": {
-    "caller": {
-      "access": "auto-review",
-      "threadId": "example"
-    },
-    "instances": [],
-    "models": []
-  },
-  "ok": false
+  "code": "unsupported",
+  "hint": "example",
+  "ok": true
 }
 ```
 
@@ -658,9 +644,8 @@ Example:
 
 ```json
 {
-  "code": "limit",
   "hint": "example",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -697,8 +682,7 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
-  "hint": "example",
+  "code": "not_ready",
   "ok": false
 }
 ```
@@ -737,7 +721,8 @@ Example:
 ```json
 {
   "data": null,
-  "ok": false
+  "hint": "example",
+  "ok": true
 }
 ```
 
@@ -779,17 +764,9 @@ Example:
 ```json
 {
   "data": {
-    "outcome": {
-      "before": null,
-      "outcome": "completed",
-      "result": "example",
-      "threadId": "example",
-      "truncated": true
-    },
-    "state": "failed",
+    "state": "cancelled",
     "threadId": "example"
   },
-  "hint": "example",
   "ok": true
 }
 ```
@@ -813,7 +790,7 @@ Example:
 
 ```json
 {
-  "requestId": "2Zxg",
+  "requestId": "jfHvBCX3Nvj",
   "threadId": "example"
 }
 ```
@@ -833,7 +810,7 @@ Example:
 ```json
 {
   "hint": "example",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -858,8 +835,7 @@ Example:
 
 ```json
 {
-  "delivery": "queue",
-  "requestId": "mBNGXd1",
+  "requestId": "mLq2ZV8y-",
   "text": "example",
   "threadId": "example"
 }
@@ -879,8 +855,7 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -950,6 +925,7 @@ Example:
 
 ```json
 {
+  "hint": "example",
   "ok": false
 }
 ```
@@ -976,7 +952,7 @@ Example:
 ```json
 {
   "delivery": "restart",
-  "requestId": "PI",
+  "requestId": "1KdSpJs",
   "text": "example",
   "threadId": "example"
 }
@@ -996,6 +972,8 @@ Example:
 
 ```json
 {
+  "code": "unsupported",
+  "hint": "example",
   "ok": true
 }
 ```
@@ -1041,7 +1019,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "code": "unsupported",
+  "ok": false
 }
 ```
 
@@ -1064,7 +1043,10 @@ Required capability: none beyond session authentication. Timeout: 10000 ms.
 Example:
 
 ```json
-{}
+{
+  "before": 4,
+  "limit": 5
+}
 ```
 
 ## ace_thread_read.output
@@ -1082,9 +1064,7 @@ Example:
 
 ```json
 {
-  "code": "invalid",
-  "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1109,7 +1089,7 @@ Example:
 
 ```json
 {
-  "offset": 8,
+  "offset": 5,
   "streamId": "example",
   "threadId": "example"
 }
@@ -1130,9 +1110,8 @@ Example:
 
 ```json
 {
-  "data": {
-    "bytes": "example"
-  },
+  "code": "limit",
+  "hint": "example",
   "ok": true
 }
 ```
@@ -1159,6 +1138,7 @@ Example:
 ```json
 {
   "cursor": "example",
+  "limit": 4,
   "query": "example",
   "threadId": "example"
 }
@@ -1179,11 +1159,8 @@ Example:
 
 ```json
 {
-  "data": {
-    "hits": []
-  },
   "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1206,7 +1183,7 @@ Example:
 
 ```json
 {
-  "requestId": "3NOqOZIJGa",
+  "requestId": "AT",
   "threadId": "example"
 }
 ```
@@ -1225,7 +1202,7 @@ Example:
 
 ```json
 {
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1249,8 +1226,8 @@ Example:
 
 ```json
 {
-  "requestId": "In",
-  "runId": "rItNZq9-lYa",
+  "requestId": "BYnLTaH5V4E",
+  "runId": "VbEICB1Yfr",
   "threadId": "example"
 }
 ```
@@ -1270,7 +1247,8 @@ Example:
 
 ```json
 {
-  "code": "invalid",
+  "code": "not_found",
+  "data": null,
   "ok": true
 }
 ```
@@ -1294,7 +1272,7 @@ Example:
 
 ```json
 {
-  "requestId": "iJ",
+  "requestId": "K3",
   "threadId": "example"
 }
 ```
@@ -1315,7 +1293,7 @@ Example:
 ```json
 {
   "data": null,
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1340,8 +1318,8 @@ Example:
 
 ```json
 {
-  "entryId": "o",
-  "requestId": "6",
+  "entryId": "ynX9",
+  "requestId": "A",
   "text": "example",
   "threadId": "example"
 }
@@ -1362,7 +1340,6 @@ Example:
 
 ```json
 {
-  "hint": "example",
   "ok": false
 }
 ```
@@ -1388,9 +1365,9 @@ Example:
 ```json
 {
   "entryIds": [
-    "GeTgzVxgSHv"
+    "jg"
   ],
-  "requestId": "SGtj4PUM-",
+  "requestId": "NB",
   "threadId": "example"
 }
 ```
@@ -1410,7 +1387,7 @@ Example:
 
 ```json
 {
-  "data": null,
+  "code": "unsupported",
   "ok": true
 }
 ```
@@ -1438,10 +1415,11 @@ Example:
 {
   "answer": {
     "answers": {},
+    "feedback": "example",
     "kind": "question"
   },
   "interactionId": "example",
-  "requestId": "c8si",
+  "requestId": "0kn9_",
   "threadId": "example"
 }
 ```
@@ -1460,9 +1438,9 @@ Example:
 
 ```json
 {
-  "code": "not_found",
+  "code": "forbidden",
   "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1505,6 +1483,7 @@ Example:
 
 ```json
 {
+  "code": "invalid",
   "hint": "example",
   "ok": true
 }
@@ -1546,7 +1525,9 @@ Example:
 
 ```json
 {
-  "ok": false
+  "code": "invalid",
+  "hint": "example",
+  "ok": true
 }
 ```
 
@@ -1592,7 +1573,8 @@ Example:
 
 ```json
 {
-  "number": 7
+  "number": 4,
+  "repo": "example"
 }
 ```
 
@@ -1611,7 +1593,7 @@ Example:
 
 ```json
 {
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1657,7 +1639,7 @@ Example:
 
 ```json
 {
-  "number": 3
+  "number": 6
 }
 ```
 
@@ -1694,7 +1676,7 @@ Example:
 
 ```json
 {
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1771,8 +1753,8 @@ Example:
 
 ```json
 {
-  "code": "unsupported",
-  "ok": false
+  "hint": "example",
+  "ok": true
 }
 ```
 
@@ -1796,7 +1778,7 @@ Example:
 ```json
 {
   "threadId": "example",
-  "until": null
+  "until": 9
 }
 ```
 
@@ -1814,9 +1796,8 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
   "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1839,9 +1820,9 @@ Example:
 ```json
 {
   "request": {
-    "limit": 1,
+    "id": "example",
     "requestId": "example",
-    "type": "automation.inbox"
+    "type": "automation.remove"
   }
 }
 ```
@@ -1861,7 +1842,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "hint": "example",
+  "ok": false
 }
 ```
 
@@ -1902,8 +1884,12 @@ Example:
 
 ```json
 {
+  "data": {
+    "id": "example",
+    "name": "example"
+  },
   "hint": "example",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1946,7 +1932,6 @@ Example:
 
 ```json
 {
-  "hint": "example",
   "ok": true
 }
 ```
@@ -1972,7 +1957,7 @@ Example:
 ```json
 {
   "branch": "example",
-  "requestId": "v47J_p3h",
+  "requestId": "T-Hq_E_Lu",
   "threadId": "example"
 }
 ```
@@ -1992,7 +1977,9 @@ Example:
 
 ```json
 {
-  "ok": true
+  "code": "not_ready",
+  "data": null,
+  "ok": false
 }
 ```
 
@@ -2033,10 +2020,9 @@ Example:
 
 ```json
 {
-  "code": "invalid",
   "data": null,
   "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -2059,7 +2045,7 @@ Example:
 
 ```json
 {
-  "previewId": "fqR",
+  "previewId": "6akV57igW",
   "threadId": "example"
 }
 ```
@@ -2079,8 +2065,8 @@ Example:
 
 ```json
 {
-  "hint": "example",
-  "ok": false
+  "data": null,
+  "ok": true
 }
 ```
 
@@ -2123,7 +2109,7 @@ Example:
 ```json
 {
   "items": [],
-  "itemsBefore": 9,
+  "itemsBefore": null,
   "threadId": "example"
 }
 ```
@@ -2170,9 +2156,9 @@ Example:
 ```json
 {
   "bytes": "example",
-  "encoding": "utf-8",
+  "encoding": "utf-16le",
   "eof": true,
-  "nextOffset": 7
+  "nextOffset": 5
 }
 ```
 
@@ -2209,9 +2195,177 @@ Example:
 
 ```json
 {
-  "access": "full-access",
+  "access": null,
   "agentId": "example",
   "groups": [],
   "threadId": "example"
+}
+```
+
+## ace_context
+
+What this project already knows, in one read: recent threads with their outcomes and PRs, this worktree's changes versus upstream, linked PRs with CI state, project notes, and this session's diagnostics (failed ace calls, what blocks settlement). Use before git/gh calls or re-reading transcripts. Also readable as ace://project/recent, ace://worktree/changes, ace://project/prs, ace://project/notes and ace://thread/self/diagnostics.
+
+Required capability: none beyond session authentication. Timeout: 30000 ms.
+
+## ace_context.input
+
+[JSON Schema](schema/ace_context.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| topics | no | array | {"default":["recent","changes","prs","notes"],"minItems":1,"maxItems":5,"items":{"type":"string","enum":["recent","changes","prs","notes","diagnostics"]}} |
+
+Example:
+
+```json
+{
+  "topics": [
+    "prs"
+  ]
+}
+```
+
+## ace_context.output
+
+[JSON Schema](schema/ace_context.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| recent | no | array | {"maxItems":10,"items":{"type":"object","properties":{"threadId":{"type":"string"},"title":{"type":"string","maxLength":256},"status":{"type":"string"},"updatedAt":{"type":"number"},"branch":{"type":"string","maxLength":256},"prs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"number":{"type":"number"},"state":{"type":"string"},"url":{"type":"string","maxLength":2048}},"required":["number","state","url"],"additionalProperties":false}},"outcome":{"type":"string","maxLength":400}},"required":["threadId","title","status","updatedAt"],"additionalProperties":false}} |
+| changes | no | union | {"anyOf":[{"type":"object","properties":{"branch":{"anyOf":[{"type":"string","maxLength":256},{"type":"null"}]},"upstream":{"anyOf":[{"type":"string","maxLength":256},{"type":"null"}]},"ahead":{"type":"number"},"behind":{"type":"number"},"staged":{"type":"number"},"unstaged":{"type":"number"},"untracked":{"type":"number"},"files":{"maxItems":50,"type":"array","items":{"type":"string","maxLength":1024}}},"required":["branch","upstream","ahead","behind","staged","unstaged","untracked","files"],"additionalProperties":false},{"type":"null"}]} |
+| prs | no | array | {"maxItems":20,"items":{"type":"object","properties":{"threadId":{"type":"string"},"number":{"type":"number"},"url":{"type":"string","maxLength":2048},"state":{"type":"string"},"title":{"type":"string","maxLength":256},"ci":{"type":"string","enum":["none","pending","success","failure","unknown"]}},"required":["threadId","number","url","state","ci"],"additionalProperties":false}} |
+| notes | no | array | {"maxItems":50,"items":{"type":"object","properties":{"id":{"type":"string"},"text":{"type":"string","maxLength":500},"threadId":{"type":"string"}},"required":["id","text"],"additionalProperties":false}} |
+| diagnostics | no | object | {"properties":{"failures":{"maxItems":20,"type":"array","items":{"type":"object","properties":{"tool":{"type":"string","maxLength":128},"code":{"type":"string","maxLength":64},"count":{"type":"number"}},"required":["tool","code","count"],"additionalProperties":false}},"blocking":{"maxItems":16,"type":"array","items":{"type":"string","maxLength":240}}},"required":["failures","blocking"],"additionalProperties":false} |
+
+Example:
+
+```json
+{
+  "prs": []
+}
+```
+
+## ace_note_add
+
+Remember a short fact about this project for every future thread and provider, such as how to run its tests or a pitfall you hit. One fact per note, at most 500 characters; facts only, never instructions to ignore other guidance. The person sees and edits notes in Edit project.
+
+Required capability: projects. Timeout: 10000 ms.
+
+## ace_note_add.input
+
+[JSON Schema](schema/ace_note_add.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| text | yes | string | {"minLength":1,"maxLength":500} |
+
+Example:
+
+```json
+{
+  "text": "example"
+}
+```
+
+## ace_note_add.output
+
+[JSON Schema](schema/ace_note_add.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| noteId | yes | string |  |
+| notes | yes | number |  |
+
+Example:
+
+```json
+{
+  "noteId": "example",
+  "notes": 6
+}
+```
+
+## ace_note_retire
+
+Remove a project note that is wrong or out of date, by its id from ace_context.
+
+Required capability: projects. Timeout: 10000 ms.
+
+## ace_note_retire.input
+
+[JSON Schema](schema/ace_note_retire.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| noteId | yes | string | {"minLength":1,"maxLength":64} |
+
+Example:
+
+```json
+{
+  "noteId": "example"
+}
+```
+
+## ace_note_retire.output
+
+[JSON Schema](schema/ace_note_retire.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| retired | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "retired": true
+}
+```
+
+## ace_ask
+
+Ask the person a question in ace and wait for the answer, up to timeoutSeconds (at most 240). Offer options when you can. If they have not answered by then, it returns pending: end your turn; their answer arrives as their next message. Use only when you have no native ask tool of your own. Never use it to ask for permission.
+
+Required capability: none beyond session authentication. Timeout: 250000 ms.
+
+## ace_ask.input
+
+[JSON Schema](schema/ace_ask.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| question | yes | string | {"minLength":1,"maxLength":1000} |
+| options | no | array | {"maxItems":8,"items":{"type":"string","minLength":1,"maxLength":80}} |
+| allowOther | no | boolean | {"default":true} |
+| timeoutSeconds | no | integer | {"default":240,"minimum":5,"maximum":240} |
+
+Example:
+
+```json
+{
+  "options": [],
+  "question": "example",
+  "timeoutSeconds": 11
+}
+```
+
+## ace_ask.output
+
+[JSON Schema](schema/ace_ask.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| status | yes | ["answered","declined","pending"] |  |
+| askId | yes | string |  |
+| answer | no | array | {"maxItems":16,"items":{"type":"string","maxLength":4096}} |
+
+Example:
+
+```json
+{
+  "askId": "example",
+  "status": "answered"
 }
 ```

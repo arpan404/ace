@@ -343,6 +343,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   );
   engine.bindHostInteractions(
     (command) =>
+      services.asks?.resolve(command) ??
       services.screenApprovals?.resolve(command) ??
       services.browserApprovals?.resolve(command) ??
       services.browserOrigins?.resolve(command),

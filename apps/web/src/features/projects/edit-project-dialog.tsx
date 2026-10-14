@@ -1,4 +1,4 @@
-import type { ProjectDefaults } from "@ace/protocol";
+import type { ProjectDefaults, ProjectNoteEdit } from "@ace/protocol";
 import { projectNameProblem } from "@ace/ui-core";
 import { TrashIcon } from "@phosphor-icons/react";
 import { useState } from "react";
@@ -12,6 +12,7 @@ import { iconChoiceOf, iconEdit, type IconChoice } from "./icon-choice.ts";
 import { projectFailure, useProjectCommands } from "./project-commands.ts";
 import { ProjectDefaultsFields } from "./project-defaults-fields.tsx";
 import { ProjectIconChooser } from "./project-icon-chooser.tsx";
+import { ProjectNotesFields } from "./project-notes-fields.tsx";
 import { ProjectPathRow } from "./project-path-row.tsx";
 import type { ProjectRequest } from "./requests.ts";
 
@@ -33,6 +34,13 @@ export function EditProjectDialog(props: {
   const [name, setName] = useState<string>();
   const [icon, setIcon] = useState<IconChoice>();
   const [defaults, setDefaults] = useState<ProjectDefaults>();
+  const [notes, setNotes] = useState<ProjectNoteEdit[]>();
+  const savedNotes = (project?.notes ?? []).map(({ id, text }) => ({ id, text }));
+  const noteEdits: ProjectNoteEdit[] = (notes ?? savedNotes).flatMap((note) => {
+    const text = note.text.trim();
+    if (!text) return [];
+    return note.id ? [{ id: note.id, text }] : [{ text }];
+  });
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
   const value = name ?? project?.name ?? "";
@@ -45,6 +53,7 @@ export function EditProjectDialog(props: {
       name: value.trim(),
       ...(icon ? iconEdit(icon) : {}),
       ...(defaults && !same(defaults, project.defaults ?? {}) ? { defaults } : {}),
+      ...(notes && !same(noteEdits, savedNotes) ? { notes: noteEdits } : {}),
     };
     if (Object.keys(edit).length === 1 && edit.name === project.name)
       return props.onOpenChange(false);
@@ -100,6 +109,11 @@ export function EditProjectDialog(props: {
                 projectId={project.id}
                 value={defaults ?? project.defaults ?? {}}
                 onChange={setDefaults}
+              />
+              <ProjectNotesFields
+                value={notes ?? savedNotes}
+                onChange={setNotes}
+                disabled={saving}
               />
             </div>
           ) : (

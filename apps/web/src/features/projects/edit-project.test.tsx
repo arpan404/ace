@@ -308,3 +308,33 @@ test("Remove project in the editor stops listing the project and leaves its fold
     "site",
   );
 });
+
+test("notes the person adds in Edit project are saved for every agent, and removing one deletes it", async () => {
+  const made = app();
+  await made.open("/new?project=docs");
+  await screen.findByRole("button", { name: "Project: docs" });
+
+  let dialog = await openEditor();
+  await userEvent.click(within(dialog).getByRole("button", { name: "Add note" }));
+  await userEvent.type(within(dialog).getByRole("textbox", { name: "Note 1" }), "Run bun run test");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Add note" }));
+  await userEvent.type(within(dialog).getByRole("textbox", { name: "Note 2" }), "Never bun test");
+  await save(dialog);
+  await waitFor(() =>
+    expect(saved(made)?.notes?.map((note) => note.text)).toEqual([
+      "Run bun run test",
+      "Never bun test",
+    ]),
+  );
+
+  dialog = await openEditor();
+  // The saved notes come back in order when the editor opens again.
+  expect(within(dialog).getByDisplayValue("Never bun test")).toBe(
+    within(dialog).getByRole("textbox", { name: "Note 2" }),
+  );
+  await userEvent.click(within(dialog).getByRole("button", { name: "Remove note 1" }));
+  await save(dialog);
+  await waitFor(() =>
+    expect(saved(made)?.notes?.map((note) => note.text)).toEqual(["Never bun test"]),
+  );
+});

@@ -1,0 +1,250 @@
+{
+  "$id": "https://ace.local/protocol/v1/ace_context.output.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "changes": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ahead": {
+              "type": "number"
+            },
+            "behind": {
+              "type": "number"
+            },
+            "branch": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "files": {
+              "items": {
+                "maxLength": 1024,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "type": "array"
+            },
+            "staged": {
+              "type": "number"
+            },
+            "unstaged": {
+              "type": "number"
+            },
+            "untracked": {
+              "type": "number"
+            },
+            "upstream": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "branch",
+            "upstream",
+            "ahead",
+            "behind",
+            "staged",
+            "unstaged",
+            "untracked",
+            "files"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "diagnostics": {
+      "additionalProperties": false,
+      "properties": {
+        "blocking": {
+          "items": {
+            "maxLength": 240,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "failures": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "maxLength": 64,
+                "type": "string"
+              },
+              "count": {
+                "type": "number"
+              },
+              "tool": {
+                "maxLength": 128,
+                "type": "string"
+              }
+            },
+            "required": [
+              "tool",
+              "code",
+              "count"
+            ],
+            "type": "object"
+          },
+          "maxItems": 20,
+          "type": "array"
+        }
+      },
+      "required": [
+        "failures",
+        "blocking"
+      ],
+      "type": "object"
+    },
+    "notes": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "threadId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text"
+        ],
+        "type": "object"
+      },
+      "maxItems": 50,
+      "type": "array"
+    },
+    "prs": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "ci": {
+            "enum": [
+              "none",
+              "pending",
+              "success",
+              "failure",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "number": {
+            "type": "number"
+          },
+          "state": {
+            "type": "string"
+          },
+          "threadId": {
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 2048,
+            "type": "string"
+          }
+        },
+        "required": [
+          "threadId",
+          "number",
+          "url",
+          "state",
+          "ci"
+        ],
+        "type": "object"
+      },
+      "maxItems": 20,
+      "type": "array"
+    },
+    "recent": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "branch": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "outcome": {
+            "maxLength": 400,
+            "type": "string"
+          },
+          "prs": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "number": {
+                  "type": "number"
+                },
+                "state": {
+                  "type": "string"
+                },
+                "url": {
+                  "maxLength": 2048,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "number",
+                "state",
+                "url"
+              ],
+              "type": "object"
+            },
+            "maxItems": 8,
+            "type": "array"
+          },
+          "status": {
+            "type": "string"
+          },
+          "threadId": {
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "threadId",
+          "title",
+          "status",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "maxItems": 10,
+      "type": "array"
+    }
+  },
+  "type": "object"
+}

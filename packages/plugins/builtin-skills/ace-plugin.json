@@ -3,5 +3,12 @@
   "name": "ace-builtins",
   "version": "1.0.0",
   "description": "Skills shipped with ace",
-  "skills": [{ "name": "visualize", "path": "skills/visualize" }]
+  "skills": [
+    { "name": "visualize", "path": "skills/visualize" },
+    { "name": "review-changes", "path": "skills/review-changes" },
+    { "name": "fix-failing-tests", "path": "skills/fix-failing-tests" },
+    { "name": "plan-and-delegate", "path": "skills/plan-and-delegate" },
+    { "name": "investigate-bug", "path": "skills/investigate-bug" },
+    { "name": "prepare-pr", "path": "skills/prepare-pr" }
+  ]
 }

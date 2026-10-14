@@ -4,6 +4,7 @@ import {
   Project,
   ProjectBadgeStyle,
   ProjectDefaults,
+  ProjectNote,
   ThreadId,
   type WorkspaceId,
   type WorkspaceChanged,
@@ -38,11 +39,12 @@ export function migrateProjects(db: DatabaseSync): void {
   );
   if (!columns.has("badge")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN badge TEXT");
   if (!columns.has("defaults")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN defaults TEXT");
+  if (!columns.has("notes")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN notes TEXT");
 }
 
 /** Every project column a `Project` decodes from (`decodeProjectRow`), with `w` the workspace. */
 export const projectSelect =
-  "SELECT w.id,w.name,w.path,m.icon,m.default_icon AS defaultIcon,m.badge,m.defaults FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id";
+  "SELECT w.id,w.name,w.path,m.icon,m.default_icon AS defaultIcon,m.badge,m.defaults,m.notes FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id";
 
 /** What a project edit changes besides its name; each omitted field keeps the saved value. */
 export interface ProjectEdit {
@@ -50,6 +52,8 @@ export interface ProjectEdit {
   defaultIcon?: string | null | undefined;
   badge?: ProjectBadgeStyle | null | undefined;
   defaults?: ProjectDefaults | null | undefined;
+  /** The whole resolved list; see `project-notes.ts` for how edits resolve. */
+  notes?: ProjectNote[] | undefined;
 }
 /** A JSON column's text, or NULL for a cleared value. */
 const json = (value: object | null | undefined) =>
@@ -180,22 +184,34 @@ export class ProjectStorage {
   }
   private saveMetadata(db: DatabaseSync, id: WorkspaceId, edit: ProjectEdit): void {
     db.prepare(
-      `INSERT INTO workspace_metadata(workspace_id,icon,default_icon,badge,defaults) VALUES (?,?,?,?,?) ON CONFLICT(workspace_id) DO UPDATE SET
+      `INSERT INTO workspace_metadata(workspace_id,icon,default_icon,badge,defaults,notes) VALUES (?,?,?,?,?,?) ON CONFLICT(workspace_id) DO UPDATE SET
       icon=CASE WHEN ? THEN excluded.icon ELSE workspace_metadata.icon END,
       default_icon=CASE WHEN ? THEN excluded.default_icon ELSE workspace_metadata.default_icon END,
       badge=CASE WHEN ? THEN excluded.badge ELSE workspace_metadata.badge END,
-      defaults=CASE WHEN ? THEN excluded.defaults ELSE workspace_metadata.defaults END`,
+      defaults=CASE WHEN ? THEN excluded.defaults ELSE workspace_metadata.defaults END,
+      notes=CASE WHEN ? THEN excluded.notes ELSE workspace_metadata.notes END`,
     ).run(
       id,
       edit.icon ?? null,
       edit.defaultIcon ?? null,
       json(edit.badge),
       json(edit.defaults),
+      edit.notes?.length ? JSON.stringify(edit.notes) : null,
       Number(edit.icon !== undefined),
       Number(edit.defaultIcon !== undefined),
       Number(edit.badge !== undefined),
       Number(edit.defaults !== undefined),
+      Number(edit.notes !== undefined),
     );
+  }
+  /** Replace the notes with `change(current)`; undefined leaves them (and every device) alone. */
+  editNotes(
+    id: WorkspaceId,
+    change: (notes: readonly ProjectNote[]) => ProjectNote[] | undefined,
+  ): Project | undefined {
+    const project = this.get(id);
+    const notes = change(project.notes ?? []);
+    return notes ? this.update(id, project.name, { notes }) : undefined;
   }
   rename(id: WorkspaceId, name: string): Project {
     return this.update(id, name, {}, "renamed");
@@ -287,6 +303,7 @@ export class ProjectStorage {
 const storedRow = Project.extend({
   badge: z.unknown().optional(),
   defaults: z.unknown().optional(),
+  notes: z.unknown().optional(),
 });
 
 /** A saved JSON column, or undefined when it is empty or no longer reads as `schema`. */
@@ -302,14 +319,16 @@ function stored<T>(schema: z.ZodType<T>, value: unknown): T | undefined {
 
 /** Projects omit unset optional fields rather than adding null fields to their wire shape. */
 export function decodeProjectRow(row: unknown): Project {
-  const { badge, defaults, ...project } = storedRow.parse(row);
+  const { badge, defaults, notes, ...project } = storedRow.parse(row);
   if (project.icon === null) delete project.icon;
   if (project.defaultIcon === null) delete project.defaultIcon;
   const style = stored(ProjectBadgeStyle, badge);
   const preferences = stored(ProjectDefaults, defaults);
+  const facts = stored(Project.shape.notes, notes);
   return {
     ...project,
     ...(style ? { badge: style } : {}),
     ...(preferences ? { defaults: preferences } : {}),
+    ...(facts?.length ? { notes: facts } : {}),
   };
 }
