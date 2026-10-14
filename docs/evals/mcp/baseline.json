@@ -1,5 +1,5 @@
 {
-  "label": "baseline (main 168d86901)",
+  "label": "baseline (main dcdf6861d)",
   "tasks": [
     {
       "id": "where-am-i",
@@ -12,8 +12,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 4,
-        "contextBytes": 62138,
-        "tokens": 15535
+        "contextBytes": 67997,
+        "tokens": 17000
       },
       "note": "all facts correct"
     },
@@ -28,8 +28,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 3,
-        "contextBytes": 60161,
-        "tokens": 15041
+        "contextBytes": 66020,
+        "tokens": 16505
       },
       "note": "both results collected"
     },
@@ -44,8 +44,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 4,
-        "contextBytes": 58743,
-        "tokens": 14686
+        "contextBytes": 64600,
+        "tokens": 16150
       },
       "note": "console error found, 500 found"
     },
@@ -60,8 +60,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 3,
-        "contextBytes": 62742,
-        "tokens": 15686
+        "contextBytes": 68601,
+        "tokens": 17151
       },
       "note": "outcome found"
     },
@@ -76,8 +76,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 3,
-        "contextBytes": 57856,
-        "tokens": 14464
+        "contextBytes": 63715,
+        "tokens": 15929
       },
       "note": "rendered"
     },
@@ -92,8 +92,8 @@
         "failedCalls": 12,
         "identicalRetries": 6,
         "turns": 13,
-        "contextBytes": 60106,
-        "tokens": 15027
+        "contextBytes": 65965,
+        "tokens": 16492
       },
       "note": "0/6 recovered on the second call"
     },
@@ -108,8 +108,8 @@
         "failedCalls": 1,
         "identicalRetries": 0,
         "turns": 4,
-        "contextBytes": 58098,
-        "tokens": 14525
+        "contextBytes": 63957,
+        "tokens": 15990
       },
       "note": "wait needs_you, child needs_you"
     },
@@ -124,21 +124,21 @@
         "failedCalls": 1,
         "identicalRetries": 0,
         "turns": 2,
-        "contextBytes": 57407,
-        "tokens": 14352
+        "contextBytes": 63266,
+        "tokens": 15817
       },
       "note": "effective :read-only; control serves screen: true; read-only lists 1, attempted 1"
     }
   ],
   "catalogue": {
-    "tools": 81,
-    "toolsListBytes": 170781,
-    "descriptorBytes": 53885,
-    "outputSchemaBytes": 102683,
+    "tools": 82,
+    "toolsListBytes": 177125,
+    "descriptorBytes": 59549,
+    "outputSchemaBytes": 103183,
     "largestOutputSchemas": [
       {
         "name": "ace_read_handoff",
-        "bytes": 56757
+        "bytes": 56971
       },
       {
         "name": "ace_thread_info",
@@ -151,12 +151,12 @@
     ],
     "readOnlyWithoutHint": [],
     "instructionBytes": {
-      "claude": 3435,
-      "codex": 2910,
-      "opencode": 3546,
-      "cursor": 3436,
-      "pi": 2941,
-      "acp": 3436
+      "claude": 3630,
+      "codex": 3105,
+      "opencode": 3741,
+      "cursor": 3631,
+      "pi": 3136,
+      "acp": 3631
     }
   }
 }
