@@ -9,9 +9,11 @@ import { useHeldQueue } from "../composer/queue-notice.tsx";
 import { useRetainedInputDetail } from "../composer/retained-input-detail.tsx";
 import { queuedText, useQueue } from "../composer/use-queue.ts";
 import { NotSent } from "./failed-send.tsx";
+import { ClearStaleLock } from "./clear-stale-lock.tsx";
 import { userBubble } from "./user-bubble.ts";
 
 const failureOf = (reader: ThreadReader) => reader.queue?.lastFailure?.title;
+const fencedOf = (reader: ThreadReader) => reader.queue?.lastFailure?.code === "git_quarantined";
 
 /**
  * A message whose send or session start failed, at the end of the transcript where it was
@@ -26,6 +28,10 @@ export function HeldSend(props: { threadId: string }) {
   const message = failedHead(held, queue);
   const detail = useRetainedInputDetail(props.threadId, message?.id);
   const failure = useThread(props.threadId, ["queue"], failureOf) ?? queue.page?.lastFailure?.title;
+  // Git's cleanup fence stopped it: the person may clear a lock a stopped daemon left.
+  const fenced =
+    useThread(props.threadId, ["queue"], fencedOf) ||
+    queue.page?.lastFailure?.code === "git_quarantined";
   // Before the first queue page arrives the message isn't known yet; Try again still works.
   if (held?.notice.kind !== "not_sent" || (!message && queue.page)) return null;
   const busy = queue.acting || (!!message && queue.busy(message.id));
@@ -43,6 +49,7 @@ export function HeldSend(props: { threadId: string }) {
         className="mt-[5px] flex flex-wrap items-center justify-end gap-x-1 gap-y-0.5"
       >
         <NotSent reason={shortReason(failure)} />
+        {fenced && <ClearStaleLock threadId={props.threadId} />}
         <span className="flex gap-1">
           <Button
             size="xs"

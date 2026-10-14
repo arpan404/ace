@@ -137,6 +137,25 @@ export class WorkspaceRuntime {
     await this.git.assertMutationAvailable(root);
     return root;
   }
+  /**
+   * Startup hygiene: retire the definitively stale Git mutation leases of every registered
+   * project. A lease whose owner may be alive, or whose checkout still exists, is left fencing.
+   */
+  async sweepStaleLeases(failed: (path: string, error: unknown) => void): Promise<void> {
+    const rows = this.store
+      .statement(
+        "SELECT path FROM workspaces WHERE NOT EXISTS(SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id) ORDER BY id",
+      )
+      .all();
+    for (const row of rows) {
+      const path = String(row.path);
+      try {
+        await this.git.mutationState(path);
+      } catch (error) {
+        failed(path, error);
+      }
+    }
+  }
   prepareAgentCreation(command: Command, signal: AbortSignal) {
     return this.roots.prepareAgentCreation(command, signal);
   }
@@ -450,6 +469,12 @@ export class WorkspaceRuntime {
         return { ok: true, threadId };
       }
       const cwd = this.root(threadId);
+      if (p.type === "git.lock.clear") {
+        const { state } = await this.git.clearStaleLeases(cwd);
+        return state.status === "available"
+          ? { ok: true }
+          : { ok: false, error: "git_quarantined" };
+      }
       if (p.type === "forge.issue.link") return this.forge.issueCommand(command, cwd, allowed);
       if (p.type === "git.commit")
         return {

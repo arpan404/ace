@@ -1,4 +1,4 @@
-import { failedActionTitle, failureReason } from "./failure-copy.ts";
+import { failedActionTitle, failureReason, retainedFailure } from "./failure-copy.ts";
 import { ModelSelectionError } from "./models.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
 import type { ProviderErrorDetails } from "@ace/protocol";
@@ -133,14 +133,22 @@ export class IntentDelivery {
             : error instanceof DeliveryNotStarted && error.cause instanceof SessionOpenError
               ? error.cause
               : undefined;
+        const provider = this.dependencies.repo.requireState(actor.id).config.provider;
+        // Git's cleanup fence can refuse before or while the session opens; either way the
+        // person gets its plain-words reason and the way out (Clear stale lock).
+        const fence = [error, error instanceof DeliveryNotStarted ? error.cause : undefined].find(
+          (cause) => cause instanceof Error && "code" in cause && cause.code === "git_quarantined",
+        );
         const details = openingFailure
           ? {
-              provider: this.dependencies.repo.requireState(actor.id).config.provider,
+              provider,
               code: openingFailure.code,
               title: openingFailure.title,
               detail: openingFailure.detail,
             }
-          : undefined;
+          : fence instanceof Error
+            ? { provider, code: "git_quarantined", detail: fence.message.slice(0, 2048) }
+            : undefined;
         const unavailable =
           error instanceof ModelSelectionError ||
           details?.code === "model_unavailable" ||
@@ -258,22 +266,7 @@ export class IntentDelivery {
         {
           paused: true,
           reason: unavailable ? "model_unavailable" : "not_sent",
-          lastFailure: {
-            code:
-              details?.code === "resume_unavailable"
-                ? "resume_unavailable"
-                : unavailable
-                  ? "model_unavailable"
-                  : "delivery_failed",
-            title:
-              details?.code === "resume_unavailable"
-                ? "The previous provider session could not be resumed. Start a new thread and include the context you need."
-                : unavailable
-                  ? "The selected model is unavailable. Choose another model."
-                  : /Context preparation is unavailable/.test(message)
-                    ? "Your attachments could not be prepared. Try again when the connection is ready."
-                    : "The provider could not accept your message. Check your connection and sign-in, then try again.",
-          },
+          lastFailure: retainedFailure(message, unavailable, details),
           resumeAt: null,
           timerAction: null,
         },

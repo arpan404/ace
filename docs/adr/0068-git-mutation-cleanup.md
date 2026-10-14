@@ -133,3 +133,30 @@ strategies, first stream-error preservation, indexes and filters. Daemon process
 tests guard visible quarantine, restart recovery. Tests run
 serially under this task's explicit authorization. No provider CLI or recorder
 session is involved.
+
+## Amendment (2026-10-13): stale-lease retirement and scope
+
+A lease left by a daemon that died during an ordinary restart quarantined every worktree of its
+repository for a week: its owner port had no listener, its root worktree had been removed, and
+nothing could ever retire it, because an absent owner read the same as an unanswered one and
+`leaseState` denied every unknown intent repository-wide.
+
+- **Definitive owner absence.** The owner probe distinguishes `gone` (connection refused, or the
+  listener answers for a different token) from `unknown` (timeout, reset, malformed reply, or the
+  owner answering for its own token about an intent it no longer runs). Only `gone` counts.
+- **Automatic retirement.** Admission, `mutationState` and a startup sweep over registered
+  projects retire an intent when its owner is `gone` and every recorded root is gone or no longer
+  a registered worktree of the repository (its `.git` points at pruned or reassigned metadata).
+  A second probe precedes removal; each retirement is reported to the host's log.
+- **Scope.** An uncertain intent fences the roots it overlaps. It fences the whole repository only
+  when a recorded root is a main checkout, a separate repository or anything not proven to be a
+  linked worktree. A linked-worktree intent no longer blocks its siblings.
+- **Confirmed retirement.** When the owner is `gone` but a recorded checkout still exists, ace
+  cannot prove an escaped writer stopped. The quarantine message names the repository, the
+  checkout and the start time, and offers "Clear stale lock": after the person confirms, the same
+  verification runs and the intent is retired only if its owner is still `gone`. An owner that may
+  be alive (`active`, `quarantined`, `unknown`, or this daemon's own quarantined intent) keeps the
+  fence; restarting that daemon makes the owner `gone`.
+
+This replaces "Owner liveness never establishes cleanup or authorizes retiring an intent" and
+"deleting journal files is not a supported recovery procedure" above for these cases only.

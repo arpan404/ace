@@ -27,15 +27,20 @@ import {
 } from "../composer/staged-sends.ts";
 import { useThreadSources } from "../sources/index.ts";
 import { commandOf } from "./pending-sends.ts";
+import { ClearStaleLock } from "./clear-stale-lock.tsx";
 
 type CreatePayload = Extract<SendPayload, { type: "thread.create" }>;
 
-/** "Not sent · the reason", with Retry (sends it again) and Edit (back into the composer). */
+/**
+ * "Not sent · the reason", with Retry (sends it again) and Edit (back into the composer), and
+ * Clear stale lock when Git's cleanup fence (`fenced`) stopped it.
+ */
 export function FailedSend(props: {
   threadId: string;
   itemId: string;
   send: PendingSend | undefined;
   reason: string | undefined;
+  fenced?: boolean | undefined;
 }) {
   const item = useItem(leasable(props.threadId), props.itemId);
   const actions = useSendActions(props.threadId);
@@ -63,6 +68,7 @@ export function FailedSend(props: {
       className="mt-[5px] flex flex-wrap items-center justify-end gap-x-1 gap-y-0.5"
     >
       <NotSent reason={props.reason} />
+      {props.fenced && <ClearStaleLock threadId={props.threadId} />}
       {payload && commandId && (
         <span className="flex gap-1">
           <Button

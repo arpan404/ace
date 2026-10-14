@@ -3,9 +3,20 @@ import { z } from "zod";
 import type { MutationLease } from "@ace/provider-kit/cleanup";
 
 type Owner = NonNullable<MutationLease["owner"]>;
-type Schedule = (callback: () => void, milliseconds: number) => () => void;
+export type Schedule = (callback: () => void, milliseconds: number) => () => void;
+export function scheduleProbe(callback: () => void, milliseconds: number): () => void {
+  const timer = setTimeout(callback, milliseconds);
+  return () => clearTimeout(timer);
+}
 const Query = z.object({ token: z.uuid(), id: z.uuid() });
-const Reply = z.enum(["active", "quarantined", "unknown"]);
+/** `foreign`: the endpoint belongs to another process, so the lease's owner no longer listens. */
+const Reply = z.enum(["active", "quarantined", "unknown", "foreign"]);
+/**
+ * `gone` is definitive: nothing listens on the owner's port, or whatever listens there answers
+ * for a different token. Every other failure (timeout, reset, garbage) stays `unknown`. An owner
+ * that answers `unknown` for its own token is alive and keeps a lease it no longer runs.
+ */
+export type OwnerState = "active" | "quarantined" | "unknown" | "gone";
 let owner: Promise<Owner> | undefined;
 function noop() {}
 
@@ -30,7 +41,7 @@ export function leaseOwner(
         if (!input.endsWith("\n")) return;
         try {
           const query = Query.parse(JSON.parse(input));
-          socket.end(query.token === token ? state(query.id) : "unknown");
+          socket.end(query.token === token ? state(query.id) : "foreign");
         } catch {
           socket.end("unknown");
         }
@@ -52,10 +63,7 @@ export function leaseOwner(
 }
 
 /** Liveness only, never cleanup proof. Reused ports cannot answer a different token. */
-export function queryLeaseOwner(
-  lease: MutationLease,
-  schedule: Schedule,
-): Promise<z.infer<typeof Reply>> {
+export function queryLeaseOwner(lease: MutationLease, schedule: Schedule): Promise<OwnerState> {
   if (!lease.owner) return Promise.resolve("unknown");
   const endpoint = lease.owner;
   return new Promise((resolve) => {
@@ -63,7 +71,7 @@ export function queryLeaseOwner(
     let input = "";
     let done = false;
     let cancel = noop;
-    const finish = (reply: z.infer<typeof Reply>) => {
+    const finish = (reply: OwnerState) => {
       if (done) return;
       done = true;
       cancel();
@@ -74,14 +82,16 @@ export function queryLeaseOwner(
     socket.once("connect", () =>
       socket.end(JSON.stringify({ token: endpoint.token, id: lease.id }) + "\n"),
     );
-    socket.on("error", () => finish("unknown"));
+    socket.on("error", (error) =>
+      finish("code" in error && error.code === "ECONNREFUSED" ? "gone" : "unknown"),
+    );
     socket.on("data", (bytes: Buffer) => {
       input += bytes.toString();
       if (input.length > 32) finish("unknown");
     });
     socket.once("end", () => {
       const result = Reply.safeParse(input);
-      finish(result.success ? result.data : "unknown");
+      finish(!result.success ? "unknown" : result.data === "foreign" ? "gone" : result.data);
     });
     socket.once("close", () => finish("unknown"));
   });

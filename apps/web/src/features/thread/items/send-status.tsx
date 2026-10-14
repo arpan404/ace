@@ -89,8 +89,18 @@ export function SendStatus(props: {
       : notice?.type === "notice"
         ? noticeText(notice.detail ?? notice.text)
         : undefined;
+    // Git's cleanup fence stopped it: the person may clear a lock its stopped daemon left.
+    const fenced = refused
+      ? send?.error === "git_quarantined"
+      : notice?.type === "notice" && notice.details?.code === "git_quarantined";
     return (
-      <FailedSend threadId={props.threadId} itemId={props.itemId} send={send} reason={reason} />
+      <FailedSend
+        threadId={props.threadId}
+        itemId={props.itemId}
+        send={send}
+        reason={reason}
+        fenced={fenced}
+      />
     );
   }
   if (!send || (send.state !== "saving" && send.state !== "sent")) return props.otherwise;

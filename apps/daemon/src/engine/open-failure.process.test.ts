@@ -1,3 +1,4 @@
+import { GitError } from "@ace/git";
 import type { ProviderErrorDetails } from "@ace/protocol";
 import { expect, test } from "vitest";
 import type { SessionContext } from "@ace/engine-api";
@@ -284,6 +285,39 @@ test("an unavailable model holds the original input until a model switch sends i
     });
     expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(1);
     expect(h.store.snapshotThread(id).thread.execution?.model).toBe("replacement");
+  } finally {
+    await h.close();
+  }
+});
+
+test("a send Git's cleanup fence stopped is kept as fenced, with the fence's plain-words reason", async () => {
+  const h = await harness([], scriptFrames());
+  const reason =
+    "Git changes in /repo are blocked: a Git operation in /repo-x was interrupted when the ace daemon running it stopped. If nothing is still writing there, use Clear stale lock.";
+  try {
+    h.registry.register(
+      {
+        ...h.adapter,
+        async openSession() {
+          throw new GitError("git_quarantined", reason);
+        },
+      },
+      { installed: true, auth: "logged_in", loginHint: "unused" },
+    );
+    const id = await h.create();
+    expect(h.engine.queue(id)).toMatchObject({
+      paused: true,
+      reason: "not_sent",
+      lastFailure: { code: "git_quarantined", title: expect.stringContaining("stale Git lock") },
+      messages: [{ state: "queued" }],
+    });
+    expect(Object.values(h.store.snapshotThread(id).items)).toContainEqual(
+      expect.objectContaining({
+        type: "notice",
+        detail: expect.stringContaining(reason),
+        details: expect.objectContaining({ code: "git_quarantined" }),
+      }),
+    );
   } finally {
     await h.close();
   }

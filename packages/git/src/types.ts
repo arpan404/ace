@@ -1,5 +1,18 @@
-import type { CleanupReceipt, MutationCleanupSupervisor } from "@ace/provider-kit/cleanup";
+import type {
+  CleanupReceipt,
+  MutationCleanupSupervisor,
+  MutationLease,
+} from "@ace/provider-kit/cleanup";
 import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from "node:child_process";
+
+/** A durable mutation intent ace retired, and why: for the host's log. */
+export interface RetiredLease {
+  lease: MutationLease;
+  /** The repository's main checkout, or the lease's root for a standalone journal. */
+  repository: string;
+  /** `owner_gone_roots_settled`: automatic. `confirmed_stale`: a person chose Clear stale lock. */
+  reason: "owner_gone_roots_settled" | "confirmed_stale";
+}
 
 export interface GitProcessRuntime {
   spawn: (
@@ -25,6 +38,8 @@ export interface GitOptions {
   /** Tests may inject file transport for local remotes; production uses http/https/ssh. */
   transportProtocols?: readonly ("http" | "https" | "ssh" | "file")[];
   leaseId?: () => string;
+  /** Hears each stale mutation lease ace retires, automatically or on "Clear stale lock". */
+  onLeaseRetired?: (event: RetiredLease) => void;
   processRuntime?: Partial<GitProcessRuntime>;
   gitBinary?: string;
   timeoutMs?: number;

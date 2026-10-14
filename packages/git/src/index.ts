@@ -115,6 +115,13 @@ export class GitService {
   recoverCleanup(worktree: string) {
     return this.repository.cli.recoverCleanup(worktree);
   }
+  /**
+   * "Clear stale lock", after a person confirms: retires each lease fencing `worktree` whose
+   * owning daemon is definitively gone. Leases whose owner may be alive stay and keep fencing.
+   */
+  clearStaleLeases(worktree: string) {
+    return this.repository.cli.clearStaleLeases(worktree);
+  }
 
   async clone(input: CloneOptions, policy: ProjectGitPolicy = {}): Promise<void> {
     if (input.directoryFd === undefined) await mkdir(input.path);

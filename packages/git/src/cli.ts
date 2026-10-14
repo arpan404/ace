@@ -4,6 +4,8 @@ import {
   captureMutationOwnership,
   recoverMutationLeases,
   mutationState,
+  clearStaleLeases,
+  type LeaseProbe,
   repositoryScope,
 } from "./mutation-leases.ts";
 import type { CleanupResult } from "@ace/provider-kit/cleanup";
@@ -71,7 +73,7 @@ export class GitCli {
     global: string;
   };
   readonly leaseId: () => string;
-  readonly leaseSchedule: GitProcessRuntime["scheduleTimeout"];
+  readonly leaseProbe: LeaseProbe;
   readonly binary: string;
   readonly timeoutMs: number;
   private ready: Promise<void> | undefined;
@@ -107,7 +109,7 @@ export class GitCli {
     };
     this.runtime = processRuntime(options.processRuntime);
     this.leaseId = options.leaseId ?? mutationLeaseId;
-    this.leaseSchedule = this.runtime.scheduleTimeout;
+    this.leaseProbe = { schedule: this.runtime.scheduleTimeout, retired: options.onLeaseRetired };
     this.binary = options.gitBinary ?? "git";
     if (!this.binary || this.binary.includes("\0")) {
       throw new GitError("invalid_argument", "gitBinary must name an executable");
@@ -126,10 +128,13 @@ export class GitCli {
   }
 
   assertMutationAvailable(path: string) {
-    return assertAvailable(path, this.leaseSchedule);
+    return assertAvailable(path, this.leaseProbe);
   }
   mutationState(path: string) {
-    return mutationState(path, this.leaseSchedule);
+    return mutationState(path, this.leaseProbe);
+  }
+  clearStaleLeases(path: string) {
+    return clearStaleLeases(path, this.leaseProbe);
   }
   recoverCleanup(path: string) {
     return recoverMutationLeases(
@@ -140,7 +145,7 @@ export class GitCli {
           status: "unconfirmed",
           reason: "No escaped-descendant containment supervisor",
         }),
-      this.leaseSchedule,
+      this.leaseProbe,
     );
   }
 
@@ -242,14 +247,14 @@ export class GitCli {
     if (args.some((arg) => arg.includes("\0"))) {
       throw new GitError("invalid_argument", "Git arguments cannot contain NUL bytes");
     }
-    await assertAvailable(cwd, this.leaseSchedule);
+    await assertAvailable(cwd, this.leaseProbe);
     this.ready ??= this.verify(cwd, options.directoryFd, options.signal).catch((error: unknown) => {
       this.ready = undefined;
       throw error;
     });
     await this.ready;
     options.signal?.throwIfAborted();
-    await assertAvailable(cwd, this.leaseSchedule);
+    await assertAvailable(cwd, this.leaseProbe);
     return this.execute(cwd, args, options);
   }
 

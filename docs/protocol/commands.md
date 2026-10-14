@@ -672,6 +672,22 @@ Example:
 }
 ```
 
+### git.lock.clear
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"git.lock.clear"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+
+Example:
+
+```json
+{
+  "threadId": "example",
+  "type": "git.lock.clear"
+}
+```
+
 ### git.commit
 
 | Field | Required | Type | Constraints |
