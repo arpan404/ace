@@ -8,6 +8,7 @@ import { teamAtLimit } from "./account-limit.ts";
 import { coldStartReplay } from "./cold-start-replay.ts";
 import { delegatedDocs } from "./delegated-docs.ts";
 import { failingSubagent } from "./failing-subagent.ts";
+import { childActions } from "./child-actions.ts";
 import { flakyCheckout } from "./flaky-checkout.ts";
 import { homeList } from "./home-list.ts";
 import { multiDayDemo } from "./multi-day-demo.ts";
@@ -53,6 +54,8 @@ export function devWorld(): WorldThread[] {
     // the subagents report back live.
     { scenario: coldStartReplay(), agoMs: 0, through: "relay-output", live: { speed: 1 } },
     { scenario: failingSubagent(), agoMs: 12 * minute, live: { speed: 0.5 } },
+    // Children that hit a limit, keep working or went silent, under a parent still working.
+    ...childActions().map((scenario) => ({ scenario, agoMs: 0 })),
     // A thread that delegated work to Codex through ace: the delegate is a thread of its own.
     ...delegatedDocs().map((scenario) => ({ scenario, agoMs: 3 * 60 * minute })),
     // An OpenCode thread whose agent started a separate Codex conversation (ace_thread_start).

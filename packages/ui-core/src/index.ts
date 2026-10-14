@@ -141,6 +141,7 @@ export {
   subagentPhase,
   type SubagentPhase,
 } from "./subagent-outcome.ts";
+export { retryRequest } from "./subagent-retry.ts";
 
 export { turnTreeOf, TurnTree } from "./turn-tree.ts";
 

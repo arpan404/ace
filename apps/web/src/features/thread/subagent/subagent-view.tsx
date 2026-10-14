@@ -37,6 +37,7 @@ import { SubagentCrumb } from "../header/thread-crumb.tsx";
 import { WorkButton } from "../header/work-button.tsx";
 import { createWorkCardStore, WorkCardContext } from "../header/work-card-store.ts";
 import { WorkSide } from "../header/work-side.tsx";
+import { AskParentRetry } from "./ask-parent-retry.tsx";
 import { SubagentFocusProvider } from "./focus.ts";
 import { SubagentLiveLine } from "./subagent-live-line.tsx";
 import { SubagentStatusBar } from "./subagent-status-bar.tsx";
@@ -53,7 +54,9 @@ const overlayOpen = () =>
  * A provider's own subagent as the whole chat: its transcript in the reading column, `parent /
  * name` in the header with the thread's details icon and card (where Lineage places it), and the
  * thread's panel beside it. Nobody can message a provider's subagent (only the agent that
- * started it can), so a status bar stands where the composer would.
+ * started it can), so a status bar stands where the composer would: Stop while it runs (where
+ * the provider can stop one subagent), and once it failed or was stopped, a message asking its
+ * parent to run it again.
  */
 export function SubagentView(props: { threadId: string; agentId: string }) {
   const { threadId, agentId } = props;
@@ -162,7 +165,8 @@ function SubagentLive(props: { threadId: string; agent: Agent }) {
 /**
  * Its open requests in the composer's one strip, then the bar: model and effort, how it ended
  * or how long it has worked (its whole branch: never "Completed" while anything under it
- * runs or waits on the person), Stop while it runs and Open parent.
+ * runs or waits on the person), Stop while it runs or has gone silent, Ask parent to retry once
+ * it failed or was stopped, and Open parent.
  */
 function SubagentBottom(props: { threadId: string; agent: Agent; root: boolean }) {
   const { threadId, agent } = props;
@@ -196,15 +200,27 @@ function SubagentBottom(props: { threadId: string; agent: Agent; root: boolean }
             : undefined
         }
         actions={
-          stoppable &&
-          !subagentEnded(phase) && (
-            <StopAgent
-              threadId={threadId}
-              agent={agent}
-              pending
-              subagents={node ? countSubagents(node) : 0}
-            />
-          )
+          !subagentEnded(phase)
+            ? stoppable && (
+                <StopAgent
+                  threadId={threadId}
+                  agent={agent}
+                  pending
+                  subagents={node ? countSubagents(node) : 0}
+                />
+              )
+            : // Only its parent can run it again; a read-only thread can't be asked. It is its
+              // own ending that is retried, not a failure further down its branch.
+              (agent.status.state === "failed" || agent.status.state === "interrupted") &&
+              !meta?.continuation && (
+                // A resumed subagent that ends again can be asked about again.
+                <AskParentRetry
+                  key={branch?.end ?? 0}
+                  threadId={threadId}
+                  agent={agent}
+                  direct={props.root}
+                />
+              )
         }
       />
     </ComposerDock>

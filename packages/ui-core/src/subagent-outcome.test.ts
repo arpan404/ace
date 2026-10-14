@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { rollupSubagent } from "./subagents.ts";
-import { subagentOutcome, subagentPhase } from "./subagent-outcome.ts";
+import { subagentEnded, subagentOutcome, subagentPhase } from "./subagent-outcome.ts";
 
 const start = 1_000_000;
 
@@ -30,6 +30,14 @@ test("a done subagent with a working child is still running, and one waiting on 
   expect(subagentPhase(rollupSubagent("done", "working"))).toBe("running");
   expect(subagentPhase(rollupSubagent("done", "human"))).toBe("human");
   expect(subagentOutcome("human", start, undefined, start + 5_000)).toBe("Waiting on you");
+});
+
+test("a silent subagent with nothing under it running neither works nor has ended", () => {
+  const phase = subagentPhase("unresponsive");
+  expect(subagentOutcome(phase, start, undefined, start + 90_000)).toBe("Not responding");
+  expect(subagentEnded(phase)).toBe(false);
+  // Something under it still works: it is running, whatever its own silence.
+  expect(subagentPhase(rollupSubagent("unresponsive", "working"))).toBe("running");
 });
 
 test("an ended subagent without a known end names only how it ended", () => {

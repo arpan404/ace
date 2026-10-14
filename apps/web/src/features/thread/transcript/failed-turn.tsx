@@ -1,6 +1,6 @@
 import { useClient, useItem, useThreadMeta } from "@ace/client-react";
 import { ThreadId, type ContentPart, type Item } from "@ace/protocol";
-import { describeProviderError, displayNotice, modelLabel } from "@ace/ui-core";
+import { describeProviderError, displayNotice, isLimitError, modelLabel } from "@ace/ui-core";
 import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { ErrorRow, noticeError } from "../items/error-row.tsx";
@@ -105,7 +105,8 @@ export function FailedTurn(props: {
   return (
     <ErrorRow
       error={fixable ? failed : { ...failed, action: undefined }}
-      heading={fixable || !known ? undefined : "Turn failed"}
+      // A limit names itself ("Usage limit reached · Resets 8:30pm"), never "Turn failed".
+      heading={fixable || !known || isLimitError(view) ? undefined : "Turn failed"}
       onRetry={latest && input.length > 0 && !fixable ? () => void retry() : undefined}
       retrying={sending}
     />

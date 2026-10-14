@@ -50,11 +50,12 @@ export class ThreadHost {
   runOrdinal = 0;
   permissionParent: string | undefined;
   private counter = 0;
-  constructor(thread: Thread) {
+  constructor(thread: Thread, silenceMs?: number) {
     this.state = createThreadState({
       threadId: thread.id,
-      // Scripts never send liveness ticks, so silence must not mark agents unresponsive.
-      config: { provider: thread.provider, silenceMs: 24 * 60 * 60 * 1000 },
+      // Scripts never send liveness ticks, so silence must not mark agents unresponsive unless
+      // a scenario is about exactly that.
+      config: { provider: thread.provider, silenceMs: silenceMs ?? 24 * 60 * 60 * 1000 },
     });
     this.view = createThreadView(thread);
   }

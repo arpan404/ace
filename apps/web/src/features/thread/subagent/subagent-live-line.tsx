@@ -6,7 +6,8 @@ import { ActivityLine } from "../items/live-head.tsx";
 
 /**
  * The live line heading a running subagent's work, as a thread's turn has: "Working for
- * 1m 12s · Running bun test", or that it waits on the person. Nothing once it has ended.
+ * 1m 12s · Running bun test", that it waits on the person, or that it has gone silent. Nothing
+ * once it has ended.
  */
 export function SubagentLiveLine(props: {
   threadId: string;
@@ -34,6 +35,9 @@ export function SubagentLiveLine(props: {
         elapsedFrom: undefined,
         current: undefined,
       };
+    // Silent with nothing under it running: never "Working", no timer.
+    if (phase === "stalled")
+      return { label: "Not responding", tone: "held", elapsedFrom: undefined, current: undefined };
     if (phase !== "running") return undefined;
     return {
       label: "Working",

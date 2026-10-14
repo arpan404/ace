@@ -1,14 +1,18 @@
-import { useHistoryPager } from "@ace/client-react";
-import { useMemo } from "react";
+import { useAgent, useHistoryPager } from "@ace/client-react";
+import { Suspense, useMemo } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { BlockView } from "../items/block-view.tsx";
+import { DeferredFailedTurn } from "../items/deferred-review.ts";
 import { useAgentBlocks } from "./use-blocks.ts";
+
+const FailedTurn = DeferredFailedTurn.Component;
 
 /**
  * A provider subagent's own transcript, as its whole chat: its work from the thread's loaded
  * window, without its parent's. Blocks render as they do in the main column; older history
  * pages in on request. Work in progress stays behind the view's live line, as in a thread.
+ * A subagent that failed before its work showed a turn ending still shows why, in the body.
  */
 export function AgentTranscript(props: { threadId: string; agentId: string }) {
   const built = useAgentBlocks(props.threadId, props.agentId);
@@ -17,6 +21,11 @@ export function AgentTranscript(props: { threadId: string; agentId: string }) {
     () => built.filter((block) => block.kind !== "live" && block.kind !== "thinking"),
     [built],
   );
+  const status = useAgent(props.threadId, props.agentId)?.status;
+  const failure =
+    status?.state === "failed" && !blocks.some((block) => block.kind === "end")
+      ? status.error
+      : undefined;
   const pager = useHistoryPager(props.threadId);
   return (
     <div>
@@ -33,7 +42,7 @@ export function AgentTranscript(props: { threadId: string; agentId: string }) {
           </Button>
         </div>
       )}
-      {blocks.length === 0 ? (
+      {blocks.length === 0 && !failure ? (
         <p className="text-ui text-muted-foreground">
           {pager.hasOlder
             ? "Nothing from this subagent in the part of the thread loaded so far."
@@ -46,6 +55,19 @@ export function AgentTranscript(props: { threadId: string; agentId: string }) {
               <BlockView threadId={props.threadId} block={block} />
             </article>
           ))}
+          {failure && (
+            <article aria-posinset={blocks.length + 1} aria-setsize={-1}>
+              <Suspense fallback={null}>
+                <FailedTurn
+                  threadId={props.threadId}
+                  askId={undefined}
+                  errorId={undefined}
+                  error={failure}
+                  latest={false}
+                />
+              </Suspense>
+            </article>
+          )}
         </div>
       )}
     </div>
