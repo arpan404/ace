@@ -1930,6 +1930,22 @@ Example:
 }
 ```
 
+### accounts.refreshLimits
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"accounts.refreshLimits"` |  |
+| requestId | yes | string | {"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "accounts.refreshLimits"
+}
+```
+
 ### accounts.status
 
 | Field | Required | Type | Constraints |

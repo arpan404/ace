@@ -29,6 +29,7 @@ import {
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { defaultProviderExecutable, type DiscoveryOptions } from "@ace/provider-kit/discovery";
 import { createManagedHome, deleteManagedHome, registerImplicitAccounts } from "./account-homes.ts";
+import { refreshCodexLimits, type ReadCodexUsage } from "./account-limits.ts";
 import type { ModelCatalog } from "@ace/models";
 
 interface AuthTerminal {
@@ -77,6 +78,10 @@ export interface AccountManagementOptions {
   discovery?: DiscoveryOptions | undefined;
   cursorDiscovery?: SdkDiscoveryOptions | undefined;
   terminal?: TerminalManagerOptions | undefined;
+  /** Reads a Codex account's limits without a turn; tests stand in for the CLI. */
+  readCodexUsage?: ReadCodexUsage | undefined;
+  /** An account whose limits couldn't be read. */
+  limitsError?(instance: string, error: unknown): void;
 }
 
 /** Host-local account changes. Provider auth output has no persistence or replay path. */
@@ -135,6 +140,24 @@ export class AccountManagement {
         this.restorations.add(refresh);
         void refresh.catch(() => {}).finally(() => this.restorations.delete(refresh));
       }
+    // Limits as they stand now, not only as the last session left them.
+    const limits = this.refreshLimits();
+    this.restorations.add(limits);
+    void limits.catch(() => {}).finally(() => this.restorations.delete(limits));
+  }
+  /** Read every account's current limits where its CLI can say without a model turn. */
+  refreshLimits(): Promise<void> {
+    return refreshCodexLimits({
+      registry: this.options.registry,
+      env: this.options.env,
+      cwd: this.options.dataDir,
+      now: this.options.now,
+      signal: this.options.signal ?? new AbortController().signal,
+      discovery: this.options.discovery,
+      configuration: this.options.configuration,
+      read: this.options.readCodexUsage,
+      onError: this.options.limitsError,
+    });
   }
   async addPending(
     provider: ProviderInstance["provider"],

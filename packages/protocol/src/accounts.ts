@@ -151,6 +151,11 @@ export const QuotaWindow = z.object({
   source: z.enum(["cli", "status_estimate", "limit_error"]).optional(),
   /** The provider's name for a model-specific limit (Codex `limitName`), when it gives one. */
   limitName: z.string().min(1).max(128).optional(),
+  /**
+   * When the provider last reported this window. Windows are kept after their reset, so a
+   * reading that hasn't been refreshed can say how old it is.
+   */
+  observedAt: z.number().finite().nonnegative().optional(),
 });
 /**
  * Banked rate-limit resets the provider says the account has earned (Codex
@@ -292,6 +297,11 @@ export type AccountManagementRequest = z.infer<typeof AccountManagementRequest>;
 export const AccountsRequest = z.discriminatedUnion("type", [
   ...AccountManagementRequest.options,
   z.object({ type: z.literal("accounts.list"), requestId: z.string().max(128) }),
+  /**
+   * Ask each signed-in account's CLI for its current limits where the CLI can say without a
+   * model turn (Codex `account/rateLimits/read`); answers with `accounts.list`.
+   */
+  z.object({ type: z.literal("accounts.refreshLimits"), requestId: z.string().max(128) }),
   z.object({
     type: z.literal("accounts.status"),
     requestId: z.string().max(128),

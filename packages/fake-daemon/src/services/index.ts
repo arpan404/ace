@@ -581,6 +581,7 @@ export class FakeServices {
     }
     switch (message.type) {
       case "accounts.list":
+      case "accounts.refreshLimits":
         return { type: "accounts.list", requestId: message.requestId, accounts: this.accounts };
       case "accounts.status":
         return {

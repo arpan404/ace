@@ -86,10 +86,11 @@ export function ingestQuota(
     if (!limited) delete blockers.limitError;
     if (decoded.authoritative) delete blockers.overflow;
   }
-  for (const [name, window] of Object.entries(windows))
-    if (window.resetsAt !== null && window.resetsAt <= fact.observedAt) delete windows[name];
+  // Windows past their reset stay, with when they were read: a provider reports some windows
+  // only during a turn, and an old reading is shown as old rather than dropped.
   let count = Object.keys(windows).length;
-  for (const [name, window] of Object.entries(decoded.windows)) {
+  for (const [name, decodedWindow] of Object.entries(decoded.windows)) {
+    const window = { ...decodedWindow, observedAt: fact.observedAt };
     if (Object.hasOwn(windows, name)) windows[name] = window;
     else if (count < 32) {
       windows[name] = window;

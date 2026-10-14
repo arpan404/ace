@@ -17,6 +17,8 @@ export interface QuotaWindowView {
   resetsAt: number | null;
   /** How long the window runs, when the provider says; it paces the window's use. */
   windowDurationMins?: number | undefined;
+  /** When the provider last reported it; the account's last report when not recorded. */
+  observedAt?: number | undefined;
 }
 export interface AccountView {
   id: string;
@@ -57,11 +59,22 @@ const known: [RegExp, string, number][] = [
   [/^(five_hour|5h|session)$/, "5-hour", 0],
   [/^(daily|one_day|day)$/, "Daily", 1],
   [/^(seven_day|weekly|week)$|:secondary$|^secondary$/, "Weekly", 2],
-  [/^seven_day_opus$/, "Weekly Opus", 3],
-  [/^seven_day_sonnet$/, "Weekly Sonnet", 3],
+  [/^seven_day_opus$/, "Weekly · Opus", 3],
+  [/^seven_day_sonnet$/, "Weekly · Sonnet", 3],
+  // Claude Code calls the overage-included weekly window its "Fable limit".
+  [/^seven_day_overage_included$/, "Weekly · Fable", 3],
+  [/^seven_day_cowork$/, "Weekly · Cowork", 3],
+  [/^seven_day_oauth_apps$/, "Weekly · Apps", 3],
   [/^(monthly|month)$/, "Monthly", 4],
   [/^default$/, "Usage", 5],
 ];
+
+/** Claude names its windows rather than giving their length: five hours, or seven days. */
+function namedDuration(name: string): number | undefined {
+  if (name === "five_hour") return 300;
+  if (/^seven_day(?:_|$)/.test(name)) return 10080;
+  return undefined;
+}
 
 function classify(
   name: string,
@@ -69,7 +82,7 @@ function classify(
   observedAt = 0,
 ): { label: string; rank: number } {
   // Named model-specific windows keep their useful distinction from the shared weekly limit.
-  if (/^seven_day_(opus|sonnet)$/.test(name)) {
+  if (/^seven_day_(opus|sonnet|overage_included|cowork|oauth_apps)$/.test(name)) {
     const named = known.find(([pattern]) => pattern.test(name));
     if (named) return { label: named[1], rank: named[2] };
   }
@@ -125,9 +138,10 @@ export function accountView(summary: Summary): AccountView {
       rank: window.limitName ? rank + 0.5 : rank,
       usedPercent,
       resetsAt: window.resetsAt,
-      ...(window.windowDurationMins === undefined
+      observedAt: window.observedAt ?? summary.quota.observedAt,
+      ...((window.windowDurationMins ?? namedDuration(id)) === undefined
         ? {}
-        : { windowDurationMins: window.windowDurationMins }),
+        : { windowDurationMins: window.windowDurationMins ?? namedDuration(id) }),
     });
   }
   const windows = ranked

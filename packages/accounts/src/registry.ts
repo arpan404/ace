@@ -474,18 +474,20 @@ export class AccountRegistry {
         this.updateQuota.run(JSON.stringify(AccountQuota.parse(result.state)), id);
       this.db.exec("COMMIT");
       const before = {
-        windows: account.quota.windows,
+        windows: readings(account.quota.windows),
         blockers: account.quota.blockers,
         auth: account.quota.auth,
         billingMode: account.quota.billingMode,
         plan: account.quota.plan,
+        resetCredits: account.quota.resetCredits,
       };
       const after = {
-        windows: result.state.windows,
+        windows: readings(result.state.windows),
         blockers: result.state.blockers,
         auth: result.state.auth,
         billingMode: result.state.billingMode,
         plan: result.state.plan,
+        resetCredits: result.state.resetCredits,
       };
       if (JSON.stringify(before) !== JSON.stringify(after))
         for (const listener of this.quotaListeners) {
@@ -644,4 +646,11 @@ export async function openRegistry(
     registry.close();
     throw error;
   }
+}
+
+/** Windows as readers see them: a repeated reading that only moves its read time is no change. */
+function readings(windows: AccountQuota["windows"]) {
+  return Object.fromEntries(
+    Object.entries(windows).map(([name, { observedAt: _observedAt, ...window }]) => [name, window]),
+  );
 }

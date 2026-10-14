@@ -43,7 +43,10 @@ test("model-specific Claude weekly windows keep their names when a duration is r
       },
     }),
   );
-  expect(account.windows.map((window) => window.label)).toEqual(["Weekly Opus", "Weekly Sonnet"]);
+  expect(account.windows.map((window) => window.label)).toEqual([
+    "Weekly · Opus",
+    "Weekly · Sonnet",
+  ]);
 });
 
 test("an empty connected source keeps the account and provider green while a sibling serves models", () => {

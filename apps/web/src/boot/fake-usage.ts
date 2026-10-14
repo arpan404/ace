@@ -48,3 +48,24 @@ export function seedBuildServerUsage(server: FakeDaemon, now: number): void {
     },
   ];
 }
+
+/**
+ * Limit readings as a real Mac has them: Claude's Fable weekly window (which Claude reports
+ * only during a turn) beside its 5-hour and weekly ones, and a Work 5-hour reading taken three
+ * hours ago whose window has since reset.
+ */
+export function seedLimitReadings(daemon: FakeDaemon, now: number): void {
+  const accounts = daemon.services.accounts;
+  const personal = accounts.find((account) => account.id === "claude-personal");
+  if (personal)
+    personal.quota.windows["seven_day_overage_included"] = {
+      usedPercent: 27,
+      resetsAt: now + 4 * 24 * hour,
+      source: "cli",
+      observedAt: now - 20 * 60_000,
+    };
+  const work = accounts.find((account) => account.id === "claude-work");
+  const five = work?.quota.windows["five_hour"];
+  if (work && five)
+    work.quota.windows["five_hour"] = { ...five, resetsAt: now - hour, observedAt: now - 3 * hour };
+}
