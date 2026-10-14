@@ -40,6 +40,8 @@ export interface CodexChannel {
   readonly shared: boolean;
   /** The process leader already exited; final output may still be draining. */
   readonly gone: boolean;
+  /** No other channel shares this process. */
+  readonly alone: boolean;
   request(
     method: string,
     params: unknown,
@@ -85,6 +87,8 @@ class Tenant implements CodexChannel {
   readonly handlers: ChannelHandlers;
   readonly abort = new AbortController();
   closed: Error | undefined;
+  /** A received frame failed admission; requests still flow so the tree can be stopped. */
+  muted = false;
   exited = false;
   constructor(host: CodexHost, handlers: ChannelHandlers) {
     this.host = host;
@@ -98,6 +102,9 @@ class Tenant implements CodexChannel {
   }
   get gone(): boolean {
     return this.host.gone;
+  }
+  get alone(): boolean {
+    return this.host.alone(this);
   }
   request(
     method: string,
@@ -121,12 +128,14 @@ class Tenant implements CodexChannel {
   }
   /** Delivery failures retire only this channel; the shared peer keeps reading. */
   deliver(dir: "send" | "recv", data: unknown): boolean {
-    if (this.closed) return false;
+    if (this.closed || this.muted) return false;
     try {
       this.handlers.frame(dir, data);
       return true;
     } catch (error) {
       if (dir === "send") throw error;
+      // Nothing after an unadmitted frame may reach translation, as when a private peer closes.
+      this.muted = true;
       this.handlers.failed(error instanceof Error ? error : new Error(String(error)));
       return false;
     }
@@ -302,6 +311,10 @@ export class CodexHost {
     await this.#vacated(retirement === "shutdown");
   }
 
+  alone(tenant: Tenant): boolean {
+    return [...this.#tenants].every((other) => other === tenant);
+  }
+
   foreign(tenant: Tenant, thread: string): boolean {
     const owner = this.#router.owner(thread);
     return owner !== undefined ? owner !== tenant : this.#router.released(thread);
@@ -369,9 +382,14 @@ export class CodexHost {
 
   #route(message: Record<string, unknown>): Route<Tenant> {
     const route = this.#router.received(message);
-    if (!this.dedicated || route.to === "host") return route;
-    const [only] = this.#tenants;
-    return only ? { to: "tenant", tenant: only, claimed: [] } : { to: "drop" };
+    const [only, ...others] = this.#tenants;
+    if (this.dedicated && route.to !== "host")
+      return only ? { to: "tenant", tenant: only, claimed: [] } : { to: "drop" };
+    // A lone channel is the only possible owner; its own discovery decides, as on a private
+    // process. Ancestry lookups are for telling neighbours apart.
+    if (route.to === "hold" && only && !others.length)
+      return { to: "tenant", tenant: only, claimed: [] };
+    return route;
   }
 
   #received(data: unknown): void {
