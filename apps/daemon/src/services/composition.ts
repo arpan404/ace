@@ -34,6 +34,7 @@ import { startAgentControl } from "./agent-control.ts";
 import { startMachines } from "./machines.ts";
 import { startPi } from "./pi.ts";
 import { startEngine } from "./engine.ts";
+import { startUtility } from "./utility.ts";
 import type { ServiceContext, Services } from "./types.ts";
 import type { ServiceDefinition } from "./startup.ts";
 /** Dependencies are explicit; optional integration failures do not disable the engine. */
@@ -83,6 +84,13 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     requires: ["accounts"],
     after: ["settings", "accounts"],
     start: startModels,
+  },
+  {
+    name: "utility",
+    phase: "core",
+    requires: [],
+    after: ["settings", "accounts", "providerStatuses", "models"],
+    start: startUtility,
   },
   {
     name: "mcp",

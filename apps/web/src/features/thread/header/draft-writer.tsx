@@ -7,14 +7,15 @@ import type {
   SourceControlSelection,
 } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
-import { Input, Textarea } from "@/components/ui/input.tsx";
-import { Select } from "@/components/ui/select.tsx";
+import { Textarea } from "@/components/ui/input.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
+import { useDaemonSetting } from "@/lib/daemon-setting.ts";
+import { useUtilityModel } from "@/lib/utility-model.ts";
 
 /**
- * Requests are event-driven: Generate draft, and with `auto` one draft as the form opens (and
+ * Requests are event-driven: Draft, and with `auto` (and the auto-draft setting on) one draft as the form opens (and
  * again when its files change, until the person edits the text), applied straight into the
  * fields. Reconnects and edits never request another draft, and a draft that lands after the
  * person typed is only offered, never applied.
@@ -40,10 +41,10 @@ export function DraftWriter(props: {
   );
   const workspace = useThreadSources().workspace;
   const connection = useConnectionState();
-  const [provider, setProvider] = useState<"claude" | "codex">(
-    props.thread.provider === "claude" ? "claude" : "codex",
-  );
-  const [model, setModel] = useState("");
+  const utility = useUtilityModel();
+  const [autoDraft] = useDaemonSetting("generation.autoDraftCommits");
+  // Drafting on open is the person's setting; with it off, only Draft asks.
+  const draftOnOpen = props.auto === true && autoDraft !== false && utility.model !== undefined;
   const [preference, setPreference] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
@@ -119,8 +120,6 @@ export function DraftWriter(props: {
           generationId: generation.id,
           selection: props.selection,
           fingerprint: context.fingerprint,
-          provider,
-          ...(model.trim() ? { model: model.trim() } : {}),
           preference,
         },
         generation.controller.signal,
@@ -129,7 +128,8 @@ export function DraftWriter(props: {
       if (auto && applyUntouched(result.draft, result.context)) return;
       setProposal({ ...result, selection: selectionKey, textRevision: props.textRevision });
     } catch (failure) {
-      if (active.current === generation) setError(gitFailureText(failure));
+      // A draft asked for on open fails quietly: the person writes the message by hand.
+      if (active.current === generation && !auto) setError(gitFailureText(failure));
     } finally {
       if (active.current === generation) {
         active.current = undefined;
@@ -154,40 +154,22 @@ export function DraftWriter(props: {
   const autoFor = useRef<string>(undefined);
   const hasSelection = props.selection !== undefined;
   useEffect(() => {
-    if (!props.auto || props.edited || !hasSelection || connection !== "ready") return;
+    if (!draftOnOpen || props.edited || !hasSelection || connection !== "ready") return;
     if (autoFor.current === selectionKey) return;
     autoFor.current = selectionKey;
     draftNow();
-  }, [props.auto, props.edited, hasSelection, selectionKey, connection]);
+  }, [draftOnOpen, props.edited, hasSelection, selectionKey, connection]);
   // With no selection the key is undefined, so the proposal itself must be checked first.
   const unchanged =
     proposal !== undefined &&
     proposal.selection === selectionKey &&
     proposal.textRevision === props.textRevision;
+  // No provider can write drafts: the fields stay for writing the message by hand.
+  if (utility.loaded && !utility.model) return null;
   return (
     <section aria-label="Generate source-control draft" className="flex flex-col gap-2">
       <Disclosure summary="Draft writing options">
         <div className="mt-2 flex flex-col gap-2">
-          <Select
-            label="Draft provider"
-            value={provider}
-            options={[
-              { value: "codex", label: "Codex CLI" },
-              { value: "claude", label: "Claude Code CLI" },
-            ]}
-            disabled={pending}
-            onValueChange={(value) => {
-              if (value === "claude" || value === "codex") setProvider(value);
-            }}
-          />
-          <Input
-            aria-label="Draft model"
-            placeholder="Model ID (CLI default when blank)"
-            value={model}
-            maxLength={256}
-            disabled={pending}
-            onChange={(event) => setModel(event.target.value)}
-          />
           <Textarea
             aria-label="Source-control writing preference"
             placeholder="Writing preference (optional), e.g. use conventional commits"
@@ -196,9 +178,6 @@ export function DraftWriter(props: {
             disabled={pending}
             onChange={(event) => setPreference(event.target.value)}
           />
-          <p className="text-xs text-muted-foreground">
-            Uses your installed CLI's default login. Options apply to this draft only.
-          </p>
         </div>
       </Disclosure>
       <div className="flex gap-2">
@@ -208,7 +187,7 @@ export function DraftWriter(props: {
           disabled={props.disabled || !props.selection || pending || connection !== "ready"}
           onClick={() => void generate()}
         >
-          Generate draft
+          Draft
         </Button>
         {pending && (
           <Button type="button" size="sm" variant="ghost" onClick={cancel}>

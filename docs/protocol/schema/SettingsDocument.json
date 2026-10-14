@@ -2,12 +2,12 @@
   "$id": "https://ace.local/protocol/v1/SettingsDocument.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": {
-    "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema10"
+    "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema11"
   },
   "properties": {
     "settings": {
       "additionalProperties": {
-        "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema9"
+        "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema10"
       },
       "properties": {
         "approvals.policy": {
@@ -51,10 +51,30 @@
           "type": "string"
         },
         "clients.keybindings": {
-          "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema8"
+          "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema9"
         },
         "clients.theme": {
-          "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema7"
+          "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema8"
+        },
+        "generation.autoDraftCommits": {
+          "type": "boolean"
+        },
+        "generation.model": {
+          "anyOf": [
+            {
+              "allOf": [
+                {
+                  "$ref": "https://ace.local/protocol/v1/UtilityModelChoice.json"
+                },
+                {
+                  "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema7"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "host.displayName": {
           "maxLength": 256,

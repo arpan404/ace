@@ -107,6 +107,7 @@ export async function harness(
     providerEnabled?: EngineOptions["providerEnabled"];
     prepareInput?: EngineOptions["prepareInput"];
     beforeSend?: EngineOptions["beforeSend"];
+    onNamingPrompt?: EngineOptions["onNamingPrompt"];
     steer?: boolean;
     idleMs?: number;
     tick?: (now: number) => Fact[];
@@ -187,6 +188,7 @@ export async function harness(
     ...(options.permissionSettings ? { permissionSettings: options.permissionSettings } : {}),
     ...(options.prepareInput ? { prepareInput: options.prepareInput } : {}),
     ...(options.beforeSend ? { beforeSend: options.beforeSend } : {}),
+    ...(options.onNamingPrompt ? { onNamingPrompt: options.onNamingPrompt } : {}),
     ...(options.limits === undefined ? {} : { limits: options.limits }),
     ...(options.onCommandEvent ? { onCommandEvent: options.onCommandEvent } : {}),
     clock,

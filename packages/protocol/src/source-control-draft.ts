@@ -46,8 +46,6 @@ export const SourceControlDraftInput = z.object({
   generationId: z.string().min(1).max(128),
   selection: SourceControlSelection,
   fingerprint: SourceControlContext.shape.fingerprint,
-  provider: z.enum(["claude", "codex"]),
-  model: z.string().min(1).max(256).optional(),
   preference: z.string().max(2048).default(""),
 });
 export type SourceControlDraftInput = z.infer<typeof SourceControlDraftInput>;

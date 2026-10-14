@@ -7,6 +7,7 @@ import { PermissionMode } from "./permissions.ts";
 import { z } from "zod";
 import { ThreadId, WorkspaceId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
+import { UtilityModelChoice } from "./utility-model.ts";
 
 const name = z.string().min(1).max(256);
 const tier = z.enum(["default", "standard", "fast", "flex", "priority"]);
@@ -82,6 +83,10 @@ export const SettingsValues = z.object({
       examples: ["", "wss://relay.example.invalid/"],
     }),
   "automations.enabled": z.boolean(),
+  /** Titles and commit/PR drafts; null picks one from the ready providers. */
+  "generation.model": UtilityModelChoice.and(z.json()).nullable(),
+  /** The Commit dialog drafts its message as it opens. */
+  "generation.autoDraftCommits": z.boolean(),
   "clients.theme": z.json(),
   "clients.keybindings": z.json(),
 });

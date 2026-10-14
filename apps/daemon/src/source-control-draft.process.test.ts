@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { expect, test } from "vitest";
 import { Command } from "@ace/protocol";
 import { createWritingCli } from "./source-control-cli.ts";
+import { UtilityModels } from "./utility-models.ts";
 import {
   writingFixture as fixture,
   writingThreadId as threadId,
@@ -67,7 +68,6 @@ test("PR drafts use committed branch/base changes, templates and thread intent r
           generationId: "pr-generation",
           selection,
           fingerprint: context.fingerprint,
-          provider: "claude",
           preference: "",
         },
       },
@@ -110,7 +110,6 @@ test.each(["remote-only", "divergent-local"])(
             generationId: "remote-base",
             selection,
             fingerprint: context.fingerprint,
-            provider: "claude",
             preference: "",
           },
         },
@@ -154,7 +153,6 @@ test.each(["refs/remotes/upstream/main", "upstream/main"])(
               generationId: "fork-base",
               selection,
               fingerprint: "0".repeat(64),
-              provider: "claude",
               preference: "",
             },
           },
@@ -245,9 +243,19 @@ test("a reviewed commit draft refuses changed file bytes even when HEAD stays un
   }
 });
 
-test("an unavailable CLI sends no generation prompt", async () => {
+test("with no provider ready, a draft starts no CLI and reports it unavailable", async () => {
+  const prompts: string[] = [];
+  const utility = new UtilityModels({
+    choice: async () => null,
+    statuses: () => [],
+    models: () => [],
+    run: async (_target, run) => {
+      prompts.push(run.prompt);
+      return "";
+    },
+  });
   const write = createWritingCli({
-    discover: async () => ({ installed: false, auth: "unknown", loginHint: "Install CLI" }),
+    generate: (prompt, signal, limits) => utility.generate(prompt, signal, limits),
   });
   await expect(
     write(
@@ -255,7 +263,6 @@ test("an unavailable CLI sends no generation prompt", async () => {
         generationId: "unavailable",
         selection: { kind: "commit", paths: ["x"] },
         fingerprint: "0".repeat(64),
-        provider: "codex",
         preference: "",
       },
       {
@@ -272,6 +279,7 @@ test("an unavailable CLI sends no generation prompt", async () => {
       new AbortController().signal,
     ),
   ).rejects.toThrow("draft_provider_unavailable");
+  expect(prompts).toEqual([]);
 });
 
 test("submitting a reviewed draft commits the edited message and only its unchanged selection", async () => {

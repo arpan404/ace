@@ -52,8 +52,10 @@ export async function startWorkspaceActions({
     writingCli:
       options.workspaceActions?.writingCli ??
       createWritingCli({
-        configuration: (provider) => services.providerConfigurations?.for(provider),
-        ...(options.engine?.clock ? { clock: options.engine.clock } : {}),
+        generate: (prompt, signal, limits) => {
+          if (!services.utility) return Promise.reject(new Error("utility_unavailable"));
+          return services.utility.models.generate(prompt, signal, limits);
+        },
       }),
     machine: options.workspaceActions?.machine ?? {
       host: loadHostId(config.dataDir),

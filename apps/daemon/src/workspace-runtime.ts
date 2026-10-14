@@ -1,5 +1,5 @@
 import { commandNotDispatched } from "./command-not-dispatched.ts";
-import { createWritingCli } from "./source-control-cli.ts";
+import type { createWritingCli } from "./source-control-cli.ts";
 import {
   SourceControlContext,
   SourceControlDraftInput,
@@ -316,12 +316,8 @@ export class WorkspaceRuntime {
         const threadContext = [this.store.getThread(op.threadId)?.title ?? "", ...messages]
           .join("\n")
           .slice(-8192);
-        const draft = await (this.options.writingCli ?? createWritingCli())(
-          input,
-          context,
-          threadContext,
-          lifetime.signal,
-        );
+        if (!this.options.writingCli) throw new Error("draft_provider_unavailable");
+        const draft = await this.options.writingCli(input, context, threadContext, lifetime.signal);
         lifetime.signal.throwIfAborted();
         if (
           this.root(op.threadId) !== root ||

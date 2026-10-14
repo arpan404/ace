@@ -201,6 +201,8 @@ export class SettingsService {
       throw new SettingsError("validation", "Provider configuration is a global user setting");
     if (key === "projects.roots" && layer.kind !== "global")
       throw new SettingsError("validation", "Project folders are a global user setting");
+    if (key.startsWith("generation.") && layer.kind !== "global")
+      throw new SettingsError("validation", "Generation settings belong to the daemon");
     const parsed = validateValue(key, value);
     const lease = await this.file(layer);
     try {

@@ -59,6 +59,8 @@ export interface EngineOptions {
   onCommandEvent?(event: import("./provider-command-metadata.ts").ProviderCommandEvent): void;
   models?: import("@ace/models").ModelCatalogApi;
   worktreeGit?: WorktreeGit;
+  /** The person's message that named a thread, for generating its title once. */
+  onNamingPrompt?(threadId: ThreadId, input: readonly import("@ace/protocol").ContentPart[]): void;
   permissionSettings?: PermissionSettings;
   providerEnabled?(provider: import("@ace/protocol").ProviderKind, instance?: string): boolean;
   selectInstance?: (
@@ -155,6 +157,7 @@ export class Engine {
       options.aceToolAction,
       () => this.clock.now(),
     );
+    if (options.onNamingPrompt) this.repo.onNamingPrompt = options.onNamingPrompt;
     this.repositoryTransfers = new RepositoryTransfers(
       this.repo,
       () => this.actors.keys(),

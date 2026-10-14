@@ -32,6 +32,8 @@ export type DaemonOptions = {
   modelDiscovery?: import("@ace/models").DiscoveryOptions;
   projects?: import("../projects.ts").ProjectsOptions;
   workspaceActions?: import("../workspace-runtime.ts").WorkspaceRuntimeOptions;
+  /** Titles and commit/PR drafts: the one-shot runner and CLI lookup tests replace. */
+  utility?: import("./utility.ts").UtilityDaemonOptions;
   /** The host owns daemon cancellation, including initialization before endpoint discovery. */
   signal?: AbortSignal;
   files?: Pick<import("@ace/files").FilesOptions, "workspaceRuntime" | "maxReservedBytes">;

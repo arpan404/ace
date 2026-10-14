@@ -2,7 +2,12 @@ import { RecordBudget } from "./records.ts";
 import { initializeThreadCleanup, threadCleaning } from "../thread-cleanup-journal.ts";
 import { migrateEmptyCursorThreads } from "./cursor-empty-migration.ts";
 import { SessionMetadata } from "./session-metadata.ts";
-import { syntheticInput, admitInput, removeInput } from "./transcript-inputs.ts";
+import {
+  syntheticInput,
+  admitInput,
+  removeInput,
+  notifyNamingPrompt,
+} from "./transcript-inputs.ts";
 import { cancelPending } from "./stop-intents.ts";
 import { foldProviderFacts } from "./provider-facts.ts";
 import { indexTitleInputs } from "./title-input.ts";
@@ -47,6 +52,8 @@ export class EngineRepository {
   readonly pending: IntentStore;
   readonly attachments: AttachmentCorrelations;
   observe?: (state: ThreadState, facts: Fact[], events: EventPayload[], at: number) => void;
+  /** The person's message that gave the thread its provisional title (title generation). */
+  onNamingPrompt?: (id: ThreadId, input: readonly import("@ace/protocol").ContentPart[]) => void;
   private ids: IdSource;
   private capacity: number;
   private snapshotSeq = new WeakMap<Snapshot, number>();
@@ -313,6 +320,10 @@ export class EngineRepository {
   }
   admitInput(command: Command, id: ThreadId, at: number): void {
     admitInput(this, command, id, at);
+  }
+  /** A fresh admission (never a restart or queue edit) may hand its text to title generation. */
+  notifyNamingPrompt(command: Command, id: ThreadId): void {
+    notifyNamingPrompt(this, command, id);
   }
   removeInput(id: ThreadId, commandId: CommandId, at: number): void {
     removeInput(this, id, commandId, at);

@@ -11,21 +11,9 @@
       "minLength": 1,
       "type": "string"
     },
-    "model": {
-      "maxLength": 256,
-      "minLength": 1,
-      "type": "string"
-    },
     "preference": {
       "default": "",
       "maxLength": 2048,
-      "type": "string"
-    },
-    "provider": {
-      "enum": [
-        "claude",
-        "codex"
-      ],
       "type": "string"
     },
     "selection": {
@@ -35,8 +23,7 @@
   "required": [
     "generationId",
     "selection",
-    "fingerprint",
-    "provider"
+    "fingerprint"
   ],
   "type": "object"
 }

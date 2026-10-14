@@ -5,13 +5,17 @@ import { execFileSync } from "node:child_process";
 import { Thread, ThreadId } from "@ace/protocol";
 import { Store } from "./store.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
-import { createWritingCli, type WritingCliOptions } from "./source-control-cli.ts";
+import { createWritingCli } from "./source-control-cli.ts";
+import { createUtilityCli } from "./utility-cli.ts";
+import { UtilityModels } from "./utility-models.ts";
+import { readyStatus } from "./utility-test-support.ts";
+import type { EngineClock } from "./engine/actor.ts";
 
 export const writingThreadId = ThreadId.parse("writing-thread");
 export async function writingFixture(
   provider: "claude" | "codex" = "claude",
   behavior = "success",
-  writing: Pick<WritingCliOptions, "clock"> = {},
+  writing: { clock?: EngineClock } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "ace-writing-test-"));
   const repo = join(root, "repo");
@@ -63,11 +67,19 @@ else { console.log(JSON.stringify({type:'unknown.future',item:'future-shape',oth
     updatedAt: 1,
   });
   store.appendEvents(writingThreadId, [{ type: "thread.created", thread }]);
+  const utility = new UtilityModels({
+    choice: async () => ({ provider, model: "test-model" }),
+    statuses: () => [readyStatus(provider)],
+    models: () => [],
+    run: createUtilityCli({
+      ...writing,
+      locate: async () => ({ path: cli, env: {} }),
+      tempRoot: root,
+    }),
+  });
   const runtime = new WorkspaceRuntime(store, root, () => 1, {
     writingCli: createWritingCli({
-      ...writing,
-      discover: async () => ({ path: cli, installed: true, auth: "logged_in", loginHint: "" }),
-      tempRoot: root,
+      generate: (prompt, signal, limits) => utility.generate(prompt, signal, limits),
     }),
   });
   const selection = { kind: "commit" as const, paths: ["selected.txt"] };
@@ -84,8 +96,6 @@ else { console.log(JSON.stringify({type:'unknown.future',item:'future-shape',oth
             generationId: "generation",
             selection,
             fingerprint: (await context()).fingerprint,
-            provider,
-            model: "test-model",
             preference: "Use conventional commits",
           },
         },

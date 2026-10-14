@@ -141,6 +141,7 @@ export * from "./forge-browser.ts";
 export * from "./forge-lifecycle.ts";
 export * from "./source-control.ts";
 export * from "./source-control-draft.ts";
+export * from "./utility-model.ts";
 
 export * from "./forge-worktree.ts";
 export * from "./forge-issues.ts";

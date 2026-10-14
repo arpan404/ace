@@ -76,7 +76,7 @@ export const Thread = z.object({
   workspaceId: WorkspaceId,
   title: z.string(),
   queue: QueueState.optional(),
-  titleSource: z.enum(["provisional", "provider", "person", "agent"]).optional(),
+  titleSource: z.enum(["provisional", "provider", "generated", "person", "agent"]).optional(),
   provider: ProviderKind,
   backend: z.enum(["acp", "cursor-sdk"]).optional(),
   continuation: z

@@ -18,6 +18,7 @@ import { RecoverySettings } from "./recovery-settings.tsx";
 import { DaemonSlot, useNotConnectedNote } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";
 import { SettingSwitch } from "./setting-switch.tsx";
+import { GenerationSettings } from "./utility-model.tsx";
 
 const autoSettleOptions: { value: AutoSettle; label: string }[] = [
   { value: "1d", label: "After a day" },
@@ -69,6 +70,7 @@ export function GeneralSettings() {
         <SettingSwitch setting={settingKeys.settleOnMerge} entry="threads.settleOnMerge" />
         <SettingSwitch setting={settingKeys.settleOnClose} entry="threads.settleOnClose" />
       </SettingSection>
+      <GenerationSettings />
       <SettingSection label="Default permissions" anchor="permissions.providerModes" scope="daemon">
         <SettingDisclosure title="Per-provider defaults" open={permissionsTarget}>
           <PermissionDefaults />

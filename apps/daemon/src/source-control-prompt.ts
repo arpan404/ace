@@ -3,45 +3,6 @@ import {
   type SourceControlContext,
   type SourceControlDraftInput,
 } from "@ace/protocol";
-import { z } from "zod";
-
-const claudeResult = z
-  .object({
-    is_error: z.boolean().optional(),
-    result: z.string().max(32768).optional(),
-    structured_output: z.unknown().optional(),
-  })
-  .passthrough();
-const codexEvent = z.object({ type: z.string() }).passthrough();
-const completedItem = z.object({ type: z.string() }).passthrough();
-const agentMessage = z.object({ text: z.string().max(32768) }).passthrough();
-
-/** Unknown provider events retain their raw fields and cannot establish completion. */
-export function parseWritingOutput(provider: "claude" | "codex", output: string) {
-  let text = "";
-  if (provider === "claude") {
-    const result = claudeResult.parse(JSON.parse(output));
-    if (result.is_error) throw new Error("draft_provider_failed");
-    if (result.structured_output !== undefined)
-      return SourceControlDraft.parse(result.structured_output);
-    text = result.result ?? "";
-  } else {
-    let complete = false;
-    for (const line of output.split("\n").filter(Boolean)) {
-      const event = codexEvent.parse(JSON.parse(line));
-      if (event.type === "turn.failed" || event.type === "error")
-        throw new Error("draft_provider_failed");
-      if (event.type === "turn.completed") complete = true;
-      if (event.type === "item.completed") {
-        const item = completedItem.parse(event.item);
-        if (item.type === "agent_message") text = agentMessage.parse(item).text;
-      }
-    }
-    if (!complete) throw new Error("draft_provider_failed");
-  }
-  return parseWritingDraft(text);
-}
-
 /** Source bytes are evidence, never authority to invoke tools or claim tests ran. */
 export function writingPrompt(
   input: SourceControlDraftInput,
