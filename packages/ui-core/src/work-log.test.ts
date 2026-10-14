@@ -227,6 +227,23 @@ test("a step behind an approval carries the approval's outcome on its row", () =
   expect(clicked).toMatchObject({ note: "Denied by you", failed: true });
 });
 
+test("a denied command never ran, even after the turn's end cancels its call", () => {
+  const item = call({ kind: "shell", command: "rm -rf .cache" }, "cancelled", 0, 1);
+  const request = {
+    kind: "approval" as const,
+    title: "Run rm -rf .cache",
+    options: [
+      { id: "once", label: "Allow once", kind: "allow_once" as const },
+      { id: "deny", label: "Deny", kind: "deny" as const },
+    ],
+  };
+  const denied = describeStep(item, {
+    interaction: { state: "resolved", request, resolution: { kind: "approval", optionId: "deny" } },
+    labels: stepLabels,
+  });
+  expect(denied).toMatchObject({ verb: "Run", note: "Denied by you", failed: true });
+});
+
 test("a command that failed and then passed on a re-run counts as retried, not failed", () => {
   const summary = summarizeWork([
     call({ kind: "shell", command: "bun run test", exitCode: 1 }, "failed", 0, 1),

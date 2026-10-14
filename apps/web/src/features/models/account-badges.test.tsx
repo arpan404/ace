@@ -115,6 +115,12 @@ test("choosing a model on another account updates the composer and its row's det
   expect(within(details).getByText("Claude Code · Work (queued)")).toBeTruthy();
 });
 
+/** Usage › Limits lists the renamed account once, as "provider · account · environment". */
+async function usageNamesStudio() {
+  expect(await screen.findByRole("article", { name: /^Claude Code · Studio · / })).toBeTruthy();
+  expect(screen.queryByRole("article", { name: /^Claude Code · Personal · / })).toBeNull();
+}
+
 test("editing an account label updates its composer, thread row, picker, search and usage header", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
@@ -146,9 +152,7 @@ test("editing an account label updates its composer, thread row, picker, search 
   await screen.findByRole("heading", { level: 1, name: "New thread" });
   await openProfileMenu();
   await userEvent.click(await screen.findByRole("menuitem", { name: "Usage" }));
-  await waitFor(() =>
-    expect(screen.getByRole("article", { name: "Claude Code Studio" })).toBeTruthy(),
-  );
+  await usageNamesStudio();
   await userEvent.click(await screen.findByRole("link", { name: /Replay cursor resets/ }));
   const chip = await screen.findByRole("button", { name: /^Model: Opus 5.5, Studio/ });
   expect(within(chip).getByRole("img", { name: "Claude Code · Studio" })).toBeTruthy();
@@ -169,9 +173,7 @@ test("editing an account label updates its composer, thread row, picker, search 
   await closeModelControl();
   await userEvent.click(screen.getByRole("button", { name: /, account/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Usage" }));
-  await waitFor(() =>
-    expect(screen.getByRole("article", { name: "Claude Code Studio" })).toBeTruthy(),
-  );
+  await usageNamesStudio();
 });
 
 test("account badges take up to two letters or a curated icon, never an emoji", async () => {
