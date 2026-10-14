@@ -93,6 +93,7 @@ export async function startStackSync(
     moved: plan.moves.map((move) => move.number),
   };
   let result: StackReplayResult;
+  let dispatched = false;
   try {
     result = await git.replayStackLayers({
       worktree: cwd,
@@ -102,11 +103,14 @@ export async function startStackSync(
         current: move.current,
       })),
       signal,
-      beforeDispatch: () => begin(progress),
+      beforeDispatch: () => {
+        begin(progress);
+        dispatched = true;
+      },
     });
   } catch (error) {
     // The replay checks every layer before it changes a branch; a refusal there moved nothing.
-    if (isRefusal(error))
+    if (!dispatched && isRefusal(error))
       return {
         refused: {
           action: "sync",
@@ -124,6 +128,7 @@ export async function continueStackSync(
   context: Context,
   progress: StackSyncProgress,
 ): Promise<StackSyncStep> {
+  if (!context.allowed()) throw new ForgeError("forbidden");
   if (progress.stage === "restack") return afterRestack(context, progress, "continue");
   const result = await context.git.continueStackReplay({
     worktree: context.cwd,
@@ -225,6 +230,14 @@ async function afterRestack(
 
 function syncable(stack: ForgeStack) {
   return canPublishStack(stack) && stack.layers.every((layer) => layer.queueState === null);
+}
+
+/** Continue or Abort refused before any branch or replay state changed. */
+export function unchangedRefusal(error: unknown): boolean {
+  return (
+    (error instanceof ForgeError && error.kind === "forbidden") ||
+    (error instanceof GitError && error.code === "conflicts")
+  );
 }
 
 function isRefusal(error: unknown): error is GitError {

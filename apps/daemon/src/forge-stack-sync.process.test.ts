@@ -113,6 +113,29 @@ test("a replay conflict waits for resolution, then Continue finishes the sync", 
   }
 });
 
+test("Continue before the replay conflict is staged is refused and keeps the resolution continuable", async () => {
+  const f = await stackFixture();
+  try {
+    const { after, now } = await movedAfterReview(f, "ui", true);
+    await f.command("sync", "sync", f.expected(now, after));
+    expect(await f.command("continue", "continue", f.expected(now, after))).toMatchObject({
+      ok: false,
+    });
+    expect(stackValue(await f.read())).toMatchObject({
+      operation: { action: "sync", state: "conflict" },
+    });
+    await writeFile(join(f.checkout, "notes.txt"), "ours and theirs\n");
+    await git(f.checkout, "add", "notes.txt");
+    expect(await f.command("continue-staged", "continue", f.expected(now, after))).toMatchObject({
+      ok: true,
+      stackOperation: { action: "sync", state: "push_partial" },
+    });
+    expect(await git(f.checkout, "show", "ui:notes.txt")).toBe("ours and theirs");
+  } finally {
+    await f.close();
+  }
+});
+
 test("aborting a conflicted sync restores every rebased layer and keeps the moved layer listed", async () => {
   const f = await stackFixture();
   try {

@@ -28,6 +28,7 @@ import {
   abortStackSync,
   continueStackSync,
   startStackSync,
+  unchangedRefusal,
   type StackSyncGit,
   type StackSyncStep,
 } from "./forge-stack-sync.ts";
@@ -339,7 +340,8 @@ export class WorkspaceForgeStacks {
           : await continueStackSync(context, progress),
       );
     } catch (error) {
-      interrupted(progress);
+      // A refusal before Git moved anything keeps the conflict, so Continue stays available.
+      if (!unchangedRefusal(error)) interrupted(progress);
       throw error;
     }
   }
