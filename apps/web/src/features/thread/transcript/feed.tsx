@@ -545,7 +545,7 @@ export function Feed(props: FeedProps) {
         {/* The rows and the bars that float over their top (search, the jump bar). */}
         <div className="relative flex min-h-0 flex-1 flex-col">
           <Suspense fallback={null}>
-            <DeferredTurnRail.Component nav={nav} />
+            <DeferredTurnRail.Component nav={nav} scroller={viewport} />
           </Suspense>
           <div
             ref={viewport}

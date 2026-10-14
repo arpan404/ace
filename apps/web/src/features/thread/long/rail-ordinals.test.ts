@@ -13,6 +13,13 @@ describe("conversation rail overview", () => {
       true,
     );
   });
+  it("shows no more turns than fit the rail, still including the reader's", () => {
+    const ordinals = railOrdinals(10_000, 5_001, 40);
+    expect(ordinals.length).toBeLessThanOrEqual(40);
+    expect(ordinals).toContain(5_001);
+    expect(ordinals[0]).toBe(1);
+    expect(ordinals.at(-1)).toBe(10_000);
+  });
   it("keeps every small-thread turn and clamps stale reading positions after a thread switch", () => {
     expect(railOrdinals(4, 20)).toEqual([1, 2, 3, 4]);
     expect(railOrdinals(4, -2)).toEqual([1, 2, 3, 4]);

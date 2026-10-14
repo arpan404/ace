@@ -106,6 +106,23 @@ test("past twelve turns, older turns fold into one-line digests that open and fo
   await waitFor(() => expect(within(feed).queryByText(answer(9))).toBeNull());
 });
 
+test("hovering a turn on the rail previews its ask and the start of its reply", async () => {
+  const user = userEvent.setup();
+  await openLong(14, 200, undefined, 2);
+  const rail = await screen.findByRole("navigation", { name: "Conversation turns" });
+  await user.hover(within(rail).getByRole("button", { name: "Turn 12" }));
+  const card = await waitFor(() => {
+    const open = document.querySelector<HTMLElement>("[data-slot='hover-card-content']");
+    if (!open) throw new Error("Turn preview card missing");
+    return open;
+  });
+  expect(await within(card).findByText(ask(12))).toBeTruthy();
+  expect(within(card).getByText(answer(12))).toBeTruthy();
+  expect(within(card).queryByText("You")).toBeNull();
+  expect(within(card).queryByText("Assistant")).toBeNull();
+  expect(within(card).queryByText(/^Turn 12$/)).toBeNull();
+});
+
 test("Jump to live counts what reached the thread while the reader was in its history", async () => {
   const user = userEvent.setup();
   const { app, feed } = await openLong(8, 12);
