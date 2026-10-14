@@ -58,28 +58,28 @@ function Indicator(props: { kind: StripKind; counts: StripCounts; onPick(kind: S
   const [icon, text, label]: [ReactNode, string, string] =
     props.kind === "request"
       ? [
-          <Icon key="i" icon={ShieldWarningIcon} size={14} />,
+          <Icon key="i" size={12} icon={ShieldWarningIcon} />,
           plural(counts.requests, "request"),
           `Show ${plural(counts.requests, "request")} waiting for you`,
         ]
       : props.kind === "connection"
         ? counts.offline
-          ? [<Icon key="i" icon={WifiSlashIcon} size={14} />, "Offline", "Show connection: Offline"]
+          ? [<Icon key="i" size={12} icon={WifiSlashIcon} />, "Offline", "Show connection: Offline"]
           : [<Spinner key="i" />, "Reconnecting", "Show connection: Reconnecting"]
         : props.kind === "stopped"
           ? [
-              <Icon key="i" icon={TerminalIcon} size={14} />,
+              <Icon key="i" size={12} icon={TerminalIcon} />,
               `${counts.running} running`,
               `Show ${plural(counts.running, "background command")} still running`,
             ]
           : props.kind === "queue"
             ? [
-                <Icon key="i" icon={TrayIcon} size={14} />,
+                <Icon key="i" size={12} icon={TrayIcon} />,
                 `${counts.queued} queued`,
                 `Show ${plural(counts.queued, "queued message")}`,
               ]
             : [
-                <Icon key="i" icon={ListChecksIcon} size={14} />,
+                <Icon key="i" size={12} icon={ListChecksIcon} />,
                 counts.plan ? `${counts.plan.done}/${counts.plan.total}` : "Plan",
                 counts.plan ? `Show plan, ${planCount(counts.plan)} done` : "Show plan",
               ];
@@ -107,9 +107,9 @@ export function ConnectionStrip(props: {
   indicators: ReactNode;
 }) {
   return (
-    <div role="status" className="flex h-9 min-w-0 items-center gap-2 px-1 text-ui">
+    <div role="status" className="flex h-7 min-w-0 items-center gap-1.5 px-1 text-xs">
       {props.offline ? (
-        <Icon icon={WifiSlashIcon} size={14} className="shrink-0 text-muted-foreground" />
+        <Icon icon={WifiSlashIcon} size={12} className="shrink-0 text-muted-foreground" />
       ) : (
         <Spinner />
       )}
@@ -145,25 +145,25 @@ export function PlanStrip(props: { progress: PlanProgress; indicators: ReactNode
   const listId = useId();
   const { progress } = props;
   return (
-    <section aria-label="Plan" className="text-ui">
-      <div className="flex h-9 min-w-0 items-center gap-1">
+    <section aria-label="Plan" className="text-xs">
+      <div className="flex h-7 min-w-0 items-center gap-1">
         <button
           type="button"
           aria-expanded={open}
           aria-controls={listId}
           onClick={() => setOpen(!open)}
-          className="flex h-7 min-w-0 items-center gap-2 rounded-sm px-1 text-muted-foreground focus-ring-inset hover:text-foreground"
+          className="flex h-6 min-w-0 items-center gap-1.5 rounded-sm px-1 text-muted-foreground focus-ring-inset hover:text-foreground"
         >
-          <Icon icon={ListChecksIcon} size={14} className="shrink-0" />
+          <Icon icon={ListChecksIcon} size={12} className="shrink-0" />
           <span className="shrink-0 text-foreground">Plan · {planCount(progress)}</span>
           {!open && progress.current && (
-            <span className="min-w-0 truncate text-xs">{progress.current.content}</span>
+            <span className="min-w-0 truncate">{progress.current.content}</span>
           )}
           <Icon icon={open ? CaretUpIcon : CaretDownIcon} size={12} className="shrink-0" />
         </button>
         {props.indicators}
       </div>
-      <ol id={listId} hidden={!open} aria-label="Plan steps" className="space-y-1.5 px-1 pb-1">
+      <ol id={listId} hidden={!open} aria-label="Plan steps" className="space-y-1 px-1 pb-1">
         {progress.todos.map((todo, index) => (
           <li
             // oxlint-disable-next-line react/no-array-index-key -- positional provider todos may repeat text.
@@ -196,7 +196,7 @@ function TodoGlyph(props: { status: TodoEntry["status"] }) {
         : [CircleIcon, "text-subtle-foreground", "To do"];
   return (
     <span role="img" aria-label={label} className="inline-flex shrink-0">
-      <Icon icon={icon} size={14} className={tone} />
+      <Icon icon={icon} size={12} className={tone} />
     </span>
   );
 }

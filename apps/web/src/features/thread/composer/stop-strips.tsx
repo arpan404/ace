@@ -40,8 +40,8 @@ export function useStoppedCommands(threadId: string): readonly BackgroundTask[] 
 /** "Esc again to stop · 4 subagents": the first Esc's answer, until the second or a moment. */
 export function ConfirmStopStrip(props: { subagents: number }) {
   return (
-    <div role="status" className="flex h-9 min-w-0 items-center gap-2 px-1 text-ui">
-      <Icon icon={StopIcon} size={14} className="shrink-0 text-muted-foreground" />
+    <div role="status" className="flex h-7 min-w-0 items-center gap-1.5 px-1 text-xs">
+      <Icon icon={StopIcon} size={12} className="shrink-0 text-muted-foreground" />
       <span className="min-w-0 truncate">
         <span className="text-foreground">Esc again to stop</span>
         {props.subagents > 0 && (
@@ -78,8 +78,8 @@ export function StoppedStrip(props: {
   };
   const count = props.commands.length;
   return (
-    <div role="status" className="flex h-9 min-w-0 items-center gap-2 px-1 text-ui">
-      <Icon icon={TerminalIcon} size={14} className="shrink-0 text-muted-foreground" />
+    <div role="status" className="flex h-7 min-w-0 items-center gap-1.5 px-1 text-xs">
+      <Icon icon={TerminalIcon} size={12} className="shrink-0 text-muted-foreground" />
       <span className="min-w-0 truncate">
         <span className="text-foreground">Stopped</span>
         <span className="text-muted-foreground">
@@ -87,7 +87,7 @@ export function StoppedStrip(props: {
         </span>
       </span>
       {stoppable.length > 0 && (
-        <Button size="sm" variant="ghost" disabled={sending} onClick={stopAll}>
+        <Button size="xs" variant="ghost" disabled={sending} onClick={stopAll}>
           {count === 1 ? "Stop it" : "Stop them"}
         </Button>
       )}

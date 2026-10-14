@@ -36,6 +36,8 @@ const buttonVariants = cva(
         danger: "text-destructive hover:bg-destructive/10 hover:text-destructive",
       },
       size: {
+        /** Dense rows (the composer's strip, a message's send line): 24px, 12px text. */
+        xs: "h-6 gap-1 rounded-sm px-1.5 text-xs touch-hit-lg",
         sm: "h-[26px] rounded-sm px-2.5 text-sm touch-hit-lg",
         default: "h-[30px] rounded-md px-3 text-ui",
         lg: "h-9 rounded-card px-4 text-base",

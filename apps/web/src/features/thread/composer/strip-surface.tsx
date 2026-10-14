@@ -4,6 +4,7 @@ import {
   attachedCardPadding,
   attachedInset,
   attachedOverlap,
+  attachedStripCardPadding,
   attachedSurface,
 } from "./composer-styles.ts";
 
@@ -13,7 +14,8 @@ import {
  * while the surface eases to its height; under reduced motion it only fades. Its first content
  * takes its height at once, however late its parts arrive, so a thread opening on a request
  * never grows the strip (lifting the transcript) after its first paint. Content taller than
- * half the window scrolls inside it.
+ * half the window scrolls inside it. One-line content (the queue, the connection, the plan)
+ * sits on dense 12px rows; a request keeps a card's padding.
  */
 export function StripSurface(props: { slot: string; children: ReactNode }) {
   const body = useRef<HTMLDivElement>(null);
@@ -57,8 +59,11 @@ export function StripSurface(props: { slot: string; children: ReactNode }) {
           <div
             ref={content}
             className={cn(
-              "max-h-[50vh] overflow-y-auto overscroll-contain px-2 pt-1.5",
-              attachedCardPadding,
+              "max-h-[50vh] overflow-y-auto overscroll-contain",
+              // A request card keeps its room for its buttons; the one-line rows are dense.
+              props.slot === "request"
+                ? cn("px-2 pt-1.5", attachedCardPadding)
+                : cn("px-1.5 pt-1", attachedStripCardPadding),
             )}
           >
             <div key={props.slot} data-slot-kind={props.slot} className="composer-strip-swap">

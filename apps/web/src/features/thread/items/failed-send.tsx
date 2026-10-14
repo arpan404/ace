@@ -58,12 +58,15 @@ export function FailedSend(props: {
       : undefined);
   const commandId = props.send?.commandId ?? commandOf(props.itemId);
   return (
-    <div role="alert" className="mt-[5px] flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+    <div
+      role="alert"
+      className="mt-[5px] flex flex-wrap items-center justify-end gap-x-1 gap-y-0.5"
+    >
       <NotSent reason={props.reason} />
       {payload && commandId && (
         <span className="flex gap-1">
           <Button
-            size="sm"
+            size="xs"
             variant="ghost"
             disabled={actions.retrying(commandId)}
             onClick={() => actions.retry(commandId, payload)}
@@ -72,7 +75,7 @@ export function FailedSend(props: {
             Retry
           </Button>
           <Button
-            size="sm"
+            size="xs"
             variant="ghost"
             disabled={actions.retrying(commandId)}
             onClick={() => actions.edit(commandId, payload)}
@@ -285,22 +288,25 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
     });
   const recoverable = isRecoverable(staged, time.read());
   return (
-    <div role="alert" className="mt-[5px] flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+    <div
+      role="alert"
+      className="mt-[5px] flex flex-wrap items-center justify-end gap-x-1 gap-y-0.5"
+    >
       <NotSent reason={staged.uploadInterrupted ? "Upload interrupted" : staged.failed} />
       <span className="flex gap-1">
         {recoverable && !editing && canRetry(staged) && (
-          <Button size="sm" variant="ghost" onClick={retry}>
+          <Button size="xs" variant="ghost" onClick={retry}>
             <Icon icon={ArrowClockwiseIcon} size={12} />
             Retry
           </Button>
         )}
         {(editing || recoverable) && (
-          <Button size="sm" variant="ghost" onClick={edit}>
+          <Button size="xs" variant="ghost" onClick={edit}>
             <Icon icon={PencilSimpleIcon} size={12} />
             {editing ? "Save edit" : "Edit"}
           </Button>
         )}
-        <Button size="sm" variant="ghost" onClick={remove}>
+        <Button size="xs" variant="ghost" onClick={remove}>
           Remove
         </Button>
       </span>
