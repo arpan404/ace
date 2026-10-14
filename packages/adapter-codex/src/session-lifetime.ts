@@ -56,6 +56,12 @@ export function sessionLifetime(config: {
         cleanup();
         return;
       }
+      // Busy and alone: stopping the process ends the work exactly, as a private process does.
+      if (channel.shared && channel.alone && config.busy()) {
+        cleanup();
+        await channel.retire();
+        return;
+      }
       // A shared process keeps running: this tree's work must stop before ace lets go of it.
       if (channel.shared && config.busy())
         try {
