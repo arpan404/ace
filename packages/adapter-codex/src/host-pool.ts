@@ -1,4 +1,5 @@
 import type { DiscoveryOptions, DiscoveryResult } from "@ace/provider-kit/discovery";
+import type { ElisionLimits } from "@ace/provider-kit/elision";
 import { codexCapabilities } from "./capabilities.ts";
 import { CodexHost, type ChannelHandlers, type CodexChannel } from "./host.ts";
 import type { CodexRuntime } from "./runtime.ts";
@@ -7,6 +8,18 @@ import type { InitializeParams } from "./generated/InitializeParams.ts";
 
 /** A shared app-server with no sessions stays up this long for the next one. */
 export const defaultHostIdleMs = 10 * 60_000;
+
+/**
+ * Codex keeps every generated image inline as base64 (`imageGeneration.result`, megabytes each)
+ * and returns them with history on `thread/resume` and `thread/read`. ace reads only the item's
+ * `savedPath`, so base64 past 16 KiB becomes a placeholder before the line limit counts it.
+ *
+ * Readable text is never cut short of the 16 MiB line limit. Command output, diffs and messages
+ * are payload ace shows, and a frame past the provider payload bound already has an explicit
+ * outcome: an optional catalog frame is omitted with a note, an execution frame fails its
+ * thread visibly. Truncating text would replace those with silently altered content.
+ */
+const codexElision: ElisionLimits = { holdBytes: 16 * 1024, textBytes: 16 * 1024 * 1024 };
 
 const initialize = {
   clientInfo: { name: "ace", title: "ace", version: "0.0.0" },
@@ -121,6 +134,7 @@ function startHost(
             // A shared process outlives any one workspace; threads carry their own cwd.
             cwd: dedicated ? ctx.cwd : io.homeDir(),
             outputFlow: flow,
+            elideStdout: codexElision,
             env: { ...env, ACE_MCP_BEARER_TOKEN: undefined },
             name: "ace-codex",
             ...(ctx.builtinSkills?.lease ? { lease: ctx.builtinSkills.lease } : {}),
