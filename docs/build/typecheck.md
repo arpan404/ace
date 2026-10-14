@@ -1,8 +1,16 @@
 # Incremental typechecking
 
-`bun run typecheck` runs the TypeScript 7 native compiler with at most two project
-builders, one checker per project, and `GOMAXPROCS=2`. The config API and the two
-build stages run sequentially, so there is at most one compiler process at a time.
+`bun run typecheck` runs [tsc-rs](https://github.com/pingdotgg/ts-rust) (pinned in
+`package.json`), a Rust port of the TypeScript 7.1 native compiler that takes the same
+options as `tsc`, with at most two project builders and one checker per project. The
+`typescript` package still supplies the config API (`typescript/unstable/sync`), which
+runs with `GOMAXPROCS=2`, and editors. The config API and the two build stages run
+sequentially, so there is at most one compiler process at a time. On 4 cores a cold run
+takes about 2.5 minutes with tsc-rs (4 minutes with tsc 7.0.2); a cached run takes 1-2 s.
+
+The code also passes tsc 7.0.2, so editors on the `typescript` package agree with it.
+Avoid `z.json()`: TypeScript 7.1 reports its recursive type as infinitely circular
+(TS5115) where it meets another object type. Use `JsonValue` from `@ace/protocol`.
 
 `bun run --filter @ace/protocol typecheck` checks that workspace and its declared
 workspace dependency closure, including development dependencies. Package checks
@@ -18,7 +26,7 @@ directly with `tsc -p`, using source exports and the original checking options.
 It does not prepare declaration projects, inspect scopes, or apply declaration
 paths. It uses fresh temporary build info for every invocation and removes it
 afterward, so previous diagnostics cannot replace these checks. One compiler and
-one checker run at a time with `GOMAXPROCS=2`.
+one checker run at a time.
 
 For a focused source check, pass original config paths to
 `node scripts/typecheck-full.ts path/to/tsconfig.json`. CI invokes the command
