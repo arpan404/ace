@@ -50,8 +50,8 @@ export function promptBody(input: ContentPart[], cwd: string, id: string) {
       text.push(fileText);
       textLength += fileText.length;
     } else {
-      if (part.type === "file" && part.mimeType?.startsWith("image/"))
-        throw new Error("OpenCode images require an inline data URI with MIME type");
+      // OpenCode 2 reads file:// attachments itself (sniffing MIME and resizing images), so
+      // an image path costs a few bytes on the wire instead of an inline data URI.
       files.push({
         uri: part.type === "image" ? part.url : pathToFileURL(resolve(cwd, part.path)).href,
       });

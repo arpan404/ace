@@ -81,9 +81,12 @@ Main at `fe670b0` is merged without rebasing. NOTICE retains both image-size and
 The daemon keeps original image bytes unchanged. Provider-local paths use hard links
 named with the MIME-derived extension, under the same private blob directory. GC
 removes both names. Codex receives `localImage`, Claude receives base64 image sources,
-OpenCode 2 receives data URI attachments with MIME, Cursor SDK receives image URLs,
-and Pi/ACP receive base64 images. Negotiated capabilities and inline byte limits
-still apply. Unsupported media now produce a visible diagnostic naming the file and
+OpenCode 2 receives `file://` attachments it reads and resizes itself (up to its
+20 MiB attachment limit), Cursor SDK receives image URLs, and Pi/ACP receive base64
+images. Negotiated capabilities and inline byte limits still apply. OpenCode stores
+those images, and image tool output, inline as base64 in session history and events;
+the adapter elides such strings while streaming them in, so a thread with a large
+image in its history still reopens. Unsupported media now produce a visible diagnostic naming the file and
 provider; the fallback does not suggest opening a daemon path. HEIC upload fails with
 an explicit export-to-PNG/JPEG message. Animated containers remain rejected.
 

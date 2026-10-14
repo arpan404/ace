@@ -71,7 +71,9 @@ export async function prepareFiles(
       attachment.text === undefined &&
       info.bytes <= nativeRemaining &&
       (image || document) &&
-      capabilities.provider !== "codex"
+      // Codex and OpenCode read stored files by path; only inline providers need the bytes.
+      capabilities.provider !== "codex" &&
+      capabilities.provider !== "opencode"
     ) {
       attachment.base64 = (await prefix(blob.path, info.bytes)).toString("base64");
       nativeRemaining -= info.bytes;

@@ -123,7 +123,27 @@ test("projection rejects noncanonical padding bits before producing provider med
 });
 
 test("OpenCode gives over-budget images a readable path", () => {
-  const result = projectAttachments([image], { ...capabilities("opencode"), maxInlineBytes: 0 });
+  const result = projectAttachments([{ ...image, bytes: 3 }], {
+    ...capabilities("opencode"),
+    maxInlineBytes: 0,
+  });
   expect(result.input).toEqual([{ type: "text", text: expect.stringContaining(image.path) }]);
   expect(result.diagnostics).toEqual([]);
+});
+
+test("OpenCode sends a multi-megabyte stored image by file URI, not inline bytes", () => {
+  const stored = { path: image.path, name: image.name, mimeType: image.mimeType };
+  const result = projectAttachments([{ ...stored, bytes: 3 * 1024 * 1024 }], {
+    ...capabilities("opencode"),
+    maxInlineBytes: 4 * 1024 * 1024,
+  });
+  expect(result.input).toEqual([
+    {
+      type: "file",
+      mime: "image/png",
+      filename: "image one.png",
+      url: "file:///repo/image%20one.png",
+    },
+  ]);
+  expect(result.deliveries).toEqual(["native_image"]);
 });

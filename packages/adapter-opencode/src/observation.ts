@@ -6,7 +6,19 @@ import { maxProviderPayloadBytes } from "@ace/provider-kit/payload";
 export type Observe = (dir: Frame["dir"], channel: string, data: unknown) => void;
 export { sanitize } from "./redaction.ts";
 import { sanitize } from "./redaction.ts";
-export async function jsonResponse(response: Response): Promise<unknown> {
+import { JsonElider, openCodeElision } from "./elision.ts";
+/**
+ * Kept bytes of one JSON body after heavy strings are elided. History pages hold 128 messages,
+ * and ordinary tool output alone can push one past 2 MiB with no attachment. 8 MiB leaves room
+ * for that, and each message is still held to the 1 MiB frame bound. Raw bytes are bounded
+ * by the request deadline only: elided bytes are counted and dropped, never held.
+ */
+const maxJsonBytes = 8 * 1024 * 1024;
+/** Each event becomes one frame, so after elision it must fit the provider payload bound. */
+const maxEventBytes = maxProviderPayloadBytes;
+/** Larger response bodies are framed by size alone; a frame cannot exceed 1 MiB. */
+const maxObservedBodyBytes = 768 * 1024;
+export async function jsonResponse(response: Response): Promise<{ value: unknown; bytes: number }> {
   if (!response.headers.get("content-type")?.split(";")[0]?.trim().endsWith("/json")) {
     await response.body?.cancel();
     throw new Error("OpenCode returned non-JSON content");
@@ -16,36 +28,49 @@ export async function jsonResponse(response: Response): Promise<unknown> {
     decoder = new TextDecoder();
   let bytes = 0,
     text = "";
+  const elider = new JsonElider(openCodeElision, (piece) => {
+    bytes += piece.byteLength;
+    if (bytes > maxJsonBytes) throw new Error("OpenCode JSON exceeds byte limit");
+    text += decoder.decode(piece, { stream: true });
+  });
   try {
     for (;;) {
       const next = await reader.read();
       if (next.done) break;
-      bytes += next.value.byteLength;
-      if (bytes > 2 * 1024 * 1024) throw new Error("OpenCode JSON exceeds byte limit");
-      text += decoder.decode(next.value, { stream: true });
+      elider.push(next.value);
     }
-    return JSON.parse(text + decoder.decode());
+    elider.end();
+    return { value: JSON.parse(text + decoder.decode()), bytes };
   } finally {
     await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
 }
-/** Scan bytes without decoding or copying chunks. SDK owns SSE parsing. */
+/** Elide heavy strings, then bound each event. The SDK owns SSE parsing. */
 function boundedSse(body: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
   let bytes = 0,
-    newline = false;
+    newline = false,
+    elider: JsonElider | undefined;
   return body.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        for (const byte of chunk) {
-          if (++bytes > 1024 * 1024) throw new Error("OpenCode event exceeds byte limit");
-          if (byte === 13) continue;
-          if (byte === 10) {
-            if (newline) bytes = 0;
-            newline = true;
-          } else newline = false;
-        }
-        controller.enqueue(chunk);
+      start(controller) {
+        elider = new JsonElider(openCodeElision, (chunk) => {
+          for (const byte of chunk) {
+            if (++bytes > maxEventBytes) throw new Error("OpenCode event exceeds byte limit");
+            if (byte === 13) continue;
+            if (byte === 10) {
+              if (newline) bytes = 0;
+              newline = true;
+            } else newline = false;
+          }
+          controller.enqueue(chunk);
+        });
+      },
+      transform(chunk) {
+        elider?.push(chunk);
+      },
+      flush() {
+        elider?.end();
       },
     }),
   );
@@ -106,9 +131,9 @@ export function observedFetch(
         return response;
       }
       const metadataResponse = ["/api/model", "/api/info", "/openapi.json"].includes(url.pathname);
-      let result: unknown;
+      let result: unknown, bytes: number;
       try {
-        result = await jsonResponse(response);
+        ({ value: result, bytes } = await jsonResponse(response));
       } catch (error) {
         if (!response.ok && metadataResponse)
           throw new MetadataResponseError(
@@ -132,7 +157,12 @@ export function observedFetch(
       frame(
         "recv",
         "http",
-        sanitize({ method, path, status: response.status, body: result }, secrets),
+        sanitize(
+          bytes > maxObservedBodyBytes
+            ? { method, path, status: response.status, bodyBytes: bytes }
+            : { method, path, status: response.status, body: result },
+          secrets,
+        ),
       );
       return new Response(JSON.stringify(result), {
         status: response.status,
