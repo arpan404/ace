@@ -12,8 +12,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 1,
-        "contextBytes": 62396,
-        "tokens": 15599
+        "contextBytes": 62747,
+        "tokens": 15687
       },
       "note": "all facts from the brief"
     },
@@ -28,8 +28,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 2,
-        "contextBytes": 63246,
-        "tokens": 15812
+        "contextBytes": 63597,
+        "tokens": 15900
       },
       "note": "both results collected"
     },
@@ -44,8 +44,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 4,
-        "contextBytes": 63819,
-        "tokens": 15955
+        "contextBytes": 64170,
+        "tokens": 16043
       },
       "note": "console error found, 500 found"
     },
@@ -60,8 +60,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 3,
-        "contextBytes": 67818,
-        "tokens": 16955
+        "contextBytes": 68225,
+        "tokens": 17057
       },
       "note": "outcome found"
     },
@@ -76,8 +76,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 2,
-        "contextBytes": 62670,
-        "tokens": 15668
+        "contextBytes": 63021,
+        "tokens": 15756
       },
       "note": "rendered"
     },
@@ -92,8 +92,8 @@
         "failedCalls": 6,
         "identicalRetries": 0,
         "turns": 13,
-        "contextBytes": 66703,
-        "tokens": 16676
+        "contextBytes": 67054,
+        "tokens": 16764
       },
       "note": "6/6 recovered on the second call"
     },
@@ -108,8 +108,8 @@
         "failedCalls": 1,
         "identicalRetries": 0,
         "turns": 4,
-        "contextBytes": 63560,
-        "tokens": 15890
+        "contextBytes": 63911,
+        "tokens": 15978
       },
       "note": "wait needs_you, child needs_you"
     },
@@ -124,10 +124,10 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 1,
-        "contextBytes": 61522,
-        "tokens": 15381
+        "contextBytes": 61846,
+        "tokens": 15462
       },
-      "note": "effective :read-only; control serves screen: true; read-only lists 0, attempted 0"
+      "note": "effective read-only; control serves screen: true; read-only lists 0, attempted 0"
     },
     {
       "id": "pr-and-changes",
@@ -140,8 +140,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 3,
-        "contextBytes": 67043,
-        "tokens": 16761
+        "contextBytes": 67429,
+        "tokens": 16858
       },
       "note": "PR #42 and login.ts found"
     },
@@ -156,8 +156,8 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 3,
-        "contextBytes": 62479,
-        "tokens": 15620
+        "contextBytes": 62830,
+        "tokens": 15708
       },
       "note": "1 wrong test invocation(s)"
     },
@@ -172,17 +172,17 @@
         "failedCalls": 0,
         "identicalRetries": 0,
         "turns": 1,
-        "contextBytes": 62315,
-        "tokens": 15579
+        "contextBytes": 62668,
+        "tokens": 15667
       },
       "note": "no ace_ask for a child thread"
     }
   ],
   "catalogue": {
     "tools": 80,
-    "toolsListBytes": 102002,
-    "descriptorBytes": 59076,
-    "outputSchemaBytes": 28614,
+    "toolsListBytes": 102313,
+    "descriptorBytes": 59390,
+    "outputSchemaBytes": 28611,
     "largestOutputSchemas": [
       {
         "name": "ace_list_agents",
@@ -199,10 +199,10 @@
     ],
     "readOnlyWithoutHint": [],
     "instructionBytes": {
-      "claude": 3320,
-      "codex": 3221,
-      "opencode": 3302,
-      "cursor": 3226,
+      "claude": 3357,
+      "codex": 3258,
+      "opencode": 3339,
+      "cursor": 3263,
       "pi": 2875,
       "acp": 2850
     }
