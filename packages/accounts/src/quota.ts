@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ProviderPayloadSchema } from "@ace/provider-kit/payload";
 import { AccountQuota, type QuotaWindow } from "@ace/protocol/accounts";
-import { object, number, decodeWindows } from "./quota-decode.ts";
+import { object, number, decodeResetCredits, decodeWindows } from "./quota-decode.ts";
 import { parseLimitReset } from "./reset-time.ts";
 import { reportedBilling } from "./billing.ts";
 
@@ -35,6 +35,7 @@ export function ingestQuota(
   const body = object(frame["params"] ?? frame);
   const decoded = decodeWindows(fact.provider, body);
   const billing = reportedBilling(body);
+  const resetCredits = fact.provider === "codex" ? decodeResetCredits(body) : undefined;
   const blockers = { ...state.blockers };
   const errorBody = object(body["error"]);
   const error = z
@@ -75,7 +76,8 @@ export function ingestQuota(
     !decoded.count &&
     !decoded.overflow &&
     !Object.keys(usage).length &&
-    !limited
+    !limited &&
+    !resetCredits
   )
     return { state, raw };
   const windows: Record<string, QuotaWindow> =
@@ -106,6 +108,8 @@ export function ingestQuota(
           : {}),
       auth: auth && auth !== "unknown" ? auth : state.auth,
       ...(state.cursorSdkAuth ? { cursorSdkAuth: state.cursorSdkAuth } : {}),
+      // Sparse updates leave out banked resets; only a report that carries them replaces them.
+      ...(resetCredits ? { resetCredits } : {}),
       observedAt: fact.observedAt,
       windows,
       blockers,

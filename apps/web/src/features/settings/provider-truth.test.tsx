@@ -1,5 +1,6 @@
 import { configure, act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { createMemoryHistory } from "@tanstack/react-router";
 import { beforeEach, expect, test, vi } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
@@ -9,18 +10,14 @@ vi.setConfig({ testTimeout: 30_000 });
 beforeEach(() => localStorage.clear());
 
 test("Codex's usable sibling and Gemini's daily quota agree on Usage and provider pages", async () => {
-  await harness().open("/usage");
-  const codex = await screen.findByRole("article", { name: "Codex Personal" });
-  expect(
-    within(codex).getByRole("meter", { name: "5-hour window" }).getAttribute("aria-valuenow"),
-  ).toBe("38");
-  const gemini = await screen.findByRole("article", { name: "gemini Google" });
-  expect(
-    within(gemini).getByRole("meter", { name: "Daily window" }).getAttribute("aria-valuenow"),
-  ).toBe("71");
-  await userEvent.click(
-    screen.getByRole("link", { name: "Manage accounts in Settings › Providers." }),
-  );
+  const history = createMemoryHistory({ initialEntries: ["/usage"] });
+  await harness({ history }).open("/usage");
+  // Usage says what is left: 38% of the 5-hour window used leaves 62%, 71% of a day leaves 29%.
+  const codex = await screen.findByRole("meter", { name: "Codex · Personal · 5-hour" });
+  expect(codex.getAttribute("aria-valuenow")).toBe("62");
+  const gemini = await screen.findByRole("meter", { name: "gemini · Google · Daily" });
+  expect(gemini.getAttribute("aria-valuenow")).toBe("29");
+  await act(() => history.push("/settings/providers"));
   const row = await screen.findByRole("group", { name: "Codex" });
   expect(within(row).queryByRole("button", { name: "Sign in to Codex" })).toBeNull();
   await userEvent.click(within(row).getByRole("link", { name: "Codex" }));

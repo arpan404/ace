@@ -4,6 +4,8 @@ export interface FakeQuotaWindow {
   label: string;
   usedPercent: number;
   resetsAt: number;
+  /** The provider's name for a model-specific limit (Codex `limitName`). */
+  limitName?: string;
 }
 export interface FakeAccount {
   id: string;
@@ -14,6 +16,8 @@ export interface FakeAccount {
   label: string;
   availability: "available" | "near_limit" | "exhausted" | "logged_out" | "unknown";
   windows: FakeQuotaWindow[];
+  /** Banked resets the provider reports (Codex only). */
+  resetCredits?: number;
 }
 
 const minute = 60_000;
@@ -54,9 +58,17 @@ export function accountList(now: number): FakeAccount[] {
       cliVersion: "0.159.2",
       label: "Personal",
       availability: "available",
+      resetCredits: 3,
       windows: [
         { id: "five-hour", label: "5-hour", usedPercent: 38, resetsAt: now + 3 * hour },
         { id: "weekly", label: "Weekly", usedPercent: 22, resetsAt: now + 5 * day },
+        {
+          id: "codex_spark:primary",
+          label: "Weekly",
+          usedPercent: 9,
+          resetsAt: now + 5 * day,
+          limitName: "GPT-5.3-Codex-Spark",
+        },
       ],
     },
     {
@@ -66,6 +78,7 @@ export function accountList(now: number): FakeAccount[] {
       cliVersion: "0.159.2",
       label: "Team",
       availability: "exhausted",
+      resetCredits: 1,
       windows: [
         { id: "five-hour", label: "5-hour", usedPercent: 100, resetsAt: now + 87 * minute },
         { id: "weekly", label: "Weekly", usedPercent: 88, resetsAt: now + 6 * day },

@@ -24,6 +24,7 @@ import type { ThreadStartParams } from "./generated/v2/ThreadStartParams.ts";
 import type { ThreadResumeParams } from "./generated/v2/ThreadResumeParams.ts";
 import { createSessionCommands, type Pending } from "./session-commands.ts";
 import { asyncKey, list, obj, planKey, questions, requestKey, str } from "./native.ts";
+import { readRateLimits } from "./rate-limits-read.ts";
 
 export type CodexOptions = {
   discovery?: DiscoveryOptions;
@@ -468,6 +469,7 @@ export async function openCodexSession(
   }
   catalog.start();
   emit("note", { event: "permission-turn-policy-supported" });
+  readRateLimits({ request, emit, isClosed: () => closed });
   return {
     nativeSessionId,
     async configure(selection) {

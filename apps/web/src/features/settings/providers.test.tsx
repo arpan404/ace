@@ -194,13 +194,16 @@ test("a provider's default model can be changed, even to a legacy one, and reads
   ).toBeTruthy();
 }, 30_000);
 
-test("a provider's page opens shared usage with daily tokens and API-price estimates", async () => {
+test("Usage shows daily tokens by provider and an API-price estimate per model", async () => {
   await harness().open("/usage");
   await screen.findByRole("heading", { level: 1, name: "Usage" });
-  const usage = await screen.findByRole("region", { name: "Tokens and cost" }, { timeout: 10_000 });
-  await within(usage).findByRole("list", { name: "Tokens per day" });
-  const table = await within(usage).findByRole("table", { name: "Usage by model" });
-  expect(within(table).getByRole("columnheader", { name: "At API prices" })).toBeTruthy();
+  const views = await screen.findByRole("group", { name: "View" });
+  await userEvent.click(within(views).getByRole("button", { name: "Tokens" }));
+  expect(
+    await screen.findByRole("img", { name: /^Daily processed tokens/ }, { timeout: 10_000 }),
+  ).toBeTruthy();
+  const table = await screen.findByRole("table", { name: "Tokens by model" });
+  expect(within(table).getByRole("columnheader", { name: "Cost" })).toBeTruthy();
 }, 30_000);
 
 test("an ACP agent added by command joins the list, and its page removes it", async () => {

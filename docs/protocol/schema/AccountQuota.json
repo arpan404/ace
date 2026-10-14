@@ -52,6 +52,9 @@
       "minLength": 1,
       "type": "string"
     },
+    "resetCredits": {
+      "$ref": "https://ace.local/protocol/v1/QuotaResetCredits.json"
+    },
     "usage": {
       "properties": {
         "costUsd": {

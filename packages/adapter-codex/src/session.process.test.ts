@@ -299,3 +299,17 @@ test("text, PDF and arbitrary file references reach the fake Codex CLI", async (
     await h.dispose();
   }
 });
+test("an opened session reads the account's usage, banked resets included, without a turn", async () => {
+  const h = await sessionHarness();
+  try {
+    const note = await h.wait(
+      (frame) => frame.dir === "note" && obj(frame.data)["event"] === "account-rate-limits",
+    );
+    expect(obj(obj(note.data)["rateLimitResetCredits"])["availableCount"]).toBe(2);
+    expect(h.frames.some((f) => f.dir === "send" && obj(f.data)["method"] === "turn/start")).toBe(
+      false,
+    );
+  } finally {
+    await h.dispose();
+  }
+});

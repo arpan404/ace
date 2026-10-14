@@ -1,54 +1,8 @@
-/*
- * Threads per account, from the live thread list (`live.account`, else the execution selection),
- * and moving an exhausted account's limited threads with `thread.limit` / `migrate_now`.
- */
-import type { SidebarReader } from "@ace/client";
-import { useClient, useSidebarAll } from "@ace/client-react";
-import {
-  accountThread,
-  accountThreadCounts,
-  migrationTarget,
-  type AccountThread,
-  type AccountThreadCounts,
-  type AccountView,
-} from "@ace/ui-core";
+/* Moving an exhausted account's limited threads with `thread.limit` / `migrate_now`. */
+import { useClient } from "@ace/client-react";
+import { migrationTarget, type AccountView } from "@ace/ui-core";
 import { ThreadId } from "@ace/protocol";
 import { useMutation } from "@tanstack/react-query";
-import { useMemo } from "react";
-
-function sameThreads(a: readonly AccountThread[], b: readonly AccountThread[]): boolean {
-  return (
-    a.length === b.length &&
-    a.every((thread, index) => {
-      const other = b[index];
-      return (
-        other !== undefined &&
-        other.id === thread.id &&
-        other.account === thread.account &&
-        other.limited === thread.limited
-      );
-    })
-  );
-}
-
-const readAccountThreads = (reader: SidebarReader) =>
-  reader.loaded
-    ? reader.ids.flatMap((id) => {
-        const entry = reader.thread(id);
-        const counted = entry && accountThread(entry);
-        return counted ? [counted] : [];
-      })
-    : undefined;
-const sameAccountThreads = (
-  a: readonly AccountThread[] | undefined,
-  b: readonly AccountThread[] | undefined,
-) => a === b || (a !== undefined && b !== undefined && sameThreads(a, b));
-
-/** Running and limited threads per account id, live; undefined until the list has loaded. */
-export function useAccountThreads(): ReadonlyMap<string, AccountThreadCounts> | undefined {
-  const threads = useSidebarAll(readAccountThreads, sameAccountThreads);
-  return useMemo(() => threads && accountThreadCounts(threads), [threads]);
-}
 
 export interface MoveResult {
   moved: number;

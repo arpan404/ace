@@ -15,6 +15,8 @@ export interface QuotaWindowView {
   usedPercent: number;
   /** Null when the provider didn't say when it resets. */
   resetsAt: number | null;
+  /** How long the window runs, when the provider says; it paces the window's use. */
+  windowDurationMins?: number | undefined;
 }
 export interface AccountView {
   id: string;
@@ -45,6 +47,8 @@ export interface AccountView {
   runtimeStatus?: { tone: ReadinessTone; text: string; canRun: boolean } | undefined;
   /** Shortest window first: 5-hour, then daily, weekly, then the rest by name. */
   windows: QuotaWindowView[];
+  /** Banked resets the provider reports for the account (Codex); absent when not reported. */
+  resetCredits?: { available: number; nextExpiresAt: number | null } | undefined;
   /** The quota as the daemon reported it, blockers included, for the shared availability rules. */
   quota: AccountQuota;
 }
@@ -114,7 +118,17 @@ export function accountView(summary: Summary): AccountView {
   for (const [id, window] of Object.entries(summary.quota.windows)) {
     const { label, rank } = classify(id, window, summary.quota.observedAt);
     const usedPercent = Math.round(Math.min(100, Math.max(0, window.usedPercent)));
-    ranked.push({ id, label, rank, usedPercent, resetsAt: window.resetsAt });
+    ranked.push({
+      id,
+      // A model-specific limit (Codex `limitName`) is told apart from the shared one.
+      label: window.limitName ? `${label} · ${window.limitName}` : label,
+      rank: window.limitName ? rank + 0.5 : rank,
+      usedPercent,
+      resetsAt: window.resetsAt,
+      ...(window.windowDurationMins === undefined
+        ? {}
+        : { windowDurationMins: window.windowDurationMins }),
+    });
   }
   const windows = ranked
     .toSorted((a, b) => a.rank - b.rank || a.label.localeCompare(b.label))
@@ -140,6 +154,14 @@ export function accountView(summary: Summary): AccountView {
     availability: summary.availability,
     signedIn: summary.quota.auth === "logged_in" && summary.availability !== "logged_out",
     windows,
+    ...(summary.quota.resetCredits
+      ? {
+          resetCredits: {
+            available: summary.quota.resetCredits.available,
+            nextExpiresAt: summary.quota.resetCredits.nextExpiresAt ?? null,
+          },
+        }
+      : {}),
     quota: summary.quota,
   };
 }

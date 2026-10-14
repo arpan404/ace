@@ -2,6 +2,21 @@
   "$id": "https://ace.local/protocol/v1/UsageTotals.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "apiCacheReadUsd": {
+      "type": "number"
+    },
+    "apiCacheWriteUsd": {
+      "type": "number"
+    },
+    "apiInputUsd": {
+      "type": "number"
+    },
+    "apiOutputUsd": {
+      "type": "number"
+    },
+    "cacheSavingsUsd": {
+      "type": "number"
+    },
     "cacheWrite1hTokens": {
       "maximum": 9007199254740991,
       "minimum": 0,

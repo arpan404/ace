@@ -109,6 +109,14 @@ for await (const line of createInterface({ input: process.stdin })) {
     // Codex 0.162 broadcasts app/list/updated after serving every app/list call.
     respond({ data: apps, nextCursor: null });
     notify("app/list/updated", { data: apps });
+  } else if (method === "account/rateLimits/read") {
+    const window = { usedPercent: 12, windowDurationMins: 10080, resetsAt: 1_800_000_000 };
+    const snapshot = { limitId: "codex", limitName: null, primary: window, secondary: null };
+    respond({
+      rateLimits: snapshot,
+      rateLimitsByLimitId: { codex: snapshot },
+      rateLimitResetCredits: { availableCount: 2, credits: null },
+    });
   } else if (method === "mcpServerStatus/list") {
     respond({
       data: [...mcpServers].map(([name, runtimeStatus]) => ({ name, runtimeStatus })),

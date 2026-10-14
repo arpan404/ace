@@ -1,0 +1,43 @@
+/*
+ * Provider hues for Usage's bars, lines and swatches: `data-provider` on an element sets
+ * `--provider`, read as `bg-(--provider)` / `stroke-(--provider)`. Codex is the theme's ink, so it
+ * follows every theme; the others are tuned once for light and once for dark.
+ */
+[data-provider] {
+  --provider: var(--muted-foreground);
+}
+[data-provider="codex"] {
+  --provider: var(--foreground);
+}
+[data-provider="claude"] {
+  --provider: #c15f3c;
+}
+[data-provider="opencode"] {
+  --provider: #2f6fdf;
+}
+[data-provider="cursor"] {
+  --provider: #6b6f80;
+}
+[data-provider="pi"] {
+  --provider: #1f9d6b;
+}
+[data-provider="acp"],
+[data-provider="antigravity"] {
+  --provider: #7c5bd6;
+}
+[data-scheme="dark"] [data-provider="claude"] {
+  --provider: #e08a68;
+}
+[data-scheme="dark"] [data-provider="opencode"] {
+  --provider: #6b9cf5;
+}
+[data-scheme="dark"] [data-provider="cursor"] {
+  --provider: #a3a7b8;
+}
+[data-scheme="dark"] [data-provider="pi"] {
+  --provider: #4fc58f;
+}
+[data-scheme="dark"] [data-provider="acp"],
+[data-scheme="dark"] [data-provider="antigravity"] {
+  --provider: #a58cf0;
+}
