@@ -39,6 +39,14 @@ export async function startWorkspaceActions({
     git: {
       ...options.workspaceActions?.git,
       withRepositoryTransfer: repositoryTransferGuard({ services }),
+      onLeaseRetired: ({ lease, repository, reason }) =>
+        log.log(
+          "warn",
+          reason === "confirmed_stale"
+            ? `Cleared a stale Git lock in ${repository} after confirmation`
+            : `Retired a stale Git lock in ${repository}: its daemon stopped and its checkout is gone`,
+          { lease: lease.id, root: lease.root, roots: lease.roots, reason },
+        ),
     },
     ...(services.sourceControl ? { sourceControl: services.sourceControl } : {}),
     writingCli:
@@ -60,6 +68,11 @@ export async function startWorkspaceActions({
     },
   });
   services.workspaceActions = workspace;
+  // Hygiene behind the listener: admission retires stale leases on its own as it meets them.
+  const sweep = workspace.sweepStaleLeases((path, error) =>
+    log.log("debug", `Git locks in ${path} could not be checked`, logError(error)),
+  );
+  resources.own(() => sweep);
   services.canReadThread = (_device, id) =>
     Boolean(store.getThread(id)) && store.getThread(id)?.deletedAt === undefined;
   resources.own(() => workspace.close());

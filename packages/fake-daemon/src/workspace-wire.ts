@@ -336,6 +336,9 @@ export class FakeWorkspaceWire {
       });
       return { ok: true };
     }
+    // The fixture has no stopped daemons' locks; clearing one finds its owner gone.
+    if (payload.type === "git.lock.clear")
+      return thread ? { ok: true } : { ok: false, error: "thread_not_found" };
     return undefined;
   }
   descriptor(id: string, threadId: ThreadId) {

@@ -162,6 +162,12 @@ export const WorkspaceCommands = [
   }),
   z.object({ type: z.literal("workspace.script.run"), threadId: ThreadId, scriptId: id }),
   z.object({ type: z.literal("workspace.editor.open"), threadId: ThreadId, editorId: id }),
+  /**
+   * "Clear stale lock", after the person confirms: retire Git mutation leases fencing the
+   * thread's checkout whose owning daemon is definitively gone. Fails with `git_quarantined`
+   * while a lease's owner may still be alive.
+   */
+  z.object({ type: z.literal("git.lock.clear"), threadId: ThreadId }),
   z.object({
     type: z.literal("git.commit"),
     threadId: ThreadId,

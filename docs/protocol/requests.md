@@ -3008,9 +3008,9 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "force": false,
+      "pinned": true,
       "threadId": "example",
-      "type": "thread.delete"
+      "type": "thread.pin"
     }
   },
   "type": "command"

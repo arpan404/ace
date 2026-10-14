@@ -36,15 +36,17 @@ function queue(app: ReturnType<typeof harness>, commandId: string, text: string)
   });
 }
 
-async function failedStart(options: { behind?: string } = {}) {
+const providerRefused = {
+  code: "delivery_failed",
+  title:
+    "The provider could not accept your message. Check your connection and sign-in, then try again.",
+};
+
+async function failedStart(options: { behind?: string; failure?: typeof providerRefused } = {}) {
   const app = harness();
   app.play(longHistory(2)).runUntilBlocked();
   app.daemon.sessionOpenFailed(id, "not_sent");
-  app.daemon.holdQueue(id, "not_sent", {
-    code: "delivery_failed",
-    title:
-      "The provider could not accept your message. Check your connection and sign-in, then try again.",
-  });
+  app.daemon.holdQueue(id, "not_sent", options.failure ?? providerRefused);
   queue(app, "queued-hi", "hi");
   if (options.behind) queue(app, "queued-behind", options.behind);
   app.daemon.apply(id, [
@@ -140,4 +142,29 @@ test("Remove drops the failed message without sending it", async () => {
   expect((await queued(app)).messages).toEqual([]);
   expect(within(screen.getByRole("feed", { name: "Transcript" })).queryByText("hi")).toBeNull();
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
+});
+
+test("a send a stale Git lock stopped offers Clear stale lock, which asks first, then clears it", async () => {
+  const { item } = await failedStart({
+    failure: {
+      code: "git_quarantined",
+      title:
+        "A stale Git lock blocks this checkout. If nothing is still changing it, clear the stale lock, then try again.",
+    },
+  });
+  expect(within(item).getByText("· A stale Git lock blocks this checkout")).toBeTruthy();
+  await userEvent.click(within(item).getByRole("button", { name: "Clear stale lock" }));
+  const dialog = await screen.findByRole("dialog", { name: "Clear the stale Git lock?" });
+  await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(screen.queryByText("Lock cleared")).toBeNull();
+  await userEvent.click(within(item).getByRole("button", { name: "Clear stale lock" }));
+  const confirm = await screen.findByRole("dialog", { name: "Clear the stale Git lock?" });
+  await userEvent.click(within(confirm).getByRole("button", { name: "Clear lock" }));
+  expect(await screen.findByText("Lock cleared")).toBeTruthy();
+});
+
+test("a send the provider refused offers no Clear stale lock", async () => {
+  const { item } = await failedStart();
+  expect(within(item).queryByRole("button", { name: "Clear stale lock" })).toBeNull();
 });

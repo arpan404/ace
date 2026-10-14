@@ -751,6 +751,22 @@
     },
     {
       "properties": {
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "git.lock.clear",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "draftFingerprint": {
           "pattern": "^[a-f0-9]{64}$",
           "type": "string"

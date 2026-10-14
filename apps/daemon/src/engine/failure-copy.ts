@@ -30,3 +30,37 @@ export function failureReason(message: string): string {
       ?.trim() ?? "";
   return line.length > 160 ? `${line.slice(0, 159)}…` : line;
 }
+
+/**
+ * Why a send that never started was kept, as the held queue shows it. Git's cleanup fence gets
+ * its own code so the transcript can offer Clear stale lock; its full message goes to Details.
+ */
+export function retainedFailure(
+  message: string,
+  unavailable: boolean,
+  details: { code: string } | undefined,
+): { code: string; title: string } {
+  if (details?.code === "resume_unavailable")
+    return {
+      code: "resume_unavailable",
+      title:
+        "The previous provider session could not be resumed. Start a new thread and include the context you need.",
+    };
+  if (unavailable)
+    return {
+      code: "model_unavailable",
+      title: "The selected model is unavailable. Choose another model.",
+    };
+  if (details?.code === "git_quarantined")
+    return {
+      code: "git_quarantined",
+      title:
+        "A stale Git lock blocks this checkout. If nothing is still changing it, clear the stale lock, then try again.",
+    };
+  return {
+    code: "delivery_failed",
+    title: /Context preparation is unavailable/.test(message)
+      ? "Your attachments could not be prepared. Try again when the connection is ready."
+      : "The provider could not accept your message. Check your connection and sign-in, then try again.",
+  };
+}

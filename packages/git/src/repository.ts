@@ -35,7 +35,7 @@ export class Repository {
     } catch {
       throw new GitError("not_a_repo", `Repository path does not exist: ${root}`);
     }
-    return serial(canonical, operation, this.cli.leaseId, this.cli.leaseSchedule);
+    return serial(canonical, operation, this.cli.leaseId, this.cli.leaseProbe);
   }
 
   async root(repo: string): Promise<string> {
