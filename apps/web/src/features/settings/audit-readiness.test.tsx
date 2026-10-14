@@ -82,7 +82,7 @@ test("Usage leaves loading and shows accounts when readiness alone fails", async
   const made = app();
   made.daemon.failRequests("providers.request");
   await made.open("/usage");
-  expect(await screen.findAllByRole("article")).toBeTruthy();
+  expect(await screen.findAllByRole("meter")).toBeTruthy();
 });
 
 test("failed settings show a retry action and recover their saved value", async () => {
@@ -178,8 +178,8 @@ test("a committed account limit push updates Usage without reading its history a
     return connection;
   };
   await made.open("/usage");
-  await screen.findAllByRole("article");
-  await screen.findByText("Reported cost");
+  await screen.findAllByRole("meter");
+  await waitFor(() => expect(requests).toContain("usage.summary"));
   requests.length = 0;
   const account = made.daemon.services.accounts[0];
   if (!account) throw new Error("Missing account fixture");

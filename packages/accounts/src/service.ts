@@ -30,6 +30,7 @@ const quotaKeys = [
   "billingMode",
   "rateLimits",
   "rateLimitsByLimitId",
+  "rateLimitResetCredits",
   "rate_limit_info",
   "rate_limits",
   "auth",

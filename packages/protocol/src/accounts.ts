@@ -149,7 +149,19 @@ export const QuotaWindow = z.object({
   remainingPercent: z.number().min(0).max(100).optional(),
   windowDurationMins: z.number().finite().positive().optional(),
   source: z.enum(["cli", "status_estimate", "limit_error"]).optional(),
+  /** The provider's name for a model-specific limit (Codex `limitName`), when it gives one. */
+  limitName: z.string().min(1).max(128).optional(),
 });
+/**
+ * Banked rate-limit resets the provider says the account has earned (Codex
+ * `rateLimitResetCredits`). Each one resets the current windows once when redeemed in the CLI.
+ */
+export const QuotaResetCredits = z.object({
+  available: z.number().int().nonnegative().max(1_000_000),
+  /** The soonest expiry among the listed credits; null when none expires or none are listed. */
+  nextExpiresAt: z.number().finite().nonnegative().nullable().optional(),
+});
+export type QuotaResetCredits = z.infer<typeof QuotaResetCredits>;
 export const CursorSdkAuth = z.strictObject({
   status: z.enum(["logged-in", "logged-out"]),
   source: z.enum(["environment", "sdk-store", "none"]),
@@ -160,6 +172,8 @@ export const AccountQuota = z.object({
   observedAt: z.number().finite().nonnegative(),
   billingMode: z.enum(["api", "subscription", "unknown"]).optional(),
   plan: z.string().min(1).max(128).optional(),
+  /** Absent until the provider reports it; Claude's CLI never does. */
+  resetCredits: QuotaResetCredits.optional(),
   windows: z
     .record(z.string().max(128), QuotaWindow)
     .refine((w) => Object.keys(w).length <= 32)

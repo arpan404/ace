@@ -41,11 +41,9 @@ test("the provider name opens its accounts and cancelling a new API-key form lea
 test("Usage and the model picker leave account management on the provider page", async () => {
   const app = harness();
   await app.open("/usage");
-  await screen.findByRole("article", { name: "Codex Personal" });
+  await screen.findByRole("meter", { name: "Codex · Personal · 5-hour" });
   expect(screen.queryByRole("button", { name: /Add account/ })).toBeNull();
-  expect(
-    screen.getByRole("link", { name: "Manage accounts in Settings › Providers." }),
-  ).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Rename|Remove|Sign in|Sign out/ })).toBeNull();
 });
 
 test("a renamed default account immediately names the new-thread composer and picker group", async () => {

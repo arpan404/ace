@@ -83,6 +83,8 @@ export * from "./projects.ts";
 export * from "./folder-search.ts";
 export * from "./usage-cost.ts";
 export * from "./usage-days.ts";
+export * from "./usage-limits.ts";
+export * from "./usage-report.ts";
 export * from "./step-display.ts";
 export * from "./worktree-creation.ts";
 export * from "./tool-labels.ts";

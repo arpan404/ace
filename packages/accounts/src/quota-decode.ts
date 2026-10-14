@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { QuotaWindow } from "@ace/protocol/accounts";
+import type { QuotaResetCredits, QuotaWindow } from "@ace/protocol/accounts";
 // Validate the container without cloning/enumerating an unbounded provider map.
 const container = z.custom<Record<string, unknown>>(
   (value) => typeof value === "object" && value !== null && !Array.isArray(value),
@@ -10,6 +10,15 @@ export function object(value: unknown): Record<string, unknown> {
 export const number = z.number().finite().nonnegative();
 const resetValue = z.union([number, z.string().max(128)]).nullish();
 const codexLabel = z.string().min(1).max(100);
+const codexLimitName = z.string().trim().min(1).max(128);
+const resetCredit = z.object({
+  status: z.string().max(64).optional(),
+  expiresAt: number.nullish(),
+});
+const resetCredits = z.object({
+  availableCount: z.number().int().nonnegative().max(1_000_000),
+  credits: z.array(z.unknown()).max(256).nullish(),
+});
 const codexWindow = z.object({
   usedPercent: number,
   resetsAt: number.nullish(),
@@ -96,6 +105,7 @@ export function decodeWindows(provider: string, body: Record<string, unknown>) {
         complete = false;
         return;
       }
+      const limitName = codexLimitName.safeParse(row["limitName"]).data;
       let present = false;
       for (const name of ["primary", "secondary"]) {
         if (row[name] == null) continue;
@@ -105,14 +115,12 @@ export function decodeWindows(provider: string, body: Record<string, unknown>) {
           complete = false;
           continue;
         }
-        put(
-          `${label}:${name}`,
-          window.usedPercent,
-          reset(window.resetsAt),
-          window.windowDurationMins === undefined
+        put(`${label}:${name}`, window.usedPercent, reset(window.resetsAt), {
+          ...(window.windowDurationMins === undefined
             ? {}
-            : { windowDurationMins: window.windowDurationMins },
-        );
+            : { windowDurationMins: window.windowDurationMins }),
+          ...(limitName === undefined ? {} : { limitName }),
+        });
       }
       if (!present) complete = false;
     };
@@ -163,4 +171,22 @@ export function decodeWindows(provider: string, body: Record<string, unknown>) {
       });
   }
   return { windows, count, overflow, complete: complete && !overflow, authoritative };
+}
+
+/**
+ * Codex's banked resets (`rateLimitResetCredits` on `account/rateLimits/read`): how many are
+ * available and the soonest expiry among the listed available ones. Undefined when not reported.
+ */
+export function decodeResetCredits(body: Record<string, unknown>): QuotaResetCredits | undefined {
+  const summary = resetCredits.safeParse(body["rateLimitResetCredits"]).data;
+  if (!summary) return undefined;
+  let nextExpiresAt: number | null = null;
+  for (const entry of summary.credits ?? []) {
+    const credit = resetCredit.safeParse(entry).data;
+    if (!credit || (credit.status !== undefined && credit.status !== "available")) continue;
+    const expires = reset(credit.expiresAt);
+    if (expires !== null && (nextExpiresAt === null || expires < nextExpiresAt))
+      nextExpiresAt = expires;
+  }
+  return { available: summary.availableCount, nextExpiresAt };
 }

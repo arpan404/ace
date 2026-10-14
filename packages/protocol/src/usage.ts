@@ -61,6 +61,16 @@ export const UsageTotals = z.object({
   unpricedTokens: tokens,
   subscriptionTokens: tokens,
   unknownBillingTokens: tokens,
+  /**
+   * `equivalentApiUsd` split by token type: uncached input, cache reads, cache writes and output.
+   * Priced models only; the four add up to the equivalent amount when every model is priced.
+   */
+  apiInputUsd: adjustment.optional(),
+  apiCacheReadUsd: adjustment.optional(),
+  apiCacheWriteUsd: adjustment.optional(),
+  apiOutputUsd: adjustment.optional(),
+  /** What cache reads saved against the uncached input price, for priced models. */
+  cacheSavingsUsd: adjustment.optional(),
 });
 export type UsageTotals = z.infer<typeof UsageTotals>;
 export const UsageRow = z.object({

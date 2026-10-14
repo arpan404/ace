@@ -37,6 +37,11 @@ export function accountSummary(account: FakeAccount, now: number): AccountSummar
         : account.provider === "claude"
           ? { plan: "max" }
           : {}),
+      ...(account.resetCredits === undefined
+        ? {}
+        : {
+            resetCredits: { available: account.resetCredits, nextExpiresAt: now + 12 * 86_400_000 },
+          }),
       windows: Object.fromEntries(
         account.windows.map((window) => [
           windowNames[window.id] ?? window.id,
@@ -47,9 +52,10 @@ export function accountSummary(account: FakeAccount, now: number): AccountSummar
             source: "cli" as const,
             ...(window.id === "five-hour"
               ? { windowDurationMins: 300 }
-              : window.id === "weekly"
+              : window.id === "weekly" || window.limitName
                 ? { windowDurationMins: 10080 }
                 : {}),
+            ...(window.limitName ? { limitName: window.limitName } : {}),
           },
         ]),
       ),

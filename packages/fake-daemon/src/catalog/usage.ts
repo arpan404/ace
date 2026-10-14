@@ -154,20 +154,17 @@ function factor(dayIndex: number, sourceIndex: number): number {
 
 function totals(input: number, source: UsageSource): UsageTotals {
   const output = Math.round(input * 0.25);
+  const cached = Math.round(input * 0.55);
   const usd = (perMillion: number) => ((input + output) / 1_000_000) * perMillion;
-  const api =
-    estimateTokens(
-      {
-        input,
-        output,
-        cached: Math.round(input * 0.55),
-        reasoning: 0,
-        write: 0,
-        write1h: 0,
-        cost: 0,
-      },
-      source.model,
-    ) ?? (source.apiUsdPerMillion === null ? null : usd(source.apiUsdPerMillion));
+  const counts = { input, output, cached, reasoning: 0, write: 0, write1h: 0, cost: 0 };
+  const zero = { ...counts, input: 0, output: 0, cached: 0 };
+  const listed = estimateTokens(counts, source.model);
+  const api = listed ?? (source.apiUsdPerMillion === null ? null : usd(source.apiUsdPerMillion));
+  // Like the daemon: the split comes from the price table, so a model it lacks adds nothing.
+  const part = (only: typeof counts) =>
+    listed === null ? 0 : (estimateTokens(only, source.model) ?? 0);
+  const cacheRead = part({ ...zero, input: cached, cached });
+  const uncachedRate = part({ ...zero, input: cached });
   return {
     inputTokens: input,
     outputTokens: output,
@@ -185,8 +182,15 @@ function totals(input: number, source: UsageSource): UsageTotals {
     unpricedTokens: api === null ? input + output : 0,
     subscriptionTokens: source.billing === "subscription" ? input + output : 0,
     unknownBillingTokens: 0,
+    apiInputUsd: part({ ...zero, input: input - cached }),
+    apiCacheReadUsd: cacheRead,
+    apiCacheWriteUsd: 0,
+    apiOutputUsd: part({ ...zero, output }),
+    cacheSavingsUsd: uncachedRate - cacheRead,
   };
 }
+
+const sum = (a: number | undefined, b: number | undefined) => (a ?? 0) + (b ?? 0);
 
 function add(a: UsageTotals, b: UsageTotals): UsageTotals {
   return {
@@ -207,6 +211,11 @@ function add(a: UsageTotals, b: UsageTotals): UsageTotals {
     unpricedTokens: a.unpricedTokens + b.unpricedTokens,
     subscriptionTokens: a.subscriptionTokens + b.subscriptionTokens,
     unknownBillingTokens: a.unknownBillingTokens + b.unknownBillingTokens,
+    apiInputUsd: sum(a.apiInputUsd, b.apiInputUsd),
+    apiCacheReadUsd: sum(a.apiCacheReadUsd, b.apiCacheReadUsd),
+    apiCacheWriteUsd: sum(a.apiCacheWriteUsd, b.apiCacheWriteUsd),
+    apiOutputUsd: sum(a.apiOutputUsd, b.apiOutputUsd),
+    cacheSavingsUsd: sum(a.cacheSavingsUsd, b.cacheSavingsUsd),
   };
 }
 

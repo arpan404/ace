@@ -7,6 +7,7 @@
 @import "./model-control.css";
 @import "./composer-strip.css";
 @import "./composer-pill.css";
+@import "./usage.css";
 
 /*
  * Scan only web runtime source. Tailwind turns class-like strings into CSS; generated
@@ -252,14 +253,6 @@
   @media (pointer: coarse) {
     .account-reading {
       opacity: 0;
-    }
-  }
-  .usage-limit-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  @container (min-width: 840px) {
-    .usage-limit-row {
-      grid-template-columns: minmax(0, 224px) 152px 152px 128px 128px;
     }
   }
   /* Spinner ring in the current colour: the working blue unless a caller sets another. */

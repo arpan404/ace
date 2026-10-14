@@ -20,6 +20,7 @@ import type { Client } from "@ace/client";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { createBrowserClient, memoryStorage } from "./client.ts";
 import { fakeMachinePool } from "./fake-machines.ts";
+import { seedBuildServerUsage } from "./fake-usage.ts";
 import { fallback, type DaemonConnection } from "./connection.tsx";
 
 const timer = {
@@ -133,6 +134,7 @@ export function bootFake(): {
     { path: "/home/ci/services/web-gateway", git: true },
     { path: "/home/ci/infra/terraform", git: true },
   ]);
+  seedBuildServerUsage(server, Date.now());
   const machines = fakeMachinePool([server], (other) =>
     createBrowserClient({
       deviceId: "web-fake-device",

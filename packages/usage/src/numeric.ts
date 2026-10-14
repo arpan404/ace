@@ -1,5 +1,14 @@
 import type { SQLOutputValue } from "node:sqlite";
-const dollarFields = new Set(["estimatedUsd", "equivalentApiUsd", "providerReportedUsd"]);
+const dollarFields = new Set([
+  "estimatedUsd",
+  "equivalentApiUsd",
+  "providerReportedUsd",
+  "apiInputUsd",
+  "apiCacheReadUsd",
+  "apiCacheWriteUsd",
+  "apiOutputUsd",
+  "cacheSavingsUsd",
+]);
 /** SQLite REAL aggregation avoids integer SUM overflow. Wire totals saturate explicitly. */
 export function boundedTotals(
   input: Record<string, SQLOutputValue>,

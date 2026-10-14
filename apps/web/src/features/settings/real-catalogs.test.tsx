@@ -58,15 +58,17 @@ test("the open Skills library receives discovered skills without a reload", asyn
 
 test("Usage combines legacy bare and prefixed model ids and labels the Codex weekly quota", async () => {
   await fixture().open("/usage");
-  const table = await screen.findByRole("table", { name: "Usage by model" });
-  await waitFor(() =>
-    expect(within(table).getAllByRole("cell", { name: "Muse Spark 1.3 Contributor" })).toHaveLength(
-      1,
-    ),
-  );
-  expect(within(table).getByRole("cell", { name: "2.8M" })).toBeTruthy();
-  expect(screen.queryByText("On subscriptions")).toBeNull();
   expect((await screen.findAllByText("Weekly")).length).toBeGreaterThan(0);
+  const views = screen.getByRole("group", { name: "View" });
+  await userEvent.click(within(views).getByRole("button", { name: "Tokens" }));
+  await userEvent.click(await screen.findByRole("button", { name: "7 days" }));
+  const table = await screen.findByRole("table", { name: "Tokens by model" });
+  await waitFor(() =>
+    expect(
+      within(table).getAllByRole("cell", { name: /Muse Spark 1\.3 Contributor$/ }),
+    ).toHaveLength(1),
+  );
+  expect(await within(table).findByRole("cell", { name: "1.4M" })).toBeTruthy();
   expect(screen.queryByText(/5-hour 7%/)).toBeNull();
 });
 

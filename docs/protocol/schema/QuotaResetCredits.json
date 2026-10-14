@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/QuotaResetCredits.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "available": {
+      "maximum": 1000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "nextExpiresAt": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "available"
+  ],
+  "type": "object"
+}
