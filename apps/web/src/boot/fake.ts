@@ -2,6 +2,7 @@ import { seedComputerUse } from "./fake-computer-use.ts";
 import {
   FakeDaemon,
   ScenarioPlayer,
+  crossDevice,
   delegatedQuestion,
   devWorld,
   fakeTransport,
@@ -97,6 +98,9 @@ export function bootFake(): {
   if (world === "child-question")
     for (const scenario of delegatedQuestion())
       new ScenarioPlayer(daemon, scenario, { agoMs: 0 }).runUntilBlocked();
+  // `?fakeWorld=cross-device`: a thread working on another of the person's machines.
+  if (world === "cross-device")
+    new ScenarioPlayer(daemon, crossDevice(), { agoMs: 0 }).runUntilBlocked();
   // Playwright's screens stage failures and empty states before the app's first request.
   const setup = (globalThis as { aceFakeSetup?: (daemon: FakeDaemon) => void }).aceFakeSetup;
   setup?.(daemon);

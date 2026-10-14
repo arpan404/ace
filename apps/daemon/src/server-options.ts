@@ -37,6 +37,8 @@ export interface ServerOptions {
   sourceControl?: import("./source-control.ts").SourceControl;
   remoteContextTransfers?: import("./agent-control/remote-context-transfer.ts").RemoteContextTransfers;
   agentControl?: import("./services/types.ts").Services["agentControl"];
+  /** Agent calls from other paired machines (ADR 0078). */
+  machineCalls?: import("./machines/target.ts").MachineTarget;
   providerInstalls?: import("./provider-install/sessions.ts").ProviderInstalls;
   notificationPublicKey?: string;
   providerLogin?: import("@ace/accounts").ProviderLoginSessions;

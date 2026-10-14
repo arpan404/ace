@@ -359,6 +359,19 @@
       "additionalProperties": false,
       "properties": {
         "op": {
+          "const": "machines",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
           "const": "agent.result",
           "type": "string"
         },

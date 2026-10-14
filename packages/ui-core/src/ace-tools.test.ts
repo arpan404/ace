@@ -155,3 +155,16 @@ test("other servers' tools are not ace's, and unknown ace tools fall back to the
     target: "frobnicate",
   });
 });
+
+test("a call made on another paired machine names that machine on its row", () => {
+  const opened = aceStep(
+    mcp("ace_browser_open", { url: "https://docs.example.test/start", machine: "studio" }),
+  )?.words;
+  expect(opened?.past).toMatch(/^On studio, /);
+  expect(opened?.target).toContain("docs.example.test");
+  expect(
+    aceStep(mcp("delegate_task", { task: "Review the release notes", machine: "studio" }))?.words
+      .past,
+  ).toBe("Delegated “Review the release notes” on studio");
+  expect(aceStep(mcp("ace_browser_snapshot", {}))?.words.past).not.toContain("studio");
+});

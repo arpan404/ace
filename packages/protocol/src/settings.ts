@@ -55,6 +55,8 @@ export const SettingsValues = z.object({
   "threads.settleOnClose": z.boolean(),
   "remote.enabled": z.boolean(),
   "remote.transport": z.enum(["local", "lan", "tailscale", "relay"]),
+  /** Whether agents on other paired machines may use this one, and how far (ADR 0078). */
+  "remote.agentAccess": z.enum(["off", "read", "operate"]),
   "remote.relayUrl": z
     .string()
     .max(2048)

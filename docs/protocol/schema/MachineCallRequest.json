@@ -1,0 +1,17 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineCallRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "call": {
+      "$ref": "https://ace.local/protocol/v1/MachineCall.json"
+    },
+    "origin": {
+      "$ref": "https://ace.local/protocol/v1/MachineCallOrigin.json"
+    }
+  },
+  "required": [
+    "origin",
+    "call"
+  ],
+  "type": "object"
+}

@@ -1,6 +1,8 @@
 # 0071: Cross-device agent delegation
 
-Status: proposed. Date: 2026-10-09.
+Status: proposed. Date: 2026-10-09. ADR 0078 adds daemon-forwarded machine calls
+(`ace_machines`, `delegate_task` with `machine`) that need no connected client; converging
+this client-brokered path onto them is a follow-up there.
 
 ## Decision
 

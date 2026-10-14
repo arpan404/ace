@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineDelegateResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "title": {
+      "maxLength": 256,
+      "type": "string"
+    }
+  },
+  "required": [
+    "threadId",
+    "title"
+  ],
+  "type": "object"
+}

@@ -13,6 +13,19 @@ export interface AgentControlPort {
     signal: AbortSignal,
   ): Promise<AgentControlResult>;
 }
+/** A tool's input never carries `op`; its documented examples drop it too. */
+function toolMeta(meta: Record<string, unknown> | undefined) {
+  const examples = meta?.["examples"];
+  if (!Array.isArray(examples)) return { ...meta };
+  return {
+    ...meta,
+    examples: examples.map((example: unknown) =>
+      typeof example === "object" && example !== null
+        ? Object.fromEntries(Object.entries(example).filter(([key]) => key !== "op"))
+        : example,
+    ),
+  };
+}
 /** Each operation has its own schema. No arbitrary command or permission-answer entry exists. */
 /** Host-internal steps of delegation; agents start child work only through delegate_task. */
 const internalOps = new Set(["thread.create", "thread.launch"]);
@@ -27,7 +40,7 @@ export const agentControlToolCatalog = AgentControlOperation.options.flatMap((sc
     name: op === "delegate_task" ? "delegate_task" : `ace_${op.replaceAll(".", "_")}`,
     description:
       op === "delegate_task"
-        ? "The one way to start child work. Delegate one task, or several at once with tasks: [...], under your permission ceiling and delegation budget, choosing provider, model, account and optional workspace per task. Returns the child thread ids at once; settled results wake you as a new turn if you end yours. A batch may set await: any or all with timeoutSeconds (default 120, at most 600) and returns the same result as ace_wait. Otherwise call ace_wait with the ids and a timeout, then use the results; never poll. For one task, wait or waitMs (at most 240000) bounds observation without cancelling the child. Cross-provider work requires a provably contained native permission mode. Stable per-task requestIds make retries safe: a retried batch creates no new threads. Discover selections with ace_agents_catalog."
+        ? "The one way to start child work. Delegate one task, or several at once with tasks: [...], under your permission ceiling and delegation budget, choosing provider, model, account and optional workspace per task. Returns the child thread ids at once; settled results wake you as a new turn if you end yours. A batch may set await: any or all with timeoutSeconds (default 120, at most 600) and returns the same result as ace_wait. Otherwise call ace_wait with the ids and a timeout, then use the results; never poll. For one task, wait or waitMs (at most 240000) bounds observation without cancelling the child. Cross-provider work requires a provably contained native permission mode. To run a task on another paired machine, pass machine (from ace_machines) and project; that machine applies its own access mode and consent, and ace_wait and ace_agents_status cover the child there too. Stable per-task requestIds make retries safe: a retried batch creates no new threads. Discover selections with ace_agents_catalog."
         : op === "thread.read_output"
           ? "Read a bounded byte range from a transcript/output source returned by ace_thread_read. Offsets and limits are bytes; the result contains base64 bytes and nextOffset. Decode using the source encoding. The stream must belong to the requested authorized thread."
           : op === "thread.read"
@@ -43,7 +56,7 @@ export const agentControlToolCatalog = AgentControlOperation.options.flatMap((sc
                 for (const issue of parsed.error.issues)
                   context.addIssue({ code: "custom", message: issue.message, path: issue.path });
             })
-            .meta({ ...schema.meta() })
+            .meta(toolMeta(schema.meta()))
         : z.strictObject(shape),
     output: AgentControlResult,
     capability:

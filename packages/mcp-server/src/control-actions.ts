@@ -40,6 +40,11 @@ export const controlActions: Record<AgentControlOperation["op"], Action> = {
       "Compact snapshot of every child you delegated, including their own children: state, current step, elapsed seconds, requests waiting on the person and the last output line. Cheap to call, but use ace_wait instead of calling this repeatedly.",
     riskClass: "read-only",
   },
+  machines: {
+    description:
+      "List the other paired machines whose agent access is on: name, online or offline, access (read or operate), projects, tool groups and providers. Pass a machine's `machine` to delegate_task (with `project`) or to ace_browser_* tools to work there. Tokens and paths never leave their machine.",
+    riskClass: "read-only",
+  },
   "agent.result": {
     description:
       "Read an owned child's settled outcome. This does not consume its durable parent notification. Returns not_ready while any descendant or human wait remains active.",

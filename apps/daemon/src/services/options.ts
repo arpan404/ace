@@ -43,6 +43,11 @@ export type DaemonOptions = {
     handoffGit?: () => import("../agent-control/handoffs.ts").HandoffGit;
     extensions?: import("../agent-control/tools.ts").AgentControlExtensions;
   };
+  /** Calls to other paired machines (ADR 0078): the transport and poll interval. */
+  machines?: {
+    transport?: import("../machines/transport.ts").MachineTransport;
+    pollMs?: number;
+  };
   claude?: DaemonClaudeOptions;
   pi?: import("./pi.ts").PiDaemonOptions;
   screen?: ScreenManager;

@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachinePendingRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "interactionId": {
+      "$ref": "https://ace.local/protocol/v1/InteractionId.json"
+    },
+    "request": {
+      "$ref": "https://ace.local/protocol/v1/InteractionRequest.json"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "threadId",
+    "interactionId",
+    "request"
+  ],
+  "type": "object"
+}

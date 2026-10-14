@@ -597,6 +597,87 @@ export class Engine {
       this.clock.now(),
     );
   }
+  /**
+   * A child on another paired machine (ADR 0078): its launch row names the machine, and a
+   * background hold keeps the parent from reading done while the child works there.
+   */
+  machineChild(
+    child: {
+      id: ThreadId;
+      parentId: ThreadId;
+      parentAgentId: AgentId;
+      machine: string;
+      name: string;
+      provider: import("@ace/protocol").ProviderKind;
+      model?: string | undefined;
+      role: string;
+      title: string;
+      status: import("@ace/protocol").ThreadStatus;
+      outcome: import("@ace/protocol").DelegationOutcome | null;
+    },
+    hold: "start" | "end" | undefined,
+  ): void {
+    const state = this.repo.requireState(child.parentId);
+    const agent = state.indexes.agentKeysById[child.parentAgentId];
+    if (!agent) throw new Error("Unknown machine delegation parent");
+    const task = `ace-machine:${child.id}`;
+    const settled = child.outcome !== null;
+    const now = this.clock.now();
+    this.repo.apply(
+      child.parentId,
+      [
+        {
+          type: "item.upsert",
+          agent,
+          item: `ace-delegation:${child.id}`,
+          draft: {
+            type: "delegation.started",
+            origin: "ace",
+            childThreadId: child.id,
+            provider: child.provider,
+            ...(child.model ? { model: child.model } : {}),
+            title: child.title,
+            role: child.role,
+            phase: settled ? "settled" : "running",
+            status: child.status,
+            updatedAt: now,
+            generation: 0,
+            complete: settled,
+            outcome: child.outcome,
+            machine: { machine: child.machine, name: child.name },
+          },
+        },
+        ...(hold === "start"
+          ? [
+              {
+                type: "background.started" as const,
+                owner: "ace" as const,
+                agent,
+                task,
+                kind: "subagent" as const,
+                title: `${child.role} · ${child.name}`,
+                stoppable: true,
+              },
+            ]
+          : hold === "end"
+            ? [
+                {
+                  type: "background.ended" as const,
+                  task,
+                  status:
+                    child.outcome?.outcome === "completed"
+                      ? ("completed" as const)
+                      : child.outcome?.outcome === "cancelled"
+                        ? ("stopped" as const)
+                        : ("failed" as const),
+                },
+              ]
+            : []),
+      ],
+      now,
+    );
+    if (hold === "end") this.wake(child.parentId);
+  }
   /** One stable parent item follows each independently owned child thread. */
   delegationStarted(record: import("@ace/protocol").DelegationRecord, child: Thread) {
     const state = this.repo.requireState(record.parentId);
@@ -727,17 +808,17 @@ export class Engine {
     const previous = this.hostInteractionHandler;
     this.hostInteractionHandler = (command) => handler(command) ?? previous?.(command);
   }
-  bindRemoteTaskStop(stop: (id: string) => void): void {
+  bindRemoteTaskStop(stop: (id: string) => void, prefix = "ace-remote:"): void {
     this.bindHostInteractions((command) => {
       if (command.payload.type !== "background_task.stop") return;
       const owner = this.repo.entityThread("backgroundTasks", command.payload.taskId);
       if (!owner) return;
       const key = this.repo.nativeEntity(owner, "tasks", command.payload.taskId);
-      if (!key?.startsWith("ace-remote:")) return;
+      if (!key?.startsWith(prefix)) return;
       const task = this.repo.state(owner)?.tasks[key];
       if (task?.status !== "running")
         return { commandId: command.id, ok: false, error: "task_not_stoppable" };
-      stop(key.slice("ace-remote:".length));
+      stop(key.slice(prefix.length));
       return { commandId: command.id, ok: true };
     });
   }

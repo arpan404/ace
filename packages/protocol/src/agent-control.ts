@@ -11,6 +11,7 @@ import { AccountInstanceId } from "./account-ids.ts";
 import { AutomationRequest } from "./automations.ts";
 import { AgentCatalogInput, AgentWorkspace, ThreadListInput } from "./agent-orchestration.ts";
 import { WaitInput, WaitMode, WaitTimeoutSeconds } from "./agent-monitor.ts";
+import { MachineName } from "./machine-calls.ts";
 
 const key = z
   .string()
@@ -40,6 +41,9 @@ export const DelegationRequest = z.strictObject({
   waitMs: z.number().int().min(1).max(240000).optional(),
   workspace: AgentWorkspace.optional(),
   estimatedLoad: z.number().min(0).max(100).default(0),
+  /** Run on another paired machine from `ace_machines`, in one of its projects (ADR 0078). */
+  machine: MachineName.optional(),
+  project: z.string().min(1).max(256).optional(),
 });
 export type DelegationRequest = z.infer<typeof DelegationRequest>;
 /** One task of a batch; batches wait through `await` rather than per-task flags. */
@@ -62,6 +66,8 @@ export const DelegateTaskOperation = z
     waitMs: z.number().int().min(1).max(240000).optional(),
     workspace: AgentWorkspace.optional(),
     estimatedLoad: z.number().min(0).max(100).optional(),
+    machine: MachineName.optional(),
+    project: z.string().min(1).max(256).optional(),
     tasks: z.array(DelegationTask).min(1).max(8).optional(),
     await: z.enum(["none", ...WaitMode.options]).optional(),
     timeoutSeconds: WaitTimeoutSeconds.optional(),
@@ -89,6 +95,17 @@ export const DelegateTaskOperation = z
   .meta({
     "x-ace-constraint":
       "Either one task (requestId, task, role, provider) or tasks: [{ requestId, task, role, provider }, ...].",
+    examples: [
+      {
+        op: "delegate_task",
+        requestId: "review-on-studio",
+        task: "Review the 0.9 build and list failing benchmarks",
+        role: "Reviewer",
+        provider: "claude",
+        machine: "studio",
+        project: "relay",
+      },
+    ],
   });
 export type DelegateTaskOperation = z.infer<typeof DelegateTaskOperation>;
 export const DelegationPolicy = z.strictObject({
@@ -184,6 +201,7 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("agents.catalog"), ...AgentCatalogInput.shape }),
   z.strictObject({ op: z.literal("agent.status"), threadId: ThreadId }),
   z.strictObject({ op: z.literal("agents.status") }),
+  z.strictObject({ op: z.literal("machines") }),
   z.strictObject({ op: z.literal("agent.result"), threadId: ThreadId }),
   z.strictObject({ op: z.literal("agent.cancel"), threadId: ThreadId, requestId: key }),
   z.strictObject({

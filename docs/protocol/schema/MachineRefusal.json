@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineRefusal.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "error": {
+      "enum": [
+        "machine_opted_out",
+        "machine_forbidden",
+        "unauthorized",
+        "not_found",
+        "invalid",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "message": {
+      "maxLength": 512,
+      "type": "string"
+    }
+  },
+  "required": [
+    "error"
+  ],
+  "type": "object"
+}

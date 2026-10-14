@@ -1,0 +1,66 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineThreadView.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "elapsedSeconds": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "last": {
+      "maxLength": 160,
+      "type": "string"
+    },
+    "machine": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "needs": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/WatchedRequest.json"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "requests": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MachinePendingRequest.json"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "result": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "state": {
+      "$ref": "https://ace.local/protocol/v1/WatchedState.json"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
+    },
+    "step": {
+      "maxLength": 120,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "title": {
+      "maxLength": 120,
+      "type": "string"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "threadId",
+    "state",
+    "title",
+    "elapsedSeconds",
+    "status",
+    "requests"
+  ],
+  "type": "object"
+}

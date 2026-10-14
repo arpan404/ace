@@ -162,6 +162,25 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
         },
+        "machine": {
+          "properties": {
+            "machine": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "name": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "machine",
+            "name"
+          ],
+          "type": "object"
+        },
         "model": {
           "maxLength": 256,
           "minLength": 1,

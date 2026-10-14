@@ -1,0 +1,58 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineToolResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "content": {
+      "items": {
+        "anyOf": [
+          {
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "type": {
+                "const": "text",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "data": {
+                "type": "string"
+              },
+              "mimeType": {
+                "maxLength": 64,
+                "type": "string"
+              },
+              "type": {
+                "const": "image",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "data",
+              "mimeType"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "isError": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "content"
+  ],
+  "type": "object"
+}

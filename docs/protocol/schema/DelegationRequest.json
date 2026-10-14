@@ -27,6 +27,9 @@
       "minLength": 1,
       "type": "string"
     },
+    "machine": {
+      "$ref": "https://ace.local/protocol/v1/MachineName.json"
+    },
     "model": {
       "maxLength": 256,
       "minLength": 1,
@@ -37,6 +40,11 @@
     },
     "permissionMode": {
       "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+    },
+    "project": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
     },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"

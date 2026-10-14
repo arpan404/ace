@@ -14,6 +14,7 @@ import type { DelegationService } from "./delegations.ts";
 import { controlCommandId } from "./delegations.ts";
 import { agentTaskView } from "./task-view.ts";
 import { conversationTool, type ConversationStartPort } from "./conversation-tools.ts";
+import { AgentControlError } from "./failure.ts";
 
 export type ExtensionOperation = Extract<
   AgentControlOperation,
@@ -86,6 +87,20 @@ export interface AgentControlExtensions {
     signal: AbortSignal,
   ): Promise<AgentControlResult>;
   snooze?(thread: ThreadId, until: number | null): Promise<void>;
+  /** Other paired machines (ADR 0078); their children join ace_wait and ace_agents_status. */
+  machines?: MachinePort;
+}
+export interface MachinePort {
+  list(caller: McpAttribution): Promise<AgentControlResult>;
+  delegate(
+    caller: McpAttribution,
+    request: DelegationRequest,
+    signal: AbortSignal,
+  ): Promise<ThreadId>;
+  /** The caller delegated this child to another machine. */
+  owns(caller: McpAttribution, id: ThreadId): boolean;
+  status(id: ThreadId): unknown;
+  cancel(id: ThreadId): Promise<AgentControlResult>;
 }
 export function createAgentControlPort(
   store: Store,
@@ -106,6 +121,14 @@ export function createAgentControlPort(
             code: "unsupported",
           }
         );
+      const machines = extensions.machines;
+      if (
+        (operation.op === "agent.status" || operation.op === "agent.cancel") &&
+        machines?.owns(caller, operation.threadId)
+      )
+        return operation.op === "agent.cancel"
+          ? machines.cancel(operation.threadId)
+          : { ok: true, data: machines.status(operation.threadId) };
       if ("threadId" in operation) {
         const read = [
           "thread.read",
@@ -171,8 +194,23 @@ export function createAgentControlPort(
             data: { ...view, ...(available && record.outcome ? { outcome: record.outcome } : {}) },
           };
         }
+        case "machines":
+          return machines ? machines.list(caller) : { ok: false, code: "unsupported" };
         case "delegate_task": {
-          const delegateOne = async (request: DelegationRequest) => {
+          const delegateOne = async (
+            request: DelegationRequest,
+          ): Promise<{ childId: ThreadId }> => {
+            if (request.project && !request.machine)
+              throw new AgentControlError(
+                "invalid_arguments",
+                "project_without_machine",
+                undefined,
+                "project names a project on another machine; pass machine too.",
+              );
+            if (request.machine) {
+              if (!machines) throw new AgentControlError("machine_unavailable", "no_machines");
+              return { childId: await machines.delegate(caller, request, signal) };
+            }
             if (request.workspace && extensions.delegateWorkspace)
               return extensions.delegateWorkspace(caller, request, signal);
             if (request.workspace?.kind && request.workspace.kind !== "project")
@@ -184,6 +222,18 @@ export function createAgentControlPort(
           const { op: _op, tasks, await: mode, timeoutSeconds, ...single } = operation;
           if (!tasks) {
             const child = await delegateOne(DelegationRequest.parse(single));
+            if (operation.machine && (operation.waitMs !== undefined || operation.wait)) {
+              const waited = await service.monitor.wait(
+                caller,
+                {
+                  threadIds: [child.childId],
+                  mode: "all",
+                  timeoutSeconds: Math.ceil((operation.waitMs ?? 240000) / 1000),
+                },
+                signal,
+              );
+              return { ...waited, data: { threadId: child.childId, wait: waited.data } };
+            }
             const outcome =
               operation.waitMs !== undefined || operation.wait
                 ? await service.waitBounded(

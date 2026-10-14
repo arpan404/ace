@@ -31,6 +31,7 @@ import { startModels } from "./models.ts";
 import { startMcp } from "./mcp.ts";
 import { startNotifications } from "./notifications.ts";
 import { startAgentControl } from "./agent-control.ts";
+import { startMachines } from "./machines.ts";
 import { startPi } from "./pi.ts";
 import { startEngine } from "./engine.ts";
 import type { ServiceContext, Services } from "./types.ts";
@@ -155,6 +156,13 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     requires: ["engine"],
     after: ["accounts", "context", "notifications"],
     start: startAgentControl,
+  },
+  {
+    name: "machines",
+    phase: "listener",
+    requires: ["engine"],
+    after: ["agentControl", "settings", "browser"],
+    start: startMachines,
   },
   {
     name: "externalMcp",

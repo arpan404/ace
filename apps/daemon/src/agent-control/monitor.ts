@@ -37,6 +37,16 @@ export interface MonitorDependencies {
   /** Hands a result read inside the tool call to the parent, so no wake repeats it. */
   delivered(caller: McpAttribution, outcome: DelegationOutcome): void;
 }
+/** Children that run on other paired machines (ADR 0078), observed by their own poller. */
+export interface RemoteChildren {
+  /** The caller delegated this child to another machine. */
+  owns(caller: McpAttribution, id: ThreadId): boolean;
+  watched(id: ThreadId): { view: WatchedThread; outcome?: DelegationOutcome } | undefined;
+  children(caller: McpAttribution): MonitoredChild[];
+  /** A wait read this settled result, so it is not delivered again as a wake. */
+  delivered(id: ThreadId): void;
+  subscribe(listener: (ids: readonly string[]) => void): () => void;
+}
 interface PendingWait {
   ids: readonly ThreadId[];
   mode: WaitMode;
@@ -56,9 +66,22 @@ export class AgentMonitor {
   private waits = new Set<PendingWait>();
   private closed = false;
   private unsubscribe: () => void;
+  private remote: RemoteChildren | undefined;
+  private stopRemote: (() => void) | undefined;
   constructor(deps: MonitorDependencies) {
     this.deps = deps;
     this.unsubscribe = deps.store.subscribe((events) => this.observe(events));
+  }
+  /** Children on other machines join waits and snapshots once their owner starts. */
+  attachRemote(remote: RemoteChildren) {
+    this.stopRemote?.();
+    this.remote = remote;
+    this.stopRemote = remote.subscribe((ids) => this.recheck(new Set(ids)));
+  }
+  /** Whether a live wait is watching this thread, so its result is read there, not woken. */
+  watching(id: ThreadId): boolean {
+    for (const wait of this.waits) if (wait.ids.includes(id)) return true;
+    return false;
   }
   /** Waits on children the caller delegated or any other thread it may read. */
   async wait(
@@ -69,7 +92,10 @@ export class AgentMonitor {
     signal.throwIfAborted();
     const ids = [...new Set(input.threadIds)];
     for (const id of ids)
-      if (!this.deps.store.getThread(id) || !this.deps.authorize(caller, id, false))
+      if (
+        !this.remote?.owns(caller, id) &&
+        (!this.deps.store.getThread(id) || !this.deps.authorize(caller, id, false))
+      )
         return { ok: false, code: "forbidden", data: { threadId: id } };
     if (this.closed) return { ok: true, data: this.interrupted(ids, input.mode) };
     const immediate = waitOutcome(
@@ -149,6 +175,11 @@ export class AgentMonitor {
         ...(last ? { last } : {}),
       });
     }
+    for (const child of this.remote?.children(caller) ?? []) {
+      if (children.length >= 64) break;
+      counts[child.state]++;
+      children.push(child);
+    }
     return { children, counts };
   }
   /** Resolves every pending wait as `interrupted`, so a restart never leaves a caller hanging. */
@@ -156,12 +187,16 @@ export class AgentMonitor {
     if (this.closed) return;
     this.closed = true;
     this.unsubscribe();
+    this.stopRemote?.();
     for (const wait of this.waits) wait.finish("interrupted");
   }
   private observe(events: readonly Event[]) {
     if (!this.waits.size) return;
     const touched = new Set<string>();
     for (const event of events) touched.add(event.threadId);
+    this.recheck(touched);
+  }
+  private recheck(touched: ReadonlySet<string>) {
     for (const wait of this.waits)
       if (!wait.scheduled && wait.ids.some((id) => touched.has(id))) {
         // The delegation owner settles journal edges in its own listener for the same batch.
@@ -178,6 +213,8 @@ export class AgentMonitor {
       }
   }
   private state(id: ThreadId): WatchedState {
+    const remote = this.remote?.watched(id);
+    if (remote) return remote.view.state;
     const thread = this.deps.store.getThread(id);
     if (!thread || thread.deletedAt !== undefined) return "cancelled";
     const record = this.deps.journal.get(id);
@@ -204,7 +241,12 @@ export class AgentMonitor {
     status: WaitStatus,
   ): WaitResult {
     const read = ids.map((id) => this.watched(id));
-    for (const entry of read) if (entry.outcome) this.deps.delivered(caller, entry.outcome);
+    for (const entry of read)
+      if (entry.outcome) {
+        if (this.remote?.owns(caller, entry.outcome.threadId))
+          this.remote.delivered(entry.outcome.threadId);
+        else this.deps.delivered(caller, entry.outcome);
+      }
     return { status, mode, threads: read.map((entry) => entry.view) };
   }
   /** Never fails: a restart answers with whatever is still readable. */
@@ -218,6 +260,8 @@ export class AgentMonitor {
     return { status: "interrupted", mode, threads };
   }
   private watched(id: ThreadId): { view: WatchedThread; outcome?: DelegationOutcome } {
+    const remote = this.remote?.watched(id);
+    if (remote) return remote;
     const thread = this.deps.store.getThread(id);
     if (!thread)
       return { view: { threadId: id, state: "cancelled", title: "", elapsedSeconds: 0 } };
