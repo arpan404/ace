@@ -1,0 +1,127 @@
+{
+  "run": {
+    "date": "2026-10-14",
+    "branch": "fix/mcp-provider-native-permissions (main @ 6d63e518d)",
+    "mode": "apps/web vite --mode fake, port 5212, Chromium 1440x900 headless, Playwright 1.63",
+    "caveat": "Dev server (unbundled Vite). Absolute boot times are dev numbers; in-app numbers (switches, sends, menus) are representative. Numbers marked 'contended' were taken with 3-4 browsers running at once and are excluded from conclusions."
+  },
+  "boot": {
+    "cold_dev_first_request_dcl_ms": 21665,
+    "warm_full_reload_composer_visible_ms": [3252, 3327],
+    "first_contentful_paint_ms": [44, 52, 72],
+    "splash_after_app_painted": { "app_on_screen_at_ms": 605, "replaced_by_splash_at_ms": 732, "app_back_at_ms": 1621, "reproducible": "every direct load in fake mode" },
+    "unknown_thread_id_to_message_ms": 5604,
+    "focus_after_load_on_root": "button Deny (root redirects to the top needs-you thread)"
+  },
+  "new_thread_send": {
+    "message_visible_after_enter_ms": 19,
+    "url_changed_after_enter_ms": 19,
+    "blank_composer_frames": 0,
+    "cls": 0.0035,
+    "composer_x_width_before_after": "512/696 both",
+    "focus_sequence": ["Message", "BODY", "H1", "Message"],
+    "new_row_y_in_sidebar_px": 628,
+    "typing_36_chars_ms": 747
+  },
+  "thread_switch": {
+    "click_row_content_ms_idle": [117, 100, 100, 100, 83, 67],
+    "alt_cmd_down_content_ms_idle": [83, 67, 100],
+    "empty_feed_frames_per_switch": 1,
+    "click_row_content_ms_contended": [283, 217, 250, 250],
+    "focus_after_open": {
+      "working_or_done": "Message",
+      "high_risk_approval": "button Deny",
+      "normal_approval": "button Allow once",
+      "question": "span[role=radio] with empty name",
+      "thread_with_browser_tab": "input Address"
+    }
+  },
+  "long_thread_120_exchanges": {
+    "in_app_open_feed_ms": 608,
+    "long_frames_during_open": 2,
+    "scroll_up_20_wheel_events": { "frames": 92, "over_33ms": 21, "max_frame_ms": 250 },
+    "jump_to_live_present": true
+  },
+  "palette": {
+    "cmd_k_open_ms": [124, 149],
+    "search_button_opens_same_palette": true,
+    "focus_after_pick": "Message"
+  },
+  "approval": {
+    "strip_gone_after_click_ms": 50,
+    "transcript_shows_result_after_ms": 1584,
+    "digit_key_from_composer": "types the digit into the composer",
+    "cmd_enter_from_composer": "no effect",
+    "shift_tab_presses_from_composer_to_allow": 3,
+    "aria_keyshortcuts": { "Allow once": null, "Deny": "2" }
+  },
+  "question": {
+    "focus_on_open": "radio with empty accessible name",
+    "controls_in_strip": 13,
+    "digit_hints_shown": [1, 2, 3],
+    "digit_from_composer": "types into composer"
+  },
+  "steer_queue_stop": {
+    "enter_while_working": "queues (button 'Queue message')",
+    "esc_in_empty_composer": "'Esc again to stop · 2 subagents' hint",
+    "stop_click_confirm": "none; stops at once",
+    "after_stop_line": "Stopped · 1 background command still running · Stop it · 1 queued",
+    "focus_after_stop": "button Send",
+    "focus_after_steer": "body",
+    "queue_survives_stop": true
+  },
+  "sidebar": {
+    "tab_stops_to_cross_list": 1,
+    "arrow_keys": "work, visible ring",
+    "end_home_keys": "focus drops to body",
+    "enter_on_row_focus": "Message (or Address bar when the thread has a browser tab)",
+    "hover_hides_status_word": true,
+    "pin_p_toast": "none (Unpin shows 'Unpinned · … Undo')",
+    "snooze_toast": "Snoozed — no notifications until 5:28 PM",
+    "snooze_focus_after": "body",
+    "archive_done_thread": { "undo_toast": true, "lands_on": "top needs-you thread (/t/thread-checkout)", "takes_effect_after_ms": ">500" },
+    "archive_working_thread": "dialog: Cancel (focused) / Archive, keep running / Stop & archive"
+  },
+  "panels": {
+    "open_focus": "body",
+    "tabs_after_terminal_browser_changes": ["Summary", "Changes", "Files", "Terminal", "Browser"],
+    "focus_after_ctrl_backtick": "button New tab",
+    "focus_after_ctrl_shift_b": "button New tab",
+    "summary_tab_initial": "spinner",
+    "changes_tab_initial": "Reading changes… / Preparing 2 files…",
+    "persists_across_thread_switch": true
+  },
+  "work_card": {
+    "card_uncommitted": "+34 −1, 2 files (thread-retry-budget)",
+    "changes_tab_uncommitted": "No uncommitted changes · The working tree matches HEAD.",
+    "tab_leaves_popover_after_stops": 9,
+    "empty_span_tab_stop": true
+  },
+  "settings": {
+    "dark_mode_apply_ms": 159,
+    "persists_after_nav": true,
+    "back_to_app_returns_to_last_thread": true,
+    "cmd_comma_opens_settings": true,
+    "appearance_innertext_contains_Ready_x": 11
+  },
+  "setup_empty_world": {
+    "steps": ["Connect your agents", "Choose your first project"],
+    "actions_to_home": 2,
+    "focus_on_step_1": "h1 Set up",
+    "focus_on_step_2": "button Add a project"
+  },
+  "widths": {
+    "390": { "allow_once_px": "99x44", "deny_px": "64x44", "details_px": "58x18", "access_control": "hidden (0x0)", "right_panel_button": "absent", "stop_button_px": "32x32" },
+    "768": { "allow_once_px": "87x26", "deny_px": "52x26", "sidebar": "hidden by default" }
+  },
+  "usage_limit_thread": {
+    "state": "Paused · Codex usage limit",
+    "strip": "Usage limit reached · Codex · Team resets 6:00 PM, in 1h 28m. Queued messages wait. · Resume at reset",
+    "switch_account_offered": false
+  },
+  "interrupted_turn": {
+    "transcript_lines": ["Couldn't stop the agent ×3 · OpenCode had nothing running to stop", "Interrupted by a restart"],
+    "strip": "Stopped by a restart · Continue",
+    "owner_decision_copy": "Interrupted by a restart · Resume"
+  }
+}
