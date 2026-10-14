@@ -24,6 +24,32 @@ test("only verification and authorization links reach the client", () => {
     expect(loginUrl("codex", candidate)).toBeUndefined();
 });
 
+test("Claude's claude.com authorize link is relayed only with a localhost callback", () => {
+  const link =
+    "https://claude.com/cai/oauth/authorize?code=true&client_id=synthetic&response_type=code&scope=user%3Aprofile&code_challenge=public-pkce&code_challenge_method=S256&state=public";
+  const local = `${link}&redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback`;
+  expect(loginUrl("claude", local)).toBe(local);
+  // The paste-code page hands back a code ace has nowhere to enter.
+  expect(
+    loginUrl(
+      "claude",
+      `${link}&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback`,
+    ),
+  ).toBeUndefined();
+  expect(loginUrl("claude", local.replace("code=true", "code=private"))).toBeUndefined();
+  expect(loginUrl("codex", local)).toBeUndefined();
+});
+
+test("Claude's optional paste prompt keeps the sign-in waiting on the browser", () => {
+  expect(loginObservation("claude", "\u0004\b\bOpening browser to sign in\u2026")).toEqual({
+    state: "awaiting_browser",
+  });
+  expect(loginObservation("claude", "Paste code here if prompted > ")).toBeUndefined();
+  expect(loginObservation("claude", "Paste authorization code:")).toMatchObject({
+    manualRequired: true,
+  });
+});
+
 test("device codes and fixed prompts can be relayed while arbitrary diagnostics remain private", () => {
   expect(loginObservation("codex", "Enter code: ABCD-12345")).toEqual({
     state: "awaiting_code_entry",
