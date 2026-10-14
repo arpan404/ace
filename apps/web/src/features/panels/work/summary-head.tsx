@@ -6,10 +6,9 @@ import {
   type TurnActivity,
 } from "@ace/ui-core";
 import type { Thread } from "@ace/protocol";
-import { TerminalIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
-import { Dot } from "@/components/ui/dot.tsx";
+import { StatusGlyph } from "@/components/status-glyph.tsx";
 import { WorkingIndicator } from "@/components/working-indicator.tsx";
 
 /*
@@ -37,17 +36,17 @@ export function SummaryHead(props: {
       />
     ) : activity?.tone === "needs-you" ? (
       <span className="flex min-w-0 items-center gap-2 text-foreground">
-        <Dot tone="needs-you" className="mx-0.5" />
+        <StatusGlyph state="needs-you" />
         <span className="min-w-0 truncate">{activity.label}</span>
       </span>
     ) : background > 0 ? (
       <span className="flex shrink-0 items-center gap-2 text-foreground">
-        <TerminalIcon aria-hidden size={13} />
+        <StatusGlyph state="background" />
         <span>Background · {background}</span>
       </span>
     ) : activity ? (
       <span className="flex min-w-0 items-center gap-2">
-        <Dot tone="limited" className="mx-0.5" />
+        <StatusGlyph state="paused" />
         <span className="min-w-0 truncate">{activity.label}</span>
       </span>
     ) : (

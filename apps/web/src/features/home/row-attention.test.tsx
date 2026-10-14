@@ -139,10 +139,12 @@ test("a working row that isn't open is calm with a live indicator; the open one 
   const title = "Rewrite the install page for the daemon";
   expect(row(title)).toEqual({ level: "active", muted: true });
   const status = word(title, "Working")?.parentElement;
-  expect(status?.querySelector(".fx-spin-slow")).toBeTruthy();
+  expect(status?.querySelector('[data-state="working"][data-live]')).toBeTruthy();
   await userEvent.click(link(title));
   await waitFor(() => expect(row(title)).toEqual({ level: "active", muted: false }));
-  expect(word(title, "Working")?.parentElement?.querySelector(".fx-spin-slow")).toBeTruthy();
+  expect(
+    word(title, "Working")?.parentElement?.querySelector('[data-state="working"][data-live]'),
+  ).toBeTruthy();
 });
 
 test("Mark as unread brings Done back, and Mark as read quiets it, from the row's menu", async () => {

@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { childAskingLabel } from "@ace/ui-core";
 import { Suspense, type ReactNode } from "react";
 import { buttonVariants } from "@/components/ui/button.tsx";
-import { Dot } from "@/components/ui/dot.tsx";
+import { StatusGlyph } from "@/components/status-glyph.tsx";
 import { InteractionCard } from "../interactions/interaction-card.tsx";
 import type { DescendantRequest } from "./descendant-request.ts";
 
@@ -40,7 +40,7 @@ export function DescendantCard(props: {
         </Suspense>
       ) : (
         <p className="flex min-h-9 items-center gap-[7px] px-4 pt-2 text-ui">
-          <Dot tone="needs-you" />
+          <StatusGlyph state="needs-you" />
           <span className="min-w-0 truncate">{childAskingLabel(request.name)}</span>
           <Link
             to="/t/$threadId"

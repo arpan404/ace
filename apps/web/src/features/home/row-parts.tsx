@@ -1,14 +1,8 @@
 import { createContext, use } from "react";
 import { PullRequestGlyph, pullRequestTone } from "@/components/pull-request-state.tsx";
-import { type RowAttention, type ThreadCard, type Tone } from "@ace/ui-core";
-import {
-  CheckCircleIcon,
-  CircleDashedIcon,
-  HandPalmIcon,
-  TerminalIcon,
-  XCircleIcon,
-} from "@phosphor-icons/react";
-import { Icon, type IconGlyph } from "@/components/icon.tsx";
+import { type RowAttention, type ThreadCard } from "@ace/ui-core";
+import { StatusGlyph } from "@/components/status-glyph.tsx";
+import { threadGlyph } from "@/components/status-glyph-state.ts";
 import { formatSpan } from "@ace/ui-core";
 import { useSeconds } from "@/lib/time.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
@@ -77,17 +71,6 @@ export function PullRequest(props: { card: ThreadCard }) {
   );
 }
 
-/** A small glyph beside the status word: the colour is never the only clue. */
-const statusGlyphs: Partial<Record<Tone, IconGlyph>> = {
-  done: CheckCircleIcon,
-  // Turns slowly while the tree works (`.fx-spin-slow`); still under reduced motion.
-  working: CircleDashedIcon,
-  "needs-you": HandPalmIcon,
-  failed: XCircleIcon,
-  // The turn is over; only its background commands run (neither Working nor Done).
-  background: TerminalIcon,
-};
-
 /**
  * The first line's status, as loud as the row's attention (`rowAttention`, with the open
  * thread's `currentAttention`):
@@ -102,31 +85,22 @@ export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) 
   if (word === undefined) return <RowTime card={card} />;
   if (level === "failed-seen")
     return <span className="shrink-0 text-xs text-muted-foreground">{word}</span>;
-  const glyph = statusGlyphs[tone];
-  const mark = glyph ? (
-    <Icon
-      icon={glyph}
-      size={muted ? 12 : 13}
-      className={cn("text-(--tone)", tone === "working" && "fx-spin-slow")}
-    />
-  ) : undefined;
+  // The glyph beside the word: the colour is never the only clue.
+  const mark = (
+    <StatusGlyph state={threadGlyph({ tone, mark: card.status.mark })} tone={tone} size={12} />
+  );
   if (muted)
     return (
       <span
         data-tone={tone}
         className="inline-flex shrink-0 items-center gap-1 text-xs whitespace-nowrap text-muted-foreground"
       >
-        {mark ?? <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-(--tone)" />}
+        {mark}
         <span>{word}</span>
       </span>
     );
   return (
-    <StatusLabel
-      tone={tone}
-      label={word}
-      mark={mark ?? false}
-      className="gap-1 text-xs font-normal"
-    >
+    <StatusLabel tone={tone} label={word} mark={mark} className="gap-1 text-xs font-normal">
       {tone === "working" && <WorkingFor card={card} />}
     </StatusLabel>
   );

@@ -25,7 +25,14 @@ import { readFileSync, writeFileSync } from "node:fs";
 const strict = process.argv.includes("--strict");
 // Only live-activity indicators may animate forever (styles/motion.css, "Live activity"): each
 // shows work happening now and moves only transform or opacity.
-const liveKeyframes = new Set(["ace-spin", "fx-walk", "fx-breathe", "fx-sweep"]);
+const liveKeyframes = new Set([
+  "ace-spin",
+  "aperture-swing",
+  "aperture-drift",
+  "aperture-ratchet",
+  "fx-breathe",
+  "fx-sweep",
+]);
 for (const path of execFileSync("git", ["ls-files", "--", "apps/web/src/styles/*.css"], {
   encoding: "utf8",
 })
