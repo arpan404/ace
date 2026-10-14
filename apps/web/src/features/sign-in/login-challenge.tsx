@@ -155,7 +155,9 @@ export function BrowserStep(props: {
           line={
             opened
               ? "The sign-in page is open in your browser. Come back here when you're done."
-              : "Open the sign-in page and finish there. ace picks it up on its own."
+              : url
+                ? "Open the sign-in page and finish there. ace picks it up on its own."
+                : "Finish in the browser window that opened. ace picks it up on its own."
           }
         />
       )}

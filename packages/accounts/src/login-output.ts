@@ -5,6 +5,7 @@ const claudeEndpoints = [
   ["claude.ai", /^\/oauth\/authorize\/?$/],
   ["console.anthropic.com", /^\/oauth\/authorize\/?$/],
   ["platform.claude.com", /^\/oauth\/authorize\/?$/],
+  ["claude.com", /^\/cai\/oauth\/authorize\/?$/],
 ] as const;
 const cursorEndpoints = [["cursor.com", /^\/(?:login|loginDeepControl)\/?$/]] as const;
 
@@ -53,6 +54,7 @@ export function loginUrl(provider: ProviderKind, candidate: string): string | un
     "code_challenge_method",
     "audience",
     "originator",
+    ...(provider === "claude" ? ["code"] : []),
     ...(provider === "pi" ? ["agent_name", "device_id", "agent_host_id", "prompt", "code"] : []),
     ...(provider === "acp" || provider === "antigravity"
       ? ["access_type", "prompt", "login_hint", "include_granted_scopes"]
@@ -108,6 +110,12 @@ export function loginObservation(
   provider: ProviderKind,
   text: string,
 ): LoginObservation | undefined {
+  if (provider === "claude") {
+    // Claude Code opens the browser itself and waits on localhost for the callback.
+    if (/opening browser to sign in/i.test(text)) return { state: "awaiting_browser" };
+    // Its paste prompt is only a fallback; the CLI keeps waiting for the browser meanwhile.
+    if (/paste code here if prompted/i.test(text)) return;
+  }
   if (
     /(?:api[ _-]?key|access[ _-]?token|refresh[ _-]?token|(?:authorization|oauth) code|paste.*code)/i.test(
       text,

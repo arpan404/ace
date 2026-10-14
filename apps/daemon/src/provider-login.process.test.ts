@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
@@ -193,6 +193,30 @@ test("excessive private CLI output stops the process and returns terminal instru
   await f.start();
   expect(await f.wait("failed")).toMatchObject({ manual: { command: "codex login" } });
   expect(JSON.stringify(f.events)).not.toContain("sk-private");
+});
+
+test("Claude's own browser sign-in waits in the browser step and completes when the CLI does", async () => {
+  // Claude Code 2.1.299, scrubbed: it opens the browser itself, then prints its paste-code
+  // fallback link and an unterminated, optional paste prompt while it waits on localhost.
+  const link =
+    "https://claude.com/cai/oauth/authorize?code=true&client_id=synthetic&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Aprofile&code_challenge=fixture&code_challenge_method=S256&state=fixture";
+  const output =
+    "\u0004\b\bOpening browser to sign in\u2026\r\n" +
+    `If the browser didn't open, visit: \u001b]8;;${link}\u0007${link}\u001b]8;;\u0007\r\n` +
+    "Paste code here if prompted > ";
+  const f = await harness(
+    "claude",
+    `const fs = require('node:fs');
+    process.stdout.write(${JSON.stringify(output)});
+    const done = process.env.HOME + '/browser-callback';
+    setInterval(() => { if (fs.existsSync(done)) process.exit(0); }, 20);`,
+  );
+  await f.start();
+  expect(await f.wait("awaiting_browser")).toMatchObject({ state: "awaiting_browser" });
+  await writeFile(join(f.root, "browser-callback"), "");
+  await f.wait("succeeded");
+  expect(f.events.map((event) => event.state)).not.toContain("failed");
+  expect(JSON.stringify(f.events)).not.toContain("platform.claude.com");
 });
 
 test("paste-code prompts stop the CLI and return terminal instructions without accepting arbitrary input", async () => {
