@@ -231,7 +231,12 @@ export async function startServer(options: ServerOptions): Promise<{
   wss.on("connection", (socket, isLocal: boolean) => {
     socket.on("error", (error) => {
       options.log?.(error);
-      socket.terminate();
+      // A protocol error (an oversized frame is 1009) already started a close with its code;
+      // give that frame a moment to reach the peer so it can tell why, then drop the socket.
+      if (socket.readyState === WebSocket.CLOSING) {
+        const stop = runtime.delay(() => socket.terminate(), 1000);
+        socket.once("close", stop);
+      } else socket.terminate();
     });
     if (cleanups.size >= 256) {
       socket.terminate();
