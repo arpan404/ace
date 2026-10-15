@@ -18,6 +18,8 @@ import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
   /** Free space of the volume holding ACE_HOME, reported with storage failures. */
   diskSpace?: import("../sqlite-failure.ts").DiskSpace;
+  /** Event-loop stall measurement clock; tests drive drift without sleeping. */
+  loopClock?: import("../loop-monitor.ts").LoopClock;
   storageSchedule?: import("../storage/schedule.ts").StorageSchedule;
   /** Automatic data-retention pass timing; tests shorten it. */
   retentionTiming?: import("../storage/data-retention-policy.ts").RetentionTiming;

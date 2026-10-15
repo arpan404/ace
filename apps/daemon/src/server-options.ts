@@ -76,6 +76,8 @@ export interface ServerOptions {
   maintenance?: boolean;
   version?: string;
   serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[];
+  /** Current and maximum event-loop delay for `/v1/status`. */
+  eventLoop?: () => import("./loop-monitor.ts").LoopStatus;
   /** Socket welcomes follow finite listener setup; HTTP discovery remains immediate. */
   ready?: Promise<void>;
   models?: ModelCatalogApi;

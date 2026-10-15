@@ -31,6 +31,7 @@ import {
   recordDataGeneration,
 } from "./data-generation.ts";
 import { sqliteFailureDetails, systemDiskSpace } from "./sqlite-failure.ts";
+import { createLoopMonitor, systemLoopClock } from "./loop-monitor.ts";
 import { DaemonStop, type StopReason } from "./stop-reason.ts";
 import { readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
@@ -161,11 +162,25 @@ export async function startDaemon(options: DaemonOptions = {}) {
         ]),
       );
   });
+  const loop = createLoopMonitor({
+    clock: options.loopClock ?? systemLoopClock,
+    onStall: ({ delayMs, suppressed }) =>
+      log.log(
+        "warn",
+        "Event loop stalled",
+        logFields([
+          ["delayMs", delayMs],
+          ["suppressed", suppressed],
+        ]),
+      ),
+  });
+  resources.own(() => loop.close());
   const inventory = new ProcessInventory(join(config.dataDir, "processes.sqlite"));
   try {
     inventory.recover();
   } catch (error) {
     inventory.close();
+    loop.close();
     await log.close();
     unlock();
     throw error;
@@ -326,6 +341,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       },
       handler,
       serviceStatus: startup.status,
+      eventLoop: loop.status,
       ready: socketReady.promise,
       remoteConfig: config,
       webRoot: existsSync(resolve(import.meta.dirname, "web/index.html"))
@@ -427,6 +443,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
         : {}),
       ...(services.files ? { files: services.files } : {}),
       serviceStatus: startup.status,
+      eventLoop: loop.status,
       maintenance: server.maintenance,
       url: server.url,
       tokenPath,

@@ -104,3 +104,21 @@ test("a stop request is logged with its own source, then the stop with its durat
     data: { source: "stop-request", durationMs: expect.any(Number) },
   });
 });
+
+test("an event loop blocked for more than a second is recorded in the daemon log", async () => {
+  const home = await temporaryHome("ace-loop-stall-");
+  const daemon = await startDaemon({ config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }) });
+  cleanups.push(() => daemon.close());
+  const until = performance.now() + 1_600;
+  while (performance.now() < until);
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  expect(daemon.eventLoop().maxDelayMs).toBeGreaterThanOrEqual(1_000);
+  await daemon.close();
+  expect(await daemonLogRecords(home)).toContainEqual(
+    expect.objectContaining({
+      level: "warn",
+      message: "Event loop stalled",
+      data: expect.objectContaining({ delayMs: expect.any(Number) }),
+    }),
+  );
+});

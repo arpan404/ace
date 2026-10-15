@@ -46,6 +46,8 @@ export interface AccessHttpOptions {
   maintenance?: MaintenanceGate;
   version?: string;
   serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[];
+  /** Event-loop delay, so a watchdog can tell a busy daemon from a hung one. */
+  eventLoop?: () => import("./loop-monitor.ts").LoopStatus;
   ready?: () => boolean;
   remoteStatus?: () => import("@ace/protocol").RemoteAccessStatus;
   /** Live provider processes per thread and whether each is busy, idle-warm or releasing. */
@@ -61,6 +63,7 @@ export function accessHttp({
   maintenance,
   version = "development",
   serviceStatus,
+  eventLoop,
   ready = () => true,
   remoteStatus,
   providerProcesses,
@@ -110,6 +113,7 @@ export function accessHttp({
             remote: pairing() ?? null,
             ...(remoteStatus ? { remoteAccess: remoteStatus() } : {}),
             ...(serviceStatus ? { services: serviceStatus() } : {}),
+            ...(eventLoop ? { eventLoop: eventLoop() } : {}),
             ...(providerProcesses ? { providers: providerProcesses() } : {}),
           };
         else if (path === "/v1/stop" && request.method === "POST" && shutdown) {
