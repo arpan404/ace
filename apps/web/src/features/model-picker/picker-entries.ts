@@ -1,5 +1,5 @@
 import type { AccountView, PickerModel, PickerProvider } from "@ace/ui-core";
-import { accountLimit, providerNames } from "@ace/ui-core";
+import { accountLimit, isPlainCliLogin, providerNames } from "@ace/ui-core";
 import { acpAgentName } from "@ace/ui-core/provider-icons";
 import type { ProviderKind } from "@ace/protocol";
 
@@ -13,14 +13,22 @@ export interface PickerEntry {
   reason?: string | undefined;
 }
 
-/** The rail keeps every account, including empty and limited ones, default first. */
+/**
+ * The rail's tabs: Favorites, then one per account that is set up, each provider's default first.
+ * A CLI that isn't installed or configured, and an account signed out with nothing listed, have
+ * no tab at all; an account at its limit keeps its tab, dimmed, and says when it resets. The
+ * account `keep` names (the one the thread runs on) always keeps its tab.
+ */
 export function pickerEntries(
   providers: readonly PickerProvider[],
   models: readonly PickerModel[],
   accounts: readonly AccountView[],
   now: number,
   limitText: (at: number | undefined) => string,
+  keep?: { provider: ProviderKind | undefined; instance: string | undefined },
 ): PickerEntry[] {
+  const kept = (provider: ProviderKind, instance?: string) =>
+    keep?.provider === provider && (instance === undefined || keep.instance === instance);
   return [
     { id: "favorites", name: "Favorites" },
     ...providers.flatMap((entry): PickerEntry[] => {
@@ -38,15 +46,17 @@ export function pickerEntries(
         ...[...listed].filter((id) => !own.some((candidate) => candidate.id === id)),
       ];
       if (!instances.length)
-        return [
-          {
-            id: entry.provider,
-            provider: entry.provider,
-            name: providerNames[entry.provider],
-            reason: entry.reason,
-          },
-        ];
-      return instances.map((instance) => {
+        return entry.reason && !kept(entry.provider)
+          ? []
+          : [
+              {
+                id: entry.provider,
+                provider: entry.provider,
+                name: providerNames[entry.provider],
+                reason: entry.reason,
+              },
+            ];
+      return instances.flatMap((instance): PickerEntry[] => {
         const account = own.find((candidate) => candidate.id === instance);
         const limit = account && accountLimit(account, now);
         const label =
@@ -60,73 +70,40 @@ export function pickerEntries(
             ? acpAgentName(account.acpAgentId)
             : undefined;
         const twins = own.filter((candidate) => candidate.acpAgentId === account?.acpAgentId);
+        // The CLI's own login, never renamed, is the provider itself: "Codex", no bubble.
+        const plain = account !== undefined && isPlainCliLogin(account);
         const name = agent
-          ? twins.length > 1
+          ? twins.length > 1 && !plain
             ? `${agent} · ${label}`
             : agent
-          : account || instances.length > 1
+          : !plain && (account || instances.length > 1)
             ? `${providerNames[entry.provider]} · ${label}`
             : providerNames[entry.provider];
-        return {
-          id: `${entry.provider}:${instance}`,
-          provider: entry.provider,
-          instance,
-          acpAgentId: account?.acpAgentId,
-          name,
-          reason:
-            limit?.level === "reached"
-              ? limitText(limit.resetsAt)
-              : account?.availability === "logged_out" &&
-                  !models.some((model) => model.instance === instance)
-                ? `Sign in to ${name}`
-                : entry.reason,
-        };
+        const signedOut =
+          account?.availability === "logged_out" &&
+          !models.some((model) => model.instance === instance);
+        // Not set up: no tab, unless the thread runs on it.
+        if (
+          (signedOut || (entry.reason && limit?.level !== "reached")) &&
+          !kept(entry.provider, instance)
+        )
+          return [];
+        return [
+          {
+            id: `${entry.provider}:${instance}`,
+            provider: entry.provider,
+            instance,
+            acpAgentId: account?.acpAgentId,
+            name,
+            reason:
+              limit?.level === "reached"
+                ? limitText(limit.resetsAt)
+                : signedOut
+                  ? `Sign in to ${name}`
+                  : entry.reason,
+          },
+        ];
       });
     }),
   ];
-}
-
-/** One rail tab: Favorites, or a provider with its accounts (switched in the list header). */
-export interface RailGroup {
-  id: string;
-  provider?: ProviderKind | undefined;
-  /** "Claude Code" for several accounts; the account's own name for one. */
-  name: string;
-  /** Why none of its accounts can be picked from. */
-  reason?: string | undefined;
-  accounts: readonly PickerEntry[];
-}
-
-/**
- * The rail: one tab per provider rather than per account, so several accounts never stack up
- * as a column of near-identical logos. ACP agents are each their own tab, with their own logo.
- * A provider is usable while any of its accounts is.
- */
-export function railGroups(entries: readonly PickerEntry[]): RailGroup[] {
-  const groups: RailGroup[] = [];
-  for (const entry of entries) {
-    const key =
-      entry.provider === "acp"
-        ? `acp:${entry.acpAgentId ?? entry.instance ?? entry.id}`
-        : (entry.provider ?? entry.id);
-    const group = groups.find((candidate) => candidate.id === key);
-    if (group) {
-      const accounts = [...group.accounts, entry];
-      groups[groups.indexOf(group)] = {
-        ...group,
-        name:
-          entry.provider && entry.provider !== "acp" ? providerNames[entry.provider] : group.name,
-        reason: accounts.every((account) => account.reason) ? group.reason : undefined,
-        accounts,
-      };
-    } else
-      groups.push({
-        id: key,
-        provider: entry.provider,
-        name: entry.name,
-        reason: entry.reason,
-        accounts: [entry],
-      });
-  }
-  return groups;
 }

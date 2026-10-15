@@ -191,3 +191,27 @@ export function tightestWindow(account: {
 export function liveWindows(account: Pick<AccountView, "windows">, now: number): QuotaWindowView[] {
   return account.windows.filter((window) => liveWindow(window, now));
 }
+
+/** What the daemon names a CLI's own login until the person renames it. */
+const cliLoginLabels = new Set(["Your CLI login", "Your Cursor login"]);
+
+/**
+ * The CLI's own login, as the daemon named it, with no name or badge the person gave it. The
+ * model picker shows it as the provider itself ("Codex"), without an account bubble; a renamed or
+ * badged one reads like any other account.
+ */
+export function isPlainCliLogin(account: {
+  implicit?: boolean | undefined;
+  label: string;
+  shortLabel?: string | undefined;
+  /** The short label is only the name's initial, not one the person chose. */
+  badgeUsesInitial?: boolean | undefined;
+  badgeIcon?: unknown;
+}): boolean {
+  return (
+    account.implicit === true &&
+    cliLoginLabels.has(account.label) &&
+    (!account.shortLabel || account.badgeUsesInitial === true) &&
+    !account.badgeIcon
+  );
+}

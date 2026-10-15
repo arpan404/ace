@@ -78,7 +78,7 @@ test("a vanished model shows one actionable notice and picking a replacement sen
   expect(old.getAttribute("aria-disabled")).toBe("true");
   await userEvent.type(search, "Opus");
   const replacement = await screen.findByRole("option", {
-    name: "Opus 5.5, recommended, OpenCode · Anthropic · Your CLI login",
+    name: "Opus 5.5, recommended, OpenCode · Anthropic",
   });
   await userEvent.click(replacement);
   await waitFor(() =>

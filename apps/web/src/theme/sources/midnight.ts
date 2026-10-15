@@ -2,14 +2,14 @@ import { themeMaterial, sansFonts } from "./shared.ts";
 import type { ThemeSource } from "../types.ts";
 
 /*
- * "Midnight": blue-black nights and cool daylight, with a periwinkle accent. Themes are colour only: every
+ * "Midnight": blue-black nights and cool daylight, with a violet-blue accent. Themes are colour only: every
  * theme shares the fonts and the glass, and status colours are the same in all of them. The ramp
  * follows one lightness curve for every theme (2026-10-14 redesign), so hierarchy and contrast
  * hold whichever theme is chosen; a theme only sets the hue and how much of it the greys carry.
  */
 export const midnight: ThemeSource = {
   name: "Midnight",
-  character: "Blue-black nights and cool daylight, with a periwinkle accent",
+  character: "Blue-black nights and cool daylight, with a violet-blue accent",
   fonts: sansFonts,
   material: themeMaterial,
   light: {
@@ -26,10 +26,10 @@ export const midnight: ThemeSource = {
     muted: "#50545B",
     text: "#14171C",
     code: "#F5F7FB",
-    accent: "#5056B6",
-    accentHover: "#4548A8",
+    accent: "#7856C0",
+    accentHover: "#6A49B2",
     accentFg: "#FFFFFF",
-    accentText: "#4B50B0",
+    accentText: "#6C4BB4",
     working: "#2A55B0",
     workingText: "#2A55B0",
     needs: "#B97811",
@@ -46,7 +46,7 @@ export const midnight: ThemeSource = {
       kw: "#4A50A2",
       fn: "#232E42",
       str: "#337344",
-      num: "#A3591C",
+      num: "#9D5314",
       type: "#0B6A87",
       com: "#63686F",
       punc: "#63686F",
@@ -88,7 +88,7 @@ export const midnight: ThemeSource = {
       str: "#94CF9F",
       num: "#E9B082",
       type: "#89C5DD",
-      com: "#858991",
+      com: "#8B8F97",
       punc: "#858991",
     },
   },

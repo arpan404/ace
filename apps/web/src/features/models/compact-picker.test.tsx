@@ -114,30 +114,25 @@ test("a nonvirtual legacy disclosure controls its actual labeled model region", 
   expect(within(legacy).getByRole("option", { name: /^Opus 5, / })).toBeTruthy();
 });
 
-test("the keyboard reaches the provider rail and the account switch, then returns to search", async () => {
+test("the keyboard reaches the account rail, moves between accounts, then returns to search", async () => {
   const { popover, list } = await openCatalog();
   const search = within(popover).getByRole("combobox", { name: "Search models" });
   await userEvent.tab({ shift: true });
+  const rail = within(popover).getByRole("tablist", { name: "Model sources" });
+  const first = within(rail).getByRole("tab", { selected: true });
+  expect(document.activeElement).toBe(first);
+  expect(first.getAttribute("aria-label")).toBe("Claude Code · Personal");
+  // Each account is its own tab: ↓ moves to the next account, and the list follows it.
+  await userEvent.keyboard("{ArrowDown}");
   expect(document.activeElement).toBe(
-    within(popover).getByRole("tab", { name: "Claude Code", selected: true }),
-  );
-  // Tab from the rail goes back to search; Tab from there (past Refresh) reaches the switch.
-  await userEvent.tab();
-  expect(document.activeElement).toBe(search);
-  const accounts = within(popover).getByRole("tablist", { name: "Accounts" });
-  for (let step = 0; step < 3 && !accounts.contains(document.activeElement); step++)
-    await userEvent.tab();
-  expect(document.activeElement).toBe(within(accounts).getByRole("tab", { selected: true }));
-  await userEvent.keyboard("{ArrowRight}");
-  expect(document.activeElement).toBe(
-    within(accounts).getByRole("tab", { name: "Claude Code · Work", selected: true }),
+    within(rail).getByRole("tab", { name: "Claude Code · Work", selected: true }),
   );
   expect(
     within(list).getByRole("option", { name: /^Sonnet 5\.5, Claude Code · Work/ }),
   ).toBeTruthy();
   expect(within(list).queryByRole("option", { name: /Shortcut model/ })).toBeNull();
-  for (let step = 0; step < 3 && document.activeElement !== search; step++)
-    await userEvent.tab({ shift: true });
+  // → or Tab from the rail goes back to search.
+  await userEvent.keyboard("{ArrowRight}");
   expect(document.activeElement).toBe(search);
   // Searching still crosses the selected account/provider boundary.
   await userEvent.type(search, "Shortcut model 009");

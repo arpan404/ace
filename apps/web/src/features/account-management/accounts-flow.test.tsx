@@ -100,11 +100,9 @@ test("a limited current account remains selected while account management stays 
   await app.open(`/t/${scenario.thread.id}`);
   const popover = await openModelControl();
   await openModelPicker(popover);
-  const selected = within(popover).getByRole("tab", { name: "Codex" });
-  expect(selected.getAttribute("aria-selected")).toBe("true");
-  // A provider's accounts are tabs in the list header (49ef284a8).
-  const accounts = within(popover).getByRole("tablist", { name: "Accounts" });
-  const team = within(accounts).getByRole("tab", { name: "Codex · Team" });
+  // Each account is its own rail tab; the limited one the thread runs on stays selected.
+  const rail = within(popover).getByRole("tablist", { name: "Model sources" });
+  const team = within(rail).getByRole("tab", { name: "Codex · Team" });
   expect(team.getAttribute("aria-selected")).toBe("true");
   expect(team.getAttribute("aria-disabled")).toBe("true");
   await closeModelControl();

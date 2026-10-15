@@ -1,6 +1,6 @@
 import type { AccountBadgeColor } from "@ace/protocol/accounts";
 import type { AccountView } from "@ace/ui-core";
-import { providerNames } from "@ace/ui-core";
+import { isPlainCliLogin, providerNames } from "@ace/ui-core";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { cn } from "@/lib/cn.ts";
 import { ProviderIcon, type ProviderIconProps } from "./provider-icons.tsx";
@@ -43,8 +43,12 @@ export function ProviderAccountIcon(
   );
   const multiple = siblings !== undefined && siblings.length > 1;
   const size = props.size ?? 16;
-  const bubble = multiple && account && props.accountLabel !== false;
-  const name = [providerNames[props.provider], account?.label].filter(Boolean).join(" · ");
+  // The CLI's own login, never renamed, stands for the provider and carries no bubble.
+  const plain = account !== undefined && isPlainCliLogin(account);
+  const bubble = multiple && account && !plain && props.accountLabel !== false;
+  const name = [providerNames[props.provider], plain ? undefined : account?.label]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <span
       className={cn(

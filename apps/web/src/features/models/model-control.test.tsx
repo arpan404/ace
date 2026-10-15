@@ -118,14 +118,14 @@ test.each([
     },
   },
 ] satisfies { model: string; view: Partial<ModelControlView> }[])(
-  "one click on the effort half of a $model chip opens the effort slider, the caret included",
+  "one click anywhere on a $model chip opens the effort slider first, its name included",
   async ({ view: overrides }) => {
     const { chip } = draw(overrides);
-    const half = chip.querySelector("[data-model-tune]");
-    const caret = half?.querySelector("svg:last-child");
-    const effort = half?.querySelector("[data-slot=model-effort]");
-    if (!caret || !effort) throw new Error("The chip has no effort half");
-    for (const target of [effort, caret]) {
+    const name = chip.querySelector("[data-slot=model-name]");
+    const caret = chip.querySelector("[data-model-tune] svg:last-child");
+    const effort = chip.querySelector("[data-slot=model-effort]");
+    if (!name || !caret || !effort) throw new Error("The chip has no name, effort or caret");
+    for (const target of [name, effort, caret]) {
       await userEvent.click(target);
       const popover = await screen.findByRole("dialog", { name: "Model and effort" });
       const slider = await within(popover).findByRole("slider", { name: "Effort" });

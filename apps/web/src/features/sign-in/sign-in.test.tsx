@@ -5,12 +5,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { fakeClient, harness } from "@/test/harness.tsx";
-import {
-  chooseModel,
-  openModelControl,
-  openModelPicker,
-  selectAccount,
-} from "@/test/model-control.ts";
+import { chooseModel, openModelControl, openModelPicker } from "@/test/model-control.ts";
 
 beforeEach(() => localStorage.clear());
 afterEach(() => Reflect.deleteProperty(globalThis, "ace"));
@@ -269,8 +264,7 @@ test("the model picker's expired-sign-in row signs in to Cursor, and its models 
   await screen.findByRole("feed", { name: "Transcript" });
   const popover = await openModelControl(/^Model: /);
   const list = await openModelPicker(popover);
-  await chooseSource(popover, "Cursor · Your Cursor login");
-  await selectAccount(popover, "Your Cursor login");
+  await chooseSource(popover, "Cursor");
   expect(within(list).getByText("Cursor sign-in has expired.")).toBeTruthy();
   await userEvent.click(within(list).getByRole("button", { name: "Sign in" }));
 
@@ -289,12 +283,8 @@ test("the model picker's expired-sign-in row signs in to Cursor, and its models 
   );
   await userEvent.click(
     within(screen.getByRole("dialog", { name: "Model and effort" })).getByRole("tab", {
-      name: "Cursor · Your Cursor login",
+      name: "Cursor",
     }),
-  );
-  await selectAccount(
-    screen.getByRole("dialog", { name: "Model and effort" }),
-    "Your Cursor login",
   );
   await waitFor(() => expect(within(again).queryByText("Cursor sign-in has expired.")).toBeNull());
 }, 30_000);

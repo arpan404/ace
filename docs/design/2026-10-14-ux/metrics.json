@@ -9,7 +9,12 @@
     "cold_dev_first_request_dcl_ms": 21665,
     "warm_full_reload_composer_visible_ms": [3252, 3327],
     "first_contentful_paint_ms": [44, 52, 72],
-    "splash_after_app_painted": { "app_on_screen_at_ms": 605, "replaced_by_splash_at_ms": 732, "app_back_at_ms": 1621, "reproducible": "every direct load in fake mode" },
+    "splash_after_app_painted": {
+      "app_on_screen_at_ms": 605,
+      "replaced_by_splash_at_ms": 732,
+      "app_back_at_ms": 1621,
+      "reproducible": "every direct load in fake mode"
+    },
     "unknown_thread_id_to_message_ms": 5604,
     "focus_after_load_on_root": "button Deny (root redirects to the top needs-you thread)"
   },
@@ -79,7 +84,11 @@
     "pin_p_toast": "none (Unpin shows 'Unpinned · … Undo')",
     "snooze_toast": "Snoozed — no notifications until 5:28 PM",
     "snooze_focus_after": "body",
-    "archive_done_thread": { "undo_toast": true, "lands_on": "top needs-you thread (/t/thread-checkout)", "takes_effect_after_ms": ">500" },
+    "archive_done_thread": {
+      "undo_toast": true,
+      "lands_on": "top needs-you thread (/t/thread-checkout)",
+      "takes_effect_after_ms": ">500"
+    },
     "archive_working_thread": "dialog: Cancel (focused) / Archive, keep running / Stop & archive"
   },
   "panels": {
@@ -111,7 +120,14 @@
     "focus_on_step_2": "button Add a project"
   },
   "widths": {
-    "390": { "allow_once_px": "99x44", "deny_px": "64x44", "details_px": "58x18", "access_control": "hidden (0x0)", "right_panel_button": "absent", "stop_button_px": "32x32" },
+    "390": {
+      "allow_once_px": "99x44",
+      "deny_px": "64x44",
+      "details_px": "58x18",
+      "access_control": "hidden (0x0)",
+      "right_panel_button": "absent",
+      "stop_button_px": "32x32"
+    },
     "768": { "allow_once_px": "87x26", "deny_px": "52x26", "sidebar": "hidden by default" }
   },
   "usage_limit_thread": {
@@ -120,7 +136,10 @@
     "switch_account_offered": false
   },
   "interrupted_turn": {
-    "transcript_lines": ["Couldn't stop the agent ×3 · OpenCode had nothing running to stop", "Interrupted by a restart"],
+    "transcript_lines": [
+      "Couldn't stop the agent ×3 · OpenCode had nothing running to stop",
+      "Interrupted by a restart"
+    ],
     "strip": "Stopped by a restart · Continue",
     "owner_decision_copy": "Interrupted by a restart · Resume"
   }
