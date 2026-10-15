@@ -357,16 +357,16 @@ test("linked workspace controls cancel auto-merge and queue membership separatel
   expect(section.getByText("Auto-merge is disabled.")).toBeTruthy();
 });
 
-test("an enabled workspace action submits a command and shows its classified error receipt", async () => {
+test("a clear refusal shows its reason and leaves the merge-state controls usable", async () => {
   const { app, section } = await linkedControls(mergeState());
   const enable = section.getByRole<HTMLButtonElement>("button", { name: "Enable auto-merge" });
   await waitFor(() => expect(enable.disabled).toBe(false));
   app.daemon.refuseCommands("forge_rate_limit", "forge.pr.merge-state.change");
   await userEvent.click(enable);
   expect(
-    await section.findByText("GitHub's rate limit was reached. Wait before refreshing."),
+    await section.findByText("GitHub's rate limit was reached: wait a few minutes, then retry."),
   ).toBeTruthy();
-  expect(enable.disabled).toBe(true);
+  await waitFor(() => expect(enable.disabled).toBe(false));
 });
 
 test("an uncertain receipt blocks further writes until a fresh read reconciles the host state", async () => {
@@ -375,7 +375,14 @@ test("an uncertain receipt blocks further writes until a fresh read reconciles t
   await waitFor(() => expect(enable.disabled).toBe(false));
   app.daemon.refuseCommands("action_outcome_uncertain", "forge.pr.merge-state.change");
   await userEvent.click(enable);
-  expect(await section.findByText(/The action may have reached GitHub/)).toBeTruthy();
+  expect(await section.findByText(/Refresh merge state before taking another action/)).toBeTruthy();
+  // Stays fenced after the post-write read, until the person refreshes on purpose.
+  await waitFor(() =>
+    expect(section.getByRole("button", { name: "Refresh merge state" })).toHaveProperty(
+      "disabled",
+      false,
+    ),
+  );
   expect(enable.disabled).toBe(true);
   seed(mergeState({ autoMerge: armed, canEnable: false, canDisable: true }));
   app.daemon.restoreRequests();

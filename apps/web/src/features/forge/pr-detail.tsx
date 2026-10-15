@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { useConnectionState } from "@ace/client-react";
 import { ChatCircleIcon, GitCommitIcon, ArrowsDownUpIcon } from "@phosphor-icons/react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import type { ForgeRepository } from "@ace/protocol";
+import type { ForgePrDetail, ForgeRepository } from "@ace/protocol";
+import { prPollInterval } from "@ace/ui-core";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { PrActivity } from "./pr-activity.tsx";
@@ -13,7 +14,7 @@ import { PrComposer } from "./pr-composer.tsx";
 import { PrChecksPill } from "./pr-presentation.tsx";
 import { PrFiles, preloadPrFiles } from "./pr-files.tsx";
 import { whenIdle } from "@/lib/idle.ts";
-import { QueryState } from "./query-state.tsx";
+import { QueryState, useFreshSinceReconnect } from "./query-state.tsx";
 import { readForge } from "./source.ts";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrReviewWorkspace } from "./pr-review-context.tsx";
@@ -39,12 +40,17 @@ export function PrDetail(props: {
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [order, setOrder] = useState<"newest" | "oldest">("newest");
   const [actionsOpen, setActionsOpen] = useState(false);
+  // Only a refresh someone asked for (or a write's reconciliation) holds writes; polls don't.
+  const [refreshing, setRefreshing] = useState(false);
   const ready = useConnectionState() === "ready";
-  const query = useDaemonQuery({
+  const query = useDaemonQuery<ForgePrDetail>({
     queryKey: ["forge", props.workspaceId, props.repository, "pr", props.number],
     retry: false,
     staleTime: 15_000,
     refetchOnReconnect: "always",
+    // Re-read while GitHub is still deciding: running checks or mergeability not computed yet.
+    // The thread's work card polls on the same rule, so both views agree.
+    refetchInterval: (q) => prPollInterval(q.state.data?.status),
     read: async (client, signal) => {
       const result = await readForge(
         client,
@@ -68,15 +74,21 @@ export function PrDetail(props: {
   }, [detail, onState]);
   // An open pull request warms its diff renderer while the browser is idle.
   useEffect(() => whenIdle(preloadPrFiles), []);
+  const fresh = useFreshSinceReconnect(query.dataUpdatedAt);
   const refresh = async () => {
     setRefreshVersion((version) => version + 1);
-    return !(await query.refetch()).isError;
+    setRefreshing(true);
+    try {
+      return !(await query.refetch()).isError;
+    } finally {
+      setRefreshing(false);
+    }
   };
   const context: PrWorkspaceContext | undefined = detail
     ? {
         workspaceId: props.workspaceId,
         detail,
-        disabled: !ready || query.isError || query.isFetching || detail.writeState !== undefined,
+        disabled: !fresh || query.isError || refreshing || detail.writeState !== undefined,
         refresh,
       }
     : undefined;
@@ -117,7 +129,7 @@ export function PrDetail(props: {
                   ? "Refresh failed. Write actions are disabled until a successful refresh."
                   : !ready
                     ? "Reconnect to make changes."
-                    : "Refreshing GitHub. Write actions are temporarily disabled."}
+                    : "Refreshing GitHub…"}
             </p>
           )}
           <Tabs
@@ -137,9 +149,7 @@ export function PrDetail(props: {
                   Code
                 </TabsTab>
               </TabsList>
-              {tab === "summary" && (
-                <PrChecksPill ci={context.detail.status.ci} checks={context.detail.status.checks} />
-              )}
+              {tab === "summary" && <PrChecksPill status={context.detail.status} />}
               {tab === "timeline" && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span

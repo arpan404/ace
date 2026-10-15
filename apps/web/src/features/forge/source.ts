@@ -4,7 +4,18 @@ import {
   type ForgeBrowserOperation,
   type ForgeBrowserResult,
 } from "@ace/protocol";
-import { actionErrorText } from "@ace/ui-core";
+import { actionErrorText, outcomeUncertain } from "@ace/ui-core";
+import { CommandRefused, daemonErrorCode } from "@/lib/daemon-command.ts";
+
+/** A forge read the daemon refused, keeping its code so views can tell offline from GitHub. */
+export class ForgeReadError extends Error {
+  readonly code: string;
+  constructor(code: string) {
+    super(actionErrorText(code));
+    this.name = "ForgeReadError";
+    this.code = code;
+  }
+}
 
 export async function readForge(
   client: ClientApi,
@@ -19,46 +30,27 @@ export async function readForge(
     WorkspaceActionRequest.parse({ type: "workspace.request", requestId: "forge-read", operation }),
     { signal },
   );
-  if (reply.result.kind === "error") throw new Error(forgeError(reply.result.code));
-  if (reply.result.kind !== "forge")
-    throw new Error("The repository response was incomplete. Refresh to try again.");
+  if (reply.result.kind === "error") throw new ForgeReadError(reply.result.code);
+  if (reply.result.kind !== "forge") throw new ForgeReadError("forge_invalid_data");
   return reply.result.data;
 }
-export function forgeError(code: string): string {
-  const messages: Record<string, string> = {
-    forge_status_unavailable: "GitHub accepted the action. Refresh to load its current status.",
-    forge_action_reconciled:
-      "The previous action is reconciled. Review the current PR before making another change.",
-    forge_write_pending: "An action is still running on GitHub. Refresh before continuing.",
-    action_not_dispatched: "The action was not sent to GitHub. Your draft can be submitted again.",
-    forge_write_uncertain:
-      "GitHub may have accepted the action. Refresh to reconcile it before making another change.",
-    git_remote_ref_not_found: "The PR source ref is missing. Refresh GitHub before trying again.",
-    git_remote_unreachable:
-      "The Git remote could not be reached. Check the project's remote and connection.",
-    git_auth_failed:
-      "Git could not authenticate to the PR repository. Check your installed Git credentials.",
-    git_timeout: "Fetching the PR head timed out. Try again after checking the connection.",
-    workspace_cleanup_required:
-      "PR worktree cleanup needs attention before this task can continue.",
-    repository_mismatch: "Choose a project with a remote matching this PR repository.",
-    pr_checkout_changed:
-      "This task checkout has moved. Choose another task or refresh before preparing again.",
-    pr_requires_worktree: "Working on a PR requires its own isolated worktree.",
-    issue_reconciliation_required: "An earlier write is uncertain. Reconcile it before continuing.",
-    action_outcome_uncertain:
-      "GitHub may have accepted this action. Reconcile the write before retrying; your draft is retained.",
-    forge_cli: "GitHub is unavailable. Check your connection and installed gh CLI, then refresh.",
-    forge_forbidden:
-      "This account cannot access the repository. Check gh login and repository permissions.",
-    forge_not_found: "This repository, issue or pull request is missing or inaccessible.",
-    forge_rate_limit: "GitHub's rate limit was reached. Wait before refreshing.",
-    forge_limit:
-      "GitHub returned more data than ace can safely display. Open GitHub for the complete resource.",
-    forge_conflict: "The GitHub resource changed while reading. Refresh before continuing.",
-    forge_unsupported:
-      "This host or GitHub capability is not supported. Open GitHub for this action.",
-    forge_invalid_data: "GitHub returned an unreadable response. Refresh to try again.",
+
+/**
+ * The code behind a failed forge read or write: the daemon's refusal, or the client's own
+ * (offline, timeout, storage...). Undefined when nothing says what happened.
+ */
+export function failureCode(error: unknown): string | undefined {
+  if (error instanceof CommandRefused || error instanceof ForgeReadError) return error.code;
+  const code = daemonErrorCode(error);
+  return code === "unknown" ? undefined : code;
+}
+
+/** What a failed write means: its sentence, and whether it may still have happened. */
+export function writeFailure(error: unknown): { text: string; uncertain: boolean } {
+  const code = failureCode(error);
+  const uncertain = outcomeUncertain(code);
+  return {
+    text: code ? actionErrorText(code) : actionErrorText("action_outcome_uncertain"),
+    uncertain,
   };
-  return messages[code] ?? actionErrorText(code);
 }

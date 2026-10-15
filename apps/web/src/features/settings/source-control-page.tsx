@@ -1,18 +1,26 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { refreshSourceControl } from "@/lib/source-control-cache.ts";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { ClientApi } from "@ace/client";
-import { useMachines } from "@/lib/machines.ts";
+import { ClientProvider, useNotifyBatch } from "@ace/client-react";
+import { actionErrorText } from "@ace/ui-core";
 import {
   SourceControlPreferences,
   SettingsValues,
-  type Project,
-  WorkspaceId,
   type SourceControlReadiness,
 } from "@ace/protocol";
+import { useMachines } from "@/lib/machines.ts";
+import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import { daemonErrorCode } from "@/lib/daemon-command.ts";
+import {
+  apiState,
+  readFailureCode,
+  readReadiness,
+  refreshSourceControl,
+} from "@/lib/source-control-cache.ts";
 import { Select } from "@/components/ui/select.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
+import { Skeleton } from "@/components/ui/skeleton.tsx";
 import {
   SettingCard,
   SettingFooter,
@@ -23,6 +31,7 @@ import {
 
 export function SourceControlSettings() {
   const machines = useMachines();
+  const batch = useNotifyBatch();
   const [chosen, setChosen] = useState<{ id: string; primary: boolean }>();
   const machine = chosen
     ? machines.find((entry) => entry.id === chosen.id || (chosen.primary && entry.primary))
@@ -52,11 +61,15 @@ export function SourceControlSettings() {
         </SettingRow>
       </SettingCard>
       {machine?.client ? (
-        // The primary machine keeps its key while its host identity loads, so edits survive.
-        <MachineSourceControl
-          key={machine.primary ? "primary" : machine.id}
-          client={machine.client}
-        />
+        // Reads go to the selected daemon, gated on its own connection.
+        <ClientProvider client={machine.client} batch={batch}>
+          {/* The primary machine keeps its key while its host identity loads, so edits survive. */}
+          <MachineSourceControl
+            key={machine.primary ? "primary" : machine.id}
+            client={machine.client}
+            machineId={machine.primary ? "primary" : machine.id}
+          />
+        </ClientProvider>
       ) : (
         <p role="status" className="py-3 text-sm text-muted-foreground">
           Connect to this machine to inspect its source control CLI.
@@ -65,69 +78,54 @@ export function SourceControlSettings() {
     </>
   );
 }
-function MachineSourceControl({ client }: { client: ClientApi }) {
+
+/** Why saving failed: admin copy only when the daemon said this device may not. */
+function saveFailure(code: string | undefined): string {
+  if (code === "forbidden")
+    return "Couldn't save source control preferences. Administrator access is required.";
+  return `Couldn't save source control preferences. ${actionErrorText(code)}`;
+}
+
+function MachineSourceControl({ client, machineId }: { client: ClientApi; machineId: string }) {
   const queries = useQueryClient();
-  const [status, setStatus] = useState<SourceControlReadiness>();
   const [error, setError] = useState<string>();
-  const [pending, setPending] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [host, setHost] = useState("github.com");
   const [account, setAccount] = useState("");
   const [remote, setRemote] = useState("origin");
-  const [projects, setProjects] = useState<Project[]>([]);
   const [workspace, setWorkspace] = useState("");
-  const [revision, setRevision] = useState(0);
-  useEffect(() => {
-    const controller = new AbortController();
-    void client
-      .request(
-        {
-          type: "source-control.request",
-          operation: {
-            op: "readiness",
-            ...(workspace ? { workspaceId: WorkspaceId.parse(workspace) } : {}),
-          },
-        },
-        { signal: controller.signal },
-      )
-      .then((reply) => {
-        if (controller.signal.aborted) return;
-        if (reply.result.kind !== "readiness")
-          throw new Error("Source control status unavailable. Rescan to retry.");
-        const next = reply.result.readiness;
-        setStatus(next);
-        setError(undefined);
-        setHost(next.preferences.host);
-        setAccount(
-          next.preferences.hosts.find((entry) => entry.host === next.preferences.host)?.account ??
-            "",
-        );
-        setRemote(next.preferences.remote);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted)
-          setError("Source control status unavailable. Rescan to retry.");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setPending(false);
-      });
-    return () => controller.abort();
-    // Rescan deliberately invalidates the machine-local CLI facts after an external login.
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies
-  }, [client, revision, workspace]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void client
-      .request(
+  const readiness = useDaemonQuery({
+    queryKey: ["projects", "github-readiness", "settings", machineId, workspace],
+    retry: false,
+    staleTime: 0,
+    refetchOnReconnect: "always",
+    read: (reader, signal) => readReadiness(reader, workspace || undefined, signal),
+  });
+  const projects = useDaemonQuery({
+    queryKey: ["projects", "source-control-list", machineId],
+    retry: false,
+    refetchOnReconnect: "always",
+    read: async (reader, signal) => {
+      const reply = await reader.request(
         { type: "workspace.request", operation: { op: "workspaces.list", limit: 100 } },
-        { signal: controller.signal },
-      )
-      .then((reply) => {
-        if (reply.result.kind === "workspaces") setProjects(reply.result.workspaces);
-      })
-      .catch(() => {});
-    return () => controller.abort();
-  }, [client]);
+        { signal },
+      );
+      if (reply.result.kind !== "workspaces") throw new Error("unavailable");
+      return reply.result.workspaces;
+    },
+  });
+  const status: SourceControlReadiness | undefined = readiness.data;
+  // Each fresh reading resets the form to what the daemon holds (adjusted during render).
+  const [shown, setShown] = useState<SourceControlReadiness>();
+  if (status && status !== shown) {
+    setShown(status);
+    setHost(status.preferences.host);
+    setAccount(
+      status.preferences.hosts.find((entry) => entry.host === status.preferences.host)?.account ??
+        "",
+    );
+    setRemote(status.preferences.remote);
+  }
   const save = async () => {
     if (!status) return;
     setError(undefined);
@@ -138,7 +136,7 @@ function MachineSourceControl({ client }: { client: ClientApi }) {
       setError("Enter a valid hostname, GitHub login and remote name.");
       return;
     }
-    setPending(true);
+    setSaving(true);
     try {
       const reply = await client.request({
         type: "settings.set",
@@ -146,41 +144,55 @@ function MachineSourceControl({ client }: { client: ClientApi }) {
         layer: { kind: "global" },
         value: SettingsValues.shape["sourceControl.preferences"].parse(parsed.data),
       });
-      if (!reply.ok) throw new Error("save_failed");
-      void refreshSourceControl(queries, client);
-      setRevision((value) => value + 1);
-    } catch {
-      setError("Couldn't save source control preferences. Administrator access is required.");
+      if (!reply.ok) {
+        const reason = reply.diagnostics[0]?.message;
+        setError(
+          reason
+            ? `Couldn't save source control preferences. ${reason}`
+            : saveFailure("action_failed"),
+        );
+        return;
+      }
+      await refreshSourceControl(queries, client);
+    } catch (failure) {
+      const code = daemonErrorCode(failure);
+      setError(saveFailure(code === "unknown" ? undefined : code));
     } finally {
-      setPending(false);
+      setSaving(false);
     }
   };
-  const disabled = pending;
+  const loading = readiness.isFetching && !readiness.isError;
+  const disabled = saving || loading;
+  const readError = readiness.isError
+    ? `Couldn't read source control status. ${actionErrorText(readFailureCode(readiness.error))}`
+    : undefined;
   return (
     <>
       <SettingSection label="GitHub CLI on this computer">
         <SettingRow
           title="Readiness"
           description={
-            status
-              ? `${status.cli === "available" ? `gh ${status.version}` : "gh unavailable"} · ${status.preferences.host} · ${status.account ?? "No active account"}`
-              : "Checking CLI…"
+            status && !loading ? (
+              `${status.cli === "available" ? `gh ${status.version}` : "gh unavailable"} · ${status.preferences.host}`
+            ) : loading ? (
+              <Skeleton className="mt-1 w-40" />
+            ) : undefined
           }
         >
           <Button
             variant="secondary"
             disabled={disabled}
-            onClick={() => {
-              void refreshSourceControl(queries, client);
-              setStatus(undefined);
-              setPending(true);
-              setRevision((value) => value + 1);
-            }}
+            onClick={() => void refreshSourceControl(queries, client)}
           >
             Rescan
           </Button>
         </SettingRow>
-        {status?.accounts.length ? (
+        {status && !loading && (
+          <SettingRow title="GitHub API" inline>
+            <span className="text-sm text-muted-foreground">{apiState(status)}</span>
+          </SettingRow>
+        )}
+        {status?.accounts.length && !loading ? (
           <SettingRow title="CLI accounts" inline>
             <span className="text-sm text-muted-foreground">
               {status.accounts
@@ -189,10 +201,10 @@ function MachineSourceControl({ client }: { client: ClientApi }) {
             </span>
           </SettingRow>
         ) : null}
-        {status && <SettingNote role="status">{status.instructions}</SettingNote>}
-        {error && (
+        {status && !loading && <SettingNote role="status">{status.instructions}</SettingNote>}
+        {(readError ?? error) && (
           <SettingNote role="alert" className="text-destructive">
-            {error}
+            {readError ?? error}
           </SettingNote>
         )}
       </SettingSection>
@@ -249,16 +261,23 @@ function MachineSourceControl({ client }: { client: ClientApi }) {
             value={workspace}
             options={[
               { value: "", label: "Choose a project" },
-              ...projects.map((project) => ({ value: project.id, label: project.name })),
+              ...(projects.data ?? []).map((project) => ({
+                value: project.id,
+                label: project.name,
+              })),
             ]}
-            onValueChange={(value) => {
-              setStatus(undefined);
-              setPending(true);
-              setWorkspace(value);
-            }}
-            disabled={disabled}
+            onValueChange={setWorkspace}
+            disabled={disabled || !projects.data}
           />
         </SettingRow>
+        {projects.isError && (
+          <SettingNote role="alert" className="text-destructive">
+            {`Couldn't list projects. ${actionErrorText(readFailureCode(projects.error))}`}{" "}
+            <Button variant="ghost" size="sm" onClick={() => void projects.refetch()}>
+              Retry
+            </Button>
+          </SettingNote>
+        )}
         <SettingNote>
           {status?.transportInstructions ??
             "Clone and push use Git's own credential helper or SSH keys on this computer. GitHub API sign-in is separate. Push permission is checked by the push itself."}

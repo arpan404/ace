@@ -8,8 +8,9 @@ import { Input } from "@/components/ui/input.tsx";
 import { Link } from "@tanstack/react-router";
 import { useStackMemberships } from "./pr-stack-groups.tsx";
 import { useState } from "react";
-import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
-import { forgeError } from "./source.ts";
+import { actionErrorText, mergeGate } from "@ace/ui-core";
+import { runCommand } from "@/lib/daemon-command.ts";
+import { failureCode } from "./source.ts";
 
 export function PrActions(props: {
   workspaceId: string;
@@ -51,15 +52,9 @@ export function PrActions(props: {
     setMessage("");
     try {
       const result = await runCommand(client, payload);
-      setMessage(result.code ? forgeError(result.code) : "Saved.");
+      setMessage(result.code ? actionErrorText(result.code) : "Saved.");
     } catch (error) {
-      setMessage(
-        error instanceof CommandRefused
-          ? forgeError(error.code)
-          : error instanceof Error
-            ? error.message
-            : "The action failed. Refresh GitHub before trying again.",
-      );
+      setMessage(actionErrorText(failureCode(error) ?? "action_outcome_uncertain"));
     } finally {
       try {
         if (await props.onRefresh()) setReconciling(false);
@@ -73,7 +68,8 @@ export function PrActions(props: {
   const associated = props.detail.relatedThreads.some((thread) => thread.id === threadId);
   const active = props.detail.status.state === "open";
   const membership = useStackMemberships(props.workspaceId, ref.repository, [ref.number]);
-  const nativeStackOrUnknown = membership.mergeBlocker !== undefined;
+  // The work card asks the same gate, so both say the same thing about this PR.
+  const gate = mergeGate(props.detail.status, props.detail.baseBranch) ?? membership.mergeBlocker;
   return (
     <section
       aria-label="Linked tasks and pull request actions"
@@ -145,17 +141,7 @@ export function PrActions(props: {
             />
           </span>
           <Button
-            disabled={
-              !ready ||
-              pending ||
-              blocked ||
-              !active ||
-              nativeStackOrUnknown ||
-              props.detail.status.mergeability !== "mergeable" ||
-              props.detail.status.ci === "failure" ||
-              props.detail.status.ci === "pending" ||
-              props.detail.status.ci === "unknown"
-            }
+            disabled={!ready || pending || blocked || gate !== undefined}
             onClick={() =>
               void run({
                 type: "forge.pr.merge",
@@ -167,6 +153,7 @@ export function PrActions(props: {
           >
             Merge PR
           </Button>
+          {gate && <span className="text-xs text-muted-foreground">{gate}</span>}
           <form
             className="flex items-center gap-2"
             onSubmit={(e) => {

@@ -126,8 +126,7 @@ test("checkout errors keep their code and tell the person how to recover", async
       ["forge_not_found", /check its number/],
       ["forge_forbidden", /permissions on the repository/],
       ["forge_rate_limit", /wait a few minutes/],
-      ["forge_cli", /install `gh` and run `gh auth login`/],
-      ["forge_auth", /^Sign in to GitHub: run `gh auth login`/],
+      ["forge_cli", /^Sign in to GitHub: run `gh auth login`/],
       ["forge_unsupported", /open the pull request on its website/],
       ["forge_conflict", /Refresh, then retry/],
     ] as const) {

@@ -8,7 +8,8 @@ import {
 } from "@ace/protocol";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
-import { readForge, forgeError } from "./source.ts";
+import { actionErrorText } from "@ace/ui-core";
+import { readForge } from "./source.ts";
 import { Button } from "@/components/ui/button.tsx";
 const Context = createContext<{
   state?: ForgeReviewState | undefined;
@@ -75,7 +76,7 @@ export function PrReviewWorkspace(props: {
       } catch (error) {
         setMessage(
           error instanceof CommandRefused
-            ? forgeError(error.code)
+            ? actionErrorText(error.code)
             : "Couldn't confirm the action. Refresh and reconcile its result; your draft is retained.",
         );
         void refetch();

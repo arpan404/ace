@@ -140,7 +140,7 @@ test("an uncertain lifecycle receipt retains metadata text and refreshes its res
     await userEvent.click(save);
     expect(
       await screen.findByText(
-        /GitHub may have accepted this action. Reconcile the write before retrying/,
+        /The daemon lost track of the result: check the checkout or GitHub before retrying/,
       ),
     ).toBeTruthy();
     expect(await screen.findByRole("button", { name: "Check action result" })).toBeTruthy();

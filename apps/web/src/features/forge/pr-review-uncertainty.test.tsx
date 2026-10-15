@@ -118,7 +118,7 @@ test("an uncertain review receipt retains the summary and refreshes its reconcil
     await userEvent.click(submit);
     expect(
       await screen.findByText(
-        /GitHub may have accepted this action. Reconcile the write before retrying/,
+        /The daemon lost track of the result: check the checkout or GitHub before retrying/,
       ),
     ).toBeTruthy();
     expect(await screen.findByRole("button", { name: "Reconcile write" })).toBeTruthy();
