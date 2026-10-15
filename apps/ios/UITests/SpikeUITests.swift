@@ -104,6 +104,54 @@ import XCTest
         XCTAssertEqual(app.staticTexts["spike.loaded"].value as? String, "2000")
         screenshot("memory-window")
     }
+    func testAdmittedSendWithLostReceiptSurvivesTerminationAndReplaysOnce() async throws {
+        let text = "Lost receipt simulator send \(UUID().uuidString)"
+        var arm = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:9841/review/receipt")))
+        arm.httpMethod = "POST"
+        arm.httpBody = try JSONEncoder().encode(ReceiptScenario(text: text))
+        let (_, response) = try await URLSession.shared.data(for: arm)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+        let app = launch()
+        // Restore the fixture even if an assertion aborts the scenario.
+        defer { app.terminate(); Task { try? await control(true) } }
+        XCTAssertTrue(app.buttons["thread.ios-stream"].waitForExistence(timeout: 25))
+        app.buttons["thread.ios-stream"].tap()
+        XCTAssertTrue(app.textViews["composer.input"].waitForExistence(timeout: 25))
+        app.textViews["composer.input"].tap()
+        app.textViews["composer.input"].typeText(text)
+        app.buttons["composer.send"].tap()
+        _ = try await waitForReceipt { $0.dropped == 1 }
+        // Admission precedes the missing receipt and process kill.
+        let admitted = try await inputCount(text)
+        XCTAssertEqual(admitted, 1)
+        app.terminate()
+        try await control(true)
+        app.launch()
+        XCTAssertTrue(app.buttons["thread.ios-stream"].waitForExistence(timeout: 25))
+        let replay = try await waitForReceipt { $0.delivered >= 1 }
+        XCTAssertGreaterThanOrEqual(replay.attempts, 2)
+        XCTAssertEqual(replay.dropped, 1)
+        let restored = try await inputCount(text)
+        XCTAssertEqual(restored, 1)
+    }
+    private func waitForReceipt(_ condition: (ReceiptState) -> Bool) async throws -> ReceiptState {
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:9841/review/receipt"))
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(25))
+        repeat {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            let state = try JSONDecoder().decode(ReceiptState.self, from: data)
+            if condition(state) { return state }
+            try await Task.sleep(for: .milliseconds(100))
+        } while clock.now < deadline
+        throw ReceiptError.timeout
+    }
+    private func inputCount(_ text: String) async throws -> Int {
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:9841/state"))
+        let (data, _) = try await URLSession.shared.data(from: url)
+        let state = try JSONDecoder().decode(TranscriptState.self, from: data)
+        return state.items.values.filter { $0.parts?.contains { $0.text == text } == true }.count
+    }
     private func control(_ online: Bool) async throws {
         var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:9841/control")))
         request.httpMethod = "POST"
@@ -128,6 +176,9 @@ import XCTest
 
 private struct OnlineControl: Encodable { let online: Bool }
 private struct ManyScenario: Encodable { let id: String }
+private struct ReceiptScenario: Encodable { let text: String }
+private struct ReceiptState: Decodable { let attempts: Int; let dropped: Int; let delivered: Int }
+private enum ReceiptError: Error { case timeout }
 private struct TranscriptState: Decodable {
     struct Entry: Decodable { struct Part: Decodable { let text: String? }; let parts: [Part]? }
     let items: [String: Entry]

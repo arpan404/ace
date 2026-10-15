@@ -4,6 +4,9 @@ Phase 0 of #560. SwiftUI runs the shared `@ace/client` SDK in JavaScriptCore on 
 dedicated thread. See [ADR 0074](../../docs/adr/0074-native-ios-client.md) for the
 measured gate and current hold on Phase 1.
 
+The [Tailscale roadmap](../../docs/mobile/tailscale-roadmap.md) maps shared features
+and the future native pairing flow for iOS and Android.
+
 ## Run
 
 From this directory, with dependencies installed at the repository root:
@@ -43,7 +46,7 @@ uses the shared enter duration and respects Reduce Motion.
 ## Verification
 
 With the fixture running, use the same destination and `-jobs 4`, adding
-`-parallel-testing-enabled NO`. Select `-only-testing:AceTests` for the twenty-four Swift
+`-parallel-testing-enabled NO`. Select `-only-testing:AceTests` for the thirty Swift
 behavior/bridge tests, or individual `AceUITests/SpikeUITests` methods for screenshots,
 scrolling, typing, actual offline termination/relaunch, and the two-minute memory run.
 Keep a fresh fixture for screenshot/scroll/memory runs; restart verification accepts
@@ -106,10 +109,19 @@ exchange, QR onboarding, Keychain, Face ID, multi-machine UI, questions, Agents 
 Changes remain Phase 1 work. SPKI adapter implementation is present; it has not been
 validated against a real paired daemon in this spike.
 
-Round-1 deferred gaps: replacing a connection must await the old runtime and reject
-its callbacks; a contract must force daemon admission followed by a lost receipt,
-termination and replay. The current app starts only one runtime and the existing
-restart test covers pre-admission offline persistence.
+Connection replacement now awaits old-runtime shutdown, clears host-specific views
+and rejects its late updates/errors. Concurrent replacements select the newest
+request, and disconnect cancels a waiting replacement. Run-loop shutdown is queued
+so a stop during VM startup cannot be lost. Four lifecycle contracts cover these
+cases, including immediate destruction of real JavaScriptCore runtimes.
+
+`testAdmittedSendWithLostReceiptSurvivesTerminationAndReplaysOnce` arms a fixture
+failure for a unique send. The daemon admits it, drops its first receipt and goes
+offline. The UI contract verifies admission before process termination, relaunches
+the app, verifies replay of the same command and checks exactly one canonical input.
+The thirty Swift tests and this UI test pass with Xcode 26.3 on the iPhone 17 Pro
+iOS 26.3 simulator. These checks do not establish real-device performance, remote
+pairing or daemon-restart durability.
 
 APNs and Live Activity remain Phase 2. No hosted relay, paid Apple service or APNs
 signing credentials are implemented here. The proposed delivery design and approval
