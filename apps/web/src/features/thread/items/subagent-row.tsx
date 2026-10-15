@@ -1,6 +1,13 @@
 import type { ProviderKind } from "@ace/protocol";
-import { formatElapsed, subagentLabels, subagentTerminal, type SubagentState } from "@ace/ui-core";
+import {
+  describeActivity,
+  formatElapsed,
+  subagentLabels,
+  subagentTerminal,
+  type SubagentState,
+} from "@ace/ui-core";
 import { CaretRightIcon, RobotIcon } from "@phosphor-icons/react";
+import { useAgent, useItem } from "@ace/client-react";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { cn } from "@/lib/cn.ts";
 import { SubagentLink } from "@/lib/subagent-link.tsx";
@@ -75,6 +82,30 @@ export function SubagentElapsed(props: {
 const needsAttention = (state: SubagentState) =>
   state === "human" || state === "failed" || state === "unresponsive";
 
+/** A live subagent's latest update, one truncated line under its name. Settled, stale and
+ * attention states already speak on the first line, so they add no second one. */
+function SubagentActivity(props: { threadId: string; entry: SubagentEntry; fresh: boolean }) {
+  const agent = useAgent(props.threadId, props.entry.agentId ?? "");
+  const status = agent?.status;
+  const itemId = status && status.state === "working" && status.itemId ? status.itemId : "";
+  const tool = useItem(props.threadId, itemId);
+  if (!agent || !status || !props.fresh) return null;
+  if (subagentTerminal(props.entry.state)) return null;
+  if (status.state === "blocked" && status.on === "human") return null;
+  if (
+    status.state === "idle" ||
+    status.state === "interrupted" ||
+    status.state === "failed" ||
+    status.state === "unresponsive"
+  )
+    return null;
+  const activity = describeActivity(
+    status,
+    tool?.type === "tool_call" ? tool.call.title : undefined,
+  );
+  return <span className="min-w-0 truncate text-xs text-muted-foreground">{activity}</span>;
+}
+
 export function SubagentRow(props: { threadId: string; entry: SubagentEntry; fresh: boolean }) {
   const { entry } = props;
   const workspace = useWorkspaceActions(props.threadId);
@@ -94,18 +125,21 @@ export function SubagentRow(props: { threadId: string; entry: SubagentEntry; fre
         model={entry.model}
         state={attention ? undefined : entry.state}
       />
-      <span className="flex min-w-0 flex-1 items-center gap-2">
-        <span className="min-w-0 truncate text-ui font-medium">{entry.title}</span>
-        {entry.machine && (
-          <span className="shrink-0 truncate text-xs text-muted-foreground">
-            on {entry.machine}
-          </span>
-        )}
-        {(attention || stale) && (
-          <span className={cn("shrink-0 text-xs", subagentTones[entry.state])}>
-            {stale ? `Last seen: ${status}` : status}
-          </span>
-        )}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="min-w-0 truncate text-ui font-medium">{entry.title}</span>
+          {entry.machine && (
+            <span className="shrink-0 truncate text-xs text-muted-foreground">
+              on {entry.machine}
+            </span>
+          )}
+          {(attention || stale) && (
+            <span className={cn("shrink-0 text-xs", subagentTones[entry.state])}>
+              {stale ? `Last seen: ${status}` : status}
+            </span>
+          )}
+        </span>
+        <SubagentActivity threadId={props.threadId} entry={entry} fresh={props.fresh} />
       </span>
       <SubagentElapsed
         startedAt={entry.startedAt}
