@@ -59,6 +59,8 @@ import type { ChangedFile, Checkpoint, DiffSide, GitOptions, PushOptions } from 
 export { publicationOriginMatches } from "./publication.ts";
 export { executionKeyQuery, nonExecutingEnv } from "./non-executing.ts";
 export { validateCloneUrl } from "./projects.ts";
+import { remoteDefaultBranch, type RemoteDefaultBranchOptions } from "./remote-default-branch.ts";
+export type { RemoteDefaultBranchOptions } from "./remote-default-branch.ts";
 export { publicationRemote } from "./publication-remote.ts";
 export type { CloneOptions, ProjectGitPolicy } from "./projects.ts";
 export { GitError, gitFailureCodes, isMutationUnavailable } from "./types.ts";
@@ -308,6 +310,10 @@ export class GitService {
     return this.repository.cli.withAuthorizedTransfer(options.repo, () =>
       fetchBranch(this.repository, options),
     );
+  }
+  /** The branch the remote's `HEAD` names, read locally or by one bounded `ls-remote`. */
+  remoteDefaultBranch(options: RemoteDefaultBranchOptions): Promise<string | undefined> {
+    return remoteDefaultBranch(this.repository, options);
   }
   fetchPrHead(options: FetchPrHeadOptions): Promise<string> {
     return fetchPrHead(this.repository, options);

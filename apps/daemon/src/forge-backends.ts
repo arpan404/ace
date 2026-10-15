@@ -1,0 +1,96 @@
+import { GitHubForge, ForgeError, repositoryKey, type CommandRunner } from "@ace/forge";
+import type { ForgeRepository } from "@ace/protocol";
+import type { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
+import type { SourceControl } from "./source-control.ts";
+import type { WorkspaceForgeGit } from "./workspace-forge-context.ts";
+import { workspaceRepository } from "./workspace-repository.ts";
+import { remotePushesTo } from "./workspace-push.ts";
+
+/** Resolves a checkout's forge repository and keeps one GitHub backend per identity. */
+export class ForgeBackends {
+  private backends = new Map<string, GitHubForge>();
+  private git: WorkspaceForgeGit;
+  private now: () => number;
+  private runner: (cwd: string) => CommandRunner;
+  private sourceControl: SourceControl | undefined;
+  private replyReceipts: ForgeReplyReceipts;
+  private signal: AbortSignal;
+  constructor(options: {
+    git: WorkspaceForgeGit;
+    now: () => number;
+    runner: (cwd: string) => CommandRunner;
+    sourceControl: SourceControl | undefined;
+    replyReceipts: ForgeReplyReceipts;
+    signal: AbortSignal;
+  }) {
+    this.git = options.git;
+    this.now = options.now;
+    this.runner = options.runner;
+    this.sourceControl = options.sourceControl;
+    this.replyReceipts = options.replyReceipts;
+    this.signal = options.signal;
+  }
+  clear(): void {
+    this.backends.clear();
+  }
+  async repository(cwd: string): Promise<ForgeRepository> {
+    return (await this.checkoutRepository(cwd)).repository;
+  }
+  /** The selected remote's repository, with SSH host aliases resolved, and the remote names. */
+  async checkoutRepository(cwd: string) {
+    const info = await this.git.repositoryInfo(cwd);
+    const preferences = await this.sourceControl?.preferences();
+    const aliases = await this.hostAliases(info.remotes);
+    const repository = workspaceRepository(info.remotes, preferences, aliases);
+    if (!repository) throw new ForgeError("unsupported");
+    return { repository, remotes: info.remotes.map((remote) => remote.name) };
+  }
+  async hostAliases(remotes: readonly { fetchUrls: readonly string[] }[]) {
+    return (
+      (await this.sourceControl?.hostAliases(
+        remotes.flatMap((remote) => remote.fetchUrls),
+        this.signal,
+      )) ?? {}
+    );
+  }
+  async backend(cwd: string, repository: ForgeRepository): Promise<GitHubForge> {
+    const identity = await this.sourceControl?.identity(cwd, repository.host, this.signal);
+    const key = JSON.stringify({
+      repository: repositoryKey(repository),
+      cwd,
+      account: identity?.account,
+      revision: identity?.revision,
+    });
+    let backend = this.backends.get(key);
+    const pushLeased = this.git.pushLeased?.bind(this.git);
+    if (!backend)
+      backend = new GitHubForge({
+        repository,
+        runner: identity?.runner ?? this.runner(cwd),
+        ...(pushLeased
+          ? {
+              publishStack: async (request) => {
+                const info = await this.git.repositoryInfo(cwd);
+                const remote = info.remotes.find((entry) => entry.name === request.remote);
+                const preferences = await this.sourceControl?.preferences();
+                const aliases = await this.hostAliases(
+                  remote ? [{ fetchUrls: remote.pushUrls }] : [],
+                );
+                if (!remotePushesTo(remote, repository, preferences, aliases))
+                  throw new ForgeError("conflict");
+                return pushLeased({ ...request, worktree: cwd });
+              },
+            }
+          : {}),
+        now: this.now,
+        replyReceipts: this.replyReceipts.scope(cwd, repository, identity?.account ?? ""),
+      });
+    this.backends.delete(key);
+    this.backends.set(key, backend);
+    if (this.backends.size > 32) {
+      const first = this.backends.keys().next().value;
+      if (first !== undefined) this.backends.delete(first);
+    }
+    return backend;
+  }
+}
