@@ -10,7 +10,22 @@ export interface ServiceDefinition {
   requires: readonly string[];
   /** Optional dependencies must be attempted first, but may be degraded. */
   after: readonly string[];
+  /**
+   * Without it the daemon cannot do its job, so a failure stops startup before the daemon
+   * listens or reports ready. Other services may degrade; `/v1/status` names them.
+   * Only core-phase services can be essential: listener services start after discovery.
+   */
+  essential?: boolean;
   start(context: ServiceContext): void | Promise<void>;
+}
+/** An essential service failed to start; the daemon must not listen without it. */
+export class EssentialServiceError extends Error {
+  readonly service: string;
+  constructor(service: string, detail: string | undefined) {
+    super(`Daemon cannot start: ${detail ?? `Service ${service} failed to start`}`);
+    this.name = "EssentialServiceError";
+    this.service = service;
+  }
 }
 export interface ServiceStatus {
   name: string;
@@ -160,6 +175,8 @@ export class ServiceStartup {
       for (const dependency of [...definition.requires, ...definition.after])
         if (!seen.has(dependency))
           throw new Error(`Service ${definition.name} must start after ${dependency}`);
+      if (definition.essential && definition.phase !== "core")
+        throw new Error(`Essential service ${definition.name} must start in the core phase`);
       if (definition.phase === "listener") listenerPhase = true;
       else if (listenerPhase)
         throw new Error(`Core service ${definition.name} follows listener services`);
@@ -169,6 +186,12 @@ export class ServiceStartup {
     this.deferred = definitions.filter((definition) => definition.phase === "listener");
     for (const definition of definitions.filter((entry) => entry.phase === "core"))
       await this.startOne(definition);
+    for (const definition of definitions) {
+      if (!definition.essential) continue;
+      const status = this.statuses.get(definition.name);
+      if (status?.state === "degraded")
+        throw new EssentialServiceError(definition.name, status.error);
+    }
   }
   private async startOne(definition: ServiceDefinition): Promise<void> {
     this.context.signal.throwIfAborted();
