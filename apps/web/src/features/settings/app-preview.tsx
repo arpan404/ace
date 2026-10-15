@@ -40,7 +40,7 @@ function Layer(props: { theme: ThemeId; scheme: Scheme; className?: string }) {
         </span>
       </span>
       <span className="flex min-w-0 flex-col gap-[0.7em] px-[1.2em] pt-[1em] pb-[0.9em]">
-        <i className="ml-auto block h-[1.4em] w-2/5 shrink-0 rounded-[0.7em] bg-bubble" />
+        <i className="ml-auto block h-[1.4em] w-2/5 shrink-0 rounded-full bg-bubble" />
         <span className="font-prose leading-none">Ready.</span>
         <Line className="w-4/5 bg-foreground/55" />
         <span className="flex items-center gap-[0.5em]">

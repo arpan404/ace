@@ -5,21 +5,6 @@
   "apps/web/src/components/attachment-artifact.tsx": {
     "text-size": 1
   },
-  "apps/web/src/components/attachment-lightbox.tsx": {
-    "radius": 1
-  },
-  "apps/web/src/components/attachment-markdown.tsx": {
-    "radius": 1
-  },
-  "apps/web/src/components/attachment-message.tsx": {
-    "radius": 2
-  },
-  "apps/web/src/components/attachment-tiles.tsx": {
-    "radius": 3
-  },
-  "apps/web/src/components/attachment-unavailable.tsx": {
-    "radius": 1
-  },
   "apps/web/src/components/diff-stat.tsx": {
     "text-size": 1
   },
@@ -30,9 +15,6 @@
   "apps/web/src/components/markdown/markdown.tsx": {
     "text-size": 4
   },
-  "apps/web/src/components/permission-review.tsx": {
-    "text-size": 1
-  },
   "apps/web/src/components/ui/command.tsx": {
     "text-size": 1
   },
@@ -42,15 +24,11 @@
   "apps/web/src/components/ui/input.tsx": {
     "text-size": 1
   },
-  "apps/web/src/components/ui/scroll-area.tsx": {
-    "bare-outline": 1
-  },
-  "apps/web/src/features/activity/interaction-card.tsx": {
+  "apps/web/src/components/ui/provider-account-icon.tsx": {
     "text-size": 1
   },
-  "apps/web/src/features/activity/question-card.tsx": {
-    "text-size": 2,
-    "radius": 1
+  "apps/web/src/components/ui/scroll-area.tsx": {
+    "bare-outline": 1
   },
   "apps/web/src/features/devices/device-screen.tsx": {
     "radius": 1
@@ -87,6 +65,9 @@
     "text-size": 1
   },
   "apps/web/src/features/search/search-dialog.tsx": {
+    "radius": 1
+  },
+  "apps/web/src/features/settings/app-preview.tsx": {
     "radius": 1
   },
   "apps/web/src/features/shell/screen.tsx": {
