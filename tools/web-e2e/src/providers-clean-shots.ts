@@ -117,7 +117,7 @@ try {
           await expect(
             page
               .getByRole("article", { name: "Codex Personal" })
-              .getByRole("meter", { name: "5-hour window" }),
+              .getByRole("meter", { name: "Session (5h) window" }),
           ).toBeVisible();
         } else {
           await expect(

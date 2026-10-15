@@ -23,7 +23,7 @@ for (const theme of screenThemes)
         Object.assign(globalThis, { aceFakeWorld: "idle" });
       }, theme);
       await page.goto("/settings/providers/codex");
-      await expect(page.getByRole("meter", { name: "5-hour window" })).toBeVisible();
+      await expect(page.getByRole("meter", { name: "Session (5h) window" })).toBeVisible();
       const edge = await providerActionEdge(page);
       await expectProviderAccountGeometry(page, edge);
       const personal = page

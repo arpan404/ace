@@ -19,7 +19,7 @@ export type LimitPace = "ahead" | "on_pace" | "behind";
 /** One of an account's windows. */
 export interface AccountWindow {
   id: string;
-  /** "5-hour", "Weekly", "Weekly · GPT-5.3-Codex-Spark". */
+  /** "Session (5h)", "Weekly", "Weekly · GPT-5.3-Codex-Spark". */
   label: string;
   leftPercent: number;
   resetsAt: number | null;
@@ -151,7 +151,7 @@ export function usageLimits(accounts: readonly UsageAccount[], now: number): Usa
       }),
       noSessionWindow:
         sessionProviders.has(account.provider) &&
-        !windows.some((window) => window.label === "5-hour"),
+        !windows.some((window) => window.label === "Session (5h)"),
     });
   }
   return { providers: [...groups.values()], quiet: [...new Set(silent.values())] };

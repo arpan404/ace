@@ -69,7 +69,7 @@ test("Usage combines legacy bare and prefixed model ids and labels the Codex wee
     ).toHaveLength(1),
   );
   expect(await within(table).findByRole("cell", { name: "1.4M" })).toBeTruthy();
-  expect(screen.queryByText(/5-hour 7%/)).toBeNull();
+  expect(screen.queryByText(/Session \(5h\) 7%/)).toBeNull();
 });
 
 test("Pi's service chooser marks ChatGPT connected with its provider icon", async () => {

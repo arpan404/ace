@@ -12,9 +12,9 @@ beforeEach(() => localStorage.clear());
 test("Codex's usable sibling and Gemini's daily quota agree on Usage and provider pages", async () => {
   const history = createMemoryHistory({ initialEntries: ["/usage"] });
   await harness({ history }).open("/usage");
-  // Usage says what is left: 38% of the 5-hour window used leaves 62%, 71% of a day leaves 29%.
+  // Usage says what is left: 38% of the Session (5h) window used leaves 62%, 71% of a day leaves 29%.
   const personal = await screen.findByRole("article", { name: /^Codex · Personal · / });
-  const codex = within(personal).getByRole("meter", { name: "5-hour" });
+  const codex = within(personal).getByRole("meter", { name: "Session (5h)" });
   expect(codex.getAttribute("aria-valuenow")).toBe("62");
   const google = await screen.findByRole("article", { name: /^gemini · Google · / });
   const gemini = within(google).getByRole("meter", { name: "Daily" });
@@ -25,7 +25,9 @@ test("Codex's usable sibling and Gemini's daily quota agree on Usage and provide
   await userEvent.click(within(row).getByRole("link", { name: "Codex" }));
   const accounts = await screen.findByRole("list", { name: "Codex accounts" });
   expect(
-    within(accounts).getByRole("meter", { name: "5-hour window" }).getAttribute("aria-valuenow"),
+    within(accounts)
+      .getByRole("meter", { name: "Session (5h) window" })
+      .getAttribute("aria-valuenow"),
   ).toBe("38");
 });
 
@@ -88,7 +90,7 @@ test("live limits replace a signed-in meter without losing the reason or resetle
   const accounts = await screen.findByRole("list", { name: "Codex accounts" });
   const personal = app.daemon.services.accounts.find((row) => row.id === "codex-personal");
   if (!personal) throw new Error("Missing Personal fixture");
-  await within(accounts).findByRole("meter", { name: "5-hour window" });
+  await within(accounts).findByRole("meter", { name: "Session (5h) window" });
   await act(async () =>
     app.daemon.services.updateQuota(personal.id, {
       ...personal.quota,

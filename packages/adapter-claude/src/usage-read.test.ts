@@ -35,13 +35,29 @@ async function read(answer: () => Promise<unknown>) {
   return emitted;
 }
 
-test("Claude's plan limits read as measured windows with their resets and the plan", async () => {
+test("Claude's plan limits read as session and weekly windows with their resets and the plan", async () => {
   expect(await read(async () => maxLogin)).toEqual([
     {
       event: "claude-usage",
-      rate_limits: {
-        five_hour: { utilization: 42, resets_at: "2026-10-15T18:00:00.000Z" },
-        seven_day: { utilization: 12.5, resets_at: "2026-10-20T09:00:00.000Z" },
+      usageWindows: {
+        five_hour: {
+          usedPercent: 42,
+          resetsAt: Date.parse("2026-10-15T18:00:00.000Z"),
+          windowDurationMins: 300,
+        },
+        seven_day: {
+          usedPercent: 12.5,
+          resetsAt: Date.parse("2026-10-20T09:00:00.000Z"),
+          windowDurationMins: 10080,
+        },
+        // A model's own weekly limit stops only that model, so it never holds the account.
+        "seven_day_model:Opus": {
+          usedPercent: 3,
+          resetsAt: null,
+          windowDurationMins: 10080,
+          limitName: "Opus",
+          advisory: true,
+        },
       },
       planType: "max",
     },

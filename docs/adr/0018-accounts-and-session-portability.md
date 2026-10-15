@@ -231,9 +231,14 @@ blockers older than the freshness window never hold an account. `blockedUntil` t
 reset among holders that give one; a resetless holder beside them doesn't erase it.
 
 Codex limits are re-read with `account/rateLimits/read` at startup, on request and every five
-minutes, besides `account/rateLimits/updated` during sessions. Claude limits are read once per
-session through the Agent SDK's `get_usage` control request (the CLI calls claude.ai with its
-own login; ace reads no credential), besides `rate_limit_event` during turns. Cursor, OpenCode,
+minutes, besides `account/rateLimits/updated` during sessions. Claude limits are read the same
+way through the Agent SDK's `get_usage` control request: when a session opens, and at startup,
+on request and every five minutes by a short-lived initialization-only query (no prompt, no
+user or project settings; the CLI calls claude.ai with its own login and renews it itself; ace
+reads no credential), besides `rate_limit_event` during turns. Both read every account not
+known to be signed out, the CLI's own login included while its sign-in is still unchecked; an
+account whose CLI isn't installed is skipped. A model's own weekly limit (Claude's
+`model_scoped`) is shown by its model's name and never holds the account. Cursor, OpenCode,
 Gemini/Antigravity and Copilot have no limit source ace can read without handling a credential
 itself, so they show no limits rather than a guessed one. The pre-blocker legacy quota format
 is no longer upgraded.

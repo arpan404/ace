@@ -91,7 +91,7 @@ export interface ModelChoice extends ModelPlacement {
   /** The account label, "Personal"; empty when the provider has no accounts. */
   account: string;
   accountId: string;
-  /** "62% of 5-hour window used", or nothing when the provider has no accounts. */
+  /** "62% of Session (5h) window used", or nothing when the provider has no accounts. */
   note: string;
   /** Share of the tightest window spent, 0..1, when the provider reports it. */
   used: number | undefined;
@@ -342,7 +342,7 @@ export interface AccountOption {
   id: string;
   provider: ProviderKind;
   label: string;
-  /** "38% of 5-hour used", or "no usage reported". */
+  /** "38% of Session (5h) used", or "no usage reported". */
   usage: string;
   /** The first account with headroom for its provider. */
   isDefault: boolean;

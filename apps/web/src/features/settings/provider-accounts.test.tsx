@@ -109,11 +109,44 @@ test("hover actions make an account default, rename it and require confirmation 
   await waitFor(async () => expect(within(await accounts()).queryByText("Client work")).toBeNull());
 });
 
+test("an account row shows its session and weekly windows, the weekly one when it is nearer its limit", async () => {
+  const app = harness();
+  const personal = app.daemon.services.accounts.find((entry) => entry.id === "claude-personal");
+  if (!personal) throw new Error("fixture accounts changed");
+  const resetsAt = Date.now() + 3_600_000;
+  personal.quota.windows = {
+    five_hour: { usedPercent: 34, resetsAt, windowDurationMins: 300 },
+    seven_day: { usedPercent: 97, resetsAt, windowDurationMins: 10080 },
+    "seven_day_model:Fable": {
+      usedPercent: 6,
+      resetsAt,
+      windowDurationMins: 10080,
+      limitName: "Fable",
+      advisory: true,
+    },
+  };
+  await app.open("/settings/providers/claude");
+  const row = within(await account("Personal"));
+  expect(
+    row
+      .getAllByRole("meter")
+      .map((meter) => [meter.getAttribute("aria-label"), meter.getAttribute("aria-valuenow")]),
+  ).toEqual([
+    ["Session (5h) window", "34"],
+    ["Weekly window", "97"],
+  ]);
+  // Short names where the row has little room.
+  expect(row.getByText("5h")).toBeTruthy();
+  expect(row.getByText("Week")).toBeTruthy();
+});
+
 test("signed-in rows show quota and the CLI login can be renamed but cannot be removed", async () => {
   await harness().open("/settings/providers/claude");
   const personal = await account("Personal");
   expect(
-    within(personal).getByRole("meter", { name: "5-hour window" }).getAttribute("aria-valuenow"),
+    within(personal)
+      .getByRole("meter", { name: "Session (5h) window" })
+      .getAttribute("aria-valuenow"),
   ).toBe("62");
   expect(within(personal).queryByText("Signed in")).toBeNull();
   const cli = await account("Your CLI login");

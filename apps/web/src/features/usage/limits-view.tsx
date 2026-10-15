@@ -98,7 +98,7 @@ function Account(props: { entry: AccountLimits; provider: string; now: number })
         {entry.signIn && <p className="text-ui text-muted-foreground">{entry.signIn}</p>}
         {entry.noSessionWindow && (
           <p className="text-xs text-subtle-foreground">
-            No 5-hour limit reported for this account
+            No session (5h) limit reported for this account
           </p>
         )}
       </div>

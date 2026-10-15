@@ -219,7 +219,7 @@ test("signing out of the default profile keeps a provider usable through its oth
   const personal = within(accounts).getByText("Personal").closest("li");
   if (!personal) throw new Error("Missing the signed-in sibling");
   expect(within(personal).queryByRole("button", { name: "Sign in" })).toBeNull();
-  expect(within(personal).getByRole("meter")).toBeTruthy();
+  expect(within(personal).getByRole("meter", { name: "Session (5h) window" })).toBeTruthy();
   expect(await app.client.request({ type: "accounts.list" })).toMatchObject({
     accounts: expect.arrayContaining([
       expect.objectContaining({

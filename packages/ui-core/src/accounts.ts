@@ -60,7 +60,7 @@ export interface AccountView {
 }
 
 const known: [RegExp, string, number][] = [
-  [/^(five_hour|5h|session)$/, "5-hour", 0],
+  [/^(five_hour|5h|session)$/, "Session (5h)", 0],
   [/^(daily|one_day|day)$/, "Daily", 1],
   [/^(seven_day|weekly|week)$|:secondary$|^secondary$/, "Weekly", 2],
   [/^seven_day_opus$/, "Weekly · Opus", 3],
@@ -99,7 +99,7 @@ function classify(
     if (mins >= 28 * 1440) return { label: "Monthly", rank: 4 };
     if (mins > 1440) return { label: "Weekly", rank: 2 };
     if (mins === 1440) return { label: "Daily", rank: 1 };
-    if (mins === 300) return { label: "5-hour", rank: 0 };
+    if (mins === 300) return { label: "Session (5h)", rank: 0 };
     return { label: `${mins / 60}-hour`, rank: 0 };
   }
   if (/^(?:codex:)?primary$/.test(name))
@@ -113,7 +113,7 @@ function classify(
   return { label: words.charAt(0).toUpperCase() + words.slice(1), rank: 6 };
 }
 
-/** The provider's window id ("five_hour", "codex:secondary") in words ("5-hour", "Weekly"). */
+/** The provider's window id ("five_hour", "codex:secondary") in words ("Session (5h)", "Weekly"). */
 export function quotaWindowLabel(name: string): string {
   return classify(name).label;
 }
@@ -190,6 +190,18 @@ export function accountView(summary: Summary): AccountView {
       : {}),
     quota: summary.quota,
   };
+}
+
+/**
+ * The windows an account's row shows where it has room for few: its session window and its
+ * shared weekly one, in that order; the first window when it reports neither.
+ */
+export function headlineWindows(windows: readonly QuotaWindowView[]): QuotaWindowView[] {
+  const headline = ["Session (5h)", "Weekly"].flatMap((label) => {
+    const window = windows.find((candidate) => candidate.label === label);
+    return window ? [window] : [];
+  });
+  return headline.length ? headline : windows.slice(0, 1);
 }
 
 /** The window closest to its limit, which decides whether the account can take work. */

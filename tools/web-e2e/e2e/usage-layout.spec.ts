@@ -61,18 +61,18 @@ for (const theme of ["light", "dark"])
       const work = page.getByRole("article", { name: "Claude Code Work" });
       const personal = page.getByRole("article", { name: "Codex Personal" });
       const daily = page.getByRole("article", { name: "Gemini CLI Google" });
-      for (const name of ["5-hour window", "Weekly window"]) {
+      for (const name of ["Session (5h) window", "Weekly window"]) {
         expect((await box(work.getByRole("meter", { name }))).x).toBe(
           (await box(personal.getByRole("meter", { name }))).x,
         );
       }
       const weeklyOnly = page.getByRole("article", { name: "Claude Code Personal" });
-      await expect(weeklyOnly.getByRole("meter", { name: "5-hour window" })).toHaveCount(0);
+      await expect(weeklyOnly.getByRole("meter", { name: "Session (5h) window" })).toHaveCount(0);
       expect((await box(weeklyOnly.getByRole("meter", { name: "Weekly window" }))).x).toBe(
         (await box(work.getByRole("meter", { name: "Weekly window" }))).x,
       );
       expect((await box(daily.getByRole("meter", { name: "Daily window" }))).x).toBe(
-        (await box(work.getByRole("meter", { name: "5-hour window" }))).x,
+        (await box(work.getByRole("meter", { name: "Session (5h) window" }))).x,
       );
       expect((await box(work.getByText(/^Resets/))).x).toBe(
         (await box(personal.getByText(/^Resets/))).x,
@@ -83,15 +83,15 @@ for (const theme of ["light", "dark"])
           .getByText("Limit reached", { exact: true }),
       ).toBeVisible();
       if (width === 1440) {
-        expect((await box(work.getByRole("meter", { name: "5-hour window" }))).y).toBe(
+        expect((await box(work.getByRole("meter", { name: "Session (5h) window" }))).y).toBe(
           (await box(work.getByRole("meter", { name: "Weekly window" }))).y,
         );
         expect((await box(work)).height).toBeLessThanOrEqual(36);
       }
       if (width === 390) {
-        expect((await box(work.getByRole("meter", { name: "5-hour window" }))).y).toBeGreaterThan(
-          (await box(work.getByText("Claude Code · Work"))).y,
-        );
+        expect(
+          (await box(work.getByRole("meter", { name: "Session (5h) window" }))).y,
+        ).toBeGreaterThan((await box(work.getByText("Claude Code · Work"))).y);
         await page.getByRole("button", { name: "Back to threads" }).click();
       }
       await expect(

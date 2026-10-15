@@ -364,24 +364,27 @@ const antigravity = async (stdout: string) =>
 
 test("Antigravity's /usage shows each model group's weekly limit, which never holds the account", async () => {
   const weekly = { usedPercent: 0, resetsAt: agyReset, windowDurationMins: 10080, advisory: true };
+  // Each group's window names the models it limits, so the two weekly windows read apart.
+  const gemini = { ...weekly, limitName: "Gemini Models" };
+  const others = { ...weekly, limitName: "Claude and GPT models" };
   expect(await antigravity(agyUsage)).toEqual({
     ok: true,
     reading: {
-      usageWindows: { "Gemini Models · weekly": weekly, "Claude and GPT models · weekly": weekly },
+      usageWindows: { "Gemini Models · weekly": gemini, "Claude and GPT models · weekly": others },
     },
   });
   // A spent group is shown as spent; the other group's models keep working.
   const spent = JSON.parse(agyUsage) as {
     command: { data: { groups: { buckets: { remaining_fraction: number }[] }[] } };
   };
-  const [gemini, others] = spent.command.data.groups;
-  if (!gemini?.buckets[0] || !others?.buckets[0]) throw new Error("fixture changed");
-  gemini.buckets[0].remaining_fraction = 0;
-  others.buckets[0].remaining_fraction = 0.25;
+  const [geminiGroup, othersGroup] = spent.command.data.groups;
+  if (!geminiGroup?.buckets[0] || !othersGroup?.buckets[0]) throw new Error("fixture changed");
+  geminiGroup.buckets[0].remaining_fraction = 0;
+  othersGroup.buckets[0].remaining_fraction = 0.25;
   const result = await antigravity(JSON.stringify(spent));
   expect(result.ok && result.reading["usageWindows"]).toEqual({
-    "Gemini Models · weekly": { ...weekly, usedPercent: 100 },
-    "Claude and GPT models · weekly": { ...weekly, usedPercent: 75 },
+    "Gemini Models · weekly": { ...gemini, usedPercent: 100 },
+    "Claude and GPT models · weekly": { ...others, usedPercent: 75 },
   });
   // An answer that isn't a successful `/usage` report is no reading.
   expect(await antigravity(JSON.stringify({ ...spent, status: "ERROR" }))).toMatchObject({
