@@ -137,8 +137,12 @@ usageLimitExceeded` (never `rateLimitExceeded`, which Codex retries), Claude's r
 or an account reading at 100%. Provider retries are waits (`upstream`/`network`). Prose keeps
 an error code for wording (`usage_limit`, `model_quota`) and the turn simply fails.
 
-A limit lets go when the provider says so. A known reset times a resume for every policy except
-migrate (snooze still expires into a manual hold). A completed turn lifts the hold. A fresh
-account reading below the limit resumes held threads on that account. With no reset, the
-person's next message is the go-ahead: the hold and ace's "continue" are dropped and the queue
-sends in order. If the provider refuses again, its signal holds the thread again.
+A limit lets go when the provider says so, and ace still never starts a turn by itself. Under
+the default `manual` policy a known reset only clears the limit: the thread and account read
+as available and held messages wait for the person's Resume or next message. Only
+`resume_at_reset` sends at the reset, as before; snooze still expires into a manual hold. A
+fresh account reading below the limit clears the limit the same way (a chosen resume-at-reset
+or snooze deadline stays). A completed turn lifts the hold. With no reset, or once the limit
+has cleared, the person's next message is the go-ahead: the hold and ace's "continue" are
+dropped and the queue sends in order. If the provider refuses again, its signal holds the
+thread again.

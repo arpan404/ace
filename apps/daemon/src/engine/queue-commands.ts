@@ -135,6 +135,8 @@ export function handleQueue(
           reason: "manual",
           resumeAt: null,
           timerAction: null,
+          // A pause the person chose is theirs, not a cleared limit their next message releases.
+          ...(queue.limited ? {} : { resetAt: null }),
           holdToken: queue.holdToken + 1,
         },
         dependencies.clock.now(),

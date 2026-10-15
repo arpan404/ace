@@ -442,7 +442,7 @@ export function engineHandler(
         // order with it last. It is also the go-ahead past a limit that gave no reset.
         if (p.type === "thread.send") {
           releaseInterruptedHold(repo, threadId, now());
-          recovery.releaseResetlessLimit(threadId, now());
+          recovery.releaseLimitHold(threadId, now());
         }
         const heldSend = p.type === "thread.send" && repo.queue.get(threadId).paused;
         if (!heldSend && !repo.reserve(threadId)) return fail("engine_capacity_exceeded");

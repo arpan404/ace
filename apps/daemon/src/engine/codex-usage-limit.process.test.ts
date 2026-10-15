@@ -6,6 +6,7 @@ import { createCodexAdapter } from "@ace/adapter-codex";
 import { AccountRegistry, AccountService, createInstance } from "@ace/accounts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { Frame, SessionContext } from "@ace/engine-api";
+import type { ThreadId } from "@ace/protocol";
 import { createScriptedAdapter, type ScriptedStep } from "@ace/adapter-testkit";
 import { fixture, cleanupRecovery, text, sends } from "./recovery-test-support.ts";
 import { scriptFrames } from "./test-support.ts";
@@ -62,7 +63,11 @@ function encoded(context: SessionContext): SessionContext {
 }
 
 /** A Codex thread on account "Sa"; each provider session after the first runs `later`. */
-async function codexThread(steps: ScriptedStep[], later: ScriptedStep[] = []) {
+async function codexThread(
+  steps: ScriptedStep[],
+  later: ScriptedStep[] = [],
+  policy: "manual" | "resume_at_reset" = "manual",
+) {
   const ports: RecoveryPorts = {};
   const createTranslator = createCodexAdapter().createTranslator;
   const h = await fixture(steps, scriptFrames(), { recovery: ports, createTranslator });
@@ -108,6 +113,8 @@ async function codexThread(steps: ScriptedStep[], later: ScriptedStep[] = []) {
       { store: h.store, now: h.clock.now, services: { accounts, accountRegistry: registry } },
       (id) => h.engine.sessionMetadata(id),
     ),
+    // The person's `threads.limitPolicy` setting.
+    { preferences: async () => ({ followUpBehavior: "queue" as const, limitPolicy: policy }) },
   );
   const stop = recoverOnFreshReadings({
     subscribeQuota: (listener) => registry.subscribeQuota(listener),
@@ -173,10 +180,28 @@ const carriesOn: ScriptedStep[] = [
   { on: "send", frames: [started, ...turn("B", "completed")] },
   { on: "send", frames: turn("C", "completed") },
 ];
+/** Once the limit has cleared, the open session carries on: nothing closes it. */
+const clearedThen = (reset: number, turns: number): ScriptedStep[] => [
+  {
+    on: "send",
+    frames: [started, frame(snapshot(100, reset)), ...turn("A", "failed", usageLimit)],
+  },
+  ...Array.from({ length: turns }, (_, index) => ({
+    on: "send" as const,
+    frames: turn(`after-${index}`, "completed"),
+  })),
+];
+const resume = (h: Awaited<ReturnType<typeof codexThread>>["h"], id: ThreadId) =>
+  h.command({ type: "thread.resume", threadId: id, expectedRevision: h.engine.queue(id).revision });
 
 test("an explicit Codex rate-limit event with resetsAt holds the queue until the reset, then sends", async () => {
   const reset = 1_000 + 20 * minute;
-  const { h, providerSends, close } = await codexThread(hitLimit(reset), carriesOn);
+  // The person chose to resume at the reset.
+  const { h, providerSends, close } = await codexThread(
+    hitLimit(reset),
+    carriesOn,
+    "resume_at_reset",
+  );
   try {
     const id = await h.create();
     expect(h.store.getThread(id)?.status.state).toBe("limited");
@@ -198,9 +223,50 @@ test("an explicit Codex rate-limit event with resetsAt holds the queue until the
   }
 });
 
-test("a fresh usage reading below the limit clears a limited account and lets its thread go", async () => {
+test("under the manual policy a reset clears the limit but sends nothing until the person resumes", async () => {
+  const reset = 1_000 + 20 * minute;
+  const { h, providerSends, close } = await codexThread(clearedThen(reset, 2));
+  try {
+    const id = await h.create();
+    h.command({ type: "thread.send", threadId: id, input: text("held") });
+    await h.engine.flush();
+    // No resume is promised: ace never starts a turn by itself.
+    expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "limit", resumeAt: null });
+    h.clock.advance(reset);
+    await h.engine.flush();
+    expect(h.store.getThread(id)?.status.state).not.toBe("limited");
+    expect(h.engine.queue(id)).toMatchObject({ paused: true, messages: [{ input: text("held") }] });
+    expect(providerSends()).toBe(1);
+    expect(resume(h, id).ok).toBe(true);
+    await h.engine.flush();
+    expect(providerSends()).toBe(3);
+    expect(h.engine.queue(id)).toMatchObject({ paused: false, messages: [] });
+  } finally {
+    await close();
+  }
+});
+
+test("after a cleared limit the person's next message is the go-ahead", async () => {
+  const reset = 1_000 + 20 * minute;
+  const { h, providerSends, close } = await codexThread(clearedThen(reset, 1));
+  try {
+    const id = await h.create();
+    h.clock.advance(reset);
+    await h.engine.flush();
+    expect(providerSends()).toBe(1);
+    h.command({ type: "thread.send", threadId: id, input: text("carry on") });
+    await h.engine.flush();
+    expect(providerSends()).toBe(2);
+    expect(h.engine.queue(id)).toMatchObject({ paused: false, messages: [] });
+    expect(h.store.getThread(id)?.status.state).toBe("done");
+  } finally {
+    await close();
+  }
+});
+
+test("a fresh usage reading below the limit clears a limited account and its thread's limit", async () => {
   const reset = 1_000 + 25 * minute;
-  const { h, registry, providerSends, close } = await codexThread(hitLimit(reset), carriesOn);
+  const { h, registry, providerSends, close } = await codexThread(clearedThen(reset, 2));
   try {
     const id = await h.create();
     h.command({ type: "thread.send", threadId: id, input: text("queued") });
@@ -226,8 +292,16 @@ test("a fresh usage reading below the limit clears a limited account and lets it
     });
     await h.engine.flush();
     expect(registry.summary("account-a", h.clock.now())?.availability).toBe("available");
+    expect(h.store.getThread(id)?.status.state).not.toBe("limited");
+    // The limit is gone, but ace starts no turn: the message waits for the person.
+    expect(providerSends()).toBe(1);
+    expect(h.engine.queue(id)).toMatchObject({
+      paused: true,
+      messages: [{ input: text("queued") }],
+    });
+    expect(resume(h, id).ok).toBe(true);
+    await h.engine.flush();
     expect(providerSends()).toBe(3);
-    expect(h.engine.queue(id)).toMatchObject({ paused: false, messages: [] });
     expect(h.store.getThread(id)?.status.state).toBe("done");
   } finally {
     await close();

@@ -108,7 +108,7 @@ export class Recovery {
       : command;
   }
   sync(id: ThreadId): void {
-    const queue = this.repo.queue.get(id);
+    const queue = this.repo.queue.shown(id);
     const saved = this.repo.store.getThread(id)?.queue;
     if (!saved || saved.pendingCount !== queue.pendingCount || saved.revision !== queue.revision)
       this.repo.store.appendEvents(
@@ -244,10 +244,16 @@ export class Recovery {
           : null;
     if (queue.limited && queue.resetAt === reset) return;
     const policy = this.ports.preferences ? "manual" : this.preferences(state.threadId).limitPolicy;
-    // A limit with a known reset lets go at that reset: queued messages then send, unless the
-    // person chose to snooze. Without a reset nothing is timed; a fresh reading below the
-    // limit, a completed turn or the person's next message lets it go instead.
+    // A limit with a known reset lets go at that reset. ace never starts a turn by itself:
+    // only "resume at reset" sends then; otherwise the limit clears and queued messages wait
+    // for the person's Resume or next message. Without a reset nothing is timed.
     const timed = policy !== "migrate_now";
+    const action =
+      policy === "resume_at_reset"
+        ? "resume"
+        : policy === "snooze_until_reset"
+          ? "snooze"
+          : "clear";
     this.repo.queue.set(
       state.threadId,
       {
@@ -259,12 +265,7 @@ export class Recovery {
         continuation: queue.continuation ?? "continue",
         trigger: queue.trigger ?? "limit_resume",
         resumeAt: timed && reset !== null && reset > at ? reset : null,
-        timerAction:
-          timed && reset !== null && reset > at
-            ? policy === "snooze_until_reset"
-              ? "snooze"
-              : "resume"
-            : null,
+        timerAction: timed && reset !== null && reset > at ? action : null,
       },
       at,
     );
@@ -374,6 +375,7 @@ export class Recovery {
               { resumeAt: null, timerAction: null, reason: "manual" },
               this.clock.now(),
             );
+          else if (queue.timerAction === "clear") this.clearLimit(id);
           else {
             // Clear the deadline first, retaining a manual hold on capacity refusal.
             this.repo.queue.set(id, { resumeAt: null, timerAction: null }, this.clock.now());
@@ -433,25 +435,56 @@ export class Recovery {
     this.schedule();
   }
   /**
-   * The thread's account has a fresh reading below its limit: what held the thread is gone, so
-   * it carries on as Resume now would. A snooze is the person's own choice and stays.
+   * The thread's account has a fresh reading below its limit: the limit no longer holds the
+   * thread. ace starts no turn: queued messages wait for the person, except that a "resume at
+   * reset" or snooze the person chose keeps its own deadline.
    */
   accountRecovered(id: ThreadId): void {
     const queue = this.repo.queue.get(id);
     if (!queue.limited || !queue.paused || queue.reason !== "limit") return;
     if (this.repo.pending.recovering(id)) return;
-    this.automatic(id);
+    this.clearLimit(id);
   }
   /**
-   * The person sends while a limit with no known reset holds the thread. Nothing says the limit
-   * still holds, so their message is the go-ahead: the hold and ace's own "continue" are
-   * dropped and the queue sends in order, with their message last. If the provider refuses
-   * again, its definite signal holds the thread again. A known reset keeps holding.
+   * The limit is gone (its reset passed, or a fresh reading has room): clear the limited state
+   * so the thread and account read as available, keeping queued messages and the continuation
+   * for the person's Resume or next message.
    */
-  releaseResetlessLimit(id: ThreadId, at: number): void {
+  private clearLimit(id: ThreadId): void {
     const queue = this.repo.queue.get(id);
-    if (!queue.limited || !queue.paused || queue.reason !== "limit") return;
-    if (queue.resetAt !== null || queue.resumeAt !== null) return;
+    const timed = queue.timerAction === "resume" || queue.timerAction === "snooze";
+    const at = this.clock.now();
+    this.repo.queue.set(
+      id,
+      timed
+        ? { limited: false, resetAt: null }
+        : // A manual hold that remembers when its limit cleared: the person's next message
+          // releases it, unlike a pause they chose or a switch's held continuation.
+          { limited: false, resetAt: at, reason: "manual", resumeAt: null, timerAction: null },
+      at,
+    );
+    const state = this.repo.requireState(id);
+    const cleared = Object.entries(state.agents)
+      .filter(([, record]) => record.limited)
+      .map(([agent]) => ({ type: "limit.cleared" as const, agent }));
+    if (cleared.length) this.repo.apply(id, cleared, this.clock.now());
+    this.sync(id);
+    this.schedule();
+  }
+  /**
+   * The person sends while a limit hold nothing definite keeps: a limit with no known reset, or
+   * one that has already cleared. Their message is the go-ahead: the hold and ace's own
+   * "continue" are dropped and the queue sends in order, with their message last. If the
+   * provider refuses again, its definite signal holds the thread again. A known reset that
+   * hasn't passed keeps holding, and so does a pause the person chose.
+   */
+  releaseLimitHold(id: ThreadId, at: number): void {
+    const queue = this.repo.queue.get(id);
+    if (!queue.paused || queue.resumeAt !== null) return;
+    const resetless = queue.limited && queue.reason === "limit" && queue.resetAt === null;
+    // `clearLimit` leaves this marker: a manual hold that records when its limit cleared.
+    const cleared = !queue.limited && queue.reason === "manual" && queue.resetAt !== null;
+    if (!resetless && !cleared) return;
     if (this.repo.queue.hasUncertain(id) || this.repo.pending.recovering(id)) return;
     this.lift(id, at);
   }
