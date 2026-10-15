@@ -5,6 +5,7 @@ import {
 import { liveAceCall } from "./ace-approvals.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
 import { ThreadLiveness, type LiveWork } from "./thread-liveness.ts";
+import { reclaimIdleSlot } from "./slot-reclaim.ts";
 import { RepositoryTransfers } from "./repository-transfers.ts";
 import { EngineModels } from "./models.ts";
 import { personCommand } from "./person-command.ts";
@@ -165,6 +166,16 @@ export class Engine {
       () => this.clock.now(),
     );
     if (options.onNamingPrompt) this.repo.onNamingPrompt = options.onNamingPrompt;
+    this.repo.reclaim = (retiring) =>
+      reclaimIdleSlot(
+        {
+          repo: this.repo,
+          actors: () => this.actors.entries(),
+          closing: (id) => this.sessions.isClosing(id),
+          retire: (id) => this.controls.wake(id),
+        },
+        retiring,
+      );
     this.repositoryTransfers = new RepositoryTransfers(
       this.repo,
       () => this.actors.keys(),
@@ -200,9 +211,12 @@ export class Engine {
     if (!Number.isSafeInteger(silenceMs) || silenceMs < 0) throw new Error("Invalid silenceMs");
     this.report = options.onError ?? console.error;
     this.diagnostic = options.onProviderDiagnostic;
-    this.sends = new IntentWorkers((id) => this.work(this.actor(id)), this.report);
-    this.steering = new IntentWorkers((id) => this.steer(this.actor(id)), this.report);
-    this.controls = new IntentWorkers((id) => this.control(this.actor(id)), this.report);
+    this.sends = new IntentWorkers((id) => this.slotted(id, (a) => this.work(a)), this.report);
+    this.steering = new IntentWorkers((id) => this.slotted(id, (a) => this.steer(a)), this.report);
+    this.controls = new IntentWorkers(
+      (id) => this.slotted(id, (a) => this.control(a)),
+      this.report,
+    );
     this.sessions = new Sessions({
       models,
       ...(options.waitForProvider ? { waitForProvider: options.waitForProvider } : {}),
@@ -378,19 +392,25 @@ export class Engine {
     this.commandPolicy = policy;
   }
   private flushDepth = 0;
+  /** A wake that outlived its thread's slot (it went dormant meanwhile) has nothing to run. */
+  private async slotted(id: ThreadId, run: (actor: ThreadActor) => Promise<void>) {
+    if (!this.actors.has(id) && !this.repo.reservedSlot(id)) return;
+    await run(this.actor(id));
+  }
   private actor(id: ThreadId): ThreadActor {
     let actor = this.actors.get(id);
     if (!actor) {
+      // Sessions retiring to make room still hold an actor until their close completes.
+      const room = this.limits.maxActiveThreads + this.repo.retiringCount;
       for (const [key, cached] of this.actors) {
-        if (this.actors.size < this.limits.maxActiveThreads) break;
+        if (this.actors.size < room) break;
         if (!this.repo.reservedSlot(key)) {
           cached.stop();
           this.repo.evict(key);
           this.actors.delete(key);
         }
       }
-      if (this.actors.size >= this.limits.maxActiveThreads)
-        throw new Error("Engine actor capacity exceeded");
+      if (this.actors.size >= room) throw new Error("Engine actor capacity exceeded");
       actor = new ThreadActor(
         id,
         this.repo,

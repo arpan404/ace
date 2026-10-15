@@ -56,6 +56,13 @@ export class EngineRepository {
   onNamingPrompt?: (id: ThreadId, input: readonly import("@ace/protocol").ContentPart[]) => void;
   private ids: IdSource;
   private capacity: number;
+  /** Idle sessions asked to close to make room; their slots no longer count as taken. */
+  private retiring = new Set<ThreadId>();
+  get retiringCount(): number {
+    return this.retiring.size;
+  }
+  /** Engine-owned: retires one warm idle session when every slot is taken. */
+  reclaim: ((retiring: ReadonlySet<ThreadId>) => ThreadId | undefined) | undefined;
   private snapshotSeq = new WeakMap<Snapshot, number>();
   private commandId: () => string;
   private opening = new Set<ThreadId>();
@@ -369,7 +376,12 @@ export class EngineRepository {
       const count = Number(
         this.store.statement("SELECT COUNT(*) AS count FROM engine_slots").get()?.count,
       );
-      if (count >= this.capacity) return false;
+      if (count - this.retiring.size >= this.capacity) {
+        // Evict before refusing: a finished thread's warm session gives up its slot.
+        const freed = this.reclaim?.(this.retiring);
+        if (!freed) return false;
+        this.retiring.add(freed);
+      }
       this.store.statement("INSERT INTO engine_slots VALUES (?)").run(id);
       return true;
     });
@@ -378,6 +390,7 @@ export class EngineRepository {
     this.store.atomic((_db) =>
       this.store.statement("DELETE FROM engine_slots WHERE thread_id=?").run(id),
     );
+    this.retiring.delete(id);
   }
   reservedSlot(id: ThreadId): boolean {
     return this.store.atomic((_db) =>
