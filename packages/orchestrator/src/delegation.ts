@@ -4,26 +4,14 @@ export interface DelegationCapacity {
   depth: number;
   concurrent: number;
   children: number;
-  startedAt: number;
-  usage: { tokens: number; cost: number };
   cancelled: boolean;
 }
 /** Callers reserve the admitted slot in their transaction. */
-export function admitDelegation(input: DelegationCapacity, policy: DelegationPolicy, now: number) {
+export function admitDelegation(input: DelegationCapacity, policy: DelegationPolicy) {
   if (input.cancelled) return "cancelled";
   if (input.depth >= policy.maxDepth) return "depth_limit";
   if (input.concurrent >= policy.maxConcurrent) return "concurrency_limit";
   if (input.children >= policy.maxChildren) return "child_limit";
-  return delegationBudget(input, policy, now);
-}
-export function delegationBudget(
-  input: Pick<DelegationCapacity, "startedAt" | "usage">,
-  policy: DelegationPolicy,
-  now: number,
-): string | undefined {
-  if (now - input.startedAt >= policy.durationMs) return "duration_limit";
-  if (input.usage.tokens >= policy.tokens) return "token_limit";
-  if (input.usage.cost >= policy.cost) return "cost_limit";
   return undefined;
 }
 /** Bounded summaries are data. Stable thread pointers let the parent page omitted output. */

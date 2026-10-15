@@ -257,38 +257,28 @@ test("agents answer real questions through the existing resolution API", async (
   expect(h.store.getThread(parent.threadId)?.status.state).toBe("done");
 });
 
-test("cumulative usage is counted once and the tree is cancelled when its token budget is spent", async () => {
-  const h = setup({ tokens: 100 });
+test("heavy token use and hours of work never stop a delegation tree or block new children", async () => {
+  const h = setup();
   const parent = await h.parent();
-  const edge = h.delegate(parent, "budget");
+  const edge = h.delegate(parent, "long-haul");
   await h.engine.flush();
   const usage: Fact = {
     type: "usage",
     agent: "root",
-    inputTokens: 30,
-    outputTokens: 20,
+    inputTokens: 50_000_000,
+    outputTokens: 2_000_000,
+    cachedInputTokens: 48_000_000,
+    costUsd: 5_000,
     counterMode: "cumulative",
     counterKey: "run",
   };
-  await h.emit(edge.childId, usage, usage);
+  await h.emit(edge.childId, usage);
+  h.clock.advance(h.clock.now() + 6 * 3_600_000);
+  await h.emit(edge.childId, { ...usage, inputTokens: 90_000_000, costUsd: 9_000 });
   expect(h.store.getThread(edge.childId)?.status.state).toBe("working");
-  await h.emit(edge.childId, { ...usage, inputTokens: 80 });
-  expect(await h.service.wait(parent, edge.childId, new AbortController().signal)).toMatchObject({
-    outcome: "cancelled",
-  });
-  expect(() => h.delegate(parent, "over-budget")).toThrow("cancelled");
-});
-
-test("elapsed budget cancels live work even when the provider sends no more frames", async () => {
-  const h = setup({ durationMs: 100 });
-  const parent = await h.parent();
-  const edge = h.delegate(parent, "silent");
+  const next = h.delegate(parent, "after-heavy-use");
   await h.engine.flush();
-  h.clock.advance(1100);
-  await h.engine.flush();
-  expect(await h.service.wait(parent, edge.childId, new AbortController().signal)).toMatchObject({
-    outcome: "cancelled",
-  });
+  expect(h.store.getThread(next.childId)?.status.state).toBe("working");
 });
 
 test("a silent child stays relevant and a child's permission request makes the parent need a human", async () => {
@@ -418,28 +408,6 @@ test("agents page large child output and cannot substitute another thread's stre
   ).toEqual({ ok: false, code: "forbidden" });
 });
 
-test("a rejected delegation expiry backs off while an unrelated child result still wakes its parent", async () => {
-  const h = setup({ durationMs: 100, coalesceMs: 10 });
-  const failing = await h.parent();
-  const healthy = await h.parent();
-  h.delegate(failing, "stuck");
-  const done = h.delegate(healthy, "done");
-  await h.engine.flush();
-  await h.complete(done.childId, "delivered");
-  h.store.atomic((db) =>
-    db.exec(
-      `CREATE TRIGGER reject_expiry BEFORE UPDATE OF cancelled ON delegation_trees WHEN NEW.root_id='${failing.threadId}' BEGIN SELECT RAISE(ABORT, 'expiry rejected'); END`,
-    ),
-  );
-  h.clock.advance(1100);
-  await h.engine.flush();
-  expect(wakes(h.events, healthy.threadId)).toHaveLength(1);
-  expect(h.errors.map(String).filter((error) => error.includes("expiry rejected"))).toHaveLength(1);
-  h.clock.advance(1101);
-  await h.engine.flush();
-  expect(h.errors.map(String).filter((error) => error.includes("expiry rejected"))).toHaveLength(1);
-});
-
 test("one caller's waits cannot consume other callers' outcome slots", async () => {
   const h = setup();
   const parent = await h.parent();
@@ -469,48 +437,4 @@ test("one caller's waits cannot consume other callers' outcome slots", async () 
     outcome: "completed",
     result: "still running after wait cancellation",
   });
-});
-
-test("committed child usage missed by a stopped subscriber is recovered before follow-up admission after SQLite reopen", async () => {
-  const h = setup({ tokens: 100 });
-  const parent = await h.parent();
-  const child = h.delegate(parent, "crash-gap");
-  await h.engine.flush();
-  await h.complete(child.childId, "Saved result");
-  const agentId = h.caller(child.childId).agentId;
-  h.service.close();
-  h.store.appendEvents(child.childId, [
-    {
-      type: "usage.updated",
-      agentId,
-      inputTokens: 100,
-      outputTokens: 0,
-      counterMode: "incremental",
-      counterKey: "committed-before-crash",
-    },
-  ]);
-  await h.close();
-  const reopened = setup({ tokens: 100 }, h.dbPath);
-  expect(
-    reopened.service.message(
-      reopened.caller(parent.threadId),
-      "after-crash",
-      child.childId,
-      "More work",
-      "queue",
-    ).ok,
-  ).toBe(false);
-  await reopened.engine.flush();
-  expect(reopened.inputs.get(child.childId)).toBeUndefined();
-  // Recovery never charges the same incremental event twice on a second startup.
-  reopened.restartOwner();
-  expect(
-    reopened.service.message(
-      reopened.caller(parent.threadId),
-      "after-second-restart",
-      child.childId,
-      "More work",
-      "queue",
-    ).ok,
-  ).toBe(false);
 });

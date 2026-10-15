@@ -11,18 +11,10 @@ import { RemoteDelegations } from "./remote.ts";
 import { RemoteTaskJournal } from "./remote-journal.ts";
 import { setup } from "./test-support.ts";
 
-const cases: { reason: string; policy: Partial<DelegationPolicy>; recovery: boolean }[] = [];
-for (const recovery of [false, true])
-  for (const [reason, policy] of [
-    ["remote sibling concurrency", { maxConcurrent: 1 }],
-    ["combined token consumption", { tokens: 30 }],
-    ["combined cost consumption", { cost: 1 }],
-  ] satisfies [string, Partial<DelegationPolicy>][])
-    cases.push({ reason, policy, recovery });
-
-test.each(cases)(
-  "revived work respects $reason, including recovery=$recovery",
-  async ({ reason, policy, recovery }) => {
+test.each([false, true])(
+  "revived work respects remote sibling concurrency, including recovery=%s",
+  async (recovery) => {
+    const policy: Partial<DelegationPolicy> = { maxConcurrent: 1 };
     const f = setup(policy);
     const parent = await f.parent();
     f.service.close();
@@ -38,7 +30,6 @@ test.each(cases)(
       externalCapacity: (owner: typeof parent.threadId, root: typeof parent.threadId) => ({
         concurrent: ledger.active().filter((task) => task.parentThreadId === owner).length,
         children: ledger.root(root).children,
-        usage: ledger.root(root).usage,
       }),
     };
     let service = new DelegationService(deps);
@@ -62,16 +53,6 @@ test.each(cases)(
         estimatedLoad: 0,
       });
       await f.engine.flush();
-      if (reason !== "remote sibling concurrency")
-        await f.emit(child.childId, {
-          type: "usage",
-          agent: "root",
-          inputTokens: 20,
-          outputTokens: 0,
-          costUsd: 0.75,
-          counterMode: "cumulative",
-          counterKey: "first",
-        });
       await f.complete(child.childId, "First answer");
       await service.wait(parent, child.childId, new AbortController().signal);
       const lease = remote.register(
@@ -109,16 +90,8 @@ test.each(cases)(
         new AbortController().signal,
       );
       expect(result.ok).toBe(true);
-      const sibling = RemoteTask.parse(result.data);
+      RemoteTask.parse(result.data);
       remote.poll("broker", lease);
-      if (reason !== "remote sibling concurrency")
-        expect(
-          remote.report("broker", lease, {
-            taskId: sibling.id,
-            phase: "running",
-            usage: { tokens: 10, cost: 0.25 },
-          })?.phase,
-        ).toBe("running");
       // Close before the provider facts to leave the durable edge settled at restart.
       if (recovery) service.close();
       await f.emit(child.childId, {

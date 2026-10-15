@@ -4,13 +4,7 @@ import { AgentControlError } from "./failure.ts";
 import { counterPolicy, accountSample, Counts } from "@ace/usage";
 import type { StatementSync } from "node:sqlite";
 import { z } from "zod";
-import {
-  DelegationRecord,
-  ThreadId,
-  type DelegationOutcome,
-  type DelegationPolicy,
-  type Event,
-} from "@ace/protocol";
+import { DelegationRecord, ThreadId, type DelegationOutcome, type Event } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import { hasStoppedAncestor } from "./ancestor-stop.ts";
 
@@ -115,15 +109,6 @@ export class DelegationJournal {
           "UPDATE delegated_threads SET wake_suppressed=1,result_pending=0 WHERE child_id IN (SELECT thread_id FROM delegation_subtree_stops)",
         );
       }
-      const columns = db.prepare("PRAGMA table_info(delegation_trees)").all();
-      if (!columns.some((column) => column.name === "budget_cancelled"))
-        db.exec(
-          "ALTER TABLE delegation_trees ADD COLUMN budget_cancelled INTEGER NOT NULL DEFAULT 0",
-        );
-      if (!columns.some((column) => column.name === "retry_at"))
-        db.exec(
-          "ALTER TABLE delegation_trees ADD COLUMN retry_at INTEGER NOT NULL DEFAULT 0; ALTER TABLE delegation_trees ADD COLUMN failures INTEGER NOT NULL DEFAULT 0",
-        );
     });
   }
   private sql(query: string) {
@@ -393,32 +378,6 @@ export class DelegationJournal {
     ).get();
     return row ? z.object({ parent_id: ThreadId, due: z.number() }).parse(row) : undefined;
   }
-  nextExpiry(policy: Pick<DelegationPolicy, "durationMs" | "tokens" | "cost">, now: number) {
-    const row = this.sql(
-      `SELECT root_id,started_at,retry_at,failures,MAX(CASE WHEN tokens>=? OR cost>=? THEN ? ELSE started_at+? END,retry_at) AS due FROM delegation_trees
-        WHERE active>0 AND budget_cancelled=0 AND (cancelled=0 OR EXISTS
-        (SELECT 1 FROM delegation_participants p WHERE p.root_id=delegation_trees.root_id)) ORDER BY due,root_id LIMIT 1`,
-    ).get(policy.tokens, policy.cost, now, policy.durationMs);
-    return row
-      ? z
-          .object({
-            root_id: ThreadId,
-            started_at: z.number(),
-            retry_at: z.number(),
-            failures: z.number(),
-            due: z.number(),
-          })
-          .parse(row)
-      : undefined;
-  }
-  endBudget(root: ThreadId) {
-    this.sql("UPDATE delegation_trees SET budget_cancelled=1 WHERE root_id=?").run(root);
-  }
-  deferExpiry(root: ThreadId, due: number) {
-    this.sql(
-      "UPDATE delegation_trees SET retry_at=?,failures=MIN(failures+1,30) WHERE root_id=?",
-    ).run(due, root);
-  }
   deferWake(parent: ThreadId, due: number) {
     this.sql("UPDATE delegation_wakes SET due=? WHERE parent_id=?").run(due, parent);
   }
@@ -473,13 +432,11 @@ export class DelegationJournal {
     this.stop(thread);
     this.sql("UPDATE delegation_trees SET cancelled=1 WHERE root_id=?").run(thread);
   }
-  /** A new accepted person input reopens only the root, preserving child stops and budgets. */
+  /** A new accepted person input reopens only the root, preserving child stops. */
   resumeRoot(thread: ThreadId) {
     this.sql("DELETE FROM delegation_subtree_stops WHERE thread_id=?").run(thread);
     this.sql("DELETE FROM delegation_member_stops WHERE thread_id=?").run(thread);
-    this.sql("UPDATE delegation_trees SET cancelled=0,budget_cancelled=0 WHERE root_id=?").run(
-      thread,
-    );
+    this.sql("UPDATE delegation_trees SET cancelled=0 WHERE root_id=?").run(thread);
     this.consume(thread);
   }
   usageOffset(thread: ThreadId): number {

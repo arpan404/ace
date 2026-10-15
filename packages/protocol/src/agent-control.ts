@@ -119,9 +119,6 @@ export const DelegationPolicy = z.strictObject({
   maxConcurrent: z.number().int().min(1).max(64).default(4),
   maxChildren: z.number().int().min(1).max(64).default(64),
   maxDepth: z.number().int().min(1).max(8).default(4),
-  durationMs: z.number().int().positive().max(86400000).default(3600000),
-  tokens: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).default(1000000),
-  cost: z.number().positive().finite().default(100),
   coalesceMs: z.number().int().min(0).max(1000).default(50),
 });
 export type DelegationPolicy = z.infer<typeof DelegationPolicy>;

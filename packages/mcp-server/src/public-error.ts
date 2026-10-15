@@ -173,8 +173,8 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
     hint: "Send a new message or explicitly resume the stopped parent thread before delegating again.",
   },
   delegation_limit: {
-    message: "Delegation capacity or budget is exhausted",
-    hint: "Wait for active children to finish or start a new root thread within the host limits.",
+    message: "Too many agents are already working",
+    hint: "Wait for active children to finish, then delegate again.",
   },
   workspace_unavailable: {
     message: "Workspace is unavailable for agent creation",

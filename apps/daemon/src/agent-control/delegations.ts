@@ -5,7 +5,7 @@ import { ReservationLifetimes } from "./reservation-lifetimes.ts";
 import { controlCommandId } from "./command-id.ts";
 export { controlCommandId } from "./command-id.ts";
 import { delegationCommandPolicy } from "./command-policy.ts";
-import { delegationBudget, childResultPrompt } from "@ace/orchestrator";
+import { childResultPrompt } from "@ace/orchestrator";
 import { type AccountRegistry } from "@ace/accounts";
 import {
   CommandId,
@@ -56,10 +56,7 @@ export interface DelegationDependencies {
   /** Host may lower the durable receipt cap, never raise its 10,000 hard limit. */
   journalCapacity?: number;
   policy?: Partial<DelegationPolicy>;
-  externalCapacity?(
-    parent: ThreadId,
-    root: ThreadId,
-  ): { concurrent: number; children: number; usage: { tokens: number; cost: number } };
+  externalCapacity?(parent: ThreadId, root: ThreadId): { concurrent: number; children: number };
   onError(error: unknown): void;
   /** The daemon maintenance gate remains the owner of autonomous turn admission. */
   admitsWork?(): boolean;
@@ -101,7 +98,6 @@ export class DelegationService {
         return {
           concurrent: (remote?.concurrent ?? 0) + conversations.concurrent,
           children: (remote?.children ?? 0) + conversations.children,
-          usage: remote?.usage ?? { tokens: 0, cost: 0 },
         };
       },
     };
@@ -132,8 +128,6 @@ export class DelegationService {
           if (!owner) return undefined;
           if (this.closed || deps.admitsWork?.() === false) return "admission_closed";
           const capacity = this.admission.capacity(owner.ownerThreadId, deps.clock.now());
-          const rejected = delegationBudget(capacity, this.policy, deps.clock.now());
-          if (rejected) return rejected;
           return !this.journal.participant(thread)?.active &&
             (capacity.concurrent >= this.policy.maxConcurrent || this.journal.activeCount() >= 64)
             ? "concurrency_limit"
@@ -193,24 +187,6 @@ export class DelegationService {
         ? 1
         : 0,
     );
-  }
-  /** Cancel every budget participant through its existing cancellation owner. */
-  private cancelBudget(root: ThreadId): void {
-    this.deps.store.atomic(() => {
-      for (const thread of this.journal.participants(root)) {
-        this.cancelDescendants(thread);
-        if (!this.journal.participant(thread)?.active) continue;
-        this.deps.engine.cancelDelegatedInputs(thread);
-        const result = this.command(this.deps.id(), {
-          type: "thread.interrupt",
-          threadId: thread,
-          cascade: true,
-        });
-        if (!result.ok) throw controlAdmissionError(result.error ?? "Budget interrupt failed");
-      }
-      this.cancelDescendants(root);
-      this.journal.endBudget(root);
-    });
   }
   catalog(
     caller: McpAttribution,
@@ -391,12 +367,6 @@ export class DelegationService {
       throw new Error("Forbidden restart");
     const id = controlCommandId(caller.threadId, requestId, "thread.restart_message");
     return this.deps.store.recordCommand(CommandId.parse(id), DeviceId.parse("ace-agent"), () => {
-      const participant = this.journal.participant(threadId);
-      if (participant) {
-        const capacity = this.admission.capacity(threadId, this.deps.clock.now());
-        const rejection = delegationBudget(capacity, this.policy, this.deps.clock.now());
-        if (rejection) return { commandId: CommandId.parse(id), ok: false, error: rejection };
-      }
       this.cancelPreparations(threadId);
       const tree = this.journal.tree(threadId, this.deps.clock.now());
       for (const child of this.journal
@@ -707,15 +677,6 @@ export class DelegationService {
         if (edge) this.reconcile(edge);
       } else if (event.payload.type === "usage.updated") {
         this.journal.account(root, event);
-        const tree = this.admission.capacity(root, this.deps.clock.now());
-        if (delegationBudget(tree, this.policy, this.deps.clock.now())) {
-          try {
-            this.cancelBudget(root);
-          } catch (error) {
-            this.journal.deferExpiry(root, this.deps.clock.now() + 1000);
-            this.report(error);
-          }
-        }
       } else {
         if (participant) this.reconcileConversation(event.threadId);
         if (edge) this.reconcile(edge);
@@ -734,7 +695,6 @@ export class DelegationService {
           this.journal.stopped(edge.childId) ||
           this.journal.ancestorStopped(edge.childId) ||
           tree.cancelled ||
-          delegationBudget(tree, this.policy, this.deps.clock.now()) ||
           tree.concurrent > this.policy.maxConcurrent ||
           this.journal.activeCount() > 64
         ) {
@@ -800,17 +760,15 @@ export class DelegationService {
     this.cancelTimer = undefined;
     if (this.closed) return;
     let next: ReturnType<DelegationJournal["nextWake"]>;
-    let expiry: ReturnType<DelegationJournal["nextExpiry"]>;
     try {
       next = this.journal.nextWake();
-      expiry = this.journal.nextExpiry(this.policy, this.deps.clock.now());
     } catch (error) {
       this.report(error);
       this.cancelTimer = this.deps.clock.setTimer(() => this.timer(), 1000);
       return;
     }
-    const at = Math.min(next?.due ?? Infinity, expiry?.due ?? Infinity);
-    if (at === Infinity) return;
+    const at = next?.due;
+    if (at === undefined) return;
     this.cancelTimer = this.deps.clock.setTimer(
       () => this.timer(),
       Math.max(0, at - this.deps.clock.now(), this.retryAt - this.deps.clock.now()),
@@ -838,21 +796,6 @@ export class DelegationService {
   /** Deterministic timer boundary for host scheduling. Never executes provider I/O. */
   drain() {
     if (this.closed) return;
-    for (let limit = 0; limit < 64; limit++) {
-      const expiry = this.journal.nextExpiry(this.policy, this.deps.clock.now());
-      if (!expiry || expiry.due > this.deps.clock.now()) break;
-      try {
-        this.cancelBudget(expiry.root_id);
-      } catch (error) {
-        this.deps.store.atomic(() =>
-          this.journal.deferExpiry(
-            expiry.root_id,
-            this.deps.clock.now() + Math.min(30000, 1000 * 2 ** Math.min(expiry.failures, 5)),
-          ),
-        );
-        this.report(error);
-      }
-    }
     for (let batch = 0; batch < 64; batch++) {
       const next = this.journal.nextWake();
       if (!next || next.due > this.deps.clock.now()) break;

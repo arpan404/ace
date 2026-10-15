@@ -63,7 +63,7 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
         const caller = attribution(input.automationId);
         if (input.worktree || input.prompt.length > 16384)
           throw new Error(
-            "Use thread.handoff for worktrees; automation prompts must fit the delegation budget",
+            "Use thread.handoff for worktrees; automation prompts must be at most 16 KiB",
           );
         const request = {
           requestId: input.idempotencyKey,
