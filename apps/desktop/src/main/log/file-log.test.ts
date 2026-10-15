@@ -1,6 +1,7 @@
 import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import { afterEach, describe, expect, it } from "vitest";
 import { createDesktopLog } from "./desktop-log.ts";
 import { createFileLog, type FileLogOptions } from "./file-log.ts";
@@ -28,6 +29,7 @@ function fileLog(options: Partial<FileLogOptions> & { directory: string }) {
     ...options,
   });
 }
+const redact = createDiagnosticRedactor({ home: "/Users/someone", env: {} });
 const record = (index: number) => JSON.stringify({ index, pad: "x".repeat(80) });
 const lines = (path: string) => readFileSync(path, "utf8").split("\n").filter(Boolean);
 
@@ -35,7 +37,7 @@ describe("desktop log file", () => {
   it("persists structured records from the main process and the daemon's output", async () => {
     const dir = directory();
     const file = fileLog({ directory: dir, maxBytes: 1024 * 1024 });
-    const logger = createDesktopLog({ file, now: () => 1_000, console: () => {} });
+    const logger = createDesktopLog({ file, now: () => 1_000, console: () => {}, redact });
     logger("supervisor")("error", "The daemon stopped answering health checks; stopping it", {
       missed: 3,
     });
@@ -57,6 +59,43 @@ describe("desktop log file", () => {
         data: { stream: "stderr" },
       },
     ]);
+  });
+
+  it("redacts secrets in records and daemon output before they reach the file or console", async () => {
+    const dir = directory();
+    const file = fileLog({ directory: dir, maxBytes: 1024 * 1024 });
+    const printed: string[] = [];
+    const secret = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
+    const apiKey = "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789";
+    const logger = createDesktopLog({
+      file,
+      now: () => 0,
+      console: (_level, text) => printed.push(text),
+      redact: createDiagnosticRedactor({
+        home: "/Users/someone",
+        env: { ACE_PAIRING_TOKEN: "pairing-value-0123456789" },
+      }),
+    });
+    logger("supervisor")("info", "Pairing with pairing-value-0123456789", {
+      token: secret,
+      folder: "/Users/someone/project",
+    });
+    logger("daemon")("warn", `Error: OPENAI_API_KEY=${apiKey} rejected`, { stream: "stderr" });
+    // Long data is clipped after redaction, so a cut cannot leave the start of a secret.
+    logger("daemon")("info", "Spawned", { pad: "x".repeat(9_000), token: secret });
+    await file.flush();
+    const written = readFileSync(join(dir, "desktop.jsonl"), "utf8");
+    for (const text of [written, printed.join("\n")]) {
+      expect(text).not.toContain(secret);
+      expect(text).not.toContain(apiKey);
+      expect(text).not.toContain("pairing-value-0123456789");
+      expect(text).not.toContain("/Users/someone");
+    }
+    const [first, second] = lines(join(dir, "desktop.jsonl")).map(
+      (line) => JSON.parse(line) as { message: string; data: Record<string, unknown> },
+    );
+    expect(first?.data).toEqual({ token: "<SECRET>", folder: "<HOME>/project" });
+    expect(second?.message).toBe("Error: OPENAI_API_KEY=<SECRET> rejected");
   });
 
   it("rotates at the size cap and keeps only the newest files", async () => {
@@ -97,7 +136,7 @@ describe("desktop log file", () => {
     const parent = join(dir, "..");
     chmodSync(parent, 0o500); // the logs folder cannot be created
     const file = fileLog({ directory: dir });
-    const logger = createDesktopLog({ file, now: () => 0, console: () => {} });
+    const logger = createDesktopLog({ file, now: () => 0, console: () => {}, redact });
     expect(() => logger("desktop")("info", "Started")).not.toThrow();
     await file.flush();
     expect(() => file.flushSync()).not.toThrow();

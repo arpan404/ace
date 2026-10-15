@@ -20,6 +20,7 @@
     "@ace/diagnostics": "workspace:*",
     "@ace/html": "workspace:*",
     "@ace/protocol": "workspace:*",
+    "@ace/redaction": "workspace:*",
     "@ace/service": "workspace:*",
     "@ace/ui-core": "workspace:*",
     "zod": "^4.6.5"
