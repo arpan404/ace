@@ -10,6 +10,8 @@ test("cleanup preserves unpublished commits and removes only the reviewed pushed
   const path = join(dirname(repo), "finished");
   try {
     await service.createWorktree({ repo, path, branch: "finished", baseRef: "HEAD" });
+    // A commit only this branch has: deleting the branch would lose it until it is pushed.
+    await git(path, "commit", "--quiet", "--allow-empty", "-m", "Finished work");
     const unpublished = await service.inspectWorktreeCleanup(repo, path);
     expect(unpublished.unpushed).toBe(true);
     await expect(
@@ -22,7 +24,7 @@ test("cleanup preserves unpublished commits and removes only the reviewed pushed
       }),
     ).rejects.toMatchObject({ code: "dirty_worktree" });
     await access(path);
-    const head = await scalar(repo, "rev-parse", "HEAD");
+    const head = await scalar(path, "rev-parse", "HEAD");
     await git(repo, "update-ref", "refs/remotes/origin/finished", head);
     const reviewed = await service.inspectWorktreeCleanup(repo, path);
     expect(reviewed.unpushed).toBe(false);

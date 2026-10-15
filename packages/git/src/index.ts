@@ -61,7 +61,7 @@ export { executionKeyQuery, nonExecutingEnv } from "./non-executing.ts";
 export { validateCloneUrl } from "./projects.ts";
 export { publicationRemote } from "./publication-remote.ts";
 export type { CloneOptions, ProjectGitPolicy } from "./projects.ts";
-export { GitError, isMutationUnavailable } from "./types.ts";
+export { GitError, gitFailureCodes, isMutationUnavailable } from "./types.ts";
 export { spawnGitProcess } from "./process-runtime.ts";
 export { repositoryScope } from "./mutation-leases.ts";
 export type * from "./types.ts";

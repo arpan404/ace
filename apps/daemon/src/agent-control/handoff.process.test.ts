@@ -338,7 +338,8 @@ test("revoked handoff cleanup preserves a user commit made in its pending worktr
     const changed = (await runGit("git", ["rev-parse", "HEAD"], { cwd: path })).stdout.trim();
     controller.abort();
     ready.resolve();
-    expect(await rejection).toMatchObject({ message: expect.stringContaining("identity changed") });
+    // The caller sees why the handoff ended, not the cleanup that then refused to run.
+    expect(await rejection).toMatchObject({ name: "AbortError" });
     expect(
       (await runGit("git", ["rev-parse", "ace-user-work"], { cwd: f.h.home })).stdout.trim(),
     ).toBe(changed);

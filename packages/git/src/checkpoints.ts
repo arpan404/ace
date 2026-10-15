@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { flattenNested, nestedPaths, ownedChildren, type SnapshotOwnership } from "./nested.ts";
+import { flattenNested, nestedCheckouts, ownedChildren, type SnapshotOwnership } from "./nested.ts";
 import { textOutput } from "./cli.ts";
 import { decode, hash, malformed, nul, pathSchema } from "./decode.ts";
 import {
@@ -24,9 +24,12 @@ export async function snapshot(
 ): Promise<string> {
   const { cli } = repository;
   return withSnapshotIndex(repository, root, async (env, tracked) => {
+    const found = await nestedCheckouts(repository, root, tracked, env);
     const nested = ownership
       ? ownedChildren(ownership, root).map((child) => child.path)
-      : await nestedPaths(repository, root, tracked, env);
+      : found.repositories;
+    // Linked worktrees of this repository are other checkouts, never part of this one's state.
+    const excluded = [...nested, ...found.linked];
     const gitlinks = tracked.filter((entry) => entry.mode === "160000");
     if (gitlinks.length)
       await cli.call(root, ["update-index", "--force-remove", "-z", "--stdin"], {
@@ -37,7 +40,7 @@ export async function snapshot(
     // Git can reject an excluded, ignored directory as an explicit ignored
     // pathspec. Select only this root's tracked/unignored files instead; child
     // repositories retain exclusive filter and index ownership.
-    const paths = nested.length
+    const paths = excluded.length
       ? [
           ...new Set(
             nul(
@@ -54,7 +57,9 @@ export async function snapshot(
           .map((path) =>
             decode(pathSchema, path.endsWith("/") ? path.slice(0, -1) : path, "snapshot path"),
           )
-          .filter((path) => !nested.some((child) => path === child || path.startsWith(child + "/")))
+          .filter(
+            (path) => !excluded.some((child) => path === child || path.startsWith(child + "/")),
+          )
           .map((path) => `:(literal)${path}`)
       : ["."];
     if (paths.length)

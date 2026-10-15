@@ -25,6 +25,7 @@ import { drainProcessExit, killTree, processRuntime } from "./process-runtime.ts
 import { StringDecoder } from "node:string_decoder";
 import { stat } from "node:fs/promises";
 import { GitDiagnostics } from "./diagnostics.ts";
+import { failureMessage, StderrTail } from "./failure-text.ts";
 import { spawnPinned } from "./pinned-process.ts";
 import { count, decode } from "./decode.ts";
 import {
@@ -408,6 +409,7 @@ export class GitCli {
       let captured = 0;
       let errorBytes = 0;
       const diagnostics = new GitDiagnostics();
+      const tail = new StderrTail();
       let truncated = false;
       let failure: GitError | undefined;
       let spawnFailure: Promise<GitError> | undefined;
@@ -507,6 +509,7 @@ export class GitCli {
           fail(error);
         }
         diagnostics.accept(chunk);
+        tail.accept(chunk);
         const keep = Math.min(chunk.length, Math.max(0, 65_536 - errorBytes));
         if (keep) errors.push(Buffer.from(chunk.subarray(0, keep)));
         errorBytes += keep;
@@ -542,7 +545,9 @@ export class GitCli {
       const closed = async (code: number | null, signal: NodeJS.Signals | null) => {
         if (settled) return;
         if (signal && !spawnFailure) {
-          fail(new GitError("git_failed", "Git terminated by signal", { signal }));
+          fail(
+            new GitError("git_failed", "Git terminated by signal", { signal, stderr: tail.text() }),
+          );
           return;
         }
         detach();
@@ -551,19 +556,14 @@ export class GitCli {
         const stderr = Buffer.concat(errors).toString("utf8");
         if (failure) return reject(failure);
         if (code !== 0) {
+          diagnostics.acceptOutput(outputTail(chunks));
           const category = diagnostics.finish();
           if (
             !options.allowFailure ||
             (this.executionDisabledAt(cwd) && category === "objects_not_available")
           )
             return reject(
-              new GitError(
-                category,
-                category === "objects_not_available"
-                  ? "Objects not available locally"
-                  : "Git command failed",
-                { code },
-              ),
+              new GitError(category, failureMessage(category), { code, stderr: tail.text() }),
             );
         }
         resolve({ stdout: Buffer.concat(chunks), stderr, exitCode: code ?? -1, truncated });
@@ -581,6 +581,19 @@ export class GitCli {
 }
 
 function ignoreError() {}
+
+/** The last few KiB of captured stdout, for commands that report their failure there. */
+function outputTail(chunks: readonly Buffer[]): string {
+  const parts: Buffer[] = [];
+  let bytes = 0;
+  for (let index = chunks.length - 1; index >= 0 && bytes < 4096; index--) {
+    const chunk = chunks[index];
+    if (!chunk) continue;
+    parts.unshift(chunk.subarray(Math.max(0, chunk.length - (4096 - bytes))));
+    bytes += parts[0]?.length ?? 0;
+  }
+  return Buffer.concat(parts).toString("utf8");
+}
 
 async function classifySpawn(
   error: NodeJS.ErrnoException,

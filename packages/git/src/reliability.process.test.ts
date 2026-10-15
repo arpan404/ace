@@ -93,7 +93,7 @@ test("background change counts report tracked and untracked edits without writin
   expect(await readdir(join(repo, ".git", "objects"), { recursive: true })).toEqual(objects);
 });
 
-test("ignored directory checks return a dirty checkout without enumerating dependency files", async () => {
+test("cleanup inspection reads ignored directories without enumerating dependency files", async () => {
   const repo = await repository();
   const path = join(await scratch(), "tree");
   const binary = await proxyGit(
@@ -103,9 +103,7 @@ test("ignored directory checks return a dirty checkout without enumerating depen
   await service.createWorktree({ repo, path, branch: "fixture", baseRef: "HEAD" });
   await mkdir(join(path, "ignored"));
   await writeFile(join(path, "ignored", "dependency"), "kept");
-  await expect(service.removeWorktree({ repo, path })).rejects.toMatchObject({
-    code: "dirty_worktree",
-  });
+  expect(await service.inspectWorktreeCleanup(repo, path)).toMatchObject({ dirty: false });
   expect(await service.mutationState(path)).toMatchObject({ status: "available" });
   expect(await readFile(join(path, "ignored", "dependency"), "utf8")).toBe("kept");
 });

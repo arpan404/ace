@@ -7,6 +7,7 @@ import { textOutput } from "./cli.ts";
 import { transferTree } from "./object-transfer.ts";
 import { removeIndexSubtrees } from "./temporary-index.ts";
 import { GitError } from "./types.ts";
+import { sameRepositoryWorktrees } from "./linked-worktrees.ts";
 
 export interface NestedWorktree {
   path: string;
@@ -28,11 +29,44 @@ export function ownedChildren(
   return children;
 }
 
+/** Nested repositories a snapshot owns, at most this many per root. */
+const nestedLimit = 256;
+
 export async function nestedPaths(
   repository: Repository,
   root: string,
   tracked: IndexEntry[],
   env: Record<string, string> = {},
+): Promise<string[]> {
+  return (await nestedCheckouts(repository, root, tracked, env)).repositories;
+}
+
+/**
+ * Checkouts below `root` with their own `.git`: nested repositories, which a snapshot captures,
+ * and linked worktrees of `root`'s own repository, which it leaves out entirely.
+ */
+export async function nestedCheckouts(
+  repository: Repository,
+  root: string,
+  tracked: IndexEntry[],
+  env: Record<string, string> = {},
+): Promise<{ repositories: string[]; linked: string[] }> {
+  const found = await candidatePaths(repository, root, tracked, env);
+  const linked = await sameRepositoryWorktrees(root, found);
+  const repositories = found.filter((path) => !linked.has(path));
+  if (repositories.length > nestedLimit)
+    throw new GitError(
+      "unsupported_repository",
+      `More than ${nestedLimit} nested repositories in one checkout`,
+    );
+  return { repositories, linked: [...linked] };
+}
+
+async function candidatePaths(
+  repository: Repository,
+  root: string,
+  tracked: IndexEntry[],
+  env: Record<string, string>,
 ): Promise<string[]> {
   const paths = new Set(tracked.filter((e) => e.mode === "160000").map((e) => e.path));
   for (const entry of tracked) {

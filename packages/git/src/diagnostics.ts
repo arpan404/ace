@@ -10,6 +10,42 @@ const Trace = z.object({
   code: z.number().int().optional(),
 });
 
+const causePatterns: readonly (readonly [GitErrorCode, RegExp])[] = [
+  [
+    "protected_branch",
+    /protected branch|GH006|not allowed to (?:push|force push) (?:code )?to (?:protected|this) branch/i,
+  ],
+  ["branch_checked_out", /is already (?:checked out|used by worktree) at/i],
+  ["ref_conflict", /cannot lock ref '[^']*': '[^']*' exists; cannot create/i],
+  ["path_exists", /^fatal: '[^\n]*' already exists$/m],
+  [
+    "identity_missing",
+    /author identity unknown|please tell me who you are|empty ident name|unable to auto-detect email address|no email was given/i,
+  ],
+  [
+    "unborn_head",
+    /does not have any commits yet|ambiguous argument 'HEAD'|invalid reference: HEAD|not a valid object name:? '?HEAD'?$/im,
+  ],
+  [
+    "push_rejected",
+    /\[rejected\][^\n]*\((?:non-fast-forward|fetch first)\)|updates were rejected because the (?:tip|remote)/i,
+  ],
+  [
+    "nothing_to_commit",
+    /^(?:nothing to commit|nothing added to commit|no changes added to commit)\b/m,
+  ],
+];
+/** Specific causes outrank the generic hook, auth, conflict and network fallbacks. */
+const precedence: readonly GitErrorCode[] = [
+  "branch_checked_out",
+  "ref_conflict",
+  "path_exists",
+  "identity_missing",
+  "unborn_head",
+  "push_rejected",
+  "nothing_to_commit",
+];
+
 /** Inspect the entire stream with bounded line storage and bounded active hook identities. */
 export class GitDiagnostics {
   private decoder = new StringDecoder("utf8");
@@ -17,19 +53,33 @@ export class GitDiagnostics {
   private discardedTrace = false;
   private hooks = new Set<string>();
   private hookFailed = false;
+  private hookExited = false;
   private authFailed = false;
   private conflicts = false;
   private remoteUnreachable = false;
   private objectsUnavailable = false;
+  /** Plain-text failures that name one cause, in the order `finish` prefers them. */
+  private causes = new Set<GitErrorCode>();
   accept(chunk: Buffer): void {
     // Never concatenate an arbitrarily large process write into our retained state.
     for (let offset = 0; offset < chunk.length; offset += 4096)
       this.text(this.decoder.write(chunk.subarray(offset, offset + 4096)));
   }
+  /** Some commands (`git commit`) report their failure on stdout. Only bounded tails are passed. */
+  acceptOutput(text: string): void {
+    if (/^(?:nothing to commit|nothing added to commit|no changes added to commit)\b/m.test(text))
+      this.causes.add("nothing_to_commit");
+  }
   finish(): GitErrorCode {
     this.text(this.decoder.end());
     this.line(this.tail);
     this.tail = "";
+    // A remote's branch protection is not a local hook failure, even when it says "hook
+    // declined" or a local remote's traced pre-receive hook exits non-zero.
+    if (this.causes.has("protected_branch")) return "protected_branch";
+    // Otherwise a hook Git itself saw exit non-zero is the cause, whatever it printed.
+    if (this.hookExited) return "hook_failed";
+    for (const cause of precedence) if (this.causes.has(cause)) return cause;
     return this.hookFailed
       ? "hook_failed"
       : this.authFailed
@@ -74,7 +124,7 @@ export class GitDiagnostics {
           event.code !== undefined &&
           event.code !== 0
         )
-          this.hookFailed = true;
+          this.hookExited = true;
       } catch {
         /* Diagnostic records are optional, never a fatal decoding boundary. */
       }
@@ -97,5 +147,6 @@ export class GitDiagnostics {
       );
     this.conflicts ||= /CONFLICT|unmerged files|resolve your current index/i.test(text);
     this.hookFailed ||= /hook[^\n]*(failed|declined)|pre-receive hook declined/i.test(text);
+    for (const [cause, pattern] of causePatterns) if (pattern.test(text)) this.causes.add(cause);
   }
 }

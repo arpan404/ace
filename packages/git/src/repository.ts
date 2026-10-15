@@ -126,7 +126,16 @@ export class Repository {
       ["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`],
       { allowFailure: true },
     );
-    if (result.exitCode !== 0) throw new GitError("invalid_ref", `Commit not found: ${ref}`);
+    if (result.exitCode !== 0) {
+      // HEAD naming a branch that has no commit yet is a new repository, not a bad ref.
+      if (
+        ref === "HEAD" &&
+        (await this.cli.call(root, ["symbolic-ref", "--quiet", "HEAD"], { allowFailure: true }))
+          .exitCode === 0
+      )
+        throw new GitError("unborn_head", "The repository has no commits yet");
+      throw new GitError("invalid_ref", `Commit not found: ${ref}`);
+    }
     return hash(textOutput(result));
   }
 }
