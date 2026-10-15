@@ -44,10 +44,10 @@ export function AttachmentTiles(props: Shown & { className?: string | undefined 
       {images.length > 0 && (
         <ul
           aria-label={images.length === 1 ? "Image" : `${images.length} images`}
-          className={cn("grid w-fit gap-1.5", images.length > 1 && "grid-cols-2")}
+          className={cn("grid w-fit max-w-full gap-1.5", images.length > 1 && "grid-cols-2")}
         >
           {images.slice(0, shown).map((image, index) => (
-            <li key={image.key}>
+            <li key={image.key} className="min-w-0 max-w-full">
               <ImageTile
                 image={image}
                 size={tileSize(image, images.length)}
@@ -62,8 +62,8 @@ export function AttachmentTiles(props: Shown & { className?: string | undefined 
                 type="button"
                 aria-label={`Show ${more} more images`}
                 onClick={(event) => show(shown, event.currentTarget)}
-                style={{ width: 160, height: 120 }}
-                className="grid place-items-center rounded-md bg-secondary text-lg font-medium text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground"
+                style={{ width: 160, height: 120, maxWidth: "100%" }}
+                className="grid max-w-full place-items-center rounded-md bg-secondary text-lg font-medium text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground"
               >
                 <span aria-hidden>+{more}</span>
               </button>
@@ -105,7 +105,12 @@ function Tile(props: TileProps & { url: ImageState }) {
   const image = props.url;
   const [painted, setPainted] = useState<string>();
   const [failed, setFailed] = useState<string>();
-  const style: CSSProperties = { width: props.size.width, height: props.size.height };
+  // Clamp to the bubble's content box on narrow columns; `object-cover` crops the excess.
+  const style: CSSProperties = {
+    width: props.size.width,
+    height: props.size.height,
+    maxWidth: "100%",
+  };
   if (image.state === "unavailable" || (image.state === "ready" && failed === image.url))
     return <UnavailableTile name={props.image.name} style={style} />;
   const ready = image.state === "ready" && painted === image.url;

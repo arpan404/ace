@@ -114,7 +114,9 @@ export function extensionOf(name: string): string {
 export function describeFile(file: FileFacts): Described {
   const mime = (file.mimeType ?? "").toLowerCase();
   const ext = extensionOf(file.name);
-  const upper = ext.toUpperCase();
+  // A pathological extension is noise, not a kind: cap what chips and previews print.
+  const word = ext.toUpperCase();
+  const upper = word.length > 16 ? `${word.slice(0, 15)}…` : word;
   if (file.kind === "pdf" || mime === "application/pdf" || (!file.kind && ext === "pdf"))
     return { kind: "pdf", label: "PDF", preview: "pdf" };
   if (file.kind === "image" || (!file.kind && mime.startsWith("image/") && ext !== "svg"))
