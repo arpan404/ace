@@ -11,9 +11,24 @@ export interface OwnedLease {
   cleanups: Promise<CleanupResult>[];
   released: Promise<void>;
   release(): void;
+  /** The operation has unwound; only its killed processes can still keep the lease. */
+  done: boolean;
+  /**
+   * Process groups of this lease's killed Git processes, when ace itself killed them and no
+   * cleanup supervisor owns the proof. Once each group is gone the lease retires itself.
+   * `undefined`: some cleanup belongs to a supervisor, so only its receipt can retire the lease.
+   */
+  groups: number[] | undefined;
 }
 /** Process-local I/O ownership registry, shared across service instances. */
 export const live = new Map<string, OwnedLease>();
+/**
+ * Quarantined leases whose operation unwound while a killed process may still run. Kept here,
+ * not forgotten, so this daemon can retire them as soon as their process groups are gone.
+ */
+export const orphans = new Map<string, OwnedLease>();
+/** The lease this process owns under `id`: running, unwinding or orphaned. */
+export const owned = (id: string) => live.get(id) ?? orphans.get(id);
 
 export function missing(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
@@ -154,7 +169,7 @@ export async function records(path: string): Promise<JournalEntry[]> {
     for (const name of names) {
       const file = join(directory, name);
       if (name.endsWith(".next")) continue;
-      const running = live.get(name);
+      const running = owned(name);
       if (running) {
         result.push({ record: running.record, file });
         continue;

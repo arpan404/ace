@@ -80,13 +80,16 @@ test("one confirmed process cannot release a snapshot's other unconfirmed writer
   }
 });
 
-test("worktree timeout preserves its cleanup receipt without rolling back uncertain resources", async () => {
+test("worktree timeout keeps its cleanup receipt and fences the repository until its killed process is gone", async () => {
   const root = await repository();
   const ready = Promise.withResolvers<void>();
   const exited = Promise.withResolvers<void>();
   const deadlines = new Set<() => void>();
+  let writer: { kill(signal: NodeJS.Signals): boolean } | undefined;
   const service = new GitService({
     processRuntime: {
+      // The kill request never reaches the process: it keeps running, as an escaped writer would.
+      signalGroup: () => {},
       spawn: (binary, args, options) => {
         if (!args.includes("worktree") || !args.includes("add"))
           return spawnGitProcess(binary, args, options);
@@ -97,6 +100,7 @@ test("worktree timeout preserves its cleanup receipt without rolling back uncert
         );
         child.stderr.once("data", () => ready.resolve());
         child.once("exit", () => exited.resolve());
+        writer = child;
         return child;
       },
       scheduleTimeout: (callback) => {
@@ -125,10 +129,19 @@ test("worktree timeout preserves its cleanup receipt without rolling back uncert
     expect(await failure.cleanup.settled).toMatchObject({ status: "unconfirmed" });
     expect(await service.mutationState(root)).toMatchObject({ status: "quarantined" });
     await expect(
-      new GitService().createCheckpoint({ worktree: root, threadId: "blocked", label: "blocked" }),
+      new GitService({ leaseWaitMs: 0 }).createCheckpoint({
+        worktree: root,
+        threadId: "blocked",
+        label: "blocked",
+      }),
     ).rejects.toMatchObject({ code: "git_quarantined" });
+    writer?.kill("SIGKILL");
     await exited.promise;
+    await expect
+      .poll(() => service.mutationState(root), { timeout: 10_000 })
+      .toMatchObject({ status: "available" });
   } finally {
+    writer?.kill("SIGKILL");
     await service.close();
     await operation;
   }

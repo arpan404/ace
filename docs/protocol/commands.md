@@ -1886,6 +1886,7 @@ Example:
 | stackOperation | no | [ForgeStackOperation.json](schema/ForgeStackOperation.json) |  |
 | editor | no | [EditorLaunch.json](schema/EditorLaunch.json) |  |
 | terminalId | no | string | {"minLength":1,"maxLength":128} |
+| locksCleared | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | commit | no | string | {"pattern":"^[a-f0-9]{40,64}$"} |
 
 Example:
@@ -1893,7 +1894,6 @@ Example:
 ```json
 {
   "commandId": "example",
-  "commit": "202db2d7058b57ecf355c0fe8730cd40c79a991575ac87b",
   "editor": {
     "editor": {
       "command": "example",
@@ -1919,6 +1919,7 @@ Example:
     "git": null,
     "path": "example"
   },
+  "locksCleared": 2,
   "ok": false,
   "pr": {
     "number": 4,

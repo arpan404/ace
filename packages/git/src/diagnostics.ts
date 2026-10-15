@@ -60,6 +60,8 @@ export class GitDiagnostics {
   private objectsUnavailable = false;
   /** Plain-text failures that name one cause, in the order `finish` prefers them. */
   private causes = new Set<GitErrorCode>();
+  /** The Git lock file another process held, when Git failed because it exists. */
+  lockFile: string | undefined;
   accept(chunk: Buffer): void {
     // Never concatenate an arbitrarily large process write into our retained state.
     for (let offset = 0; offset < chunk.length; offset += 4096)
@@ -146,6 +148,7 @@ export class GitDiagnostics {
         text,
       );
     this.conflicts ||= /CONFLICT|unmerged files|resolve your current index/i.test(text);
+    this.lockFile ??= /Unable to create '([^'\n]+\.lock)': File exists/.exec(text)?.[1];
     this.hookFailed ||= /hook[^\n]*(failed|declined)|pre-receive hook declined/i.test(text);
     for (const [cause, pattern] of causePatterns) if (pattern.test(text)) this.causes.add(cause);
   }

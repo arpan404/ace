@@ -72,10 +72,21 @@ export async function startWorkspaceActions({
   });
   services.workspaceActions = workspace;
   // Hygiene behind the listener: admission retires stale leases on its own as it meets them.
-  const sweep = workspace.sweepStaleLeases((path, error) =>
-    log.log("debug", `Git locks in ${path} could not be checked`, logError(error)),
-  );
-  resources.own(() => sweep);
+  const heal = () =>
+    workspace.sweepStaleLeases((path, error) =>
+      log.log("debug", `Git locks in ${path} could not be checked`, logError(error)),
+    );
+  let sweep = heal();
+  // Self-healing: a lease or Git lock whose process ended after admission last looked is
+  // retired by the next sweep, without anyone asking.
+  const healing = setInterval(() => {
+    sweep = sweep.then(heal);
+  }, 60_000);
+  healing.unref();
+  resources.own(() => {
+    clearInterval(healing);
+    return sweep;
+  });
   services.canReadThread = (_device, id) =>
     Boolean(store.getThread(id)) && store.getThread(id)?.deletedAt === undefined;
   resources.own(() => workspace.close());

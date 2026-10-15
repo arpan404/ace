@@ -13,12 +13,19 @@ const Query = z.object({ token: z.uuid(), id: z.uuid() });
 const Reply = z.enum(["active", "quarantined", "unknown", "foreign"]);
 /**
  * `gone` is definitive: nothing listens on the owner's port, or whatever listens there answers
- * for a different token. Every other failure (timeout, reset, garbage) stays `unknown`. An owner
- * that answers `unknown` for its own token is alive and keeps a lease it no longer runs.
+ * for a different token. Every other failure (timeout, reset, garbage) stays `unknown`. Another
+ * owner that answers `unknown` for its own token is alive and keeps a lease it no longer runs;
+ * this process recognises its own such leases itself (`ownedByThisProcess`).
  */
 export type OwnerState = "active" | "quarantined" | "unknown" | "gone";
 let owner: Promise<Owner> | undefined;
+let ownToken: string | undefined;
 function noop() {}
+
+/** Whether `lease` was written by this process: its endpoint carries this process's token. */
+export function ownedByThisProcess(lease: MutationLease): boolean {
+  return ownToken !== undefined && lease.owner?.token === ownToken;
+}
 
 /** One unreferenced local ownership endpoint per process, created only on Git use. */
 export function leaseOwner(
@@ -56,6 +63,7 @@ export function leaseOwner(
         return;
       }
       server.unref();
+      ownToken = token;
       resolve({ port: address.port, token });
     });
   });

@@ -33,6 +33,7 @@ test("a stale Git lock says so by name, and Clear stale lock lets the start go a
   const confirm = await screen.findByRole("dialog", { name: "Clear the stale Git lock?" });
   await userEvent.click(within(confirm).getByRole("button", { name: "Clear lock" }));
   await screen.findByText("Retry to start the thread.");
+  expect(screen.getByText("Lock cleared")).toBeTruthy();
 
   await userEvent.click(await message());
   await waitFor(() =>

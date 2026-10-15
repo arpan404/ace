@@ -59,8 +59,8 @@ export interface ProjectsOptions {
   /** Host-injected test fixture only; no client can set transport policy. */
   gitPolicy?: ProjectGitPolicy;
   hasOwnedWork?: (id: ThreadId) => boolean;
-  /** "Clear stale lock" for a project's repository; true once Git reports it available. */
-  clearLock?: (path: string) => Promise<boolean>;
+  /** "Clear stale lock" for a project's repository: how many it retired, and what still holds one. */
+  clearLock?: (path: string) => Promise<Omit<CommandResult, "commandId">>;
 }
 type CloneFlight = {
   committed: boolean;
@@ -318,10 +318,9 @@ export class Projects {
         if ("icon" in p) assertProjectImage(p.icon);
         if (p.type === "workspace.git.lock.clear") {
           const project = this.catalog.get(p.workspaceId);
-          const cleared = await (this.options.clearLock?.(project.path) ?? Promise.resolve(false));
-          return cleared
-            ? { commandId: input.id, ok: true }
-            : { commandId: input.id, ok: false, error: "git_quarantined" };
+          const result = await (this.options.clearLock?.(project.path) ??
+            Promise.resolve({ ok: false, error: "git_quarantined" }));
+          return { ...result, commandId: input.id };
         }
         if (p.type === "workspace.add") return await this.add(p, allowed);
         if (p.type === "workspace.root.add") return await this.addRoot(p, allowed);

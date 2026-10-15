@@ -10,8 +10,19 @@ export interface RetiredLease {
   lease: MutationLease;
   /** The repository's main checkout, or the lease's root for a standalone journal. */
   repository: string;
-  /** `owner_gone_roots_settled`: automatic. `confirmed_stale`: a person chose Clear stale lock. */
-  reason: "owner_gone_roots_settled" | "confirmed_stale";
+  /**
+   * Automatic: `owner_gone_roots_settled` (its daemon stopped and its checkouts are gone),
+   * `owner_gone_processes_gone` (its daemon stopped and no Git process runs in its checkouts),
+   * `own_processes_gone` (this daemon killed its Git process and that process group is gone),
+   * `own_lease_processes_gone` (this daemon wrote it, lost track of it, and no Git process runs
+   * in its checkouts). `confirmed_stale`: a person chose Clear stale lock.
+   */
+  reason:
+    | "owner_gone_roots_settled"
+    | "owner_gone_processes_gone"
+    | "own_processes_gone"
+    | "own_lease_processes_gone"
+    | "confirmed_stale";
 }
 
 export interface GitProcessRuntime {
@@ -25,6 +36,10 @@ export interface GitProcessRuntime {
   scheduleTimeout: (callback: () => void, milliseconds: number) => () => void;
   platform: NodeJS.Platform;
   signalGroup: (pid: number, signal: NodeJS.Signals) => void;
+  /** Whether any process of the POSIX process group led by `pid` is alive. */
+  groupAlive: (pid: number) => boolean;
+  /** Every live Git process and its working directory; `undefined` when it can't be listed. */
+  gitProcesses: () => Promise<readonly { pid: number; cwd?: string | undefined }[] | undefined>;
   cleanupSupervisor?: MutationCleanupSupervisor<ChildProcessWithoutNullStreams>;
 }
 
@@ -43,6 +58,11 @@ export interface GitOptions {
   processRuntime?: Partial<GitProcessRuntime>;
   gitBinary?: string;
   timeoutMs?: number;
+  /**
+   * How long a Git change waits for a lease that clears on its own (another daemon finishing, a
+   * stopped process ending) before it reports the lock. Default 60 seconds.
+   */
+  leaseWaitMs?: number;
   maxPatchBytes?: number;
   now?: () => Date | Promise<Date>;
   tempDirectory?: string;

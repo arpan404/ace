@@ -160,3 +160,43 @@ nothing could ever retire it, because an absent owner read the same as an unansw
 
 This replaces "Owner liveness never establishes cleanup or authorizes retiring an intent" and
 "deleting journal files is not a supported recovery procedure" above for these cases only.
+
+## Amendment (2026-10-14): self-healing leases and Git locks
+
+Issues #712, #721 and #722: sends failed with "A stale Git lock blocks this checkout", and Clear
+stale lock did nothing. A timeout, abort or service close quarantined the lease on disk. Then the
+daemon dropped its in-memory record of it. Its own endpoint answered `unknown` for the lease, so
+nothing short of a restart could retire it. A lease on a linked worktree nested inside the main
+checkout's directory also fenced the main checkout, because overlap compared paths.
+
+- **Evidence that work ended.** Without a cleanup supervisor, ace accepts two kinds of evidence:
+  the process group it killed is gone, or no live Git process (listed with `lsof` on macOS and
+  `/proc` on Linux) works in any of the lease's roots. A Git process whose directory can't be
+  read counts as working everywhere. Without a listing (other platforms), only the earlier rules
+  apply. A supervisor, when configured, stays the only source of proof. Writers that escape
+  their process group without being Git are not detected. This replaces the "default runtime
+  cannot self-certify" rule above for hosts without a supervisor.
+- **Own leases.** A quarantined lease stays in a process-local registry after its operation
+  unwinds. It retires as soon as each killed group is gone, polled right after the kill and on
+  service close, and checked again by every admission and sweep. A lease carrying this
+  process's owner token but no registry entry counts as `orphaned`. It retires once no Git
+  process works in its roots.
+- **Stopped owners.** A lease whose owner is `gone` retires once no Git process works in its
+  roots, even when its checkouts still exist. At startup this retires a previous instance's
+  leases, and the daemon repeats the sweep every minute.
+- **Waiting, not failing.** Admission waits (default 60 seconds, polling) for a lease that clears
+  on its own: one held by a live owner, or one whose process is still alive. It never waits for
+  a lease the caller holds itself. After the bound the error names what holds the lock. Clear
+  stale lock is the last resort, and it reports how many locks it actually retired.
+- **Git lock files.** `index.lock`, `HEAD.lock` and partial-commit temporary indexes of a
+  checkout, and the shared ref, `packed-refs`, `shallow` and `config` locks, plus a
+  `worktree add` still marked `initializing`, are removed only when they are older than a grace
+  period and no Git process works there. That covers the checkout for its own locks, and every
+  checkout and the common directory for shared ones. This runs after a lease retires, in
+  sweeps, and once when a write fails because a lock exists, before a single retry.
+- **Fencing by worktree identity.** A linked worktree root fences only itself and the paths
+  inside it, never the checkout whose directory contains it. Main checkouts and separate
+  repositories keep fencing the whole repository.
+- **Deadlines.** Commit, staging, switch, merge and worktree add/checkout run under a ten-minute
+  deadline (`longWriteTimeoutMs`) instead of the service default, so hooks are not killed at 30
+  seconds. They stay cancellable.

@@ -18,6 +18,7 @@ import { moveThread } from "./thread-move.ts";
 import { WorkspaceRoots, type WorkspaceGit } from "./workspace-roots.ts";
 import { hostname, homedir } from "node:os";
 import { join } from "node:path";
+import { existsSync } from "node:fs";
 import { GitError, GitService, type GitOptions } from "@ace/git";
 import { TerminalManager, type Terminal, type TerminalManagerOptions } from "@ace/terminal";
 import {
@@ -167,11 +168,41 @@ export class WorkspaceRuntime {
     for (const row of rows) {
       const path = String(row.path);
       try {
-        await this.git.mutationState(path);
+        await this.git.heal(path);
       } catch (error) {
         failed(path, error);
       }
     }
+  }
+  /**
+   * "Clear stale lock" for a thread: its checkout when it has one, and its project, whose journal
+   * fences a worktree that couldn't be created. Reports how many locks it actually retired.
+   */
+  private async clearLock(threadId: ThreadId): Promise<Omit<CommandResult, "commandId">> {
+    const thread = this.store.getThread(threadId);
+    if (!thread) return { ok: false, error: "thread_not_found" };
+    const project = this.store.getWorkspacePath(thread.workspaceId);
+    const binding = this.store.executionWorkspace(threadId);
+    return this.clearLocks([binding.path, project].filter((path) => path !== undefined));
+  }
+  /**
+   * The one "Clear stale lock" path, for a thread's roots or a project's repository: retires what
+   * it can, reports how many it retired and what still holds one, then runs the worktree
+   * cleanups a lock held back.
+   */
+  private async clearLocks(paths: readonly string[]): Promise<Omit<CommandResult, "commandId">> {
+    let cleared = 0;
+    let blocked: string | undefined;
+    for (const path of new Set(paths)) {
+      if (!existsSync(path)) continue;
+      const result = await this.git.clearStaleLeases(path);
+      cleared += result.retired.length;
+      if (result.state.status !== "available") blocked ??= result.message;
+    }
+    if (blocked)
+      return { ok: false, error: "git_quarantined", detail: blocked, locksCleared: cleared };
+    await this.roots.retryCreationCleanup();
+    return { ok: true, locksCleared: cleared };
   }
   prepareAgentCreation(command: Command, signal: AbortSignal) {
     return this.roots.prepareAgentCreation(command, signal);
@@ -187,11 +218,8 @@ export class WorkspaceRuntime {
     return this.roots.creationCleanupSettled(command);
   }
   /** "Clear stale lock" for a project, then the worktree cleanups that lock held back. */
-  async clearProjectLock(path: string): Promise<boolean> {
-    const { state } = await this.git.clearStaleLeases(path);
-    if (state.status !== "available") return false;
-    await this.roots.retryCreationCleanup();
-    return true;
+  clearProjectLock(path: string): Promise<Omit<CommandResult, "commandId">> {
+    return this.clearLocks([path]);
   }
   details(id: ThreadId): Promise<ThreadDetails> {
     return this.roots.details(id);
@@ -513,13 +541,8 @@ export class WorkspaceRuntime {
         if (!allowed()) return { ok: false, error: "forbidden" };
         return clearWorkspaceChange(this.store, this.git, threadId, this.now);
       }
+      if (p.type === "git.lock.clear") return this.clearLock(threadId);
       const cwd = this.root(threadId);
-      if (p.type === "git.lock.clear") {
-        const { state } = await this.git.clearStaleLeases(cwd);
-        return state.status === "available"
-          ? { ok: true }
-          : { ok: false, error: "git_quarantined" };
-      }
       if (p.type === "forge.issue.link") return this.forge.issueCommand(command, cwd, allowed);
       if (p.type === "git.commit")
         return {

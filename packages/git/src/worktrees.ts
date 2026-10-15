@@ -1,3 +1,4 @@
+import { longWriteTimeoutMs } from "./deadlines.ts";
 import { deleteUnchangedBranch } from "./branch-cleanup.ts";
 import { findMissing, forgetMissing, missingBlockers } from "./missing-worktrees.ts";
 import { assertNoRefConflict } from "./ref-conflict.ts";
@@ -74,7 +75,11 @@ export async function createWorktree(
           path,
           exists.exitCode === 0 ? options.branch : sha,
         ],
-        { write: true, ...(options.stderr ? { stderr: options.stderr } : {}) },
+        {
+          write: true,
+          timeoutMs: longWriteTimeoutMs,
+          ...(options.stderr ? { stderr: options.stderr } : {}),
+        },
       );
       if (staged) await checkoutFiles(repository, path, options);
       checkCancellation(options.signal);
@@ -227,6 +232,7 @@ async function checkoutFiles(repository: Repository, path: string, options: Crea
       ["-c", "core.hooksPath=/dev/null", "checkout-index", "--force", "--stdin", "-z"],
       {
         write: true,
+        timeoutMs: longWriteTimeoutMs,
         input: listing.stdout.subarray(start, offset),
         ...(options.stderr ? { stderr: options.stderr } : {}),
       },

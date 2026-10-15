@@ -39,8 +39,9 @@ export function ClearStaleLock(props: { target: StaleLockTarget; onCleared?(): v
       .command(clearing(props.target))
       .then((result) => {
         if (result.ok) {
+          // Say what happened: a lock that had already cleared on its own isn't "cleared" by this.
           toast.add({
-            title: "Lock cleared",
+            title: result.locksCleared ? "Lock cleared" : "No lock is held now",
             description: thread ? "Retry to send it." : "Retry to start the thread.",
           });
           props.onCleared?.();
@@ -48,6 +49,7 @@ export function ClearStaleLock(props: { target: StaleLockTarget; onCleared?(): v
           toast.error({
             title: "The lock is still held",
             description:
+              result.detail ??
               "The ace daemon that holds it may still be running. Stop it, or restart this daemon, then try again.",
           });
       })
