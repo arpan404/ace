@@ -6,7 +6,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { realpathSync } from "node:fs";
 import { NativeHistory } from "./native-history.ts";
-import { registerAcePiExtension, type PiExtensionApi } from "../index.ts";
+import { registerAcePiExtension } from "../index.ts";
+import { createPiExtensionHost } from "./extension-host.ts";
 import { join } from "node:path";
 import { z } from "zod";
 const Command = z.looseObject({ type: z.string(), id: z.string().optional() });
@@ -24,33 +25,26 @@ function emit(data: unknown) {
 }
 const reply = (c: z.infer<typeof Command>, data: unknown = {}) =>
   emit({ type: "response", id: c.id, command: c.type, success: true, data });
-const hooks = new Map<string, unknown>();
 const approvals = new Map<string, (confirmed: boolean) => void>();
 let approvalId = 0;
-const commands = new Map<string, Parameters<PiExtensionApi["registerCommand"]>[1]>();
+// Like real Pi, the host rejects action calls made while the extension factory runs.
+const host = createPiExtensionHost({
+  appendEntry(customType, data) {
+    emit({ type: "entry_appended", entry: history.append(customType, data) });
+  },
+});
+const commands = host.commands;
 // This RPC peer exercises control hooks; it never opens a real MCP connection.
 const controlConfig = privateMcpConfig(
   JSON.stringify({ controlSecret: nativeSession.controlSecret }),
   process.cwd(),
 );
 try {
-  await registerAcePiExtension(
-    {
-      registerCommand(name, command) {
-        commands.set(name, command);
-      },
-      appendEntry(customType, data) {
-        emit({ type: "entry_appended", entry: history.append(customType, data) });
-      },
-      registerTool() {},
-      on(event, handler) {
-        hooks.set(event, handler);
-      },
-    },
-    {
+  await host.start((pi) =>
+    registerAcePiExtension(pi, {
       ACE_PI_SESSION_FILE: controlConfig.path,
       ACE_PI_PERMISSION_MODE: process.env.ACE_PI_PERMISSION_MODE,
-    },
+    }),
   );
 } finally {
   controlConfig.remove();
@@ -222,7 +216,7 @@ async function handle(line: string) {
         message: JSON.stringify(c),
       });
       if (message === "gated-write" || message === "gated-shell") {
-        const hook = hooks.get("tool_call");
+        const hook = host.handlers("tool_call").at(-1);
         const path = join(process.env.FAKE_PI_HOME ?? "", "approved.txt");
         const toolName = message === "gated-shell" ? "bash" : "write";
         const toolInput =

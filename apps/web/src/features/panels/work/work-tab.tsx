@@ -1,6 +1,7 @@
 import { useCallback, type ReactNode } from "react";
-import { useAgentTree, useThreadMeta } from "@ace/client-react";
-import type { TurnActivity } from "@ace/ui-core";
+import type { ThreadReader } from "@ace/client";
+import { useAgentTree, useThread, useThreadMeta } from "@ace/client-react";
+import { queuedInputLine, type TurnActivity } from "@ace/ui-core";
 import { useProjectAutomations, WorkAutomations } from "@/features/automations/index.ts";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useServerQueue } from "@/lib/server-queue.ts";
@@ -20,6 +21,8 @@ import { SummaryHead } from "./summary-head.tsx";
 import { summarySections } from "./summary-sections.ts";
 import { WorkPlans } from "./work-plans.tsx";
 
+const queueOf = (reader: ThreadReader) => reader.queue;
+
 /** Outside a thread screen there is no live line to read. */
 function NoActivity(props: { children(activity: TurnActivity | undefined): ReactNode }) {
   return props.children(undefined);
@@ -38,7 +41,8 @@ export default function WorkTab(props: TabViewProps) {
   const Activity = parts.turnActivity ?? NoActivity;
   const facts = useTreeWork(props.scope);
   const tree = useAgentTree(props.scope) ?? [];
-  const queued = useServerQueue(props.scope).page?.total ?? 0;
+  const page = useServerQueue(props.scope).page;
+  const hold = useThread(props.scope, ["queue"], queueOf) ?? page;
   const plans = useShownPlans(props.scope).length;
   const automations = useProjectAutomations(
     thread?.workspaceId ?? "",
@@ -62,12 +66,19 @@ export default function WorkTab(props: TabViewProps) {
   const tasks = facts.tasks
     .filter((task) => task.status === "running" || task.status === "unknown")
     .map((task) => task.id);
-  const queueWaiting = thread.status.state === "waiting" && thread.status.on === "queue";
+  const queued = queuedInputLine({
+    retained: page?.total ?? 0,
+    queue: hold,
+    status: thread.status,
+    agentFailed: facts.agents.some(
+      (agent) => agent.parentId === null && agent.status.state === "failed",
+    ),
+  });
   const shown = summarySections({
     plans,
     subagents: tree.some((node) => node.children.length > 0),
     agentsLive: facts.work.running.size > 0 || facts.work.needsYou.size > 0,
-    background: tasks.length > 0 || queued > 0 || queueWaiting,
+    background: tasks.length > 0 || queued !== undefined,
     automations: automations.failed || !!automations.entries?.length,
   });
   return (
@@ -104,12 +115,7 @@ export default function WorkTab(props: TabViewProps) {
       )}
       {shown.background && (
         <Section name="Background" labelled={shown.labelled}>
-          <BackgroundList
-            threadId={props.scope}
-            taskIds={tasks}
-            queued={queued}
-            queueWaiting={queueWaiting}
-          />
+          <BackgroundList threadId={props.scope} taskIds={tasks} queued={queued} />
         </Section>
       )}
       <WorkAutomations automations={automations} onClose={() => {}} />

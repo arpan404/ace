@@ -4,8 +4,9 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { AgentId, ThreadId } from "@ace/protocol";
 import { CredentialRegistry, ToolRegistry, nodeScheduler, startMcpServer } from "@ace/mcp-server";
-import { registerAcePiExtension, type PiExtensionApi } from "./index.ts";
+import { registerAcePiExtension } from "./index.ts";
 import { obj } from "./native.ts";
+import { createPiExtensionHost } from "./testing/extension-host.ts";
 test("Pi forwards scoped tools with long install deadlines, structured results and MCP errors across real HTTP", async () => {
   const registry = new ToolRegistry({ scheduler: nodeScheduler });
   const credentials = new CredentialRegistry(() => randomBytes(32).toString("hex"));
@@ -43,18 +44,8 @@ test("Pi forwards scoped tools with long install deadlines, structured results a
     },
     new AbortController().signal,
   );
-  const tools = new Map<string, Parameters<PiExtensionApi["registerTool"]>[0]>(),
-    hooks = new Map<string, unknown>();
-  const pi: PiExtensionApi = {
-    appendEntry() {},
-    registerCommand() {},
-    registerTool(tool) {
-      tools.set(tool.name, tool);
-    },
-    on(event: string, handler: unknown) {
-      hooks.set(event, handler);
-    },
-  };
+  const host = createPiExtensionHost(),
+    tools = host.tools;
   const configuration = privateMcpConfig(
     JSON.stringify({
       controlSecret: "a".repeat(64),
@@ -63,12 +54,13 @@ test("Pi forwards scoped tools with long install deadlines, structured results a
   );
   onTestFinished(configuration.remove);
   try {
-    await registerAcePiExtension(pi, { ACE_PI_SESSION_FILE: configuration.path });
-    const beforeStart = hooks.get("before_agent_start");
-    if (typeof beforeStart !== "function") throw new Error("Missing native system prompt hook");
-    const instructions: unknown = Reflect.apply(beforeStart, undefined, [
-      { systemPrompt: "Pi built-in instructions" },
-    ]);
+    await host.start((pi) =>
+      registerAcePiExtension(pi, { ACE_PI_SESSION_FILE: configuration.path }),
+    );
+    expect(host.errors).toEqual([]);
+    const instructions = await host.emit("before_agent_start", {
+      systemPrompt: "Pi built-in instructions",
+    });
     expect(instructions).toMatchObject({
       systemPrompt: expect.stringContaining(
         "Pi built-in instructions\n\nace is the app running this session.",
@@ -87,18 +79,16 @@ test("Pi forwards scoped tools with long install deadlines, structured results a
     });
     const failed = await failure.execute("failure", {}, undefined);
     expect(obj(obj(failed.details).aceMcp).isError).toBe(true);
-    const hook = hooks.get("tool_result");
-    if (typeof hook !== "function") throw new Error("Missing result hook");
-    const projection: unknown = Reflect.apply(hook, undefined, [
-      { toolName: "ace_failure", details: failed.details },
-    ]);
+    const projection = await host.emit("tool_result", {
+      toolName: "ace_failure",
+      details: failed.details,
+    });
     expect(projection).toEqual({ isError: true });
     lease.end();
     await expect(echo.execute("revoked", { value: "must not run" }, undefined)).rejects.toThrow();
     expect(effect).toBe("local-only");
   } finally {
-    const shutdown = hooks.get("session_shutdown");
-    if (typeof shutdown === "function") await Reflect.apply(shutdown, undefined, []);
+    await host.shutdown();
     lease.end();
     await server.close();
   }
@@ -135,20 +125,8 @@ test("Pi executes authorized browser, screen and device tools and projects their
     },
     new AbortController().signal,
   );
-  const tools = new Map<string, Parameters<PiExtensionApi["registerTool"]>[0]>();
-  let shutdown: (() => Promise<void>) | undefined;
-  let project: ((event: { toolName: string; details: unknown }) => unknown) | undefined;
-  const pi: PiExtensionApi = {
-    appendEntry() {},
-    registerCommand() {},
-    registerTool(tool) {
-      tools.set(tool.name, tool);
-    },
-    on(event, handler) {
-      if (event === "session_shutdown") shutdown = () => Reflect.apply(handler, undefined, []);
-      else project = (result) => Reflect.apply(handler, undefined, [result]);
-    },
-  };
+  const host = createPiExtensionHost(),
+    tools = host.tools;
   const configuration = privateMcpConfig(
     JSON.stringify({
       controlSecret: "a".repeat(64),
@@ -157,12 +135,16 @@ test("Pi executes authorized browser, screen and device tools and projects their
   );
   onTestFinished(configuration.remove);
   try {
-    await registerAcePiExtension(pi, { ACE_PI_SESSION_FILE: configuration.path });
+    await host.start((pi) =>
+      registerAcePiExtension(pi, { ACE_PI_SESSION_FILE: configuration.path }),
+    );
     for (const name of ["ace_browser_click", "screen_ui_act", "device_tap"]) {
       const tool = tools.get(name);
       if (!tool) throw new Error(`Missing authorized feature tool: ${name}`);
       const result = await tool.execute("native", { value: "input" }, undefined);
-      expect(project?.({ toolName: name, details: result.details })).toEqual({ isError: true });
+      expect(await host.emit("tool_result", { toolName: name, details: result.details })).toEqual({
+        isError: true,
+      });
     }
     expect(effects).toEqual(["ace_browser_click:input", "screen_ui_act:input", "device_tap:input"]);
     lease.end();
@@ -171,7 +153,7 @@ test("Pi executes authorized browser, screen and device tools and projects their
     await expect(tap.execute("revoked", { value: "blocked" }, undefined)).rejects.toThrow();
     expect(effects).toHaveLength(3);
   } finally {
-    await shutdown?.();
+    await host.shutdown();
     lease.end();
     await server.close();
   }
@@ -211,25 +193,11 @@ test("Pi adds screen tools when computer use turns on and withdraws them when it
     },
     new AbortController().signal,
   );
-  let active = ["read", "bash"];
-  const registered = new Set<string>();
-  const hooks = new Map<string, unknown>();
   let changed: (() => void) | undefined;
-  const pi: PiExtensionApi = {
-    appendEntry() {},
-    registerCommand() {},
-    registerTool(tool) {
-      registered.add(tool.name);
-    },
-    getActiveTools: () => active,
-    setActiveTools(names) {
-      active = names;
-      changed?.();
-    },
-    on(event: string, handler: unknown) {
-      hooks.set(event, handler);
-    },
-  };
+  const host = createPiExtensionHost({
+    activeTools: ["read", "bash"],
+    onActiveToolsChange: () => changed?.(),
+  });
   const config = privateMcpConfig(
     JSON.stringify({
       controlSecret: "a".repeat(64),
@@ -237,12 +205,10 @@ test("Pi adds screen tools when computer use turns on and withdraws them when it
     }),
   );
   onTestFinished(config.remove);
-  onTestFinished(async () => {
-    const shutdown = hooks.get("session_shutdown");
-    if (typeof shutdown === "function") await Reflect.apply(shutdown, undefined, []);
-  });
-  await registerAcePiExtension(pi, { ACE_PI_SESSION_FILE: config.path });
-  expect(active).toEqual(["read", "bash", "ace_status"]);
+  onTestFinished(host.shutdown);
+  await host.start((pi) => registerAcePiExtension(pi, { ACE_PI_SESSION_FILE: config.path }));
+  expect(host.errors).toEqual([]);
+  expect(host.active()).toEqual(["read", "bash", "ace_status"]);
   const refresh = async (mutate: () => void) => {
     const next = Promise.withResolvers<void>();
     changed = next.resolve;
@@ -254,10 +220,39 @@ test("Pi adds screen tools when computer use turns on and withdraws them when it
   await refresh(() => {
     enabled = true;
   });
-  expect(active).toEqual(["read", "bash", "ace_status", "screen_open_app", "screen_type"]);
-  expect(registered.has("screen_open_app")).toBe(true);
+  expect(host.active()).toEqual(["read", "bash", "ace_status", "screen_open_app", "screen_type"]);
+  expect(host.tools.has("screen_open_app")).toBe(true);
   await refresh(() => {
     enabled = false;
   });
-  expect(active).toEqual(["read", "bash", "ace_status"]);
+  expect(host.active()).toEqual(["read", "bash", "ace_status"]);
+});
+
+test("Pi still starts with ace's commands when ace's tool server is unreachable, reporting the failure at session start", async () => {
+  const closed = await startMcpServer({
+    registry: new ToolRegistry({ scheduler: nodeScheduler }),
+    credentials: new CredentialRegistry(() => "e".repeat(64)),
+  });
+  const url = closed.url;
+  await closed.close();
+  const host = createPiExtensionHost({ activeTools: ["read"] });
+  const config = privateMcpConfig(
+    JSON.stringify({ controlSecret: "a".repeat(64), mcp: { url, bearer: "b".repeat(64) } }),
+  );
+  onTestFinished(config.remove);
+  onTestFinished(host.shutdown);
+  await host.start((pi) => registerAcePiExtension(pi, { ACE_PI_SESSION_FILE: config.path }));
+  expect(host.errors.map((error) => error.event)).toEqual(["session_start"]);
+  expect([...host.commands.keys()]).toEqual(["ace-rollback", "ace-context"]);
+  expect(host.active()).toEqual(["read"]);
+  const context = host.commands.get("ace-context");
+  if (!context) throw new Error("Missing ace context command");
+  await context.handler(`${"a".repeat(64)} ${Buffer.from("settled").toString("base64")}`, {
+    ui: { notify() {} },
+    async waitForIdle() {},
+    async navigateTree() {
+      return { cancelled: true };
+    },
+  });
+  expect(host.sent).toMatchObject([{ customType: "ace.delegation.settled", content: "settled" }]);
 });

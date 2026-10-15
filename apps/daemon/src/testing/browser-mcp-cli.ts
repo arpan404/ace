@@ -191,16 +191,23 @@ if (mode === "opencode") {
 } else if (mode === "pi") {
   const tools = new Map<string, Parameters<PiExtensionApi["registerTool"]>[0]>();
   const commands = new Set<string>();
+  const starts: unknown[] = [];
   await registerAcePiExtension({
     registerCommand(name) {
       commands.add(name);
     },
     appendEntry() {},
-    on() {},
+    on(event: string, handler: unknown) {
+      if (event === "session_start") starts.push(handler);
+    },
     registerTool(tool) {
       tools.set(tool.name, tool);
     },
   });
+  // Like Pi, start the session once the extension has loaded; ace's tools register then.
+  const session = { getContextUsage: () => undefined, ui: { notify() {} } };
+  for (const start of starts)
+    if (typeof start === "function") await Reflect.apply(start, undefined, [{}, session]);
   const browser = tools.get("ace_browser_open");
   const mcpProof = browser
     ? {
