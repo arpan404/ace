@@ -1,6 +1,6 @@
 import type { HelperHost } from "./helper-host.ts";
 import { z } from "zod";
-import { ScreenStreamSettings, type ScreenTarget, type ScreenAgentScope } from "@ace/protocol";
+import { ScreenStreamSettings, type ScreenTarget } from "@ace/protocol";
 import type { Frame, FrameSink } from "./frames.ts";
 import type { Session } from "./session.ts";
 import type { ScreenOptions } from "./options.ts";
@@ -10,7 +10,7 @@ import { readTree, findElements } from "./semantic.ts";
 type ObservationPorts = {
   host: HelperHost;
   live(id: string): Session;
-  authorize(target: ScreenTarget, scope?: ScreenAgentScope, humanView?: boolean): void;
+  authorize(target: ScreenTarget): void;
   releaseUnused(session: Session): void;
   options: ScreenOptions;
 };
@@ -61,7 +61,7 @@ export class SessionObservations {
   }
   screenshot(id: string): Frame {
     const session = this.live(id);
-    this.authorize(session.state.target, session.approvalScope, session.humanView);
+    this.authorize(session.state.target);
     if (!session.latest) throw new Error("No captured frame yet");
     return session.latest;
   }
@@ -71,7 +71,7 @@ export class SessionObservations {
   ): Promise<{ codec: "jpeg" | "h264" }> {
     const settings = ScreenStreamSettings.parse(raw);
     const session = this.live(id);
-    this.authorize(session.state.target, session.approvalScope, session.humanView);
+    this.authorize(session.state.target);
     if (
       session.helper.capabilities?.platform !== "macos" ||
       !session.helper.capabilities.codecs.includes("h264")
@@ -83,13 +83,13 @@ export class SessionObservations {
   }
   async requestKeyframe(id: string): Promise<void> {
     const session = this.live(id);
-    this.authorize(session.state.target, session.approvalScope, session.humanView);
+    this.authorize(session.state.target);
     if (session.helper.capabilities?.platform === "macos")
       await session.helper.request({ op: "stream.keyframe" });
   }
   async captureScreenshot(id: string): Promise<Frame> {
     const session = this.live(id);
-    this.authorize(session.state.target, session.approvalScope, session.humanView);
+    this.authorize(session.state.target);
     if (!session.helper.capabilities || session.helper.capabilities.platform.startsWith("linux"))
       return this.screenshot(id);
     const lease = session.pixels.acquire();
@@ -114,11 +114,11 @@ export class SessionObservations {
     owner?: string,
   ): Promise<T> {
     const session = this.live(id);
-    this.authorize(session.state.target, session.approvalScope);
+    this.authorize(session.state.target);
     const epoch = session.epoch;
     const originalOwner = session.owner;
     const validate = () => {
-      this.authorize(session.state.target, session.approvalScope);
+      this.authorize(session.state.target);
       if (session.epoch !== epoch || (owner !== undefined && session.owner !== originalOwner))
         throw new Error("Controller ownership changed during UI read");
       if (session.state.lifecycle !== "live") throw new Error("Screen session is not live");

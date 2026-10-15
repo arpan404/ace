@@ -110,10 +110,13 @@ it.skipIf(!executablePath)(
   },
 );
 it.skipIf(!executablePath)(
-  "uploads use workspace files and require approval for outside paths",
+  "an embedder's upload hook can refuse outside paths, while workspace files and known artifacts upload",
   async () => {
     const priorArtifacts = new Set<string>();
-    const f = await setup({ artifactAllowed: (_thread, path) => priorArtifacts.has(path) });
+    const f = await setup({
+      artifactAllowed: (_thread, path) => priorArtifacts.has(path),
+      uploadPolicy: () => false,
+    });
     await writeFile(join(f.home, "upload.txt"), "upload-content");
     const fileRef = ref(await f.execute({ action: "snapshot" }), "File");
     await f.execute({ action: "upload", ref: fileRef, files: ["upload.txt"] });
@@ -125,11 +128,11 @@ it.skipIf(!executablePath)(
     cleanups.push(() => rm(outside, { recursive: true, force: true }));
     await expect(
       f.execute({ action: "upload", ref: fileRef, files: [join(outside, "outside.txt")] }),
-    ).rejects.toThrow(/denied/);
+    ).rejects.toMatchObject({ code: "denied" });
     await symlink(join(outside, "outside.txt"), join(f.home, "linked.txt"));
     await expect(
       f.execute({ action: "upload", ref: fileRef, files: ["linked.txt"] }),
-    ).rejects.toThrow(/denied/);
+    ).rejects.toMatchObject({ code: "denied" });
     priorArtifacts.add(join(outside, "outside.txt"));
     await f.execute({ action: "upload", ref: fileRef, files: [join(outside, "outside.txt")] });
     expect(await f.evaluate("document.querySelector('[type=file]').files[0].name")).toBe(

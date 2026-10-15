@@ -49,7 +49,6 @@ const approvalTools: Record<string, string> = {
   multiedit: "File change",
   notebookedit: "File change",
   "codex-permissions-escalation": "Permission escalation",
-  screen_request_app: "App access",
   screen_request_foreground: "Foreground control",
   "browser.evaluate": "Page script",
   "browser.downloads": "Download",
@@ -195,7 +194,7 @@ export interface StepLabels {
   mcp(server: string, tool: string, args?: unknown): ToolLabel;
   named(kind: string, title: string): ToolLabel;
   approval(
-    interaction: Pick<Interaction, "state" | "request" | "resolution" | "review" | "autoReviewed">,
+    interaction: Pick<Interaction, "state" | "request" | "resolution" | "autoReviewed">,
     answering?: string,
   ): ApprovalOutcome;
   /** A failure's reason, short enough for the row's note. */

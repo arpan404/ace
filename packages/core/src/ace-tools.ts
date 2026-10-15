@@ -21,7 +21,6 @@ const screen = new Set([
   "ui_find",
   "ui_act",
   "measure_interaction",
-  "request_app",
   "open_app",
   "request_foreground",
 ]);

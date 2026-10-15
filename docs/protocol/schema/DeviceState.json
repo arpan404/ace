@@ -2,9 +2,6 @@
   "$id": "https://ace.local/protocol/v1/DeviceState.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "approved": {
-      "type": "boolean"
-    },
     "booting": {
       "type": "boolean"
     },
@@ -77,7 +74,6 @@
   "required": [
     "device",
     "enabled",
-    "approved",
     "lifecycle",
     "controller"
   ],

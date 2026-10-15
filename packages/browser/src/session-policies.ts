@@ -30,12 +30,10 @@ export function sessionPolicies(
               gate.run(
                 policySignal,
                 () => config.originPolicy?.({ ...originRequest, signal: policySignal }) ?? false,
-                config.origins ? 65_000 : 10_000,
               )
           : undefined,
         {
           ...originContext,
-          manageLoopback: config.origins !== undefined,
           human: originContext.human ?? session?.initiatingHuman() ?? false,
         },
       );
@@ -61,21 +59,15 @@ export function sessionPolicies(
     "navigatePolicy" | "evaluatePolicy" | "artifactAllowed" | "workspaceRoot" | "uploadPolicy"
   > = {
     navigatePolicy: (url, actor, commandSignal) => {
-      config.onNavigation?.(options.threadId);
       const navigationSignal = commandSignal ? AbortSignal.any([signal, commandSignal]) : signal;
       return allowedOrigin(
         options.threadId,
         url,
         config.originPolicy
           ? (originRequest) =>
-              gate.run(
-                navigationSignal,
-                () => config.originPolicy?.(originRequest) ?? false,
-                config.origins ? 65_000 : 10_000,
-              )
+              gate.run(navigationSignal, () => config.originPolicy?.(originRequest) ?? false)
           : undefined,
         {
-          manageLoopback: config.origins !== undefined,
           human: actor.kind === "human",
           navigation: true,
           signal: navigationSignal,
@@ -135,11 +127,9 @@ export function sessionPolicies(
   return {
     allowed,
     session,
-    downloadAllowed: (url: string) =>
-      gate.run(
-        signal,
-        () => config.downloadPolicy?.(options.threadId, url, signal) ?? false,
-        65_000,
-      ),
+    downloadAllowed: async (url: string) => {
+      const policy = config.downloadPolicy;
+      return !policy || gate.run(signal, () => policy(options.threadId, url, signal), 65_000);
+    },
   };
 }

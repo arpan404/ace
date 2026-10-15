@@ -25,8 +25,8 @@ export interface DeviceSession {
   tail: Promise<void>;
   pending: number;
   generation: number;
-  approvalEpoch: number;
-  changingApproval: boolean;
+  bindingEpoch: number;
+  changingBinding: boolean;
   startup?: { controller: AbortController; capture: Promise<DeviceCapture | undefined> };
   recordingRelease?: Promise<void>;
   recordingOpening?: Promise<Recording>;
@@ -53,8 +53,8 @@ export function createSession(
     pending: 0,
     generation: 0,
     controlRevision: 0,
-    approvalEpoch: 0,
-    changingApproval: false,
+    bindingEpoch: 0,
+    changingBinding: false,
     recordingStarting: false,
   };
 }

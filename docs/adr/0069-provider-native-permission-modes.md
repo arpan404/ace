@@ -2,6 +2,8 @@
 
 Date: 2026-10-07. Status: accepted by owner decision; superseded in part by [ADR 0078](0078-unified-access-modes.md).
 
+Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provider-native (owner decision). Section "ace tools and credentials remain separate" no longer holds: ace keeps no consent path of its own for its MCP tools and never answers a provider's approval for them.
+
 This supersedes [ADR 0061](0061-permission-modes.md)'s ace-wide permission modes,
 default, reviewer, enforcement guarantees, synthetic tool gates and parent
 permission ordering. The owner asked ace to use each provider's own modes and

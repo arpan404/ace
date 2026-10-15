@@ -6,7 +6,7 @@ import { exploreAction } from "./explore-command.ts";
 /*
  * A work log's steps as rows: consecutive tool calls by one agent group into one summary row
  * ("Edited 2 files · ran 1 command"), exploration alone into "Explored 3 files · 2 searches".
- * What the agent says between steps, an image it showed and ace's review of a step stand alone
+ * What the agent says between steps and an image it showed stand alone
  * and end the group before them. Appending a step regroups only the last group, so a live log
  * costs what changed, not its history. Pure.
  */

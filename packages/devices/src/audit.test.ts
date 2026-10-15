@@ -132,7 +132,6 @@ it("congested device pushes coalesce without losing replies or closing the conne
       state: "booted" as const,
     },
     enabled: true,
-    approved: false,
     lifecycle: "live" as const,
     controller: "none" as const,
   };

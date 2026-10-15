@@ -1,4 +1,4 @@
-import { ApprovalTarget, PermissionReview } from "./permissions.ts";
+import { ApprovalTarget } from "./permissions.ts";
 import { z } from "zod";
 import { AgentId, DeviceId, InteractionId, ItemId, ThreadId, Timestamp } from "./ids.ts";
 import { RawPayload } from "./provider.ts";
@@ -109,7 +109,6 @@ export const Interaction = z.object({
    */
   blocking: z.boolean(),
   request: InteractionRequest,
-  review: PermissionReview.optional(),
   state: InteractionState,
   expirationReason: z.literal("provider_disconnected").optional(),
   resolution: InteractionResolution.optional(),

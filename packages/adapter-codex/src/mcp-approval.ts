@@ -6,7 +6,7 @@ import type { InteractionResolution } from "@ace/protocol";
  * Codex asks before an MCP tool call with an `mcpServer/elicitation/request` whose `_meta` names
  * it an MCP tool approval and lists the scopes it can remember (`persist`). It is a yes/no
  * approval, not a form: ace shows it as one, so the person can allow the tool for the rest of
- * the thread, and ace's own consent review sees which tool of which server is asking.
+ * the thread, and the request names which tool of which server is asking.
  */
 
 const Persist = z.union([z.enum(["session", "always"]), z.array(z.string()).max(8)]);

@@ -48,16 +48,10 @@ export type { OneWayMessage } from "./one-way.ts";
 export { AccessClient } from "./access.ts";
 export type { AccessOptions } from "./access.ts";
 export { accessResponseError } from "./access-http.ts";
-export {
-  PermissionClient,
-  threadPermission,
-  accessModes,
-  permissionReview,
-} from "./permissions.ts";
+export { PermissionClient, threadPermission, accessModes } from "./permissions.ts";
 export { oppositeFollowUpBehavior } from "./follow-up.ts";
 
 export { BrowserFeaturesClient } from "./browser-features.ts";
-export { BrowserOriginsClient } from "./browser-origins.ts";
 export { DeviceClient, DeviceClientError } from "@ace/devices/client";
 export type {
   DeviceClientSnapshot,

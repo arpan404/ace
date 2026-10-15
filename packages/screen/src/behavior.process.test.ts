@@ -14,7 +14,6 @@ const caller = { threadId: "thread", agentId: "agent" };
 it("opening an app selects its focused usable window and lists alternatives", async () => {
   const h = await fixture({ NOT_READY_QUERIES: "2" });
   await h.screen.enable(true);
-  await h.screen.approve(target.bundleId, true);
   const state = await h.screen.openAgentApp(target.bundleId, caller, new AbortController().signal);
   expect(state.target).toEqual({ kind: "window", bundleId: target.bundleId, windowId: 2 });
   expect(state.windows.map((window) => window.windowId)).toEqual([1, 2]);
@@ -33,7 +32,6 @@ it("opening an app selects its focused usable window and lists alternatives", as
 it("ambiguous app acquisition reports candidate windows before dispatch", async () => {
   const h = await fixture({ AMBIGUOUS: "1" });
   await h.screen.enable(true);
-  await h.screen.approve(target.bundleId, true);
   await expect(
     h.screen.openAgentApp(target.bundleId, caller, new AbortController().signal),
   ).rejects.toMatchObject({
@@ -58,7 +56,6 @@ it.each(["text.type", "text.paste"] as const)(
     const h = await fixture({ ACTION_GATE_PORT: gate.port });
     const first = await ready(h.screen);
     const other = "dev.ace.other";
-    await h.screen.approve(other, true);
     const second = await h.screen.start({ ...target, bundleId: other });
     h.screen.controller(first.sessionId, "agent", "agent");
     h.screen.controller(second.sessionId, "agent", "agent");
@@ -159,7 +156,6 @@ it("a late permission inspection cannot overwrite a newer TCC revocation", async
 it("helpers without a window resolver report ambiguity and accept an explicit acquisition", async () => {
   const h = await fixture({ LEGACY_HELPER: "1" });
   await h.screen.enable(true);
-  await h.screen.approve(target.bundleId, true);
   await expect(
     h.screen.openAgentApp(target.bundleId, caller, new AbortController().signal),
   ).rejects.toMatchObject({ code: "window_ambiguous" });

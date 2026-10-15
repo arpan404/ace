@@ -20,7 +20,7 @@ type LifecyclePorts = {
   host: HelperHost;
   sessions: Map<string, Session>;
   policy: ScreenPolicy;
-  authorize(target: ScreenTarget, scope?: ScreenAgentScope, humanView?: boolean): void;
+  authorize(target: ScreenTarget): void;
   emit(session: Session): void;
   nextGeneration(): number;
 };
@@ -80,7 +80,7 @@ export class TargetSessions {
     humanView = false,
   ): Promise<ScreenState> {
     const target = ScreenTarget.parse(input);
-    this.authorize(target, scope, humanView);
+    this.authorize(target);
     if (!Number.isInteger(fps) || fps < 1 || fps > 60) throw new Error("Invalid frame rate");
     const selectedBundles = bundles(target);
     for (const bundle of selectedBundles) {
@@ -143,13 +143,12 @@ export class TargetSessions {
         },
         this.nextGeneration,
       );
-      session.approvalScope = scope;
       session.humanView = humanView;
       this.sessions.set(id, session);
       session.state.permissions = await helper.permissions();
       if (!session.state.permissions.screenRecording)
         throw new HelperCommandError("permission_denied", "Screen Recording permission denied");
-      this.authorize(target, scope, humanView);
+      this.authorize(target);
       if (epoch !== this.policy.epoch) throw new Error("Screen policy changed during start");
       session.state = { ...session.state, indicator: helper.capabilities?.platform !== "macos" };
       this.emit(session);
@@ -166,7 +165,7 @@ export class TargetSessions {
       const startingSession = session,
         startingHelper = helper;
       const validateStart = () => {
-        this.authorize(target, scope, humanView);
+        this.authorize(target);
         if (epoch !== this.policy.epoch || startingSession.state.lifecycle !== "starting")
           throw new Error("Screen start cancelled");
       };
@@ -191,7 +190,7 @@ export class TargetSessions {
           }
         }
       });
-      this.authorize(target, scope, humanView);
+      this.authorize(target);
       if (epoch !== this.policy.epoch || session.state.lifecycle !== "starting")
         throw new Error("Screen start cancelled");
       session.state = {

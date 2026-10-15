@@ -1,4 +1,4 @@
-import { AppDevice, DeviceState, ThreadId } from "@ace/protocol";
+import { AppDevice, DeviceState } from "@ace/protocol";
 import { expect, test } from "vitest";
 import {
   deviceProblem,
@@ -27,7 +27,6 @@ const state = (extra: Partial<DeviceState> = {}) =>
   DeviceState.parse({
     device: iphone,
     enabled: true,
-    approved: false,
     lifecycle: "idle",
     controller: "none",
     ...extra,
@@ -42,20 +41,6 @@ test("the list shows iOS then Android, running devices first, with runtime and s
   ]);
 });
 
-test("a device approved for another thread says so, and approval here is separate", () => {
-  const here = ThreadId.parse("thread-here");
-  const other = deviceControls(
-    iphone,
-    state({ approved: true, threadId: ThreadId.parse("x") }),
-    here,
-    0,
-  );
-  const mine = deviceControls(iphone, state({ approved: true, threadId: here }), here, 0);
-
-  expect([other.approvedHere, other.approvedElsewhere]).toEqual([false, true]);
-  expect([mine.approvedHere, mine.approvedElsewhere]).toEqual([true, false]);
-});
-
 test("control is yours only until the lease runs out", () => {
   const leased = state({
     lifecycle: "live",
@@ -64,21 +49,21 @@ test("control is yours only until the lease runs out", () => {
     leaseExpiresAt: 10_000,
   });
 
-  const during = deviceControls(iphone, leased, "t", 4_000);
+  const during = deviceControls(iphone, leased, 4_000);
   expect(during.inControl).toBe(true);
   expect(during.status).toBe("Live · You're in control");
   expect(leaseLeft(during.leaseLeftMs)).toBe("0:06");
 
-  const after = deviceControls(iphone, leased, "t", 10_000);
+  const after = deviceControls(iphone, leased, 10_000);
   expect(after.inControl).toBe(false);
   expect(after.status).toBe("Live · Your control ended");
 });
 
 test("an agent driving the device is named in the status", () => {
-  expect(deviceControls(iphone, state({ controller: "agent" }), "t", 0).status).toBe(
+  expect(deviceControls(iphone, state({ controller: "agent" }), 0).status).toBe(
     "Running · The agent is in control",
   );
-  expect(deviceControls(pixel, undefined, "t", 0).status).toBe("Off");
+  expect(deviceControls(pixel, undefined, 0).status).toBe("Off");
 });
 
 test("a pointer on a frame drawn at half size lands on the matching device point", () => {

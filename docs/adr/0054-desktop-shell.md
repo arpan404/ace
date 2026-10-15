@@ -2,6 +2,8 @@
 
 Date: 2026-10-03. Status: proposed.
 
+Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provider-native (owner decision). The thread browser origin consent section below (approvals, thread grants, the global allowlist) is removed: agent navigation to any http(s) origin proceeds. Human takeover and private mode still pause the agent.
+
 ## Context
 
 ADR 0045 makes Electron a thin shell around the web bundle. ADR 0003 says Electron's own Node runs the daemon, so the desktop app needs no extra runtime. ADR 0041 later planned for Electron to launch the standalone release archive, with its vendored Node, as a child process. The owner asked for one self-contained desktop app: it starts or reuses the daemon by itself and bundles every native piece the daemon needs. The app also adds native notifications, OS integration and an in-app browser that agents drive.

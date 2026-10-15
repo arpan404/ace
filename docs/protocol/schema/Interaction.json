@@ -40,9 +40,6 @@
     "resolvedBy": {
       "$ref": "https://ace.local/protocol/v1/DeviceId.json"
     },
-    "review": {
-      "$ref": "https://ace.local/protocol/v1/PermissionReview.json"
-    },
     "state": {
       "$ref": "https://ace.local/protocol/v1/InteractionState.json"
     },

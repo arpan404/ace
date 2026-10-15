@@ -155,9 +155,7 @@ export class FakeSettings {
               ? `thread:${layer.threadId}`
               : `workspace:${layer.workspaceId}`;
         if (
-          (key.data === "browser.allowedOrigins" ||
-            key.data === "providers.configuration" ||
-            key.data === "projects.roots") &&
+          (key.data === "providers.configuration" || key.data === "projects.roots") &&
           layer.kind !== "global"
         )
           return {

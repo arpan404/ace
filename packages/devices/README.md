@@ -16,18 +16,21 @@ There is no provider login or credential handling here.
 - `@ace/devices/client` exports a portable `DeviceClient` with an injected
   transport, request IDs and scheduler. It accepts JSON control messages and
   binary chunks, including fragmented relay packets.
-  The React Devices tab owns the live view, gestures, approval, lifecycle, logs and
+  The React Devices tab owns the live view, gestures, lifecycle, logs and
   recording controls. `@ace/client` exposes `DeviceClient`, `deviceTransport`,
   `authenticatedChannel` and `downloadArtifact` for web and native hosts.
 
 ## Authorization and transport
 
-An authenticated admin enables devices and approves each device for a thread.
-Only a human can grant a controller lease to a specific agent. Input uses target
+An authenticated admin turns devices on. A device belongs to the thread whose agent or
+person took it last: `device_boot` and `device_start` take it for the agent's thread and
+give that agent the controller lease with no prompt, unless a person controls it or another
+agent holds an unexpired lease. A person can also hand it to one of a thread's agents.
+Moving a device to another thread starts fresh logs and recordings. Input uses target
 points, with `frame.scale` converting display pixels to those points. Control
 expires after 30 seconds without an action. Queued actions retain their ticket until
-completion. Agents can resume their expired delegation on the next action; explicit
-release, revocation and takeover invalidate it. Human takeover invalidates pending
+completion. Agents can resume their expired lease on the next action; explicit
+release and takeover invalidate it, and the agent takes it again with `device_start`. Human takeover invalidates pending
 agent commands, including commands awaiting SDK lookup or permission checks.
 An already dispatched native command can finish; the next command must pass the
 new ownership checks. Disconnect and credential revocation release control.
@@ -49,7 +52,7 @@ tools are `device_list`, `device_boot`, `device_open_app`, `device_open_url`,
 `device_record_stop` and `device_install`. A tap with `durationMs` is a long press.
 Logs start on the first authorized `device_logs` request and return a bounded
 tail. Tools take no thread or agent override. Agent screenshots require the
-human-approved device stream to be live.
+device stream to be live.
 
 ## SDKs and supported operations
 
@@ -67,7 +70,7 @@ Identical decoded images are suppressed and the finite screenrecord process
 restarts at its native boundary. Actual image compatibility, latency and CPU
 cost require live verification at merge. No emulator gRPC endpoint is assumed.
 
-iOS capture and semantic actions use the approved Simulator window through the
+iOS capture and semantic actions use the Simulator window through the
 macOS helper. Set `ACE_SCREEN_HELPER` and grant Screen Recording and Accessibility
 to **Ace Screen Helper** (the helper disclaims its launcher, so the grants belong
 to its stable `dev.ace.screen-helper` identity). A missing permission fails with
@@ -76,9 +79,9 @@ helper's state from a fresh process and `permissions.request` (human only) shows
 macOS's prompt and opens the matching Privacy & Security pane on the daemon's
 Mac. Capture finds the device's Simulator window even on another Space, and opens
 Simulator in the background when the window is missing. Its name must match
-uniquely, and no other booted Simulator may share that name. A person starting a
-live view approves the Simulator window for capture; agents still need the
-device approved for their thread. Boot and shutdown re-read the inventory, and
+uniquely, and no other booted Simulator may share that name. Simulator windows
+belong to the Devices switch, so capture works with computer use off. Boot and
+shutdown re-read the inventory, and
 while a Devices view holds an `inventory.watch` lease the inventory is re-read every few seconds
 and pushed as `devices.inventory`, so a device booted elsewhere shows up. Enabling or disabling
 devices is pushed to every connection as `devices.enabled`. The screen manager currently owns one native capture,

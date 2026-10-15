@@ -10,8 +10,7 @@ import {
 } from "@ace/protocol";
 import type { ScreenTransport } from "@ace/client/screen-stream";
 import type { FakeServiceContext } from "./service-context.ts";
-import { FakeScreenAccess, FakeScreenError } from "./screen-access.ts";
-import { FakeScreenApprovals } from "./screen-approvals.ts";
+import { FakeScreenError } from "./screen-error.ts";
 import { fakeScreenFrame } from "./screen-frame.ts";
 
 type Channel = {
@@ -22,7 +21,6 @@ type Session = {
   state: ScreenState;
   scope?: ScreenAgentScope | undefined;
   owner?: Channel | undefined;
-  modeApproval?: AbortController | undefined;
 };
 export interface FakeScreenOptions {
   host: FakeServiceContext;
@@ -30,7 +28,7 @@ export interface FakeScreenOptions {
   schedule(callback: () => void, delay: number): () => void;
   permissions?: ScreenPermissions;
 }
-/** Fake desktop targets share the real wire states, scopes, approvals and frame format. */
+/** Fake desktop targets share the real wire states, scopes and frame format. */
 export class FakeScreen {
   readonly permissions: ScreenPermissions;
   /**
@@ -44,8 +42,8 @@ export class FakeScreen {
    */
   stopAllHold: { until: Promise<void>; failure?: string } | undefined;
   readonly requested: ("screenRecording" | "accessibility")[] = [];
-  readonly access: FakeScreenAccess;
-  readonly approvals: FakeScreenApprovals;
+  /** The person's computer use switch. */
+  enabled = false;
   private readonly options: FakeScreenOptions;
   private readonly sessions = new Map<string, Session>();
   private readonly channels = new Set<Channel>();
@@ -53,28 +51,9 @@ export class FakeScreen {
   constructor(options: FakeScreenOptions) {
     this.options = options;
     this.permissions = options.permissions ?? { screenRecording: true, accessibility: true };
-    this.access = new FakeScreenAccess(options.host.now, options.host.thread);
-    this.approvals = new FakeScreenApprovals({ ...options, access: this.access });
   }
-  revalidate(): void {
-    for (const session of this.sessions.values()) {
-      try {
-        for (const bundle of this.bundles(session.state))
-          this.access.require(bundle, session.scope);
-      } catch {
-        this.stop(session);
-      }
-    }
-  }
-  requestApp(
-    bundleId: string,
-    reason: string,
-    caller: ScreenAgentScope,
-    signal?: AbortSignal,
-  ): Promise<void> {
-    return this.approvals
-      .requestApp(bundleId, reason, caller, signal)
-      .finally(() => this.revalidate());
+  private requireEnabled(): void {
+    if (!this.enabled) throw new FakeScreenError("screen_disabled", "Screen access is disabled");
   }
   /** Main socket controls and dedicated frame sockets see the same shared world. */
   connection(send: Channel["send"]): {
@@ -171,9 +150,6 @@ export class FakeScreen {
     holder?: ScreenAgentScope,
     owner?: Channel,
   ): ScreenState {
-    session.modeApproval?.abort(
-      new FakeScreenError("denied", "Controller changed during approval"),
-    );
     session.owner = controller === "human" ? owner : undefined;
     session.scope = holder ?? session.scope;
     session.state = {
@@ -194,8 +170,8 @@ export class FakeScreen {
     for (const channel of this.channels) channel.subscriptions.delete(session.state.sessionId);
   }
   enable(enabled: boolean): void {
-    const changed = this.access.enabled !== enabled;
-    this.access.enabled = enabled;
+    const changed = this.enabled !== enabled;
+    this.enabled = enabled;
     if (changed) this.push({ type: "screen.enabled", enabled });
     if (!enabled) for (const session of this.sessions.values()) this.stop(session);
   }
@@ -211,8 +187,8 @@ export class FakeScreen {
       case "status":
         this.readablePermissions();
         return {
-          enabled: this.access.enabled,
-          permissions: this.access.enabled
+          enabled: this.enabled,
+          permissions: this.enabled
             ? { ...this.permissions }
             : { screenRecording: false, accessibility: false },
           sessions: this.sessions.size,
@@ -223,20 +199,6 @@ export class FakeScreen {
       case "permissions.request":
         this.requested.push(op.permission);
         return { ...this.permissions };
-      case "approve": {
-        this.access.approve(op.bundleId, op.allowed, op.scope, op.threadId);
-        if (!op.allowed)
-          for (const session of this.sessions.values())
-            if (
-              this.bundles(session.state).some(
-                (bundle) => !this.access.allows(bundle, session.scope),
-              )
-            )
-              this.stop(session);
-        return;
-      }
-      case "approvals":
-        return this.access.list(op.threadId);
       case "sessions":
         return [...this.sessions.values()].map((session) => ScreenState.parse(session.state));
       case "stop.all": {
@@ -257,12 +219,12 @@ export class FakeScreen {
           ],
         });
       case "open.app":
-        this.access.require(op.bundleId);
+        this.requireEnabled();
         return { bundleId: op.bundleId, pid: 101, mode: "background" };
       case "start": {
         const scope = op.threadId ? { threadId: op.threadId, agentId: "human" } : undefined;
         const bundles = op.target.kind === "display" ? op.target.bundleIds : [op.target.bundleId];
-        for (const bundle of bundles) this.access.require(bundle, scope);
+        this.requireEnabled();
         if (!this.permissions.screenRecording)
           throw new FakeScreenError("permission_denied", "Screen Recording permission required");
         for (const session of this.sessions.values())
@@ -296,7 +258,6 @@ export class FakeScreen {
       case "simulators":
         return [];
       case "simulator.boot":
-        this.access.require("com.apple.iphonesimulator");
         return;
       case "capabilities":
         throw new FakeScreenError("not_supported", "Native capabilities unavailable in fake mode");
@@ -311,14 +272,13 @@ export class FakeScreen {
       return;
     }
     if (op.op === "controller" && op.controller === "none") return this.controller(session, "none");
-    for (const bundle of this.bundles(session.state)) this.access.require(bundle, session.scope);
+    this.requireEnabled();
     switch (op.op) {
       case "controller": {
         if (op.controller === "agent") {
           if (!op.threadId || !op.agentId)
             throw new FakeScreenError("denied", "Agent id and thread required");
           const holder = { threadId: op.threadId, agentId: op.agentId };
-          for (const bundle of this.bundles(session.state)) this.access.require(bundle, holder);
           if (
             session.state.controller === "agent" &&
             JSON.stringify(session.state.holder) !== JSON.stringify(holder)
@@ -335,23 +295,9 @@ export class FakeScreen {
         }
         return this.controller(session, "human", undefined, channel);
       }
-      case "mode": {
-        const before = session.state;
-        session.modeApproval?.abort(new FakeScreenError("denied", "Mode changed during approval"));
-        if (op.mode === "foreground") {
-          const approval = new AbortController();
-          session.modeApproval = approval;
-          try {
-            await this.approvals.foreground(before, op.reason, approval.signal);
-          } finally {
-            if (session.modeApproval === approval) session.modeApproval = undefined;
-          }
-        }
-        if (!this.sessions.has(op.sessionId) || session.state !== before)
-          throw new FakeScreenError("denied", "Controller changed during approval");
+      case "mode":
         session.state = { ...session.state, mode: op.mode };
         return this.publish(session);
-      }
       case "secure.input":
         session.state = { ...session.state, secureInputAllowed: op.allowed };
         return this.publish(session);

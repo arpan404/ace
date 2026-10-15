@@ -1,8 +1,8 @@
 import { expect, it } from "vitest";
-import { originFixture } from "./browser-origin-test-support.ts";
+import { browserFixture } from "./browser-service-test-support.ts";
 
 it("reconstructing daemon services without a handback restores connected private ownership", async () => {
-  const original = await originFixture();
+  const original = await browserFixture();
   const threadId = original.thread.id;
   await original.browser.closeThread(threadId);
   await original.browser.open({
@@ -24,7 +24,7 @@ it("reconstructing daemon services without a handback restores connected private
   });
   // Reconstruct from the same SQLite file before any disconnect/close/handback cleanup.
   // This is the durable boundary an unclean process stop leaves behind; no gate is manufactured.
-  const recovered = await originFixture("ask", original.home);
+  const recovered = await browserFixture("ask", original.home);
   expect(recovered.browser.state(threadId)).toMatchObject({
     controller: "none",
     takeoverMode: "private",

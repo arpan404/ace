@@ -34,7 +34,6 @@ const screens: Record<string, Setup> = {
   "settings-computer-use": async (page) => {
     await page.goto("/settings/computer-use");
     await expect(page.getByRole("heading", { name: "Computer use", level: 2 })).toBeVisible();
-    await expect(page.getByRole("article", { name: "TextEdit" })).toBeVisible();
   },
   "thread-computer-use-panel": async (page) => {
     await openTool(page, "/t/thread-cold-start", "Computer use");
@@ -45,13 +44,6 @@ const screens: Record<string, Setup> = {
     const indicator = page.getByRole("button", { name: /Agents are using/ });
     await indicator.click({ timeout: 15_000 });
     await expect(page.getByRole("button", { name: /^Stop / }).first()).toBeVisible();
-  },
-  "approval-app-request": async (page) => {
-    await page.goto("/t/thread-dedupe");
-    await expect(page.getByRole("article", { name: "Let an agent use Notes" })).toBeVisible({
-      timeout: 15_000,
-    });
-    await page.getByRole("article", { name: "Let an agent use Notes" }).scrollIntoViewIfNeeded();
   },
   "browser-tabs-dialog": async (page) => {
     await openTool(page, "/t/thread-cold-start", /^Browser|^localhost|^status/);
@@ -65,11 +57,6 @@ const screens: Record<string, Setup> = {
       .getByRole("button", { name: /^Downloads/ })
       .click();
     await expect(page.getByRole("list", { name: "Downloads" })).toBeVisible();
-  },
-  "browser-site-access": async (page) => {
-    await openTool(page, "/t/thread-cold-start", /^Browser|^localhost|^status/);
-    await panel(page).getByRole("button", { name: "Site access" }).click();
-    await expect(page.getByRole("region", { name: "Read-only scripts" })).toBeVisible();
   },
   "browser-private": async (page) => {
     await openTool(page, "/t/thread-cold-start", /^Browser|^localhost|^status/);

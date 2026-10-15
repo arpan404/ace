@@ -26,7 +26,6 @@
     "providers.planner.model",
     "providers.planner.tier",
     "providers.planner.reasoningEffort",
-    "browser.allowedOrigins",
     "browser.backend",
     "browser.backendLoss",
     "browser.profile",

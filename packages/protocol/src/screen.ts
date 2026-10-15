@@ -82,15 +82,6 @@ export const ScreenOpenedApp = z.object({
   mode: z.literal("background"),
 });
 export type ScreenOpenedApp = z.infer<typeof ScreenOpenedApp>;
-export const ScreenGrantScope = z.enum(["turn", "thread", "always"]);
-export const ScreenGrant = z.object({
-  bundleId: ScreenBundle,
-  scope: ScreenGrantScope,
-  threadId: ScreenAgentScope.shape.threadId.optional(),
-  turnId: z.string().max(256).optional(),
-  grantedAt: z.number(),
-});
-export type ScreenGrant = z.infer<typeof ScreenGrant>;
 export const ScreenState = z.object({
   sessionId: ScreenId,
   lifecycle: z.enum(["starting", "live", "stopping", "stopped", "failed"]),
@@ -155,21 +146,8 @@ export type ScreenStatus = z.infer<typeof ScreenStatus>;
 export const ScreenOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("enable"), enabled: z.boolean() }),
   z.object({ op: z.literal("status") }),
-  z.object({
-    op: z.literal("approve"),
-    bundleId: ScreenBundle,
-    allowed: z.boolean(),
-    scope: ScreenGrantScope.optional(),
-    threadId: ScreenAgentScope.shape.threadId.optional(),
-  }),
-  z.object({ op: z.literal("approvals"), threadId: ScreenAgentScope.shape.threadId.optional() }),
   z.object({ op: z.literal("stop.all") }),
-  z.object({
-    op: z.literal("mode"),
-    sessionId: ScreenId,
-    mode: ScreenMode,
-    reason: z.string().max(2048).optional(),
-  }),
+  z.object({ op: z.literal("mode"), sessionId: ScreenId, mode: ScreenMode }),
   z.object({ op: z.literal("secure.input"), sessionId: ScreenId, allowed: z.boolean() }),
   z.object({ op: z.literal("open.app"), bundleId: ScreenBundle }),
   z.object({ op: z.literal("permissions") }),

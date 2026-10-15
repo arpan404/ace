@@ -7,7 +7,6 @@ import {
   type ScreenTransport,
 } from "@ace/client/screen-stream";
 import {
-  ScreenGrant,
   ScreenPermissions,
   ScreenStatus,
   type ScreenAgentScope,
@@ -64,7 +63,6 @@ export interface ScreenSession {
   /** Read enablement, permissions and the session list again (after a reconnect). */
   refresh(): Promise<void>;
   request(operation: ScreenOperation, timeoutMs?: number): Promise<unknown>;
-  grants(threadId?: string): Promise<ScreenGrant[]>;
   /** The agent that held a session before you took it over, to hand it back to. */
   lastHolder(sessionId: string): ScreenAgentScope | undefined;
   watchFrames: ScreenStreamClient["watchFrames"];
@@ -189,11 +187,6 @@ function openSession(endpoint: DaemonEndpoint): ScreenSession {
         );
       }
       return result;
-    },
-    async grants(threadId) {
-      return ScreenGrant.array()
-        .max(256)
-        .parse(await client.request({ op: "approvals", ...(threadId ? { threadId } : {}) }));
     },
     lastHolder: (sessionId) => holders.get(sessionId),
     watchFrames: (sessionId, listener) => client.watchFrames(sessionId, listener),

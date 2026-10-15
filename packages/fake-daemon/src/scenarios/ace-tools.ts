@@ -133,16 +133,6 @@ export function aceToolsComputerUse(): Scenario {
     message("root", "ask", "user", "Open Gmail in Safari and sign me in."),
     aceCall(
       "root",
-      "request",
-      "screen_request_app",
-      {
-        bundleId: safari,
-        reason: "Open Gmail for you",
-      },
-      json({ approved: true, bundleId: safari, mode: "background" }),
-    ),
-    aceCall(
-      "root",
       "open",
       "screen_open_app",
       { bundleId: safari },

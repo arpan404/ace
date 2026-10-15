@@ -61,7 +61,7 @@ for (const provider of ["claude", "codex", "opencode", "antigravity", "acp", "pi
       ],
       1,
     );
-    await features.approve(thread.id);
+    await features.handOver(thread.id);
     const discovery = {
       overrides: { codex: binary, claude: binary, opencode: binary },
     };

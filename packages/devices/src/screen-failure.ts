@@ -31,12 +31,6 @@ export function screenFailure(error: unknown): DeviceError | undefined {
       "Computer use is off",
       "Turn it on in Computer use, then try again.",
     );
-  if ("code" in error && error.code === "approval_required")
-    return new DeviceError(
-      "permission_denied",
-      "Simulator isn't shared with this thread",
-      "Approve this device for the thread, then try again.",
-    );
   if (
     ("code" in error && (error.code === "foreground_required" || error.code === "focus_changed")) ||
     /Target window is not focused|Captured window must be the application's focused window|Focused element is not an Accessibility window/.test(

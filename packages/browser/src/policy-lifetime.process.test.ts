@@ -37,7 +37,9 @@ describe.skipIf(!executablePath)("approval lifetime across threads", () => {
         action: "navigate",
         url: "https://example.invalid",
       });
-      const refused = expect(queued).rejects.toThrow("Browser origin requires approval");
+      const refused = expect(queued).rejects.toMatchObject({
+        blocked: { reason: "approval_required", origin: "https://example.invalid" },
+      });
       expect(approvals).toBe(32);
       uncooperative.resolve(false);
       await refused;

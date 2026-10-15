@@ -9,7 +9,7 @@ import { releaseControllerBinding } from "./controller-binding.ts";
 type ControlPorts = {
   sessions: Map<string, Session>;
   live(id: string): Session;
-  authorize(target: ScreenTarget, scope?: ScreenAgentScope): void;
+  authorize(target: ScreenTarget): void;
   paused(): boolean;
   emit(session: Session): void;
   releaseUnused(session: Session): void;
@@ -33,9 +33,8 @@ export class SessionControllers {
   delegateAgent(id: string, input: ScreenAgentScope): void {
     input = ScreenAgentScope.parse(input);
     const session = this.live(id);
-    this.authorize(session.state.target, input);
+    this.authorize(session.state.target);
     this.controller(id, "agent", agentOwner(input));
-    session.approvalScope = input;
     session.state = { ...session.state, holder: input };
     this.emit(session);
   }
@@ -63,7 +62,7 @@ export class SessionControllers {
     )
       throw new Error("Multiple app sessions; pass sessionId");
     session.controllerBinding?.authorize();
-    this.authorize(session.state.target, session.approvalScope);
+    this.authorize(session.state.target);
     return session.state.sessionId;
   }
   controller(
@@ -73,7 +72,7 @@ export class SessionControllers {
     binding?: ControllerBinding,
   ): void {
     const session = this.live(id);
-    delete session.frameAuthorization;
+    delete session.frameEpoch;
     if (controller === "agent" && session.humanView) throw new ScreenDelegationError();
     if (controller === "agent" && session.state.controller === "agent" && session.owner !== owner)
       throw new TargetBusyError(
@@ -120,7 +119,6 @@ export class SessionControllers {
     if (controller === "agent") {
       const scope = agentScope(owner);
       session.state = { ...session.state, holder: scope };
-      session.approvalScope = scope ?? session.approvalScope;
     }
     session.controllerBinding = controller === "none" ? undefined : binding;
     this.emit(session);

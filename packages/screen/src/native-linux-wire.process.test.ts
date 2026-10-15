@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { probeOutput } from "@ace/provider-kit/process";
 import { manager, target } from "./testing/support.ts";
-import { allowForeground } from "./testing/foreground.ts";
 // Build with cargo build --manifest-path native/screen-helper-linux/Cargo.toml --example wire_fixture.
 const fixture = new URL(
   "../../../native/screen-helper-linux/target/debug/examples/wire_fixture",
@@ -29,7 +28,6 @@ it.skipIf(!existsSync(fixture) && process.env.CI !== "true")(
       );
       try {
         await h.screen.enable(true);
-        await h.screen.approve(target.bundleId, true);
         const session = await h.screen.start(target);
         const tree = await h.screen.uiTree(session.sessionId, {});
         const root = tree.nodes[0];
@@ -43,7 +41,7 @@ it.skipIf(!existsSync(fixture) && process.env.CI !== "true")(
           (await h.screen.uiFind(session.sessionId, { query: { role: "entry" } })).nodes[0],
         ).toEqual(root);
         h.screen.controller(session.sessionId, "agent", "agent");
-        await allowForeground(h.screen, session.sessionId);
+        h.screen.mode(session.sessionId, "foreground");
         expect(
           await h.screen.uiAct(
             session.sessionId,

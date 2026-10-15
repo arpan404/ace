@@ -114,7 +114,6 @@ export function startMachines(context: ServiceContext): void {
   resources.onShutdown(() => children.close());
   caller = new MachineCaller({
     store,
-    engine,
     hostId,
     hostName,
     directory,

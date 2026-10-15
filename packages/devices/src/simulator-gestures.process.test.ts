@@ -45,7 +45,6 @@ it("Simulator gestures use the captured window coordinates and preserve their du
     await screen.close();
   });
   await screen.enable(true);
-  await screen.approve(target.bundleId, true);
   const state = await screen.start(target);
   screen.controller(state.sessionId, "human", "user");
   const binding = { sessionId: state.sessionId, actor: "human", owner: "user" } as const;
@@ -146,7 +145,6 @@ it("a Simulator lease revoked during a permission read prevents native input dis
     await screen.close();
   });
   await screen.enable(true);
-  await screen.approve(target.bundleId, true);
   const state = await screen.start(target);
   screen.controller(state.sessionId, "human", "user");
   let authorized = true;
@@ -189,7 +187,6 @@ it("human Simulator taps, swipes and typing bypass agent focus rejection while a
     await screen.close();
   });
   await screen.enable(true);
-  await screen.approve(target.bundleId, true);
   const state = await screen.start(target);
   screen.controller(state.sessionId, "human", "user");
   const human = { sessionId: state.sessionId, actor: "human", owner: "user" } as const;

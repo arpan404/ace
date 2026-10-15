@@ -123,7 +123,7 @@ export class DevicePlatform {
       throw new DeviceError(
         "not_supported",
         "Simulator dimensions come from its screen frame",
-        "Start the approved Simulator view.",
+        "Start the Simulator view.",
       );
     return this.android.captureDimensions(device);
   }
@@ -469,7 +469,7 @@ export class DevicePlatform {
       throw new DeviceError(
         "lease_required",
         "Simulator window control is required",
-        "Start the approved Simulator view and take control.",
+        "Start the Simulator view and take control.",
       );
     const button = simulatorButton(input);
     if (button) {

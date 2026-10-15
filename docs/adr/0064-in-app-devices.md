@@ -2,6 +2,8 @@
 
 Date: 2026-10-02. Status: accepted.
 
+Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provider-native (owner decision). Device approval is no longer a human prompt: an agent's device call binds the device to its thread without asking.
+
 Renumbered after checking origin/main and open PRs on 2026-10-03. The initial
 0063 allocation avoided #90’s 0062. A subsequent check found #90 merged and
 #93 reserving 0063, so in-app devices now uses 0064. Web performance keeps 0056.

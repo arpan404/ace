@@ -151,9 +151,15 @@ test("taking control forwards clicks, wheel and keys, sizes the page to the pane
     { kind: "key", event: "keyUp", key: "a", code: "KeyA", modifiers: 0 },
   ]);
   // The agent's typing is ignored while you hold control.
-  const held = within(panel).getByRole("img").getAttribute("src");
+  const held = within(panel)
+    .getByRole("img", { name: /^Live view/ })
+    .getAttribute("src");
   act(() => browser.type("thread-cold-start", "something else"));
-  expect(within(panel).getByRole("img").getAttribute("src")).toBe(held);
+  expect(
+    within(panel)
+      .getByRole("img", { name: /^Live view/ })
+      .getAttribute("src"),
+  ).toBe(held);
 
   await userEvent.click(
     within(panel).getAllByRole("button", { name: "Hand back" })[0] as HTMLElement,

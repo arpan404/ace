@@ -1,67 +1,5 @@
-import type { InteractionRequest } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { approvalCopy } from "./approval-copy.ts";
-
-type ApprovalRequest = Extract<InteractionRequest, { kind: "approval" }>;
-
-const appRequest = (bundleId: string): ApprovalRequest => ({
-  kind: "approval",
-  title: `Use ${bundleId}`,
-  description: "Check the totals in the open document",
-  target: {
-    tool: "screen_request_app",
-    access: "execute",
-    origin: "ace",
-    riskClass: "external-effect",
-    input: { bundleId, kind: "app" },
-  },
-  options: [
-    { id: "allow_once", kind: "allow_once", label: "Allow once" },
-    { id: "allow_thread", kind: "allow_session", label: "Allow for this thread" },
-    { id: "allow_always", kind: "allow_always", label: "Always" },
-    { id: "deny", kind: "deny", label: "Deny" },
-  ],
-  defaultToNo: true,
-});
-
-const emphasis = (request: ApprovalRequest) =>
-  approvalCopy(request).decisions.map((decision) => `${decision.label}:${decision.emphasis}`);
-
-test("an app request names the app, not its bundle id, and answers in the same three verbs", () => {
-  const copy = approvalCopy(appRequest("com.apple.TextEdit"));
-
-  expect(copy.title).toBe("Let an agent use TextEdit");
-  expect(copy.app).toBe("TextEdit");
-  expect(copy.reason).toBe("Check the totals in the open document");
-  expect(emphasis(appRequest("com.apple.TextEdit"))).toEqual([
-    "Allow once:secondary",
-    "Always allow:quiet",
-    "Deny:quiet",
-  ]);
-  expect(copy.decisions.map((decision) => decision.scope)).toEqual([
-    undefined,
-    undefined,
-    undefined,
-  ]);
-  // The thread-wide grant stays on offer, in its own words, beside the three verbs.
-  expect(copy.others.map((choice) => choice.label)).toEqual(["Allow for this thread"]);
-});
-
-test("a sensitive app is high risk and its Always allow says it still asks each turn", () => {
-  const copy = approvalCopy(appRequest("com.agilebits.onepassword7"));
-
-  expect(copy.risk?.level).toBe("high");
-  expect(copy.risk?.text).toMatch(/asks again every turn/);
-  expect(copy.decisions.find((decision) => decision.verb === "always_allow")?.scope).toMatch(
-    /still asking each turn/,
-  );
-});
-
-test("a request that doesn't default to no makes Allow once the primary button", () => {
-  const request = { ...appRequest("com.apple.calculator"), defaultToNo: false };
-
-  expect(emphasis(request)).toEqual(["Allow once:primary", "Always allow:quiet", "Deny:quiet"]);
-});
 
 test("a read-only page script shows its code, its page and the site-wide read-only choice", () => {
   const copy = approvalCopy({
@@ -161,19 +99,6 @@ test("a shell request shows its command once: in its block, not again in the hea
   expect(copy.decisions.map((decision) => decision.label)).toEqual(["Allow once", "Deny"]);
 });
 
-test("without a description, the reason is why ace's review sent the request on", () => {
-  const copy = approvalCopy(
-    {
-      kind: "approval",
-      title: "Run npm publish --dry-run?",
-      options: [{ id: "once", kind: "allow_once", label: "Allow once" }],
-    },
-    { review: { decision: "escalate", reason: "Command is not in the low-risk allowlist" } },
-  );
-
-  expect(copy.reason).toBe("Command is not in the low-risk allowlist");
-});
-
 test("a thread-wide grant is the Always allow where nothing wider is offered, and a cancel is kept aside", () => {
   const copy = approvalCopy({
     kind: "approval",
@@ -196,7 +121,14 @@ test("a thread-wide grant is the Always allow where nothing wider is offered, an
 
 test("ace's tools and default-to-no requests are answered on their card, not by a one-tap approve", async () => {
   const { deliberateApproval } = await import("./approval-copy.ts");
-  expect(deliberateApproval(appRequest("com.apple.TextEdit"))).toBe(true);
+  expect(
+    deliberateApproval({
+      kind: "approval",
+      title: "Delete the release branch",
+      options: [{ id: "yes", kind: "allow_once", label: "Yes" }],
+      defaultToNo: true,
+    }),
+  ).toBe(true);
   expect(
     deliberateApproval({
       kind: "approval",

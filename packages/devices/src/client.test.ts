@@ -11,7 +11,6 @@ function state(streamId = "stream_1"): DeviceState {
   return {
     device,
     enabled: true,
-    approved: false,
     lifecycle: "live",
     streamId,
     controller: "none",
@@ -372,14 +371,14 @@ it("the inventory stays loading until a successful reply and resets on reconnect
   expect(host.client.getSnapshot().inventoryLoaded).toBe(false);
 });
 
-it("a mounted viewer subscribes to replacement capture after an approval handoff", () => {
+it("a mounted viewer subscribes to replacement capture after the device moves to a thread", () => {
   const host = setup();
   host.receive({ type: "devices.state", state: state() });
   const release = host.client.retainStream(deviceId);
   host.receive({ type: "devices.state", state: { ...state(), lifecycle: "stopping" } });
   host.receive({
     type: "devices.state",
-    state: { ...state("stream_2"), approved: true, threadId: "thread-1" },
+    state: { ...state("stream_2"), threadId: "thread-1" },
   });
   expect(host.sent.map((message) => message.operation)).toEqual([
     { op: "subscribe", deviceId },

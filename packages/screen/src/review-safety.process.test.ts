@@ -33,7 +33,7 @@ it("takeover discards input queued behind the same session's acknowledged gestur
   ).toBe("1");
 });
 
-for (const shutdown of ["revoke", "disable", "stop"] as const) {
+for (const shutdown of ["disable", "stop"] as const) {
   it(`${shutdown} during helper startup prevents a background app launch`, async () => {
     const preparing = deferred<void>(),
       release = deferred<string>();
@@ -46,7 +46,6 @@ for (const shutdown of ["revoke", "disable", "stop"] as const) {
     });
     onTestFinished(h.close);
     await h.screen.enable(true);
-    await h.screen.approve(target.bundleId, true);
     const log = join(h.directory, "launches.jsonl");
     env.LAUNCH_LOG = log;
     // The fixture exposes launch effects independently of session existence.
@@ -58,12 +57,7 @@ for (const shutdown of ["revoke", "disable", "stop"] as const) {
       ),
     ).rejects.toThrow();
     await preparing.promise;
-    const stopped =
-      shutdown === "revoke"
-        ? h.screen.approve(target.bundleId, false)
-        : shutdown === "disable"
-          ? h.screen.enable(false)
-          : h.screen.stopAll();
+    const stopped = shutdown === "disable" ? h.screen.enable(false) : h.screen.stopAll();
     release.resolve(process.execPath);
     await stopped;
     await launch;
@@ -90,7 +84,6 @@ it("concurrent starts reserve an app before helper startup finishes", async () =
   );
   onTestFinished(h.close);
   await h.screen.enable(true);
-  await h.screen.approve(target.bundleId, true);
   const first = h.screen.start(target);
   await entered.promise;
   const competing = h.screen.start(target);

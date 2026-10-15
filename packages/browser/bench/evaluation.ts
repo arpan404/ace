@@ -17,7 +17,7 @@ if (!executablePath) {
   console.log("Chromium unavailable: renderer/transport measurements skipped");
 } else {
   const dataDir = await mkdtemp(join(tmpdir(), "ace-browser-eval-bench-"));
-  const service = new BrowserService({ dataDir, executablePath, evaluatePolicy: () => true });
+  const service = new BrowserService({ dataDir, executablePath });
   try {
     await service.open({ threadId: "bench", workspaceId: "bench" });
     for (const [name, expression] of [

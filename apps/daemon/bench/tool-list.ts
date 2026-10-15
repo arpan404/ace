@@ -127,15 +127,8 @@ try {
       description: `${oldDescriptions.get(entry.name) ?? entry.description}${registry?.capability(entry.name) === "screen" ? " Computer use is disabled. Ask the person to enable it in Settings → Computer use." : registry?.capability(entry.name) === "devices" ? " Devices are disabled. Ask the person to enable devices in the thread's Devices panel." : ""}`,
     })),
   ].filter((entry) => entry !== undefined);
-  const staged = [
-    after.find((entry) => entry.name === "ace_status"),
-    ...full.filter(
-      (entry) =>
-        registry?.capability(entry.name) !== "devices" &&
-        (registry?.capability(entry.name) !== "screen" || entry.name === "screen_request_app"),
-    ),
-  ].filter((entry) => entry !== undefined);
-  const approved = [
+  // Computer use on and devices off: every screen tool is offered at once.
+  const screenOn = [
     after.find((entry) => entry.name === "ace_status"),
     ...full.filter((entry) => registry?.capability(entry.name) !== "devices"),
   ].filter((entry) => entry !== undefined);
@@ -144,8 +137,7 @@ try {
       reference: ref,
       before,
       after,
-      staged,
-      approved,
+      screenOn,
       fullyEnabled: full,
       oldInstructions: z.string().parse(JSON.parse(instructions[1])),
       instructions: Object.fromEntries(

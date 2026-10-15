@@ -1,10 +1,5 @@
 import { z } from "zod";
-import {
-  BrowserTab,
-  BrowserDownload,
-  BrowserDialog,
-  BrowserEvaluateGrant,
-} from "./browser-features.ts";
+import { BrowserTab, BrowserDownload, BrowserDialog } from "./browser-features.ts";
 import { BrowserInteractionAction, BrowserMeasurementOptions } from "./interaction-measurement.ts";
 import { ThreadId, WorkspaceId } from "./ids.ts";
 
@@ -169,38 +164,9 @@ export const BrowserInput = z.discriminatedUnion("kind", [
   }),
 ]);
 export type BrowserInput = z.infer<typeof BrowserInput>;
-/** Canonical HTTP origin. WebSocket policy maps ws/wss to http/https. */
-export const BrowserOrigin = z
-  .string()
-  .min(1)
-  .max(8192)
-  .refine((raw) => {
-    try {
-      const url = new URL(raw);
-      return (
-        ["http:", "https:"].includes(url.protocol) &&
-        !url.username &&
-        !url.password &&
-        raw === url.origin
-      );
-    } catch {
-      return false;
-    }
-  }, "Expected an exact HTTP(S) origin")
-  .meta({
-    "x-ace-constraint":
-      "An exact canonical HTTP(S) origin, including scheme and optional port, with no path, query, fragment or URL credentials.",
-    examples: ["https://youtube.com"],
-  });
-export const BrowserOriginGrant = z.object({
-  origin: BrowserOrigin,
-  grantedAt: z.number().finite(),
-  scope: z.enum(["thread", "page"]).optional(),
-});
-export type BrowserOriginGrant = z.infer<typeof BrowserOriginGrant>;
 export const BrowserOriginBlock = z.object({
   origin: z.string().max(8192),
-  reason: z.enum(["approval_required", "denied", "read_only", "timeout", "invalid_origin"]),
+  reason: z.enum(["approval_required", "timeout", "invalid_origin"]),
 });
 export type BrowserOriginBlock = z.infer<typeof BrowserOriginBlock>;
 export const BrowserState = z.object({
@@ -252,9 +218,6 @@ export type BrowserCaptureViewport = z.infer<typeof BrowserCaptureViewport>;
 const base = z.object({ requestId: short, threadId: ThreadId });
 export const BrowserClientMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("browser.open"), requestId: short, options: BrowserOpen }),
-  base.extend({ type: z.literal("browser.origins.list") }),
-  base.extend({ type: z.literal("browser.origins.grant"), origin: BrowserOrigin }),
-  base.extend({ type: z.literal("browser.origins.revoke"), origin: BrowserOrigin }),
   base.extend({ type: z.literal("browser.close") }),
   base.extend({ type: z.literal("browser.tabs.list") }),
   base.extend({ type: z.literal("browser.tabs.open"), url: z.string().max(8192).optional() }),
@@ -268,8 +231,6 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
     accept: z.boolean(),
     promptText: z.string().max(4096).optional(),
   }),
-  base.extend({ type: z.literal("browser.evaluate.grants.list") }),
-  base.extend({ type: z.literal("browser.evaluate.grants.revoke"), origin: BrowserOrigin }),
   base.extend({ type: z.literal("browser.execute"), command: BrowserCommand }),
   base.extend({ type: z.literal("browser.subscribe"), subscriberId: short.optional() }),
   base.extend({ type: z.literal("browser.capture"), viewport: BrowserCaptureViewport }),
@@ -307,11 +268,6 @@ export type BrowserDownloadProgress = z.infer<typeof BrowserDownloadProgress>;
 export const BrowserServerMessage = z.discriminatedUnion("type", [
   BrowserBackendLost,
   BrowserDownloadProgress,
-  z.object({
-    type: z.literal("browser.evaluate.grants"),
-    threadId: ThreadId,
-    grants: z.array(BrowserEvaluateGrant).max(256),
-  }),
   z.object({
     type: z.literal("browser.result"),
     requestId: short,

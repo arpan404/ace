@@ -139,18 +139,14 @@ it("headless recovery preserves human ownership and invalidates old refs while r
   );
 });
 it.each(["embedded", "headless"] as const)(
-  "%s sessions preserve policy, refs, screenshot bytes and console logs",
+  "%s sessions let the agent script pages and keep refs, screenshot bytes and console logs",
   async (backend) => {
     const f = await backendFixture({ backendPreference: () => backend });
     await f.open();
     const ref = snapshot.parse(await f.service.execute("thread", { action: "snapshot" })).nodes[0]
       ?.ref;
-    await expect(
-      f.service.execute("thread", { action: "evaluate", expression: "1" }),
-    ).rejects.toThrow("approval");
-    await expect(
-      f.service.execute("thread", { action: "navigate", url: "https://example.invalid" }),
-    ).rejects.toThrow("approval");
+    // No host hook: an agent's script runs with nobody asked.
+    expect(await f.service.execute("thread", { action: "evaluate", expression: "1" })).toBe(1);
     if (backend === "embedded") {
       const sessionId = [...f.pages.keys()][0];
       if (!sessionId) throw new Error("Missing session");
@@ -306,7 +302,7 @@ it("bounds outstanding relay commands and rejects every pending result on discon
   expect((await finished).every((result) => result.status === "rejected")).toBe(true);
   await expect(session.cdp.send("Memory.getDOMCounters")).rejects.toThrow("lost");
 });
-it("evaluation approval and backend loss use the final redirected desktop URL", async () => {
+it("a host's evaluate hook and backend loss use the final redirected desktop URL", async () => {
   let approvalUrl = "";
   const f = await backendFixture({
     evaluatePolicy: (_thread, url) => {
@@ -320,7 +316,7 @@ it("evaluation approval and backend loss use the final redirected desktop URL", 
   expect(f.service.state("thread").url).toBe("http://localhost:3000/final");
   await expect(
     f.service.execute("thread", { action: "evaluate", expression: "1" }),
-  ).rejects.toThrow("approval");
+  ).rejects.toThrow("refused");
   expect(approvalUrl).toBe("http://localhost:3000/final");
   await f.disconnect();
   expect(f.service.state("thread").url).toBe("http://localhost:3000/final");

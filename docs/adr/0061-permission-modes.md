@@ -6,6 +6,8 @@ default, reviewer, tool gates, enforcement guarantees and parent ordering.
 The historical record below describes the previous design. ace-owned browser
 and computer tool consent remains independent of provider permissions.
 
+Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provider-native (owner decision). ace's own browser and computer tool consent, kept by the note above, is removed too.
+
 ## Number allocation
 
 Checked origin/main and open PRs #82 and #83 before writing this record. Main ends at 0057 and has two records numbered 0056. PR #82 reserves 0058 and 0059; PR #83 now reserves 0060. This record moves from 0060 to the next free number, 0061. The separate renumbering change moved in-app devices to [ADR 0064](0064-in-app-devices.md).

@@ -65,7 +65,6 @@ export interface Services {
   transitions?: import("../engine/transitions.ts").TransitionIO;
   pi?: import("./pi.ts").PiService;
   screen?: ScreenManager;
-  screenApprovals?: import("../screen-approvals.ts").ScreenApprovals;
   /** `ace_ask` questions waiting on the person. */
   asks?: import("../asks.ts").Asks;
   devices?: DevicesService;
@@ -93,8 +92,10 @@ export interface Services {
     options: SpawnOptions,
   ): ReturnType<typeof launchPluginProcess>;
   browser: BrowserService;
-  browserApprovals?: import("../browser-approvals.ts").BrowserApprovals;
-  browserOrigins?: import("../browser-origins.ts").BrowserOrigins;
+  /** Refuses answers to a private-takeover hold; only handback releases it. */
+  browserPrivateAnswers?: (
+    command: import("@ace/protocol").Command,
+  ) => import("@ace/protocol").CommandResult | undefined;
   context: ContextService;
   settings: SettingsService;
   models: ModelCatalog;

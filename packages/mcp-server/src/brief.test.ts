@@ -29,7 +29,9 @@ test("the brief states where the agent is and what its access allows", () => {
   const brief = renderBrief(facts);
   expect(brief).toContain('Project "shop"');
   expect(brief).toContain('branch "feat/login"');
-  expect(brief).toContain("Full access: ace tools never prompt the person");
+  expect(brief).toContain(
+    "Full access: your provider runs tools without asking; ace adds no approvals",
+  );
   expect(brief).toContain("claude (bypassPermissions)");
   expect(brief).toContain("Title is provisional");
 });

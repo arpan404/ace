@@ -291,10 +291,6 @@ export async function openCodexSession(
           plans.set(planKey(str(p["turnId"])), { thread, markdown: str(item["text"]) });
       }
     },
-    dropped(line) {
-      emit("note", { event: "output-line-dropped", ...line });
-    },
-    outputUncertain: () => invalidateOutput(),
     malformed: (line) => emit("recv", { malformed: line }),
     error: diagnostic,
     notification: (message) => onNotification(message),
@@ -311,33 +307,26 @@ export async function openCodexSession(
   };
   const request = (method: string, params: unknown, interactive = false) =>
     rpc.request(method, params, { timeoutMs: interactive ? null : 30_000, signal: ctx.signal });
-  const {
-    scheduleRecovery,
-    reconcileLoaded,
-    refreshQueue,
-    observeRecovery,
-    readThread,
-    invalidateOutput,
-    isOutputUncertain,
-  } = sessionDiscovery({
-    request,
-    emit,
-    diagnostic,
-    schedule: io.schedule,
-    isClosed: () => closed,
-    isForeign: (thread) => link?.foreign(thread) ?? false,
-    getRoot: () => nativeSessionId,
-    known,
-    recovered,
-    parents,
-    active,
-    shells,
-    reading,
-    revisions,
-    timers,
-    seenQuestions,
-    endedTurns,
-  });
+  const { scheduleRecovery, reconcileLoaded, refreshQueue, observeRecovery, readThread } =
+    sessionDiscovery({
+      request,
+      emit,
+      diagnostic,
+      schedule: io.schedule,
+      isClosed: () => closed,
+      isForeign: (thread) => link?.foreign(thread) ?? false,
+      getRoot: () => nativeSessionId,
+      known,
+      recovered,
+      parents,
+      active,
+      shells,
+      reading,
+      revisions,
+      timers,
+      seenQuestions,
+      endedTurns,
+    });
   const catalog = createExtensionCatalog(
     rpc,
     ctx.cwd,
@@ -367,18 +356,15 @@ export async function openCodexSession(
     closing() {
       closed = true;
     },
-    busy: () => active.size > 0 || shells.size > 0 || isOutputUncertain(),
+    busy: () => active.size > 0 || shells.size > 0,
     // Closing often follows the session's own cancellation, so stop requests cannot carry its
     // signal. They are bounded instead; an unconfirmed stop retires the process.
-    stopWork: () => {
-      if (isOutputUncertain())
-        return Promise.reject(new Error("Codex work has unrecovered controls"));
-      return commandsFor(
+    stopWork: () =>
+      commandsFor(
         nativeSessionId,
         () => {},
         (method, params) => rpc.request(method, params, { timeoutMs: 10_000 }),
-      ).interrupt({ agent: "root", cascade: true });
-    },
+      ).interrupt({ agent: "root", cascade: true }),
     cleanup() {
       closed = true;
       for (const cancel of correlationDeadlines.values()) cancel();

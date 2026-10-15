@@ -271,10 +271,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
         ?.downloads?.find((d) => d.filename === "fixture.txt")?.path;
       if (!file) throw new Error("Download artifact missing");
       expect(await readFile(file, "utf8")).toBe("sandbox download\n");
-      await p.getByRole("button", { name: "Site access" }).click();
-      await p.getByText("Site access in this thread", { exact: true }).waitFor();
       await expect.poll(async () => (await geometry()).native?.visible).toBe(true);
-      await p.keyboard.press("Escape");
       const pageSize = async (name: string | RegExp) => {
         await p.getByRole("button", { name: "Browser options" }).click();
         await p.getByRole("menuitemradio", { name }).click();

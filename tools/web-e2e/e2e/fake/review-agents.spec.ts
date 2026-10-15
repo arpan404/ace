@@ -60,21 +60,3 @@ test("a subagent opens as its own tab and Back returns to the tree", async ({ pa
   await panel.getByRole("button", { name: /Back to agents/ }).click();
   await expect(panel.getByRole("tab", { name: "Work", selected: true })).toBeVisible();
 });
-
-test("ace's permission reviews read in the transcript and in the thread's request card", async ({
-  page,
-}) => {
-  await page.goto("/t/thread-release-audit");
-  const feed = page.getByRole("feed", { name: "Transcript" });
-  const denied = feed.getByRole("article", { name: "Permission review: Denied by ace" });
-  await expect(denied).toContainText("Destructive command is outside the automatic risk policy");
-  await denied.getByRole("button").click();
-  await expect(denied.getByText("rm -rf dist")).toBeVisible();
-
-  const request = page
-    .getByRole("region", { name: "Waiting for you" })
-    .getByRole("article", { name: /npm publish --dry-run/ });
-  await expect(request.getByRole("region", { name: "ace's review" })).toContainText(
-    "Command is not in the low-risk allowlist",
-  );
-});

@@ -18,12 +18,6 @@ export interface BrowserServiceOptions {
   /** Called before granting a private lease, as well as on its disconnect. */
   onPrivatePaused?: (threadId: string) => void;
   onPrivateResumed?: (threadId: string) => void;
-  onNavigation?: (threadId: string) => void;
-  origins?: {
-    list(threadId: string): import("@ace/protocol").BrowserOriginGrant[];
-    grant(threadId: string, origin: string): void;
-    revoke(threadId: string, origin: string): void;
-  };
   evaluatePolicy?: (
     threadId: string,
     url: string,
@@ -31,10 +25,6 @@ export interface BrowserServiceOptions {
     mode?: "read-only" | "unrestricted",
     expression?: string,
   ) => boolean | Promise<boolean>;
-  evaluateGrants?: {
-    list(threadId: string): import("@ace/protocol").BrowserEvaluateGrant[];
-    revoke(threadId: string, origin: string): void;
-  };
   downloadPolicy?: (
     threadId: string,
     url: string,

@@ -33,7 +33,6 @@ Tasks:
 | `notes-respected`             | A lesson one thread saved reaches the next thread: no wrong test command                                                                                 |
 | `ask-waits-on-person`         | A delegated child asks the person through ace; it waits on them and gets the answer                                                                      |
 | `child-waits-on-human` (gate) | A delegated child is waiting on the person; it must never be reported done                                                                               |
-| `read-only-no-screen` (gate)  | In a read-only thread, screen and device tools are absent and never attempted, while a full-access control thread on the same daemon is offered them     |
 
 Metrics per task: success, ace calls, calls to the model's own tools (for example `git branch`),
 failed calls, identical retries (a failed call repeated with the same arguments), turns (model
@@ -58,7 +57,8 @@ Committed reports:
 - [`baseline.md`](baseline.md) / `baseline.json`: `main` at bb84cd3ed (after #672, #675 and
   #685's access modes), before any change. Before #685 the read-only gate failed: a Codex thread
   in `:read-only` was still offered `screen_request_app`, because the check compared native mode
-  names. #685's canonical access mode makes that check correct, and the gate keeps it so.
+  names. #685's canonical access mode made that check correct. The gate was later removed with
+  ace's own tool gates: read-only is the provider's own mode, so ace no longer hides tools for it.
 
 - [`after-stage2.md`](after-stage2.md) / `after-stage2.json`: after the session brief and change
   digest, actionable errors and typed results, and the smaller catalogue (proposals 1, 3, 4).

@@ -7,7 +7,8 @@ import {
   DeferredQuestionRecord,
   DeferredApprovalRecord,
 } from "./interactions/deferred-card.ts";
-import { DeferredReviewNote } from "./items/deferred-review.ts";
+import { DeferredCopyAnswer, DeferredEvent, DeferredFailedTurn } from "./items/deferred-review.ts";
+import { preloadStepLabels } from "./items/step-labels.ts";
 import { DeferredBackgroundTask } from "./items/background-task-line.tsx";
 import { DeferredSubagents } from "./items/subagents.tsx";
 import { preloadJump } from "./long/jump.ts";
@@ -73,9 +74,10 @@ export function preloadDeferred(): Promise<unknown> {
     DeferredInteractionCard.preload(),
     DeferredQuestionRecord.preload(),
     DeferredApprovalRecord.preload(),
-    DeferredReviewNote.preload(),
-    // An approval card's Details, with ace's review in words.
-    import("@/components/approval-request.tsx").then((module) => module.preloadApprovalDetails()),
+    DeferredEvent.preload(),
+    DeferredFailedTurn.preload(),
+    DeferredCopyAnswer.preload(),
+    preloadStepLabels(),
     DeferredThreadMenu.preload(),
     // The header's Work card, so its first open draws at once.
     DeferredWorkCard.preload(),

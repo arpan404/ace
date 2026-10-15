@@ -33,7 +33,7 @@ function useApprovalCommands(threadId: string | undefined, close: () => void): P
   const sender = useIntentSender();
   const request = interaction?.request;
   if (!threadId || !interaction || request?.kind !== "approval") return [];
-  const copy = approvalCopy(request, { review: interaction.review });
+  const copy = approvalCopy(request);
   const about = copy.command ?? copy.heading;
   return copy.decisions.map((decision): PaletteCommand => ({
     id: `approval-${decision.verb}`,

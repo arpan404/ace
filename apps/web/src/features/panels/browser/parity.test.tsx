@@ -133,26 +133,6 @@ test("a private page whose holder dropped stays paused for agents until it is ta
   await waitFor(() => expect(browser.view(threadId)?.controller).toBe("agent"));
 });
 
-test("revoking a site's read-only scripts removes the daemon's grant", async () => {
-  const { panel, browser } = await openBrowser();
-  act(() =>
-    browser.evaluateGrant(threadId, {
-      origin: "https://shop.example",
-      mode: "read-only",
-      grantedAt: 1,
-    }),
-  );
-
-  await userEvent.click(within(panel).getByRole("button", { name: "Site access" }));
-  const scripts = await screen.findByRole("region", { name: "Read-only scripts" });
-  await userEvent.click(
-    await within(scripts).findByRole("button", { name: "Revoke scripts on shop.example" }),
-  );
-
-  await waitFor(() => expect(browser.evaluateGrantsList(threadId)).toEqual([]));
-  await waitFor(() => expect(within(scripts).queryByText("shop.example")).toBeNull());
-});
-
 test("closing the browser tab keeps a private page private: agents stay locked out until Hand back", async () => {
   const { panel, browser } = await openBrowser();
   await userEvent.click(within(panel).getByRole("button", { name: "Make private" }));

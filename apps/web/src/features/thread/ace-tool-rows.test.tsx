@@ -124,7 +124,7 @@ test("device steps read on the named simulator", async () => {
   ).toBeTruthy();
   expect(
     within(steps).getByRole("button", {
-      name: "The agent no longer controls iPhone 16 Pro Failed",
+      name: "The agent doesn't control iPhone 16 Pro Failed",
     }),
   ).toBeTruthy();
   expect(

@@ -173,13 +173,13 @@ test.each([
   });
   if (transition === "open") {
     await waitFor(() => expect(t.daemon.browser.view(t.threadId)?.pending_dialog).toBeUndefined());
-    await t.client.request({ type: "browser.origins.list", threadId: t.threadId });
+    await t.client.request({ type: "browser.tabs.list", threadId: t.threadId });
     expect(t.daemon.browser.view(t.threadId)?.controller).toBe("human");
     await userEvent.click(screen.getByRole("button", { name: "Close workspace" }));
   }
   await waitFor(() => expect(t.daemon.browser.view(t.threadId)?.controller).toBe("agent"));
   await act(async () => {
-    await t.client.request({ type: "browser.origins.list", threadId: t.threadId });
+    await t.client.request({ type: "browser.tabs.list", threadId: t.threadId });
   });
   expect(screen.queryAllByText("Couldn't hand back the page")).toHaveLength(0);
   await t.daemon.browser.navigateAgent(t.threadId, "http://localhost:5173/continued");
@@ -292,7 +292,7 @@ test("a refused takeover preserves another device's shared control without a fal
   await t.answer();
   await notice("Couldn't answer the page");
   await act(async () => {
-    await t.client.request({ type: "browser.origins.list", threadId: t.threadId });
+    await t.client.request({ type: "browser.tabs.list", threadId: t.threadId });
   });
   expect(t.daemon.browser.view(t.threadId)).toMatchObject({
     controller: "human",
@@ -323,7 +323,7 @@ test("a late dialog completion preserves a newer deliberate shared hold", async 
     resume.resolve();
   });
   await act(async () => {
-    await t.client.request({ type: "browser.origins.list", threadId: t.threadId });
+    await t.client.request({ type: "browser.tabs.list", threadId: t.threadId });
   });
   expect(t.daemon.browser.view(t.threadId)?.controller).toBe("human");
   expect(t.preview.heldAs(t.threadId)).toBe(t.daemon.browser.view(t.threadId)?.owner);

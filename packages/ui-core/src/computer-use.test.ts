@@ -2,7 +2,6 @@ import type { ScreenState } from "@ace/protocol";
 import { expect, test } from "vitest";
 import {
   agentSessions,
-  grantRows,
   indicatorSessions,
   screenProblem,
   screenSession,
@@ -65,18 +64,6 @@ test("the indicator counts agent sessions even without capture", () => {
       state({ bundleId: "com.apple.calculator", controller: "human", indicator: true }),
     ]),
   ).toHaveLength(1);
-});
-
-test("grants read by app with the widest scope first, sensitive apps marked", () => {
-  const rows = grantRows([
-    { bundleId: "com.apple.TextEdit", scope: "turn", threadId: "t1", turnId: "u1", grantedAt: 3 },
-    { bundleId: "com.apple.systempreferences", scope: "always", grantedAt: 1 },
-    { bundleId: "com.apple.TextEdit", scope: "always", grantedAt: 2 },
-  ]);
-
-  expect(
-    rows.map((row) => `${row.app} · ${row.scopeLabel}${row.sensitive ? " · asks" : ""}`),
-  ).toEqual(["System Settings · Always · asks", "TextEdit · Always", "TextEdit · This turn"]);
 });
 
 test("a busy target names who holds it and offers taking over, never stealing it", () => {

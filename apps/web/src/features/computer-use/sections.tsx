@@ -1,24 +1,18 @@
-import { ApproveApp } from "./approve-app.tsx";
-import type { ScreenGrant } from "@ace/protocol";
 import {
-  grantRows,
   targetBundle,
   permissionsReading,
   stopAllSummary,
   visibleSessions,
 } from "@ace/ui-core/computer-use";
 import { MonitorIcon, StopCircleIcon } from "@phosphor-icons/react";
-import { useEffect, useId, useState } from "react";
+import { useId } from "react";
 import { SettingNote, SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
-import { RowMenu } from "@/components/ui/row-menu.tsx";
-import { MenuItem } from "@/components/ui/menu.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { cn } from "@/lib/cn.ts";
-import { AppMark } from "@/components/app-mark.tsx";
 import { SessionCard } from "./session-card.tsx";
 import type { ComputerUse } from "./use-computer-use.ts";
 
@@ -31,7 +25,7 @@ export function EnableRow(props: { use: ComputerUse }) {
     ? "ace on this machine has no screen helper, so agents can't use apps here."
     : !snapshot.connected
       ? "Connecting to the screen helper…"
-      : "Approve apps before agents use them.";
+      : "Agents can use any app here. Their provider's permission mode decides each action.";
   return (
     <SettingRow
       title="Let agents use apps"
@@ -135,90 +129,14 @@ export function LiveSessions(props: {
   );
 }
 
-/**
- * Apps agents may use, with the scope each grant has and Revoke. Sensitive apps say they still
- * ask every turn. `threadId` lists only grants that apply to that thread.
- */
-export function ApprovedApps(props: { use: ComputerUse; threadId?: string | undefined }) {
-  const { use, threadId } = props;
-  const { session } = use;
-  const [read, setRead] = useState<{ reload: string; grants: readonly ScreenGrant[] }>();
-  const [version, setVersion] = useState(0);
-  const connected = use.snapshot.connected;
-  // Read again after a revoke, and when sessions come and go: answering an agent's request
-  // (which adds a grant) is what starts one.
-  const reload = `${version}:${use.snapshot.states.length}`;
-  useEffect(() => {
-    if (!session || !connected) return;
-    let current = true;
-    session.grants(threadId).then(
-      (grants) => current && setRead({ reload, grants }),
-      () => current && setRead({ reload, grants: [] }),
-    );
-    return () => {
-      current = false;
-    };
-  }, [session, connected, threadId, reload]);
-  const grants = read?.grants;
-  if (grants === undefined) return null;
-  const rows = grantRows(grants);
-  const picker = (
-    <ApproveApp use={use} threadId={threadId} onApproved={() => setVersion((value) => value + 1)} />
-  );
-  if (rows.length === 0)
-    return (
-      <>
-        {picker}
-        <p className="py-2 text-sm text-muted-foreground">No approved apps.</p>
-      </>
-    );
-  return (
-    <>
-      {picker}
-      <ul aria-label="Approved apps" className="flex flex-col">
-        {rows.map((row, index) => (
-          <li
-            key={row.key}
-            className="group/setting flex h-9 items-center gap-2 border-b last:border-b-0"
-          >
-            <AppMark
-              name={row.app}
-              bundleId={row.bundleId}
-              fallback={
-                rows.findIndex((other) => other.bundleId === row.bundleId) === index
-                  ? "group"
-                  : "row"
-              }
-            />
-            <p className="min-w-0 flex-1 truncate text-ui">
-              {row.app}
-              <span className="ml-2 text-xs text-subtle-foreground">
-                {row.sensitive ? "Ask each turn" : row.scopeLabel}
-              </span>
-            </p>
-            <RowMenu label={`Actions for ${row.app}`}>
-              <MenuItem
-                disabled={use.pending}
-                onClick={() => void use.revoke(row).then(() => setVersion((value) => value + 1))}
-              >
-                Revoke
-              </MenuItem>
-            </RowMenu>
-          </li>
-        ))}
-      </ul>
-    </>
-  );
-}
-
 const permissionNames = {
   screenRecording: {
     title: "Screen Recording",
-    what: "See approved app windows.",
+    what: "See app windows.",
   },
   accessibility: {
     title: "Accessibility",
-    what: "Control approved apps.",
+    what: "Control apps.",
   },
 } as const;
 

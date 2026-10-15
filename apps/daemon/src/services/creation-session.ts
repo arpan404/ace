@@ -110,16 +110,6 @@ export function createEngineSession(context: SocketContext): SocketService {
         if (admission) accepted = admission.command;
       }
       if (!context.connected() || !context.authorize("operate")) return;
-      if (payload.type === "interaction.resolve") {
-        const interaction = options.store.getInteraction(payload.interactionId);
-        if (
-          interaction?.raw.some((raw) => raw.type === "ace.browser.origin") &&
-          !canReadThread(interaction.threadId)
-        ) {
-          result = { commandId: command.id, ok: false, error: "browser_thread_access_denied" };
-          return;
-        }
-      }
       if (
         payload.type === "thread.create" &&
         payload.handoffFrom &&

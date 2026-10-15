@@ -6,26 +6,23 @@ with `ok`, `result` or `error`. Browser mutations are one-shot requests, never
 reconnect intents. Subscribe again after reconnect or session reopen and acknowledge
 rendered `browser.frame` sequences using the existing ACK contract.
 
-| UI operation      | Request and result                                                                                                                                   |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| List tabs         | `browser.tabs.list` returns `BrowserTab[]`                                                                                                           |
-| Open tab          | `browser.tabs.open` with optional HTTP(S) `url`, returns active ID and tabs                                                                          |
-| Switch tab        | `browser.tabs.switch` with `tabId`, returns active ID and tabs                                                                                       |
-| Close tab         | `browser.tabs.close` with `tabId`, returns active ID and tabs; closing the last requires `browser.close`                                             |
-| List downloads    | `browser.downloads.list` returns `BrowserDownload[]`                                                                                                 |
-| Answer dialog     | `browser.dialog.answer` with `tabId`, `dialogId`, `accept`, optional `promptText`; returns `{ok:true}`                                               |
-| Evaluate grants   | `browser.evaluate.grants.list` returns `BrowserEvaluateGrant[]`                                                                                      |
-| Revoke evaluation | `browser.evaluate.grants.revoke` with exact `origin`, returns the remaining grants                                                                   |
-| Origin grants     | `browser.origins.list`, `.grant`, `.revoke`; mutation requests carry exact `origin`; lists return effective page/thread grants with optional `scope` |
-| Take over         | `browser.takeover` with `mode:"shared"` or `"private"`, returns state; omitted mode means shared                                                     |
-| Hand back         | `browser.handback` returns state; controlling connection required                                                                                    |
-| Recording         | Existing `browser.recording.start` / `.stop`; stop returns an artifact                                                                               |
+| UI operation   | Request and result                                                                                       |
+| -------------- | -------------------------------------------------------------------------------------------------------- |
+| List tabs      | `browser.tabs.list` returns `BrowserTab[]`                                                               |
+| Open tab       | `browser.tabs.open` with optional HTTP(S) `url`, returns active ID and tabs                              |
+| Switch tab     | `browser.tabs.switch` with `tabId`, returns active ID and tabs                                           |
+| Close tab      | `browser.tabs.close` with `tabId`, returns active ID and tabs; closing the last requires `browser.close` |
+| List downloads | `browser.downloads.list` returns `BrowserDownload[]`                                                     |
+| Answer dialog  | `browser.dialog.answer` with `tabId`, `dialogId`, `accept`, optional `promptText`; returns `{ok:true}`   |
+| Take over      | `browser.takeover` with `mode:"shared"` or `"private"`, returns state; omitted mode means shared         |
+| Hand back      | `browser.handback` returns state; controlling connection required                                        |
+| Recording      | Existing `browser.recording.start` / `.stop`; stop returns an artifact                                   |
 
-Listing tabs, downloads, origins and evaluate grants requires thread read access.
-Creating/switching/closing tabs, answering dialogs, changing grants, taking control
-and recording require operate access. Tab mutations and dialog answers additionally
-require the human controller lease. Grant management does not require a live
-browser or a human controller. A thread excluded by device policy always refuses.
+Listing tabs and downloads requires thread read access. Creating/switching/closing
+tabs, answering dialogs, taking control and recording require operate access. Tab
+mutations and dialog answers additionally require the human controller lease. A
+thread excluded by device policy always refuses. Agents need no site, script or
+file grant: ace never asks before an agent browses, evaluates, uploads or downloads.
 
 `browser.state` retains `controller`, `owner`, `url`, `backend`, `status`, `closed`,
 `blocked` and recovery fields. Added fields are `activeTabId`, `tabs`, `downloads`,
@@ -53,17 +50,6 @@ Dialogs on inactive tabs remain on that tab's entry. Both agent dialog tools and
 `browser.dialog.answer` answer the original dialog without switching tabs; send
 its original `tabId` and `dialogId`.
 
-Evaluate approvals arrive through the existing canonical `interaction.opened`
-path and thread approval UI, not a separate browser popup. The target tool is
-`browser.evaluate`, with `origin`, `url`, `mode` and the proposed `expression` in `target.input`.
-Show the expression in the approval review. Options are
-`allow_once`, `deny`, and for read-only mode, `allow_site`. Resolve using the existing
-`interaction.resolve` command. Download approvals use `browser.downloads` and
-Allow once / Deny. Outside-file uploads use `browser.upload`, include exact resolved
-paths, and always require a human. Auto-review records `permission.reviewed` and
-leaves these external effects pending. Grants never apply across threads or to
-unrestricted JS. Revoke calls expire matching pending evaluations.
-
 Private takeover persists its blocking ownership gate immediately, including while the controller is connected. Private takeover shows `controller:"human"`, `takeoverMode:"private"`. Agent calls
 return `human_private`; private frames do not enter recordings and private logs or
 response bodies are not collected. Human viewing remains authorized independently.
@@ -87,21 +73,20 @@ body HTML as executable markup.
 
 Agent/MCP failures expose fixed codes including `human_private`, `human_controlled`,
 `controller_changed`, `stale_ref`, `browser_paused`, `backend_changed`, `denied`,
-`evaluate_approval_required`, `queue_full` and `not_supported`. Wire failures use
-`browser.result.ok:false` and bounded `error`; origin failures additionally expose
-`blocked:{origin,reason}`. Read current state before offering a retry. Do not replay
+`queue_full` and `not_supported`. Wire failures use `browser.result.ok:false` and
+bounded `error`; an address that is not an HTTP(S) URL without credentials
+additionally exposes `blocked:{origin,reason:"invalid_origin"}`. Read current state before offering a retry. Do not replay
 input, file operations, approvals or recording actions after an uncertain result.
 
 The fake daemon exposes the same requests and states. Fixture scripts can call
-`tabsList`, `tabOpen`, `tabSwitch`, `tabClose`, `dialogOpen`, `downloadAdd`, and
-`evaluateGrant` to seed these panels; client behavior still goes through the wire.
+`tabsList`, `tabOpen`, `tabSwitch`, `tabClose`, `dialogOpen` and `downloadAdd`
+to seed these panels; client behavior still goes through the wire.
 
 ## UI follow-up for the Claude web agent
 
 Use `new BrowserFeaturesClient(client)` from `@ace/client` for `tabs`, `openTab`,
-`switchTab`, `closeTab`, `downloads`, `answerDialog`, `evaluateGrants`,
-`revokeEvaluateGrant`, `takeover(threadId, "private")` and `handback`. Use the existing
-`BrowserOriginsClient.list/grant/revoke` for origin consent. These are one-shot
+`switchTab`, `closeTab`, `downloads`, `answerDialog`, `takeover(threadId, "private")`
+and `handback`. These are one-shot
 requests, not durable intents. Tab mutations return either `{activeTabId,tabs}` or
 `{pending_dialog}`; preserve dialog ownership and answer by its original `tabId`
 and `dialogId` before retrying. The pending dialog may belong to an inactive tab.
@@ -109,8 +94,9 @@ Read lists require thread read scope; mutations, answers, takeover and handback
 require operate scope and the human controller lease where applicable. Client
 errors use `ClientError("daemon", error)` or `ClientError("protocol", ...)`.
 Continue rendering `browser.state` and acknowledging `browser.frame` through the
-existing subscription transport. Approvals use `interaction.resolve` and the
-existing interaction projection. Do not mark private control complete while its
+existing subscription transport. The private-control hold arrives through the
+existing interaction projection and refuses `interaction.resolve`; only private
+takeover then handback ends it. Do not mark private control complete while its
 host gate is pending. The fake daemon exposes the same ownership timing.
 
 UI changes are delegated to the Claude web agent. This backend PR does not edit

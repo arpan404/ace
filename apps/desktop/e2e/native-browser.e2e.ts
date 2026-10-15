@@ -30,7 +30,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
     await mkdir(home, { mode: 0o700 });
     const daemon = await startDaemon({
       config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
-      browser: { executablePath: "/unavailable/headless", originPolicy: () => true },
+      browser: { executablePath: "/unavailable/headless" },
     });
     const server = createServer((_req, res) =>
       res.end(

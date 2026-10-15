@@ -1,12 +1,5 @@
-import { BrowserOrigin, type BrowserOriginGrant } from "@ace/protocol";
 import { BrowserOriginError, browserOrigin } from "@ace/browser/policy";
-import type {
-  BrowserInput,
-  BrowserTab,
-  BrowserDownload,
-  BrowserDialog,
-  BrowserEvaluateGrant,
-} from "@ace/protocol";
+import type { BrowserInput, BrowserTab, BrowserDownload, BrowserDialog } from "@ace/protocol";
 import { BrowserDocumentHistory } from "./browser-history.ts";
 import { pairPhoneFrame, sitePage } from "./preview-page.ts";
 
@@ -75,19 +68,13 @@ export class FakeBrowser {
   bindPrivateLifecycle(lifecycle: (threadId: string, paused: boolean) => void): void {
     this.privateLifecycle = lifecycle;
   }
-  private navigatePolicy: ((threadId: string, url: string) => Promise<void>) | undefined;
-  bindNavigation(policy: (threadId: string, url: string) => Promise<void>): void {
-    this.navigatePolicy = policy;
-  }
+  /** As the daemon: any http(s) site opens without asking; a person's control refuses the agent. */
   async navigateAgent(threadId: string, url: string): Promise<void> {
     const entry = this.entries.get(threadId);
     if (!entry?.view || entry.view.closed) throw new Error("Browser closed");
     if (entry.view.controller !== "agent") throw new Error("Browser controlled by human");
-    if (!this.navigatePolicy) throw new Error("Browser agent policy unavailable");
-    this.originsClearPage(threadId);
-    await this.navigatePolicy(threadId, url);
-    if (entry.view.controller !== "agent" || entry.view.closed)
-      throw new Error("Browser controller changed during approval");
+    if (!browserOrigin(url) || !/^https?:\/\//i.test(url))
+      throw new BrowserOriginError(url, "invalid_origin", "Browser requires an HTTP(S) address");
     entry.view = { ...entry.view, url: new URL(url).href };
     this.updateTab(entry);
     if (entry.view.activeTabId) this.history.visit(entry.view.activeTabId, entry.view.url);
@@ -95,8 +82,6 @@ export class FakeBrowser {
     this.paint(entry, entry.typed);
   }
   private tabSequence = 0;
-  private evaluations = new Map<string, BrowserEvaluateGrant[]>();
-  private origins = new Map<string, Map<string, BrowserOriginGrant>>();
   private entries = new Map<string, Entry>();
   private watchers = new Set<() => void>();
   private revision = 0;
@@ -243,38 +228,7 @@ export class FakeBrowser {
    * A person (holding control) navigates: the page changes and control stays theirs. A local
    * address nothing listens on fails the way Chromium reports it; so does an unsafe port.
    */
-  originsList(threadId: string): BrowserOriginGrant[] {
-    return [...(this.origins.get(threadId)?.values() ?? [])].toSorted((a, b) =>
-      a.origin.localeCompare(b.origin),
-    );
-  }
-  originsGrant(threadId: string, raw: string, grantedAt = 0): void {
-    const origin = BrowserOrigin.parse(raw),
-      grants = this.origins.get(threadId) ?? new Map<string, BrowserOriginGrant>();
-    if (
-      !grants.has(origin) &&
-      (grants.size >= 256 ||
-        [...this.origins.values()].reduce((sum, entries) => sum + entries.size, 0) >= 16_384)
-    )
-      throw new Error("Browser origin grant limit; revoke an origin first");
-    if (grants.get(origin)?.scope !== "thread")
-      grants.set(origin, { origin, grantedAt, scope: "thread" });
-    this.origins.set(threadId, grants);
-  }
-  originsPageGrant(threadId: string, raw: string, grantedAt: number): void {
-    const origin = BrowserOrigin.parse(raw);
-    if (this.origins.get(threadId)?.get(origin)?.scope === "thread") return;
-    this.originsGrant(threadId, origin, grantedAt);
-    this.origins.get(threadId)?.set(origin, { origin, grantedAt, scope: "page" });
-  }
-  originsClearPage(threadId: string): void {
-    for (const [origin, grant] of this.origins.get(threadId) ?? [])
-      if (grant.scope === "page") this.origins.get(threadId)?.delete(origin);
-  }
-  originsRevoke(threadId: string, origin: string): void {
-    this.origins.get(threadId)?.delete(BrowserOrigin.parse(origin));
-  }
-  navigate(threadId: string, url: string, grantedAt = 0): string {
+  navigate(threadId: string, url: string): string {
     const entry = this.entries.get(threadId);
     if (!entry?.view || entry.view.closed) throw new Error("Browser closed");
     if (entry.view.controller !== "human") throw new Error("Browser controller mismatch");
@@ -287,8 +241,6 @@ export class FakeBrowser {
     const origin = browserOrigin(url);
     if (!origin || !["http:", "https:"].includes(parsed.protocol))
       throw new BrowserOriginError(url, "invalid_origin", "Browser requires an HTTP(S) address");
-    this.originsClearPage(threadId);
-    this.originsPageGrant(threadId, origin, grantedAt);
     const port = Number(parsed.port || (parsed.protocol === "https:" ? 443 : 80));
     if ([1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25].includes(port))
       throw new Error(`net::ERR_UNSAFE_PORT at ${url}`);
@@ -439,31 +391,11 @@ export class FakeBrowser {
       this.changed();
     }
   }
-  evaluateGrantsList(threadId: string): BrowserEvaluateGrant[] {
-    return this.evaluations.get(threadId) ?? [];
-  }
-  evaluateGrant(threadId: string, grant: BrowserEvaluateGrant): void {
-    const list = this.evaluateGrantsList(threadId);
-    if (list.length >= 256) throw new Error("Evaluate grant limit");
-    this.evaluations.set(threadId, [
-      ...list.filter((entry) => entry.origin !== grant.origin),
-      grant,
-    ]);
-    this.changed();
-  }
-  evaluateRevoke(threadId: string, origin: string): void {
-    this.evaluations.set(
-      threadId,
-      this.evaluateGrantsList(threadId).filter((entry) => entry.origin !== origin),
-    );
-    this.changed();
-  }
   private updateTab(entry: Entry): void {
     const tab = entry.view?.tabs?.find((candidate) => candidate.tabId === entry.view?.activeTabId);
     if (tab && entry.view) tab.url = entry.view.url;
   }
   close(threadId: string): void {
-    this.originsClearPage(threadId);
     const entry = this.entries.get(threadId);
     for (const tab of entry?.view?.tabs ?? []) this.history.remove(tab.tabId);
     if (entry?.view) entry.view = { ...entry.view, closed: true, controller: "none" };

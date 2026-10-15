@@ -1379,7 +1379,7 @@ Example:
 ```json
 {
   "keys": [
-    "threads.autoSettleAfter"
+    "threads.unresponsiveAfter"
   ],
   "requestId": "example",
   "scope": {},
@@ -2294,7 +2294,11 @@ Example:
 ```json
 {
   "operation": {
-    "op": "sessions"
+    "op": "start",
+    "target": {
+      "bundleId": "example",
+      "kind": "app"
+    }
   },
   "requestId": "s3a_uny-4qxzy7TWQk",
   "type": "screen.request"
@@ -2314,11 +2318,10 @@ Example:
 ```json
 {
   "operation": {
-    "deviceId": "ios:BFDe9Dbc0fB154cbfa29631419EEAFe55b41",
-    "op": "install",
-    "path": "example"
+    "deviceId": "ios:De9Dbc0fB154cbfa29631419EEAFe55b41D6",
+    "op": "unsubscribe"
   },
-  "requestId": "fTVyHFFoZNjnjwT70-oZ5ZAxZF_",
+  "requestId": "HFFoZNjnjwT70-oZ5ZAxZF_un",
   "type": "devices.request"
 }
 ```
@@ -2341,64 +2344,6 @@ Example:
   },
   "requestId": "example",
   "type": "browser.open"
-}
-```
-
-### browser.origins.list
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| requestId | yes | string | {"minLength":1,"maxLength":256} |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| type | yes | `"browser.origins.list"` |  |
-
-Example:
-
-```json
-{
-  "requestId": "example",
-  "threadId": "example",
-  "type": "browser.origins.list"
-}
-```
-
-### browser.origins.grant
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| requestId | yes | string | {"minLength":1,"maxLength":256} |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| type | yes | `"browser.origins.grant"` |  |
-| origin | yes | [BrowserOrigin.json](schema/BrowserOrigin.json) |  |
-
-Example:
-
-```json
-{
-  "origin": "https://youtube.com",
-  "requestId": "example",
-  "threadId": "example",
-  "type": "browser.origins.grant"
-}
-```
-
-### browser.origins.revoke
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| requestId | yes | string | {"minLength":1,"maxLength":256} |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| type | yes | `"browser.origins.revoke"` |  |
-| origin | yes | [BrowserOrigin.json](schema/BrowserOrigin.json) |  |
-
-Example:
-
-```json
-{
-  "origin": "https://youtube.com",
-  "requestId": "example",
-  "threadId": "example",
-  "type": "browser.origins.revoke"
 }
 ```
 
@@ -2540,44 +2485,6 @@ Example:
 }
 ```
 
-### browser.evaluate.grants.list
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| requestId | yes | string | {"minLength":1,"maxLength":256} |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| type | yes | `"browser.evaluate.grants.list"` |  |
-
-Example:
-
-```json
-{
-  "requestId": "example",
-  "threadId": "example",
-  "type": "browser.evaluate.grants.list"
-}
-```
-
-### browser.evaluate.grants.revoke
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| requestId | yes | string | {"minLength":1,"maxLength":256} |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| type | yes | `"browser.evaluate.grants.revoke"` |  |
-| origin | yes | [BrowserOrigin.json](schema/BrowserOrigin.json) |  |
-
-Example:
-
-```json
-{
-  "origin": "https://youtube.com",
-  "requestId": "example",
-  "threadId": "example",
-  "type": "browser.evaluate.grants.revoke"
-}
-```
-
 ### browser.execute
 
 | Field | Required | Type | Constraints |
@@ -2592,9 +2499,14 @@ Example:
 ```json
 {
   "command": {
-    "action": "focus",
-    "ref": "example",
-    "tabId": "example"
+    "action": "measure_interaction",
+    "interaction": {
+      "action": "scroll",
+      "x": 3,
+      "y": 8
+    },
+    "observeMs": 9,
+    "repeat": 1
   },
   "requestId": "example",
   "threadId": "example",
@@ -2638,10 +2550,9 @@ Example:
   "threadId": "example",
   "type": "browser.capture",
   "viewport": {
-    "devicePixelRatio": 4,
-    "height": 101,
-    "nativeShown": true,
-    "width": 104
+    "devicePixelRatio": 2,
+    "height": 105,
+    "width": 105
   }
 }
 ```
@@ -2679,7 +2590,7 @@ Example:
 ```json
 {
   "requestId": "example",
-  "sequence": 8,
+  "sequence": 6,
   "threadId": "example",
   "type": "browser.ack"
 }
@@ -2736,9 +2647,11 @@ Example:
 ```json
 {
   "input": {
-    "event": "keyUp",
-    "key": "example",
-    "kind": "key"
+    "deltaX": 6,
+    "deltaY": 3,
+    "kind": "scroll",
+    "x": 9,
+    "y": 3
   },
   "requestId": "example",
   "threadId": "example",
@@ -2794,6 +2707,10 @@ Example:
 
 ```json
 {
+  "options": {
+    "offset": 4,
+    "provider": "cursor"
+  },
   "requestId": "example",
   "type": "models.list"
 }
@@ -2830,10 +2747,13 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "effort": "example",
-    "instance": "example",
+    "imageInput": false,
+    "installationId": "example",
+    "instanceId": "example",
     "model": "example",
-    "role": "example"
+    "provider": "antigravity",
+    "role": "example",
+    "tier": "example"
   },
   "type": "models.resolve"
 }
@@ -2851,8 +2771,8 @@ Example:
 
 ```json
 {
-  "inputAgeMs": 3,
-  "threadId": "example",
+  "inputAgeMs": 4,
+  "threadId": null,
   "type": "presence.update"
 }
 ```
@@ -2870,9 +2790,8 @@ Example:
 ```json
 {
   "device": {
-    "channel": "fcm",
-    "platform": "phone",
-    "token": "example"
+    "channel": "websocket",
+    "platform": "desktop"
   },
   "type": "notification.register"
 }
@@ -2905,9 +2824,7 @@ Example:
 
 ```json
 {
-  "preferences": {
-    "agentSays": true
-  },
+  "preferences": {},
   "type": "notification.preferences"
 }
 ```
@@ -2926,7 +2843,7 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 1
+  "until": 4
 }
 ```
 
@@ -2947,9 +2864,10 @@ Example:
 
 ```json
 {
+  "channel": "devices",
   "deviceId": "example",
   "protocolVersion": 1,
-  "ticket": "example",
+  "token": "example",
   "type": "hello"
 }
 ```
@@ -2968,7 +2886,7 @@ Example:
 
 ```json
 {
-  "afterSeq": 4,
+  "afterSeq": 3,
   "scope": {
     "kind": "thread",
     "threadId": "example"
@@ -3009,9 +2927,12 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "expectedRevision": 7,
+      "commentIds": [
+        "example"
+      ],
+      "sessionId": "example",
       "threadId": "example",
-      "type": "queue.pause"
+      "type": "review.sendToAgent"
     }
   },
   "type": "command"
@@ -3032,8 +2953,8 @@ Example:
 
 ```json
 {
-  "limit": 5,
-  "offset": 6,
+  "limit": 10,
+  "offset": 0,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -3054,8 +2975,8 @@ Example:
 
 ```json
 {
-  "before": 6,
-  "limit": 1,
+  "before": 5,
+  "limit": 10,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -3077,9 +2998,9 @@ Example:
 
 ```json
 {
-  "before": 10,
-  "collection": "agents",
-  "limit": 6,
+  "before": 5,
+  "collection": "backgroundTasks",
+  "limit": 10,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"
@@ -3100,7 +3021,7 @@ Example:
 ```json
 {
   "before": {
-    "at": 7,
+    "at": 3,
     "id": "example"
   },
   "requestId": "example",

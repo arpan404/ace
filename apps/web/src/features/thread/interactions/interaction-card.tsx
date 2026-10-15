@@ -247,10 +247,7 @@ function OpenRequest(props: {
     call?.type === "tool_call" && call.call.detail.kind === "shell"
       ? displayCommand(call.call.detail).command
       : undefined;
-  const copy =
-    request.kind === "approval"
-      ? approvalCopy(request, { mode, command, review: interaction.review, agent: props.asker })
-      : undefined;
+  const copy = request.kind === "approval" ? approvalCopy(request, { mode, command }) : undefined;
   const title =
     request.kind === "approval"
       ? (copy?.title ?? request.title)
@@ -317,7 +314,6 @@ function OpenRequest(props: {
           <ApprovalRequest
             copy={copy}
             presentation="compact"
-            review={interaction.review}
             disabled={sending}
             numbered
             keyed={(option) => approvalByKey(request, option, copy.risk)}

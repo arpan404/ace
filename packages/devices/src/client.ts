@@ -115,7 +115,7 @@ export class DeviceClient {
     for (const [id, state] of this.states) {
       if (
         !ids.has(id) &&
-        !state.approved &&
+        !state.threadId &&
         !state.booting &&
         !state.cleanupRequired &&
         ["idle", "failed"].includes(state.lifecycle)
@@ -399,7 +399,7 @@ export class DeviceClient {
             this.issues = found.issues;
             this.notify();
           }
-          if (["controller", "approve", "start", "stop"].includes(pending.operation.op)) {
+          if (["controller", "start", "stop"].includes(pending.operation.op)) {
             this.putState(DeviceState.parse(message.data));
             this.notify();
           }

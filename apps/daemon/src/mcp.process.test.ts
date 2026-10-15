@@ -395,10 +395,9 @@ it("the daemon advertises unique scoped tools from every real registered toolkit
   const disabled = await catalog();
   expect(disabled.filter((name) => /^(screen_|device_)/.test(name))).toEqual([]);
   await screen.enable(true);
-  expect((await catalog()).filter((name) => name.startsWith("screen_"))).toEqual([
-    "screen_request_app",
-  ]);
-  await screen.approve("dev.ace.catalog", true);
+  expect((await catalog()).filter((name) => name.startsWith("screen_"))).toEqual(
+    expect.arrayContaining(["screen_open_app", "screen_ui_tree", "screen_request_foreground"]),
+  );
   const devices = daemon.devices;
   if (!devices) throw new Error("Missing catalog devices service");
   await devices.request({ op: "enable", enabled: true }, { kind: "human", owner: "catalog" });

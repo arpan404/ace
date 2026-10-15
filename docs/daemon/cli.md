@@ -218,7 +218,7 @@ cloud task list before choosing a new key.
 
 Logs read the local daemon's redacted JSONL with native tail rotation handling.
 `-f --json` emits one typed log record per line until interrupted. Browser commands
-reuse the thread's browser, origin approvals and ownership. Recording subscribes
+reuse the thread's browser and ownership. Recording subscribes
 and acknowledges frames, then finalizes through the browser owner. Artifacts are
 downloaded through `@ace/client` even for remote profiles. Output files are created
 exclusively; existing files are never replaced. Recording requires the daemon's

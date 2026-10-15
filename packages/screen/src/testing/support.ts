@@ -33,7 +33,6 @@ export async function manager(env: NodeJS.ProcessEnv = {}, extra: Partial<Screen
 }
 export async function ready(screen: ScreenManager) {
   await screen.enable(true);
-  await screen.approve(target.bundleId, true);
   return screen.start(target);
 }
 export function frame(sequence: number, bytes = 8): Frame {

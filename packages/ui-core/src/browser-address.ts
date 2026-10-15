@@ -189,7 +189,7 @@ const netErrors: Record<string, (host: string) => Omit<BrowserFailure, "code">> 
 
 /**
  * A browser command's failure as a person reads it: Chromium's net errors by name, the browser
- * service's refusals (control held elsewhere, an origin waiting for approval) in plain words, and
+ * service's refusals (control held elsewhere) in plain words, and
  * unknown failures with a recovery step.
  */
 export function describeBrowserFailure(message: string, url: string): BrowserFailure {
@@ -201,11 +201,6 @@ export function describeBrowserFailure(message: string, url: string): BrowserFai
       ? { ...known(host), code: net }
       : { title: "This page couldn't load", detail: `${host} didn't load.`, code: net };
   }
-  if (/requires approval/i.test(message))
-    return {
-      title: "This site needs approval",
-      detail: `ace's browser opens ${host} only once it's approved for this thread.`,
-    };
   if (/another connection/i.test(message))
     return {
       title: "Another device is using this page",

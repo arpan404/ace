@@ -349,33 +349,41 @@ async function harness(withRegistry = false, cancelCapture = false, recordingDir
     },
   };
 }
-async function approve(h: Awaited<ReturnType<typeof harness>>) {
-  await h.request({ op: "enable", enabled: true });
-  await h.request({ op: "approve", deviceId, threadId: "thread-1", allowed: true });
+/** A person hands the device to a thread's agent, which also moves the device to that thread. */
+function delegateTo(h: Awaited<ReturnType<typeof harness>>, threadId: string, agentId = "agent-1") {
+  return h.request({ op: "controller", deviceId, controller: "agent", threadId, agentId });
 }
 async function delegate(h: Awaited<ReturnType<typeof harness>>) {
-  await approve(h);
-  await h.request({
-    op: "controller",
-    deviceId,
-    controller: "agent",
-    threadId: "thread-1",
-    agentId: "agent-1",
-  });
+  await h.request({ op: "enable", enabled: true });
+  await delegateTo(h, "thread-1");
+}
+/** Devices on, and the device used by thread-1 with nobody in control. */
+async function bind(h: Awaited<ReturnType<typeof harness>>) {
+  await delegate(h);
+  await h.request({ op: "controller", deviceId, controller: "none" });
 }
 describe("in-app device ownership", () => {
-  it("agents cannot enable or approve their own device", async () => {
+  it("agents cannot turn devices on or hand out control", async () => {
     const h = await harness();
     await expect(h.request({ op: "enable", enabled: true }, agent)).rejects.toMatchObject({
       code: "permission_denied",
     });
     await h.request({ op: "enable", enabled: true });
     await expect(
-      h.request({ op: "approve", deviceId, threadId: "thread-1", allowed: true }, agent),
+      h.request(
+        {
+          op: "controller",
+          deviceId,
+          controller: "agent",
+          threadId: "thread-1",
+          agentId: "agent-1",
+        },
+        agent,
+      ),
     ).rejects.toMatchObject({ code: "permission_denied" });
     expect(h.effects).toEqual([]);
   });
-  it("an approved device still rejects a different agent or thread", async () => {
+  it("a delegated device still rejects a different agent or thread", async () => {
     const h = await harness();
     await delegate(h);
     expect(h.service.states()[0]).toMatchObject({
@@ -393,7 +401,7 @@ describe("in-app device ownership", () => {
     ).rejects.toMatchObject({ code: "lease_required" });
     await expect(
       h.request({ op: "input", deviceId, input }, { ...agent, threadId: "thread-2" }),
-    ).rejects.toMatchObject({ code: "permission_denied" });
+    ).rejects.toMatchObject({ code: "lease_required" });
     expect(h.effects).toHaveLength(1);
   });
   it("human takeover invalidates queued agent input while the active command settles", async () => {
@@ -458,23 +466,9 @@ describe("in-app device ownership", () => {
     expect(h.effects).toEqual([expect.stringContaining("'keyevent' '3'")]);
     expect(h.service.states()[0]?.controller).toBe("agent");
   });
-  it("revocation clears live pixels and prevents later agent screenshots", async () => {
-    const h = await harness();
-    await delegate(h);
-    await h.request({ op: "start", deviceId });
-    expect((await h.service.screenshot(deviceId, agent)).payload.toString()).toBe("jpeg-0");
-    await h.request({ op: "approve", deviceId, threadId: "thread-1", allowed: false });
-    h.publish(1);
-    await expect(h.service.screenshot(deviceId, agent)).rejects.toMatchObject({
-      code: "permission_denied",
-    });
-    await expect(h.service.screenshot(deviceId, human)).rejects.toMatchObject({
-      code: "not_found",
-    });
-  });
   it("slow viewers skip intermediate frames while another viewer receives the latest frame", async () => {
     const h = await harness();
-    await approve(h);
+    await bind(h);
     await h.request({ op: "start", deviceId });
     const started = deferred<void>();
     const gate = deferred<void>();
@@ -503,7 +497,7 @@ describe("in-app device ownership", () => {
   });
   it("recording publishes the actual stored screen packets and opaque metadata", async () => {
     const h = await harness();
-    await approve(h);
+    await bind(h);
     await h.request({ op: "start", deviceId });
     await h.request({ op: "record.start", deviceId });
     h.publish(1);
@@ -517,7 +511,7 @@ describe("in-app device ownership", () => {
   });
   it("recording enforces its byte cap and downloads the registered bytes through the artifact API", async () => {
     const h = await harness(true);
-    await approve(h);
+    await bind(h);
     await h.request({ op: "start", deviceId });
     await h.request({ op: "record.start", deviceId });
     h.publish(1, 600);
@@ -545,7 +539,7 @@ describe("in-app device ownership", () => {
   });
   it("concurrent log subscriptions followed by stop do not retain an old delivery slot", async () => {
     const h = await harness();
-    await approve(h);
+    await bind(h);
     const seen: string[] = [];
     const peer = connectDevices(h.service, "reader", {
       authorize: () => true,
@@ -583,7 +577,7 @@ describe("in-app device ownership", () => {
   });
   it("disable waits for delayed native startup and native termination before clearing state", async () => {
     const h = await harness();
-    await approve(h);
+    await bind(h);
     const factoryGate = h.blockCapture();
     const stopGate = h.blockStop();
     const starting = h.request({ op: "start", deviceId });
@@ -611,7 +605,7 @@ describe("in-app device ownership", () => {
   });
   it("slow inventory discovery does not consume the first-frame timeout", async () => {
     const h = await harness();
-    await approve(h);
+    await bind(h);
     const gate = h.blockInventory();
     const starting = h.request({ op: "start", deviceId });
     await h.inventoryEntered.promise;
@@ -622,7 +616,7 @@ describe("in-app device ownership", () => {
   });
   it("reenabling during disable cannot lose ownership of a pending native capture", async () => {
     const h = await harness();
-    await approve(h);
+    await bind(h);
     const gate = h.blockCapture();
     const starting = h.request({ op: "start", deviceId });
     await h.captureEntered.promise;
@@ -638,7 +632,7 @@ describe("in-app device ownership", () => {
   });
   it("cancelled native startup cleans up without making disable fail", async () => {
     const h = await harness(false, true);
-    await approve(h);
+    await bind(h);
     const gate = h.blockCapture();
     const starting = h.request({ op: "start", deviceId });
     const cancelled = expect(starting).rejects.toMatchObject({ name: "AbortError" });
@@ -652,7 +646,7 @@ describe("in-app device ownership", () => {
   });
   it("capture cleanup failure still terminates logs and publishes the recording before failing", async () => {
     const h = await harness();
-    await approve(h);
+    await bind(h);
     await h.request({ op: "start", deviceId });
     await h.request({ op: "logs.start", deviceId });
     await h.request({ op: "record.start", deviceId });
@@ -665,9 +659,9 @@ describe("in-app device ownership", () => {
     await expect(h.request({ op: "start", deviceId })).rejects.toMatchObject({ code: "busy" });
     h.clearStopFailure();
   });
-  it("reapproval clears old log tails, old log subscriptions and completed recording ownership", async () => {
+  it("moving a device to another thread clears old log tails, log subscriptions and recordings", async () => {
     const h = await harness();
-    await approve(h);
+    await bind(h);
     await h.request({ op: "start", deviceId });
     const received = deferred<void>();
     const oldLines: string[] = [];
@@ -681,7 +675,7 @@ describe("in-app device ownership", () => {
     await h.request({ op: "record.start", deviceId });
     h.publish(1, 600);
     await h.published.promise;
-    await h.request({ op: "approve", deviceId, threadId: "thread-2", allowed: true });
+    await delegateTo(h, "thread-2");
     await expect(h.request({ op: "record.stop", deviceId })).rejects.toMatchObject({
       code: "not_found",
     });
@@ -697,9 +691,9 @@ describe("in-app device ownership", () => {
     });
     expect(oldLines).toEqual(["thread-A-secret"]);
   });
-  it("a recording stop begun under an old approval cannot return metadata after reapproval", async () => {
+  it("a recording stop begun for one thread cannot return metadata after the device moves", async () => {
     const h = await harness();
-    await approve(h);
+    await bind(h);
     await h.request({ op: "start", deviceId });
     const gate = h.blockPublication();
     await h.request({ op: "record.start", deviceId });
@@ -710,24 +704,22 @@ describe("in-app device ownership", () => {
     h.service.watch((state) => {
       if (state.lifecycle === "stopping") entered.resolve();
     });
-    let approved = false;
-    const approving = h
-      .request({ op: "approve", deviceId, threadId: "thread-2", allowed: true })
-      .then(() => {
-        approved = true;
-      });
+    let moved = false;
+    const moving = delegateTo(h, "thread-2").then(() => {
+      moved = true;
+    });
     await entered.promise;
-    expect(approved).toBe(false);
+    expect(moved).toBe(false);
     gate.resolve();
     await rejected;
-    await approving;
+    await moving;
     await expect(h.request({ op: "record.stop", deviceId })).rejects.toMatchObject({
       code: "not_found",
     });
   });
   it("concurrent subscriptions followed by unsubscribe leave no hidden frame subscriber", async () => {
     const h = await harness();
-    await approve(h);
+    await bind(h);
     await h.request({ op: "start", deviceId });
     const packets: Buffer[] = [];
     const peer = connectDevices(h.service, "reader", {
@@ -766,7 +758,7 @@ describe("in-app device ownership", () => {
   });
   it("log delivery rechecks the authenticated reader's current thread grant", async () => {
     const h = await harness();
-    await approve(h);
+    await bind(h);
     let allowed = true;
     const seen: string[] = [];
     const peer = connectDevices(h.service, "reader", {
@@ -880,6 +872,50 @@ describe("in-app device ownership", () => {
     expect(h.effects).toHaveLength(1);
     credentials.close();
   });
+  it("an agent takes a free device through MCP with no prompt, but never one someone controls", async () => {
+    const h = await harness();
+    await h.request({ op: "enable", enabled: true });
+    const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
+    devicesToolkit(h.service).register(registry);
+    let secret = 0;
+    const credentials = new CredentialRegistry(() => String(++secret).padStart(64, "0"));
+    cleanups.push(async () => credentials.close());
+    const lifetime = new AbortController();
+    const callAs = (threadId: string, agentId: string) => {
+      const lease = credentials.issue(
+        {
+          sessionId: `mcp-${threadId}-${agentId}`,
+          threadId: ThreadId.parse(threadId),
+          agentId: AgentId.parse(agentId),
+          capabilities: ["devices"],
+        },
+        lifetime.signal,
+      );
+      return async (name: string, args: Record<string, unknown>) =>
+        registry.call(name, { deviceId, ...args }, lease.principal, new AbortController().signal);
+    };
+    const first = callAs("thread-1", "agent-1"),
+      second = callAs("thread-2", "agent-2");
+    expect((await first("device_start", {})).isError).not.toBe(true);
+    expect((await first("device_tap", { x: 3, y: 4 })).isError).not.toBe(true);
+    expect(h.effects).toEqual([expect.stringContaining("'tap' '3' '4'")]);
+    expect(h.service.states()[0]).toMatchObject({
+      threadId: "thread-1",
+      controller: "agent",
+      holder: { threadId: "thread-1", agentId: "agent-1" },
+    });
+    expect(JSON.stringify(await second("device_start", {}))).toContain("busy");
+    await h.request({ op: "controller", deviceId, controller: "human" });
+    expect(JSON.stringify(await first("device_start", {}))).toContain("lease_required");
+    expect(h.service.states()[0]?.controller).toBe("human");
+    await h.request({ op: "controller", deviceId, controller: "none" });
+    expect((await second("device_start", {})).isError).not.toBe(true);
+    expect(h.service.states()[0]).toMatchObject({
+      threadId: "thread-2",
+      holder: { threadId: "thread-2", agentId: "agent-2" },
+    });
+    lifetime.abort();
+  });
 });
 
 const videoProfile = {
@@ -892,7 +928,7 @@ const videoProfile = {
 for (const op of ["subscribe", "stream.configure"] as const) {
   it(`${op} racing disconnect cannot retain a JPEG viewer or exhaust viewer capacity`, async () => {
     const h = await harness();
-    await approve(h);
+    await bind(h);
     await h.request({ op: "start", deviceId, fps: 60 });
     await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
     for (let n = 0; n < 70; n++) {
@@ -924,7 +960,7 @@ for (const op of ["subscribe", "stream.configure"] as const) {
 }
 it("recording quota completion restores video without increasing a small viewer's budget", async () => {
   const h = await harness();
-  await approve(h);
+  await bind(h);
   await h.request({ op: "start", deviceId, fps: 60 });
   await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
   await h.request({ op: "record.start", deviceId });
@@ -938,7 +974,7 @@ it("recording quota completion restores video without increasing a small viewer'
 for (const relay of [false, true]) {
   it(`a congested ${relay ? "relay" : "local"} screenshot rejects and can subsequently deliver pixels`, async () => {
     const h = await harness();
-    await approve(h);
+    await bind(h);
     await h.request({ op: "start", deviceId, fps: 30 });
     let buffered = 192 * 1024;
     const results: import("@ace/protocol/devices").DeviceServerMessage[] = [];
@@ -990,7 +1026,7 @@ for (const relay of [false, true]) {
 
 it("recording startup failure releases its image lease and permits a later attempt", async () => {
   const h = await harness(false, false, "/dev/null/ace-recording");
-  await approve(h);
+  await bind(h);
   await h.request({ op: "start", deviceId, fps: 60 });
   await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
   for (let i = 0; i < 2; i++) {
@@ -1000,7 +1036,7 @@ it("recording startup failure releases its image lease and permits a later attem
 });
 it("recording quota releases image demand before a stalled publisher completes", async () => {
   const h = await harness();
-  await approve(h);
+  await bind(h);
   await h.request({ op: "start", deviceId, fps: 60 });
   await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
   const publication = h.blockPublication();
@@ -1016,7 +1052,7 @@ it("recording quota releases image demand before a stalled publisher completes",
 
 it("unsubscribing removes its JPEG preference and restores the remaining video viewer", async () => {
   const h = await harness();
-  await approve(h);
+  await bind(h);
   await h.request({ op: "start", deviceId, fps: 60 });
   await h.request({ op: "stream.configure", deviceId, settings: videoProfile });
   const release = await h.service.subscribe(
@@ -1032,7 +1068,7 @@ it("unsubscribing removes its JPEG preference and restores the remaining video v
 
 it("a pending native control handoff cannot reclaim after a newer owner or disconnect", async () => {
   const h = await harness();
-  await approve(h);
+  await bind(h);
   await h.request({ op: "start", deviceId });
   const gate = h.blockRelease();
   const first = h.request({ op: "controller", deviceId, controller: "human" });
@@ -1057,7 +1093,7 @@ it("a pending native control handoff cannot reclaim after a newer owner or disco
 
 it("boot stays visibly booting and succeeds after the controller's idle deadline", async () => {
   const h = await harness();
-  await approve(h);
+  await bind(h);
   await h.request({ op: "controller", deviceId, controller: "human" });
   const gate = h.blockInventory();
   const booting = h.request({ op: "boot", deviceId });
@@ -1071,7 +1107,7 @@ it("boot stays visibly booting and succeeds after the controller's idle deadline
 });
 it("a long installation succeeds without expiring its queued controller", async () => {
   const h = await harness();
-  await approve(h);
+  await bind(h);
   await h.request({ op: "controller", deviceId, controller: "human" });
   const gate = h.blockInput();
   const installing = h.request({ op: "install", deviceId, path: "/tmp/Example.apk" });
@@ -1129,17 +1165,17 @@ it("an agent installation lasting six minutes returns success through MCP", asyn
   expect(h.service.states()[0]?.controller).toBe("agent");
   expect(h.effects).toEqual(["-s emulator-5554 install -r /tmp/Example.apk"]);
 });
-it("agent-triggered approval restores the live view a person was watching", async () => {
+it("an agent taking a device restores the live view a person was watching", async () => {
   const h = await harness();
   await h.request({ op: "enable", enabled: true });
   await h.request({ op: "start", deviceId });
-  await h.request({ op: "approve", deviceId, threadId: "thread-1", allowed: true });
+  await h.service.claimForAgent(deviceId, agent);
   expect((await h.service.screenshot(deviceId, human)).payload.toString()).toBe("jpeg-0");
   expect(h.service.states()[0]?.lifecycle).toBe("live");
 });
 it("a failed capture stop exposes cleanup and retry permits a replacement live view", async () => {
   const h = await harness();
-  await approve(h);
+  await bind(h);
   await h.request({ op: "start", deviceId });
   h.failStop();
   await expect(h.request({ op: "stop", deviceId })).rejects.toThrow();
@@ -1151,7 +1187,7 @@ it("a failed capture stop exposes cleanup and retry permits a replacement live v
 });
 it("a first-frame timeout explains how to repair the Android live view", async () => {
   const h = await harness();
-  await approve(h);
+  await bind(h);
   h.skipFirstFrame();
   const starting = h.request({ op: "start", deviceId });
   const rejected = expect(starting).rejects.toMatchObject({
@@ -1166,7 +1202,7 @@ it("a first-frame timeout explains how to repair the Android live view", async (
 });
 it("reaching a recording limit reports why capture stopped and publishes its video", async () => {
   const h = await harness();
-  await approve(h);
+  await bind(h);
   await h.request({ op: "start", deviceId });
   await h.request({ op: "record.start", deviceId });
   h.publish(1, 600);
@@ -1181,7 +1217,7 @@ it("reaching a recording limit reports why capture stopped and publishes its vid
 });
 it("closing human logs preserves an agent's log stream", async () => {
   const h = await harness();
-  await approve(h);
+  await bind(h);
   await h.request({ op: "logs", deviceId, limit: 10 }, agent);
   await h.request({ op: "logs.start", deviceId });
   await h.request({ op: "logs.stop", deviceId });
@@ -1197,7 +1233,7 @@ it("closing human logs preserves an agent's log stream", async () => {
   await h.request({ op: "logs.stop", deviceId }, agent);
   await h.logExit();
 });
-it("deleted idle unapproved devices release their session slots", async () => {
+it("deleted idle devices no thread uses release their session slots", async () => {
   const h = await harness();
   await h.request({ op: "enable", enabled: true });
   await h.request({ op: "controller", deviceId, controller: "none" });
@@ -1207,7 +1243,7 @@ it("deleted idle unapproved devices release their session slots", async () => {
 });
 it("excess log readers are refused while existing readers can still stop cleanly", async () => {
   const h = await harness();
-  await approve(h);
+  await bind(h);
   const readers = Array.from({ length: 64 }, (_, index) => ({
     kind: "human" as const,
     owner: `reader-${index}`,
@@ -1222,7 +1258,7 @@ it("excess log readers are refused while existing readers can still stop cleanly
 
 it("capture opening expires separately and terminates its stalled native process", async () => {
   const h = await harness(false, true);
-  await approve(h);
+  await bind(h);
   const gate = h.blockCapture();
   const rejected = expect(h.request({ op: "start", deviceId })).rejects.toMatchObject({
     code: "timeout",
@@ -1242,7 +1278,7 @@ it("capture opening expires separately and terminates its stalled native process
 
 it("a failed agent log start does not retain the later human stream", async () => {
   const h = await harness();
-  await approve(h);
+  await bind(h);
   const logs = h.platform.logs.bind(h.platform);
   h.platform.logs = async () => {
     throw new Error("Fixture discovery failed");
@@ -1308,7 +1344,7 @@ it.each(["disconnect", "stop"] as const)(
   "%s while log discovery is pending prevents a child starting",
   async (cancel) => {
     const h = await harness();
-    await approve(h);
+    await bind(h);
     const lookup = deferred<void>();
     const entered = deferred<void>();
     const logs = h.platform.logs.bind(h.platform);
@@ -1330,7 +1366,7 @@ it.each(["disconnect", "stop"] as const)(
 
 it("a cancelled older log lookup cannot remove a fresh reader or its shared stream", async () => {
   const h = await harness();
-  await approve(h);
+  await bind(h);
   const lookup = deferred<void>();
   const entered = deferred<void>();
   const logs = h.platform.logs.bind(h.platform);
@@ -1365,7 +1401,7 @@ it("a cancelled older log lookup cannot remove a fresh reader or its shared stre
 
 it("revoking a device peer during log discovery cannot start an unauthorized process", async () => {
   const h = await harness();
-  await approve(h);
+  await bind(h);
   const lookup = deferred<void>();
   const entered = deferred<void>();
   const logs = h.platform.logs.bind(h.platform);

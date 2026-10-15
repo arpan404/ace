@@ -24,19 +24,13 @@ export interface McpServerOptions {
   maxBodyBytes?: number;
 }
 export async function startMcpServer(options: McpServerOptions) {
+  // A provider's own permission mode, read-only included, decides each call; ace only hides a
+  // group that is off or that this daemon is not running.
   options.registry.setAvailability((caller) => {
     const state = options.status?.(caller);
-    let screenApproved: boolean | undefined;
     return (name, capability) => {
       if (capability && state?.disabled?.[capability] !== undefined) return false;
       if (name === "ace_ask" && state?.askAvailable === false) return false;
-      if (capability === "screen" || capability === "devices") {
-        if (state?.access === "read-only") return false;
-        if (capability === "screen" && name !== "screen_request_app") {
-          screenApproved ??= state?.screenApproved ?? true;
-          if (!screenApproved) return false;
-        }
-      }
       return true;
     };
   });
@@ -48,7 +42,6 @@ export async function startMcpServer(options: McpServerOptions) {
           options.registry.capabilities(),
           principal.scope.capabilities,
           state?.disabled,
-          state?.access,
         )
           .filter((group) => group.enabled && group.name !== "thread")
           .map((group) => group.name);

@@ -2,21 +2,13 @@ import type { Fact, Key } from "@ace/core";
 import type { RunTrigger } from "@ace/protocol";
 import type { Obj } from "./native.ts";
 type OpenItem = { data: Obj; turn: string; streamStarted?: boolean };
-export type RecoveryRevision = {
-  read: number;
-  current: number;
-  uncertain?: boolean;
-  outputRecovery?: boolean | undefined;
-  liveTerminalItems?: string[] | undefined;
-};
+export type RecoveryRevision = { read: number; current: number; uncertain?: boolean };
 export type Agent = {
   key: Key;
   parent?: string;
   known: boolean;
   unknownTask?: boolean;
   recoveryUncertain?: boolean;
-  /** Live shells recovered without transcript items, until terminal evidence settles them. */
-  terminalItems?: Set<string>;
   bufferLost?: boolean;
   turn?: string;
   latestTurn?: string;

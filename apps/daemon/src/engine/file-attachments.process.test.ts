@@ -183,7 +183,6 @@ test("a held send keeps text, PDF and binary attachments across engine and stora
     );
     if (!readApproval) throw new Error("Missing native read approval");
     expect(readApproval.state).toBe("pending");
-    expect(readApproval.review).toBeUndefined();
     const answer = Command.parse({
       id: "allow-attached-read",
       deviceId: "device",

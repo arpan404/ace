@@ -11,9 +11,8 @@ import { providerConfiguration } from "@ace/models/preferences";
 import { SettingsValues, ProviderConfigurations, ProjectCommand } from "@ace/protocol";
 import { stricterOffer } from "@ace/provider-kit/access-modes";
 import { ItemId } from "@ace/protocol";
-import type { AccessMode, AccessModeOffer, PermissionMode } from "@ace/protocol";
+import type { AccessMode, AccessModeOffer } from "@ace/protocol";
 import {
-  fakeReviewEvents,
   fakePermissionCapabilities,
   fakeProviderPermissions,
   fakeAccessModes,
@@ -247,7 +246,6 @@ export class FakeDaemon implements Host {
         onResolved: (listener) => this.onResolved(listener),
       },
     });
-    this.appDevices.screenHost = this.screen;
     this.appDevices.onRecording = (threadId, artifactId) => {
       this.servicesWire.files.registerArtifact(
         threadId,
@@ -467,9 +465,6 @@ export class FakeDaemon implements Host {
   private at(agoMs: number): number {
     return Math.max(0, this.options.clock() - agoMs);
   }
-  private permissionAuthority(_id: string): PermissionMode {
-    return "ask";
-  }
   createThread(init: ThreadInit, agoMs = 0): void {
     if (this.threads.has(init.id)) throw new Error(`Thread ${init.id} already exists`);
     const now = this.at(agoMs);
@@ -569,8 +564,7 @@ export class FakeDaemon implements Host {
         host.view.thread.permission = permission;
         before.push({ type: "thread.updated", permission });
       }
-      const emitted = host.fold(fact, now);
-      return [...before, ...emitted, ...fakeReviewEvents(host, emitted, now)];
+      return [...before, ...host.fold(fact, now)];
     };
     const payloads = withExitFacts(host, facts, now).flatMap(fold);
     // A queued message starts the next turn as soon as the root agent is free.
@@ -587,20 +581,6 @@ export class FakeDaemon implements Host {
       : [];
     const events = [...selectionEvent, ...payloads, ...drained.flatMap(fold)];
     this.append(host, events, now);
-    const reviewed = new Set(
-      events.flatMap((event) =>
-        event.type === "permission.reviewed" && event.review.decision !== "escalate"
-          ? [event.review.interactionId]
-          : [],
-      ),
-    );
-    for (const event of events) {
-      if (event.type !== "interaction.closed" || event.state !== "resolved" || !event.resolution)
-        continue;
-      const key = host.interactionKey(event.interactionId);
-      if (key !== undefined && reviewed.has(event.interactionId))
-        for (const listener of this.resolvedListeners) listener(host.id, key, event.resolution);
-    }
     this.afterChange(host, now);
   }
   /**
@@ -608,7 +588,6 @@ export class FakeDaemon implements Host {
    * queue's new revision, apply a switch waiting for the turn to end, and settle on schedule.
    */
   private afterChange(host: ThreadHost, now: number): void {
-    this.screen.revalidate();
     holdOnLimit(host);
     const follow: EventPayload[] = [...switchEvents(host, now)];
     if (host.queueDirty) {
@@ -1300,25 +1279,6 @@ export class FakeDaemon implements Host {
           if (!pending) return { commandId, ok: false, error: "not_found" };
           if (pending.raw.some((raw) => raw.type === "ace.browser.private"))
             return { commandId, ok: false, error: "private_handback_required" };
-          const screenApproval = pending.raw.some((raw) => raw.type === "ace.screen.approval");
-          if (screenApproval) {
-            const error = this.screen.approvals.resolutionError(
-              host.id,
-              key,
-              command.deviceId,
-              payload.resolution,
-            );
-            if (error) return { commandId, ok: false, error };
-          }
-          const browserOriginApproval = pending.raw.some(
-            (raw) => raw.type === "ace.browser.origin",
-          );
-          if (
-            browserOriginApproval &&
-            (payload.resolution.kind !== "approval" ||
-              !["allow_once", "allow_thread", "deny"].includes(payload.resolution.optionId))
-          )
-            return { commandId, ok: false, error: "invalid_resolution" };
           this.apply(host.id, [
             {
               type: "interaction.closed",

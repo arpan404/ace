@@ -133,23 +133,10 @@ it("agents discover ace through initialize, resources and status even when compu
       const enabledTools = z
         .array(z.object({ name: z.string(), description: z.string() }))
         .parse((await request("tools/list")).tools);
-      expect(
-        enabledTools.filter((tool) => tool.name.startsWith("screen_")).map((tool) => tool.name),
-      ).toEqual(["screen_request_app"]);
-      changed = Promise.withResolvers<void>();
-      await screen.approve("com.apple.TextEdit", true, "thread", thread.id);
-      await changed.promise;
-      expect((await client.listTools()).tools.some((tool) => tool.name === "screen_ui_tree")).toBe(
-        true,
+      // Every computer use tool is offered at once: there is no app grant to wait for.
+      expect(enabledTools.map((tool) => tool.name)).toEqual(
+        expect.arrayContaining(["screen_open_app", "screen_ui_tree", "screen_type"]),
       );
-      changed = Promise.withResolvers<void>();
-      await screen.approve("com.apple.TextEdit", false, "thread", thread.id);
-      await changed.promise;
-      expect(
-        (await client.listTools()).tools
-          .filter((tool) => tool.name.startsWith("screen_"))
-          .map((tool) => tool.name),
-      ).toEqual(["screen_request_app"]);
     } finally {
       await client.close();
     }

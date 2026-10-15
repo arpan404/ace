@@ -11,10 +11,8 @@ import { cn } from "@/lib/cn.ts";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { PermissionReviewFacts } from "@/components/permission-review.tsx";
 import { patchLines, stepPath, stripAnsi } from "@ace/ui-core";
 import type { AceToolView } from "@ace/ui-core/ace-tools";
-import { useItemInteraction } from "../interactions/use-item-interaction.ts";
 import { readOutputText } from "@/lib/output-read.ts";
 
 /**
@@ -50,17 +48,9 @@ type ToolItem = Extract<Item, { type: "tool_call" }>;
 
 function CallDetail(props: { threadId: string; item: ToolItem }) {
   const agent = useAgent(props.threadId, props.item.agentId);
-  const interaction = useItemInteraction(props.threadId, props.item.id);
   return (
     <div className="flex flex-col gap-2">
       <CallBody item={props.item} cwd={agent?.cwd} threadId={props.threadId} />
-      {interaction?.review && interaction.state !== "pending" && (
-        <PermissionReviewFacts
-          review={interaction.review}
-          interaction={interaction}
-          cwd={agent?.cwd}
-        />
-      )}
     </div>
   );
 }

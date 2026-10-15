@@ -53,18 +53,8 @@ it("a paired read-only device cannot enable or approve desktop access", async ()
     errorCode: "forbidden",
   });
   await expect(screen.start(target)).rejects.toThrow("disabled");
-  expect(
-    await request(client, "approve", { op: "approve", bundleId: target.bundleId, allowed: true }),
-  ).toMatchObject({
-    type: "screen.result",
-    requestId: "approve",
-    ok: false,
-    errorCode: "forbidden",
-  });
-  await screen.enable(true);
-  await expect(screen.start(target)).rejects.toThrow("approval");
 });
-it("revoking a paired admin cancels pending input before it can change the approved app", async () => {
+it("revoking a paired admin cancels pending input before it can change the app", async () => {
   // Independent IPC observes and releases permission inspection without using the helper queue.
   const reached = Promise.withResolvers<void>(),
     released = Promise.withResolvers<void>();
@@ -84,7 +74,6 @@ it("revoking a paired admin cancels pending input before it can change the appro
   );
   const screen = await screenFixture({ PERMISSION_GATE_PORT: String(address.port) });
   await screen.enable(true);
-  await screen.approve(target.bundleId, true);
   const state = await screen.start(target);
   const f = await setup({ screen });
   const device = await f.pair(["admin"]);

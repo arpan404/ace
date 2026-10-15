@@ -102,39 +102,12 @@ it("fake screen enablement and permissions stay synchronized across main and ded
   expect(enabled).toEqual([true, false]);
 });
 
-it("a fake browser request asks the person in the thread, never offers Always, and a thread grant skips the ask", async () => {
-  const f = await fixture();
-  await f.screen.enable(true);
-  const denied = f.daemon.screen.requestApp("com.apple.Safari", "Browse", f.holder);
-  const asked = Object.values(f.view().interactions).at(-1);
-  if (!asked) throw new Error("Missing approval");
-  expect(asked.request).toMatchObject({
-    target: { tool: "screen_request_app", input: { bundleId: "com.apple.Safari" } },
-    options: [{ id: "allow_once" }, { id: "allow_thread" }, { id: "deny" }],
-  });
-  const refused = expect(denied).rejects.toMatchObject({ code: "denied" });
-  await f.client.command({
-    type: "interaction.resolve",
-    interactionId: asked.id,
-    resolution: { kind: "approval", optionId: "deny" },
-  });
-  await refused;
-  await expect(f.screen.approve("com.apple.Safari", true)).rejects.toMatchObject({
-    errorCode: "approval_required",
-  });
-  await f.screen.approve("com.apple.Safari", true, "thread", "thread");
-  const before = Object.keys(f.view().interactions).length;
-  await f.daemon.screen.requestApp("com.apple.Safari", "Browse", f.holder);
-  expect(Object.keys(f.view().interactions)).toHaveLength(before);
-});
-
-it("fake targets enforce eight sessions, holder identity, takeover and the global stop", async () => {
+it("fake targets enforce eight sessions, holder identity, unprompted foreground, takeover and the global stop", async () => {
   const f = await fixture();
   await f.screen.enable(true);
   const states: ScreenState[] = [];
   for (let i = 0; i < 8; i++) {
     const bundleId = `test.app.${i}`;
-    await f.screen.approve(bundleId, true);
     states.push(await f.screen.start({ kind: "app", bundleId }));
   }
   const first = states[0];
@@ -150,10 +123,16 @@ it("fake targets enforce eight sessions, holder identity, takeover and the globa
   await expect(
     f.screen.delegate(first.sessionId, { ...f.holder, agentId: "second" }),
   ).rejects.toMatchObject({ errorCode: "target_busy" });
-  await f.screen.approve("ninth.app", true);
   await expect(f.screen.start({ kind: "app", bundleId: "ninth.app" })).rejects.toMatchObject({
     errorCode: "busy",
   });
+  const interactions = Object.keys(f.view().interactions).length;
+  expect(
+    ScreenState.parse(
+      await f.stream.request({ op: "mode", sessionId: first.sessionId, mode: "foreground" }),
+    ).mode,
+  ).toBe("foreground");
+  expect(Object.keys(f.view().interactions)).toHaveLength(interactions);
   await f.screen.secureInput(first.sessionId, true);
   await f.screen.takeover(first.sessionId);
   expect((await f.screen.sessions())[0]).toMatchObject({
@@ -170,7 +149,6 @@ it("fake targets enforce eight sessions, holder identity, takeover and the globa
 it("fake desktop viewers decode JPEG packets and receive fresh frames after reconnect without replaying input", async () => {
   const f = await fixture();
   await f.screen.enable(true);
-  await f.screen.approve("com.apple.TextEdit", true);
   expect(await f.screen.openApp("com.apple.TextEdit")).toMatchObject({
     mode: "background",
     bundleId: "com.apple.TextEdit",
@@ -197,111 +175,6 @@ it("fake desktop viewers decode JPEG packets and receive fresh frames after reco
   expect(frames.length).toBe(prior + 1);
 });
 
-it.each(["turn", "thread", "always"] as const)(
-  "fake grants expose %s scope and revoke access",
-  async (scope) => {
-    const f = await fixture();
-    await f.screen.enable(true);
-    await f.screen.approve("com.apple.TextEdit", true, scope, "thread");
-    expect(await f.screen.approvals("thread")).toMatchObject([
-      { bundleId: "com.apple.TextEdit", scope, grantedAt: 1000 },
-    ]);
-    const state = await f.screen.start(
-      { kind: "app", bundleId: "com.apple.TextEdit" },
-      scope === "always" ? undefined : "thread",
-    );
-    await f.screen.approve("com.apple.TextEdit", false, scope, "thread");
-    expect(await f.screen.approvals()).toEqual([]);
-    expect(await f.screen.sessions()).toEqual([]);
-    await expect(f.screen.openApp("com.apple.TextEdit")).rejects.toMatchObject({
-      errorCode: "approval_required",
-    });
-    expect(state.lifecycle).toBe("live");
-  },
-);
-
-it("fake screen host approvals use real human interaction choices for app and foreground access", async () => {
-  const f = await fixture();
-  await f.screen.enable(true);
-  const approval = f.daemon.screen.requestApp(
-    "com.apple.TextEdit",
-    "Edit a scratch document",
-    f.holder,
-  );
-  const interaction = Object.values(f.view().interactions).at(-1);
-  if (!interaction) throw new Error("Missing approval");
-  expect(interaction.request).toMatchObject({
-    target: {
-      tool: "screen_request_app",
-      origin: "ace",
-      input: { bundleId: "com.apple.TextEdit", kind: "app" },
-    },
-    options: [{ id: "allow_once" }, { id: "allow_thread" }, { id: "allow_always" }, { id: "deny" }],
-  });
-  expect(f.view().thread.status.state).toBe("needs_you");
-  expect(
-    await f.client.command({
-      type: "interaction.resolve",
-      interactionId: interaction.id,
-      resolution: { kind: "approval", optionId: "allow_thread" },
-    }),
-  ).toMatchObject({ ok: true });
-  await approval;
-  expect(await f.screen.approvals("thread")).toMatchObject([{ scope: "thread" }]);
-  const state = await f.screen.start({ kind: "app", bundleId: "com.apple.TextEdit" }, "thread");
-  await f.screen.delegate(state.sessionId, f.holder);
-  const foreground = f.stream.request({
-    op: "mode",
-    sessionId: state.sessionId,
-    mode: "foreground",
-  });
-  const next = Object.values(f.view().interactions).at(-1);
-  if (!next) throw new Error("Missing foreground approval");
-  expect(next.request).toMatchObject({
-    target: { tool: "screen_request_foreground", input: { kind: "foreground" } },
-    options: [{ id: "allow_once" }, { id: "deny" }],
-  });
-  expect(
-    await f.client.command({
-      type: "interaction.resolve",
-      interactionId: next.id,
-      resolution: { kind: "approval", optionId: "allow_once" },
-    }),
-  ).toMatchObject({ ok: true });
-  expect(ScreenState.parse(await foreground).mode).toBe("foreground");
-  await f.screen.takeover(state.sessionId);
-  expect((await f.screen.sessions())[0]?.mode).toBe("background");
-});
-
-it("sensitive fake apps ask even with an always grant and denied or expired approvals never grant access", async () => {
-  const f = await fixture();
-  await f.screen.enable(true);
-  await f.screen.approve("com.apple.Terminal", true);
-  await f.screen.approve("com.apple.Terminal", true, "turn", "thread");
-  const state = await f.screen.start({ kind: "app", bundleId: "com.apple.Terminal" }, "thread");
-  await f.screen.delegate(state.sessionId, f.holder);
-  const denied = expect(
-    f.daemon.screen.requestApp("com.apple.Terminal", "Run a command", f.holder),
-  ).rejects.toMatchObject({ code: "denied" });
-  const interaction = Object.values(f.view().interactions).at(-1);
-  if (!interaction) throw new Error("Missing approval");
-  await f.client.command({
-    type: "interaction.resolve",
-    interactionId: interaction.id,
-    resolution: { kind: "approval", optionId: "deny" },
-  });
-  await denied;
-  expect(await f.screen.sessions()).toEqual([]);
-  const expired = expect(
-    f.daemon.screen.requestApp("other.app", "Try it", f.holder),
-  ).rejects.toMatchObject({ code: "timeout" });
-  for (const [callback, delay] of f.timers) if (delay === 60_000) callback();
-  await expired;
-  expect(await f.screen.approvals()).toMatchObject([
-    { bundleId: "com.apple.Terminal", scope: "always" },
-  ]);
-});
-
 it("non-admin fake devices receive correlated screen refusals and no screen state pushes", async () => {
   const f = await fixture("phone", ["read", "operate"]);
   await expect(f.screen.status()).rejects.toMatchObject({ errorCode: "forbidden" });
@@ -326,56 +199,8 @@ it("fake device holder ids appear on delegation and disappear on human takeover"
   await Promise.resolve();
   const deviceId = "ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b";
   await devices.request({ op: "enable", enabled: true });
-  await devices.request({
-    op: "approve",
-    deviceId,
-    threadId: ThreadId.parse("thread"),
-    allowed: true,
-  });
   await devices.request({ op: "controller", deviceId, controller: "agent", ...f.holder });
   expect(devices.getSnapshot().states[0]?.holder).toEqual(f.holder);
   await devices.request({ op: "controller", deviceId, controller: "human" });
   expect(devices.getSnapshot().states[0]?.holder).toBeUndefined();
-});
-
-it("once approvals expire at root turn end and stop the fake agent's target", async () => {
-  const f = await fixture();
-  await f.screen.enable(true);
-  const approval = f.daemon.screen.requestApp("com.apple.TextEdit", "Use this turn", f.holder);
-  const interaction = Object.values(f.view().interactions).at(-1);
-  if (!interaction) throw new Error("Missing approval");
-  await f.client.command({
-    type: "interaction.resolve",
-    interactionId: interaction.id,
-    resolution: { kind: "approval", optionId: "allow_once" },
-  });
-  await approval;
-  expect(await f.screen.approvals("thread")).toMatchObject([{ scope: "turn" }]);
-  const state = await f.screen.start({ kind: "app", bundleId: "com.apple.TextEdit" }, "thread");
-  await f.screen.delegate(state.sessionId, f.holder);
-  f.daemon.apply("thread", [{ type: "turn.ended", agent: "root", outcome: "completed" }]);
-  expect(await f.screen.approvals("thread")).toEqual([]);
-  expect(await f.screen.sessions()).toEqual([]);
-  expect(f.stream.getSnapshot().states).toEqual([]);
-});
-
-it("human takeover expires a fake foreground approval immediately without waiting for its deadline", async () => {
-  const f = await fixture();
-  await f.screen.enable(true);
-  await f.screen.approve("com.apple.TextEdit", true);
-  const state = await f.screen.start({ kind: "app", bundleId: "com.apple.TextEdit" });
-  await f.screen.delegate(state.sessionId, f.holder);
-  const foreground = expect(
-    f.stream.request({ op: "mode", sessionId: state.sessionId, mode: "foreground" }),
-  ).rejects.toMatchObject({ errorCode: "denied" });
-  const interaction = Object.values(f.view().interactions).at(-1);
-  if (!interaction) throw new Error("Missing foreground approval");
-  await f.screen.takeover(state.sessionId);
-  await foreground;
-  expect(f.view().interactions[interaction.id]?.state).toBe("expired");
-  expect((await f.screen.sessions())[0]).toMatchObject({
-    controller: "human",
-    mode: "background",
-    secureInputAllowed: false,
-  });
 });

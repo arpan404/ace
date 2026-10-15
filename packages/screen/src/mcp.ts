@@ -36,7 +36,6 @@ const risks = {
   screen_key: "external-effect",
   screen_scroll: "external-effect",
   screen_paste: "external-effect",
-  screen_request_app: "external-effect",
   screen_open_app: "external-effect",
   screen_list_windows: "read-only",
   screen_select_window: "external-effect",
@@ -58,9 +57,8 @@ export function screenToolkit(manager: ScreenManager): Toolkit {
           riskClass: risk,
           input,
           capability: "screen",
-          timeoutMs: name.startsWith("screen_request_")
-            ? 65_000
-            : name === "screen_measure_interaction"
+          timeoutMs:
+            name === "screen_measure_interaction"
               ? 90_000
               : name === "screen_screenshot"
                 ? 30_000
@@ -69,31 +67,13 @@ export function screenToolkit(manager: ScreenManager): Toolkit {
             let selectedSession: string | undefined;
             try {
               signal.throwIfAborted();
-              if (name === "screen_request_app") {
-                const { bundleId, reason } = computerUseSchemas.screen_request_app.parse(args);
-                await manager.requestApp(bundleId, reason, caller, signal);
-                return {
-                  content: [
-                    {
-                      type: "text",
-                      text: JSON.stringify({ approved: true, bundleId, mode: "background" }),
-                    },
-                  ],
-                  _meta: {
-                    "ace/screen": {
-                      mode: "background",
-                      target: { bundleId, displayName: bundleId.split(".").at(-1) ?? bundleId },
-                    },
-                  },
-                };
-              }
               if (name === "screen_list_windows") {
                 const { bundleId } = computerUseSchemas.screen_list_windows.parse(args);
                 return {
                   content: [
                     {
                       type: "text",
-                      text: JSON.stringify(await manager.listAppWindows(bundleId, caller)),
+                      text: JSON.stringify(await manager.listAppWindows(bundleId)),
                     },
                   ],
                 };
@@ -117,8 +97,7 @@ export function screenToolkit(manager: ScreenManager): Toolkit {
                 : manager.agentSession(caller, selected.sessionId);
               selectedSession = sessionId;
               if (name === "screen_request_foreground") {
-                const { reason } = computerUseSchemas.screen_request_foreground.parse(args);
-                const state = await manager.mode(sessionId, "foreground", signal, reason);
+                const state = manager.mode(sessionId, "foreground");
                 manager.agentSession(caller, sessionId);
                 return {
                   content: [{ type: "text", text: JSON.stringify(state) }],

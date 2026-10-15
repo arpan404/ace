@@ -11,7 +11,7 @@ test.each(["codex", "claude", "opencode", "cursor", "pi", "acp"])(
     const registry = new ToolRegistry({ scheduler: nodeScheduler });
     let effects = 0;
     for (const [name, capability] of [
-      ["screen_request_app", "screen"],
+      ["screen_open_app", "screen"],
       ["device_list", "devices"],
     ] as const)
       registry.register({
@@ -51,7 +51,7 @@ test.each(["codex", "claude", "opencode", "cursor", "pi", "acp"])(
       }),
     );
     expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(["ace_status"]);
-    expect(await client.callTool({ name: "screen_request_app", arguments: {} })).toMatchObject({
+    expect(await client.callTool({ name: "screen_open_app", arguments: {} })).toMatchObject({
       isError: true,
     });
     expect(await client.callTool({ name: "device_list", arguments: {} })).toMatchObject({
@@ -76,18 +76,17 @@ test.each([
   { provider: "pi", mode: "modern", nativeInstructions: false },
   { provider: "acp", mode: "legacy", nativeInstructions: false },
 ] as const)(
-  "$provider refreshes staged computer use on enable, grant, revocation and read-only changes",
+  "$provider offers every computer use tool once it is on, read-only mode included, and hides them when it is off",
   async ({ provider, mode, nativeInstructions }) => {
     let enabled = false,
-      approved = false,
       readOnly = false,
       effects = 0;
     const registry = new ToolRegistry({ scheduler: nodeScheduler });
-    for (const name of ["screen_request_app", "screen_open_app", "device_list"])
+    for (const name of ["screen_open_app", "device_list"])
       registry.register({
         name,
         capability: name === "device_list" ? "devices" : "screen",
-        description: "Operate the approved native app",
+        description: "Operate a native app",
         input: z.object({}),
         output: z.object({}),
         timeoutMs: 1000,
@@ -105,7 +104,6 @@ test.each([
         disabled: enabled
           ? {}
           : { screen: "Computer use is disabled.", devices: "Devices are disabled." },
-        screenApproved: approved,
       }),
     });
     onTestFinished(() => server.close());
@@ -158,35 +156,31 @@ test.each([
       await change(() => {
         enabled = true;
       }),
-    ).toEqual(["ace_status", "screen_request_app", "device_list"]);
-    expect(await client.callTool({ name: "screen_open_app", arguments: {} })).toMatchObject({
-      isError: true,
-    });
-    expect(
-      await change(() => {
-        approved = true;
-      }),
-    ).toEqual(["ace_status", "screen_request_app", "screen_open_app", "device_list"]);
+    ).toEqual(["ace_status", "screen_open_app", "device_list"]);
     for (const tool of await listed())
       expect(tool.description).not.toContain("ace tools add ace-specific actions");
     expect(await client.callTool({ name: "screen_open_app", arguments: {} })).not.toMatchObject({
       isError: true,
     });
-    expect(effects).toBe(1);
-    expect(
-      await change(() => {
-        approved = false;
-      }),
-    ).toEqual(["ace_status", "screen_request_app", "device_list"]);
+    // Read-only is the provider's own mode: its permission system decides each call.
     expect(
       await change(() => {
         readOnly = true;
       }),
-    ).toEqual(["ace_status"]);
-    expect(await client.callTool({ name: "screen_request_app", arguments: {} })).toMatchObject({
+    ).toEqual(["ace_status", "screen_open_app", "device_list"]);
+    expect(await client.callTool({ name: "device_list", arguments: {} })).not.toMatchObject({
       isError: true,
     });
-    expect(effects).toBe(1);
+    expect(effects).toBe(2);
+    expect(
+      await change(() => {
+        enabled = false;
+      }),
+    ).toEqual(["ace_status"]);
+    expect(await client.callTool({ name: "screen_open_app", arguments: {} })).toMatchObject({
+      isError: true,
+    });
+    expect(effects).toBe(2);
     lease.end();
   },
 );

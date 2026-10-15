@@ -2,6 +2,8 @@
 
 Date: 2026-10-02. Status: accepted.
 
+Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provider-native (owner decision). App grants and read-only thread mode no longer hide or refuse ace tools; the provider's own permission mode decides from the tool annotations ace publishes.
+
 ## Context
 
 The competitor inventories in `/tmp/ace-orch/research-t3code.md` and

@@ -7,7 +7,7 @@ const deviceId = "android:Pixel";
 function controls(client: DeviceClient) {
   const state = client.getSnapshot().states.find((entry) => entry.device.id === deviceId);
   if (!state) throw new Error("Missing peer state");
-  return deviceControls(state.device, state, "thread", 1000);
+  return deviceControls(state.device, state, 1000);
 }
 async function fixture() {
   const platform = new DevicePlatform({ platform: "linux", home: "/unused", env: {} });

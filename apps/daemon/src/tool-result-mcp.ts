@@ -234,14 +234,6 @@ export function toolResultObserver(runtime: Runtime) {
         ? target(screenState(runtime, caller, input, name) ?? before, input)
         : {};
       const captured: ToolResult = { ...metadata, ...result };
-      if (name === "screen_request_app") {
-        const requested = argumentsSchema.safeParse(input);
-        if (requested.success && requested.data.bundleId)
-          captured.target = {
-            bundleId: requested.data.bundleId,
-            displayName: requested.data.bundleId.split(".").at(-1) ?? requested.data.bundleId,
-          };
-      }
       const noticeId = screen ? ItemId.parse(runtime.id()) : undefined;
       const first = result.content.find((part) => part.type === "text");
       let outcome = result.isError ? "failed" : "completed";

@@ -22,4 +22,4 @@ export { linuxBackend, installedLinuxHelper, type LinuxBackend } from "./linux.t
 
 export { ScreenStopError } from "./stop-error.ts";
 
-export type { ScreenAccess, ScreenAccessRevision, ScreenDeviceAccess } from "./access.ts";
+export type { ScreenAccess } from "./access.ts";

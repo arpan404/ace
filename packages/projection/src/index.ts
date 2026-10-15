@@ -285,11 +285,6 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
     case "interaction.opened":
       put(view.interactions, p.interaction.id, structuredCopy(p.interaction));
       break;
-    case "permission.reviewed": {
-      const interaction = get(view.interactions, p.review.interactionId);
-      if (interaction) interaction.review = structuredCopy(p.review);
-      break;
-    }
     case "interaction.closed": {
       const interaction = get(view.interactions, p.interactionId);
       if (interaction) {

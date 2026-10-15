@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { InteractionId } from "./ids.ts";
 import { ProviderKind } from "./provider-data.ts";
 import { AcpIdentity } from "./agent-registry.ts";
 
@@ -91,12 +90,3 @@ export const PermissionState = z.object({
   pending: z.boolean(),
 });
 export type PermissionState = z.infer<typeof PermissionState>;
-export const PermissionReview = z.object({
-  interactionId: InteractionId,
-  mode: PermissionMode,
-  decision: z.enum(["approve", "deny", "escalate"]),
-  reason: z.string().min(1).max(2048),
-  reviewer: z.literal("ace-risk-policy"),
-  target: ApprovalTarget.optional(),
-});
-export type PermissionReview = z.infer<typeof PermissionReview>;

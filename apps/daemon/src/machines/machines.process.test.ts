@@ -124,7 +124,7 @@ it("a read-only pairing can list the machine but can't start work on it", async 
   );
 });
 
-it("a new site in the other machine's browser asks the person, who can answer from this thread", async () => {
+it("an agent opens a new site in the other machine's browser with nobody asked", async () => {
   const pair = await pairedMachines({ access: "operate" });
   await pair.source.call({ op: "machines" });
   const { threadId, agentId } = pair.source.caller;
@@ -133,32 +133,21 @@ it("a new site in the other machine's browser asks the person, who can answer fr
     new AbortController().signal,
   );
   const connection = { url: pair.source.daemon.mcp.url, bearer: lease.bearer };
-  const asked = pair.requestIn(
-    pair.source,
-    threadId,
-    (interaction) =>
-      interaction.request.kind === "approval" && interaction.request.title.startsWith("Studio:"),
-  );
-  const opening = invoke(connection, "ace_browser_open", {
-    url: "https://docs.example.test/start",
-    machine: "studio",
-  });
-  const request = await asked;
-  expect(request.request).toMatchObject({
-    kind: "approval",
-    title: expect.stringContaining("docs.example.test"),
-  });
-  // The machine that would act holds the same request, so it can be answered there too.
-  const there = pair.target.daemon.store
-    .listThreads()
-    .find((thread) => thread.status.state === "needs_you");
-  expect(there?.title).toContain("Browser for");
-
-  expect(pair.answer(request, "allow_once")).toMatchObject({ ok: true });
-  const result = ToolResult.parse(await (await opening).json()).result;
+  const result = ToolResult.parse(
+    await (
+      await invoke(connection, "ace_browser_open", {
+        url: "https://docs.example.test/start",
+        machine: "studio",
+      })
+    ).json(),
+  ).result;
   expect(result.isError, JSON.stringify(result)).not.toBe(true);
   expect(result.content[0]?.text).toContain("docs.example.test");
-  expect(pair.source.daemon.store.getInteraction(request.id)?.state).toBe("resolved");
+  // Permissions are the provider's: neither machine holds a request for the person.
+  for (const machine of [pair.source, pair.target])
+    expect(
+      machine.daemon.store.listThreads().filter((thread) => thread.status.state === "needs_you"),
+    ).toEqual([]);
   expect(JSON.stringify(result)).not.toContain(pair.credential.token);
 });
 

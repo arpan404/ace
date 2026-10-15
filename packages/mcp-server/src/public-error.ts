@@ -5,10 +5,6 @@ import { z } from "zod";
 // never become this catalog. Only intentional failures can cross the MCP boundary.
 export const PublicToolCode = z.enum([
   "screen_disabled",
-  "screen_approval_required",
-  "screen_approval_denied",
-  "screen_approval_timeout",
-  "screen_read_only",
   "target_busy",
   "foreground_required",
   "focus_changed",
@@ -48,8 +44,6 @@ export const PublicToolCode = z.enum([
   "element_unavailable",
   "not_visible",
   "evaluate_approval_required",
-  "evaluate_approval_timeout",
-  "evaluate_approval_superseded",
   "page_text_limit",
   "approval_required",
   "denied",
@@ -89,33 +83,17 @@ export type PublicIssue = z.infer<typeof PublicIssue>;
 const issueList = z.array(PublicIssue).max(16);
 const dispatchPhase = z.enum(["rejected-before-dispatch", "dispatched", "partial"]);
 const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
-  screen_approval_required: {
-    message: "App requires approval",
-    hint: "Call screen_request_app with this app's bundle id and a reason; it waits for the person to decide.",
-  },
-  screen_approval_denied: {
-    message: "Screen access approval denied",
-    hint: "Ask the person to approve this app or screen mode before retrying.",
-  },
-  screen_approval_timeout: {
-    message: "Screen access approval expired",
-    hint: "Request screen access again when the person is available.",
-  },
-  screen_read_only: {
-    message: "Screen access is read-only",
-    hint: "Ask the person to grant control before sending screen input.",
-  },
   screen_disabled: {
     message: "Computer use is disabled",
-    hint: "A human must enable screen access before an agent can use apps.",
+    hint: "The person turns computer use on in ace's Settings; stop and tell them.",
   },
   target_busy: {
     message: "App is controlled by another session",
     hint: "Inspect screen sessions and ask the holder to hand back control.",
   },
   foreground_required: {
-    message: "App requires foreground approval",
-    hint: "Call screen_request_foreground with a reason. Do not repeat background input blindly.",
+    message: "App requires foreground input",
+    hint: "Call screen_request_foreground for this session. Do not repeat background input blindly.",
   },
   focus_changed: {
     message: "Input target focus changed",
@@ -262,29 +240,20 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
     hint: "Wait for visibility or choose an element in the latest snapshot.",
   },
   evaluate_approval_required: {
-    message: "Browser evaluate requires approval",
-    hint: "Ask the user to approve evaluation.",
-  },
-  // Neither is the person cancelling or refusing: they never answered this request.
-  evaluate_approval_timeout: {
-    message: "Browser evaluate approval timed out",
-    hint: "The person did not answer within a minute; nobody cancelled it. Tell them it needs their approval, then retry.",
-  },
-  evaluate_approval_superseded: {
-    message: "Browser evaluate approval request superseded",
-    hint: "A revoked site grant replaced this request before it was answered; nobody cancelled it. Retry to ask again.",
+    message: "Browser evaluate was refused by the host policy",
+    hint: "Read the page with a snapshot or find_text instead.",
   },
   page_text_limit: {
     message: "Browser text search exceeds the bounded page limit",
     hint: "Use a snapshot or a smaller page. This search reads at most 1024 nodes and 65536 text characters.",
   },
   approval_required: {
-    message: "Browser origin requires approval",
-    hint: "Wait for the user to decide the origin approval.",
+    message: "Browser origin was refused by the host policy",
+    hint: "Use another origin.",
   },
   denied: {
-    message: "Browser origin approval denied",
-    hint: "Report the denial and use an approved origin.",
+    message: "Browser refused the request",
+    hint: "Report the refusal; for uploads, pass regular files that are not being replaced.",
   },
   read_only: {
     message: "Read-only mode refuses agent navigation",
@@ -300,7 +269,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   delegation_required: {
     message: "Screen delegation required",
-    hint: "Ask the user to enable screen access, approve an app and delegate its screen session to this agent. After takeover, wait for delegation again.",
+    hint: "Call screen_open_app to take an app session. If a person took control, wait until they hand it back.",
   },
   screenshot_required: {
     message: "A fresh model screenshot is required for legacy coordinate input",
@@ -316,10 +285,10 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   permission_denied: {
     message: "Device or screen permission denied",
-    hint: "Ask the user to check OS permissions, device approval and delegation.",
+    hint: "Ask the user to check OS permissions and that devices are turned on.",
   },
   bounds: {
-    message: "Input is outside the approved target bounds",
+    message: "Input is outside the target bounds",
     hint: "Take a fresh screenshot or use semantic UI refs.",
   },
   not_supported: {

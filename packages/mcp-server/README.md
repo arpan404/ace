@@ -76,13 +76,11 @@ The same guidance is delivered once through its native instruction field.
 Browser tools operate this thread's ace browser, including localhost. Computer
 use requires an explicit native app task. A refused tool is a stopping condition.
 
-Disabled groups are absent from discovery and denied on direct calls. Screen and
-device groups are also absent in read-only threads. Before a current app grant,
-screen discovery exposes only `screen_request_app`. Browser bundle IDs require
-a human grant from the thread's Computer use panel. Browser Always grants are
-rejected and existing saved Always grants give no browser authority.
+Disabled groups are absent from discovery and denied on direct calls. A group that is on
+offers every tool at once, in every access mode: the provider's own permission mode, read-only
+included, decides each call from the tools' annotations. ace adds no app or device approval.
 
-Settings, app grants, turn boundaries and permission changes publish list changes.
+Settings, turn boundaries and permission changes publish list changes.
 Current clients receive them through `subscriptions/listen`. Native legacy HTTP
 connections opt in with `X-Ace-Notifications: stream`; their bounded sessions and
 GET notification streams end with the credential lease. Other legacy clients

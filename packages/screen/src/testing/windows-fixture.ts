@@ -16,7 +16,6 @@ export async function windowsFixture(overrides: Partial<ScreenOptions> = {}) {
     ...overrides,
   });
   await manager.enable(true);
-  await manager.approve(target.bundleId, true);
   return {
     manager,
     directory,

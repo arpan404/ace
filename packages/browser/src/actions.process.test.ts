@@ -98,21 +98,18 @@ describe.skipIf(!executablePath)("agent browser API with real Chromium", () => {
     ).toBe(true);
   }, 60000);
 
-  it("denies evaluate separately from navigation and rejects external and file origins", async () => {
+  it("an embedder's evaluate refusal leaves navigation alone, and non-web URLs never load", async () => {
     const f = await fixture({ evaluatePolicy: () => false });
     await f.navigate();
-    await expect(f.evaluate("1+1")).rejects.toThrow("requires approval");
+    await expect(f.evaluate("1+1")).rejects.toMatchObject({ code: "evaluate_approval_required" });
     await expect(
       f.execute({ action: "navigate", url: "file:///etc/passwd" }),
     ).rejects.toMatchObject({
       blocked: { reason: "invalid_origin", origin: "file:///etc/passwd" },
     });
-    await expect(
-      f.execute({ action: "navigate", url: "https://example.invalid" }),
-    ).rejects.toMatchObject({
-      blocked: { reason: "approval_required", origin: "https://example.invalid" },
+    expect(await f.execute({ action: "navigate", url: `${f.url}/data` })).toMatchObject({
+      url: `${f.url}/data`,
     });
-    await expect(f.execute({ action: "navigate", url: `${f.url}/redirect` })).rejects.toThrow();
   }, 60_000);
 
   it("checks subresources and redirects against the origin hook before making network requests", async () => {

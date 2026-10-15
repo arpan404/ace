@@ -4,8 +4,8 @@ import type { ScreenOperation } from "@ace/protocol";
 /*
  * `aceFakeWorld = "computer-use"` (set before boot, as the screens do): agents at work on this
  * Mac in the fake daemon. Three apps held by thread agents (one capturing in the background, one
- * the person has taken over), an app request waiting in a thread, and the cold-start thread's
- * browser with several agent tabs, a pending question, a flagged download and a script grant.
+ * the person has taken over), and the cold-start thread's browser with several agent tabs, a
+ * pending question and a flagged download.
  * Fake pictures are fixtures, never the person's screen.
  */
 export function seedComputerUse(daemon: FakeDaemon): void {
@@ -40,18 +40,6 @@ export function seedComputerUse(daemon: FakeDaemon): void {
       "com.apple.calculator",
       "com.apple.iphonesimulator",
     ])
-      await call({ op: "approve", bundleId, allowed: true, scope: "always" });
-    await call({
-      op: "approve",
-      bundleId: "com.apple.systempreferences",
-      allowed: true,
-      scope: "always",
-    });
-    for (const bundleId of [
-      "com.apple.TextEdit",
-      "com.apple.calculator",
-      "com.apple.iphonesimulator",
-    ])
       await start(bundleId);
     const holders = [
       agent("thread-cold-start"),
@@ -68,11 +56,6 @@ export function seedComputerUse(daemon: FakeDaemon): void {
     // The person took Calculator over from its agent.
     const calculator = sessions.get("com.apple.calculator");
     if (calculator) await call({ op: "controller", sessionId: calculator, controller: "human" });
-    const asker = agent("thread-dedupe");
-    if (asker)
-      void daemon.screen
-        .requestApp("com.apple.Notes", "Copy the release checklist into the shared note", asker)
-        .catch(() => {});
   })();
   seedBrowser(daemon, "thread-cold-start");
 }
@@ -107,11 +90,6 @@ function seedBrowser(daemon: FakeDaemon, threadId: string) {
       mimeType: "application/octet-stream",
       flags: ["executable"],
       state: "pending",
-    });
-    browser.evaluateGrant(threadId, {
-      origin: "https://status.example.com",
-      mode: "read-only",
-      grantedAt: Date.now() - 60_000,
     });
   } catch {
     // The thread's browser isn't open in this world.

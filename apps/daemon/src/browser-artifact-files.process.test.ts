@@ -8,7 +8,7 @@ import { BrowserArtifactFiles } from "./browser-artifact-files.ts";
 import { Store } from "./store.ts";
 import { createDevThread } from "./commands.ts";
 import { readConfig } from "./config.ts";
-import { originFixture } from "./browser-origin-test-support.ts";
+import { browserFixture } from "./browser-service-test-support.ts";
 import { FilesWorkspaces } from "./files-workspaces.ts";
 
 const idle = () => {};
@@ -182,7 +182,7 @@ it("an exhausted orphan registry frees capacity for the next live browser artifa
 });
 
 it("deleting a recording thread closes its browser and removes its persistent profile", async () => {
-  const f = await originFixture();
+  const f = await browserFixture();
   const files = new FilesWorkspaces(f.context);
   f.context.services.threadFiles = files;
   f.context.resources.own(() => files.close());

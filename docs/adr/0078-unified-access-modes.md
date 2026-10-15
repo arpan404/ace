@@ -3,6 +3,8 @@
 Date: 2026-10-13. Status: accepted. Supersedes the picker, defaults and delegation-ceiling parts
 of ADR 0069 and its 2026-10-13 amendment; keeps 0069's rule that providers enforce, ace configures.
 
+Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provider-native (owner decision). The line that keeps ace's own browser-origin, app and device consent no longer holds; a provider's approval for an ace tool waits for the person like any other.
+
 ## Context
 
 ADR 0069 showed each provider's native permission list in the composer: 17 fixed choices across

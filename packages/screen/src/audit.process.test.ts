@@ -3,7 +3,6 @@ import { readdir } from "node:fs/promises";
 import { Helper, screenConnection, Simulators } from "./index.ts";
 import { manager, ready, ids, target } from "./testing/support.ts";
 import { helperGate } from "./testing/gate.ts";
-import type { ScreenAccess } from "./access.ts";
 
 const caller = { threadId: "thread", agentId: "agent" };
 const owner = JSON.stringify([caller.threadId, caller.agentId]);
@@ -13,21 +12,7 @@ async function fixture(env: NodeJS.ProcessEnv = {}) {
   onTestFinished(h.close);
   return h;
 }
-function access(currentTurn: () => string | undefined): ScreenAccess {
-  return {
-    currentTurn,
-    enabled: () => true,
-    enable() {},
-    list: () => [],
-    allows: () => true,
-    approve() {},
-    async request() {},
-    async foreground() {},
-    audit() {},
-  };
-}
-
-it("a released app can be reacquired by an approved agent without retaining the old reservation", async () => {
+it("a released app can be reacquired by an agent without retaining the old reservation", async () => {
   const h = await fixture();
   await ready(h.screen);
   // The human-created session has no owner and can be acquired.
@@ -102,9 +87,7 @@ it("a request timeout leaves independent sessions usable and ignores its late re
 it("a failed capture releases its app and does not end another app session", async () => {
   const h = await fixture();
   await h.screen.enable(true);
-  await h.screen.approve(target.bundleId, true);
   const first = await h.screen.openAgentApp(target.bundleId, caller, new AbortController().signal);
-  await h.screen.approve("dev.ace.other", true);
   const second = await h.screen.start({ ...target, bundleId: "dev.ace.other" });
   h.screen.delegateAgent(second.sessionId, caller);
   // A fake native failure is sent from the same stdout boundary as real capture failures.
@@ -126,35 +109,11 @@ it("a failed capture releases its app and does not end another app session", asy
   expect((await h.screen.uiTree(second.sessionId, {})).nodes[0]?.value).toBe("other survives");
 });
 
-it.each([undefined, "next-turn"])(
-  "foreground consent expires when the approved turn changes to %s",
-  async (nextTurn) => {
-    const h = await fixture();
-    const state = await ready(h.screen);
-    h.screen.delegateAgent(state.sessionId, caller);
-    let turn: string | undefined = "turn";
-    h.screen.configureAccess(access(() => turn));
-    await h.screen.mode(state.sessionId, "foreground");
-    expect(h.screen.state(state.sessionId).mode).toBe("foreground");
-    turn = nextTurn;
-    await h.screen.revalidate();
-    await h.screen.input(
-      state.sessionId,
-      "agent",
-      { kind: "text.type", text: "background" },
-      owner,
-    );
-    expect(h.screen.state(state.sessionId).mode).toBe("background");
-    expect((await h.screen.uiTree(state.sessionId, {})).nodes[0]?.value).toBe("background");
-  },
-);
-
 it("status and permission inspections can finish while an app launch is still pending", async () => {
   const gate = await helperGate();
   onTestFinished(gate.close);
   const h = await fixture({ GATE_OP: "open.app", GATE_PORT: gate.port });
   await h.screen.enable(true);
-  await h.screen.approve(target.bundleId, true);
   const opening = h.screen.openAgentApp(target.bundleId, caller, new AbortController().signal);
   await gate.reached;
   try {
@@ -203,7 +162,6 @@ it("observe-only measurement refuses another agent and a human-controlled sessio
 it("stop all terminates every capture even when an external controller release fails", async () => {
   const h = await fixture();
   const first = await ready(h.screen);
-  await h.screen.approve("dev.ace.other", true);
   const second = await h.screen.start({ ...target, bundleId: "dev.ace.other" });
   h.screen.controller(first.sessionId, "human", "person", {
     authorize() {},
@@ -270,40 +228,6 @@ it("disabling returns a stop failure instead of waiting forever for an unconfirm
   expect(h.screen.states()).toEqual([]);
 });
 
-it("frame fan-out reuses authorization until access is revalidated", async () => {
-  const h = await fixture();
-  const state = await ready(h.screen);
-  h.screen.delegateAgent(state.sessionId, caller);
-  let allowed = true;
-  let budget = Infinity;
-  h.screen.configureAccess({
-    ...access(() => "turn"),
-    allows() {
-      if (--budget < 0) throw new Error("Authorization I/O budget exceeded");
-      return allowed;
-    },
-  });
-  const received = Promise.withResolvers<void>();
-  h.screen.subscribe(state.sessionId, async (frame) => {
-    if (frame.payload.toString() === "frame-15") received.resolve();
-  });
-  await h.screen.input(
-    state.sessionId,
-    "agent",
-    { kind: "text.type", text: "frames" },
-    owner,
-    () => {
-      budget = 2;
-    },
-  );
-  await received.promise;
-  expect(h.screen.state(state.sessionId).lifecycle).toBe("live");
-  budget = Infinity;
-  allowed = false;
-  await h.screen.revalidate();
-  expect(h.screen.states()).toEqual([]);
-});
-
 it("starting a target replaces an ownerless capture instead of treating its app as busy", async () => {
   const h = await fixture();
   const first = await ready(h.screen);
@@ -312,23 +236,10 @@ it("starting a target replaces an ownerless capture instead of treating its app 
   expect(h.screen.states()).toEqual([second]);
 });
 
-it("an ended root run expires foreground even while its tree still keeps the turn alive", async () => {
-  const h = await fixture();
-  const state = await ready(h.screen);
-  h.screen.delegateAgent(state.sessionId, caller);
-  h.screen.configureAccess(access(() => "turn"));
-  await h.screen.mode(state.sessionId, "foreground");
-  h.screen.turnEnded(caller.threadId, "other-run");
-  expect(h.screen.state(state.sessionId).mode).toBe("foreground");
-  h.screen.turnEnded(caller.threadId, "turn");
-  expect(h.screen.state(state.sessionId).mode).toBe("background");
-});
-
 it("a rejected second app start leaves the first app usable", async () => {
   const h = await fixture({ START_ERROR_BUNDLE: "dev.ace.other" });
   const first = await ready(h.screen);
   h.screen.delegateAgent(first.sessionId, caller);
-  await h.screen.approve("dev.ace.other", true);
   await expect(h.screen.start({ ...target, bundleId: "dev.ace.other" })).rejects.toThrow(
     "Fixture start rejected",
   );

@@ -3,8 +3,6 @@ import {
   BrowserTab,
   BrowserTabsResult,
   BrowserDownload,
-  BrowserEvaluateGrant,
-  BrowserOrigin,
   BrowserState,
   ThreadId,
 } from "@ace/protocol";
@@ -72,24 +70,6 @@ export class BrowserFeaturesClient {
         ...(promptText !== undefined ? { promptText } : {}),
       },
       z.object({ ok: z.literal(true) }),
-      options,
-    );
-  }
-  evaluateGrants(threadId: string, options?: RequestOptions) {
-    return this.read(
-      { type: "browser.evaluate.grants.list", threadId: ThreadId.parse(threadId) },
-      BrowserEvaluateGrant.array().max(256),
-      options,
-    );
-  }
-  revokeEvaluateGrant(threadId: string, origin: string, options?: RequestOptions) {
-    return this.read(
-      {
-        type: "browser.evaluate.grants.revoke",
-        threadId: ThreadId.parse(threadId),
-        origin: BrowserOrigin.parse(origin),
-      },
-      BrowserEvaluateGrant.array().max(256),
       options,
     );
   }

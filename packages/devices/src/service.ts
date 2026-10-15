@@ -3,7 +3,6 @@ import { watchDeviceLease } from "./lease-expiry.ts";
 import { deviceStreamSnapshot } from "./snapshot.ts";
 import { DeviceStreamControl, deviceImageStream } from "./stream-control.ts";
 import { type Frame, type FrameSink } from "@ace/screen";
-import { ThreadId, AgentId, type ScreenAgentScope } from "@ace/protocol";
 import { AppDevice as Device, DeviceOperation, DeviceState } from "@ace/protocol/devices";
 import { deviceFailure } from "./failure.ts";
 import { DeviceError } from "./sdk.ts";
@@ -18,7 +17,7 @@ import {
 import { createSession, type DeviceSession } from "./session.ts";
 import type { Actor } from "./lease.ts";
 import { performDeviceAction } from "./actions.ts";
-import { approveDevice, disableDeviceSessions } from "./approval.ts";
+import { bindDevice, disableDeviceSessions } from "./binding.ts";
 import { enqueueDeviceInput } from "./input-queue.ts";
 import type { spawnSupervised } from "@ace/provider-kit/process";
 import { mirrorDeviceController } from "./screen-controller.ts";
@@ -39,7 +38,6 @@ export class DevicesService {
   private enabled = false;
   private closed = false;
   private disabling = false;
-  private temporaryEnablement: { actors: Set<Actor> } | undefined;
   private readonly sessions = new Map<string, DeviceSession>();
   private readonly listeners = new Set<(state: DeviceState) => void>();
   private readonly options: DevicesOptions;
@@ -145,7 +143,6 @@ export class DevicesService {
     return DeviceState.parse({
       device: session.device,
       enabled: this.enabled,
-      approved: session.threadId !== undefined,
       threadId: session.threadId,
       lifecycle: session.lifecycle,
       booting: session.booting === true,
@@ -161,89 +158,39 @@ export class DevicesService {
   isEnabled(): boolean {
     return this.enabled && !this.closed;
   }
-  approvedThread(id: string): string | undefined {
+  /** The thread whose agent or person took this device, which decides who may watch it. */
+  boundThread(id: string): string | undefined {
     return this.sessions.get(id)?.threadId;
   }
-  /** A host-approved tool lifetime owns only the grants it creates. */
-  async grantAgentAccess(
-    deviceId: string,
-    caller: ScreenAgentScope,
-    signal: AbortSignal,
-  ): Promise<void> {
-    const guard = () => signal.throwIfAborted();
-    guard();
+  /**
+   * An agent takes a device for its thread, with no prompt: one that is free, already its own,
+   * or left idle by an earlier holder whose lease ran out. A person in control, or another agent
+   * holding it, refuses: control moves only on handback or lease expiry.
+   */
+  async claimForAgent(deviceId: string, actor: Actor): Promise<void> {
+    const threadId = actor.threadId,
+      agentId = actor.agentId;
+    if (actor.kind !== "agent" || !threadId || !agentId) throw new Error("Agent caller required");
     const session = await this.session(deviceId);
-    guard();
-    const actor: Actor = { kind: "human", owner: "host-device-approval", guard };
-    const approval = {
-      op: "approve" as const,
-      deviceId,
-      threadId: ThreadId.parse(caller.threadId),
-      allowed: true,
-    };
-    const screenAccess =
-      session.device.platform === "ios"
-        ? this.options.screen?.deviceAccess(approval.threadId)
-        : undefined;
-    const temporary =
-      this.temporaryEnablement ?? (!this.enabled ? { actors: new Set<Actor>() } : undefined);
-    if (temporary) {
-      this.temporaryEnablement = temporary;
-      temporary.actors.add(actor);
-    }
-    let epoch: number | undefined;
-    try {
-      await this.perform({ op: "enable", enabled: true }, actor);
-      guard();
-      epoch = session.approvalEpoch + 1;
-      await approveDevice(
-        session,
-        approval,
-        this.options,
-        this.lifecycleOwner(),
-        guard,
-        screenAccess,
+    actor.guard?.();
+    const current = session.lease.current();
+    if (current?.kind === "human")
+      throw new DeviceError(
+        "lease_required",
+        "A person is controlling this device",
+        "Wait until the person hands it back, then call device_start again.",
       );
-      this.emit(session);
-      guard();
-      await this.perform(
-        {
-          op: "controller",
-          deviceId,
-          controller: "agent",
-          threadId: approval.threadId,
-          agentId: AgentId.parse(caller.agentId),
-        },
-        actor,
+    if (current && current.owner !== actor.owner)
+      throw new DeviceError(
+        "busy",
+        "Another agent is using this device",
+        "Use another device, or retry after that agent finishes.",
       );
-      guard();
-      // Successful access is now an explicit thread grant, independent of the tool call.
-      screenAccess?.commit();
-      if (this.temporaryEnablement === temporary) this.temporaryEnablement = undefined;
-    } catch (error) {
-      if (session.approvalEpoch === epoch && session.threadId === caller.threadId) {
-        await approveDevice(
-          session,
-          { ...approval, allowed: false },
-          this.options,
-          this.lifecycleOwner(),
-          undefined,
-          screenAccess,
-        );
-        this.emit(session);
-      }
-      throw error;
-    } finally {
-      await screenAccess?.rollback();
-      temporary?.actors.delete(actor);
-      if (temporary && this.temporaryEnablement === temporary && !temporary.actors.size) {
-        this.temporaryEnablement = undefined;
-        await this.perform(
-          { op: "enable", enabled: false },
-          { kind: "human", owner: "cancelled-device-approval" },
-        );
-      }
-    }
+    if (current && session.threadId === threadId) return;
+    this.assertEnabled(session);
+    await bindDevice(session, threadId, this.options, this.lifecycleOwner(), () => actor.guard?.());
+    this.emit(session);
+    await this.assignController(session, actor, actor);
   }
   /** Human control belongs to a socket lifetime, even for the same paired device. */
   ownsControl(id: string, owner: string): boolean {
@@ -311,22 +258,25 @@ export class DevicesService {
     const state = this.state(session);
     for (const listener of this.listeners) listener(state);
   }
-  private authorize(session: DeviceSession, actor: Actor): void {
-    actor.guard?.();
-    if (this.closed || !this.enabled || session.changingApproval)
+  private assertEnabled(session: DeviceSession): void {
+    if (this.closed || !this.enabled || session.changingBinding)
       throw new DeviceError(
         "permission_denied",
         "Devices are disabled",
         "Enable devices in the device panel.",
       );
+  }
+  private authorize(session: DeviceSession, actor: Actor): void {
+    actor.guard?.();
+    this.assertEnabled(session);
     if (
       actor.kind === "agent" &&
       (actor.threadId === undefined || session.threadId !== actor.threadId)
     )
       throw new DeviceError(
-        "permission_denied",
-        "Device is not approved for this thread",
-        "Ask the user to approve this device for the current thread.",
+        "lease_required",
+        "Device is not taken for this thread",
+        "Call device_start or device_boot to take this device first.",
       );
   }
   private enqueue<T>(
@@ -356,20 +306,17 @@ export class DevicesService {
   private async perform(operation: DeviceOperation, actor: Actor): Promise<unknown> {
     actor.guard?.();
     if (
-      ["enable", "approve", "controller", "stream.configure", "stream.keyframe"].includes(
-        operation.op,
-      ) &&
+      ["enable", "controller", "stream.configure", "stream.keyframe"].includes(operation.op) &&
       actor.kind !== "human"
     )
       throw new DeviceError(
         "permission_denied",
-        "Human authorization required",
-        "Ask the user to approve or delegate the device.",
+        "Only a person can do this",
+        "Use the device tools; device_start takes the device for this thread.",
       );
     if (operation.op === "enable") {
       if (this.disabling)
         throw new DeviceError("busy", "Devices are disabling", "Wait for resource cleanup.");
-      if (!this.temporaryEnablement?.actors.has(actor)) this.temporaryEnablement = undefined;
       const changed = this.enabled !== operation.enabled;
       this.enabled = operation.enabled;
       this.watching();
@@ -384,7 +331,7 @@ export class DevicesService {
       if (!this.enabled) {
         this.disabling = true;
         try {
-          await disableDeviceSessions(this.sessions.values(), this.lifecycleOwner(), this.options);
+          await disableDeviceSessions(this.sessions.values(), this.lifecycleOwner());
           this.sessions.clear();
         } finally {
           this.disabling = false;
@@ -396,10 +343,7 @@ export class DevicesService {
       const devices = await this.list();
       return {
         issues: this.options.platform.diagnostics(),
-        devices:
-          actor.kind === "human"
-            ? devices
-            : devices.filter((device) => this.sessions.get(device.id)?.threadId === actor.threadId),
+        devices,
       };
     }
     if (operation.op === "inventory.watch")
@@ -423,16 +367,6 @@ export class DevicesService {
     const session = await this.session(operation.deviceId);
     viewer?.guard();
     actor.guard?.();
-    if (operation.op === "approve") {
-      if (!this.enabled)
-        throw new DeviceError("permission_denied", "Devices are disabled", "Enable devices first.");
-      await approveDevice(session, operation, this.options, this.lifecycleOwner(), () =>
-        actor.guard?.(),
-      );
-      if (!this.temporaryEnablement?.actors.has(actor)) this.temporaryEnablement = undefined;
-      this.emit(session);
-      return this.state(session);
-    }
     this.authorize(session, actor);
     if (session.lease.resume(actor)) {
       this.watchLease(session);
@@ -446,14 +380,25 @@ export class DevicesService {
       this.emit(session);
     }
     if (operation.op === "controller") {
-      let requested = actor;
+      let requested: Actor | undefined = operation.controller === "none" ? undefined : actor;
+      // A person taking the device from a thread's view moves it to that thread too.
+      if (operation.controller === "human" && operation.threadId) {
+        await bindDevice(session, operation.threadId, this.options, this.lifecycleOwner(), () =>
+          actor.guard?.(),
+        );
+        this.emit(session);
+      }
       if (operation.controller === "agent") {
-        if (!operation.threadId || !operation.agentId || session.threadId !== operation.threadId)
+        if (!operation.threadId || !operation.agentId)
           throw new DeviceError(
             "permission_denied",
-            "Agent must belong to approved thread",
-            "Approve the thread and select an agent.",
+            "Agent and thread required",
+            "Select one of the thread's agents.",
           );
+        await bindDevice(session, operation.threadId, this.options, this.lifecycleOwner(), () =>
+          actor.guard?.(),
+        );
+        this.emit(session);
         requested = {
           kind: "agent",
           owner: agentOwner(operation.threadId, operation.agentId),
@@ -461,28 +406,7 @@ export class DevicesService {
           agentId: operation.agentId,
         };
       }
-      const revision = ++session.controlRevision;
-      const generation = session.generation;
-      session.pendingController = actor.owner;
-      session.lease.release();
-      await session.capture?.releaseInput?.();
-      this.authorize(session, actor);
-      if (revision !== session.controlRevision || generation !== session.generation)
-        throw new DeviceError("busy", "Device control changed", "Take control again.");
-      delete session.pendingController;
-      if (operation.controller === "none") session.lease.release();
-      else session.lease.claim(requested);
-      if (session.capture?.screenSessionId && this.options.screen) {
-        mirrorDeviceController(
-          session,
-          this.options.screen,
-          (control) => this.authorize(session, control),
-          () => this.emit(session),
-        );
-      }
-      if (!this.temporaryEnablement?.actors.has(actor)) this.temporaryEnablement = undefined;
-      this.watchLease(session);
-      this.emit(session);
+      await this.assignController(session, actor, requested);
       return this.state(session);
     }
     switch (operation.op) {
@@ -587,6 +511,33 @@ export class DevicesService {
         return result;
       }
     }
+  }
+  /** `requester` hands control to `holder`, or releases it; in-flight input is released first. */
+  private async assignController(
+    session: DeviceSession,
+    requester: Actor,
+    holder: Actor | undefined,
+  ): Promise<void> {
+    const revision = ++session.controlRevision;
+    const generation = session.generation;
+    session.pendingController = requester.owner;
+    session.lease.release();
+    await session.capture?.releaseInput?.();
+    this.authorize(session, requester);
+    if (revision !== session.controlRevision || generation !== session.generation)
+      throw new DeviceError("busy", "Device control changed", "Take control again.");
+    delete session.pendingController;
+    if (holder) session.lease.claim(holder);
+    else session.lease.release();
+    if (session.capture?.screenSessionId && this.options.screen)
+      mirrorDeviceController(
+        session,
+        this.options.screen,
+        (control) => this.authorize(session, control),
+        () => this.emit(session),
+      );
+    this.watchLease(session);
+    this.emit(session);
   }
   private watchLease(session: DeviceSession): void {
     session.leaseExpiry?.();
@@ -732,14 +683,14 @@ export class DevicesService {
     this.authorize(session, actor);
     if (session.lifecycle !== "live")
       throw new DeviceError("not_found", "Device stream is not live", "Start the stream first.");
-    const epoch = session.approvalEpoch;
+    const epoch = session.bindingEpoch;
     const preferences = this.streamControlFor(session);
     if (!preferences.has(actor.owner)) await preferences.set(actor.owner, deviceImageStream);
     viewer.guard();
     const stop = session.hub.subscribe(async (frame) => {
       viewer.guard();
-      if (actor.kind === "agent" && session.approvalEpoch !== epoch)
-        throw new Error("Device approval changed");
+      if (actor.kind === "agent" && session.bindingEpoch !== epoch)
+        throw new Error("Device binding changed");
       this.authorize(session, actor);
       await sink(frame);
     }, session.latest);
@@ -764,9 +715,9 @@ export class DevicesService {
     const session = await this.session(id);
     viewer.guard();
     this.authorize(session, actor);
-    const epoch = session.approvalEpoch;
+    const epoch = session.bindingEpoch;
     return session.logs.subscribe(async (batch) => {
-      if (session.approvalEpoch !== epoch) throw new Error("Device approval changed");
+      if (session.bindingEpoch !== epoch) throw new Error("Device binding changed");
       this.authorize(session, actor);
       await sink(batch);
     });

@@ -19,7 +19,6 @@ async function live() {
     await within(result.panel).findByRole("button", { name: "Enable devices" }),
   );
   const device = await openDevice(result.panel, "iPhone 16 Pro");
-  await userEvent.click(within(device).getByRole("button", { name: "Approve" }));
   await within(device).findByRole("img", { name: "iPhone 16 Pro screen" });
   return { ...result, device };
 }
@@ -94,26 +93,12 @@ test("invalid location stays in the form with a fix", async () => {
   );
   expect(app.daemon.appDevices.actions).toEqual([]);
 });
-test("opening Simulator leaves computer use off; approval is scoped to the thread and Revoke removes it", async () => {
+test("watching Simulator leaves computer use off", async () => {
   const { app, panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
   const device = await openDevice(panel, "iPhone 16 Pro");
-  expect(app.daemon.screen.access.enabled).toBe(false);
-  expect(app.daemon.screen.access.list()).toEqual([]);
-  expect(within(device).getByText(/You can watch without approving/)).toBeTruthy();
   expect(await within(device).findByRole("img", { name: "iPhone 16 Pro screen" })).toBeTruthy();
-  expect(app.daemon.screen.access.list()).toEqual([]);
-  await userEvent.click(within(device).getByRole("button", { name: "Approve" }));
-  await within(device).findByRole("img", { name: "iPhone 16 Pro screen" });
-  expect(app.daemon.screen.access.list()).toEqual([
-    expect.objectContaining({
-      bundleId: "com.apple.iphonesimulator",
-      scope: "thread",
-      threadId: "thread-checkout",
-    }),
-  ]);
-  await userEvent.click(within(device).getByRole("button", { name: "Revoke" }));
-  await waitFor(() => expect(app.daemon.screen.access.list()).toEqual([]));
+  expect(app.daemon.screen.enabled).toBe(false);
 });
 test("failed log startup shows Retry in place and retry opens logs", async () => {
   const { app, device } = await live();

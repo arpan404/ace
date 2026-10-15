@@ -68,7 +68,7 @@ const actions = {
   },
   evaluate: {
     riskClass: "external-effect",
-    description: "Execute JavaScript in this thread's ace browser page under its evaluate policy.",
+    description: "Execute JavaScript in this thread's ace browser page.",
   },
   wait_for: {
     riskClass: "read-only",
@@ -96,7 +96,7 @@ const actions = {
   upload: {
     riskClass: "external-effect",
     description:
-      "Set a file input ref with workspace or thread artifact files. Outside paths require human approval.",
+      "Set a file input ref with files from the workspace, thread artifacts or other local paths.",
   },
   dialog: {
     riskClass: "external-effect",
@@ -147,7 +147,6 @@ export type BrowserMachineRoute = (
     machine: string;
     tool: string;
     args: Record<string, unknown>;
-    readOnly: boolean;
     timeoutMs: number;
   },
   context: import("@ace/mcp-server").ToolContext,
@@ -161,7 +160,7 @@ export const browserMachineInput = {
     .describe("Run in the browser of another paired machine from ace_machines."),
 };
 
-/** Agents use the human-opened browser and its existing origin/evaluate policy. */
+/** Agents act in the thread's browser; a person's takeover still pauses them until handback. */
 export function browserToolkit(
   service: Pick<BrowserService, "execute" | "screenshot">,
   startupReserveMs = 0,
@@ -196,7 +195,6 @@ export function browserToolkit(
                   machine,
                   tool: name,
                   args,
-                  readOnly: actions[action].riskClass === "read-only",
                   timeoutMs: timeoutMs - 5_000,
                 },
                 context,

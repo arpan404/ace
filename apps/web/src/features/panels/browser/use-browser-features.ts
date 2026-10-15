@@ -1,4 +1,4 @@
-import { BrowserFeaturesClient, BrowserOriginsClient } from "@ace/client";
+import { BrowserFeaturesClient } from "@ace/client";
 import { BrowserArtifact, ThreadId } from "@ace/protocol";
 import { useClient } from "@ace/client-react";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -13,15 +13,14 @@ export const reason = (error: unknown) =>
   error instanceof Error ? error.message : "ace refused it";
 
 /**
- * The browser's parity controls for one thread: its agent tabs, dialogs, downloads, site grants,
- * private takeover and recording. Each is a one-shot request, never replayed after a reconnect.
+ * The browser's parity controls for one thread: its agent tabs, dialogs, downloads, private
+ * takeover and recording. Each is a one-shot request, never replayed after a reconnect.
  * Tab changes and dialog answers need the person's control lease, so they take it first.
  */
 export function useBrowserFeatures(source: PreviewSource, threadId: string) {
   const client = useClient();
   const toast = useToast();
   const features = new BrowserFeaturesClient(client);
-  const origins = new BrowserOriginsClient(client);
   const withControl = async () => {
     if (source.heldAs(threadId)) return false;
     await source.takeover(threadId);
@@ -73,7 +72,6 @@ export function useBrowserFeatures(source: PreviewSource, threadId: string) {
   };
   return {
     features,
-    origins,
     answerDialog: (tabId: string, dialogId: string, accept: boolean, promptText?: string) =>
       attempt("Couldn't answer the page", () => answerDialog(tabId, dialogId, accept, promptText)),
     answerBackgroundDialog: (

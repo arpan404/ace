@@ -40,13 +40,12 @@ export const maxBriefLines = 12;
 export const maxDigestChars = 300;
 export const maxNotesChars = 600;
 
+// ace adds no prompts of its own: its tools run whenever the provider lets the call through.
 const accessText: Record<AccessMode, string> = {
-  "read-only":
-    "Read-only: ace refuses navigation, screen and device actions; reads work and never prompt",
-  ask: "Ask: new browser origins, app control and external effects prompt the person; reads never do",
-  "auto-review":
-    "Auto review: a reviewer approves routine actions and risky ones reach the person; reads never prompt",
-  "full-access": "Full access: ace tools never prompt the person",
+  "read-only": "Read-only: your provider's read-only mode decides what runs; ace adds no approvals",
+  ask: "Ask: your provider asks the person before actions; ace adds no approvals",
+  "auto-review": "Auto review: your provider's reviewer decides; ace adds no approvals",
+  "full-access": "Full access: your provider runs tools without asking; ace adds no approvals",
 };
 const clip = (text: string, max: number) =>
   text.length > max ? `${text.slice(0, Math.max(0, max - 1))}…` : text;

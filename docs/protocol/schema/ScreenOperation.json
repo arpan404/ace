@@ -32,51 +32,6 @@
     },
     {
       "properties": {
-        "allowed": {
-          "type": "boolean"
-        },
-        "bundleId": {
-          "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
-        },
-        "op": {
-          "const": "approve",
-          "type": "string"
-        },
-        "scope": {
-          "$ref": "https://ace.local/protocol/v1/ScreenGrantScope.json"
-        },
-        "threadId": {
-          "maxLength": 256,
-          "minLength": 1,
-          "type": "string"
-        }
-      },
-      "required": [
-        "op",
-        "bundleId",
-        "allowed"
-      ],
-      "type": "object"
-    },
-    {
-      "properties": {
-        "op": {
-          "const": "approvals",
-          "type": "string"
-        },
-        "threadId": {
-          "maxLength": 256,
-          "minLength": 1,
-          "type": "string"
-        }
-      },
-      "required": [
-        "op"
-      ],
-      "type": "object"
-    },
-    {
-      "properties": {
         "op": {
           "const": "stop.all",
           "type": "string"
@@ -94,10 +49,6 @@
         },
         "op": {
           "const": "mode",
-          "type": "string"
-        },
-        "reason": {
-          "maxLength": 2048,
           "type": "string"
         },
         "sessionId": {

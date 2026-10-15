@@ -53,10 +53,6 @@ export function deviceRows(
 
 /** What a person can do with the selected device from this thread, and how to say where it is. */
 export interface DeviceControls {
-  /** Approved for this thread: its agents may see and use it. */
-  approvedHere: boolean;
-  /** Approved for another thread; approving here moves it. */
-  approvedElsewhere: boolean;
   running: boolean;
   live: boolean;
   busy: boolean;
@@ -106,7 +102,6 @@ export function deviceProblem(failure: DeviceProblem & { code: string }): Device
 export function deviceControls(
   device: AppDevice,
   state: DeviceState | undefined,
-  threadId: string,
   now: number,
 ): DeviceControls {
   const controller = state?.controller ?? "none";
@@ -140,8 +135,6 @@ export function deviceControls(
           : "Your control ended"
         : undefined;
   return {
-    approvedHere: state?.threadId === threadId,
-    approvedElsewhere: state?.threadId !== undefined && state.threadId !== threadId,
     running,
     live,
     busy,

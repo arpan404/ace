@@ -82,7 +82,6 @@ test("a native approval stays pending without ace review and a permanent grant r
     const interaction = Object.values(h.store.snapshotThread(id).interactions)[0];
     if (!interaction) throw new Error("No native approval");
     expect(interaction.state).toBe("pending");
-    expect(interaction.review).toBeUndefined();
     expect(h.store.getThread(id)?.status.state).toBe("needs_you");
     expect(
       h.command({

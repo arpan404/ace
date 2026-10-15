@@ -104,7 +104,7 @@ else if (command.includes("input")) await appendFile(${JSON.stringify(deviceJour
       startup: { cleanupTimeoutMs: 30_000 },
       screen,
       devices,
-      browser: { executablePath, evaluatePolicy: () => true },
+      browser: { executablePath },
     });
     const host = daemon;
     return {
@@ -114,12 +114,11 @@ else if (command.includes("input")) await appendFile(${JSON.stringify(deviceJour
       browserUrl,
       deviceId: "android:Pixel",
       close,
-      async approve(threadId: string) {
+      async handOver(threadId: string) {
         const thread = host.store.getThread(ThreadId.parse(threadId));
         if (!thread) throw new Error("Missing feature thread");
         await host.browser.open({ threadId, workspaceId: thread.workspaceId });
         await screen.enable(true);
-        await screen.approve("com.example.test", true);
         const state = await screen.start({
           kind: "window",
           windowId: 1,
@@ -128,15 +127,6 @@ else if (command.includes("input")) await appendFile(${JSON.stringify(deviceJour
         screen.delegateAgent(state.sessionId, { threadId, agentId: "root" });
         const human = { kind: "human", owner: "owner" } as const;
         await devices.request(DeviceOperation.parse({ op: "enable", enabled: true }), human);
-        await devices.request(
-          DeviceOperation.parse({
-            op: "approve",
-            deviceId: "android:Pixel",
-            threadId,
-            allowed: true,
-          }),
-          human,
-        );
         await devices.request(
           DeviceOperation.parse({
             op: "controller",

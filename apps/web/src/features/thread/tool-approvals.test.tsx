@@ -1,6 +1,5 @@
 import type { Scenario } from "@ace/fake-daemon";
 import { screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { answerStore } from "./interactions/answers.ts";
@@ -10,7 +9,7 @@ afterEach(() => answerStore.forgetAll());
 
 const threadId = "thread-totals";
 
-/** A thread in Auto-review whose agent is working, so it can ask to use an app. */
+/** A thread in Auto-review whose agent is working, so it can ask for approval. */
 const working: Scenario = {
   thread: {
     id: threadId,
@@ -36,16 +35,6 @@ const working: Scenario = {
     },
   ],
 };
-
-function askForApp(app: ReturnType<typeof harness>, bundleId: string) {
-  app.daemon.screen.access.enabled = true;
-  const asked = app.daemon.screen.requestApp(bundleId, "Compare the totals in the open sheet", {
-    threadId,
-    agentId: "root",
-  });
-  asked.catch(() => {});
-  return asked;
-}
 
 test("an upload approval names every file it would send, the seventh included", async () => {
   const paths = Array.from(
@@ -100,61 +89,4 @@ test("an upload approval names every file it would send, the seventh included", 
       .getAllByRole("listitem")
       .map((item) => item.textContent),
   ).toEqual(paths);
-});
-
-// Answers are remembered on this device by interaction id; the test that answers in the
-// thread runs last so the fake daemon's repeated ids don't read as answered earlier.
-test("a sensitive app's request says it asks again every turn", async () => {
-  const app = harness();
-  app.play(working).runUntilBlocked();
-  await app.open(`/t/${threadId}`);
-  askForApp(app, "com.apple.keychainaccess");
-
-  const card = await screen.findByRole("article", { name: "Let an agent use Keychain Access" });
-  await userEvent.click(within(card).getByRole("button", { name: "Details" }));
-  expect(within(card).getByText(/asks again every turn/)).toBeTruthy();
-  expect(within(card).getByRole("button", { name: "Always allow" })).toBeTruthy();
-});
-
-test("the thread's card for an app request can't be approved by a number key, only denied", async () => {
-  const app = harness();
-  app.play(working).runUntilBlocked();
-  await app.open(`/t/${threadId}`);
-  const asked = askForApp(app, "com.apple.calculator");
-
-  const card = await screen.findByRole("article", { name: "Let an agent use Calculator" });
-  const deny = within(card).getByRole("button", { name: "Deny" });
-  deny.focus();
-  await userEvent.keyboard("1");
-  expect(await within(card).findByText(/Read the request/)).toBeTruthy();
-  expect(app.daemon.screen.access.list(threadId)).toEqual([]);
-
-  await userEvent.keyboard("3");
-
-  await expect(asked).rejects.toMatchObject({ code: "denied" });
-  expect(app.daemon.screen.access.list(threadId)).toEqual([]);
-});
-
-test("an agent asking for an app names the app, not its bundle id, answers in the shared verbs, and keeps the thread grant under Details", async () => {
-  const app = harness();
-  app.play(working).runUntilBlocked();
-  await app.open(`/t/${threadId}`);
-  const asked = askForApp(app, "com.apple.TextEdit");
-
-  const card = await screen.findByRole("article", { name: "Let an agent use TextEdit" });
-  expect(within(card).queryByText("com.apple.TextEdit")).toBeNull();
-  expect(
-    within(card)
-      .getAllByRole("button")
-      .map((button) => button.textContent)
-      .filter((label) => /^(Allow once|Always allow|Deny)$/.test(label ?? "")),
-  ).toEqual(["Allow once", "Always allow", "Deny"]);
-
-  await userEvent.click(within(card).getByRole("button", { name: "Details" }));
-  expect(within(card).getByText("Compare the totals in the open sheet")).toBeTruthy();
-  expect(within(card).getByText("com.apple.TextEdit")).toBeTruthy();
-  await userEvent.click(within(card).getByRole("button", { name: "Allow for this thread" }));
-
-  await asked;
-  expect(app.daemon.screen.access.list(threadId).map((grant) => grant.scope)).toEqual(["thread"]);
 });

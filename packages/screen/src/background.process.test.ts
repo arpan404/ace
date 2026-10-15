@@ -2,7 +2,6 @@ import { expect, it, onTestFinished } from "vitest";
 import { ToolRegistry, CredentialRegistry } from "@ace/mcp-server";
 import { McpScope } from "@ace/protocol";
 import { screenToolkit, computerUseHandler } from "./index.ts";
-import { allowForeground } from "./testing/foreground.ts";
 import { manager, ready, target } from "./testing/support.ts";
 
 it("eight apps have independent controllers, captures and stop lifetimes on one helper", async () => {
@@ -14,7 +13,6 @@ it("eight apps have independent controllers, captures and stop lifetimes on one 
     windowId: index + 1,
     bundleId: index === 0 ? target.bundleId : `dev.ace.test${index + 1}`,
   }));
-  for (const app of targets) await h.screen.approve(app.bundleId, true);
   const states = await Promise.all(targets.slice(0, 8).map((app) => h.screen.start(app)));
   for (const [index, state] of states.entries())
     h.screen.delegateAgent(state.sessionId, { threadId: "thread", agentId: `agent${index}` });
@@ -57,7 +55,6 @@ it("taking over one app cancels its queued actions while another agent keeps wor
   onTestFinished(h.close);
   const first = await ready(h.screen);
   const other = { ...target, bundleId: "dev.ace.other", windowId: 2 };
-  await h.screen.approve(other.bundleId, true);
   const second = await h.screen.start(other);
   h.screen.controller(first.sessionId, "agent", "one");
   h.screen.controller(second.sessionId, "agent", "two");
@@ -165,7 +162,6 @@ it("stop all cancels an app still starting and blocks agent reacquisition until 
   const h = await manager({ FAKE_V2: "1" });
   onTestFinished(h.close);
   await h.screen.enable(true);
-  await h.screen.approve(target.bundleId, true);
   const starting = h.screen.start(target);
   const cancelled = expect(starting).rejects.toThrow();
   await h.screen.stopAll();
@@ -191,7 +187,6 @@ it("opening a windowless app leaves a semantic session available to create its f
   const h = await manager({ FAKE_V2: "1", NO_WINDOWS: "1" });
   onTestFinished(h.close);
   await h.screen.enable(true);
-  await h.screen.approve(target.bundleId, true);
   const state = await h.screen.openAgentApp(
     target.bundleId,
     { threadId: "thread", agentId: "agent" },
@@ -246,7 +241,7 @@ it("foreground consent allows otherwise ignored input and takeover resets that c
     h.screen.input(state.sessionId, "agent", { kind: "pointer.click", x: 5, y: 5 }, "agent"),
   ).rejects.toMatchObject({ code: "foreground_required" });
   expect(h.screen.state(state.sessionId).mode).toBe("background");
-  await allowForeground(h.screen, state.sessionId);
+  h.screen.mode(state.sessionId, "foreground");
   const tool = computerUseHandler(h.screen, state.sessionId, "agent");
   expect((await tool("screen_click", { x: 5, y: 5 })).content).toMatchObject([
     { text: expect.stringContaining('"mode":"foreground"') },

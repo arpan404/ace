@@ -58,27 +58,11 @@ export function screenConnection(
           case "enable":
             await manager.enable(operation.enabled);
             break;
-          case "approve":
-            await manager.approve(
-              operation.bundleId,
-              operation.allowed,
-              operation.scope,
-              operation.threadId,
-            );
-            break;
-          case "approvals":
-            data = manager.approvals(operation.threadId);
-            break;
           case "stop.all":
             await manager.stopAll();
             break;
           case "mode":
-            data = await manager.mode(
-              operation.sessionId,
-              operation.mode,
-              undefined,
-              operation.reason,
-            );
+            data = manager.mode(operation.sessionId, operation.mode);
             break;
           case "secure.input":
             manager.secureInput(operation.sessionId, operation.allowed);
@@ -170,7 +154,6 @@ export function screenConnection(
             data = await simulators.list();
             break;
           case "simulator.boot":
-            manager.requireApproval("com.apple.iphonesimulator");
             await simulators.boot(operation.udid);
             break;
         }

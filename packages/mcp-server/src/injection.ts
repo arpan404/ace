@@ -47,9 +47,9 @@ const title =
 const visualize =
   "For charts, diagrams, comparisons or mockups that explain more than prose, use the bundled visualize skill and ace_html_render.";
 const screen =
-  "Never drive Safari/Chrome/Arc/Firefox with screen_*; websites use ace_browser_*. Use screen_* only when the person asks you to operate a specific native app or nothing else can: call screen_request_app, then screen_ui_tree or screen_ui_find before coordinates.";
+  "Never drive Safari/Chrome/Arc/Firefox with screen_*; websites use ace_browser_*. Use screen_* only when the person asks you to operate a specific native app or nothing else can: call screen_open_app, then screen_ui_tree or screen_ui_find before coordinates.";
 const devices =
-  "Approved simulators and devices: device_list, then device_find before coordinate input.";
+  "Simulators and devices: device_list, then device_start to take one for this thread, then device_find before coordinate input.";
 const delegation =
   "delegate_task returns child thread ids at once. To use their results this turn, call ace_wait with the ids and timeoutSeconds (or give delegate_task several tasks with await: all); on timeout, wait again; on needs_you, tell the person what each child asks. ace_agents_status shows the whole tree compactly. Never poll. If you end your turn instead, settled results arrive as a new turn.";
 const machines =
@@ -97,9 +97,8 @@ export function codexInjection(input: Injected) {
         },
         tool_timeout_sec: maxToolTimeoutMs / 1000,
         // Codex otherwise gates every ace tool it can't prove read-only and never remembers
-        // the answer. ace already asks for what needs a person (new browser origins, app
-        // control, evaluate, uploads) inside the tool, in every permission mode, so only the
-        // tools that overwrite work or commit spending keep Codex's own prompt.
+        // the answer. ace's tools are always allowed once called and ace never asks inside
+        // them, so only the tools that overwrite work or commit spending keep Codex's prompt.
         default_tools_approval_mode: "approve",
         tools: Object.fromEntries(
           destructiveAceTools.map((tool) => [tool, { approval_mode: "prompt" }]),

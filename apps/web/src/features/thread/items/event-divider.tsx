@@ -40,7 +40,6 @@ import { cn } from "@/lib/cn.ts";
 import { DelegationCard } from "./delegation-card.tsx";
 import { ErrorRow, noticeError } from "./error-row.tsx";
 import { RefusalRow } from "./refusal-row.tsx";
-import { ReviewNote } from "./review-note.tsx";
 import { SystemRow } from "./system-row.tsx";
 import { TaskCard } from "./task-card.tsx";
 import { MergedForkNotice } from "../transitions/merged-fork-notice.tsx";
@@ -231,8 +230,6 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
             icon={<ArrowClockwiseIcon aria-hidden size={14} />}
           />
         );
-      if (item.raw.some((raw) => raw.type === "permission.reviewed"))
-        return <ReviewNote threadId={props.threadId} item={item} />;
       const kind = noticeInput(item);
       const line = kind && inputLine({ kind, text: item.text });
       if (line) return <EventRow line={line} at={item.createdAt} received={item.text} />;

@@ -1,7 +1,7 @@
 import { expect, it, onTestFinished } from "vitest";
 import { CredentialRegistry, ToolRegistry } from "@ace/mcp-server";
 import { McpScope } from "@ace/protocol";
-import { manager, ready, target } from "./testing/support.ts";
+import { manager, ready } from "./testing/support.ts";
 import { screenToolkit } from "./index.ts";
 const options = { observeMs: 2000, repeat: 1, filmstrip: false };
 it("repeat capture counts native input preparation toward its twenty-second budget", async () => {
@@ -93,7 +93,7 @@ it("revoked app grants and excessive capture budgets reject measurement", async 
     await expect(
       h.screen.measureInteraction(session.sessionId, input, "viewer", new AbortController().signal),
     ).rejects.toThrow();
-  await h.screen.approve(target.bundleId, false);
+  await h.screen.enable(false);
   await expect(
     h.screen.measureInteraction(session.sessionId, options, "viewer", new AbortController().signal),
   ).rejects.toThrow();

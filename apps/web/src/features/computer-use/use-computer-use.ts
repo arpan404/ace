@@ -1,4 +1,4 @@
-import type { ScreenAgentScope, ScreenGrant, ScreenOperation } from "@ace/protocol";
+import type { ScreenAgentScope, ScreenOperation } from "@ace/protocol";
 import { screenProblem, visibleSessions, type StopAllState } from "@ace/ui-core/computer-use";
 import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -142,25 +142,6 @@ export function useComputerUse() {
       ),
     stop: (sessionId: string) =>
       run({ op: "stop", sessionId }, { failure: "Couldn't stop it", sessionId }),
-    /** For one thread, or always (for every thread) without one. */
-    approveApp: (bundleId: string, threadId?: string) =>
-      run(
-        threadId
-          ? { op: "approve", bundleId, allowed: true, scope: "thread", threadId }
-          : { op: "approve", bundleId, allowed: true, scope: "always" },
-        { failure: "Couldn't approve this app" },
-      ),
-    revoke: (grant: Pick<ScreenGrant, "bundleId" | "scope" | "threadId">) =>
-      run(
-        {
-          op: "approve",
-          bundleId: grant.bundleId,
-          allowed: false,
-          scope: grant.scope,
-          ...(grant.threadId ? { threadId: grant.threadId } : {}),
-        },
-        { failure: "Couldn't revoke it" },
-      ),
   };
 }
 

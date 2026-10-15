@@ -5,7 +5,6 @@ import {
   carriesOnStretch,
   isBareErrorCode,
   isThreadStartCall,
-  reviewedInteraction,
   toolRefusal,
   type InlineQuestion,
 } from "@ace/ui-core";
@@ -155,8 +154,6 @@ export interface BlockSource {
   turnIdle?(runId: string): number | undefined;
   turnStartedAt?(runId: string): number | undefined;
   turnEnding?: ((runId: string) => (RunFacts & { runId: string }) | undefined) | undefined;
-  /** The tool call an interaction was raised from, for ace's review notices. */
-  reviewedCall?(interactionId: string): string | undefined;
   /** The turn a usage limit holds right now, and turns seen held earlier. */
   heldTurn?: string | undefined;
   pausedTurns?: ReadonlySet<string>;
@@ -256,10 +253,8 @@ function joinsWork(item: Item, source: BlockSource): boolean {
     case "reasoning":
       return true;
     case "notice": {
-      // Output or a review of a step joins that step's log (as `buildBlocks` places it).
-      if (item.measurement || item.toolCallId) return true;
-      const reviewed = reviewedInteraction(item);
-      return !!reviewed && !!source.reviewedCall?.(reviewed);
+      // Output of a step joins that step's log (as `buildBlocks` places it).
+      return !!(item.measurement || item.toolCallId);
     }
     default:
       return false;
@@ -566,9 +561,8 @@ export function buildBlocks(source: BlockSource): Block[] {
             group("work", id);
             break;
           }
-          // Output or a review of a step joins that step's log, right after the step.
-          const reviewed = reviewedInteraction(item);
-          const callId = item.toolCallId ?? (reviewed && source.reviewedCall?.(reviewed));
+          // Output of a step joins that step's log, right after the step.
+          const callId = item.toolCallId;
           const host = callId ? groupOf.get(callId) : undefined;
           if (callId && host) {
             const after = (reviewsPlaced.get(callId) ?? 0) + 1;

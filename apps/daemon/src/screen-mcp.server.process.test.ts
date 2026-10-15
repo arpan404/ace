@@ -100,7 +100,6 @@ it("a configured daemon exposes scoped screen tools and returns screenshot image
       .parse(await request(denied.bearer, "tools/list"));
     expect(deniedTools.result.tools.map((tool) => tool.name)).not.toContain("screen_ui_tree");
     await screen.enable(true);
-    await screen.approve("dev.ace.test", true);
     const listed = z
       .object({ result: z.object({ tools: z.array(z.object({ name: z.string() })) }) })
       .parse(await request(lease.bearer, "tools/list"));
@@ -118,18 +117,6 @@ it("a configured daemon exposes scoped screen tools and returns screenshot image
     );
     const session = await screen.start({ kind: "window", windowId: 1, bundleId: "dev.ace.test" });
     screen.delegateAgent(session.sessionId, scope);
-    screen.configureAccess({
-      enabled: () => true,
-      enable() {},
-      list: () => [{ bundleId: "dev.ace.test", scope: "always", grantedAt: 0 }],
-      allows: (bundle) => bundle === "dev.ace.test",
-      approve() {},
-      async request() {
-        throw new Error("No app request in this fixture");
-      },
-      async foreground() {},
-      audit() {},
-    });
     await screen.mode(session.sessionId, "foreground");
     const other = createDevThread(daemon.store, workspace);
     const otherAgent = Agent.parse({ ...agent, id: "other-root", threadId: other.id });

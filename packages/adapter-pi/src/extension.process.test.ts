@@ -177,11 +177,10 @@ test("Pi executes authorized browser, screen and device tools and projects their
   }
 });
 
-test("Pi adds newly enabled screen tools and withdraws them on revocation without hiding native tools", async () => {
-  let enabled = false,
-    approved = false;
+test("Pi adds screen tools when computer use turns on and withdraws them when it turns off, without hiding native tools", async () => {
+  let enabled = false;
   const registry = new ToolRegistry({ scheduler: nodeScheduler });
-  for (const name of ["screen_request_app", "screen_open_app"])
+  for (const name of ["screen_open_app", "screen_type"])
     registry.register({
       name,
       capability: "screen",
@@ -200,7 +199,6 @@ test("Pi adds newly enabled screen tools and withdraws them on revocation withou
     status: () => ({
       access: "full-access",
       disabled: enabled ? {} : { screen: "Computer use is disabled." },
-      screenApproved: approved,
     }),
   });
   onTestFinished(() => server.close());
@@ -256,16 +254,8 @@ test("Pi adds newly enabled screen tools and withdraws them on revocation withou
   await refresh(() => {
     enabled = true;
   });
-  expect(active).toEqual(["read", "bash", "ace_status", "screen_request_app"]);
-  await refresh(() => {
-    approved = true;
-  });
-  expect(active).toEqual(["read", "bash", "ace_status", "screen_request_app", "screen_open_app"]);
+  expect(active).toEqual(["read", "bash", "ace_status", "screen_open_app", "screen_type"]);
   expect(registered.has("screen_open_app")).toBe(true);
-  await refresh(() => {
-    approved = false;
-  });
-  expect(active).toEqual(["read", "bash", "ace_status", "screen_request_app"]);
   await refresh(() => {
     enabled = false;
   });
