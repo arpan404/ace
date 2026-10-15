@@ -43,6 +43,10 @@ export function historyStore() {
         backwardsCursor: null,
       };
     },
+    /** A finished turn, recorded as Codex records it. */
+    append(threadId: string, turn: Obj): void {
+      threads.set(threadId, [...(threads.get(threadId) ?? []), turn]);
+    },
     /** Live completion updates the stored turn, as Codex's own record does. */
     notified(method: string, params: unknown): void {
       if (method !== "turn/completed") return;

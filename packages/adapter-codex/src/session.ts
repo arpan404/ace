@@ -115,6 +115,25 @@ export async function openCodexSession(
     try {
       payload = new ProviderPayload(encoded);
     } catch (error) {
+      if (!optionalMethod && dir === "recv" && error instanceof RangeError && omittable(data)) {
+        // On a shared app-server a notification or reply over the frame bound is left out like
+        // a dropped line: this thread records its size and recovers its state from fresh reads.
+        const m = obj(data);
+        const threadId = str(obj(m["params"])["threadId"]);
+        emit("note", {
+          event: "output-line-dropped",
+          phase: "complete",
+          bytes: Buffer.byteLength(encoded),
+          reason: "frame-bound",
+          attributed: {
+            response: m["method"] === undefined,
+            ...(m["id"] !== undefined ? { id: m["id"] } : {}),
+            ...(threadId ? { threadId } : {}),
+          },
+        });
+        invalidateOutput();
+        return;
+      }
       if (!optionalMethod || !(error instanceof RangeError)) {
         // A rejected incoming execution frame makes the peer detach. Its process is ours.
         if (dir === "recv") void lifetime.failTransport();
@@ -136,6 +155,14 @@ export async function openCodexSession(
       data: payload.data,
       payload,
     });
+  };
+  /**
+   * A received frame that can be left out without losing a question: shared hosts only, and never
+   * a server request, whose interaction would otherwise wait unseen.
+   */
+  const omittable = (data: unknown) => {
+    const m = obj(data);
+    return link?.shared === true && !(typeof m["method"] === "string" && m["id"] !== undefined);
   };
   const diagnostic = (error: unknown) =>
     emit("stderr", error instanceof Error ? error.message : String(error));
@@ -291,6 +318,10 @@ export async function openCodexSession(
           plans.set(planKey(str(p["turnId"])), { thread, markdown: str(item["text"]) });
       }
     },
+    dropped(line) {
+      emit("note", { event: "output-line-dropped", ...line });
+    },
+    outputUncertain: () => invalidateOutput(),
     malformed: (line) => emit("recv", { malformed: line }),
     error: diagnostic,
     notification: (message) => onNotification(message),
@@ -307,26 +338,33 @@ export async function openCodexSession(
   };
   const request = (method: string, params: unknown, interactive = false) =>
     rpc.request(method, params, { timeoutMs: interactive ? null : 30_000, signal: ctx.signal });
-  const { scheduleRecovery, reconcileLoaded, refreshQueue, observeRecovery, readThread } =
-    sessionDiscovery({
-      request,
-      emit,
-      diagnostic,
-      schedule: io.schedule,
-      isClosed: () => closed,
-      isForeign: (thread) => link?.foreign(thread) ?? false,
-      getRoot: () => nativeSessionId,
-      known,
-      recovered,
-      parents,
-      active,
-      shells,
-      reading,
-      revisions,
-      timers,
-      seenQuestions,
-      endedTurns,
-    });
+  const {
+    scheduleRecovery,
+    reconcileLoaded,
+    refreshQueue,
+    observeRecovery,
+    readThread,
+    invalidateOutput,
+    isOutputUncertain,
+  } = sessionDiscovery({
+    request,
+    emit,
+    diagnostic,
+    schedule: io.schedule,
+    isClosed: () => closed,
+    isForeign: (thread) => link?.foreign(thread) ?? false,
+    getRoot: () => nativeSessionId,
+    known,
+    recovered,
+    parents,
+    active,
+    shells,
+    reading,
+    revisions,
+    timers,
+    seenQuestions,
+    endedTurns,
+  });
   const catalog = createExtensionCatalog(
     rpc,
     ctx.cwd,
@@ -356,15 +394,18 @@ export async function openCodexSession(
     closing() {
       closed = true;
     },
-    busy: () => active.size > 0 || shells.size > 0,
+    busy: () => active.size > 0 || shells.size > 0 || isOutputUncertain(),
     // Closing often follows the session's own cancellation, so stop requests cannot carry its
     // signal. They are bounded instead; an unconfirmed stop retires the process.
-    stopWork: () =>
-      commandsFor(
+    stopWork: () => {
+      if (isOutputUncertain())
+        return Promise.reject(new Error("Codex work has unrecovered controls"));
+      return commandsFor(
         nativeSessionId,
         () => {},
         (method, params) => rpc.request(method, params, { timeoutMs: 10_000 }),
-      ).interrupt({ agent: "root", cascade: true }),
+      ).interrupt({ agent: "root", cascade: true });
+    },
     cleanup() {
       closed = true;
       for (const cancel of correlationDeadlines.values()) cancel();

@@ -73,3 +73,71 @@ with it, so the single-process behaviour stays covered.
 - Process-level stderr appears in every attached session's diagnostics.
 - MCP server controls (reload, enable, disable) act on the shared process, so a change made from
   one thread applies to every thread on that account, as the account's config already does.
+
+## Amendment: oversized stdout lines (#693, part a)
+
+Shared Codex hosts opt in to dropping a stdout line over the process line limit.
+A pure byte framer owns the line state; the stream wrapper applies its effects.
+The byte gate holds at most one admissible line. Once the limit is crossed it
+releases that buffer and counts/skips bytes until the next CR or LF, preserving
+subsequent lines across chunk boundaries. Attribution inspects complete JSON tokens
+in at most the first 4 KiB, keeping only envelope response IDs and notification
+thread IDs. The prefix itself is never recorded. Loss is reported as soon as the limit is crossed, before waiting for a newline.
+A split line first reports an observed byte lower bound, then its final count at the
+delimiter. A final report updates diagnostics without rejecting another request or
+invalidating state again. The affected tenants record `output-line-dropped` notes
+with the phase, byte count and attribution.
+
+An attributable reply rejects only its pending RPC with `OutputLineDroppedError`.
+A synthetic error reply follows normal routing to release ownership, opening
+counts and turn correlation. A notification whose `params.threadId` names a thread
+with a known owner invalidates only that tenant's recovered state: no other tenant's
+state can depend on it, so a bad line on one thread costs its neighbours nothing.
+A line naming no thread, or a thread not yet owned (a child still being revealed),
+invalidates every tenant. Each affected tenant starts a background recovery barrier,
+increments revisions for its known and in-flight thread reads, and scans loaded descendants
+through the existing discovery path. The barrier ends only after fresh reads and
+the loaded scan agree. Repeated drops coalesce scans and require another pass.
+An idle snapshot taken before a drop cannot clear the barrier. Recovery replaces
+stale session controls only with current evidence. Recovery evidence is parsed
+separately from native thread metadata, so provider extensions cannot impersonate it.
+An active thread without a recovered turn ID stays uncertain. A later current idle
+read settles its inferred turn; inferred identities include the revision so another
+cycle cannot reuse a completed turn. Closing before controls are recovered retires
+the host, following the existing rule against leaving unconfirmed work unobserved.
+
+History reads take only a thread's newest turns (see the amendment on history
+below). A dropped `thread/turns/list` reply retries the same cursor with one turn, then
+`itemsView: summary`, then `notLoaded`. The last view preserves the turn's status
+and continuation cursor while omitting its content. Downgrades record
+`thread-history-omitted` and later turns remain readable. If even the turn envelope
+cannot fit, fail the read rather than invent an opaque cursor. When a recovery
+summary omits commands, a bounded live-terminal read supplies the missing shell
+evidence: a known shell settles only when its turn has ended and Codex no longer
+lists it. Unidentified terminals keep recovery uncertain.
+
+Private Codex hosts and every other supervised-process caller retain termination
+on oversized lines. Stderr line limits and aggregate stdout/stderr budgets retain
+their termination behaviour even when stdout dropping is enabled.
+
+## Amendment: frames over the payload bound, and newest-page history (#693)
+
+A line under the 16 MiB line limit can still exceed the 1 MiB provider payload bound
+(`ProviderPayload`), for example a command completion carrying megabytes of output.
+On a shared host such a notification or reply is left out the same way as a dropped
+line: the owning session records an `output-line-dropped` note with
+`reason: "frame-bound"`, its byte count and its envelope attribution, and starts
+its own output recovery. The session's control bookkeeping still sees the frame;
+only translation does not. A server request over the bound remains fatal for its
+session, because leaving out a question would leave an interaction waiting unseen.
+Private hosts keep failing the transport on any frame over the bound.
+
+Opening, forking and recovery read a thread's newest four turns only:
+`thread/turns/list` with `sortDirection: "desc"`, newest page first, until four turns
+are read or the history ends. An active turn is always the newest, and ace already
+holds everything older in its own store, so the work is the same for a thread of ten
+turns or ten thousand. Servers without paged history answer the deprecated
+whole-history read, of which only the newest four turns are kept. Because status
+(from `thread/read`) and turns (from the later page) are separate replies, an
+`active` status with no turn in progress is explained by a completion seen live
+during the read and does not keep recovery uncertain.

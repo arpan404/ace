@@ -1,4 +1,6 @@
 import { Transform } from "node:stream";
+import { droppingOutputGate, type DroppedOutputLine } from "./output-line-drop.ts";
+export type { DroppedOutputLine } from "./output-line-drop.ts";
 
 export class OutputLimitError extends Error {}
 
@@ -7,7 +9,15 @@ export function outputGate(
   maxLineBytes: number | undefined,
   admit: (bytes: number) => boolean,
   fail: (error: Error) => void,
+  dropped?: (line: DroppedOutputLine) => void,
 ): Transform {
+  if (dropped && maxLineBytes !== undefined)
+    return droppingOutputGate(
+      maxLineBytes,
+      admit,
+      (error) => fail(new OutputLimitError(error.message)),
+      dropped,
+    );
   let lineBytes = 0;
   let exceeded = false;
   return new Transform({
