@@ -18,6 +18,8 @@ const Time = z.object({
   unit: z.enum(["s", "ms", "iso"]),
 });
 
+const Minutes = z.number().int().positive().max(527_040);
+
 /** How one window's fields are found, relative to the window's own object. */
 export const WindowMapping = z.object({
   /** Where the windows are: a path ending in `*` iterates them; `[]` is the answer itself. */
@@ -35,7 +37,16 @@ export const WindowMapping = z.object({
   resetsAt: Time.extend({ fromRoot: z.boolean().optional() }).optional(),
   windowDurationMins: JsonPath.optional(),
   /** A fixed window length, when the provider names the window rather than giving its length. */
-  durationMins: z.number().int().positive().max(527_040).optional(),
+  durationMins: Minutes.optional(),
+  /** The window's length by the name the provider gives it (`"weekly"` → 10080). */
+  durationByName: z
+    .object({ path: JsonPath, minutes: z.record(z.string().max(32), Minutes) })
+    .optional(),
+  /**
+   * Windows nested in named groups (Antigravity's model groups): `each` is then relative to each
+   * group, and the group's name leads the window's ("Gemini Models · weekly").
+   */
+  group: z.object({ each: JsonPath, name: JsonPath }).optional(),
 });
 export type WindowMapping = z.infer<typeof WindowMapping>;
 
@@ -71,6 +82,16 @@ export const CommandSource = z.object({
   /** Read-only, prompt-free arguments only. */
   args: z.array(z.string().min(1).max(128)).min(1).max(16),
   timeoutMs: z.number().int().positive().max(60_000).default(20_000),
+  /**
+   * Run in a fresh empty directory rather than the account's home, for a CLI that treats its
+   * working directory as a project.
+   */
+  scratchCwd: z.boolean().default(false),
+  /**
+   * Words the CLI prints (on either stream, whatever its exit) when its login has lapsed: the
+   * read reports "Sign in again" and is not retried. The output itself never leaves the run.
+   */
+  signedOut: z.array(z.string().min(4).max(128)).max(4).default([]),
   /**
    * Where the answer names its login. Set when the CLI answers for its own default login
    * whatever ace's home says: the reading counts only for the account that is that login.

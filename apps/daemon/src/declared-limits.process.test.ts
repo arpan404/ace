@@ -6,7 +6,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import {
+  antigravityIdentity,
   createAcpInstance,
+  createAntigravityInstance,
   openRegistry,
   usageDeclaration,
   UsageSource,
@@ -82,6 +84,8 @@ test("OpenCode Go usage reaches the accounts list over the socket, and its key n
   const home = f.registry.get("opencode-cli-default")?.instance.homeDir;
   if (!home) throw new Error("no implicit OpenCode account");
   await mkdir(home, { recursive: true });
+  // The implicit home outlives this harness: the key must not reach a later test's real read.
+  cleanups.push(() => rm(join(home, "opencode.db"), { force: true }));
   const db = new DatabaseSync(join(home, "opencode.db"));
   db.exec("CREATE TABLE credential (id TEXT PRIMARY KEY, integration_id TEXT, value TEXT)");
   db.prepare("INSERT INTO credential VALUES (?, ?, ?)").run(
@@ -241,4 +245,121 @@ test("an ACP agent declared as data gets usage with no adapter code", async () =
       },
     },
   });
+});
+
+/** `agy -p /usage --output-format json` from a signed-in Antigravity CLI 1.3.5, as recorded. */
+const agyUsage = new URL(
+  "../../../packages/accounts/src/__fixtures__/antigravity-usage.json",
+  import.meta.url,
+);
+/**
+ * A stand-in `agy` on the harness PATH that logs each run. Signed in, it prints the recorded
+ * `/usage` answer. Signed out it behaves as the real one could: with its input closed it says so
+ * and exits; given an open input it asks for a sign-in and opens a browser to do it.
+ */
+async function fakeAgy(f: Awaited<ReturnType<typeof harness>>, signedIn: boolean) {
+  const runs = join(f.root, "agy-runs.jsonl");
+  const opened = join(f.root, "browser-opened");
+  await writeFile(
+    join(f.bin, "open"),
+    `#!${process.execPath}\nrequire("fs").writeFileSync(${JSON.stringify(opened)}, process.argv.slice(2).join(" "));\n`,
+    { mode: 0o700 },
+  );
+  const usage = await readFile(agyUsage, "utf8");
+  await writeFile(
+    join(f.bin, "agy"),
+    `#!${process.execPath}
+const fs = require("fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(runs)}, JSON.stringify({ args, cwd: process.cwd(), home: process.env.HOME }) + "\\n");
+if (args.join(" ") !== "-p /usage --output-format json") process.exit(2);
+if (${signedIn}) { process.stdout.write(${JSON.stringify(usage)}); process.exit(0); }
+const prompt = setTimeout(() => {
+  console.log("Welcome back! You are currently not signed in. Opening your browser to sign in...");
+  require("child_process").execFileSync("open", ["https://accounts.google.com/o/oauth2/auth"]);
+  process.exit(1);
+}, 300);
+process.stdin.on("end", () => {
+  clearTimeout(prompt);
+  console.error("Error: authentication required. Run 'agy' to log in, then retry.");
+  process.exit(1);
+});
+process.stdin.resume();
+`,
+    { mode: 0o700 },
+  );
+  const log = async () =>
+    (await readFile(runs, "utf8").catch(() => ""))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { args: string[]; cwd: string; home: string });
+  const browserOpened = () =>
+    stat(opened).then(
+      () => true,
+      () => false,
+    );
+  return { log, browserOpened };
+}
+async function antigravityHarness() {
+  const logs: string[] = [];
+  const f = await harness(false, {
+    limitsError: (instance, error) => logs.push(`${instance}: ${String(error)}`),
+  });
+  cleanups.push(() => f.close());
+  await f.registry.register(createAntigravityInstance(f.normalHome));
+  const refresh = async () => {
+    const reply = await f.request(f.owner, { type: "accounts.refreshLimits", requestId: f.rid() });
+    if (reply.type !== "accounts.list") throw new Error(JSON.stringify(reply));
+    return reply.accounts.find((account) => account.id === antigravityIdentity.instanceId);
+  };
+  return { f, logs, refresh };
+}
+
+test("Antigravity's model-group limits reach its account, read by its own CLI login outside any project", async () => {
+  const { f, logs, refresh } = await antigravityHarness();
+  const agy = await fakeAgy(f, true);
+  const account = await refresh();
+  const weekly = {
+    usedPercent: 0,
+    resetsAt: Date.parse("2026-10-22T14:55:01Z"),
+    windowDurationMins: 10080,
+    advisory: true,
+  };
+  expect(account?.quota.windows).toMatchObject({
+    "Gemini Models · weekly": weekly,
+    "Claude and GPT models · weekly": weekly,
+  });
+  expect(account?.availability).not.toBe("exhausted");
+  expect(logs).toEqual([]);
+  // One `/usage` run, with the login Antigravity's provider uses (the user's own home), in a
+  // scratch directory that is gone afterwards: never the home, never a project.
+  const runs = await agy.log();
+  expect(runs).toHaveLength(1);
+  expect(runs[0]?.home).toBe(f.normalHome);
+  expect(runs[0]?.cwd.startsWith(f.normalHome)).toBe(false);
+  await expect(stat(runs[0]?.cwd ?? "")).rejects.toThrow();
+});
+
+test("a signed-out agy reports sign-in-again without opening anything", async () => {
+  const { f, logs, refresh } = await antigravityHarness();
+  const agy = await fakeAgy(f, false);
+  const account = await refresh();
+  expect(account?.quota.usageNotice).toMatchObject({
+    reason: "signed_out",
+    message: "Sign in again in Antigravity",
+  });
+  expect(account?.quota.windows).toEqual({});
+  expect(logs).toEqual([`${antigravityIdentity.instanceId}: Error: Sign in again in Antigravity`]);
+  // Asked once, given no input to answer a prompt with: nothing was opened, nothing retried.
+  expect(await agy.log()).toHaveLength(1);
+  expect(await agy.browserOpened()).toBe(false);
+});
+
+test("a missing agy shows no usage", async () => {
+  const { logs, refresh } = await antigravityHarness();
+  const account = await refresh();
+  expect(account).toBeDefined();
+  expect(account?.quota.windows).toEqual({});
+  expect(account?.quota.usageNotice).toBeUndefined();
+  expect(logs).toEqual([]);
 });

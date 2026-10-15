@@ -1,4 +1,6 @@
+import { homedir } from "node:os";
 import { createAcpAdapter, antigravityQuirks } from "@ace/adapter-acp";
+import { antigravityIdentity, createAntigravityInstance } from "@ace/accounts";
 import { discoverAntigravity } from "@ace/provider-kit/discovery";
 import type { AdapterRegistry } from "../engine/index.ts";
 import type { ServiceContext } from "./types.ts";
@@ -64,4 +66,21 @@ export async function registerAntigravity(
     env: installation?.env ?? {},
     loginRevision: installation?.metadata.installationId ?? cli.version ?? "0",
   });
+  await registerAntigravityAccount(context);
+}
+
+/** The CLI login's account row, where `agy /usage` puts its limits. Never blocks the provider. */
+async function registerAntigravityAccount(context: ServiceContext): Promise<void> {
+  const accounts = context.services.accountRegistry;
+  if (!accounts) return;
+  try {
+    if (accounts.get(antigravityIdentity.instanceId)) return;
+    await accounts.register(
+      createAntigravityInstance(
+        context.options.providerStatus?.env?.HOME ?? process.env.HOME ?? homedir(),
+      ),
+    );
+  } catch {
+    /* No row this time (homes still being validated): the next discovery adds it. */
+  }
 }

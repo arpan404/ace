@@ -1,10 +1,13 @@
-import { readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { execFile } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { AccountRegistry } from "@ace/accounts";
 import {
   instanceEnv,
   readDeclaredUsage,
+  UsageRunError,
   type UsageDeclaration,
   type UsagePorts,
 } from "@ace/accounts";
@@ -41,16 +44,32 @@ export const defaultUsagePorts = (now: () => number): UsagePorts => ({
     }
   },
   fetch: (url, init) => fetch(url, init),
-  run: ({ executable, args, env, cwd, timeoutMs, signal }) =>
+  run: ({ executable, args, env, cwd, timeoutMs, signal, signedOut = [] }) =>
     new Promise((resolve, reject) => {
-      execFile(
+      const child = execFile(
         executable,
         args,
         { env, cwd, timeout: timeoutMs, signal, maxBuffer: 256 * 1024, windowsHide: true },
-        // stdout may hold a credential (a keychain read): it never reaches the error.
-        (error, stdout) => (error ? reject(new Error("Usage command failed")) : resolve(stdout)),
+        // stdout may hold a credential (a keychain read): it never reaches the error, only a kind.
+        (error, stdout, stderr) => {
+          const output = `${stdout}\n${stderr}`.toLowerCase();
+          if (signedOut.some((words) => output.includes(words.toLowerCase())))
+            reject(new UsageRunError("signed_out"));
+          else if (error) reject(new UsageRunError(error.code === "ENOENT" ? "missing" : "failed"));
+          else resolve(stdout);
+        },
       );
+      // No input, ever: a CLI that would ask for something gets end-of-file, never a prompt.
+      child.stdin?.end();
     }),
+  async inScratchDir(use) {
+    const dir = await mkdtemp(join(tmpdir(), "ace-usage-"));
+    try {
+      return await use(dir);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  },
   platform: process.platform,
   now,
 });

@@ -86,7 +86,14 @@ function window(entry: unknown, root: unknown, mapping: WindowMapping): Neutral 
   const resetsAt = resets
     ? (instant(first(resets.fromRoot ? root : entry, resets.path), resets.unit) ?? null)
     : null;
-  const duration = finite(first(entry, mapping.windowDurationMins)) ?? mapping.durationMins;
+  const named = mapping.durationByName;
+  const byName = named ? first(entry, named.path) : undefined;
+  const duration =
+    finite(first(entry, mapping.windowDurationMins)) ??
+    (named && typeof byName === "string" && Object.hasOwn(named.minutes, byName)
+      ? named.minutes[byName]
+      : undefined) ??
+    mapping.durationMins;
   return {
     usedPercent: Math.min(100, Math.max(0, percent)),
     resetsAt,
@@ -99,6 +106,22 @@ export function planName(value: unknown): string {
   return typeof value === "string" && value.trim() && value.length <= 128 ? value.trim() : "";
 }
 
+/**
+ * A mapping's window entries, each with its group's name when the windows are grouped: "" for a
+ * group without a usable name, so its windows are left out rather than merged under another's.
+ */
+function entries(answer: unknown, mapping: WindowMapping) {
+  const grouping = mapping.group;
+  if (!grouping) return [{ group: undefined, found: select(answer, mapping.each) }];
+  return select(answer, grouping.each).map(({ value }) => {
+    const named = first(value, grouping.name);
+    return {
+      group: typeof named === "string" ? named.trim() : "",
+      found: select(value, mapping.each),
+    };
+  });
+}
+
 export type UsageReading = { usageWindows?: Record<string, Neutral>; planType?: string };
 
 /** The reading, or undefined when the answer has neither a window nor a plan it recognises. */
@@ -106,15 +129,17 @@ export function mapUsage(answer: unknown, mapping: UsageMapping): UsageReading |
   if (mapping.expect.some(({ path, equals }) => first(answer, path) !== equals)) return undefined;
   const usageWindows: Record<string, Neutral> = {};
   for (const declared of mapping.windows)
-    for (const { key, value } of select(answer, declared.each)) {
-      const named = first(value, declared.name);
-      const name =
-        declared.label ?? (typeof named === "string" && named.trim() ? named.trim() : key);
-      const reading = window(value, answer, declared);
-      if (!name || !reading || name.length > 128) continue;
-      if (Object.keys(usageWindows).length >= 32) break;
-      usageWindows[name] = mapping.holds ? reading : { ...reading, advisory: true };
-    }
+    for (const { group, found } of entries(answer, declared))
+      for (const { key, value } of found) {
+        const named = first(value, declared.name);
+        const own =
+          declared.label ?? (typeof named === "string" && named.trim() ? named.trim() : key);
+        const name = group === undefined ? own : group && own && `${group} · ${own}`;
+        const reading = window(value, answer, declared);
+        if (!name || !reading || name.length > 128) continue;
+        if (Object.keys(usageWindows).length >= 32) break;
+        usageWindows[name] = mapping.holds ? reading : { ...reading, advisory: true };
+      }
   const planType = planName(first(answer, mapping.plan));
   if (!Object.keys(usageWindows).length && !planType) return undefined;
   return {

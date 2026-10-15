@@ -33,7 +33,12 @@ export { runAccountsCommand } from "./commands-cli.ts";
 export { bindCursorSdk, cursorSdkLoginDriver } from "./cursor-sdk.ts";
 
 export { CursorAuthService, type CursorAuthOptions } from "./cursor-auth.ts";
-export { createAcpInstance, acpIsolation } from "./acp-instances.ts";
+export {
+  antigravityIdentity,
+  createAcpInstance,
+  createAntigravityInstance,
+  acpIsolation,
+} from "./acp-instances.ts";
 export { loginAcpAccount, AcpLoginPlan, type AcpLoginResolver } from "./acp-login.ts";
 
 export { daemonCursorAuth, cursorDaemonDriver, type CursorCliAuth } from "./cursor-cli-auth.ts";
@@ -57,6 +62,7 @@ export {
 } from "./usage-sources/declaration.ts";
 export {
   readDeclaredUsage,
+  UsageRunError,
   type UsagePorts,
   type UsageAccount,
   type UsageResult,

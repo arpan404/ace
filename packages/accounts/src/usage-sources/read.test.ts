@@ -39,6 +39,7 @@ function ports(
       run: async () => {
         throw new Error("no command here");
       },
+      inScratchDir: async (use) => use(await temp()),
       platform: "linux",
       now: () => now,
       ...overrides,
@@ -346,4 +347,45 @@ test("a command source maps the CLI's own JSON usage report", async () => {
   });
   // A report that doesn't say it succeeded is no reading, however it looks.
   expect(await run("PENDING")).toMatchObject({ ok: false, reason: "unavailable" });
+});
+
+/** `agy -p /usage --output-format json` from a signed-in Antigravity CLI 1.3.5, as recorded. */
+const agyUsage = await readFile(
+  new URL("../__fixtures__/antigravity-usage.json", import.meta.url),
+  "utf8",
+);
+const agyReset = Date.parse("2026-10-22T14:55:01Z");
+const antigravity = async (stdout: string) =>
+  read(
+    usageDeclaration({ provider: "acp", acpAgentId: "official:antigravity-acp" }),
+    account(await temp()),
+    { ...ports(() => Response.json({})).ports, run: async () => stdout },
+  );
+
+test("Antigravity's /usage shows each model group's weekly limit, which never holds the account", async () => {
+  const weekly = { usedPercent: 0, resetsAt: agyReset, windowDurationMins: 10080, advisory: true };
+  expect(await antigravity(agyUsage)).toEqual({
+    ok: true,
+    reading: {
+      usageWindows: { "Gemini Models · weekly": weekly, "Claude and GPT models · weekly": weekly },
+    },
+  });
+  // A spent group is shown as spent; the other group's models keep working.
+  const spent = JSON.parse(agyUsage) as {
+    command: { data: { groups: { buckets: { remaining_fraction: number }[] }[] } };
+  };
+  const [gemini, others] = spent.command.data.groups;
+  if (!gemini?.buckets[0] || !others?.buckets[0]) throw new Error("fixture changed");
+  gemini.buckets[0].remaining_fraction = 0;
+  others.buckets[0].remaining_fraction = 0.25;
+  const result = await antigravity(JSON.stringify(spent));
+  expect(result.ok && result.reading["usageWindows"]).toEqual({
+    "Gemini Models · weekly": { ...weekly, usedPercent: 100 },
+    "Claude and GPT models · weekly": { ...weekly, usedPercent: 75 },
+  });
+  // An answer that isn't a successful `/usage` report is no reading.
+  expect(await antigravity(JSON.stringify({ ...spent, status: "ERROR" }))).toMatchObject({
+    ok: false,
+    reason: "unavailable",
+  });
 });
