@@ -42,7 +42,8 @@ export type EditorLaunch = NonNullable<CommandResult["editor"]>;
 export interface PrInput {
   repository: ForgeRepository;
   branch: string;
-  base: string;
+  /** Only with a reviewed draft; otherwise the daemon resolves the base. */
+  base?: string | undefined;
   title: string;
   summary: string;
   draft: boolean;
@@ -305,7 +306,7 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
         ...(input.draftBaseRef ? { draftBaseRef: input.draftBaseRef } : {}),
         input: {
           branch: input.branch,
-          base: input.base,
+          ...(input.base ? { base: input.base } : {}),
           title: input.title,
           summary: input.summary,
           // The forge fills these from the fields above.

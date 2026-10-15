@@ -141,10 +141,12 @@ export class FakeForgeWire {
     const repository = "repository" in p ? p.repository : p.link.pr.repository;
     if (repository.forge !== "github") return { ok: false, error: "forge_unsupported" };
     if (p.type === "forge.pr.create") {
+      // As the daemon resolves it: the given base, else the thread's, else the default branch.
+      const details = this.context.thread(id)?.thread.details;
       const key = JSON.stringify({
         repository: p.repository,
         branch: p.input.branch,
-        base: p.input.base,
+        base: p.input.base ?? details?.base?.ref ?? details?.baseBranch ?? "main",
       });
       const existing = this.publications.get(key);
       if (existing) {

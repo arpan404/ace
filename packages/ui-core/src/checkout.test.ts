@@ -113,6 +113,14 @@ test("only the thread's links name its PR, never the legacy single link", () => 
   });
 });
 
+test("a checkout with no recorded base never guesses one, and can still open a PR", () => {
+  const checkout = checkoutOf(details({ baseBranch: undefined, branch: "main" }));
+  expect(checkout?.baseBranch).toBeUndefined();
+  expect(checkout?.baseRef).toBeUndefined();
+  // Without a known base, being on "main" says nothing about where a PR would merge.
+  expect(checkout && nextGitStep(checkout)).toEqual({ kind: "create-pr", blocked: undefined });
+});
+
 test("GitLab checkouts explain the unsupported forge before creating a PR", () => {
   expect(
     step({ repository: { ...repository, forge: "gitlab", host: "gitlab.com" } }),

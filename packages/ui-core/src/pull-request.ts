@@ -50,11 +50,14 @@ export function ciLine(status: Pick<ForgePrStatus, "ci" | "checks">): PrOverview
   return { tone: "none", text: "No checks reported" };
 }
 
-function mergeLine(status: ForgePrStatus, base: string): PrOverview["merge"] {
+/** The base in words: its name, or "its base" while the thread has none recorded. */
+const baseName = (base: string | undefined) => base ?? "its base";
+
+function mergeLine(status: ForgePrStatus, base: string | undefined): PrOverview["merge"] {
   if (status.mergeability === "conflicting")
-    return { tone: "conflict", text: `Conflicts with ${base}` };
+    return { tone: "conflict", text: `Conflicts with ${baseName(base)}` };
   if (status.mergeability === "mergeable")
-    return { tone: "clean", text: `No conflicts with ${base}` };
+    return { tone: "clean", text: `No conflicts with ${baseName(base)}` };
   return { tone: "unknown", text: "GitHub is still checking for conflicts" };
 }
 
@@ -63,13 +66,14 @@ function mergeLine(status: ForgePrStatus, base: string): PrOverview["merge"] {
  * panel's Merge PR both ask this, so they never disagree about a PR. GitHub's own branch
  * protection still has the last word.
  */
-export function mergeGate(status: ForgePrStatus, base: string): string | undefined {
+export function mergeGate(status: ForgePrStatus, base: string | undefined): string | undefined {
   if (status.state === "merged") return "Already merged";
   if (status.state === "closed") return "The pull request is closed";
   if (status.state === "draft") return "A draft can't merge: mark it ready for review on GitHub";
   if (status.state === "unknown")
     return "GitHub didn't report this PR's state: refresh, then retry";
-  if (status.mergeability === "conflicting") return `Resolve the conflicts with ${base} first`;
+  if (status.mergeability === "conflicting")
+    return `Resolve the conflicts with ${baseName(base)} first`;
   if (status.mergeability === "unknown") return "GitHub is still checking for conflicts";
   const ci = ciLine(status).tone;
   if (ci === "failure") return "Fix the failing checks first";
@@ -98,7 +102,7 @@ export function autoMergeBlocker(state: ForgeMergeState | undefined): string | u
   return undefined;
 }
 
-export function prOverview(status: ForgePrStatus, base: string): PrOverview {
+export function prOverview(status: ForgePrStatus, base: string | undefined): PrOverview {
   const ci = ciLine(status);
   const reason = mergeGate(status, base);
   return {

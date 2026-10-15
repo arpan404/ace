@@ -75,8 +75,9 @@ export function GitDialog(props: {
     ? files && chosen.size
       ? { kind: "commit", paths: pathsOf(files, chosen) }
       : undefined
-    : checkout.branch
+    : checkout.branch && checkout.baseBranch
       ? {
+          // A draft is written against a known base; without one the daemon picks it.
           kind: "pr",
           branch: checkout.branch,
           base: checkout.baseBranch,
@@ -160,7 +161,11 @@ export function GitDialog(props: {
               {!commit && (
                 <>
                   <span className="font-mono whitespace-nowrap">{checkout.branch}</span> into{" "}
-                  <span className="font-mono whitespace-nowrap">{checkout.baseBranch}</span>
+                  {checkout.baseBranch ? (
+                    <span className="font-mono whitespace-nowrap">{checkout.baseBranch}</span>
+                  ) : (
+                    "the repository's default branch"
+                  )}
                   {checkout.repository &&
                     ` on ${checkout.repository.owner}/${checkout.repository.name}`}
                   .

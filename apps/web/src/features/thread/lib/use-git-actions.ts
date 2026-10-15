@@ -162,6 +162,7 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
     const branch = at.branch;
     if (!branch) throw new WorkspaceError("pr_unavailable");
     if (change.draftFingerprint) {
+      if (!at.baseBranch) throw new WorkspaceError("draft_changes_moved");
       const context = await workspace.draftContext(thread, {
         kind: "pr",
         branch,
@@ -176,7 +177,8 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
     const { status, existing } = await workspace.createPr(thread, {
       repository,
       branch,
-      base: at.baseBranch,
+      // Only a reviewed draft names its base; otherwise the daemon resolves it.
+      ...(change.draftFingerprint && at.baseBranch ? { base: at.baseBranch } : {}),
       title: change.title,
       draftFingerprint: change.draftFingerprint,
       draftBaseRef: at.baseRef,
