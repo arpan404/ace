@@ -36,12 +36,43 @@ function codex(
   }).state;
 }
 test("Codex moves through available, near-limit and exhausted until the exact reset", () => {
-  const available = codex(login, 20);
+  const soon = (now + 20 * 60_000) / 1000;
+  const available = codex(login, 20, now, soon);
   expect(availability(available, now)).toBe("available");
-  expect(availability(codex(available, 80), now)).toBe("near_limit");
-  const exhausted = codex(available, 100);
-  expect(availability(exhausted, now + 3599999)).toBe("exhausted");
-  expect(availability(exhausted, now + 3600000)).toBe("available");
+  expect(availability(codex(available, 80, now, soon), now)).toBe("near_limit");
+  const exhausted = codex(available, 100, now, soon);
+  expect(availability(exhausted, now + 20 * 60_000 - 1)).toBe("exhausted");
+  expect(availability(exhausted, now + 20 * 60_000)).toBe("available");
+});
+/** Codex's app-server `error` notification for a turn the account had no usage left for. */
+function codexLimitError(message: string, code = "usageLimitExceeded") {
+  return quotaPayload({
+    method: "error",
+    params: { error: { message, codexErrorInfo: code }, willRetry: false, threadId: "t" },
+  });
+}
+test("only Codex's own usage-limit code holds an account, never words that mention a limit", () => {
+  for (const payload of [
+    quotaPayload({ message: "Usage limit reached" }),
+    quotaPayload({ error: "You've hit your usage limit" }),
+    // A throttle Codex retries is a wait, not an exhausted account.
+    codexLimitError("Rate limit reached for gpt-6.1 on tokens per min", "rateLimitExceeded"),
+  ]) {
+    const state = ingestQuota(login, {
+      provider: "codex",
+      observedAt: now,
+      timeZone: "UTC",
+      payload,
+    }).state;
+    expect(availability(state, now)).toBe("available");
+  }
+  const limited = ingestQuota(login, {
+    provider: "codex",
+    observedAt: now,
+    timeZone: "UTC",
+    payload: codexLimitError("You've hit your usage limit. Try again later."),
+  }).state;
+  expect(availability(limited, now)).toBe("exhausted");
 });
 test("a later reset on a second window keeps the account exhausted", () => {
   const result = ingestQuota(login, {
@@ -88,7 +119,29 @@ test("Claude event fractions and usage snapshot percentages produce the same war
   expect(availability(snapshot.state, now)).toBe("near_limit");
   expect(availability(snapshot.state, now + 3600000)).toBe("available");
 });
-test("a rejection without utilization stays blocked without a reported reset", () => {
+test("a Claude usage read records its 5-hour and weekly windows, resets and plan", () => {
+  // The note the Claude adapter emits from the SDK's `get_usage` answer.
+  const state = ingestQuota(login, {
+    provider: "claude",
+    observedAt: now,
+    timeZone: "UTC",
+    payload: quotaPayload({
+      event: "claude-usage",
+      rate_limits: {
+        five_hour: { utilization: 42, resets_at: "2026-10-02T18:00:00.000Z" },
+        seven_day: { utilization: 100, resets_at: "2026-10-05T09:00:00.000Z" },
+      },
+      planType: "max",
+    }),
+  }).state;
+  expect(state.plan).toBe("max");
+  expect(state.windows["five_hour"]).toMatchObject({
+    usedPercent: 42,
+    resetsAt: Date.parse("2026-10-02T18:00:00.000Z"),
+  });
+  expect(availability(state, now)).toBe("exhausted");
+});
+test("a rejection without a reported reset holds only while it is fresh", () => {
   const state = ingestQuota(login, {
     provider: "claude",
     observedAt: now,
@@ -96,7 +149,7 @@ test("a rejection without utilization stays blocked without a reported reset", (
     payload: quotaPayload({ rate_limit_info: { status: "rejected" } }),
   }).state;
   expect(availability(state, now + 1)).toBe("exhausted");
-  expect(availability(state, now + 86400000)).toBe("exhausted");
+  expect(availability(state, now + 86400000)).toBe("available");
 });
 test("logged-out accounts stay unavailable even when quota has reset", () => {
   const state = ingestQuota(codex(login, 100), {
@@ -140,10 +193,10 @@ test("limit error clock text resolves in the user's timezone, including midnight
     provider: "codex",
     observedAt: now,
     timeZone: "America/Chicago",
-    payload: quotaPayload({ message: "Usage limit reached. Try again at 11:31 AM" }),
+    payload: codexLimitError("You've hit your usage limit. Try again at 10:20 AM."),
   }).state;
-  expect(availability(state, Date.parse("2026-10-02T16:30:00Z"))).toBe("exhausted");
-  expect(availability(state, Date.parse("2026-10-02T16:31:00Z"))).toBe("available");
+  expect(availability(state, Date.parse("2026-10-02T15:19:00Z"))).toBe("exhausted");
+  expect(availability(state, Date.parse("2026-10-02T15:20:00Z"))).toBe("available");
 });
 test("ambiguous and nonexistent DST times stay blocked rather than guessing", () => {
   expect(
@@ -291,12 +344,12 @@ test("recorded provider rate-limit payloads retain all windows and their measure
     ),
   ).toBeUndefined();
 });
-test("fresh quota facts recover a resetless textual limit, and usage counters are cumulative snapshots", () => {
+test("fresh quota facts recover a resetless provider limit, and usage counters are cumulative snapshots", () => {
   const limited = ingestQuota(login, {
     provider: "codex",
     observedAt: now,
     timeZone: "UTC",
-    payload: quotaPayload({ message: "Usage limit reached" }),
+    payload: codexLimitError("You've hit your usage limit."),
   }).state;
   expect(availability(limited, now)).toBe("exhausted");
   expect(availability(codex(limited, 10, now + 1), now + 1)).toBe("available");
@@ -318,7 +371,7 @@ test("fresh quota facts recover a resetless textual limit, and usage counters ar
   expect(b.usage).toEqual({ costUsd: 3, inputTokens: 15, outputTokens: 6 });
 });
 
-test("window overflow stays bounded and blocks scheduling until an authoritative bounded snapshot", () => {
+test("window overflow stays bounded and is never taken for a limit", () => {
   const windows = Object.fromEntries(
     Array.from({ length: 40 }, (_, index) => [
       `limit-${index}`,
@@ -332,7 +385,8 @@ test("window overflow stays bounded and blocks scheduling until an authoritative
     payload: quotaPayload({ rateLimitsByLimitId: windows }),
   }).state;
   expect(Object.keys(state.windows).length).toBeLessThanOrEqual(32);
-  expect(availability(state, now + 86400000)).toBe("exhausted");
+  // The full window was past what ace keeps, so nothing definite says the account is out.
+  expect(availability(state, now)).toBe("available");
   const recovered = ingestQuota(state, {
     provider: "codex",
     observedAt: now + 1,
@@ -344,17 +398,19 @@ test("window overflow stays bounded and blocks scheduling until an authoritative
   expect(availability(recovered, now + 1)).toBe("available");
 });
 
-test("a limit with an unreadable reset stays blocked until fresh provider facts arrive", () => {
+test("a limit with an unreadable reset never holds an account forever", () => {
   const limit = ingestQuota(login, {
-    provider: "claude",
+    provider: "codex",
     observedAt: now,
     timeZone: "UTC",
-    payload: quotaPayload({ error: "Usage limit reached; reset time unavailable" }),
+    payload: codexLimitError("You've hit your usage limit; reset time unavailable"),
   }).state;
-  expect(availability(limit, now + 5 * 60 * 60 * 1000 - 1)).toBe("exhausted");
-  expect(availability(limit, now + 7 * 24 * 60 * 60 * 1000)).toBe("exhausted");
+  expect(availability(limit, now + 60_000)).toBe("exhausted");
+  // Nothing has said so again for a long time: the old refusal is no longer evidence.
+  expect(availability(limit, now + 7 * 24 * 60 * 60 * 1000)).toBe("available");
   const reported = codex(login, 100, now, null);
-  expect(availability(reported, now + 7 * 24 * 60 * 60 * 1000)).toBe("exhausted");
+  expect(availability(reported, now + 60_000)).toBe("exhausted");
+  expect(availability(reported, now + 7 * 24 * 60 * 60 * 1000)).toBe("available");
   expect(availability(codex(reported, 10, now + 1), now + 1)).toBe("available");
 });
 

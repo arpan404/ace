@@ -41,12 +41,23 @@ for (const scenario of ["offline", "native_lock", "external_writer", "unverified
           {
             on: "send",
             frames: [
-              frames.frame(start, {
-                type: "turn.ended",
-                agent: "root",
-                outcome: "failed",
-                error: { kind: "quota", message: "Quota" },
-              }),
+              frames.frame(
+                start,
+                {
+                  type: "turn.ended",
+                  agent: "root",
+                  outcome: "failed",
+                  error: { kind: "quota", message: "Quota" },
+                },
+                {
+                  // The limit says when it resets, so it holds what follows until then.
+                  type: "retry",
+                  agent: "root",
+                  on: "rate_limit",
+                  until: 1_000_000,
+                  message: "Quota",
+                },
+              ),
             ],
           },
         ],

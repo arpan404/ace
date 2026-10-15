@@ -14,7 +14,6 @@ import {
   AccountQuota,
   CursorSdkAuth,
 } from "@ace/protocol/accounts";
-import { object } from "./quota-decode.ts";
 import { availability, blockedUntil } from "./availability.ts";
 import { initialQuota, ingestQuota, type QuotaFact } from "./quota.ts";
 import { instanceEnv } from "./instances.ts";
@@ -159,18 +158,7 @@ export class AccountRegistry {
   }
   private decode(value: unknown) {
     const parsed = row.parse(value);
-    const raw: unknown = JSON.parse(parsed.quota);
-    const legacy = !Object.hasOwn(object(raw), "blockers");
-    const quota = AccountQuota.parse(raw);
-    // The previous format placed local blockers in the provider name namespace.
-    if (legacy && quota.windows["quota_overflow"]?.usedPercent === 100) {
-      quota.blockers.overflow = true;
-      delete quota.windows["quota_overflow"];
-    }
-    if (legacy && quota.windows["limit_error"]) {
-      quota.blockers.limitError = quota.windows["limit_error"];
-      delete quota.windows["limit_error"];
-    }
+    const quota = AccountQuota.parse(JSON.parse(parsed.quota));
     return { instance: ProviderInstance.parse(JSON.parse(parsed.instance)), quota };
   }
   get(id: string) {
@@ -394,6 +382,22 @@ export class AccountRegistry {
     if (!account || account.instance.provider !== "acp") throw new Error("ACP account required");
     const quota = AccountQuota.parse({ ...account.quota, auth, observedAt });
     this.loginChanged(id);
+    this.updateQuota.run(JSON.stringify(quota), id);
+    for (const listener of this.quotaListeners) {
+      try {
+        listener(id);
+      } catch {
+        /* Reader owns delivery. */
+      }
+    }
+  }
+  /** Why a usage read found nothing to report (fixed words), or undefined once it reads again. */
+  recordUsageNotice(id: string, notice: AccountQuota["usageNotice"]): void {
+    const account = this.get(id);
+    if (!account) throw new Error("Unknown instance");
+    const before = account.quota.usageNotice;
+    if (before?.message === notice?.message && before?.reason === notice?.reason) return;
+    const quota = AccountQuota.parse({ ...account.quota, usageNotice: notice });
     this.updateQuota.run(JSON.stringify(quota), id);
     for (const listener of this.quotaListeners) {
       try {

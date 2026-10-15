@@ -8,6 +8,8 @@ import type { ProviderLoginSessions } from "@ace/accounts";
 import { AccountManagement } from "../account-management.ts";
 import { AccountService, openRegistryIndex, cursorSdkLoginDriver } from "@ace/accounts";
 import { join } from "node:path";
+/** How often every account's limits are re-read where the CLI can say without a turn. */
+const limitsRefreshMs = 5 * 60_000;
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export async function startAccounts(context: ServiceContext) {
@@ -103,7 +105,18 @@ export function startAccountManagement(context: ServiceContext): void {
   });
   services.accountManagement = management;
   const initialized = warmup(context, "accountManagement", () => management.initialize());
+  // Re-read limits well within the staleness window, so a reading is never old for long and
+  // an account that reset or bought more lets its held threads go without anyone asking.
+  let reading: Promise<void> | undefined;
+  const refresh = setInterval(() => {
+    reading ??= initialized
+      .then(() => management.refreshLimits())
+      .catch(() => {})
+      .finally(() => (reading = undefined));
+  }, limitsRefreshMs);
+  refresh.unref();
   resources.own(async () => {
+    clearInterval(refresh);
     await initialized;
     await management.close();
   });

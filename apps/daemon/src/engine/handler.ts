@@ -439,8 +439,11 @@ export function engineHandler(
         if (!admitted) return fail("queue_capacity_exceeded");
         // Any new message, the person's or a parent agent's, is how a stopped or interrupted turn
         // carries on: it releases that hold, drops ace's own "continue", and the queue sends in
-        // order with it last.
-        if (p.type === "thread.send") releaseInterruptedHold(repo, threadId, now());
+        // order with it last. It is also the go-ahead past a limit that gave no reset.
+        if (p.type === "thread.send") {
+          releaseInterruptedHold(repo, threadId, now());
+          recovery.releaseLimitHold(threadId, now());
+        }
         const heldSend = p.type === "thread.send" && repo.queue.get(threadId).paused;
         if (!heldSend && !repo.reserve(threadId)) return fail("engine_capacity_exceeded");
         const released = p.type === "thread.interrupt" ? repo.cancelPending(threadId, now()) : [];

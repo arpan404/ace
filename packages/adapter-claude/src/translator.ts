@@ -79,12 +79,9 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       }
       if (subtype === "api_retry") {
         const error = string(data["error"]);
-        state.retryOn =
-          error === "rate_limit" || data["error_status"] === 429
-            ? "rate_limit"
-            : data["error_status"] == null
-              ? "network"
-              : "upstream";
+        // Claude retrying a throttled request (429 included) is a wait, not a usage limit:
+        // only a rejected `rate_limit_event` or a turn's `rate_limit` error is one.
+        state.retryOn = data["error_status"] == null ? "network" : "upstream";
         state.emit({
           type: "retry",
           agent: state.root,

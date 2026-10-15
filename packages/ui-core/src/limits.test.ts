@@ -111,21 +111,20 @@ test("a reached account works again at the last reset of what holds it, and no t
   // The 5-hour window frees first, but the weekly one still holds it until it resets.
   expect(accountLimit(both, now)).toMatchObject({ level: "reached", resetsAt: now + 3 * day });
 
-  const unsaid = account("codex-team", [
-    ["five_hour", 100, 87 * minute],
-    ["seven_day", 100, null],
-  ]);
+  const unsaid = account("codex-team", [["seven_day", 100, null]]);
   expect(accountLimit(unsaid, now)).toMatchObject({ level: "reached", resetsAt: undefined });
 
+  // A limit error without a time is explained by the full window that gives one.
   const limitError = account("codex-team", [["five_hour", 100, 87 * minute]], {
     blockers: { limitError: { usedPercent: 100, resetsAt: null } },
   });
-  expect(accountLimit(limitError, now).resetsAt).toBeUndefined();
+  expect(accountLimit(limitError, now).resetsAt).toBe(now + 87 * minute);
 
   const overflow = account("codex-team", [["five_hour", 100, 87 * minute]], {
     blockers: { overflow: true },
   });
-  expect(accountLimit(overflow, now).resetsAt).toBeUndefined();
+  // Windows past what ace keeps say nothing either way: the full window still decides.
+  expect(accountLimit(overflow, now).resetsAt).toBe(now + 87 * minute);
 });
 
 /** Claude Code · Personal with one 5-hour window. */
@@ -283,7 +282,7 @@ test("with no other account of the provider that has room, the notice offers no 
     target: null,
   });
   expect(notice?.detail).toBe(
-    "The provider didn't say when it resets. No other Claude Code account has room. Queued messages wait.",
+    "The provider didn't say when it resets. No other Claude Code account has room. Your next message tries again.",
   );
   expect(notice?.actions.map((action) => action.id)).toEqual(["resume_now"]);
 });

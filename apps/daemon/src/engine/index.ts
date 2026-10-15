@@ -1138,6 +1138,14 @@ export class Engine {
   queue(id: ThreadId): QueueSnapshot {
     return this.repo.queue.snapshot(id);
   }
+  /** A fresh reading says account `instanceId` has room: threads its limit held carry on. */
+  accountRecovered(instanceId: string): void {
+    if (this.closing || this.repo.store.isHistoryWriting()) return;
+    this.repo.store.atomic(() => {
+      for (const id of this.repo.queue.limited())
+        if (this.repo.session(id).instanceId === instanceId) this.recovery.accountRecovered(id);
+    });
+  }
 
   private wakeQueued(): void {
     if (this.closing) return;

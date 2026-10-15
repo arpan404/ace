@@ -304,6 +304,7 @@ export class CursorTranslator implements Translator {
                   error: failedRun(
                     object(body.error).code,
                     string(object(body.error).message) ?? "Cursor SDK run failed",
+                    object(body.error).retryable,
                   ),
                 }
               : {}),
@@ -324,7 +325,7 @@ export class CursorTranslator implements Translator {
             });
           }
           const text = string(body.message) ?? "SDK failure; delivery or execution is uncertain";
-          const failure = cursorFailure(body.code, text);
+          const failure = cursorFailure(body.code, text, body.retryable);
           facts.push(
             ...this.tools.preserve(),
             ...this.children.preserve(),
@@ -332,7 +333,7 @@ export class CursorTranslator implements Translator {
               text,
               event,
               "error",
-              failure.kind === "quota" ? (failure.code ?? "quota") : "cursor.run-failed",
+              failure.code ?? (failure.kind === "quota" ? "quota" : "cursor.run-failed"),
             ),
           );
           if (this.active && !this.replacement && body.settled === true) {
@@ -342,7 +343,7 @@ export class CursorTranslator implements Translator {
               agent: this.root,
               nativeTurnId: `sdk:${event.operationId}`,
               outcome: "failed",
-              error: failedRun(body.code, string(body.message) ?? "SDK run failed"),
+              error: failedRun(body.code, string(body.message) ?? "SDK run failed", body.retryable),
             });
           }
           return facts;
@@ -420,6 +421,6 @@ export class CursorTranslator implements Translator {
   }
 }
 
-function failedRun(code: unknown, message: string) {
-  return { ...cursorFailure(code, message), message };
+function failedRun(code: unknown, message: string, retryable?: unknown) {
+  return { ...cursorFailure(code, message, retryable), message };
 }

@@ -122,7 +122,13 @@ for (const [code, kind] of [
 ] as const) {
   it(`keeps authoritative ${kind} failure truthful without manufacturing a retry`, () => {
     const r = replay();
-    r.frame("error", { code, retryable: true, settled: true, message: "Safe provider failure" });
+    // A retryable rate limit is a throttle; only a final one is an exhausted account.
+    r.frame("error", {
+      code,
+      retryable: code !== "rate_limit",
+      settled: true,
+      message: "Safe provider failure",
+    });
     expect(Object.values(r.state.runs)[0]).toMatchObject({ state: "failed" });
     expect(r.state.agents.root?.lastError).toMatchObject({ kind });
     expect(r.state.agents.root?.retry).toBeUndefined();

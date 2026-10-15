@@ -27,17 +27,34 @@ function quota(
 test("an account held by several full windows is free only once the last of them resets", () => {
   const held = quota({ five_hour: [100, now + hour], seven_day: [100, now + 72 * hour] });
   expect(blockedUntil(held, now)).toBe(now + 72 * hour);
-  // After the 5-hour reset the weekly window still holds it, to the same moment.
-  expect(blockedUntil(held, now + 2 * hour)).toBe(now + 72 * hour);
-  expect(availability(held, now + 2 * hour)).toBe("exhausted");
-  expect(blockedUntil(held, now + 73 * hour)).toBeUndefined();
-  expect(availability(held, now + 73 * hour)).toBe("available");
+  // Re-read after the 5-hour reset, the weekly window still holds it, to the same moment.
+  const reread = { ...held, observedAt: now + 2 * hour };
+  expect(blockedUntil(reread, now + 2 * hour)).toBe(now + 72 * hour);
+  expect(availability(reread, now + 2 * hour)).toBe("exhausted");
+  const later = { ...held, observedAt: now + 73 * hour };
+  expect(blockedUntil(later, now + 73 * hour)).toBeUndefined();
+  expect(availability(later, now + 73 * hour)).toBe("available");
 });
 
-test("no time is promised when anything holding the account didn't say when it resets", () => {
-  expect(blockedUntil(quota({ five_hour: [100, now + hour], seven_day: [100, null] }), now)).toBe(
-    null,
+test("a stale reading never holds an account at its limit", () => {
+  const full = quota({ seven_day: [100, now + 72 * hour] });
+  expect(availability(full, now + 29 * 60_000)).toBe("exhausted");
+  // Nothing has been read for over half an hour: the provider may have reset or sold more.
+  expect(availability(full, now + 31 * 60_000)).toBe("available");
+  expect(blockedUntil(full, now + 31 * 60_000)).toBeUndefined();
+  expect(availability(quota({ five_hour: [90, now + hour] }), now + hour / 2 + 1)).toBe(
+    "available",
   );
+});
+
+test("an unknown or unreadable limit is not a limit", () => {
+  // More windows than ace keeps, or a frame it could not certify: nothing definite was said.
+  expect(availability(quota({}, { blockers: { overflow: true } }), now)).toBe("available");
+  expect(blockedUntil(quota({}, { blockers: { overflow: true } }), now)).toBeUndefined();
+});
+
+test("the reset comes from what says when, and no time is promised when nothing does", () => {
+  // A limit error with no time is explained by the full window that gives one.
   expect(
     blockedUntil(
       quota(
@@ -48,10 +65,24 @@ test("no time is promised when anything holding the account didn't say when it r
       ),
       now,
     ),
+  ).toBe(now + hour);
+  expect(
+    blockedUntil(
+      quota(
+        { seven_day: [100, null] },
+        { blockers: { limitError: { usedPercent: 100, resetsAt: null } } },
+      ),
+      now,
+    ),
   ).toBe(null);
-  expect(blockedUntil(quota({}, { blockers: { overflow: true } }), now)).toBe(null);
   // A window short of full holds nothing.
   expect(blockedUntil(quota({ five_hour: [99, null] }), now)).toBeUndefined();
+});
+
+test("a provider's resetless limit stops holding the account once it is no longer fresh", () => {
+  const limited = quota({}, { blockers: { limitError: { usedPercent: 100, resetsAt: null } } });
+  expect(availability(limited, now)).toBe("exhausted");
+  expect(availability(limited, now + 31 * 60_000)).toBe("available");
 });
 
 test("automatic recovery moves to the first other account of the provider that is available now", () => {

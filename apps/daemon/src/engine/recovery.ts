@@ -108,7 +108,7 @@ export class Recovery {
       : command;
   }
   sync(id: ThreadId): void {
-    const queue = this.repo.queue.get(id);
+    const queue = this.repo.queue.shown(id);
     const saved = this.repo.store.getThread(id)?.queue;
     if (!saved || saved.pendingCount !== queue.pendingCount || saved.revision !== queue.revision)
       this.repo.store.appendEvents(
@@ -206,14 +206,29 @@ export class Recovery {
         (fact) =>
           (fact.type === "retry" && fact.on === "rate_limit") ||
           fact.type === "limit.cleared" ||
-          (fact.type === "turn.ended" && fact.error?.kind === "quota"),
+          (fact.type === "turn.ended" &&
+            (fact.error?.kind === "quota" || fact.outcome === "completed")),
       )
     )
       return;
     const limited = Object.values(state.agents).filter((record) => record.limited);
     const queue = this.repo.queue.get(state.threadId);
     if (!limited.length) {
-      if (queue.limited) this.repo.queue.set(state.threadId, { limited: false }, at);
+      if (!queue.limited) return;
+      // The provider completed a turn: the account could work, so the limit hold goes. Other
+      // clears (an explicit resume, a switch dropping the old account's facts) keep the hold
+      // their owner manages.
+      const completed = facts.some(
+        (fact) => fact.type === "turn.ended" && fact.outcome === "completed" && !fact.historical,
+      );
+      if (
+        completed &&
+        queue.paused &&
+        queue.reason === "limit" &&
+        !this.repo.pending.recovering(state.threadId)
+      )
+        this.lift(state.threadId, at);
+      else this.repo.queue.set(state.threadId, { limited: false }, at);
       return;
     }
     const accountReset = this.ports.resetAt?.(state.threadId);
@@ -229,7 +244,16 @@ export class Recovery {
           : null;
     if (queue.limited && queue.resetAt === reset) return;
     const policy = this.ports.preferences ? "manual" : this.preferences(state.threadId).limitPolicy;
-    const timed = policy === "resume_at_reset" || policy === "snooze_until_reset";
+    // A limit with a known reset lets go at that reset. ace never starts a turn by itself:
+    // only "resume at reset" sends then; otherwise the limit clears and queued messages wait
+    // for the person's Resume or next message. Without a reset nothing is timed.
+    const timed = policy !== "migrate_now";
+    const action =
+      policy === "resume_at_reset"
+        ? "resume"
+        : policy === "snooze_until_reset"
+          ? "snooze"
+          : "clear";
     this.repo.queue.set(
       state.threadId,
       {
@@ -241,12 +265,7 @@ export class Recovery {
         continuation: queue.continuation ?? "continue",
         trigger: queue.trigger ?? "limit_resume",
         resumeAt: timed && reset !== null && reset > at ? reset : null,
-        timerAction:
-          timed && reset !== null && reset > at
-            ? policy === "resume_at_reset"
-              ? "resume"
-              : "snooze"
-            : null,
+        timerAction: timed && reset !== null && reset > at ? action : null,
       },
       at,
     );
@@ -356,6 +375,7 @@ export class Recovery {
               { resumeAt: null, timerAction: null, reason: "manual" },
               this.clock.now(),
             );
+          else if (queue.timerAction === "clear") this.clearLimit(id);
           else {
             // Clear the deadline first, retaining a manual hold on capacity refusal.
             this.repo.queue.set(id, { resumeAt: null, timerAction: null }, this.clock.now());
@@ -413,6 +433,88 @@ export class Recovery {
       this.clock.now(),
     );
     this.schedule();
+  }
+  /**
+   * The thread's account has a fresh reading below its limit: the limit no longer holds the
+   * thread. ace starts no turn: queued messages wait for the person, except that a "resume at
+   * reset" or snooze the person chose keeps its own deadline.
+   */
+  accountRecovered(id: ThreadId): void {
+    const queue = this.repo.queue.get(id);
+    if (!queue.limited || !queue.paused || queue.reason !== "limit") return;
+    if (this.repo.pending.recovering(id)) return;
+    this.clearLimit(id);
+  }
+  /**
+   * The limit is gone (its reset passed, or a fresh reading has room): clear the limited state
+   * so the thread and account read as available, keeping queued messages and the continuation
+   * for the person's Resume or next message.
+   */
+  private clearLimit(id: ThreadId): void {
+    const queue = this.repo.queue.get(id);
+    const timed = queue.timerAction === "resume" || queue.timerAction === "snooze";
+    const at = this.clock.now();
+    this.repo.queue.set(
+      id,
+      timed
+        ? { limited: false, resetAt: null }
+        : // A manual hold that remembers when its limit cleared: the person's next message
+          // releases it, unlike a pause they chose or a switch's held continuation.
+          { limited: false, resetAt: at, reason: "manual", resumeAt: null, timerAction: null },
+      at,
+    );
+    const state = this.repo.requireState(id);
+    const cleared = Object.entries(state.agents)
+      .filter(([, record]) => record.limited)
+      .map(([agent]) => ({ type: "limit.cleared" as const, agent }));
+    if (cleared.length) this.repo.apply(id, cleared, this.clock.now());
+    this.sync(id);
+    this.schedule();
+  }
+  /**
+   * The person sends while a limit hold nothing definite keeps: a limit with no known reset, or
+   * one that has already cleared. Their message is the go-ahead: the hold and ace's own
+   * "continue" are dropped and the queue sends in order, with their message last. If the
+   * provider refuses again, its definite signal holds the thread again. A known reset that
+   * hasn't passed keeps holding, and so does a pause the person chose.
+   */
+  releaseLimitHold(id: ThreadId, at: number): void {
+    const queue = this.repo.queue.get(id);
+    if (!queue.paused || queue.resumeAt !== null) return;
+    const resetless = queue.limited && queue.reason === "limit" && queue.resetAt === null;
+    // `clearLimit` leaves this marker: a manual hold that records when its limit cleared.
+    const cleared = !queue.limited && queue.reason === "manual" && queue.resetAt !== null;
+    if (!resetless && !cleared) return;
+    if (this.repo.queue.hasUncertain(id) || this.repo.pending.recovering(id)) return;
+    this.lift(id, at);
+  }
+  /** Lift a limit hold nothing holds any more, without sending a continuation. */
+  private lift(id: ThreadId, at: number): void {
+    const queue = this.repo.queue.get(id);
+    this.repo.pending.finishContinuation(id);
+    this.repo.queue.set(
+      id,
+      {
+        limited: false,
+        paused: false,
+        reason: null,
+        resetAt: null,
+        resumeAt: null,
+        timerAction: null,
+        continuation: null,
+        trigger: null,
+        holdToken: queue.holdToken + 1,
+      },
+      at,
+    );
+    const state = this.repo.requireState(id);
+    const cleared = Object.entries(state.agents)
+      .filter(([, record]) => record.limited)
+      .map(([agent]) => ({ type: "limit.cleared" as const, agent }));
+    if (cleared.length) this.repo.apply(id, cleared, at);
+    this.sync(id);
+    this.schedule();
+    queueMicrotask(() => this.wake(id));
   }
   owns(id: ThreadId, token: number): boolean {
     return this.repo.queue.get(id).holdToken === token;

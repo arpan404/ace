@@ -51,6 +51,10 @@ export interface AccountView {
   windows: QuotaWindowView[];
   /** Banked resets the provider reports for the account (Codex); absent when not reported. */
   resetCredits?: { available: number; nextExpiresAt: number | null } | undefined;
+  /** The plan the provider reports for the account ("Pro"); absent when it doesn't say. */
+  plan?: string | undefined;
+  /** Its stored login has lapsed, so its usage can't be read: "Sign in again in Gemini CLI". */
+  usageSignIn?: string | undefined;
   /** The quota as the daemon reported it, blockers included, for the shared availability rules. */
   quota: AccountQuota;
 }
@@ -66,6 +70,10 @@ const known: [RegExp, string, number][] = [
   [/^seven_day_cowork$/, "Weekly · Cowork", 3],
   [/^seven_day_oauth_apps$/, "Weekly · Apps", 3],
   [/^(monthly|month)$/, "Monthly", 4],
+  // Cursor's included usage for the billing cycle, and its Auto and API shares.
+  [/^included$/, "Included", 4],
+  [/^included_auto$/, "Included · Auto", 4],
+  [/^included_api$/, "Included · API", 4],
   [/^default$/, "Usage", 5],
 ];
 
@@ -175,6 +183,10 @@ export function accountView(summary: Summary): AccountView {
             nextExpiresAt: summary.quota.resetCredits.nextExpiresAt ?? null,
           },
         }
+      : {}),
+    ...(summary.quota.plan ? { plan: summary.quota.plan } : {}),
+    ...(summary.quota.usageNotice?.reason === "signed_out"
+      ? { usageSignIn: summary.quota.usageNotice.message }
       : {}),
     quota: summary.quota,
   };

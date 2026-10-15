@@ -18,7 +18,8 @@ export const RecoveryRecord = QueueState.extend({
   holdToken: z.number().int().nonnegative(),
   limited: z.boolean(),
   resetAt: z.number().int().nonnegative().nullable(),
-  timerAction: z.enum(["resume", "snooze", "migrate"]).nullable(),
+  /** `clear` lifts a limit at its reset without sending anything (the manual policy). */
+  timerAction: z.enum(["resume", "snooze", "migrate", "clear"]).nullable(),
   continuation: z.string().max(16384).nullable(),
   trigger: z.enum(["restart", "limit_resume"]).nullable(),
 });
@@ -96,6 +97,11 @@ export class QueueStore {
       continuation: row.continuation,
       trigger: row.trigger,
     });
+  }
+  /** The record as clients see it: a `clear` deadline lifts a limit but promises no resume. */
+  shown(id: ThreadId): RecoveryRecord {
+    const value = this.get(id);
+    return value.timerAction === "clear" ? { ...value, resumeAt: null } : value;
   }
   set(id: ThreadId, patch: Partial<RecoveryRecord>, at: number): void {
     this.store.atomic(() => {
@@ -198,14 +204,14 @@ export class QueueStore {
       "SELECT payload,uncertain FROM intents WHERE thread_id=? AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1)) ORDER BY position,id LIMIT 256",
     ).all(id);
     return QueueSnapshot.parse({
-      ...this.get(id),
+      ...this.shown(id),
       threadId: id,
       messages: rows.map((row) => this.message(row.payload, row.uncertain)),
     });
   }
   page(request: Pick<QueueGet, "threadId" | "after" | "expectedRevision" | "limit">): QueuePage {
     const limit = request.limit ?? 16;
-    const queue = this.get(request.threadId);
+    const queue = this.shown(request.threadId);
     if (request.expectedRevision !== undefined && request.expectedRevision !== queue.revision)
       throw new Error("queue_conflict");
     if (request.after && request.expectedRevision === undefined)
@@ -342,6 +348,14 @@ export class QueueStore {
       "SELECT resume_at FROM engine_queue WHERE resume_at IS NOT NULL ORDER BY resume_at LIMIT 1",
     ).get();
     return row ? z.number().int().nonnegative().parse(row.resume_at) : undefined;
+  }
+  /** Threads a usage limit holds, for an account reading that may let them go. */
+  limited(): ThreadId[] {
+    return this.sql(
+      "SELECT thread_id FROM engine_queue WHERE limited=1 AND paused=1 AND reason='limit' LIMIT 256",
+    )
+      .all()
+      .map((row) => QueueSnapshot.shape.threadId.parse(row.thread_id));
   }
   due(now: number): ThreadId[] {
     return this.sql(

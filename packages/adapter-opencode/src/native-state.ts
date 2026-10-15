@@ -1,7 +1,7 @@
 import type { RunTrigger, InteractionResolution } from "@ace/protocol";
 import type { Fact, Key } from "@ace/core";
 import type { Data } from "./data.ts";
-import { failureKind, object, string, number } from "./data.ts";
+import { failureCode, object, string, number } from "./data.ts";
 import { RecentMap, RecentSet } from "./cache.ts";
 import { qualifiedModel } from "./usage.ts";
 export type Tool = {
@@ -231,7 +231,16 @@ export class NativeState {
         agent: this.key(id),
         nativeTurnId: turn,
         outcome,
-        ...(outcome === "failed" ? { error: { kind: failureKind(message), message } } : {}),
+        // Out-of-credit prose is named for display, but stays a failure that holds nothing.
+        ...(outcome === "failed"
+          ? {
+              error: {
+                kind: "provider" as const,
+                message,
+                ...(failureCode(message) ? { code: "usage_limit" } : {}),
+              },
+            }
+          : {}),
       },
     ];
   }

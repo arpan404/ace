@@ -21,20 +21,21 @@ export function raw(type: string, data: unknown, name?: string): RawPayload[] {
   return [{ type, data: evidence, ...(name === undefined ? {} : { name }) }];
 }
 /**
- * A turn that ended because the upstream account ran out of quota or credit, in the words
- * OpenAI, Anthropic and OpenRouter use; it is a usage limit, not a provider failure.
+ * A failed turn whose upstream provider says, in its own words, that the account is out of
+ * quota or credit (OpenAI, Anthropic and OpenRouter phrasing). OpenCode reports no usage-limit
+ * code, so this only names the failure for display: it stays a failed turn and never holds
+ * queued messages, since prose is not a definite limit.
  */
-export function failureKind(message: string): "quota" | "provider" {
+export function failureCode(message: string): "usage_limit" | undefined {
   return /insufficient[_ ]quota|exceeded your current quota|usage limit|out of usage|credit balance is too low|insufficient credits/i.test(
     message,
   )
-    ? "quota"
-    : "provider";
+    ? "usage_limit"
+    : undefined;
 }
-export function retryReason(message: string): "rate_limit" | "network" | "upstream" {
-  return /429|rate.?limit|too many requests|quota/i.test(message)
-    ? "rate_limit"
-    : /ECONN|ENOTFOUND|network|socket|fetch failed|timed? ?out/i.test(message)
-      ? "network"
-      : "upstream";
+/** OpenCode retrying a request, throttled ones included, is a wait and never a usage limit. */
+export function retryReason(message: string): "network" | "upstream" {
+  return /ECONN|ENOTFOUND|network|socket|fetch failed|timed? ?out/i.test(message)
+    ? "network"
+    : "upstream";
 }

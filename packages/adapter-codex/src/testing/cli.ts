@@ -1,5 +1,6 @@
 // Offline provider boundary. This process never imports or starts a real Codex binary.
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { list, obj, str } from "../native.ts";
@@ -118,6 +119,12 @@ for await (const line of createInterface({ input: process.stdin })) {
     respond({ data: apps, nextCursor: null });
     notify("app/list/updated", { data: apps });
   } else if (method === "account/rateLimits/read") {
+    // An account's own reading, when its home holds one (as the real CLI reads its own login).
+    const own = process.env["CODEX_HOME"] && join(process.env["CODEX_HOME"], "usage.json");
+    if (own && existsSync(own)) {
+      respond(JSON.parse(readFileSync(own, "utf8")));
+      continue;
+    }
     const window = { usedPercent: 12, windowDurationMins: 10080, resetsAt: 1_800_000_000 };
     const snapshot = { limitId: "codex", limitName: null, primary: window, secondary: null };
     respond({

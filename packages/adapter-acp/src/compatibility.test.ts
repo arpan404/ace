@@ -57,13 +57,16 @@ it("turns Antigravity interaction permissions into single choice questions", () 
     answers: { interaction_q: ["a"] },
   });
 });
-it("retains Antigravity usage limits after the turn ends", () => {
+it("Antigravity's usage-limit text fails the turn but, with no code or reset, never limits it", () => {
   const h = harness(antigravityQuirks);
   h.ready();
   chunk(h, "Usage Limit Reached\nDaily quota");
   end(h);
-  expect(h.state.status).toEqual({ state: "limited" });
-  expect(Object.values(h.state.runs)).toContainEqual(expect.objectContaining({ state: "failed" }));
+  expect(h.state.status.state).toBe("failed");
+  expect(Object.values(h.state.agents)[0]?.agent.status).toMatchObject({
+    state: "failed",
+    error: { code: "usage_limit" },
+  });
 });
 it.each(["Agent execution error: bad", "connection lost after retry"])(
   "fails Antigravity text errors: %s",
@@ -109,6 +112,21 @@ it("keeps Antigravity shells live after turn end and closes them from a later up
       append: "done",
     }),
   );
+});
+it("an ACP refusal is the model declining, a failed turn that never limits the thread", () => {
+  const h = harness(genericQuirks);
+  h.ready();
+  h.frame("recv", { id: 2, result: { stopReason: "refusal" } }, 1000);
+  expect(h.state.status.state).toBe("failed");
+});
+it.each([
+  "429 Too Many Requests: rate limit exceeded, retrying",
+  "RESOURCE_EXHAUSTED: Quota exceeded for quota metric 'Generate Content API requests per minute'",
+])("a throttle or quota message from an ACP agent does not limit the thread: %s", (message) => {
+  const h = harness(genericQuirks);
+  h.ready();
+  h.frame("recv", { id: 2, error: { code: -32603, message } }, 1000);
+  expect(h.state.status.state).toBe("failed");
 });
 it("exposes the child cancellation grace to the engine deadline scheduler", () => {
   const h = harness();

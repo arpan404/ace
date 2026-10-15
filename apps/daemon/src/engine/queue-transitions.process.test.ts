@@ -12,7 +12,13 @@ function setup(options: Parameters<typeof transitionHarness>[0]) {
 }
 
 test("forking a limited thread leaves its held server queue and quota on the source", async () => {
-  const options = { native: true, limited: true, forkPoints: ["end" as const] };
+  // A definite limit that says when it resets: the source stays held until then.
+  const options = {
+    native: true,
+    limited: true,
+    forkPoints: ["end" as const],
+    recovery: { resetAt: () => 5000 },
+  };
   const h = setup(options);
   const source = await h.create();
   for (const text of ["one", "two"])

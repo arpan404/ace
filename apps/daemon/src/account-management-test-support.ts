@@ -81,6 +81,8 @@ export async function harness(
     cursor?: import("./account-management.ts").AccountManagementOptions["cursor"];
     terminal?: import("@ace/terminal").TerminalManagerOptions;
     discover?: import("@ace/models").DiscoverModels;
+    usagePorts?: import("@ace/accounts").UsagePorts;
+    limitsError?: import("./account-management.ts").AccountManagementOptions["limitsError"];
     storage?: (
       storage: import("@ace/models").CatalogStorage,
     ) => import("@ace/models").CatalogStorage;
@@ -130,6 +132,8 @@ export async function harness(
     ...(options.cursor ? { cursor: options.cursor } : {}),
     discovery: options.discovery,
     ...(options.configuration ? { configuration: options.configuration } : {}),
+    ...(options.usagePorts ? { usagePorts: options.usagePorts } : {}),
+    ...(options.limitsError ? { limitsError: options.limitsError } : {}),
     models: () => models,
   });
   await management.initialize();

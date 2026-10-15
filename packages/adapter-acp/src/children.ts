@@ -112,7 +112,7 @@ export function childUpdate(
     const classified =
       state.quirks.classifyError(child.segment) ??
       (stop === "refusal"
-        ? { kind: "quota" as const, message: "Subagent refused the prompt" }
+        ? { kind: "provider" as const, code: "refusal", message: "Subagent refused the prompt" }
         : undefined);
     const failed = status === "failed" || classified !== undefined;
     state.start(child, facts, "spawn");

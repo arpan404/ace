@@ -37,6 +37,10 @@ export interface AccountLimits {
   /** Banked resets the provider reports; undefined when it doesn't report them. */
   bankedResets: number | undefined;
   bankedExpiresAt: number | null;
+  /** The plan the provider reports ("Pro"); undefined when it doesn't say. */
+  plan: string | undefined;
+  /** Why its usage can't be read and what to do ("Sign in again in Gemini CLI"). */
+  signIn: string | undefined;
   /** Shortest window first, as the account lists them. */
   windows: AccountWindow[];
   /**
@@ -106,7 +110,8 @@ export function usageLimits(accounts: readonly UsageAccount[], now: number): Usa
   for (const { account, environment } of accounts) {
     const key = `${account.provider}:${account.acpAgentId ?? ""}`;
     const windows = account.windows;
-    if (!windows.length) {
+    // An account whose login lapsed is listed with what to do, never with a guess at its limits.
+    if (!windows.length && !account.usageSignIn) {
       if (!groups.has(key)) silent.set(key, account.providerLabel);
       continue;
     }
@@ -128,6 +133,8 @@ export function usageLimits(accounts: readonly UsageAccount[], now: number): Usa
       environment,
       bankedResets: account.resetCredits?.available,
       bankedExpiresAt: account.resetCredits?.nextExpiresAt ?? null,
+      plan: account.plan,
+      signIn: account.usageSignIn,
       windows: windows.map((window) => {
         const stale = window.resetsAt !== null && window.resetsAt <= now;
         return {
