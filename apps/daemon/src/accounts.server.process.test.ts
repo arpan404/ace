@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -9,6 +10,7 @@ import { fixture } from "./socket-test-support.ts";
 import { cursorSdkDiscovery } from "./testing/cursor-sdk-discovery.ts";
 test("authenticated sockets list and query accounts without exposing filesystem selectors", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-accounts-wire-"));
+  prepareDaemonHome(root);
   const registry = await openRegistry(join(root, "accounts.sqlite"));
   await registry.register(
     createInstance({ id: "a", provider: "codex", homeDir: join(root, "home"), label: "Work" }),
@@ -63,6 +65,7 @@ test("the accounts CLI and default daemon routes share the ACE_HOME registry", a
   const { once } = await import("node:events");
   const { Client } = await import("./socket-test-support.ts");
   const root = await mkdtemp(join(tmpdir(), "ace-accounts-default-"));
+  prepareDaemonHome(root);
   const statusStarted = Promise.withResolvers<void>();
   const statusReleased = Promise.withResolvers<void>();
   // The daemon's normal metadata refresh may update the shared registry between CLI reads.
@@ -192,6 +195,7 @@ createInterface({input:process.stdin}).on('line', async line => {
 test("paired read devices can inspect accounts but migration requires operate scope", async () => {
   const { setup } = await import("./remote-test-support.ts");
   const root = await mkdtemp(join(tmpdir(), "ace-accounts-scopes-"));
+  prepareDaemonHome(root);
   const registry = await openRegistry(join(root, "accounts.sqlite"));
   await registry.register(
     createInstance({ id: "a", provider: "codex", label: "A", homeDir: join(root, "home") }),

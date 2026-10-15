@@ -26,16 +26,17 @@ describe("Show Logs", () => {
   it("opens the daemon's log folder and the app's own log folder", () => {
     const { daemonHome, desktop } = folders();
     mkdirSync(join(daemonHome, "logs"), { recursive: true });
-    const managed = { kind: "managed", home: daemonHome, entry: "/x", isolated: false } as const;
+    const managed = { kind: "managed", home: daemonHome, entry: "/x" } as const;
     expect(logFolders(managed, desktop, existsSync)).toEqual([join(daemonHome, "logs"), desktop]);
-    expect(
-      logFolders({ kind: "attach", home: daemonHome, isolated: false }, desktop, existsSync),
-    ).toEqual([join(daemonHome, "logs"), desktop]);
+    expect(logFolders({ kind: "attach", home: daemonHome }, desktop, existsSync)).toEqual([
+      join(daemonHome, "logs"),
+      desktop,
+    ]);
   });
 
   it("falls back to the daemon home before the daemon has written logs", () => {
     const { daemonHome, desktop } = folders();
-    const target = { kind: "managed", home: daemonHome, entry: "/x", isolated: false } as const;
+    const target = { kind: "managed", home: daemonHome, entry: "/x" } as const;
     expect(logFolders(target, desktop, existsSync)).toEqual([desktop]);
     mkdirSync(daemonHome, { recursive: true });
     expect(logFolders(target, desktop, existsSync)).toEqual([daemonHome, desktop]);
@@ -61,7 +62,6 @@ describe("Show Logs", () => {
       kind: "managed",
       home: join(base, ".ace"),
       entry: "/x",
-      isolated: false,
     } as const;
     expect(logFolders(target, join(base, "Logs"), existsSync)).toEqual([]);
   });
@@ -69,7 +69,7 @@ describe("Show Logs", () => {
   it("opens a shared folder once", () => {
     const { daemonHome } = folders();
     mkdirSync(join(daemonHome, "logs"), { recursive: true });
-    const target = { kind: "managed", home: daemonHome, entry: "/x", isolated: false } as const;
+    const target = { kind: "managed", home: daemonHome, entry: "/x" } as const;
     expect(logFolders(target, join(daemonHome, "logs"), existsSync)).toEqual([
       join(daemonHome, "logs"),
     ]);

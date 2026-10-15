@@ -1,6 +1,6 @@
 import { assertCompatibleService } from "./compatibility.ts";
-import { assertCompatibleHome } from "./home.ts";
 import { assertTestHomeIsolation } from "./test-home-guard.ts";
+import { assertCompatibleHome, prepareDaemonHome } from "./home.ts";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
@@ -29,7 +29,9 @@ export function localService(dataDir: string) {
   return new UserService(plan, runProcess, () => assertCompatibleService(plan, dataDir));
 }
 export async function serviceCommand(dataDir: string, args: string[]) {
-  assertCompatibleHome(dataDir);
+  // A service names the home's launcher, so the home's format is settled first: an older home
+  // and whatever binary it holds are set aside, never registered or run.
+  prepareDaemonHome(dataDir);
   const action = z.enum(["install", "uninstall", "start", "stop", "status"]).parse(args[0]);
   const linger = args[1] === "--linger" && args.length === 2 && action === "install";
   if (linger && process.platform !== "linux") throw new Error("--linger requires Linux systemd");

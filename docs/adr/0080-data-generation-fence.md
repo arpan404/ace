@@ -1,6 +1,7 @@
 # 0080: Data generation fence
 
-Date: 2026-10-14. Status: accepted by owner decision. Refines startup in ADR 0003 and the
+Date: 2026-10-14. Status: accepted by owner decision; its marker is replaced by ADR 0081's format
+marker (see the last addendum). Refines startup in ADR 0003 and the
 diagnostics in ADR 0031.
 
 ## Context
@@ -85,3 +86,15 @@ The settings file is the person's own configuration, not a store. A file that st
 retired access keys (`permissions.providerModes`, `permissions.defaultMode`, `approvals.policy`)
 is reported as invalid settings until they are replaced with `access.defaultMode`. It is never
 silently reinterpreted.
+
+## Addendum (2026-10-15): one format marker for the home (ADR 0081)
+
+The data generation and the home's version are now one mechanism. `DATA_GENERATION` and the
+`data-generation` file are removed. `HOME_FORMAT_VERSION` in
+`packages/service/src/home-format.ts` takes their place, recorded in `ACE_HOME/ace-format.json`
+as `{"format":"ace-vN","createdAt":…}`. The rule for bumping it is the one above. What changes is
+the older side: a build that finds an older format, or no marker, no longer just records its own
+generation over it. It renames the home aside (`~/.ace-v<old>`) and starts in a fresh one. A
+newer format is still refused before anything opens, with the same message, a record in
+`logs/ace.jsonl` (`storedFormat`, `dataFormat`, pid and version) and exit 65, and the home is not
+renamed. Log records carry `dataFormat` (`ace-v1`) instead of `dataGeneration`.

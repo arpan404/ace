@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { expect, test } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 import { DeviceId, PairingResponse, ThreadId } from "@ace/protocol";
 import { accessRequest, redeemPairing } from "./client-access.ts";
 import { copyTlsFixture, launchDaemon } from "./process-test-support.ts";
@@ -46,6 +47,7 @@ test("ace start exposes a loopback preview that requires forwarding and paired o
   onTestFinished,
 }) => {
   const home = await mkdtemp(join(tmpdir(), "ace-smoke-preview-"));
+  prepareDaemonHome(home);
   const cleanups: (() => Promise<void> | void)[] = [
     () => rm(home, { recursive: true, force: true }),
   ];

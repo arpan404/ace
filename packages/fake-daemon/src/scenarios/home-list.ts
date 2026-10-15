@@ -116,7 +116,7 @@ function worktreeCleanup(): Scenario {
             "root",
             "progress",
             "assistant",
-            "Tracing which threads own worktrees under ~/.ace-next/worktrees.",
+            "Tracing which threads own worktrees under ~/.ace/worktrees.",
             false,
           ),
         ],

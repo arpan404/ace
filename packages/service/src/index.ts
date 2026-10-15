@@ -30,10 +30,17 @@ export { runSupervisor, recoveryDelay, type SupervisorPorts } from "./supervisor
 
 export {
   resolveDaemonHome,
-  createDaemonHomeResolver,
-  type HomeFileSystem,
-  assertCompatibleHome,
+  prepareDaemonHome,
+  describeBackup,
   installedVersion,
+  NewerDataError,
+  LiveHomeError,
+  HOME_FORMAT_VERSION,
+  HOME_FORMAT_FILE,
+  BACKUP_README,
+  formatName,
+  type PreparedHome,
+  type FreshStartPorts,
 } from "./home.ts";
 
 export { renderLauncher } from "./launcher.ts";

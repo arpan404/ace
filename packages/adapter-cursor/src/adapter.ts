@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { resolveDaemonHome } from "@ace/service/home";
 import type { ProviderAdapter, SessionContext, ProviderSession } from "@ace/engine-api";
 import type { AceMcpConnection } from "@ace/mcp-server";
 import { cursorCapabilitiesForSandbox } from "./policy.ts";
@@ -32,8 +33,7 @@ export function createCursorAdapter(
   options: CursorAdapterOptions = {},
 ): ProviderAdapter & { close(): Promise<void>; stopInstance(id: string): Promise<void> } {
   const selected = CursorInstance.parse(
-    options.instance ??
-      defaultCursorInstance(resolve(process.env.ACE_HOME ?? join(homedir(), ".ace-next"))),
+    options.instance ?? defaultCursorInstance(resolveDaemonHome(homedir(), process.env.ACE_HOME)),
   );
   const sessions = new Map<ProviderSession, string>();
   const limits = Limits.parse(options.limits ?? {});

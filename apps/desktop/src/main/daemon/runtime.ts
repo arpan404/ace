@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { resolveDaemonHome } from "@ace/service/home";
+import { prepareDaemonHome, resolveDaemonHome } from "@ace/service/home";
 import type { DaemonConnection, DaemonStatus } from "../../shared/contract.ts";
 import { DoctorReport, providerSummaries, type ProviderSummary } from "../../shared/onboarding.ts";
 import type { Log } from "../log/desktop-log.ts";
@@ -22,7 +22,8 @@ import { resolveTarget, type DaemonTarget } from "./target.ts";
 
 /**
  * The app's daemon target from its environment, with the daemon home chosen by
- * `@ace/service`'s shared resolver under the user's home directory.
+ * `@ace/service`'s shared resolver under the user's home directory and, for the managed
+ * daemon, prepared (created, or given a fresh start) before the app writes anything there.
  */
 export function desktopTarget(input: {
   env: NodeJS.ProcessEnv;
@@ -37,6 +38,12 @@ export function desktopTarget(input: {
     platform: input.platform,
     homedir: homedir(),
     resolveHome: resolveDaemonHome,
+    prepareHome(home) {
+      const prepared = prepareDaemonHome(home);
+      return prepared.state === "fresh"
+        ? { backup: prepared.backup, previousFormat: prepared.previousFormat }
+        : undefined;
+    },
   });
 }
 

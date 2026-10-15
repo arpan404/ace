@@ -1,24 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { resolveTarget, type HomeResolver } from "./target.ts";
+import { newerDataMessage } from "./exit-policy.ts";
+import { resolveTarget, type HomePreparer, type HomeResolver } from "./target.ts";
 
 /** A stand-in for the shared resolver: platform rules don't depend on what's on disk. */
 const homes: HomeResolver = (home, requested) => requested ?? `${home}/.ace`;
-const options = (platform: NodeJS.Platform, resolveHome = homes, packaged = true) => ({
+const untouched: HomePreparer = () => undefined;
+const options = (
+  platform: NodeJS.Platform,
+  prepareHome: HomePreparer = untouched,
+  packaged = true,
+) => ({
   packaged,
   daemonEntry: "/app/daemon/ace.mjs",
   readToken: () => "",
   platform,
   homedir: "/Users/me",
-  resolveHome,
+  resolveHome: homes,
+  prepareHome,
 });
-const legacyRefusal: HomeResolver = () => {
-  throw new Error("Legacy ace data at /Users/me/.ace. Choose a separate ACE_HOME");
-};
-const addonMissing: HomeResolver = () => {
-  throw Object.assign(new Error("Cannot find module '../dist/descriptor.node'"), {
-    code: "MODULE_NOT_FOUND",
-  });
-};
+const refuse =
+  (name: string, message: string): HomePreparer =>
+  () => {
+    throw Object.assign(new Error(message), { name });
+  };
 
 describe("which daemon the packaged app uses", () => {
   it("manages a local daemon on macOS and Linux", () => {
@@ -44,27 +48,46 @@ describe("which daemon the packaged app uses", () => {
   });
 });
 
-describe("development's attach mode", () => {
-  const attach = { ACE_DESKTOP_DAEMON: "attach", ACE_HOME: "/Users/me/.ace" } as const;
-
-  it("refuses an explicit home holding legacy data, as the managed app does", () => {
-    expect(resolveTarget(attach, options("darwin", legacyRefusal, false))).toMatchObject({
-      kind: "refused",
-      reason: expect.stringMatching(/Legacy ace data/),
-    });
-  });
-
-  it("takes the dev daemon's home as given when an unpackaged run can't load the shared checks", () => {
-    expect(resolveTarget(attach, options("darwin", addonMissing, false))).toEqual({
-      kind: "attach",
+describe("the managed daemon's home", () => {
+  it("names the backup when preparing the home made a fresh start", () => {
+    const fresh = { backup: "/Users/me/.ace-v0", previousFormat: "ace-v0" };
+    expect(
+      resolveTarget(
+        {},
+        options("darwin", () => fresh),
+      ),
+    ).toEqual({
+      kind: "managed",
       home: "/Users/me/.ace",
-      isolated: false,
+      entry: "/app/daemon/ace.mjs",
+      fresh,
     });
   });
 
-  it("never skips the checks in a packaged app", () => {
-    expect(resolveTarget(attach, options("darwin", addonMissing, true))).toMatchObject({
+  it("refuses a home of newer data with the words the supervisor uses for exit 65", () => {
+    const newer = refuse("NewerDataError", "data format ace-v9, build supports ace-v1");
+    expect(resolveTarget({}, options("darwin", newer))).toEqual({
       kind: "refused",
+      reason: newerDataMessage,
+    });
+  });
+
+  it("refuses, with the reason, a home whose older daemon is still running", () => {
+    const live = refuse("LiveHomeError", "an older ace daemon (pid 7) is still using it");
+    expect(resolveTarget({}, options("darwin", live))).toEqual({
+      kind: "refused",
+      reason: "an older ace daemon (pid 7) is still using it",
+    });
+  });
+});
+
+describe("development's attach mode", () => {
+  it("takes the dev daemon's home as it is and leaves preparing it to that daemon", () => {
+    const attach = { ACE_DESKTOP_DAEMON: "attach", ACE_HOME: "/Users/me/.ace-dev/home" } as const;
+    const never = refuse("Error", "attach must not prepare the home");
+    expect(resolveTarget(attach, options("darwin", never, false))).toEqual({
+      kind: "attach",
+      home: "/Users/me/.ace-dev/home",
     });
   });
 });

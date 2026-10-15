@@ -14,8 +14,8 @@ import {
 const maxShimBytes = 4096;
 
 export interface CliShimInstall {
-  /** The person's home directory; the shim goes in `<home>/.ace/bin`. */
-  home: string;
+  /** The daemon home, already prepared (`~/.ace` by default); the shim goes in its `bin`. */
+  dataHome: string;
   platform: NodeJS.Platform;
   /** The bundled Node runtime and daemon CLI, as `appPaths` resolves them. */
   node: string;
@@ -29,7 +29,7 @@ export interface CliShimInstall {
  * app's real location. Never throws: every outcome, including a failure, is the result.
  */
 export async function installCliShim(options: CliShimInstall): Promise<CliShimResult> {
-  const { directory, file } = cliShimLocation(options.home, options.platform);
+  const { directory, file } = cliShimLocation(options.dataHome, options.platform);
   let content: string;
   try {
     const target = { node: await realFile(options.node), entry: await realFile(options.entry) };

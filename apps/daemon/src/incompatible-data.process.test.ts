@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, expect, test } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 import { exitCodes } from "./cli/output.ts";
 import { daemonLogRecords } from "./daemon-log-test-support.ts";
 
@@ -46,6 +47,7 @@ test.each(stores)(
   "a daemon stops with one recovery message when $store data is in a format it cannot read",
   async ({ file, write, detail }) => {
     const home = await mkdtemp(join(tmpdir(), "ace-incompatible-"));
+    prepareDaemonHome(home);
     cleanups.push(() => rm(home, { recursive: true, force: true }));
     const path = join(home, file);
     const db = new DatabaseSync(path);

@@ -29,13 +29,13 @@ export async function openDaemonLog(config: Config, context: RedactionContext, n
 export function buildFields(
   env: NodeJS.ProcessEnv,
   pid: number,
-  dataGeneration: number,
+  dataFormat: string,
 ): (readonly [string, unknown])[] {
   return [
     ["pid", pid],
     ["version", env.ACE_VERSION ?? "development"],
     ...(env.ACE_COMMIT ? [["commit", env.ACE_COMMIT] as const] : []),
-    ["dataGeneration", dataGeneration],
+    ["dataFormat", dataFormat],
   ];
 }
 

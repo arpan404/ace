@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 import { Command, ThreadId } from "@ace/protocol";
 import { AccountService, createInstance, openRegistry } from "@ace/accounts";
 import { createClaudeAdapter } from "@ace/adapter-claude";
@@ -22,6 +23,7 @@ test.each(["default", "registered"])(
   "%s Claude sessions preserve account admission, MCP leases and rate observations",
   async (mode) => {
     const home = await mkdtemp(join(tmpdir(), "ace-claude-registration-"));
+    prepareDaemonHome(home);
     const executable = await syntheticCli(home);
     const account = createInstance({
       id: "selected",
@@ -210,6 +212,7 @@ test.each(["default", "registered"])(
 
 test("account-bound Claude sessions retain native MCP controls in their selected home", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-claude-account-controls-"));
+  prepareDaemonHome(home);
   const registry = await openRegistry(join(home, "accounts.sqlite"));
   const instance = createInstance({
     id: "selected",

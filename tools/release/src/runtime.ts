@@ -28,6 +28,7 @@ import {
   durableJson,
   renderLauncher,
   installableVersion,
+  prepareDaemonHome,
 } from "@ace/service";
 import { fileURLToPath } from "node:url";
 import { finished } from "node:stream/promises";
@@ -173,6 +174,8 @@ export async function installArtifact(
   if (manifest.target !== `${process.platform}-${process.arch}`)
     throw new Error("Artifact target mismatch");
   const root = dataDir();
+  // Settle the home's format first, so an older home is set aside before the release lands.
+  prepareDaemonHome(root);
   await withInstallLock(root, async () => {
     if (existsSync(join(root, "current")))
       throw new Error("Already installed. Use ace update apply.");

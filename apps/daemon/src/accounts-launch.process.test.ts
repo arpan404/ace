@@ -1,4 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 import { mkdtemp, rm, realpath, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -94,6 +95,7 @@ test("reannouncing a retained agent preserves usage counters and cannot move it 
 });
 test("daemon binds a provider default selected after startup and retains that account after restart", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-account-launch-"));
+  prepareDaemonHome(home);
   cleanup.push(() => rm(home, { recursive: true, force: true }));
   const account = createInstance({
     id: "selected",

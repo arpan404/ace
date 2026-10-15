@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 import { setup, identity } from "./remote-test-support.ts";
 async function invoke(home: string, args: string[], env: NodeJS.ProcessEnv = {}, stdin = "") {
   const child = spawn(
@@ -28,6 +29,7 @@ async function invoke(home: string, args: string[], env: NodeJS.ProcessEnv = {},
 test("headless pairing persists a remote profile, hides its token and reads through pinned ticket authentication", async () => {
   const f = await setup();
   const home = await mkdtemp(join(tmpdir(), "ace-cli-remote-"));
+  prepareDaemonHome(home);
   try {
     const pairing = await f.pairing();
     const redeemed = await invoke(
@@ -63,6 +65,7 @@ test("a remote profile cannot admit credentials under a different server public-
   const f = await setup();
   const paired = await f.pair();
   const home = await mkdtemp(join(tmpdir(), "ace-cli-pin-"));
+  prepareDaemonHome(home);
   try {
     await writeFile(join(home, "token"), paired.token, { mode: 0o600 });
     const added = await invoke(home, [
@@ -88,6 +91,7 @@ test("a remote profile cannot admit credentials under a different server public-
 });
 test("cloud submission passes prompt bytes to the installed CLI and retries its receipt without submitting twice", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-cli-cloud-"));
+  prepareDaemonHome(home);
   try {
     const native = join(home, "codex");
     const calls = join(home, "calls.jsonl");
@@ -127,6 +131,7 @@ test("cloud submission passes prompt bytes to the installed CLI and retries its 
 });
 test("log reads return only the requested recent records as valid JSON", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-cli-logs-"));
+  prepareDaemonHome(home);
   try {
     await mkdir(join(home, "logs"));
     await writeFile(

@@ -48,7 +48,7 @@ async function appAt(bundle: string): Promise<string> {
 
 function install(home: string, resources: string, loginPath = "/usr/bin:/bin") {
   return installCliShim({
-    home,
+    dataHome: join(home, ".ace"),
     platform: process.platform,
     node: join(resources, "runtime", "bin", "node"),
     entry: join(resources, "daemon", "ace.mjs"),

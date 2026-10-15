@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { expect } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 import { z } from "zod";
 import { apply, createThreadState, type Fact } from "@ace/core";
 import { createCodexTranslator } from "@ace/adapter-codex";
@@ -38,6 +39,7 @@ export async function toolFixture(
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "ace-measure-step-"));
+  prepareDaemonHome(root);
   const original = await readFile(new URL("./testing/measurement-filmstrip.jpg", import.meta.url));
   const bytes = options.large
     ? Buffer.concat([original, Buffer.alloc(60_000 - original.length)])

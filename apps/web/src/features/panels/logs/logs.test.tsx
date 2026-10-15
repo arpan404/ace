@@ -181,7 +181,7 @@ test("the daemon's log scope leads with its health and copies where its log is k
 
   const user = userEvent.setup();
   await user.click(within(panel).getByRole("button", { name: "Copy log folder path" }));
-  expect(await navigator.clipboard.readText()).toBe("/Users/dev/.ace-next/logs");
+  expect(await navigator.clipboard.readText()).toBe("/Users/dev/.ace/logs");
   expect(await screen.findByText("Copied the log folder's path")).toBeTruthy();
   await userEvent.click(
     within(panel).getByRole("link", { name: /Run checks or export a support bundle/ }),

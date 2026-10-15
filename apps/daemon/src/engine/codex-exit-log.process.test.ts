@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 import { once } from "node:events";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,6 +13,7 @@ import { until } from "./test-support.ts";
 // Real daemon/log sink with an offline native boundary.
 test("Codex exit evidence reaches the daemon debug log with code, signal and redacted stderr", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-codex-exit-log-"));
+  prepareDaemonHome(home);
   const binary = join(home, "offline-codex.mjs");
   await writeFile(
     binary,

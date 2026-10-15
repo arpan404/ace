@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, readFile, realpath, rename, rm, writeFile } from "node:
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 import { z } from "zod";
 import { FilesService } from "@ace/files";
 import { workspaceRuntime } from "@ace/workspace";
@@ -28,6 +29,7 @@ test("a moved expired upload warms up behind the listener and cancellation retai
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-files-startup-")));
   const workspace = join(root, "workspace");
   const home = join(root, "ace");
+  prepareDaemonHome(home);
   await mkdir(join(workspace, "original"), { recursive: true });
   await mkdir(join(workspace, "ignored"));
   await writeFile(join(workspace, ".gitignore"), "ignored/\n");

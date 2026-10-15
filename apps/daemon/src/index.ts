@@ -8,12 +8,19 @@ import { shutdownControl } from "./shutdown-receipt.ts";
 import { connectedDoctorReport } from "./diagnostics-report.ts";
 import { detectToolchains } from "@ace/diagnostics";
 export { runDaemonProcess } from "./process-daemon.ts";
-export { NewerDataError, DATA_GENERATION } from "./data-generation.ts";
+export { NewerDataError, HOME_FORMAT_VERSION } from "@ace/service";
 export type { StopReason } from "./stop-reason.ts";
 export { createDaemonCommandLibrary } from "./command-library.ts";
 export { connectDaemonCommandEvents, type CommandEventSource } from "./command-events.ts";
 export type { DaemonCommandIntegration } from "./services/commands.ts";
-import { assertCompatibleHome, assertTestHomeIsolation } from "@ace/service";
+import {
+  HOME_FORMAT_VERSION,
+  NewerDataError,
+  assertTestHomeIsolation,
+  formatName,
+  prepareDaemonHome,
+  type PreparedHome,
+} from "@ace/service";
 import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation";
 import { assertModelTestIsolation } from "./models.ts";
 import { homedir } from "node:os";
@@ -23,12 +30,7 @@ import { join, resolve } from "node:path";
 import { logError, logFields, createHealthMonitor } from "@ace/diagnostics";
 import { installFatalLogFlush } from "./fatal-log.ts";
 import { buildFields, daemonLogDirectory, logStartupRefusal, openDaemonLog } from "./daemon-log.ts";
-import {
-  DATA_GENERATION,
-  NewerDataError,
-  assertDataGeneration,
-  recordDataGeneration,
-} from "./data-generation.ts";
+import { logHomeBackup } from "./home-backup-log.ts";
 import { sqliteFailureDetails, systemDiskSpace } from "./sqlite-failure.ts";
 import { createLoopMonitor, systemLoopClock } from "./loop-monitor.ts";
 import { DaemonStop, type StopReason } from "./stop-reason.ts";
@@ -81,7 +83,6 @@ export async function startDaemon(options: DaemonOptions = {}) {
   };
   const sharedDiagnostics = shareDiagnostics(diagnostics);
   options = { ...options, diagnostics: sharedDiagnostics };
-  assertCompatibleHome(config.dataDir);
   // Reject test path escapes before optional-service failures can be downgraded to degraded startup.
   if (process.env.ACE_TEST_REAL_HOME) {
     // The home boundary above owns ambient HOME; this check owns other path selectors.
@@ -91,28 +92,30 @@ export async function startDaemon(options: DaemonOptions = {}) {
     assertModelTestIsolation(options.modelInstances ?? []);
   }
   const context = { home, env: process.env };
-  const build = buildFields(process.env, process.pid, DATA_GENERATION);
+  const build = buildFields(process.env, process.pid, formatName(HOME_FORMAT_VERSION));
+  // Only a refusal of newer data is logged in the home: that home is ace's, in a format this
+  // build knows to leave alone. A home still in use by an older daemon, or one ace may not
+  // touch at all, gets nothing written; the error itself says why.
   const refuse = (error: unknown) =>
-    logStartupRefusal(
-      config,
-      context,
-      now,
-      error instanceof Error ? error.message : "Cannot read the data generation",
-      [
-        ...(error instanceof NewerDataError ? [["storedGeneration", error.stored] as const] : []),
-        ...build,
-      ],
-    ).catch(() => {});
-  // Data written by a newer build is refused before any database opens, the lock's included.
+    error instanceof NewerDataError
+      ? logStartupRefusal(config, context, now, error.message, [
+          ["storedFormat", error.stored],
+          ...build,
+        ]).catch(() => {})
+      : Promise.resolve();
+  // The home's format is settled before anything opens or writes in it, the lock included: a
+  // newer format is refused, and an older or unversioned one is set aside for a fresh home.
+  let prepared: PreparedHome;
   try {
-    assertDataGeneration(config.dataDir);
+    prepared = prepareDaemonHome(config.dataDir);
   } catch (error) {
     await refuse(error);
     throw error;
   }
   const unlock = acquireLock(config.dataDir);
   try {
-    recordDataGeneration(config.dataDir);
+    // Under the lock, again: a newer build may have set this home aside in between.
+    prepareDaemonHome(config.dataDir);
   } catch (error) {
     unlock();
     await refuse(error);
@@ -128,6 +131,11 @@ export async function startDaemon(options: DaemonOptions = {}) {
   }
   const resources = new Resources();
   resources.own(() => log.close());
+  if (prepared.state === "fresh") {
+    const followUp = new AbortController();
+    resources.own(() => followUp.abort());
+    void logHomeBackup(prepared, log, new Date(now()), followUp.signal);
+  }
   // Under the lock: the last run's ending tells an expected restart from a crash.
   let run: DaemonRun | undefined;
   try {

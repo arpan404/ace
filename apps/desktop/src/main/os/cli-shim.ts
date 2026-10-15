@@ -4,7 +4,7 @@ import type { DoctorReport } from "../../shared/onboarding.ts";
 type DoctorCheck = DoctorReport["checks"][number];
 
 /**
- * The `ace` command in `~/.ace/bin`: a tiny script that runs the daemon CLI bundled in the
+ * The `ace` command in the data home's `bin` (`~/.ace/bin`): a tiny script that runs the daemon CLI bundled in the
  * installed app on the app's own Node runtime. Pure: content, the overwrite decision and the
  * PATH check. `cli-shim-install.ts` is the file system shell around it.
  */
@@ -17,9 +17,10 @@ export interface CliShimLocation {
   file: string;
 }
 
-export function cliShimLocation(home: string, platform: NodeJS.Platform): CliShimLocation {
+/** The shim inside the daemon's data home, so it moves with a fresh start. */
+export function cliShimLocation(dataHome: string, platform: NodeJS.Platform): CliShimLocation {
   const path = platform === "win32" ? win32 : posix;
-  const directory = path.join(home, ".ace", "bin");
+  const directory = path.join(dataHome, "bin");
   return { directory, file: path.join(directory, platform === "win32" ? "ace.cmd" : "ace") };
 }
 

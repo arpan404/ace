@@ -1,6 +1,6 @@
-import { join, resolve } from "node:path";
 import { z } from "zod";
 import { SocketUrl } from "../../shared/contract.ts";
+import { newerDataMessage } from "./exit-policy.ts";
 
 /** Platforms the daemon runs on locally (its workspace addon is macOS and Linux only). */
 const localDaemonPlatforms = new Set<NodeJS.Platform>(["darwin", "linux"]);
@@ -14,23 +14,34 @@ const localDaemonPlatforms = new Set<NodeJS.Platform>(["darwin", "linux"]);
  * - `fake`: the renderer runs the in-page fake daemon (`dev:desktop:fake`).
  * - `remote-only`: this platform runs no local daemon (Windows today) and no remote one is
  *   configured; the page asks for one.
- * - `refused`: the daemon home can't be used (an explicit `ACE_HOME` with legacy 0.x data, or
- *   unrecognized data in the isolated home); nothing is spawned and the page says why.
+ * - `refused`: the daemon home can't be used (it holds data from a newer ace, or an older
+ *   daemon still runs in a home that needs a fresh start); nothing is spawned and the page
+ *   says why.
  *
  * A local target's `home` comes from `@ace/service`'s shared resolver, as the daemon's own
- * does: `~/.ace-next` unless ACE_HOME selects an explicit home. `isolated` says the
- * resolver chose the rewrite home separately from legacy `~/.ace`.
+ * does: `~/.ace` unless ACE_HOME selects another. A managed target's home is prepared with the
+ * shared `prepareDaemonHome` before anything else writes there (the `ace` command shim
+ * included), so a fresh start sets the old data aside first; `fresh` then names the backup.
  */
 export type DaemonTarget =
-  | { kind: "managed"; home: string; entry: string; isolated: boolean }
-  | { kind: "attach"; home: string; isolated: boolean }
+  | { kind: "managed"; home: string; entry: string; fresh?: FreshStart }
+  | { kind: "attach"; home: string }
   | { kind: "remote"; url: string; token: string; pairedDeviceId?: string }
   | { kind: "fake" }
   | { kind: "remote-only"; reason: string }
   | { kind: "refused"; reason: string };
 
+/** Where a fresh start put the old home, for the app's log. */
+export interface FreshStart {
+  backup: string;
+  previousFormat: string;
+}
+
 /** `resolveDaemonHome` from `@ace/service/home`; injected so tests can use temp homes. */
 export type HomeResolver = (home: string, requested?: string) => string;
+
+/** `prepareDaemonHome` from `@ace/service/home`: what it set aside, if it made a fresh start. */
+export type HomePreparer = (home: string) => FreshStart | undefined;
 
 const Environment = z.object({
   ACE_HOME: z.string().min(1).optional(),
@@ -43,16 +54,6 @@ const Environment = z.object({
     .optional(),
 });
 
-/** The descriptor addon `@ace/service/home` loads isn't where this run can find it. */
-function addonMissing(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    "code" in error &&
-    error.code === "MODULE_NOT_FOUND" &&
-    error.message.includes("descriptor.node")
-  );
-}
-
 export function resolveTarget(
   env: NodeJS.ProcessEnv,
   options: {
@@ -60,9 +61,10 @@ export function resolveTarget(
     daemonEntry: string;
     readToken(path: string): string;
     platform: NodeJS.Platform;
-    /** The user's home directory, under which the default daemon homes live. */
+    /** The user's home directory, under which the default daemon home lives. */
     homedir: string;
     resolveHome: HomeResolver;
+    prepareHome: HomePreparer;
   },
 ): DaemonTarget {
   const settings = Environment.parse(env);
@@ -100,15 +102,21 @@ export function resolveTarget(
   try {
     home = options.resolveHome(options.homedir, settings.ACE_HOME);
   } catch (error) {
-    // An unpackaged app doesn't ship the shared checks' native addon. Development's attach
-    // mode never spawns or starts a service, so it then takes the dev daemon's home as given;
-    // any other failure (legacy data in an explicit home) is a refusal.
-    if (mode === "attach" && settings.ACE_HOME && !options.packaged && addonMissing(error))
-      home = resolve(settings.ACE_HOME);
-    else return { kind: "refused", reason: error instanceof Error ? error.message : String(error) };
+    return { kind: "refused", reason: message(error) };
   }
-  const isolated =
-    settings.ACE_HOME === undefined && home !== join(resolve(options.homedir), ".ace");
-  if (mode === "attach") return { kind: "attach", home, isolated };
-  return { kind: "managed", home, entry: options.daemonEntry, isolated };
+  // Development's dev daemon prepares its own home; attach never writes there.
+  if (mode === "attach") return { kind: "attach", home };
+  let fresh: FreshStart | undefined;
+  try {
+    fresh = options.prepareHome(home);
+  } catch (error) {
+    // The same words the supervisor uses when a daemon exits on newer data.
+    const newer = error instanceof Error && error.name === "NewerDataError";
+    return { kind: "refused", reason: newer ? newerDataMessage : message(error) };
+  }
+  return { kind: "managed", home, entry: options.daemonEntry, ...(fresh ? { fresh } : {}) };
+}
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

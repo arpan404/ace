@@ -116,7 +116,7 @@ test("a desktop daemon that fails to start says so, with Try again and View logs
       <StartupPending />
     </AppFrame>,
   );
-  act(() => emit?.({ state: "failed", message: "EACCES: permission denied, open ~/.ace-next" }));
+  act(() => emit?.({ state: "failed", message: "EACCES: permission denied, open ~/.ace" }));
   const alert = screen.getByRole("alert");
   expect(alert.textContent).toContain("ace couldn't start");
   expect(alert.textContent).toContain("Check that you can read and write it");

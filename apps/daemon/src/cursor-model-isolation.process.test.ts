@@ -1,4 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 import { mkdtemp, writeFile, mkdir, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,6 +26,7 @@ test.each([
     if (selection === "default-alias") await symlink(root, alias);
     const dataDir = join(selection === "default-alias" ? alias : root, "daemon");
     await mkdir(dataDir);
+    prepareDaemonHome(dataDir);
     const instance = {
       id: selection === "selected" ? "account" : "cursor-sdk-default",
       homeDir: selection.startsWith("default")
@@ -231,6 +233,7 @@ test.each(["home", "provider"] as const)(
   "Cursor refuses a catalog whose registered %s differs",
   async (mismatch) => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "ace-cursor-mismatch-")));
+    prepareDaemonHome(root);
     vi.stubEnv("HOME", root);
     vi.stubEnv("PATH", root);
     const registry = await openRegistry(join(root, "accounts.sqlite"));

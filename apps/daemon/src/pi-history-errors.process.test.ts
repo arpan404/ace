@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -14,6 +15,7 @@ import { until } from "./engine/test-support.ts";
 
 test("Pi history cancellation and portable fork commands remain available through the same daemon socket", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-pi-diagnostic-"));
+  prepareDaemonHome(home);
   await writeFile(
     join(home, "source.jsonl"),
     JSON.stringify({ type: "session", version: 3, id: "native", cwd: home }) +

@@ -19,7 +19,7 @@ export interface FakeRegistryHost {
 }
 
 const source = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
-const root = "/Users/ada/.ace-next/agent-registry/installations";
+const root = "/Users/ada/.ace/agent-registry/installations";
 const managers: Record<Exclude<Runtime, "binary">, string> = {
   npm: "/opt/homebrew/bin/npm",
   uv: "/opt/homebrew/bin/uv",

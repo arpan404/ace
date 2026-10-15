@@ -80,7 +80,7 @@ function seedBrowser(daemon: FakeDaemon, threadId: string) {
       mimeType: "text/csv",
       flags: [],
       state: "complete",
-      path: "/Users/dev/.ace-next/artifacts/status-export-2026-10.csv",
+      path: "/Users/dev/.ace/artifacts/status-export-2026-10.csv",
     });
     browser.downloadAdd(threadId, {
       downloadId: "seed-download-2",

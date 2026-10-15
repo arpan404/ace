@@ -10,6 +10,7 @@ import { once } from "node:events";
 import { Command, DeviceId } from "@ace/protocol";
 import { writeFile } from "node:fs/promises";
 import { afterEach, expect, it } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 const exec = promisify(execFile);
 const roots: string[] = [];
 afterEach(async () => {
@@ -77,6 +78,7 @@ it("ace support-bundle creates an archive and refuses to overwrite an existing o
 
 it("an unavailable log directory does not prevent daemon operation and health counts the failed writes", async () => {
   const { dataDir } = await setup();
+  prepareDaemonHome(dataDir);
   await writeFile(join(dataDir, "logs"), "blocking file");
   const daemon = await startDaemon({ config: readConfig({ ACE_HOME: dataDir, ACE_PORT: "0" }) });
   const client = new Client(daemon.url);
