@@ -23,7 +23,10 @@ import { startedTitle } from "./composer/send-store.ts";
 import type { ThreadRef } from "./sources/index.ts";
 import { useSendActions } from "./items/failed-send.tsx";
 import { WorktreeCreationCard } from "./worktree/creation-card.tsx";
-import { useWorktreeCreation } from "./worktree/use-worktree-creation.ts";
+import {
+  useDismissCancelledOnLeave,
+  useWorktreeCreation,
+} from "./worktree/use-worktree-creation.ts";
 import {
   worktreeSpeaks,
   worktreeUnmade,
@@ -70,6 +73,7 @@ export function PendingThreadView(props: {
   const payload = entry?.payload;
   const worktree = useWorktreeCreation(isWorktreeCreate(payload) ? commandId : undefined);
   const progress = worktree.state?.progress;
+  useDismissCancelledOnLeave(isWorktreeCreate(payload) ? commandId : undefined, progress);
   const made = progress?.state === "done" || progress?.state === "local";
   const realId = intent?.state === "acked" ? intent.threadId : made ? progress.threadId : undefined;
   // Leasing the real thread loads its first window, so the move to it shows no skeleton.
