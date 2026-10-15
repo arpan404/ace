@@ -7,7 +7,7 @@ import {
 } from "../builtin-skill-processes.ts";
 import { builtinSkillsDirectory, prepareBuiltinSkills } from "@ace/plugins";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
-import type { ProviderAdapter } from "@ace/engine-api";
+import type { ProviderAdapter, SessionContext } from "@ace/engine-api";
 import { bindMcpSession } from "./mcp-session.ts";
 import { sharedBuiltinSkills } from "../builtin-skill-share.ts";
 import type { ServiceContext } from "./types.ts";
@@ -36,8 +36,9 @@ export function withDaemonMcp(
     ...adapter,
     async openSession(session) {
       const mcp = context.services.mcp;
+      // Pi runs without ace's MCP server too; its `--skill` skills don't depend on it.
       if (adapter.provider === "pi" && !mcp && !session.aceMcp && !session.mcp)
-        return adapter.openSession(session);
+        return adapter.openSession(withShippedSkillsContext(session));
       if (!mcp && !session.aceMcp && !session.mcp)
         throw new Error("Provider MCP scope unavailable");
       let skills:
@@ -129,14 +130,14 @@ const readsSkillsDirectory = new Set(["opencode", "pi"]);
 export function withShippedSkills(adapter: ProviderAdapter): ProviderAdapter {
   return {
     ...adapter,
-    openSession: (session) =>
-      adapter.openSession({
-        ...session,
-        builtinSkills: session.builtinSkills ?? {
-          args: [],
-          directories: [builtinSkillsDirectory()],
-        },
-      }),
+    openSession: (session) => adapter.openSession(withShippedSkillsContext(session)),
+  };
+}
+/** A session context carrying ace's shipped skills directory, unless it already has skills. */
+function withShippedSkillsContext(session: SessionContext): SessionContext {
+  return {
+    ...session,
+    builtinSkills: session.builtinSkills ?? { args: [], directories: [builtinSkillsDirectory()] },
   };
 }
 

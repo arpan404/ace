@@ -106,6 +106,10 @@ export async function mirrorCursorUserConfig(
  * after the person's own skills were mirrored there. A skill the person already has under the
  * same name is theirs and stays untouched. Each session's mirror replaces `skills`, so these
  * copies never outlive the bundle they came from.
+ *
+ * `<HOME>/.cursor/skills` is the SDK's user-scope skill root (SDK 1.0.35's skill catalog joins
+ * its user home directory with `.cursor/skills`, beside `.cursor/skills-cursor` for Cursor's
+ * built-ins); the host runs with HOME set to this private home.
  */
 export async function addShippedSkills(
   privateHome: string,
