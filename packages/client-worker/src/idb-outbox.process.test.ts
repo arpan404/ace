@@ -170,3 +170,38 @@ test("concurrent workers cannot reassign a persistent outbox to another daemon",
     expect(result.other).toBeNull();
   });
 });
+
+test("forgetting a daemon's outbox lets it bind to another daemon and leaves other outboxes alone", async () => {
+  await browserStorage(async (evaluate) => {
+    const result = z
+      .object({
+        binding: z.string(),
+        records: z.array(z.string()),
+        other: z.array(z.string()),
+        otherBinding: z.string(),
+      })
+      .parse(
+        await evaluate(`(async () => {
+      const { idbOutbox, forgetIdbOutbox } = await import('/adapter.js');
+      const row = id => JSON.stringify({ command: { id, deviceId: 'device', payload: {type: 'thread.archive', threadId: 'thread'} }, hostId: 'host-a', state: 'pending' });
+      const a = idbOutbox('remote-device');
+      const other = idbOutbox('remote-device:other');
+      await a.hostBinding.save('host-a');
+      await a.records.write('old', row('old'));
+      await other.hostBinding.save('host-a');
+      await other.records.write('kept', row('kept'));
+      await forgetIdbOutbox('remote-device');
+      const next = idbOutbox('remote-device');
+      await next.hostBinding.save('host-b');
+      const reload = idbOutbox('remote-device:other');
+      return { binding: await next.hostBinding.load(), records: await next.records.load(),
+        other: (await reload.records.load()).map(raw => JSON.parse(raw).command.id),
+        otherBinding: await reload.hostBinding.load() };
+    })()`),
+      );
+    expect(result.binding).toBe("host-b");
+    expect(result.records).toEqual([]);
+    expect(result.other).toEqual(["kept"]);
+    expect(result.otherBinding).toBe("host-a");
+  });
+});

@@ -5,7 +5,7 @@ import {
   type Storage,
   type Transport,
 } from "@ace/client";
-import { DeviceId } from "@ace/protocol";
+import { DeviceId, HostId } from "@ace/protocol";
 
 /** Browser defaults for the SDK's injected time, randomness and ids. Boundary code only. */
 export function browserClientOptions(options: {
@@ -13,9 +13,12 @@ export function browserClientOptions(options: {
   transport(): Transport;
   credential(): Promise<Credential>;
   storage: Storage;
+  /** The desktop's own daemon: the identity its current home names (`localHostId`). */
+  expectedHostId?: string | undefined;
 }): ClientOptions {
   return {
     deviceId: DeviceId.parse(options.deviceId),
+    ...(options.expectedHostId ? { expectedHostId: HostId.parse(options.expectedHostId) } : {}),
     transport: options.transport,
     credential: options.credential,
     storage: options.storage,
@@ -101,6 +104,22 @@ export function localOutbox(key: string, store: KeyValue = localStorage): Storag
     load: async () => store.getItem(key),
     save: async (value) => store.setItem(key, value),
   };
+}
+
+/**
+ * Forget the daemon `localOutbox(key)` was bound to, with every intent saved for it (they could
+ * never reach the daemon now at that address). Other outboxes are left alone.
+ */
+export function forgetLocalOutbox(key: string, store: KeyValue = localStorage): void {
+  const prefix = `${key}\u0000`;
+  const names: string[] = [];
+  for (let index = 0; index < store.length; index++) {
+    const name = store.key(index);
+    if (name?.startsWith(prefix)) names.push(name);
+  }
+  for (const name of names) store.removeItem(name);
+  store.removeItem(`${key}.host`);
+  store.removeItem(key);
 }
 
 /** A saved intent's command id, from an outbox an older build wrote. */

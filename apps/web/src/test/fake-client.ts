@@ -1,6 +1,6 @@
 import { Client } from "@ace/client";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
-import { DeviceId } from "@ace/protocol";
+import { DeviceId, HostId } from "@ace/protocol";
 import { afterEach } from "vitest";
 import { memoryStorage } from "@/boot/client.ts";
 
@@ -15,10 +15,12 @@ export function fakeClient(
   daemon: FakeDaemon,
   token = daemon.token,
   outbox: ClientStorage = memoryStorage(),
+  expectedHostId?: string,
 ): Client {
   let ids = 0;
   const client = new Client({
     deviceId: DeviceId.parse("test-device"),
+    ...(expectedHostId ? { expectedHostId: HostId.parse(expectedHostId) } : {}),
     transport: () => fakeTransport(daemon),
     credential: async () => token,
     storage: outbox,

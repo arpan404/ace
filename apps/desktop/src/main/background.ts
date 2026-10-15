@@ -117,11 +117,12 @@ export class Background {
       token: endpoint.token,
       deviceId,
       ...(endpoint.pairedDeviceId ? { pairedDeviceId: endpoint.pairedDeviceId } : {}),
-      storage: notificationOutbox(
-        this.options.userData,
-        endpoint.url,
-        endpoint.pairedDeviceId ?? deviceId,
-      ),
+      ...(endpoint.localHostId ? { localHostId: endpoint.localHostId } : {}),
+      storage: notificationOutbox(this.options.userData, {
+        url: endpoint.url,
+        deviceId: endpoint.pairedDeviceId ?? deviceId,
+        ...(endpoint.localHostId ? { localHostId: endpoint.localHostId } : {}),
+      }),
       quietHours: () => {
         const hours = this.options.settings().notifications.quietHours;
         return hours

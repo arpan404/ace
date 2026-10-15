@@ -16,5 +16,6 @@ export function createPageClient(
     transport: () => webSocketTransport(() => new WebSocket(target.url)),
     credential: browserCredential(target),
     storage: localOutbox(device.outboxKey),
+    expectedHostId: target.localHostId,
   });
 }

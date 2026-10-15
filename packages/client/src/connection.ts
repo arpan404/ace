@@ -308,7 +308,7 @@ export class Connection {
         this.#options.expectedHostId !== undefined &&
         message.hostId !== this.#options.expectedHostId
       )
-        throw new ClientError("auth", "Unexpected daemon identity");
+        throw new ClientError("identity", "Unexpected daemon identity");
       if (this.state !== "ready") {
         if (message.type === "starting") {
           this.#setState("starting");

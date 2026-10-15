@@ -65,7 +65,9 @@ type Progress =
   | { kind: "ready" };
 
 function problemOf(code: ClientError["code"] | undefined): ConnectionProblem {
-  return code === "auth" || code === "protocol" || code === "storage" ? code : "failed";
+  return code === "auth" || code === "identity" || code === "protocol" || code === "storage"
+    ? code
+    : "failed";
 }
 
 /** The error's message when it says more than its code. */
@@ -85,6 +87,8 @@ export function ConnectionGate(props: {
   defaultUrl: string;
   /** A client now, or once it has loaded (the in-page fallback is fetched on demand). */
   createClient(target: DaemonTarget): ClientApi | Promise<ClientApi>;
+  /** Forget the daemon a target's saved work is pinned to (see `forgetDaemonIdentity`). */
+  forgetIdentity?(target: DaemonTarget): Promise<void>;
   /** `location.hash` at boot, for the daemon's `#token=` hand-off. */
   fragment?: string;
   /** A target handed over by the desktop app's preload bridge; wins over the fragment. */
@@ -108,8 +112,10 @@ export function ConnectionGate(props: {
         : { kind: "none" };
     if (handoff.kind === "accept") saveTarget(stores, handoff.target, false);
     const stored = loadTarget(stores, defaultUrl);
+    // The desktop's target as handed, with the identity of its own daemon, which is never saved.
+    const target = props.handed ?? stored.target;
     return {
-      target: props.pairingLink === undefined ? stored.target : undefined,
+      target: props.pairingLink === undefined ? target : undefined,
       url: stored.url,
       remembered: stored.remembered,
       pending: handoff.kind === "confirm" ? handoff : undefined,
@@ -129,7 +135,8 @@ export function ConnectionGate(props: {
         if (
           current?.url === target.url &&
           current.token === target.token &&
-          current.pairedDeviceId === target.pairedDeviceId
+          current.pairedDeviceId === target.pairedDeviceId &&
+          current.localHostId === target.localHostId
         )
           return previous;
         return {
@@ -253,8 +260,10 @@ export function ConnectionGate(props: {
           progress({ kind: "starting" });
         } else if (now === "fatal") {
           // Before the first welcome every refusal is shown here; afterwards only a rejected
-          // token is (the shell's notice says the rest), since the person must paste another.
-          if (!welcomed || next.error?.code === "auth") refuse(next.error);
+          // token or another daemon is (the shell's notice says the rest), since the person
+          // must paste another token or decide to forget the daemon they met.
+          if (!welcomed || next.error?.code === "auth" || next.error?.code === "identity")
+            refuse(next.error);
         } else if (!welcomed && now === "reconnecting")
           progress({
             kind: "unreachable",
@@ -350,6 +359,20 @@ export function ConnectionGate(props: {
       shown: true,
     }));
   }, [stores]);
+  const forget = props.forgetIdentity;
+  const failedTarget = state.problem === "identity" ? state.target : undefined;
+  const forgetIdentity = useMemo(
+    () =>
+      forget && failedTarget
+        ? () => {
+            void forget(failedTarget).then(retry, (error: unknown) => {
+              console.error("ace: couldn't forget the daemon this window met before", error);
+              setState((previous) => ({ ...previous, problem: "storage", detail: undefined }));
+            });
+          }
+        : undefined,
+    [forget, failedTarget, retry],
+  );
   const pending = state.pending;
   const handoff = useMemo(
     () =>
@@ -381,6 +404,7 @@ export function ConnectionGate(props: {
       retry,
       edit,
       disconnect,
+      forgetIdentity,
       endpoint: active && {
         kind: "daemon",
         target: active,
@@ -400,6 +424,7 @@ export function ConnectionGate(props: {
       retry,
       edit,
       disconnect,
+      forgetIdentity,
       handoff,
     ],
   );

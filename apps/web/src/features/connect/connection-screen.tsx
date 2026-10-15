@@ -17,6 +17,8 @@ import { HandoffScreen } from "./handoff-screen.tsx";
 
 const problems: Record<ConnectionProblem, ReactNode> = {
   auth: "This machine didn't accept the access token. Copy a fresh token from ace there and try again.",
+  identity:
+    "This is a different ace than the one this window connected to at this address before. If you trust it, forget the old one: work saved for the old one and never sent is discarded.",
   protocol:
     "This app couldn't read what ace sent. Try again; if it keeps happening, update ace here and on that machine.",
   storage: "This window couldn't read the work it saved for this machine. Try again.",
@@ -147,6 +149,8 @@ function alertFor(connection: DaemonConnection): ReactNode {
 
 function buttonsFor(connection: DaemonConnection) {
   const status = connection.status;
+  if (status.kind === "editing" && status.problem === "identity" && connection.forgetIdentity)
+    return { secondary: { label: "Forget the old ace", run: connection.forgetIdentity } };
   if (status.kind === "connecting")
     return {
       pending: true,

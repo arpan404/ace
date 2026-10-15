@@ -9,6 +9,12 @@ export interface LocalDaemon {
   /** `ws://127.0.0.1:<port>/` */
   url: string;
   token: string;
+  /**
+   * The home's `host-id`: the identity this daemon welcomes clients with. Read with the token
+   * on every connect, so the app trusts the current home and never one it remembered. Absent
+   * only when the file is missing or unreadable.
+   */
+  hostId?: string;
 }
 
 const Origin = z
@@ -19,16 +25,36 @@ const Origin = z
   })
   .transform((value) => new URL(value).origin);
 const Token = z.string().regex(/^[0-9a-f]{64}$/);
+/** As the daemon writes it (a UUID, untrimmed); anything else is not trusted as an identity. */
+const HostIdFile = z.string().regex(/^[0-9A-Za-z][0-9A-Za-z._-]{0,127}$/);
 
-/** Reads the endpoint and token files. Missing or malformed files mean "no daemon here". */
+async function readHostId(home: string): Promise<string | undefined> {
+  try {
+    const parsed = HostIdFile.safeParse(await readFile(join(home, "host-id"), "utf8"));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Reads the endpoint, token and host-id files. A missing or malformed endpoint or token means
+ * "no daemon here".
+ */
 export async function readLocalDaemon(home: string): Promise<LocalDaemon | undefined> {
   try {
-    const [endpoint, token] = await Promise.all([
+    const [endpoint, token, hostId] = await Promise.all([
       readFile(join(home, "daemon-endpoint"), "utf8"),
       readFile(join(home, "daemon-token"), "utf8"),
+      readHostId(home),
     ]);
     const origin = Origin.parse(endpoint.trim());
-    return { origin, url: origin.replace(/^http:/, "ws:") + "/", token: Token.parse(token.trim()) };
+    return {
+      origin,
+      url: origin.replace(/^http:/, "ws:") + "/",
+      token: Token.parse(token.trim()),
+      ...(hostId ? { hostId } : {}),
+    };
   } catch {
     return undefined;
   }

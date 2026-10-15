@@ -12,6 +12,11 @@ export class ClientError extends Error {
     /** The daemon sent a frame this client's protocol schemas can't read: a different build. */
     | "version_mismatch"
     | "auth"
+    /**
+     * The daemon that answered is not the one this client expected (its saved outbox, or a
+     * pinned machine, belongs to another host id). Its token may be perfectly valid.
+     */
+    | "identity"
     | "storage"
     | "daemon";
   constructor(code: ClientError["code"], message: string = code) {

@@ -9,7 +9,7 @@ import { ConnectionGate } from "./app/connection-gate.tsx";
 import { defaultDaemonUrl, forgetToken, type DaemonTarget } from "./boot/connection-settings.ts";
 import { pairingLinkFromUrl } from "./boot/fragment-handoff.ts";
 import { DaemonConnectionContext } from "./boot/connection.tsx";
-import { createDaemonClient } from "./boot/daemon.ts";
+import { createDaemonClient, forgetDaemonIdentity } from "./boot/daemon.ts";
 import { useRemoteAgentBroker } from "./boot/remote-agent-broker.ts";
 import { useBrowserMachinePool } from "./boot/machine-pool-boot.ts";
 import {
@@ -91,6 +91,7 @@ function gate(options: { handed?: DaemonTarget | undefined; desktop?: boolean } 
       handed={options.handed}
       desktop={options.desktop ?? false}
       createClient={createDaemonClient}
+      forgetIdentity={forgetDaemonIdentity}
       fragment={location.hash}
       pairingLink={pairingLink}
       onFragmentRead={forgetFragment}

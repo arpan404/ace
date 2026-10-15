@@ -179,7 +179,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         switch (message.type) {
           case "welcome":
             if (this.#hostId && this.#hostId !== message.hostId)
-              throw new ClientError("protocol", "Transport changed daemon identity");
+              throw new ClientError("identity", "Transport changed daemon identity");
             this.#hostId = message.hostId;
             this.historyState = undefined;
             this.notifications.emit(["historyScan"]);
@@ -446,7 +446,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         if (stored !== null) {
           const host = HostId.parse(stored);
           if (this.#hostId && this.#hostId !== host)
-            throw new ClientError("storage", "Outbox belongs to another daemon");
+            throw new ClientError("identity", "Outbox belongs to another daemon");
           this.#hostId = host;
           this.options.expectedHostId = host;
           this.#binding = Promise.resolve();
