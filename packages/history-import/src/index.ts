@@ -101,11 +101,16 @@ export class HistoryService {
   constructor(worker: HistoryWorker, inventory?: InventoryWatch) {
     this.worker = worker;
     this.recoverable = worker instanceof RecoveringWorker;
-    if (worker instanceof RecoveringWorker)
+    if (worker instanceof RecoveringWorker) {
       worker.on("recovery", (retrying: boolean) => {
         if (retrying) this.inventory?.reset();
         for (const listener of this.recoveryListeners) listener(retrying);
       });
+      worker.on("fatal", (error: Error) => {
+        this.recoverable = false;
+        this.fail(error);
+      });
+    }
     this.inventory = inventory;
     this.ready = new Promise((resolve, reject) => {
       this.pending = { id: 0, resolve, reject };

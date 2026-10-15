@@ -31,6 +31,15 @@ const stores = [
       db.exec("CREATE TABLE forge_links(thread_id TEXT PRIMARY KEY,payload TEXT NOT NULL)"),
     detail: "Pull request links are stored in an older format",
   },
+  {
+    store: "engine (essential service)",
+    file: "events.sqlite",
+    write: (db: DatabaseSync) =>
+      db.exec(
+        "CREATE TABLE engine_schema_version (id INTEGER PRIMARY KEY CHECK(id = 1), version INTEGER NOT NULL); INSERT INTO engine_schema_version VALUES (1, 1)",
+      ),
+    detail: "Unsupported engine schema version",
+  },
 ];
 
 test.each(stores)(

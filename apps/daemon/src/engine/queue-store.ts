@@ -1,3 +1,4 @@
+import { requireEngineColumns } from "./schema-version.ts";
 import { z } from "zod";
 import { hasNextTurnSelection } from "./input-delivery.ts";
 import type { StatementSync } from "node:sqlite";
@@ -34,17 +35,11 @@ export class QueueStore {
   constructor(store: Store) {
     this.store = store;
     store.atomic((db) => {
-      const columns = db.prepare("PRAGMA table_info(intents)").all();
-      if (!columns.some((column) => column.name === "position")) {
-        db.exec(
-          "ALTER TABLE intents ADD COLUMN position INTEGER NOT NULL DEFAULT 0; UPDATE intents SET position=id",
-        );
-        db.exec("ALTER TABLE intents ADD COLUMN uncertain INTEGER NOT NULL DEFAULT 0");
-      }
       db.exec(`CREATE TABLE IF NOT EXISTS engine_queue (
         thread_id TEXT PRIMARY KEY REFERENCES threads(id), revision INTEGER NOT NULL DEFAULT 0,
         paused INTEGER NOT NULL DEFAULT 0, reason TEXT, limited INTEGER NOT NULL DEFAULT 0,
-        reset_at INTEGER, resume_at INTEGER, timer_action TEXT, continuation TEXT, trigger TEXT
+        reset_at INTEGER, resume_at INTEGER, timer_action TEXT, continuation TEXT, trigger TEXT,
+        hold_token INTEGER NOT NULL DEFAULT 0, last_failure TEXT, preferences JSON
       );
       CREATE TABLE IF NOT EXISTS engine_queue_attachments (
         intent_id INTEGER NOT NULL REFERENCES intents(id),thread_id TEXT NOT NULL,hash TEXT NOT NULL,
@@ -57,11 +52,7 @@ export class QueueStore {
       CREATE INDEX IF NOT EXISTS intents_queue_messages_recovery ON intents(thread_id,position,id) WHERE ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1));
       CREATE INDEX IF NOT EXISTS intents_queue_order ON intents(thread_id,position,id) WHERE status IN ('pending','queued');
       INSERT OR IGNORE INTO engine_queue(thread_id) SELECT thread_id FROM thread_state;`);
-      const queueColumns = db.prepare("PRAGMA table_info(engine_queue)").all();
-      if (!queueColumns.some((column) => column.name === "hold_token"))
-        db.exec("ALTER TABLE engine_queue ADD COLUMN hold_token INTEGER NOT NULL DEFAULT 0");
-      if (!queueColumns.some((column) => column.name === "last_failure"))
-        db.exec("ALTER TABLE engine_queue ADD COLUMN last_failure TEXT");
+      requireEngineColumns(db, "engine_queue", ["hold_token", "last_failure", "preferences"]);
       for (const row of db
         .prepare(
           "SELECT id,thread_id,payload FROM intents WHERE kind IN ('thread.create','thread.send') AND (status IN ('pending','queued','running') OR awaiting=1 OR uncertain=1)",

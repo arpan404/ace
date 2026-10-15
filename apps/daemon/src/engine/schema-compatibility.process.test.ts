@@ -85,7 +85,10 @@ test.each([1, 2, 3, 4, 5, 6, 7, 8, 999, 0, "invalid"])(
     const output = saved.output();
     const seq = saved.store.headSeq();
     expect(saved.construct).toThrow(
-      /Unsupported engine schema version.*fresh development database/,
+      expect.objectContaining({
+        code: "incompatible-data",
+        message: expect.stringMatching(/Unsupported engine schema version.*fresh ACE_HOME/),
+      }),
     );
     expect(saved.state()).toBe(before);
     expect(saved.output()).toEqual(output);
@@ -104,7 +107,12 @@ test("unversioned development engine data is rejected without trying to initiali
   saved.store.atomic((db) => db.exec("DELETE FROM engine_schema_version"));
   const before = saved.state();
   const output = saved.output();
-  expect(saved.construct).toThrow(/Unsupported engine schema version.*fresh development database/);
+  expect(saved.construct).toThrow(
+    expect.objectContaining({
+      code: "incompatible-data",
+      message: expect.stringMatching(/Unsupported engine schema version.*fresh ACE_HOME/),
+    }),
+  );
   expect(saved.state()).toBe(before);
   expect(saved.output()).toEqual(output);
 });
@@ -129,7 +137,10 @@ test.each([undefined, 1, 2, 8, 999, "invalid"])(
     const output = saved.output();
     const seq = saved.store.headSeq();
     expect(saved.construct).toThrow(
-      /Unsupported engine snapshot format.*fresh development database/,
+      expect.objectContaining({
+        code: "incompatible-data",
+        message: expect.stringMatching(/Unsupported engine snapshot format.*fresh ACE_HOME/),
+      }),
     );
     expect(saved.state()).toBe(before);
     expect(saved.output()).toEqual(output);

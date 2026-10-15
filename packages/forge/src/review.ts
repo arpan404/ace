@@ -60,11 +60,7 @@ export class ReviewLoop {
     await this.#drain(state, status, index, signal);
     for (const candidate of index.pending()) {
       if (signal.aborted) throw new ForgeError("cancelled");
-      if (
-        (candidate.legacyKey &&
-          this.#store.adoptAccepted(threadId, candidate.legacyKey, candidate.key)) ||
-        this.#store.hasIntent(threadId, candidate.key)
-      ) {
+      if (this.#store.hasIntent(threadId, candidate.key)) {
         index.observe(candidate.key);
         continue;
       }
@@ -123,28 +119,13 @@ export class ReviewLoop {
         if (signal.aborted) throw new ForgeError("cancelled");
         this.#assertLink(state);
         const current = index.get(intent.key);
-        const legacyChanged =
-          current?.key !== intent.key &&
-          intent.context.type === "review" &&
-          (current?.type !== "review" ||
-            current.comment.body !== intent.context.comment.body ||
-            current.comment.file !== intent.context.comment.file ||
-            current.comment.line !== intent.context.comment.line);
         if (
-          legacyChanged ||
           intent.linkGeneration !== state.generation ||
           intent.headSha !== status.headSha ||
           !current
         ) {
           this.#store.discard(intent);
           index.retry(intent.key);
-          continue;
-        }
-        if (
-          current?.legacyKey &&
-          this.#store.adoptAccepted(threadId, current.legacyKey, current.key)
-        ) {
-          index.observe(current.key);
           continue;
         }
         try {

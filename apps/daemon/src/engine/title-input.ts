@@ -25,19 +25,3 @@ export function oldestTitleInput(store: Store, id: ThreadId): ContentPart[] | un
   }
   return undefined;
 }
-
-/** Upgrade old placeholder titles once, preserving every recorded author choice. */
-export function backfillThreadTitles(store: Store, at: number): void {
-  for (const thread of store.listThreads()) {
-    if (thread.title !== "New thread" || thread.titleSource || thread.deletedAt !== undefined)
-      continue;
-    const parts = oldestTitleInput(store, thread.id);
-    const title = parts && provisionalTitle(parts);
-    if (title && title !== "New thread")
-      store.appendEvents(
-        thread.id,
-        [{ type: "thread.updated", title, titleSource: "provisional" }],
-        at,
-      );
-  }
-}

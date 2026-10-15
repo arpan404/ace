@@ -11,6 +11,10 @@ import { ScanUpdates } from "./scan-updates.ts";
 import { SnapshotScratch, type SnapshotScratchOptions } from "./snapshot-scratch.ts";
 import { ReadBackoff } from "./read-backoff.ts";
 import { CrashLedger } from "./crash-ledger.ts";
+import { IncompatibleDataError } from "@ace/provider-kit/incompatible-data";
+
+/** The only index format this build reads. Pre-release builds carry no upgrades (AGENTS.md). */
+const FORMAT = "5";
 
 export const Source = z.object({
   summary: HistorySession,
@@ -43,8 +47,11 @@ export class Catalog {
     this.db.exec(
       "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA cache_size=-1024; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=16777216;",
     );
+    const fresh = !this.db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sources'")
+      .get();
     this.db
-      .exec(`CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY,instance TEXT NOT NULL,path TEXT NOT NULL,fingerprint TEXT NOT NULL,kind TEXT NOT NULL,cwd TEXT NOT NULL,activity INTEGER NOT NULL,native TEXT NOT NULL,parent TEXT,summary TEXT NOT NULL,epoch INTEGER NOT NULL,own_activity INTEGER NOT NULL);
+      .exec(`CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY,instance TEXT NOT NULL,path TEXT NOT NULL,fingerprint TEXT NOT NULL,kind TEXT NOT NULL,cwd TEXT NOT NULL,activity INTEGER NOT NULL,native TEXT NOT NULL,parent TEXT,summary TEXT NOT NULL,epoch INTEGER NOT NULL,own_activity INTEGER NOT NULL,hidden INTEGER NOT NULL DEFAULT 0);
       CREATE INDEX IF NOT EXISTS source_path ON sources(instance,path);
       CREATE INDEX IF NOT EXISTS source_workspace ON sources(cwd,activity DESC,id DESC);
       CREATE INDEX IF NOT EXISTS source_native ON sources(instance,native);
@@ -54,17 +61,18 @@ export class Catalog {
     this.db.exec(
       "CREATE TABLE IF NOT EXISTS catalog_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)",
     );
-    const columns = this.db.prepare("PRAGMA table_info(sources)").all();
-    if (!columns.some((r) => r.name === "hidden"))
-      this.db.exec("ALTER TABLE sources ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0");
     this.db.exec(
       "CREATE TABLE IF NOT EXISTS native_titles(instance TEXT,native TEXT,title TEXT,origin TEXT NOT NULL,PRIMARY KEY(instance,native))",
     );
-    if (
-      this.db.prepare("SELECT value FROM catalog_settings WHERE key='format'").get()?.value !== "5"
-    ) {
-      this.db.exec(
-        "DELETE FROM files; UPDATE sources SET hidden=1; INSERT OR REPLACE INTO catalog_settings VALUES('format','5')",
+    if (fresh) this.db.exec(`INSERT INTO catalog_settings VALUES('format','${FORMAT}')`);
+    const format = this.db
+      .prepare("SELECT value FROM catalog_settings WHERE key='format'")
+      .get()?.value;
+    if (format !== FORMAT) {
+      this.db.close();
+      throw new IncompatibleDataError(
+        path,
+        `The saved-history index is format ${String(format ?? "unknown")}, and this build reads format ${FORMAT}`,
       );
     }
     this.updates = new ScanUpdates(this.db);

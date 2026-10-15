@@ -6,16 +6,14 @@ import { StatusRevisions, commentIdentity, checkIdentity } from "./revisions.ts"
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 type Thread = ForgePrStatus["reviewThreads"][number];
 export type ReviewCandidate =
-  | { key: string; legacyKey?: string | undefined; type: "ci"; check: ForgeCheck }
-  | { key: string; legacyKey?: string | undefined; type: "review"; comment: ForgeComment };
+  | { key: string; type: "ci"; check: ForgeCheck }
+  | { key: string; type: "review"; comment: ForgeComment };
 /** Current rows and admission work only. Versioned inputs update affected rows. */
 export class ReviewIndex {
   readonly #prefix: string;
-  readonly #legacy: string | undefined;
   readonly #ignored: ReadonlySet<string>;
   readonly #versions: StatusRevisions;
   readonly #current = new Map<string, ReviewCandidate>();
-  readonly #aliases = new Map<string, ReviewCandidate>();
   readonly #feedbackCandidates = new WeakMap<ForgeComment, ReviewCandidate>();
   readonly #byRow = new Map<string, ReviewCandidate>();
   readonly #unobserved = new Set<string>();
@@ -34,7 +32,6 @@ export class ReviewIndex {
     const { link, generation } = state;
     const scope = `${link.threadId}:${link.pr.repository.host}/${link.pr.repository.owner}/${link.pr.repository.name}#${link.pr.number}`;
     this.#prefix = `forge:${hash(`${generation}:${scope}`)}`;
-    this.#legacy = generation === 1 ? `forge:${hash(scope)}` : undefined;
     if (ignored.size > 100) throw new ForgeError("limit");
     this.#ignored = new Set(ignored);
     this.#versions = versions;
@@ -121,7 +118,6 @@ export class ReviewIndex {
           ? {
               type: "ci",
               key: `${this.#prefix}:ci:${digest}`,
-              legacyKey: this.#legacy && `${this.#legacy}:ci:${digest}`,
               check,
             }
           : undefined;
@@ -176,10 +172,6 @@ export class ReviewIndex {
       type: "review",
       key: `${this.#prefix}:comment:${id}:${digest}`,
       comment,
-      legacyKey:
-        this.#legacy && comment.kind !== "review"
-          ? `${this.#legacy}:comment:${id}:${hash(`${comment.updatedAt}:${comment.body}`)}`
-          : undefined,
     };
     Object.freeze(candidate);
     this.#feedbackCandidates.set(comment, candidate);
@@ -192,24 +184,20 @@ export class ReviewIndex {
       if (old.type === "ci") this.#current.delete(old.key);
       this.#unobserved.delete(old.key);
       if (!next) this.#byRow.delete(row);
-      if (old.type === "ci" && old.legacyKey) this.#aliases.delete(old.legacyKey);
     }
     if (next) {
       Object.freeze(next);
       this.#byRow.set(row, next);
       if (next.type === "ci") this.#current.set(next.key, next);
       this.#unobserved.add(next.key);
-      if (next.type === "ci" && next.legacyKey) this.#aliases.set(next.legacyKey, next);
     }
   }
   get(key: string): ReviewCandidate | undefined {
-    for (const prefix of [this.#prefix, this.#legacy]) {
-      if (!prefix || !key.startsWith(`${prefix}:comment:`)) continue;
-      const row = key.slice(prefix.length + 9, -65);
-      const candidate = this.#byRow.get(row);
-      if (candidate?.key === key || candidate?.legacyKey === key) return candidate;
+    if (key.startsWith(`${this.#prefix}:comment:`)) {
+      const candidate = this.#byRow.get(key.slice(this.#prefix.length + 9, -65));
+      if (candidate?.key === key) return candidate;
     }
-    return this.#current.get(key) ?? this.#aliases.get(key);
+    return this.#current.get(key);
   }
   *pending(): IterableIterator<ReviewCandidate> {
     for (const key of this.#unobserved) {

@@ -68,3 +68,20 @@ older layouts; that code is removed.
 "Previous daemon run stopped in order" (with the source and signal) or, when `running` was left
 behind, a warning that the previous run crashed or was killed. That tells an app quit, update
 or `ace stop` apart from a crash in the durable log.
+
+## Addendum (2026-10-15): no upgrade paths remain
+
+The remaining upgrade code is removed: the daemon database's thread-column repairs and numbered
+upgrades from older schemas, the engine's additive columns, workspace-readiness rewrite and
+placeholder-title backfill, the thread-summary index's completion correction, the model cache's
+`reasoningEfforts` mapping, the history index's `hidden` column and format reset, and forge's
+adoption of pre-generation review keys. Each store creates its current schema when fresh and
+otherwise requires it: the daemon database at the current schema number, the engine at its
+schema version with every current column, the history index at its format, the model cache at
+its row format. Anything else throws `IncompatibleDataError` and the daemon exits with 66. The
+history worker does not restart on it.
+
+The settings file is the person's own configuration, not a store. A file that still uses the
+retired access keys (`permissions.providerModes`, `permissions.defaultMode`, `approvals.policy`)
+is reported as invalid settings until they are replaced with `access.defaultMode`. It is never
+silently reinterpreted.

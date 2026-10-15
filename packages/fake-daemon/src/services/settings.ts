@@ -8,7 +8,6 @@ import {
   type ServerMessage,
 } from "@ace/protocol";
 import { defaults } from "@ace/settings/defaults";
-import { legacyAccessDefault } from "@ace/settings/legacy-permissions";
 
 /** Where a connection's pushes go; the connection owns its own lifetime. */
 export type Push = (message: ServerMessage) => void;
@@ -50,10 +49,6 @@ export class FakeSettings {
   seed(values: Readonly<Record<string, unknown>>): void {
     for (const [key, value] of Object.entries(values))
       if (SettingsKey.safeParse(key).success) this.global.set(key, value);
-    // Scenarios seeded with the old per-provider keys map once, as the daemon's settings do.
-    const legacy = legacyAccessDefault(values);
-    if (legacy && !this.global.has("access.defaultMode"))
-      this.global.set("access.defaultMode", legacy);
   }
   /** Write a global value as the daemon does for its own commands, telling subscribers. */
   write(key: SettingsKey, value: unknown): void {

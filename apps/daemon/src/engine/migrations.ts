@@ -1,27 +1,25 @@
-import { migrateWorkspaceReadiness } from "./workspace-migration.ts";
 import type { DatabaseSync } from "node:sqlite";
-import { engineSchemaVersion, requireEngineVersion } from "./schema-version.ts";
+import {
+  engineSchemaVersion,
+  requireEngineColumns,
+  requireEngineVersion,
+} from "./schema-version.ts";
 
-/** Initializes a fresh engine schema; incompatible unreleased development formats fail loudly. */
+/** Initializes a fresh engine schema; any other pre-release format is refused, never upgraded. */
 export function migrateEngine(db: DatabaseSync): void {
   db.exec(`CREATE TABLE IF NOT EXISTS engine_schema_version (
     id INTEGER PRIMARY KEY CHECK(id = 1), version INTEGER NOT NULL
   )`);
   const row = db.prepare("SELECT version FROM engine_schema_version WHERE id=1").get();
   if (row) {
-    requireEngineVersion(row);
-    migrateBackendMetadata(db);
-    const columns = db.prepare("PRAGMA table_info(engine_sessions)").all();
-    if (!columns.some((column) => column.name === "instance_id"))
-      db.exec("ALTER TABLE engine_sessions ADD COLUMN instance_id TEXT");
-    if (!columns.some((column) => column.name === "workspace_ready")) {
-      db.exec(
-        "ALTER TABLE engine_sessions ADD COLUMN workspace_ready INTEGER NOT NULL DEFAULT 1 CHECK(workspace_ready IN (0,1))",
-      );
-      migrateWorkspaceReadiness(db);
-    }
-    if (!columns.some((column) => column.name === "options"))
-      db.exec("ALTER TABLE engine_sessions ADD COLUMN options JSON");
+    requireEngineVersion(row, db);
+    requireEngineColumns(db, "engine_sessions", [
+      "instance_id",
+      "options",
+      "workspace_ready",
+      "backend",
+    ]);
+    requireEngineColumns(db, "intents", intentColumns);
     return;
   }
   const legacy = db
@@ -30,7 +28,7 @@ export function migrateEngine(db: DatabaseSync): void {
     'engine_state_appends', 'engine_slots', 'engine_raw_blobs'
   ) LIMIT 1`)
     .get();
-  if (legacy) requireEngineVersion(undefined);
+  if (legacy) requireEngineVersion(undefined, db);
 
   db.exec(`CREATE TABLE thread_state (
     thread_id TEXT PRIMARY KEY REFERENCES threads(id), state JSON NOT NULL, seq INTEGER NOT NULL
@@ -38,14 +36,17 @@ export function migrateEngine(db: DatabaseSync): void {
   CREATE TABLE engine_sessions (
     thread_id TEXT PRIMARY KEY REFERENCES threads(id), cwd TEXT NOT NULL,
     model TEXT, native_session_id TEXT, instance_id TEXT, options JSON,
-    workspace_ready INTEGER NOT NULL DEFAULT 1 CHECK(workspace_ready IN (0,1))
+    workspace_ready INTEGER NOT NULL DEFAULT 1 CHECK(workspace_ready IN (0,1)), backend TEXT
   );
   CREATE TABLE intents (
     id INTEGER PRIMARY KEY AUTOINCREMENT, command_id TEXT NOT NULL UNIQUE,
     thread_id TEXT NOT NULL REFERENCES threads(id), kind TEXT NOT NULL, payload JSON NOT NULL,
     status TEXT NOT NULL CHECK(status IN ('pending', 'queued', 'running', 'done', 'failed')),
     attempts INTEGER NOT NULL DEFAULT 0, error TEXT, resolution_id TEXT UNIQUE,
-    awaiting INTEGER NOT NULL DEFAULT 0, ack_target INTEGER
+    awaiting INTEGER NOT NULL DEFAULT 0, ack_target INTEGER,
+    acknowledged INTEGER NOT NULL DEFAULT 0, delivery TEXT NOT NULL DEFAULT 'queue', trigger TEXT,
+    submitted_generation INTEGER, resolution_generation INTEGER,
+    position INTEGER NOT NULL DEFAULT 0, uncertain INTEGER NOT NULL DEFAULT 0
   );
   CREATE INDEX intents_pending ON intents(thread_id, status, id);
   CREATE INDEX intents_waiting_ack ON intents(thread_id,id) WHERE awaiting=1;
@@ -60,26 +61,22 @@ export function migrateEngine(db: DatabaseSync): void {
     id INTEGER PRIMARY KEY AUTOINCREMENT, thread_id TEXT NOT NULL,
     section TEXT NOT NULL, key TEXT NOT NULL, patch JSON NOT NULL
   );
-  CREATE INDEX engine_state_appends_by_key ON engine_state_appends(thread_id,section,key,id);`);
-  db.prepare("INSERT INTO engine_schema_version VALUES (1, ?)").run(engineSchemaVersion);
-  migrateBackendMetadata(db);
-}
-
-/** Additive migration preserves pre-SDK native IDs; NULL on old Cursor records means ACP. */
-function migrateBackendMetadata(db: DatabaseSync): void {
-  const columns = new Set(
-    db
-      .prepare("PRAGMA table_info(engine_sessions)")
-      .all()
-      .map((row) => String(row.name)),
-  );
-  if (!columns.has("backend")) db.exec("ALTER TABLE engine_sessions ADD COLUMN backend TEXT");
-  if (!columns.has("instance_id"))
-    db.exec("ALTER TABLE engine_sessions ADD COLUMN instance_id TEXT");
-  db.exec(`CREATE TABLE IF NOT EXISTS engine_provider_cursors (thread_id TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE, offset INTEGER NOT NULL);
-  CREATE TABLE IF NOT EXISTS engine_provider_frames (
+  CREATE INDEX engine_state_appends_by_key ON engine_state_appends(thread_id,section,key,id);
+  CREATE TABLE engine_provider_cursors (thread_id TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE, offset INTEGER NOT NULL);
+  CREATE TABLE engine_provider_frames (
     thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE, generation TEXT NOT NULL, seq INTEGER NOT NULL,
     frame JSON NOT NULL, PRIMARY KEY(thread_id,generation,seq)
   );
-  CREATE INDEX IF NOT EXISTS engine_provider_frames_thread ON engine_provider_frames(thread_id)`);
+  CREATE INDEX engine_provider_frames_thread ON engine_provider_frames(thread_id);`);
+  db.prepare("INSERT INTO engine_schema_version VALUES (1, ?)").run(engineSchemaVersion);
 }
+
+const intentColumns = [
+  "acknowledged",
+  "delivery",
+  "trigger",
+  "submitted_generation",
+  "resolution_generation",
+  "position",
+  "uncertain",
+];

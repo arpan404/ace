@@ -5,8 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./defaults": "./src/defaults.ts",
-    "./legacy-permissions": "./src/legacy-permissions.ts"
+    "./defaults": "./src/defaults.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

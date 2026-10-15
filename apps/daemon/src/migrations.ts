@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
+import { IncompatibleDataError } from "@ace/provider-kit/incompatible-data";
 
 const migrations = [
   `CREATE TABLE events (
@@ -88,7 +89,8 @@ const migrations = [
    CREATE TABLE history_blob_chunks(blob_id TEXT NOT NULL REFERENCES history_blobs(id) ON DELETE CASCADE,offset INTEGER NOT NULL,bytes BLOB NOT NULL,PRIMARY KEY(blob_id,offset));`,
   `CREATE TABLE usage_deletions (seq INTEGER PRIMARY KEY, thread_id TEXT NOT NULL, at INTEGER NOT NULL);`,
   `ALTER TABLE threads ADD COLUMN acp JSON;`,
-  ensureThreadMetadataColumns,
+  `ALTER TABLE threads ADD COLUMN transitions JSON;
+   ALTER TABLE threads ADD COLUMN provider_metadata JSON;`,
   `ALTER TABLE item_text_streams RENAME TO item_text_streams_old;
    CREATE TABLE item_text_streams (
      id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
@@ -128,7 +130,22 @@ export function migrate(db: DatabaseSync): void {
     );
     const row = db.prepare("SELECT version FROM schema_version WHERE id = 1").get();
     const version = Number(row?.version ?? 0);
-    if (version > migrations.length) throw new Error("Database schema is newer than this daemon");
+    if (version > migrations.length)
+      throw new IncompatibleDataError(
+        location(db),
+        `The daemon database is schema ${version}, newer than this build's ${migrations.length}`,
+        "Open the newest ace, or update this one.",
+      );
+    // The numbered steps build a fresh database; an existing one must already be current.
+    const fresh =
+      version === 0 &&
+      !db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='events'").get();
+    if (!fresh && version !== migrations.length)
+      throw new IncompatibleDataError(
+        location(db),
+        `The daemon database is schema ${version}, and this build reads schema ${migrations.length}`,
+        "Quit ace, then start it with a fresh ACE_HOME.",
+      );
     for (let i = version; i < migrations.length; i++) {
       const sql = migrations[i];
       if (sql === undefined) throw new Error("Missing migration");
@@ -138,18 +155,21 @@ export function migrate(db: DatabaseSync): void {
         "INSERT INTO schema_version VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET version = excluded.version",
       ).run(i + 1);
     }
-    // SDK and ACP branches independently appended the same numbered migration.
-    // Upgrade either historical shape by columns, without rewriting its metadata.
+    // Pre-release branches once shipped different thread metadata columns under one schema
+    // number. Those layouts are refused rather than repaired (AGENTS.md: no legacy upgrades).
     const columns = new Set(
       db
         .prepare("PRAGMA table_info(threads)")
         .all()
         .map((value) => z.object({ name: z.string() }).parse(value).name),
     );
-    if (!columns.has("acp")) db.exec("ALTER TABLE threads ADD COLUMN acp JSON");
-    if (!columns.has("provider_metadata"))
-      db.exec("ALTER TABLE threads ADD COLUMN provider_metadata JSON");
-    ensureThreadMetadataColumns(db);
+    const missing = threadMetadataColumns.filter((name) => !columns.has(name));
+    if (missing.length)
+      throw new IncompatibleDataError(
+        location(db),
+        `The daemon database lacks thread columns ${missing.join(", ")} from its schema`,
+        "Quit ace, then start it with a fresh ACE_HOME.",
+      );
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -157,12 +177,9 @@ export function migrate(db: DatabaseSync): void {
   }
 }
 
-/** Both branches used migration 9; accept either installed metadata column. */
-function ensureThreadMetadataColumns(db: DatabaseSync): void {
-  for (const name of ["acp", "transitions"]) {
-    if (!db.prepare("SELECT name FROM pragma_table_info('threads') WHERE name=?").get(name))
-      db.exec(`ALTER TABLE threads ADD COLUMN ${name} JSON`);
-  }
+const threadMetadataColumns = ["acp", "transitions", "provider_metadata"];
+function location(db: DatabaseSync): string {
+  return db.location() ?? "the daemon database";
 }
 
 /** Keep historical events and ordinary threads; discard only the removed display metadata. */

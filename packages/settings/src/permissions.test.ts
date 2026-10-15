@@ -17,61 +17,26 @@ test("a new daemon starts new threads in Auto review and remembers the person's 
 });
 
 test.each([
-  [{ claude: "default", codex: ":read-only", opencode: "plan" }, "read-only"],
-  [{ claude: "acceptEdits", codex: ":workspace", cursor: "{}" }, "auto-review"],
-  [{ claude: "bypassPermissions", codex: ":danger-full-access" }, "full-access"],
-  // A tie goes to the stricter mode.
-  [{ claude: "dontAsk", codex: ":danger-full-access" }, "ask"],
+  [{ "permissions.providerModes": { claude: "bypassPermissions" } }],
+  [{ "permissions.defaultMode": "full-access" }],
+  [{ "approvals.policy": "never" }],
+  [{ "access.defaultMode": "read-only", "approvals.policy": "never" }],
 ] as const)(
-  "stored per-provider modes %j map once to the daemon default %s",
-  async (providerModes, expected) => {
+  "settings with the retired access key %j are refused, not reinterpreted",
+  async (stored) => {
     const f = await fixture();
     try {
-      await f.write(f.globalPath, {
-        "permissions.providerModes": providerModes,
-        "future.setting": "retained",
-      });
-      expect((await f.service.get("access.defaultMode")).value).toBe(expected);
-      await f.service.set("threads.autoSettleAfter", "1w", { kind: "global" });
-      const text = await readFile(f.globalPath, "utf8");
-      expect(text).toContain('"future.setting"');
-      expect(text).not.toContain("permissions.providerModes");
-      expect((await f.service.get("access.defaultMode")).value).toBe(expected);
+      await f.write(f.globalPath, stored);
+      await expect(
+        f.service.set("threads.autoSettleAfter", "1w", { kind: "global" }),
+      ).rejects.toThrow(/no longer reads.*access\.defaultMode/);
+      // The person's file is left as written, for them to fix.
+      expect(JSON.parse(await readFile(f.globalPath, "utf8")).settings).toEqual(stored);
     } finally {
       await f.close();
     }
   },
 );
-
-test.each([
-  [{ "permissions.defaultMode": "full-access" }, "full-access"],
-  [{ "approvals.policy": "never" }, "full-access"],
-  [{ "approvals.policy": "on-failure" }, "auto-review"],
-] as const)("an older global mode %j maps once to %s", async (stored, expected) => {
-  const f = await fixture();
-  try {
-    await f.write(f.globalPath, stored);
-    expect((await f.service.get("access.defaultMode")).value).toBe(expected);
-    const text = await readFile(f.globalPath, "utf8");
-    expect(text).not.toContain("permissions.defaultMode");
-    expect(text).not.toContain("approvals.policy");
-  } finally {
-    await f.close();
-  }
-});
-
-test("an explicit daemon default wins over the mapping of older keys", async () => {
-  const f = await fixture();
-  try {
-    await f.write(f.globalPath, {
-      "access.defaultMode": "read-only",
-      "permissions.providerModes": { claude: "bypassPermissions" },
-    });
-    expect((await f.service.get("access.defaultMode")).value).toBe("read-only");
-  } finally {
-    await f.close();
-  }
-});
 
 test("an Advanced native mode is stored per provider", async () => {
   const f = await fixture();

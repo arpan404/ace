@@ -56,29 +56,6 @@ export class IntentStore {
     this.store = store;
     this.queue = queue;
     store.atomic((db) => {
-      const fields = db.prepare("PRAGMA table_info(intents)").all();
-      if (!fields.some((field) => field.name === "acknowledged")) {
-        db.exec("ALTER TABLE intents ADD COLUMN acknowledged INTEGER NOT NULL DEFAULT 0");
-      }
-      if (!fields.some((field) => field.name === "delivery")) {
-        db.exec("ALTER TABLE intents ADD COLUMN delivery TEXT NOT NULL DEFAULT 'queue'");
-        db.exec(
-          "UPDATE intents SET delivery=COALESCE(json_extract(payload,'$.payload.delivery'),'queue')",
-        );
-      }
-      if (!fields.some((field) => field.name === "trigger")) {
-        db.exec("ALTER TABLE intents ADD COLUMN trigger TEXT");
-        db.exec(
-          "UPDATE intents SET trigger=json_extract(payload,'$.payload.trigger') WHERE kind IN ('thread.create','thread.send')",
-        );
-      }
-      if (!fields.some((field) => field.name === "submitted_generation")) {
-        db.exec("ALTER TABLE intents ADD COLUMN submitted_generation INTEGER");
-        // Previously claimed input has unknown consumption. Never silently replay it.
-        db.exec("UPDATE intents SET submitted_generation=0 WHERE status='running' OR awaiting=1");
-      }
-      if (!fields.some((field) => field.name === "resolution_generation"))
-        db.exec("ALTER TABLE intents ADD COLUMN resolution_generation INTEGER");
       db.exec(`CREATE INDEX IF NOT EXISTS intents_submission_generation ON intents(thread_id,submitted_generation);
         CREATE INDEX IF NOT EXISTS intents_dispatch ON intents(thread_id,kind,position,id) WHERE status IN ('pending','queued');
         CREATE INDEX IF NOT EXISTS intents_latest_inputs ON intents(thread_id,id DESC) WHERE kind IN ('thread.send','thread.create');

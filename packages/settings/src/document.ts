@@ -5,7 +5,12 @@ export { MAX_DOCUMENT_BYTES, MAX_CLIENT_BYTES, SettingsError } from "./validatio
 import { applyEdits, modify } from "jsonc-parser";
 import { JsonValue, SettingsDocument, SettingsValues, SettingsKey } from "@ace/protocol";
 import { z } from "zod";
-import { legacyAccessDefault, legacyAccessKeys } from "./legacy-permissions.ts";
+/** Settings keys replaced by `access.defaultMode` (ADR 0075). */
+const retiredAccessKeys = [
+  "permissions.providerModes",
+  "permissions.defaultMode",
+  "approvals.policy",
+];
 
 export function validateAssignment(
   key: string,
@@ -85,13 +90,14 @@ export function decode(text: string): DecodedDocument {
   for (const key of ["clients.theme", "clients.keybindings"] as const) {
     if (Object.hasOwn(result.data.settings, key)) validateValue(key, result.data.settings[key]);
   }
-  if (legacyAccessKeys.some((key) => Object.hasOwn(result.data.settings, key))) {
-    const access = legacyAccessDefault(result.data.settings);
-    if (access && result.data.settings["access.defaultMode"] === undefined)
-      text = edit(text, ["settings", "access.defaultMode"], access);
-    for (const key of legacyAccessKeys) text = edit(text, ["settings", key], undefined);
-    return { ...decode(text), migrated: true };
-  }
+  // Pre-release settings carry no upgrades (AGENTS.md). Ignoring these keys would quietly
+  // change the access new threads start in, so the document is refused until they are replaced.
+  const retired = retiredAccessKeys.filter((key) => Object.hasOwn(result.data.settings, key));
+  if (retired.length)
+    throw new SettingsError(
+      "validation",
+      `Settings use ${retired.join(", ")}, which this build no longer reads. Set access.defaultMode instead and remove them.`,
+    );
   const configuration = result.data.settings["providers.configuration"];
   if (configuration) {
     const next = cursorConfiguration(configuration);
