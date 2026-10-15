@@ -62,7 +62,8 @@ async function hold(name) {
 const args=process.argv.slice(2); const path=args[1];
 let input=''; for await(const chunk of process.stdin) input+=chunk;
 let body=[];
-if(path.startsWith('repos/acme/repo/pulls?')) await hold('lookup');
+if(path==='repos/acme/repo') body={name:'repo',owner:{login:'acme'},default_branch:'main'};
+else if(path.startsWith('repos/acme/repo/pulls?')) await hold('lookup');
 else if(path==='repos/acme/repo/pulls') {
   await hold('create');
   if(existsSync(home+'/create.fail')) { process.stdout.write('HTTP/1.1 403 Forbidden\\r\\n\\r\\n{}'); process.exit(0); }

@@ -536,7 +536,10 @@ test.each([409, 422])(
       ],
     });
     try {
-      expect(await f.command("rejected")).toMatchObject({ ok: false, error: "forge_conflict" });
+      expect(await f.command("rejected")).toMatchObject({
+        ok: false,
+        error: status === 409 ? "forge_conflict" : "forge_unprocessable",
+      });
       expect(await f.read()).toMatchObject({
         result: { kind: "forge", data: { value: { operation: { state: "failed" } } } },
       });

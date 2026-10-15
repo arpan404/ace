@@ -80,6 +80,15 @@ test("state refresh batches all PRs per repo across threads, retains missing lin
             pr285: null,
           },
         },
+        // GitHub's real partial answer names the missing alias; the siblings still refresh.
+        errors: [
+          {
+            type: "NOT_FOUND",
+            path: ["repository", "pr285"],
+            locations: [{ line: 1, column: 1 }],
+            message: "Could not resolve to a PullRequest with the number of 285.",
+          },
+        ],
       })}`,
     };
   });

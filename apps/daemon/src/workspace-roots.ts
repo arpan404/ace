@@ -221,7 +221,14 @@ export class WorkspaceRoots {
       const project = this.store.getWorkspace(thread.workspaceId);
       if (!project) throw new Error("workspace_not_found");
       const projectPath = await realpath(project.path);
-      const repository = workspaceRepository(info.remotes, await this.sourceControl?.preferences());
+      const repository = workspaceRepository(
+        info.remotes,
+        await this.sourceControl?.preferences(),
+        await this.sourceControl?.hostAliases(
+          info.remotes.flatMap((remote) => remote.fetchUrls),
+          new AbortController().signal,
+        ),
+      );
       check?.();
       // Never publish a read from an old binding. There is no await between comparison and write.
       if (this.root(id) !== root) continue;

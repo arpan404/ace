@@ -50,7 +50,6 @@
   },
   "required": [
     "branch",
-    "base",
     "title",
     "summary",
     "template"

@@ -11,6 +11,7 @@ export function remotePushesTo<Remote extends { pushUrls: readonly string[] }>(
   remote: Remote | undefined,
   repository: ForgeRepository,
   preferences: Preferences,
+  aliases: Readonly<Record<string, string>> = {},
 ): remote is Remote {
   return (
     !!remote &&
@@ -18,7 +19,7 @@ export function remotePushesTo<Remote extends { pushUrls: readonly string[] }>(
     remote.pushUrls.every((url) => {
       // Map the URL alone; which remote is selected was decided by the caller.
       const name = preferences?.remote ?? "origin";
-      const pushed = workspaceRepository([{ name, fetchUrls: [url] }], preferences);
+      const pushed = workspaceRepository([{ name, fetchUrls: [url] }], preferences, aliases);
       return !!pushed && repositoryKey(pushed) === repositoryKey(repository);
     })
   );
@@ -50,10 +51,16 @@ export async function pushWorkspace(
   allowed();
   const remote = info.remotes.find((entry) => entry.name === input.remote);
   const target = input.target;
-  const repository = workspaceRepository(info.remotes, preferences);
+  const aliases =
+    (await sourceControl?.hostAliases(
+      info.remotes.flatMap((entry) => [...entry.fetchUrls, ...entry.pushUrls]),
+      new AbortController().signal,
+    )) ?? {};
+  allowed();
+  const repository = workspaceRepository(info.remotes, preferences, aliases);
   if (!repository || repositoryKey(repository) !== repositoryKey(target.repository))
     throw new Error("repository_mismatch");
-  if (!remotePushesTo(remote, target.repository, preferences))
+  if (!remotePushesTo(remote, target.repository, preferences, aliases))
     throw new Error("repository_mismatch");
   await git.push({
     worktree: cwd,

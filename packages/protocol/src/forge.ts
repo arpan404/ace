@@ -120,7 +120,13 @@ export const ForgeCreatePrInput = z.object({
     .regex(/^[a-f0-9]{40,64}$/)
     .optional(),
   branch: z.string().min(1).max(256),
-  base: z.string().min(1).max(256),
+  /**
+   * `forge.pr.create` honours this only with a `draftFingerprint`, whose reviewed summary was
+   * made against it. Otherwise the daemon resolves the base: the thread's recorded base branch,
+   * else the forge repository's default branch (the parent's, for a fork). Package callers of
+   * `createPr` must supply it.
+   */
+  base: z.string().min(1).max(256).optional(),
   title: z.string().min(1).max(256),
   summary: text,
   template: z.object({ title: z.string().min(1).max(256), body: text }),

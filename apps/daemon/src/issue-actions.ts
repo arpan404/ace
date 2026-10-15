@@ -1,6 +1,6 @@
 import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { z } from "zod";
-import { WriteDispatch, repositoryKey, type GitHubForge } from "@ace/forge";
+import { WriteDispatch, repositoryKey, uncertainWriteExpired, type GitHubForge } from "@ace/forge";
 import {
   ForgeIssueAction,
   ForgeIssueWrite,
@@ -18,13 +18,17 @@ const saved = z.object({
   result: ForgeIssueAction,
   // Historical pending rows must be treated conservatively as dispatched.
   dispatched: z.boolean().default(true),
+  /** When the write was reserved or dispatched; rows without it are long past the window. */
+  at: z.number().int().nonnegative().default(0),
 });
 /** Reservations survive disconnect/restart. Uncertain POSTs are reconciled, never replayed. */
 export class IssueActions {
   readonly #store: Store;
   readonly #flights = new ForgeWriteFlights();
-  constructor(store: Store) {
+  readonly #now: () => number;
+  constructor(store: Store, now: () => number) {
     this.#store = store;
+    this.#now = now;
     store.atomic((db) =>
       db.exec(`CREATE TABLE IF NOT EXISTS forge_issue_actions (
       id TEXT PRIMARY KEY, device TEXT NOT NULL, repo TEXT NOT NULL, number INTEGER NOT NULL,
@@ -77,7 +81,8 @@ export class IssueActions {
           .prepare("SELECT device,value FROM forge_issue_actions WHERE id=? AND repo=?")
           .get(p.actionId, repositoryKey(p.repository)),
       );
-      if (!row || row.device !== command.deviceId) throw new Error("forbidden");
+      // Any authorised device may settle an action; the device that started it may be gone.
+      if (!row) throw new Error("forbidden");
       const action = saved.parse(JSON.parse(z.string().parse(row.value)));
       if (action.result.state === "succeeded" || action.result.state === "failed")
         return {
@@ -103,10 +108,13 @@ export class IssueActions {
             ),
           );
         const issue = await backend.reconcileIssue(action.input, action.result.id, signal);
-        // A read cannot downgrade a newer terminal result, even from another owner.
+        // A read cannot downgrade a newer terminal result, even from another owner. Past the
+        // uncertainty window, a complete read without the write proves it never landed.
         const result: ForgeIssueAction = issue
           ? { ...action.result, state: "succeeded", issue }
-          : { ...action.result, state: "uncertain", error: "action_outcome_uncertain" };
+          : uncertainWriteExpired(action.at, this.#now())
+            ? { ...action.result, state: "failed", error: "action_not_observed" }
+            : { ...action.result, state: "uncertain", error: "action_outcome_uncertain" };
         return this.#receipt(this.#save({ ...action, result }, z.string().parse(row.value)));
       } finally {
         this.#flights.release(scope);
@@ -140,7 +148,13 @@ export class IssueActions {
             repositoryKey(p.repository),
             number,
             "pending",
-            JSON.stringify({ repository: p.repository, input: p.input, result, dispatched: false }),
+            JSON.stringify({
+              repository: p.repository,
+              input: p.input,
+              result,
+              dispatched: false,
+              at: this.#now(),
+            }),
           );
         });
       } catch (error) {
@@ -154,6 +168,7 @@ export class IssueActions {
           repository: p.repository,
           input: p.input,
           dispatched: true,
+          at: this.#now(),
           result: { id: command.id, state: "pending", action: p.input.action },
         });
         if (reservation.state !== "pending") throw new Error("issue_reconciliation_required");
@@ -175,6 +190,7 @@ export class IssueActions {
           input: p.input,
           result,
           dispatched: !dispatch.definitelyFailed,
+          at: this.#now(),
         }),
       );
     } finally {

@@ -10,6 +10,7 @@ import {
 import { readinessGh } from "./testing/readiness-gh.ts";
 const cleanups: (() => Promise<void>)[] = [];
 const signal = () => new AbortController().signal;
+const now = () => 1_000;
 const preferences = { hosts: [{ host: "github.com" }], host: "github.com", remote: "origin" };
 async function setup(input: Parameters<typeof readinessGh>[0] = {}) {
   const f = await readinessGh(input);
@@ -21,7 +22,7 @@ afterEach(async () => {
 });
 it("older CLIs expose effective API identity without needing JSON auth status", async () => {
   const f = await setup();
-  const status = await githubReadiness(f.runner, preferences, signal());
+  const status = await githubReadiness(f.runner, preferences, signal(), now);
   expect(status).toMatchObject({
     cli: "available",
     version: "2.90.0",
@@ -32,7 +33,7 @@ it("older CLIs expose effective API identity without needing JSON auth status", 
 });
 it("rescan discovers login changes and reports expected-account mismatches", async () => {
   const f = await setup({ fail: true });
-  expect(await githubReadiness(f.runner, preferences, signal())).toMatchObject({
+  expect(await githubReadiness(f.runner, preferences, signal(), now)).toMatchObject({
     api: "login_required",
     account: null,
   });
@@ -41,6 +42,7 @@ it("rescan discovers login changes and reports expected-account mismatches", asy
     f.runner,
     { ...preferences, hosts: [{ host: "github.com", account: "octo" }] },
     signal(),
+    now,
   );
   expect(status.api).toBe("account_mismatch");
   expect(status.accounts).toContainEqual({ login: "other", active: false });
@@ -52,6 +54,7 @@ it("missing CLI gives installation instructions without leaking process errors",
     createCommandRunner({ cwd: f.directory, env: { PATH: "/nonexistent" } }),
     preferences,
     signal(),
+    now,
   );
   expect(status.cli).toBe("unavailable");
   expect(status.instructions).toContain("Install GitHub CLI");
@@ -70,21 +73,51 @@ it("overlapping requests with different expected accounts cannot silently switch
   ]);
   expect(octo.status).toBe("fulfilled");
   expect(other.status).toBe("rejected");
-  expect(await githubIdentity(f.runner, "github.com", signal())).toBe("octo");
+  expect(await githubIdentity(f.runner, "github.com", signal(), now)).toBe("octo");
 });
-it("identity changes during an operation reject stale results", async () => {
+it("an account switch refuses reads once the identity verification window lapses", async () => {
   const f = await setup({ changeAfter: true });
-  await expect(
-    identityRunner(
-      f.runner,
-      "github.com",
-      "octo",
-    )({ command: "gh", args: ["api", "repos/octo/ace"], mode: "json", signal: signal() }),
-  ).rejects.toMatchObject({ kind: "forbidden" });
+  let clock = 1_000;
+  const run = identityRunner(f.runner, "github.com", "octo", () => {}, {
+    now: () => clock,
+    ttlMs: 60_000,
+  });
+  const read = () =>
+    run({ command: "gh", args: ["api", "repos/octo/ace"], mode: "json", signal: signal() });
+  expect(await read()).toMatchObject({ code: 0 });
+  clock += 60_000;
+  await expect(read()).rejects.toMatchObject({ kind: "forbidden" });
+});
+it("offline is not auth_denied", async () => {
+  const f = await setup({ offline: true });
+  await expect(githubIdentity(f.runner, "github.com", signal(), now)).rejects.toMatchObject({
+    kind: "offline",
+  });
+  expect(await githubReadiness(f.runner, preferences, signal(), now)).toMatchObject({
+    cli: "available",
+    api: "offline",
+    account: null,
+  });
+});
+it("a rate-limited identity probe reports the rate limit, not a sign-in problem", async () => {
+  const f = await setup({ rateLimited: true });
+  await expect(githubIdentity(f.runner, "github.com", signal(), now)).rejects.toMatchObject({
+    kind: "rate_limit",
+    retryAt: 2_000_000,
+  });
+  expect(await githubReadiness(f.runner, preferences, signal(), now)).toMatchObject({
+    api: "rate_limited",
+  });
+});
+it("a host without sign-in still asks the person to log in", async () => {
+  const f = await setup({ fail: true });
+  await expect(githubIdentity(f.runner, "github.com", signal(), now)).rejects.toMatchObject({
+    kind: "forbidden",
+  });
 });
 it("malformed identity never admits an authenticated operation", async () => {
   const f = await setup({ malformed: true });
-  await expect(githubIdentity(f.runner, "github.com", signal())).rejects.toMatchObject({
+  await expect(githubIdentity(f.runner, "github.com", signal(), now)).rejects.toMatchObject({
     kind: "invalid_data",
   });
 });

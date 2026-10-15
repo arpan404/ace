@@ -37,7 +37,9 @@ test("commands which only mention PR creation never link mentioned PRs", () => {
 
 test("only a standalone created URL in the workspace repository is accepted", () => {
   expect(
-    createdPullRequest("\u001b[32mhttps://github.com/Ace/Project/pull/283\u001b[0m\r", repository),
+    createdPullRequest("\u001b[32mhttps://github.com/Ace/Project/pull/283\u001b[0m\r", [
+      repository,
+    ]),
   ).toEqual({ repository, number: 283 });
   for (const line of [
     "See https://github.com/ace/project/pull/283",
@@ -48,5 +50,20 @@ test("only a standalone created URL in the workspace repository is accepted", ()
     "https://github.com/ace/project/pull/9999999999999999999999",
     "https://github.com/ace/project/pull/283/files",
   ])
-    expect(createdPullRequest(line, repository)).toBeUndefined();
+    expect(createdPullRequest(line, [repository])).toBeUndefined();
+});
+
+test("an agent's PR on the fork's parent or an Enterprise host is accepted", () => {
+  const parent = { ...repository, owner: "upstream" };
+  expect(
+    createdPullRequest("https://github.com/upstream/project/pull/9", [repository, parent]),
+  ).toEqual({ repository: parent, number: 9 });
+  const enterprise = { ...repository, host: "git.example.com" };
+  expect(createdPullRequest("https://git.example.com/ace/project/pull/4", [enterprise])).toEqual({
+    repository: enterprise,
+    number: 4,
+  });
+  expect(
+    createdPullRequest("https://github.com/upstream/project/pull/9", [repository]),
+  ).toBeUndefined();
 });

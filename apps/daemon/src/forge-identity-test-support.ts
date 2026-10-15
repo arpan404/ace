@@ -9,6 +9,7 @@ import { SettingsService } from "@ace/settings";
 import { createCommandRunner } from "@ace/forge";
 import { Thread } from "@ace/protocol";
 import { Store } from "./store.ts";
+import { migrateEngine } from "./engine/migrations.ts";
 import { SourceControl } from "./source-control.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
 
@@ -64,14 +65,16 @@ else {
  else if(path.endsWith('/pulls') || path.endsWith('/pulls/7')) http(pr);
  else if(path.includes('/check-runs?')) http({check_runs:[]});
  else if(path==='graphql') {if(f.graphqlError) {http({errors:[{type:f.graphqlError,message:'Provider refusal'}]});process.exit(1)} http({data:{repository:{pullRequest:{reviewThreads:{pageInfo:{hasNextPage:false,endCursor:null},nodes:[]}}}}});}
+ else if(path==='repos/octo/ace') http({name:'ace',owner:{login:'octo'},default_branch:'main'});
  else http([]);
 }
 `;
 /**
- * Every \`gh\` call is bracketed by an identity probe. A reply runs: admission (1), the actor
- * read (2-4), the seven baseline status reads (5-18), then the reply POST between probes 19 and 20.
+ * Admission verifies the account once (1) and reads inside the verification window reuse it.
+ * A reply reads its actor from \`/user\` (2), then every write is verified right before dispatch,
+ * so the reply POST sits between probes 3 and 4.
  */
-export const replyWriteProbe = { preflight: 19, postflight: 20 } as const;
+export const replyWriteProbe = { preflight: 3, postflight: 4 } as const;
 
 export async function forgeIdentityFixture(
   options: { timeoutMs?: number; settings?: (root: string) => SettingsService } = {},
@@ -129,6 +132,8 @@ export async function forgeIdentityFixture(
   await settings.set("sourceControl.preferences", preferences, { kind: "global" });
   const sourceControl = new SourceControl(settings, runner, root);
   const store = new Store(join(root, "events.sqlite"));
+  // The engine owns session rows; a runtime without it still needs the schema.
+  store.atomic((db) => migrateEngine(db));
   const workspaceId = store.createWorkspace(root, "Project");
   const thread = Thread.parse({
     id: "identity-thread",

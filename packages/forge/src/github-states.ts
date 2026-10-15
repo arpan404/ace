@@ -27,11 +27,18 @@ export async function githubStates(
   const parsed = z
     .object({
       data: z.object({ repository: z.record(z.string(), pr.nullable()).nullable() }),
-      errors: z.array(z.unknown()).optional(),
+      errors: z.array(z.looseObject({ type: z.string().optional(), path: z.unknown() })).optional(),
     })
     .safeParse(response.body);
   if (!parsed.success) throw new ForgeError("invalid_data");
-  if (parsed.data.errors?.length || !parsed.data.data.repository) throw new ForgeError("forbidden");
+  const aliases = new Set(numbers.map((number) => `pr${number}`));
+  // GitHub answers a deleted or inaccessible number with a null alias and a NOT_FOUND error
+  // naming it. That marks only that PR missing; any other error fails the whole batch.
+  const missingOnly = (parsed.data.errors ?? []).every((error) => {
+    const path = z.tuple([z.literal("repository"), z.string()]).safeParse(error.path);
+    return error.type === "NOT_FOUND" && path.success && aliases.has(path.data[1]);
+  });
+  if (!missingOnly || !parsed.data.data.repository) throw new ForgeError("forbidden");
   const result = new Map<number, LinkedPullRequest | null>();
   for (const number of numbers) {
     const value = parsed.data.data.repository[`pr${number}`];

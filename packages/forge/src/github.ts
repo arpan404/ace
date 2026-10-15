@@ -13,7 +13,8 @@ import { ForgeStackExpected } from "@ace/protocol/forge-stacks";
 import { GitHubReviews } from "./github-reviews.ts";
 import { GitHubBrowser } from "./github-browser.ts";
 import type { ForgePrSearch } from "@ace/protocol/forge-browser";
-import { ForgeMutationOutcome, MutationDispatch } from "./mutation.ts";
+import { ForgeMutationOutcome, MutationDispatch, uncertainWriteExpired } from "./mutation.ts";
+import { githubRepositoryMetadata } from "./github-repository.ts";
 import { replyIntent, replyCutoff, reconcileReply, type ReplyReceipts } from "./reply-receipts.ts";
 import { z } from "zod";
 import {
@@ -48,6 +49,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
   readonly #stacks: GitHubStacks;
   readonly #localStacks: LocalStacks;
   readonly #replyReceipts: ReplyReceipts | undefined;
+  readonly #now: () => number;
   constructor(options: {
     repository: ForgeRepository;
     runner: CommandRunner;
@@ -58,6 +60,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
     publishStack?: StackPublisher;
   }) {
     this.#replyReceipts = options.replyReceipts;
+    this.#now = options.now;
     this.repository = ForgeRepository.parse(options.repository);
     if (this.repository.forge !== "github" || this.repository.owner.includes("/"))
       throw new ForgeError("unsupported");
@@ -121,11 +124,18 @@ export class GitHubForge implements Forge, ForgeBrowser {
     const headRepository = sourceRepository?.success ? sourceRepository.data : null;
     if (headRepository) {
       const source = `repos/${headRepository.owner}/${headRepository.name}/git/ref/heads/${encodeURIComponent(pr.head.ref)}`;
-      const branch = z
-        .object({ object: z.object({ sha: shaSchema }) })
-        .safeParse((await this.#api.request(source, signal)).body);
+      let head: import("./http.ts").Page;
+      try {
+        head = await this.#api.request(source, signal);
+      } catch (error) {
+        // The PR exists but its head branch was deleted from the source repository.
+        if (error instanceof ForgeError && error.kind === "not_found")
+          throw new ForgeError("head_missing");
+        throw error;
+      }
+      const branch = z.object({ object: z.object({ sha: shaSchema }) }).safeParse(head.body);
       if (!branch.success) throw new ForgeError("invalid_data");
-      if (branch.data.object.sha !== pr.head.sha) throw new ForgeError("conflict");
+      if (branch.data.object.sha !== pr.head.sha) throw new ForgeError("head_moved");
     }
     signal.throwIfAborted();
     return ForgePrCheckout.parse({
@@ -224,13 +234,29 @@ export class GitHubForge implements Forge, ForgeBrowser {
   async states(numbers: readonly number[], signal: AbortSignal) {
     return githubStates(this.#api, this.repository, numbers, signal);
   }
-  async findPr(branch: string, base: string, signal: AbortSignal): Promise<ForgePrRef | null> {
+  /** The host's default branch and fork parent for this repository. */
+  repositoryMetadata(signal: AbortSignal) {
+    return githubRepositoryMetadata(this.#api, this.repository, signal);
+  }
+  /**
+   * The open PR from `headOwner:branch` into `base` in this repository, if any. Merged and
+   * closed PRs are history: a new create is allowed once they are done. GitHub refuses a
+   * second open PR for the same head and base, so an open match also recovers an in-flight
+   * create whose acknowledgement was lost.
+   */
+  async findPr(
+    branch: string,
+    base: string,
+    signal: AbortSignal,
+    headOwner = this.repository.owner,
+  ): Promise<ForgePrRef | null> {
     z.string().min(1).max(256).parse(branch);
     z.string().min(1).max(256).parse(base);
-    // GitHub documents head as owner:branch. All states prevent recreating a closed PR.
+    z.string().min(1).max(100).parse(headOwner);
+    // GitHub documents head as owner:branch, which also names a fork's branch.
     const query = new URLSearchParams({
-      state: "all",
-      head: `${this.repository.owner}:${branch}`,
+      state: "open",
+      head: `${headOwner}:${branch}`,
       base,
       per_page: "2",
     });
@@ -246,12 +272,16 @@ export class GitHubForge implements Forge, ForgeBrowser {
       throw new ForgeError("invalid_data");
     return found ? this.#ref(found.number) : null;
   }
+  /** `headOwner` names a fork that holds the branch when this repository is its parent. */
   async createPr(
     threadId: string,
     input: ForgeCreatePrInput,
     signal: AbortSignal,
+    headOwner = this.repository.owner,
   ): Promise<ForgePrRef> {
     const value = ForgeCreatePrInput.parse(input);
+    if (value.base === undefined) throw new ForgeError("base_missing");
+    z.string().min(1).max(100).parse(headOwner);
     const fields: Record<string, string> = {
       threadId: z.string().min(1).max(256).parse(threadId),
       branch: value.branch,
@@ -268,7 +298,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
     const title = z.string().min(1).max(256).parse(render(value.template.title));
     const body = z.string().max(65_536).parse(render(value.template.body));
     const response = await this.#api.request(`${this.#root}/pulls`, signal, {
-      head: value.branch,
+      head: headOwner === this.repository.owner ? value.branch : `${headOwner}:${value.branch}`,
       base: value.base,
       title,
       body,
@@ -291,6 +321,7 @@ export class GitHubForge implements Forge, ForgeBrowser {
     z.string().min(1).max(65_536).parse(body);
     const receipts = observer ? undefined : this.#replyReceipts;
     const intent = replyIntent(this.repository, number, commentId, body);
+    /** True when the earlier reply is confirmed; false when it provably never landed. */
     const reconcile = async (receipt: NonNullable<ReturnType<ReplyReceipts["get"]>>) => {
       const id = await reconcileReply(
         this.#api,
@@ -299,16 +330,27 @@ export class GitHubForge implements Forge, ForgeBrowser {
         { account: receipts?.account ?? "", body, commentId, number },
         signal,
       );
-      receipts?.put(intent, id);
+      if (id !== null) {
+        receipts?.put(intent, id);
+        return true;
+      }
+      // GitHub may still be converging. Past the window, a complete read without the reply
+      // proves it never landed (or was deleted), so the same text may be sent again.
+      if (!uncertainWriteExpired(receipt.at, this.#now()))
+        throw new ForgeMutationOutcome({ id: receipt.id });
+      receipts?.remove(intent);
+      return false;
     };
     const receipt = receipts?.get(intent);
-    if (receipt) return reconcile(receipt);
+    if (receipt && (await reconcile(receipt))) return;
     if (receipts) {
       const before = await replyCutoff(this.#api, this.#root, number, signal);
-      if (!receipts.reserve(intent, before)) {
+      if (!receipts.reserve(intent, before, this.#now())) {
         const pending = receipts.get(intent);
         if (!pending) throw new ForgeError("conflict");
-        return reconcile(pending);
+        if (await reconcile(pending)) return;
+        // Another caller reserved the same reply meanwhile; never send it twice.
+        throw new ForgeMutationOutcome({ id: pending.id });
       }
     }
     const dispatch = observer ?? new MutationDispatch();

@@ -21,6 +21,18 @@ export function isForgeMutation(request: CommandRequest): boolean {
   return true;
 }
 
+/**
+ * How long an uncertain write fences a retry of the same write. GitHub converges in seconds;
+ * after this window a complete read that still shows no trace of the write proves it did not
+ * land, and the fence is released instead of blocking every later action forever.
+ */
+export const uncertainWriteWindowMs = 10 * 60_000;
+
+/** True once a write reserved at `at` has outlived the uncertainty window. */
+export function uncertainWriteExpired(at: number, now: number): boolean {
+  return now - at >= uncertainWriteWindowMs;
+}
+
 /** The remote accepted a write, but its result cannot be published under the current identity. */
 export class ForgeMutationOutcome extends ForgeError {
   readonly receipt: unknown;

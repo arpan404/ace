@@ -126,6 +126,9 @@ export class WorkspaceRuntime {
           this.forge.checkoutDetail(project, selection, signal),
         checkout: (project, selection, signal) => this.forge.checkout(project, selection, signal),
         ...(options.prRemote ? { remote: options.prRemote } : {}),
+        ...(options.sourceControl
+          ? { hostAliases: options.sourceControl.hostAliases.bind(options.sourceControl) }
+          : {}),
       }),
     });
     this.creationDrafts = new CreationDrafts(store, now, {

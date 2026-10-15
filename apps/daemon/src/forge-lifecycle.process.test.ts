@@ -139,7 +139,12 @@ test("lifecycle preflight failures never reserve an uncertain write and allow re
       const { snapshot } = await f.read();
       expect(await f.send("failed", revert, snapshot.version)).toMatchObject({
         ok: false,
-        error: "status" in failure && failure.status === 429 ? "forge_rate_limit" : "forge_cli",
+        error:
+          "offline" in failure
+            ? "forge_offline"
+            : failure.status === 429
+              ? "forge_rate_limit"
+              : "forge_cli",
       });
       expect(
         (await f.gh.requests()).some((r) => JSON.stringify(r.body).includes("mutation($input:")),

@@ -202,8 +202,8 @@ test("view and unview marks written by one client are visible through another cl
 
 test("a comment acknowledged after the CLI identity changes remains uncertain", async () => {
   const fixtures = reviewFixtures();
+  // Before the read, before the write, then a different account right after it.
   fixtures.user = [
-    { body: { login: "reviewer" } },
     { body: { login: "reviewer" } },
     { body: { login: "reviewer" } },
     { body: { login: "other" } },

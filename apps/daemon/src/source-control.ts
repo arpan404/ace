@@ -5,6 +5,8 @@ import {
   identityRunner,
   repositoryFromRemote,
   ForgeError,
+  SshHostAliases,
+  identityVerificationMs,
   type CommandRunner,
 } from "@ace/forge";
 import { SourceControlPreferences, type SourceControlReadiness } from "@ace/protocol";
@@ -18,6 +20,9 @@ export class SourceControl {
   private closed = false;
   private stop: () => void;
   private listeners = new Set<() => void>();
+  /** Verified API accounts per host and preferences revision, reused for a short window. */
+  private identities = new Map<string, { account: string; revision: number; at: number }>();
+  private aliases: SshHostAliases;
   get revision(): number {
     return this.currentRevision;
   }
@@ -54,9 +59,11 @@ export class SourceControl {
     this.now = now;
     this.root = root;
     this.runner = runner;
+    this.aliases = new SshHostAliases({ runner: runner(root), now });
     this.stop = settings.onChange((layer, keys) => {
       if (layer.kind !== "global" || !keys.includes("sourceControl.preferences")) return;
       this.currentRevision++;
+      this.identities.clear();
       for (const listener of this.listeners) listener();
     });
   }
@@ -80,15 +87,46 @@ export class SourceControl {
     const configured = preferences.hosts.find((entry) => entry.host === host);
     if (!configured) throw new ForgeError("unsupported");
     const runner = this.runner(cwd);
-    const account = await githubIdentity(runner, host, signal);
+    const { account, at } = await this.verifiedAccount(runner, host, revision, signal);
     await assertCurrent();
     if (configured.account && configured.account !== account) throw new ForgeError("forbidden");
     return {
       account,
       revision,
       check,
-      runner: identityRunner(runner, host, account, assertCurrent),
+      runner: identityRunner(runner, host, account, assertCurrent, {
+        now: this.now,
+        verifiedAt: at,
+      }),
     };
+  }
+  /** One `/user` probe per host per window, not one per operation. */
+  private async verifiedAccount(
+    runner: CommandRunner,
+    host: string,
+    revision: number,
+    signal: AbortSignal,
+  ) {
+    const cached = this.identities.get(host);
+    const now = this.now();
+    if (
+      cached &&
+      cached.revision === revision &&
+      now - cached.at >= 0 &&
+      now - cached.at < identityVerificationMs
+    )
+      return cached;
+    const verified = {
+      account: await githubIdentity(runner, host, signal, this.now),
+      revision,
+      at: now,
+    };
+    if (revision === this.currentRevision) this.identities.set(host, verified);
+    return verified;
+  }
+  /** Real hosts behind SSH host aliases in these remote URLs (`~/.ssh/config` `Host` entries). */
+  hostAliases(urls: readonly string[], signal: AbortSignal): Promise<Record<string, string>> {
+    return this.aliases.resolve(urls, signal);
   }
   async readiness(
     cwd: string,
@@ -98,7 +136,9 @@ export class SourceControl {
     const check = await this.guard();
     const preferences = await this.preferences();
     const runner = this.runner(cwd);
-    const status = await githubReadiness(runner, preferences, signal);
+    const status = await githubReadiness(runner, preferences, signal, this.now);
+    // A rescan re-verifies identity from scratch.
+    this.identities.clear();
     check();
     if (!git) return status;
     const info = await git.repositoryInfo(cwd);
@@ -117,6 +157,7 @@ export class SourceControl {
       repositoryFromRemote(
         remote,
         Object.fromEntries(preferences.hosts.map((entry) => [entry.host, "github"])),
+        await this.hostAliases([remote], signal),
       );
       const result = await runner({
         command: "git",

@@ -36,6 +36,8 @@
         "ready",
         "login_required",
         "account_mismatch",
+        "offline",
+        "rate_limited",
         "unavailable"
       ],
       "type": "string"

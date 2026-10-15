@@ -17,9 +17,19 @@ export interface Forge {
     numbers: readonly number[],
     signal: AbortSignal,
   ): Promise<Map<number, LinkedPullRequest | null>>;
-  /** Exact branch/base lookup reconciles publication after an interrupted create. */
-  findPr?(branch: string, base: string, signal: AbortSignal): Promise<ForgePrRef | null>;
-  createPr(threadId: string, input: ForgeCreatePrInput, signal: AbortSignal): Promise<ForgePrRef>;
+  /** Open PR lookup by exact branch/base; reconciles publication after an interrupted create. */
+  findPr?(
+    branch: string,
+    base: string,
+    signal: AbortSignal,
+    headOwner?: string,
+  ): Promise<ForgePrRef | null>;
+  createPr(
+    threadId: string,
+    input: ForgeCreatePrInput,
+    signal: AbortSignal,
+    headOwner?: string,
+  ): Promise<ForgePrRef>;
   replyComment(number: number, commentId: number, body: string, signal: AbortSignal): Promise<void>;
   requestReviews(number: number, reviewers: string[], signal: AbortSignal): Promise<void>;
   merge(number: number, headSha: string, method: MergeMethod, signal: AbortSignal): Promise<void>;

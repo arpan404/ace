@@ -22,7 +22,14 @@ export * from "./github-reviews.ts";
 export * from "./review-comment-body.ts";
 export * from "./readiness.ts";
 
-export { ForgeMutationOutcome, MutationDispatch } from "./mutation.ts";
+export {
+  ForgeMutationOutcome,
+  MutationDispatch,
+  uncertainWriteWindowMs,
+  uncertainWriteExpired,
+} from "./mutation.ts";
+export * from "./ssh-aliases.ts";
+export * from "./github-repository.ts";
 export type { ReplyReceipts } from "./reply-receipts.ts";
 export { replyIntent } from "./reply-receipts.ts";
 

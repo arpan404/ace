@@ -14,7 +14,7 @@ it("host preferences survive restart and a rescan observes the machine's current
   await writeFile(join(root, "package.json"), '{"type":"module"}');
   await writeFile(
     join(root, "gh"),
-    `#!${process.execPath}\nimport {readFileSync} from 'node:fs'; const args=process.argv.slice(2); if(args[0]==='--version') console.log('gh version 2.0.0'); else if(args[1]==='user') console.log(JSON.stringify({login:readFileSync(process.env.ACE_ACCOUNT,'utf8')})); else console.log('auth status');`,
+    `#!${process.execPath}\nimport {readFileSync} from 'node:fs'; const args=process.argv.slice(2); if(args[0]==='--version') console.log('gh version 2.0.0'); else if(args[1]==='user') console.log((args.includes('--include') ? 'HTTP/2.0 200 status\\r\\n\\r\\n' : '')+JSON.stringify({login:readFileSync(process.env.ACE_ACCOUNT,'utf8')})); else console.log('auth status');`,
     { mode: 0o755 },
   );
   const runner = () =>

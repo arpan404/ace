@@ -163,9 +163,10 @@ test("an accepted merge keeps its successful receipt when status fails and new I
   }
 });
 
-test("an unreadable merge acknowledgement fences other actions until a read observes the merged head", async () => {
+test("an unreadable merge acknowledgement fences merges, not other actions, until a read observes the merged head", async () => {
   const records = fixtures();
   records[mergePath] = [{ raw: "lost acknowledgement" }];
+  records[`${path}/requested_reviewers`] = [{ body: { requested_reviewers: [{ login: "octo" }] } }];
   records[path] = [{ body: hosted }, { body: hosted }, { body: merged }, { body: merged }];
   const app = await environment(records);
   try {
@@ -183,13 +184,14 @@ test("an unreadable merge acknowledgement fences other actions until a read obse
         },
       },
     });
+    // A review request cannot repeat or contradict the merge, so the merge's doubt doesn't fence it.
     expect(
       await app.command("request-instead", {
         type: "forge.review.request",
         link,
         reviewers: ["octo"],
       }),
-    ).toMatchObject({ ok: false, error: "forge_write_uncertain" });
+    ).toMatchObject({ ok: true });
     expect(await app.command("observe-merge")).toMatchObject({
       ok: true,
       code: "forge_action_reconciled",
@@ -208,7 +210,10 @@ test("an unreadable merge acknowledgement fences other actions until a read obse
     if (detail.result.kind !== "forge" || detail.result.data.resource !== "prDetail")
       throw new Error("Missing detail");
     expect(detail.result.data.value.writeState).toBeUndefined();
-    expect(await writes(app.gh)).toHaveLength(1);
+    expect((await writes(app.gh)).map((request) => request.path)).toEqual([
+      mergePath,
+      `${path}/requested_reviewers`,
+    ]);
   } finally {
     await app.close();
   }
@@ -332,21 +337,23 @@ test("lost reviewer acknowledgements reconcile canonical aliases after restart a
     { body: merged },
   ];
   const app = await environment(records);
+  const review = {
+    type: "forge.review.request",
+    link,
+    reviewers: ["ALICE", "Bob", "alice"],
+  } satisfies CommandPayload;
   try {
-    expect(
-      await app.command("review-aliases", {
-        type: "forge.review.request",
-        link,
-        reviewers: ["ALICE", "Bob", "alice"],
-      }),
-    ).toMatchObject({ ok: false, error: "forge_write_uncertain" });
-    await app.restart();
-    // An unrelated reviewer cannot stand in for a still-missing requested identity.
-    expect(await app.command("missing-bob")).toMatchObject({
+    expect(await app.command("review-aliases", review)).toMatchObject({
       ok: false,
       error: "forge_write_uncertain",
     });
-    expect(await app.command("canonical-reviewers")).toMatchObject({
+    await app.restart();
+    // An unrelated reviewer cannot stand in for a still-missing requested identity.
+    expect(await app.command("missing-bob", review)).toMatchObject({
+      ok: false,
+      error: "forge_write_uncertain",
+    });
+    expect(await app.command("canonical-reviewers", review)).toMatchObject({
       ok: true,
       code: "forge_action_reconciled",
     });

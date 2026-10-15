@@ -5,12 +5,14 @@ import type { ForgeRepository } from "@ace/protocol";
 import type { GhApi } from "./http.ts";
 import { ReadBudget } from "./read-budget.ts";
 import { ForgeMutationOutcome } from "./mutation.ts";
+import { ForgeError } from "./errors.ts";
 
-export type ReplyReceipt = { id: number | null; account: string; before: number };
+/** `at` is when the reply was reserved; an unconfirmed reply expires after the write window. */
+export type ReplyReceipt = { id: number | null; account: string; before: number; at: number };
 export interface ReplyReceipts {
   account: string;
   get(intent: string): ReplyReceipt | undefined;
-  reserve(intent: string, before: number): boolean;
+  reserve(intent: string, before: number, at: number): boolean;
   put(intent: string, id: number): void;
   remove(intent: string): void;
 }
@@ -49,32 +51,36 @@ export async function replyCutoff(
     0,
   );
 }
-/** An outstanding receipt is reconciled before any further reply write, including lost responses. */
+/** An outstanding receipt is reconciled before any further reply write, including lost responses.
+ * Returns the reply's ID, or null when a complete read shows no such reply. A failed read or a
+ * changed account proves nothing and stays uncertain. */
 export async function reconcileReply(
   api: GhApi,
   root: string,
   receipt: ReplyReceipt,
   expected: { account: string; body: string; commentId: number; number: number },
   signal: AbortSignal,
-): Promise<number> {
+): Promise<number | null> {
+  let values: z.infer<typeof comment>[];
   try {
     if (receipt.account !== expected.account) throw new Error("identity_changed");
-    const values =
+    values =
       receipt.id === null
         ? await comments(api, root, expected.number, signal)
         : [comment.parse((await api.request(`${root}/pulls/comments/${receipt.id}`, signal)).body)];
-    const matches = values.filter(
-      (value) =>
-        value.id > receipt.before &&
-        value.body === expected.body &&
-        value.in_reply_to_id === expected.commentId &&
-        value.user?.login === receipt.account &&
-        (receipt.id === null || value.id === receipt.id),
-    );
-    const found = matches[0];
-    if (matches.length !== 1 || !found) throw new Error("reply_unconfirmed");
-    return found.id;
-  } catch {
+  } catch (error) {
+    if (receipt.id !== null && error instanceof ForgeError && error.kind === "not_found")
+      return null;
     throw new ForgeMutationOutcome({ id: receipt.id });
   }
+  const matches = values.filter(
+    (value) =>
+      value.id > receipt.before &&
+      value.body === expected.body &&
+      value.in_reply_to_id === expected.commentId &&
+      value.user?.login === receipt.account &&
+      (receipt.id === null || value.id === receipt.id),
+  );
+  if (matches.length > 1) throw new ForgeMutationOutcome({ id: receipt.id });
+  return matches[0]?.id ?? null;
 }

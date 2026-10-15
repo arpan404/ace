@@ -9,6 +9,7 @@ import { WorkspaceForgeReviews } from "./workspace-forge-reviews.ts";
 import { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
 import { workspaceRepository } from "./workspace-repository.ts";
 import { remotePushesTo } from "./workspace-push.ts";
+import { forgeBranchName, prCreateTarget, recordedPrBase } from "./pr-create-target.ts";
 import {
   GitHubForge,
   ForgeError,
@@ -69,7 +70,7 @@ export class WorkspaceForge {
     this.store = store;
     this.lifecycle = new WorkspaceForgeLifecycle(store, this.owner);
     this.issueLinks = new WorkspaceIssueLinks(store);
-    this.issueActions = new IssueActions(store);
+    this.issueActions = new IssueActions(store, now);
     this.stacks = new WorkspaceForgeStacks(store, now, stackSyncGit(git));
     this.reviews = new WorkspaceForgeReviews(store, this.owner);
     this.replyReceipts = new ForgeReplyReceipts(store);
@@ -80,14 +81,40 @@ export class WorkspaceForge {
     this.stopPreferences = sourceControl?.listen(() => this.backends.clear());
     this.projection = new WorkspacePrLinks(store, now);
     this.links = this.projection.links;
-    this.actions = new WorkspaceForgeActions(store, this.owner);
+    this.actions = new WorkspaceForgeActions(store, this.owner, now);
   }
   async repository(cwd: string): Promise<ForgeRepository> {
+    return (await this.checkoutRepository(cwd)).repository;
+  }
+  /** The selected remote's repository, with SSH host aliases resolved, and the remote names. */
+  private async checkoutRepository(cwd: string) {
     const info = await this.git.repositoryInfo(cwd);
     const preferences = await this.sourceControl?.preferences();
-    const repository = workspaceRepository(info.remotes, preferences);
+    const aliases = await this.hostAliases(info.remotes);
+    const repository = workspaceRepository(info.remotes, preferences, aliases);
     if (!repository) throw new ForgeError("unsupported");
-    return repository;
+    return { repository, remotes: info.remotes.map((remote) => remote.name) };
+  }
+  private async hostAliases(remotes: readonly { fetchUrls: readonly string[] }[]) {
+    return (
+      (await this.sourceControl?.hostAliases(
+        remotes.flatMap((remote) => remote.fetchUrls),
+        this.lifetime.signal,
+      )) ?? {}
+    );
+  }
+  /** Every repository a PR created from this checkout may land in: origin, and its parent. */
+  async prRepositories(cwd: string): Promise<ForgeRepository[]> {
+    const pushed = await this.repository(cwd);
+    try {
+      const metadata = await (
+        await this.backend(cwd, pushed)
+      ).repositoryMetadata(this.lifetime.signal);
+      return metadata.parent ? [pushed, metadata.parent.repository] : [pushed];
+    } catch {
+      this.lifetime.signal.throwIfAborted();
+      return [pushed];
+    }
   }
 
   private async backend(cwd: string, repository: ForgeRepository): Promise<GitHubForge> {
@@ -110,7 +137,10 @@ export class WorkspaceForge {
                 const info = await this.git.repositoryInfo(cwd);
                 const remote = info.remotes.find((entry) => entry.name === request.remote);
                 const preferences = await this.sourceControl?.preferences();
-                if (!remotePushesTo(remote, repository, preferences))
+                const aliases = await this.hostAliases(
+                  remote ? [{ fetchUrls: remote.pushUrls }] : [],
+                );
+                if (!remotePushesTo(remote, repository, preferences, aliases))
                   throw new ForgeError("conflict");
                 return pushLeased({ ...request, worktree: cwd });
               },
@@ -242,8 +272,9 @@ export class WorkspaceForge {
     const detail = await (
       await this.backend(cwd, selection.ref.repository)
     ).prDetail(selection.ref.number, signal);
-    if (!detail.headRepository) throw new ForgeError("not_found");
-    if (detail.status.headSha !== selection.headSha) throw new ForgeError("conflict");
+    // GitHub keeps a PR whose fork was deleted, but its head can no longer be fetched.
+    if (!detail.headRepository) throw new ForgeError("fork_deleted");
+    if (detail.status.headSha !== selection.headSha) throw new ForgeError("head_moved");
     return detail;
   }
   async checkout(
@@ -254,8 +285,8 @@ export class WorkspaceForge {
     const value = await (
       await this.backend(cwd, selection.ref.repository)
     ).prCheckout(selection.ref.number, signal);
-    if (!value.headRepository) throw new ForgeError("not_found");
-    if (value.headSha !== selection.headSha) throw new ForgeError("conflict");
+    if (!value.headRepository) throw new ForgeError("fork_deleted");
+    if (value.headSha !== selection.headSha) throw new ForgeError("head_moved");
     return value;
   }
   admitCheckout(id: ThreadId, status: ForgePrStatus): void {
@@ -322,7 +353,7 @@ export class WorkspaceForge {
           this.projection.deleted(id, pr, existing.generation);
         else if (
           error instanceof ForgeError &&
-          !["cli", "forbidden", "rate_limit"].includes(error.kind)
+          !["cli", "offline", "forbidden", "rate_limit"].includes(error.kind)
         )
           throw error;
         return this.projection.fallback(
@@ -342,7 +373,10 @@ export class WorkspaceForge {
       status = await (await this.backend(cwd, pr.repository)).status(pr.number, signal);
     } catch (error) {
       signal.throwIfAborted();
-      if (error instanceof ForgeError && !["cli", "forbidden", "rate_limit"].includes(error.kind))
+      if (
+        error instanceof ForgeError &&
+        !["cli", "offline", "forbidden", "rate_limit"].includes(error.kind)
+      )
         throw error;
       status = this.projection.fallback(pr);
     }
@@ -393,15 +427,12 @@ export class WorkspaceForge {
       return { ok: true, data: { all: true, linkedPrs: [] } };
     }
     try {
+      // A bare `owner/name` lives on this checkout's host (an Enterprise host, say), never
+      // an assumed github.com.
       const origin = operation.url
         ? undefined
         : "repo" in operation && operation.repo
-          ? prRepository(operation.repo, {
-              forge: "github",
-              host: "github.com",
-              owner: "unused",
-              name: "unused",
-            })
+          ? prRepository(operation.repo, await this.defaultRepositoryHost(cwd))
           : await this.repository(cwd);
       const pr = operation.url
         ? prFromUrl(
@@ -429,6 +460,15 @@ export class WorkspaceForge {
         ok: false,
         code: error instanceof ForgeError && error.kind === "not_found" ? "not_found" : "invalid",
       };
+    }
+  }
+  /** The checkout's repository, else the configured host, as a fallback for `owner/name`. */
+  private async defaultRepositoryHost(cwd: string): Promise<ForgeRepository> {
+    try {
+      return await this.repository(cwd);
+    } catch {
+      const host = (await this.sourceControl?.preferences())?.host ?? "github.com";
+      return { forge: "github", host, owner: "unused", name: "unused" };
     }
   }
   async status(id: ThreadId, cwd: string): Promise<ForgePrStatus | null> {
@@ -532,10 +572,32 @@ export class WorkspaceForge {
       check?.();
       return permitted();
     };
-    const value = ForgeCreatePrInput.parse(input);
-    const backend = await this.backend(cwd, await this.repository(cwd));
+    const parsed = ForgeCreatePrInput.parse(input);
+    const checkout = await this.checkoutRepository(cwd);
+    const pushed = await this.backend(cwd, checkout.repository);
     if (!allowed()) throw new Error("forbidden");
-    if (!backend.findPr) throw new Error("forge_recovery_unavailable");
+    // The daemon owns the base: a reviewed draft's base, else the thread's recorded base, else
+    // the forge's default branch. A fork's PR opens on its parent, from `fork-owner:branch`.
+    const reviewed =
+      guard && parsed.base ? forgeBranchName(parsed.base, checkout.remotes) : undefined;
+    const target = prCreateTarget(
+      checkout.repository,
+      await pushed.repositoryMetadata(this.lifetime.signal),
+      {
+        reviewed,
+        recorded: recordedPrBase(
+          this.store.getThread(id)?.details,
+          parsed.branch,
+          checkout.remotes,
+        ),
+      },
+    );
+    const value = { ...parsed, base: target.base };
+    const backend =
+      repositoryKey(target.repository) === repositoryKey(checkout.repository)
+        ? pushed
+        : await this.backend(cwd, target.repository);
+    if (!allowed()) throw new Error("forbidden");
     const verifyHead = async () => {
       if (value.expectedHead === undefined) return;
       const info = await this.git.repositoryInfo(cwd);
@@ -544,13 +606,18 @@ export class WorkspaceForge {
         throw new Error("git_head_moved");
     };
     await verifyHead();
-    const found = await backend.findPr(value.branch, value.base, this.lifetime.signal);
+    const found = await backend.findPr(
+      value.branch,
+      value.base,
+      this.lifetime.signal,
+      target.headOwner,
+    );
     await verifyHead();
     if (!allowed()) throw new Error("forbidden");
     const publish = async () => {
       this.lifetime.signal.throwIfAborted();
       if (!allowed()) throw new Error("forbidden");
-      return backend.createPr(id, value, this.lifetime.signal);
+      return backend.createPr(id, value, this.lifetime.signal, target.headOwner);
     };
     let pr = found;
     if (!pr) {

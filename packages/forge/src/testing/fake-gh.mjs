@@ -1,14 +1,44 @@
 #!/usr/bin/env node
 // Synthetic recorded responses only. Never contacts GitHub or provider CLIs.
-import { readFileSync, writeFileSync, existsSync, watch } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  watch,
+  mkdirSync,
+  rmdirSync,
+  renameSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 const config = JSON.parse(readFileSync(process.env.FORGE_FIXTURE, "utf8"));
 const statePath = process.env.FORGE_STATE;
-let state;
-try {
-  state = JSON.parse(readFileSync(statePath, "utf8"));
-} catch {
-  state = { counters: {}, requests: [] };
+// Concurrent fake processes share one state file; serialise each read-modify-write.
+const lockPath = `${statePath}.lock`;
+const pause = new Int32Array(new SharedArrayBuffer(4));
+function locked(update) {
+  for (;;) {
+    try {
+      mkdirSync(lockPath);
+      break;
+    } catch {
+      Atomics.wait(pause, 0, 0, 2);
+    }
+  }
+  try {
+    let state;
+    try {
+      state = JSON.parse(readFileSync(statePath, "utf8"));
+    } catch {
+      state = { counters: {}, requests: [] };
+    }
+    const result = update(state);
+    // Readers never observe a half-written file.
+    writeFileSync(`${statePath}.next`, JSON.stringify(state));
+    renameSync(`${statePath}.next`, statePath);
+    return result;
+  } finally {
+    rmdirSync(lockPath);
+  }
 }
 const args = process.argv.slice(2);
 let input = "";
@@ -41,16 +71,17 @@ const fixturePath =
           body.query.includes(key.slice(8)),
       ) ?? path)
     : path;
-const count = state.counters[fixturePath] ?? 0;
 const records = config[fixturePath];
 if (!records) {
   process.stderr.write("Unexpected request");
   process.exit(1);
 }
-const response = records[Math.min(count, records.length - 1)];
-state.counters[fixturePath] = count + 1;
-state.requests.push({ path, args, ...(body === undefined ? {} : { body }) });
-writeFileSync(statePath, JSON.stringify(state));
+const response = locked((state) => {
+  const count = state.counters[fixturePath] ?? 0;
+  state.counters[fixturePath] = count + 1;
+  state.requests.push({ path, args, ...(body === undefined ? {} : { body }) });
+  return records[Math.min(count, records.length - 1)];
+});
 if (response.barrier) {
   const dir = dirname(process.env.FORGE_FIXTURE);
   const gate = join(dir, response.barrier);

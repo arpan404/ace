@@ -63,7 +63,7 @@ for (const status of [409, 422]) {
     try {
       const dispatch = new WriteDispatch();
       await expect(f.forge.merge(7, sha, "squash", signal(), dispatch)).rejects.toMatchObject({
-        kind: "conflict",
+        kind: status === 409 ? "conflict" : "unprocessable",
         dispatched: false,
       });
       expect(dispatch.definitelyFailed).toBe(true);
@@ -201,12 +201,8 @@ test("a changed head prevents auto-merge before mutation dispatch", async () => 
 test("structured auto-merge keeps its admitted outcome when the identity probe changes after the mutation", async () => {
   const f = await fakeGh({
     "repos/octo/ace/pulls/7": [{ body: pr }],
-    user: [
-      { body: { login: "alice" } },
-      { body: { login: "alice" } },
-      { body: { login: "alice" } },
-      { body: { login: "bob" } },
-    ],
+    // Before the read, before the write, then a different account right after it.
+    user: [{ body: { login: "alice" } }, { body: { login: "alice" } }, { body: { login: "bob" } }],
     graphql: [
       mergeStateResponse(),
       { body: { data: { enablePullRequestAutoMerge: { pullRequest: { id: "PR_7" } } } } },
