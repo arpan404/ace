@@ -128,7 +128,7 @@ test("checkout errors keep their code and tell the person how to recover", async
       ["forge_rate_limit", /wait a few minutes/],
       ["forge_cli", /^Sign in to GitHub: run `gh auth login`/],
       ["forge_unsupported", /open the pull request on its website/],
-      ["forge_conflict", /Refresh, then retry/],
+      ["forge_conflict", /refresh, then retry/],
     ] as const) {
       f.daemon.refuseCommands(code, "git.push");
       const error = await source.push(thread).then(

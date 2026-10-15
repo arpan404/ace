@@ -190,7 +190,9 @@ test("a refresh during an edit retains its original guard and reports conflict w
     f.refresh("External C");
     f.refuse("forge_conflict");
     await userEvent.click(screen.getByRole("button", { name: "Save comment" }));
-    await screen.findByText("This changed on GitHub since ace last read it. Refresh, then retry.");
+    await screen.findByText(
+      "This changed on GitHub since you looked, or its name is taken: refresh, then retry.",
+    );
     expect(f.sent).toEqual([
       {
         kind: "comment.edit",

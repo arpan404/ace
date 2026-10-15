@@ -89,5 +89,8 @@ export function apiState(status: SourceControlReadiness): string {
   if (status.api === "account_mismatch")
     return `Signed in as ${status.account ?? "no account"}, expected ${expected ?? "another account"}`;
   if (status.api === "login_required") return "Not signed in";
+  // Network and quota answers, never a sign-in problem.
+  if (status.api === "offline") return "GitHub unreachable";
+  if (status.api === "rate_limited") return "GitHub rate limit reached";
   return status.cli === "available" ? "GitHub API unavailable" : "GitHub CLI not installed";
 }

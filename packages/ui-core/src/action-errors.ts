@@ -111,7 +111,9 @@ const copy: Record<string, string> = {
   forge_rate_limit: "GitHub's rate limit was reached: wait a few minutes, then retry.",
   forge_unsupported:
     "This forge or GitHub feature isn't supported here: open the pull request on its website.",
-  forge_conflict: "This changed on GitHub since ace last read it. Refresh, then retry.",
+  // A stale commit (409) or a name already taken; GitHub's 422 and head moves have their own.
+  forge_conflict:
+    "This changed on GitHub since you looked, or its name is taken: refresh, then retry.",
   forge_offline: "GitHub can't be reached from the daemon: check its connection, then retry.",
   forge_no_commits:
     "The branch has no commits its base doesn't: commit and push changes before opening a PR.",

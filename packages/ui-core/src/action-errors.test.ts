@@ -124,8 +124,9 @@ test("an unknown code falls back to a general sentence instead of showing the co
   expect(general).not.toContain("_");
 });
 
-test("a conflict while reading says refresh, while a refused write names what changed", () => {
-  expect(actionErrorText("forge_conflict")).toMatch(/Refresh, then retry/);
+test("a stale or colliding write says refresh, while other refused writes name what changed", () => {
+  expect(actionErrorText("forge_conflict")).toMatch(/name is taken: refresh, then retry/);
+  expect(actionErrorText("forge_unprocessable")).toMatch(/couldn't accept/);
   expect(actionErrorText("forge_head_moved")).toMatch(/branch moved/);
   expect(actionErrorText("forge_version_mismatch")).toMatch(/apply your edit again/);
   const writes = ["forge_write_refused", "forge_validation_failed", "forge_head_moved"];

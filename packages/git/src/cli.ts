@@ -27,7 +27,6 @@ import {
 } from "./non-executing.ts";
 import { credentialHelperArgs, systemCredentialConfigFile } from "./credential-helpers.ts";
 import { userTransportConfig } from "./transport-config.ts";
-import { realpath } from "node:fs/promises";
 import { Readable, type Writable } from "node:stream";
 import { drainProcessExit, killTree, processRuntime } from "./process-runtime.ts";
 import { StringDecoder } from "node:string_decoder";

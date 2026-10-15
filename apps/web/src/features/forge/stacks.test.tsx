@@ -305,9 +305,7 @@ test("a locally rebased stack reviews each layer's leased push before publishing
     "#43 ui ccccccc → 3333333",
   ]);
   await userEvent.click(within(confirmation).getByRole("button", { name: "Confirm push" }));
-  expect(
-    await within(section).findByText(/This changed on GitHub since ace last read it/),
-  ).toBeTruthy();
+  expect(await within(section).findByText(/This changed on GitHub since you looked/)).toBeTruthy();
 });
 
 test("layers a collaborator moved on GitHub are listed with both heads and block publishing", async () => {
@@ -351,11 +349,9 @@ test("moved layers can be brought into the stack after reviewing each layer's ne
       .getAllByRole("listitem")
       .map((item) => item.textContent),
   ).toEqual(["#42 api bbbbbbb..9999999"]);
-  expect(within(section).queryByText(/This changed on GitHub since ace last read it/)).toBeNull();
+  expect(within(section).queryByText(/This changed on GitHub since you looked/)).toBeNull();
   await userEvent.click(within(confirmation).getByRole("button", { name: "Confirm stack action" }));
-  expect(
-    await within(section).findByText(/This changed on GitHub since ace last read it/),
-  ).toBeTruthy();
+  expect(await within(section).findByText(/This changed on GitHub since you looked/)).toBeTruthy();
 });
 
 test("a sync stopped on a conflict offers Continue and Abort", async () => {
@@ -390,7 +386,7 @@ test("a sync interrupted without a result can only be aborted", async () => {
 
 test.each([
   { error: "forge_forbidden", message: /GitHub denied access: check your permissions/ },
-  { error: "forge_conflict", message: /This changed on GitHub since ace last read it/ },
+  { error: "forge_conflict", message: /This changed on GitHub since you looked/ },
 ])(
   "final stack confirmation submits the command and exposes its $error receipt",
   async ({ error, message }) => {
