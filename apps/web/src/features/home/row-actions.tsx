@@ -10,19 +10,22 @@ import {
   useThreadActions,
 } from "@/features/organize/index.ts";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
+import { cn } from "@/lib/cn.ts";
 import { useState } from "react";
 import { useRowMenuShortcuts } from "./use-row-menu-shortcuts.ts";
 
 /**
- * The row's hover and focus actions, over its status in the top line: Snooze (a clock that opens
- * the snooze times), Settle or Unsettle where the thread allows it, and the ⋯ menu of everything
- * else. The same registry owns row and header menu entries.
+ * The row's hover and focus actions, in its status's place on the top line: Snooze (a clock that
+ * opens the snooze times), Settle or Unsettle where the thread allows it, and the ⋯ menu of
+ * everything else. `shown` while the row is under the pointer or keyboard focus; an open menu
+ * keeps them up. The same registry owns row and header menu entries.
  */
 export function RowActions(props: {
   entry: ThreadListEntry;
   flags: ThreadRowFlags;
   onRename(): void;
   onHover(): void;
+  shown: boolean;
 }) {
   const actions = useThreadActions();
   const settle = settleAction(props.entry, props.flags, actions);
@@ -30,7 +33,10 @@ export function RowActions(props: {
   return (
     <div
       // Centred on the top line (10px padding, 16px line), so the row never moves.
-      className="absolute top-4.5 right-1.5 hidden -translate-y-1/2 items-center gap-0.5 group-focus-within/row:flex group-hover/row:flex has-[[data-popup-open]]:flex"
+      className={cn(
+        "absolute top-4.5 right-1.5 -translate-y-1/2 items-center gap-0.5",
+        props.shown ? "flex" : "hidden has-[[data-popup-open]]:flex",
+      )}
       onPointerEnter={props.onHover}
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}

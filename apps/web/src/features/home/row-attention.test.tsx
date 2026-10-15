@@ -80,14 +80,19 @@ async function setup() {
   const word = (title: string, text: string) =>
     within(link(title)).queryByText(text, { exact: true });
   const visit = async (path: string) => act(() => history.push(path));
-  return { app, list, link, row, word, visit };
+  // A row's status gives way to its actions under the pointer: open it, then move the pointer on.
+  const open = async (title: string) => {
+    await userEvent.click(link(title));
+    await userEvent.unhover(link(title));
+  };
+  return { app, list, link, row, word, visit, open };
 }
 
 test("a done thread says Done until it is opened, then goes quiet with only its age", async () => {
-  const { link, row, word, visit } = await setup();
+  const { link, row, word, visit, open } = await setup();
   await waitFor(() => expect(word("Ship the release notes", "Done")).toBeTruthy());
   expect(row("Ship the release notes")).toEqual({ level: "done-unread", muted: false });
-  await userEvent.click(link("Ship the release notes"));
+  await open("Ship the release notes");
   await waitFor(() =>
     expect(link("Ship the release notes").getAttribute("aria-current")).toBe("page"),
   );
@@ -102,8 +107,8 @@ test("a done thread says Done until it is opened, then goes quiet with only its 
 });
 
 test("new activity after reading makes a thread unread again", async () => {
-  const { app, link, row, word, visit } = await setup();
-  await userEvent.click(link("Ship the release notes"));
+  const { app, link, row, word, visit, open } = await setup();
+  await open("Ship the release notes");
   await visit("/new");
   await waitFor(() => expect(row("Ship the release notes").level).toBe("quiet"));
   act(() => app.daemon.apply("thread-done", turnFacts("turn-2", "completed")));
@@ -113,10 +118,10 @@ test("new activity after reading makes a thread unread again", async () => {
 });
 
 test("a thread that needs you stays strong after it is opened", async () => {
-  const { link, row, word, visit } = await setup();
+  const { link, row, word, visit, open } = await setup();
   const title = "Approval sheet loses its state on rotate";
   expect(row(title)).toEqual({ level: "needs-you", muted: false });
-  await userEvent.click(link(title));
+  await open(title);
   await visit("/new");
   await waitFor(() => expect(link(title).getAttribute("aria-label")).not.toContain(", unread"));
   expect(row(title)).toEqual({ level: "needs-you", muted: false });
@@ -124,23 +129,23 @@ test("a thread that needs you stays strong after it is opened", async () => {
 });
 
 test("a failure is strong until seen, then a quiet Failed", async () => {
-  const { link, row, word, visit } = await setup();
+  const { row, word, visit, open } = await setup();
   const title = "Migrate the billing table";
   await waitFor(() => expect(row(title)).toEqual({ level: "failed", muted: false }));
   expect(word(title, "Failed")).toBeTruthy();
-  await userEvent.click(link(title));
+  await open(title);
   await visit("/new");
   await waitFor(() => expect(row(title)).toEqual({ level: "failed-seen", muted: true }));
   expect(word(title, "Failed")).toBeTruthy();
 });
 
 test("a working row that isn't open is calm with a live indicator; the open one is full contrast", async () => {
-  const { link, row, word } = await setup();
+  const { row, word, open } = await setup();
   const title = "Rewrite the install page for the daemon";
   expect(row(title)).toEqual({ level: "active", muted: true });
   const status = word(title, "Working")?.parentElement;
   expect(status?.querySelector('[data-state="working"][data-live]')).toBeTruthy();
-  await userEvent.click(link(title));
+  await open(title);
   await waitFor(() => expect(row(title)).toEqual({ level: "active", muted: false }));
   expect(
     word(title, "Working")?.parentElement?.querySelector('[data-state="working"][data-live]'),
@@ -148,7 +153,7 @@ test("a working row that isn't open is calm with a live indicator; the open one 
 });
 
 test("Mark as unread brings Done back, and Mark as read quiets it, from the row's menu", async () => {
-  const { app, row, word } = await setup();
+  const { app, link, row, word } = await setup();
   const title = "Ship the release notes";
   await act(() =>
     app.client.command({
@@ -161,6 +166,7 @@ test("Mark as unread brings Done back, and Mark as read quiets it, from the row'
   await userEvent.click(screen.getByRole("button", { name: `Actions for ${title}` }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /Mark (as )?unread/ }));
   await waitFor(() => expect(row(title).level).toBe("done-unread"));
+  await userEvent.unhover(link(title));
   expect(word(title, "Done")).toBeTruthy();
 });
 

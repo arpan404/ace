@@ -15,6 +15,7 @@ import { RowActions } from "./row-actions.tsx";
 import { ProjectMark, RowStatus, RowContext, threadDetails, titleTone } from "./row-parts.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
 import { useStartedTitle } from "./started-titles.ts";
+import { useRowActive } from "./use-row-active.ts";
 import { useThreadCard } from "./use-thread-card.ts";
 
 // Rows are apart by space, not rules: the list sits inset from the sidebar's edges, and hover and
@@ -38,6 +39,7 @@ export function ThreadRow(props: {
   const renaming = editing !== undefined || refused !== undefined;
   const started = useStartedTitle(props.threadId);
   const selected = useSelected(props.threadId);
+  const rowActive = useRowActive();
   // One of its provider subagents open as the whole chat is still this thread.
   const current = useLocation({
     select: (location) =>
@@ -57,6 +59,7 @@ export function ThreadRow(props: {
     (entry.switch?.state === "queued" ? entry.switch.selection.instanceId : undefined) ??
     entry.live?.account ??
     entry.execution?.instanceId;
+  const actions = rowActive.active && !renaming;
   // Three lines of 16, 20 and 16px, 4px between each, 10px above and below.
   const height = "h-[80px] py-2.5";
   const title = (
@@ -79,15 +82,19 @@ export function ThreadRow(props: {
       <div
         className={cn(
           "flex min-w-0 items-center gap-1.5 text-meta leading-4 text-muted-foreground",
-          // Under the pointer or focus the row's actions sit beside the status, which stays.
-          !renaming && "group-hover/row:pr-24 group-focus-within/row:pr-24",
+          // Under the pointer or keyboard focus the row's actions take the status slot: the project
+          // name stops short of them and the status steps aside, so only Snooze, Settle and ⋯ show.
+          // An action's menu keeps them up after the pointer leaves; the status waits until it closes.
+          actions ? "pr-32" : "group-has-[[data-popup-open]]/row:pr-32",
         )}
       >
         <ProjectMark id={entry.workspaceId} badge={card.badge} />
         <span className="min-w-0 flex-1 truncate">{card.project}</span>
-        <span className="flex shrink-0">
-          <RowStatus card={card} attention={attention} />
-        </span>
+        {!actions && (
+          <span className="flex shrink-0 group-has-[[data-popup-open]]/row:hidden">
+            <RowStatus card={card} attention={attention} />
+          </span>
+        )}
       </div>
       {title}
       <div className="mt-1">
@@ -111,6 +118,7 @@ export function ThreadRow(props: {
             onContextMenu={() => hover.change(false)}
             render={<div />}
             className="group/row relative"
+            {...rowActive.handlers}
             data-attention={attention.level}
             data-muted={attention.muted ? "" : undefined}
             // Settled rows stay out of picking and dragging, as they always have.
@@ -155,6 +163,7 @@ export function ThreadRow(props: {
               <RowActions
                 onRename={() => selection.rename(props.threadId, card.title)}
                 onHover={() => hover.change(false)}
+                shown={actions}
                 entry={entry}
                 flags={card.flags}
               />
