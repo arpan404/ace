@@ -39,7 +39,7 @@ test("an explicitly changed account cannot reuse another account's selectable re
   const account = screen.getByRole("textbox", { name: "GitHub account" });
   await userEvent.clear(account);
   await userEvent.type(account, "other");
-  await screen.findByText(/Repository access failed/);
+  await screen.findByText(/Couldn't list repositories\. GitHub denied access/);
   expect(screen.queryByRole("button", { name: /ada\/engine/ })).toBeNull();
 });
 async function openPublish() {
