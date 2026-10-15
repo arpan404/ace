@@ -127,6 +127,11 @@ export const WorkspaceActionResult = z.object({
         .regex(/^[a-f0-9]{40,64}$/)
         .nullable()
         .optional(),
+      /**
+       * Whether the person's commit here runs their Git hooks. `skipped` in a pull request
+       * checkout whose hooks live inside it: those are the PR author's programs.
+       */
+      hooks: z.enum(["run", "skipped"]).optional(),
     }),
     z.object({
       kind: z.literal("gitDiff"),
@@ -232,6 +237,11 @@ export const WorkspaceCommands = [
           .nullable(),
       })
       .optional(),
+    /**
+     * Replace the remote branch, but only while it still holds `lease`: the remote-tracking
+     * revision the person saw (a rejected push's `remoteHead`), never a fresh fetch.
+     */
+    force: z.object({ lease: z.string().regex(/^[a-f0-9]{40,64}$/) }).optional(),
   }),
 ] as const;
 
@@ -240,6 +250,14 @@ export const GitActionError = z.enum([
   "git_head_moved",
   "git_conflicts",
   "git_hook_failed",
+  /** Not a fast-forward; the result carries `remoteHead` when the tracking ref exists. */
+  "git_push_rejected",
+  /** A force-with-lease push refused: the remote moved past the leased revision. */
+  "git_push_lease_stale",
+  /** The remote's branch protection refused the push. */
+  "git_push_protected",
+  /** A PR checkout's head repository is gone, or no configured remote pushes to it. */
+  "git_pr_head_unavailable",
   "git_auth_failed",
   "git_failed",
   "git_dirty_worktree",

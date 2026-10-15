@@ -130,6 +130,7 @@ test("creating an existing PR links it and forge actions return fresh status", a
     expect(result).toMatchObject({
       ok: true,
       pr: { number: 42 },
+      prExisting: true,
       prStatus: { title: "Existing review PR", ci: "pending" },
     });
     const calls = (await readFile(join(f.home, "gh-calls"), "utf8")).split("\n");
