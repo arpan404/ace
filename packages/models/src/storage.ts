@@ -2,6 +2,7 @@ import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { chmodSync } from "node:fs";
 import { IdleWorker, type IdleWorkerRuntime } from "@ace/provider-kit/idle-worker";
 import { z } from "zod";
+import { IncompatibleDataError } from "@ace/provider-kit/incompatible-data";
 import { CachedEntry } from "./cache-schema.ts";
 import type { CacheEntry, CatalogStorage } from "./types.ts";
 
@@ -22,16 +23,20 @@ export function openModelStorage(path: string, runtime?: IdleWorkerRuntime): Cat
       )
       .all();
     if (rows.length > 64) throw new Error("Too many persisted instances");
-    entries = rows.map((row) =>
-      CachedEntry.parse(
-        JSON.parse(
-          z
-            .string()
-            .max(4 * 1024 * 1024)
-            .parse(row["payload"]),
+    try {
+      entries = rows.map((row) =>
+        CachedEntry.parse(
+          JSON.parse(
+            z
+              .string()
+              .max(4 * 1024 * 1024)
+              .parse(row["payload"]),
+          ),
         ),
-      ),
-    );
+      );
+    } catch {
+      throw new IncompatibleDataError(path, "The model cache holds entries in an older format");
+    }
   } finally {
     db.close();
   }

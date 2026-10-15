@@ -1,7 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { utimes } from "node:fs/promises";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { environment, jsonl, claudeRecords, cwd, nativeId, init, text } from "./test-support.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -76,46 +75,3 @@ test.each(["cold", "changed"])(
     await assertTree(reopened, "reopened-import");
   },
 );
-
-test("an older catalog rescans cached sidechain identities before serving them", async () => {
-  const env = await environment();
-  cleanup.push(env.close);
-  const homeDir = join(env.root, "claude");
-  const homes = [{ id: "account", provider: "claude" as const, homeDir }];
-  await jsonl(join(homeDir, "projects/p", nativeId + ".jsonl"), claudeRecords());
-  await jsonl(
-    join(homeDir, "projects/p", nativeId, "subagents/agent-child.jsonl"),
-    claudeRecords("child request"),
-  );
-  const original = await env.start(homes);
-  await original.scan();
-  await original.close();
-  // Model a persisted catalog from the version that lost path-derived identity.
-  const legacy = new DatabaseSync(join(env.root, "ace/index.sqlite"));
-  try {
-    legacy.prepare("UPDATE catalog_settings SET value='4' WHERE key='format'").run();
-    legacy
-      .prepare(
-        "UPDATE sources SET id='legacy-child',native=?,parent='sidechain',summary=json_set(summary,'$.id','legacy-child','$.nativeId',?,'$.parentNativeId','sidechain') WHERE parent IS NOT NULL",
-      )
-      .run(nativeId, nativeId);
-  } finally {
-    legacy.close();
-  }
-  const reopened = await env.start(homes);
-  expect((await reopened.list({ type: "history.list", cwd })).sessions).toEqual([]);
-  expect(await reopened.scan()).toMatchObject({ reads: 2, skipped: 0 });
-  const roots = (await reopened.list({ type: "history.list", cwd })).sessions;
-  expect(roots.map((s) => s.nativeId)).toEqual([nativeId]);
-  const source = roots[0];
-  if (!source) throw new Error("Missing root after upgrade");
-  const request = init(source.id);
-  await reopened.importSession(request);
-  expect((await reopened.importedAgents(request.threadId)).map((a) => a.native.nativeId)).toEqual([
-    nativeId,
-    "agent-child",
-  ]);
-  expect(text((await reopened.itemsPage({ threadId: request.threadId })).items)).toContain(
-    "child request",
-  );
-});

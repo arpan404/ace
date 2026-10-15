@@ -1,6 +1,23 @@
 import { z } from "zod";
 import type { DatabaseSync, StatementSync, SQLInputValue } from "node:sqlite";
+import { IncompatibleDataError } from "@ace/provider-kit/incompatible-data";
 
+const currentColumns = { long_items: "agent_id", long_agents: "completion_relevant" } as const;
+/** Index tables from an older pre-release build are refused; ace carries no upgrades for them. */
+function assertCurrentColumns(db: DatabaseSync): void {
+  for (const [table, column] of Object.entries(currentColumns)) {
+    const names = db
+      .prepare(`PRAGMA table_info(${table})`)
+      .all()
+      .map((row) => z.object({ name: z.string() }).parse(row).name);
+    if (names.includes(column)) continue;
+    throw new IncompatibleDataError(
+      db.location() ?? "the daemon database",
+      `The thread summary index is in an older format (${table})`,
+      "Quit ace, then start it with a fresh ACE_HOME.",
+    );
+  }
+}
 export class LongThreadDatabase {
   readonly db: DatabaseSync;
   private readonly statements = new Map<string, StatementSync>();
@@ -9,20 +26,13 @@ export class LongThreadDatabase {
     db.exec(
       "CREATE TABLE IF NOT EXISTS long_items(thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,item_id TEXT NOT NULL,ordinal INTEGER NOT NULL,created_seq INTEGER NOT NULL,role TEXT,preview TEXT NOT NULL DEFAULT '',counters TEXT NOT NULL DEFAULT '{}',agent_id TEXT,PRIMARY KEY(thread_id,item_id))",
     );
-    const itemColumns = new Set(
-      db
-        .prepare("PRAGMA table_info(long_items)")
-        .all()
-        .map((row) => z.object({ name: z.string() }).parse(row).name),
-    );
-    if (!itemColumns.has("agent_id")) db.exec("ALTER TABLE long_items ADD COLUMN agent_id TEXT");
     db.exec(`
       CREATE TABLE IF NOT EXISTS long_meta(id INTEGER PRIMARY KEY,seq INTEGER NOT NULL);
       INSERT OR IGNORE INTO long_meta VALUES(1,0);
       CREATE TABLE IF NOT EXISTS long_heads(thread_id TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,ordinal INTEGER NOT NULL DEFAULT 0,root TEXT,status TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS long_turns(thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,ordinal INTEGER NOT NULL,start_seq INTEGER NOT NULL,end_seq INTEGER NOT NULL,started_at INTEGER NOT NULL,ended_at INTEGER,root_run TEXT,root_outcome TEXT NOT NULL DEFAULT 'active',settled_seq INTEGER,initiating TEXT NOT NULL DEFAULT '',latest TEXT NOT NULL DEFAULT '',PRIMARY KEY(thread_id,ordinal));
       CREATE TABLE IF NOT EXISTS long_runs(thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,id TEXT NOT NULL,ordinal INTEGER NOT NULL,root INTEGER NOT NULL,live INTEGER NOT NULL,PRIMARY KEY(thread_id,id));
-      CREATE TABLE IF NOT EXISTS long_agents(thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,id TEXT NOT NULL,ordinal INTEGER NOT NULL,status TEXT NOT NULL,child_thread TEXT,name TEXT,started_at INTEGER NOT NULL,ended_at INTEGER,last_seq INTEGER NOT NULL,PRIMARY KEY(thread_id,id));
+      CREATE TABLE IF NOT EXISTS long_agents(thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,id TEXT NOT NULL,ordinal INTEGER NOT NULL,status TEXT NOT NULL,child_thread TEXT,name TEXT,started_at INTEGER NOT NULL,ended_at INTEGER,last_seq INTEGER NOT NULL,completion_relevant INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(thread_id,id));
       CREATE INDEX IF NOT EXISTS long_agents_turn ON long_agents(thread_id,ordinal,id);
       CREATE INDEX IF NOT EXISTS long_agents_children ON long_agents(child_thread,thread_id,ordinal) WHERE child_thread IS NOT NULL;
       CREATE TABLE IF NOT EXISTS long_items(thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,item_id TEXT NOT NULL,ordinal INTEGER NOT NULL,created_seq INTEGER NOT NULL,role TEXT,preview TEXT NOT NULL DEFAULT '',counters TEXT NOT NULL DEFAULT '{}',agent_id TEXT,PRIMARY KEY(thread_id,item_id));
@@ -58,24 +68,8 @@ export class LongThreadDatabase {
       CREATE TABLE IF NOT EXISTS long_range_migration(id INTEGER PRIMARY KEY,stage INTEGER NOT NULL,through INTEGER NOT NULL,thread TEXT NOT NULL,key TEXT NOT NULL,seq INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS long_range_file_members(thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,item_id TEXT NOT NULL,path TEXT NOT NULL,PRIMARY KEY(thread_id,item_id,path));
       INSERT OR IGNORE INTO long_range_migration SELECT 1,0,seq,'','',0 FROM long_meta WHERE id=1;
-      CREATE TABLE IF NOT EXISTS long_completion_migration(id INTEGER PRIMARY KEY,thread TEXT NOT NULL,done INTEGER NOT NULL,version INTEGER NOT NULL DEFAULT 2);
-      INSERT OR IGNORE INTO long_completion_migration(id,thread,done) VALUES(1,'',0);
     `);
-    const completionColumns = db.prepare("PRAGMA table_info(long_completion_migration)").all();
-    if (!completionColumns.some((column) => column.name === "version")) {
-      db.exec(
-        "ALTER TABLE long_completion_migration ADD COLUMN version INTEGER NOT NULL DEFAULT 2",
-      );
-      db.exec("UPDATE long_completion_migration SET thread='',done=0");
-    }
-    const agentColumns = new Set(
-      db
-        .prepare("PRAGMA table_info(long_agents)")
-        .all()
-        .map((row) => z.object({ name: z.string() }).parse(row).name),
-    );
-    if (!agentColumns.has("completion_relevant"))
-      db.exec("ALTER TABLE long_agents ADD COLUMN completion_relevant INTEGER NOT NULL DEFAULT 1");
+    assertCurrentColumns(db);
   }
   sql(text: string): StatementSync {
     let statement = this.statements.get(text);
@@ -98,8 +92,7 @@ export class LongThreadDatabase {
     return Number(this.sql("SELECT seq FROM long_meta WHERE id=1").get()?.seq);
   }
   digestIndexedSeq(): number {
-    return Number(this.sql("SELECT stage FROM long_range_migration WHERE id=1").get()?.stage) ===
-      6 && this.sql("SELECT done FROM long_completion_migration WHERE id=1").get()?.done === 1
+    return Number(this.sql("SELECT stage FROM long_range_migration WHERE id=1").get()?.stage) === 6
       ? this.indexedSeq()
       : 0;
   }

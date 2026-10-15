@@ -1,8 +1,4 @@
-import { restorePrePreviewSchema } from "./migration-test-support.ts";
 import { DatabaseSync } from "node:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { expect, it } from "vitest";
 import { Agent, BackgroundTask, Interaction, Run, DeviceId, type Thread } from "@ace/protocol";
 import { Store, createDevThread } from "./index.ts";
@@ -114,43 +110,6 @@ it("loads cold work status and the item window without reading historical event 
     store.releaseThread(thread.id);
   } finally {
     store.close();
-  }
-});
-it("backfills version-three work entities and item metadata once, then keeps appending across restarts", () => {
-  const home = mkdtempSync(join(tmpdir(), "ace-status-upgrade-"));
-  const path = join(home, "events.sqlite");
-  let store = new Store(path);
-  try {
-    const thread = createDevThread(store, store.createWorkspace("/repo", "repo"));
-    work(store, thread);
-    store.appendEvents(thread.id, [{ type: "item.created", item: message("m", "before") }]);
-    store.close();
-    const db = new DatabaseSync(path);
-    restorePrePreviewSchema(db);
-    db.exec(
-      "DROP TABLE text_encoding_migration; DROP TABLE item_text_chunks; DROP TABLE item_heads; DROP TABLE view_entities; DROP TABLE status_migration; UPDATE schema_version SET version = 3",
-    );
-    db.close();
-    store = new Store(path);
-    assertWork(store, thread);
-    const item = message("m");
-    store.appendEvents(thread.id, [
-      {
-        type: "item.delta",
-        itemId: item.id,
-        agentId: item.agentId,
-        field: "text",
-        append: " after",
-      },
-    ]);
-    const snapshot = store.snapshotThread(thread.id);
-    expect(snapshot.items.m).toMatchObject({ parts: [{ text: "before after" }] });
-    store.close();
-    store = new Store(path);
-    expect(store.snapshotThread(thread.id)).toEqual(snapshot);
-  } finally {
-    store.close();
-    rmSync(home, { recursive: true, force: true });
   }
 });
 it("uses the injected allocator for durable blob references", () => {

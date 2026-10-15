@@ -1,3 +1,4 @@
+import { requireEngineColumns } from "./schema-version.ts";
 import { withoutPortableHandoff } from "@ace/projection";
 import { piInput } from "@ace/adapter-pi/input";
 import { content as claudeInputContent } from "@ace/adapter-claude/input";
@@ -63,7 +64,7 @@ export class InputJournal {
       db.exec(`CREATE TABLE IF NOT EXISTS engine_inputs (
       ordinal INTEGER PRIMARY KEY, thread_id TEXT NOT NULL, item_key TEXT NOT NULL,
       signature TEXT NOT NULL, origin JSON NOT NULL, sent INTEGER NOT NULL DEFAULT 0,
-      matched INTEGER NOT NULL DEFAULT 0, UNIQUE(thread_id,item_key));
+      matched INTEGER NOT NULL DEFAULT 0, generation INTEGER, run_id TEXT, UNIQUE(thread_id,item_key));
       CREATE INDEX IF NOT EXISTS engine_inputs_echo ON engine_inputs(thread_id,signature,sent,matched,ordinal);
       CREATE TABLE IF NOT EXISTS engine_input_echoes (
         thread_id TEXT NOT NULL, native_key TEXT NOT NULL, item_key TEXT NOT NULL,
@@ -74,39 +75,9 @@ export class InputJournal {
         thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
         native_id TEXT NOT NULL, command_id TEXT NOT NULL,
         PRIMARY KEY(thread_id,native_id))`);
-      // Upgrade #116's durable native identities into the one host origin journal.
-      if (
-        db
-          .prepare(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='engine_input_messages'",
-          )
-          .get()
-      ) {
-        db.exec(`INSERT OR IGNORE INTO engine_input_identities SELECT thread_id,native_id,command_id FROM engine_input_messages;
-          INSERT OR IGNORE INTO engine_inputs(thread_id,item_key,signature,origin)
-          SELECT thread_id,'input:'||command_id,'',json_object('kind','subagent_result','commandId',command_id) FROM engine_ace_inputs;
-          DROP TABLE engine_input_messages;`);
-      }
     });
     store.atomic((db) => {
-      if (
-        !db
-          .prepare("PRAGMA table_info(engine_inputs)")
-          .all()
-          .some((field) => field.name === "generation")
-      )
-        db.exec("ALTER TABLE engine_inputs ADD COLUMN generation INTEGER");
-      if (
-        !db
-          .prepare("PRAGMA table_info(engine_inputs)")
-          .all()
-          .some((field) => field.name === "run_id")
-      ) {
-        db.exec("ALTER TABLE engine_inputs ADD COLUMN run_id TEXT");
-        db.exec(
-          "UPDATE engine_inputs SET run_id=(SELECT json_extract(item,'$.runId') FROM items WHERE id=item_key)",
-        );
-      }
+      requireEngineColumns(db, "engine_inputs", ["generation", "run_id"]);
       db.exec(`CREATE INDEX IF NOT EXISTS engine_inputs_run ON engine_inputs(thread_id,run_id);
         CREATE INDEX IF NOT EXISTS engine_inputs_delivery ON engine_inputs(thread_id,generation,signature,sent,matched,ordinal);
         DELETE FROM engine_input_echoes WHERE thread_id NOT IN (SELECT id FROM threads);

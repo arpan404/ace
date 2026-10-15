@@ -57,11 +57,6 @@ export class Recovery {
     this.ports = ports;
     this.defaults = defaults;
     this.wake = wake;
-    repo.store.atomic((db) => {
-      const columns = db.prepare("PRAGMA table_info(engine_queue)").all();
-      if (!columns.some((column) => column.name === "preferences"))
-        db.exec("ALTER TABLE engine_queue ADD COLUMN preferences JSON");
-    });
   }
   async prepare(id?: ThreadId): Promise<void> {
     const value = RecoveryPreferences.parse((await this.ports.preferences?.(id)) ?? this.defaults);

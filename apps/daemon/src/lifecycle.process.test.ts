@@ -161,7 +161,10 @@ describe("daemon lifecycle", () => {
       },
       () => {},
     );
-    await expect(attempt).rejects.toThrow("newer than this daemon");
+    await expect(attempt).rejects.toMatchObject({
+      code: "incompatible-data",
+      message: expect.stringContaining("newer than this build"),
+    });
     const restored = new DatabaseSync(join(home, "events.sqlite"));
     restored.prepare("UPDATE schema_version SET version = ?").run(original.version);
     restored.close();

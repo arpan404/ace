@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import type { Transferable, WorkerOptions } from "node:worker_threads";
 import { IdleWorker, type IdleWorkerRuntime } from "@ace/provider-kit/idle-worker";
+import { incompatibleData } from "@ace/provider-kit/incompatible-data";
 import { Reply, Envelope } from "./contracts.ts";
 
 /** A crashed isolate releases its heap; retries keep the durable catalog and bounded RPC queue. */
@@ -53,6 +54,15 @@ export class RecoveringWorker extends EventEmitter {
     });
     const failed = (error: Error) => {
       if (this.worker !== worker || this.closing) return;
+      if (incompatibleData(error)) {
+        // Every restart would refuse the same index; report it once and stay stopped.
+        this.worker = undefined;
+        this.closing = true;
+        this.queued = [];
+        this.emit("fatal", error);
+        void worker.terminate().catch(() => undefined);
+        return;
+      }
       this.worker = undefined;
       this.available = false;
       this.queued = [];

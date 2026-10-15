@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, rm, writeFile, readFile, realpath, symlink } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -198,44 +198,6 @@ test("a delayed refresh cannot restore a stale projected root after isolated pre
     await runtime.close();
     await h.close();
     await rm(data, { recursive: true, force: true });
-  }
-});
-
-test("legacy pending worktrees fail closed after restart even when the registered project uses a filesystem alias", async () => {
-  const h = transitionHarness();
-  let runtime: WorkspaceRuntime | undefined;
-  try {
-    const id = await h.create();
-    const cwd = h.sessions[0]?.context.cwd;
-    if (!cwd) throw new Error("Missing provider cwd");
-    await h.engine.close();
-    const alias = join(h.home, "alias");
-    await symlink(cwd, alias);
-    h.store.appendEvents(id, [
-      {
-        type: "thread.client.updated",
-        changes: { details: { mode: "worktree", worktree: cwd, branch: "main" } },
-      },
-    ]);
-    // Restore the pre-readiness database format and a crash before provider admission.
-    h.store.atomic((db) => {
-      db.exec("ALTER TABLE engine_sessions DROP COLUMN workspace_ready");
-      db.prepare("UPDATE engine_sessions SET native_session_id=NULL WHERE thread_id=?").run(id);
-      db.prepare("UPDATE workspaces SET path=? WHERE id=?").run(alias, h.workspace);
-    });
-    await h.restart();
-    runtime = new WorkspaceRuntime(h.store, h.home, () => 1000);
-    await expect(
-      runtime.read({
-        type: "workspace.request",
-        requestId: "legacy",
-        operation: { op: "scripts.list", threadId: id },
-      }),
-    ).rejects.toThrow("workspace_preparing");
-    expect(h.store.getThread(id)?.deletedAt).toBeUndefined();
-  } finally {
-    await runtime?.close();
-    await h.close();
   }
 });
 

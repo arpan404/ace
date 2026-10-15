@@ -1,4 +1,3 @@
-import { restorePrePreviewSchema } from "./migration-test-support.ts";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -180,46 +179,6 @@ it("keeps oversized text outside the snapshot window after an incompatible outpu
   const reopened = new Store(join(f.home, "events.sqlite"));
   cleanups.push(() => reopened.close());
   expect(reopened.snapshotThread(f.thread.id).itemOrder).toEqual([]);
-});
-it("recovers version-four split text chunks from the lossless event log during upgrade", async () => {
-  const f = await fixture();
-  cleanups.push(() => f.close());
-  const item = message("split", "");
-  f.store.appendEvents(f.thread.id, [
-    { type: "item.created", item },
-    ...["\ud83d", "\ude00"].map((append) => ({
-      type: "item.delta" as const,
-      itemId: item.id,
-      agentId: item.agentId,
-      field: "text" as const,
-      append,
-    })),
-  ]);
-  const path = join(f.home, "events.sqlite");
-  const db = new DatabaseSync(path);
-  cleanups.push(() => db.close());
-  restorePrePreviewSchema(db);
-  // Reproduce schema-four TEXT bindings, including their irreversible UTF-8 replacement.
-  const rows = db.prepare("SELECT seq FROM item_text_chunks ORDER BY seq").all();
-  const units = ["\ud83d", "\ude00"];
-  for (const [index, row] of rows.entries())
-    db.prepare("UPDATE item_text_chunks SET append = ? WHERE seq = ?").run(
-      units[index] ?? "",
-      row.seq ?? 0,
-    );
-  if (
-    db
-      .prepare("PRAGMA table_info(item_heads)")
-      .all()
-      .some((row) => row.name === "text_last_unit")
-  )
-    db.exec("ALTER TABLE item_heads DROP COLUMN text_last_unit");
-  db.exec("DROP TABLE IF EXISTS text_encoding_migration; UPDATE schema_version SET version = 4");
-  const reopened = new Store(path);
-  cleanups.push(() => reopened.close());
-  expect(reopened.snapshotThread(f.thread.id).items.split).toMatchObject({
-    parts: [{ text: "😀" }],
-  });
 });
 it("budgets a surrogate pair completed across the authoritative body and an append", async () => {
   const f = await fixture();

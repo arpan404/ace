@@ -556,23 +556,6 @@ test("Enter opens the new thread at once with the message as its first bubble, e
   );
 });
 
-test.each([
-  [{ "permissions.providerModes": { claude: "acceptEdits" } }, "Auto review", "auto-review"],
-  [{ "approvals.policy": "ask" }, "Ask", "ask"],
-  [{ "approvals.policy": "never" }, "Full access", "full-access"],
-] as const)(
-  "an older stored default %j maps once to the access new threads start in",
-  async (stored, label, mode) => {
-    const made = app();
-    made.daemon.services.settings.seed(stored);
-    await made.open("/new?project=relay");
-    expect(await screen.findByRole("button", { name: `Access: ${label}` })).toBeTruthy();
-    await userEvent.type(await prompt(), "Use the migrated default{Enter}");
-    await screen.findByRole("heading", { level: 1, name: "Use the migrated default" });
-    expect((await started(made))?.permission).toMatchObject({ effective: mode });
-  },
-);
-
 afterEach(() => vi.restoreAllMocks());
 
 test.each(["defaults", "native"])(

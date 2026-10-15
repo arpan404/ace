@@ -2,7 +2,6 @@ import {
   PermissionPolicyIdentity as importPermissionPolicyIdentity,
   AcpIdentity as importAcpIdentity,
 } from "@ace/protocol";
-import { backfillThreadTitles } from "./title-input.ts";
 import { liveAceCall } from "./ace-approvals.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
 import { ThreadLiveness, type LiveWork } from "./thread-liveness.ts";
@@ -350,7 +349,6 @@ export class Engine {
     this.handler = {
       handle: (command, context) => this.internalHandler.handle(personCommand(command), context),
     };
-    backfillThreadTitles(store, this.clock.now());
     const recover = () =>
       recoverEngine(
         this.repo,
