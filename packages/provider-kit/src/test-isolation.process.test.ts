@@ -2,7 +2,11 @@ import { mkdir, mkdtemp, rm, symlink, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test, vi } from "vitest";
-import { assertTestHomeIsolation, createTestHomeGuard } from "@ace/provider-kit/test-isolation";
+import {
+  assertTestGitDirectory,
+  assertTestHomeIsolation,
+  createTestHomeGuard,
+} from "@ace/provider-kit/test-isolation";
 
 test("an inactive test guard accepts paths without inspecting even a cyclic filesystem alias", async ({
   onTestFinished,
@@ -50,4 +54,26 @@ test("Windows home policy accepts another drive and siblings but rejects same-dr
   expect(() => guard("C:\\Users\\owner")).toThrow(/ACE_TEST_REAL_HOME guard/);
   expect(() => guard("C:\\Users\\OWNER\\..cache\\data")).toThrow(/ACE_TEST_REAL_HOME guard/);
   expect(() => guard("C:\\Users\\owner\\missing\\data")).toThrow(/ACE_TEST_REAL_HOME guard/);
+});
+
+test("a fixture git cwd that is relative, missing or outside the temp root is refused", async ({
+  onTestFinished,
+}) => {
+  const root = await mkdtemp(path.join(tmpdir(), "ace-git-cwd-"));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const temporary = path.join(root, "tmp");
+  const fixture = path.join(temporary, "repo");
+  const outside = path.join(root, "checkout");
+  await mkdir(fixture, { recursive: true });
+  await mkdir(outside);
+  await symlink(outside, path.join(temporary, "alias"));
+  expect(assertTestGitDirectory(fixture, temporary)).toBe(fixture);
+  expect(() => assertTestGitDirectory("repo", temporary)).toThrow(/must be absolute/);
+  expect(() => assertTestGitDirectory(path.join(temporary, "never-created"), temporary)).toThrow(
+    /ENOENT/,
+  );
+  expect(() => assertTestGitDirectory(outside, temporary)).toThrow(/outside the test temp root/);
+  expect(() => assertTestGitDirectory(path.join(temporary, "alias"), temporary)).toThrow(
+    /outside the test temp root/,
+  );
 });

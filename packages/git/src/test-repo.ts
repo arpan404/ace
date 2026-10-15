@@ -5,9 +5,12 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, inject } from "vitest";
 import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
+import { assertTestGitDirectory, testGitEnvironment } from "@ace/provider-kit/test-isolation";
 
 export const execute = promisify(execFile);
 const directories: string[] = [];
+// Captured once: a test may point TMPDIR elsewhere while its fixtures stay where they are.
+const temporaryRoot = tmpdir();
 
 afterEach(async () => {
   await Promise.all(
@@ -41,15 +44,17 @@ export async function proxyGit(intercept: string): Promise<string> {
 }
 
 export async function git(repo: string, ...args: string[]): Promise<Buffer> {
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
-  );
   const output = await execute("git", args, {
-    cwd: repo,
+    cwd: assertTestGitDirectory(repo, temporaryRoot),
     encoding: "buffer",
     maxBuffer: 32 * 1024 * 1024,
     timeout: PROCESS_TEST_TIMEOUT,
-    env: { ...env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C", GIT_OPTIONAL_LOCKS: "0" },
+    env: {
+      ...testGitEnvironment(),
+      GIT_TERMINAL_PROMPT: "0",
+      LC_ALL: "C",
+      GIT_OPTIONAL_LOCKS: "0",
+    },
   });
   return output.stdout;
 }

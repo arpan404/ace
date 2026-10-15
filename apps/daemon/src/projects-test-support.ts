@@ -1,6 +1,7 @@
 import { once } from "node:events";
 import { execFile } from "node:child_process";
 import { spawnGitProcess as spawn } from "@ace/git";
+import { assertTestGitDirectory, testGitEnvironment } from "@ace/provider-kit/test-isolation";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
@@ -25,7 +26,8 @@ import type { GitProcessRuntime } from "@ace/git";
 
 const execute = promisify(execFile);
 export async function projectFixture(options: ProjectsOptions = {}) {
-  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-projects-test-")));
+  const temporaryRoot = tmpdir();
+  const root = await realpath(await mkdtemp(join(temporaryRoot, "ace-projects-test-")));
   const config = join(root, "gitconfig");
   await writeFile(config, "[init]\n\tdefaultBranch = trunk\n");
   const gitOptions = {
@@ -53,8 +55,8 @@ export async function projectFixture(options: ProjectsOptions = {}) {
     projects,
     git: (cwd: string, args: string[]) =>
       execute("git", args, {
-        cwd,
-        env: { ...process.env, GIT_CONFIG_GLOBAL: config, GIT_CONFIG_NOSYSTEM: "1" },
+        cwd: assertTestGitDirectory(cwd, temporaryRoot),
+        env: { ...testGitEnvironment(), GIT_CONFIG_GLOBAL: config, GIT_CONFIG_NOSYSTEM: "1" },
       }),
     command: (payload: CommandPayload, id = `command-${++sequence}`, deviceId = "owner") =>
       projects.execute(Command.parse({ id, deviceId, payload })),

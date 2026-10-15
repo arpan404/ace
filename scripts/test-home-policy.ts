@@ -1,18 +1,24 @@
-import { join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { testHomePathVariables } from "@ace/provider-kit/test-isolation";
 
-/** Pure environment policy. The caller owns creation of the redirected directories. */
+/**
+ * Pure environment policy. The caller owns creation of the redirected directories.
+ * `gitCeilings` are checkouts a test git must never discover by walking up from its cwd.
+ */
 export function isolatedTestEnvironment(
   ambient: NodeJS.ProcessEnv,
   home: string,
   realHome: string,
+  gitCeilings: readonly string[] = [],
 ): NodeJS.ProcessEnv {
   const selectors = new Set(testHomePathVariables);
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(ambient)) {
     if (
       !selectors.has(key) &&
-      !/^(?:ACE_|XDG_|GIT_CONFIG|CURSOR_|OPENCODE_)/.test(key) &&
+      // Every GIT_* goes: a GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR or GIT_INDEX_FILE inherited
+      // from a hook or a linked worktree would aim fixture git commands at the real checkout.
+      !/^(?:ACE_|XDG_|GIT_|CURSOR_|OPENCODE_)/.test(key) &&
       !["SHELL", "HOMEDRIVE", "HOMEPATH", "NODE_OPTIONS"].includes(key)
     )
       env[key] = value;
@@ -51,6 +57,8 @@ export function isolatedTestEnvironment(
     GIT_CONFIG_GLOBAL: join(home, ".gitconfig"),
     GIT_CONFIG_SYSTEM: join(home, ".gitconfig-system"),
     GIT_CONFIG_NOSYSTEM: "1",
+    // Repository discovery stops at the test home root and at every enclosing checkout.
+    GIT_CEILING_DIRECTORIES: [dirname(home), ...gitCeilings].join(delimiter),
     BUN_INSTALL_CACHE_DIR: join(home, ".cache/bun"),
     NPM_CONFIG_USERCONFIG: join(home, ".npmrc"),
     ACE_HISTORY_INSTANCES: "[]",
