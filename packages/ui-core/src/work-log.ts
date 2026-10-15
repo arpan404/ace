@@ -72,6 +72,17 @@ function statusNote(call: ToolCall): string | undefined {
 }
 
 /**
+ * Look-only shell steps never fail in summaries: a search/read/list via the command line
+ * (see `exploreAction`) with a non-zero exit is routine exploration — `rg` exits 1 on no
+ * matches — not something the person did wrong. They keep their counts, never the red
+ * "· N failed".
+ */
+function isExploratoryFailure(detail: ToolCall["detail"]): boolean {
+  if (detail.kind !== "shell") return false;
+  return exploreAction(displayCommand(detail).command) !== undefined;
+}
+
+/**
  * A step's verb follows its status: "Running `git push`" while in flight, "Run `git push`" while
  * it waits for approval or was declined (it hasn't happened), "Ran" once done.
  */
@@ -230,6 +241,7 @@ function callText(call: ToolCall, context: StepContext): CallText {
 /** The trailing note: the approval's outcome, a failure's reason, or the step's own note. */
 function noteFor(call: ToolCall, text: CallText, context: StepContext) {
   if (call.status === "failed") {
+    if (isExploratoryFailure(call.detail)) return { note: text.note };
     const exit = call.detail.kind === "shell" ? text.note : undefined;
     return { note: exit ?? context.labels?.error(call.error) ?? "Failed" };
   }
@@ -312,7 +324,10 @@ export function describeStep(item: Item, context: StepContext = {}): StepText {
     note: problem ? "Failed" : note,
     needsYou,
     settled: !unsettled.has(status),
-    failed: call.status === "failed" || !!problem || outcome?.tone === "denied",
+    failed:
+      (call.status === "failed" && !isExploratoryFailure(call.detail)) ||
+      !!problem ||
+      outcome?.tone === "denied",
   };
 }
 
@@ -380,7 +395,7 @@ export function summarizeWork(items: readonly (Item | undefined)[]): WorkSummary
       summary.current = stepLine(item);
     }
     if (call.status === "awaiting_approval") summary.awaiting = true;
-    if (call.status === "failed") {
+    if (call.status === "failed" && !isExploratoryFailure(call.detail)) {
       const key = retryKey(item);
       if (retried.has(item.id)) summary.retried++;
       else failures.push({ id: item.id, key: key ?? item.id });

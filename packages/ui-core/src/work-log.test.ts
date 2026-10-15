@@ -377,3 +377,27 @@ test("a shell command that only looks reads as what it did, not as a run", () =>
   expect(describeStep(shellStep("ls apps"))).toMatchObject({ verb: "Listed", icon: "list" });
   expect(describeStep(shellStep("bun run test"))).toMatchObject({ verb: "Ran", icon: "shell" });
 });
+
+test("a shell search with no matches never fails the summary", () => {
+  const items = [
+    call({ kind: "shell", command: "rg -n 'missing-symbol' src", exitCode: 1 }, "failed", 0, 1),
+    call({ kind: "shell", command: "ls src", exitCode: 1 }, "failed", 1, 2),
+    call({ kind: "shell", command: "bun run test", exitCode: 1 }, "failed", 2, 3),
+  ];
+  const summary = summarizeWork(items);
+  expect(summary).toMatchObject({ failed: 1, retried: 0 });
+  expect(summary.firstFailed).toBe(items[2]?.id);
+  expect(workCounts(summary)).toBe("Ran 3 commands · 1 failed");
+  expect(describeStep(items[0] as Item)).toMatchObject({ verb: "Searched", failed: false });
+  expect(describeStep(items[1] as Item)).toMatchObject({ verb: "Listed", failed: false });
+  expect(describeStep(items[2] as Item)).toMatchObject({ verb: "Ran", failed: true });
+});
+
+test("only shell searches failing reads as a quiet exploration", () => {
+  const summary = summarizeWork([
+    call({ kind: "shell", command: "rg -n 'missing-symbol' src", exitCode: 1 }, "failed", 0, 1),
+    call({ kind: "shell", command: "grep -rn foo src", exitCode: 1 }, "failed", 1, 2),
+  ]);
+  expect(summary).toMatchObject({ failed: 0, retried: 0, firstFailed: undefined });
+  expect(workCounts(summary)).toBe("Ran 2 commands");
+});

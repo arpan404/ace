@@ -66,6 +66,11 @@ const exploring = new Set<StepKind>(["read", "list", "search"]);
  * How one item counts for grouping; `retried` holds failed steps a later step re-ran. Undefined
  * for what is no step at all: a finished thought with no words, a person's or synthetic message,
  * a launch or bookkeeping record.
+ *
+ * Look-only shell steps never fail: a search with no matches (`rg` exits 1), a read of a
+ * missing guess, a listing of an empty folder are routine exploration, not something the
+ * person did wrong. They read as what they did and never add "· N failed" to a collapsed
+ * summary.
  */
 export function stepFact(item: Item, retried?: ReadonlySet<string>): StepFact | undefined {
   const base = {
@@ -112,7 +117,12 @@ export function stepFact(item: Item, retried?: ReadonlySet<string>): StepFact | 
       };
     case "shell": {
       const explored = exploreAction(displayCommand(detail).command);
-      return { ...fact, kind: explored ?? "command", target: undefined };
+      return {
+        ...fact,
+        failed: explored === undefined ? fact.failed : false,
+        kind: explored ?? "command",
+        target: undefined,
+      };
     }
     case "web.search":
       return { ...fact, kind: "websearch" };
