@@ -66,12 +66,18 @@ export async function startWorkspaceActions({
   services.workspaceActions = workspace;
   // Hygiene behind the listener: admission retires stale leases on its own as it meets them.
   const heal = () =>
-    workspace.sweepStaleLeases((path, error) =>
-      log.log("debug", `Git locks in ${path} could not be checked`, logError(error)),
-    );
+    workspace
+      .sweepStaleLeases((path, error) =>
+        log.log("debug", `Git locks in ${path} could not be checked`, logError(error)),
+      )
+      .then(() =>
+        workspace.settleWorkspaceChanges((id, error) =>
+          log.log("debug", `Checkout move of ${id} could not be settled`, logError(error)),
+        ),
+      );
   let sweep = heal();
   // Self-healing: a lease or Git lock whose process ended after admission last looked is
-  // retired by the next sweep, without anyone asking.
+  // retired by the next sweep, and a checkout move it held is settled, without anyone asking.
   const healing = setInterval(() => {
     sweep = sweep.then(heal);
   }, 60_000);

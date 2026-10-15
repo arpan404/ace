@@ -945,9 +945,7 @@ export class Engine {
       },
       effect,
       (owner) => this.wake(owner),
-      reservation.threads
-        ? reservation
-        : { ...reservation, roots: [...reservation.roots, this.repo.session(id).cwd] },
+      reservation,
       commit,
     ).finally(() => this.workspaceChanges.delete(id));
     this.workspaceChanges.set(id, change);

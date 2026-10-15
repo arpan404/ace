@@ -13,6 +13,8 @@ const copy: Record<string, string> = {
   workspace_not_found: "The thread's project is gone: open the project again.",
   workspace_unavailable: "The thread has no checkout yet: send it a message first.",
   workspace_change_in_progress: "The checkout is still moving: wait for it to finish, then retry.",
+  workspace_change_interrupted:
+    "The checkout move stopped when the daemon restarted: the thread stayed where it was. Retry to move it.",
   thread_not_found: "The thread is gone: it may have been deleted on another device.",
   thread_tree_is_live: "Agents are working in the checkout: wait for them to stop, then retry.",
   terminal_owned: "The thread's terminals use the checkout: close them, then retry.",

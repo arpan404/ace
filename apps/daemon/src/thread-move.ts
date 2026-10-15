@@ -59,7 +59,7 @@ export async function moveThread(
         thread.id,
         command.id,
         async () => movedThreadDetails(thread, target),
-        { roots: [source.path, destination], hasOwnedWork: ownsWork, threads: [thread.id] },
+        { roots: [source.path, destination], writes: [], hasOwnedWork: ownsWork },
         commit,
       );
     } else {
