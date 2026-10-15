@@ -14,6 +14,9 @@ export function nativeCursorOptions(
   return {
     local: {
       cwd: options.cwd,
+      // The SDK loads no ambient layer by default: no project or user rules, skills, hooks,
+      // plugins or MCP servers, not even ace's own rule in `dirs`. Cursor keeps all of its own.
+      settingSources: ["all"],
       store,
       ...permissions,
       enableAgentRetries: false,

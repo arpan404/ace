@@ -2,6 +2,7 @@ import { waitForAceTools } from "./mcp-ready.ts";
 import { createExtensionCatalog } from "./extension-catalog.ts";
 import { openCodeMcpControls } from "./mcp-controls.ts";
 import { developerInstructions } from "@ace/mcp-server";
+import { openCodeNativeToolGuidance } from "./native-tools.ts";
 import { registerAceMcp } from "./mcp-registration.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { opencodePolicy } from "./permission-policy.ts";
@@ -204,7 +205,8 @@ export class OpenCodeSession implements ProviderSession {
         await s.client.session.instructions.entry.put({
           sessionID: info.id,
           key: "ace.tool-guidance",
-          value: developerInstructions("opencode", ctx.aceMcp.session?.()),
+          // Native tools first: ace's extras sit beside them and never replace them.
+          value: `${openCodeNativeToolGuidance}\n${developerInstructions("opencode", ctx.aceMcp.session?.())}`,
         });
       s.ownership.establish(info);
       await s.ensureMcp(info.location.directory);
