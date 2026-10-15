@@ -6,6 +6,7 @@ import { ScreenManager } from "@ace/screen";
 import { probeOutput, spawnRawSupervised } from "@ace/provider-kit/process";
 import { DeviceOperation } from "@ace/protocol/devices";
 import { ThreadId } from "@ace/protocol";
+import { prepareDaemonHome } from "@ace/service";
 import { startDaemon, readConfig, stubHandler } from "../index.ts";
 import { deviceInputProcess } from "./device-input-process.ts";
 export async function providerFeatures(
@@ -13,6 +14,7 @@ export async function providerFeatures(
   executablePath: string,
   pageHandler?: RequestListener,
 ) {
+  prepareDaemonHome(directory);
   const screenJournal = join(directory, "screen-input.jsonl");
   const deviceJournal = join(directory, "device-input.jsonl");
   await Promise.all([writeFile(screenJournal, ""), writeFile(deviceJournal, "")]);

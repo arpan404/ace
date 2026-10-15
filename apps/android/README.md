@@ -5,6 +5,9 @@ Phase 0 for #561. Expo SDK 57, Hermes, stable Expo UI Compose, FlashList, the sh
 emulator spike, not the paired-device MVP. Release builds reject the fixture before
 opening SQLite or creating a transport.
 
+The [Tailscale roadmap](../../docs/mobile/tailscale-roadmap.md) maps shared features
+and the future native pairing flow for Android and iOS.
+
 ## Run
 
 From `apps/android`, run `bun run fixture` and `bun run start` in separate terminals.

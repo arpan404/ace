@@ -4,13 +4,17 @@ import type { EngineRepository } from "./repository.ts";
 import { handoff } from "./transition-history.ts";
 
 export interface WorkspaceChangeReservation {
+  /** Roots fenced while the change runs: no new work starts in them until it settles. */
   roots: readonly string[];
-  hasOwnedWork(id: ThreadId): boolean;
   /**
-   * Binding-only changes select one thread and fence exactly `roots`; Git changes fence every
-   * owner of the roots, and the thread's current root too.
+   * Roots whose checked-out files the change may rewrite (a branch switch, a remade worktree);
+   * `roots` when absent. Every thread bound to one of these must be quiet, because its files
+   * would change under it. A change that only rebinds the thread writes none, so threads
+   * elsewhere in the project keep working.
    */
-  threads?: readonly ThreadId[];
+  writes?: readonly string[];
+  /** A thread's own open terminal (or one sharing a written root) holds the checkout. */
+  hasOwnedWork(id: ThreadId): boolean;
   /** The checkout selection asked for, recorded so a failed change can be retried. */
   selection?: { mode: "local" | "worktree"; branch?: string | undefined };
 }
@@ -41,7 +45,11 @@ const failureCode = (error: unknown) =>
       ? `git_${error.code.replace(/^git_/, "")}`
       : "workspace_change_failed";
 
-/** Persist a fence before closing a session or mutating Git. A restart retains the fence until explicit retry. */
+/**
+ * Persist a fence before closing a session or mutating Git. Only the moving thread and the
+ * threads bound to a root the change rewrites must be quiet. A fence an uncertain failure
+ * or a restart leaves behind is settled by `settleWorkspaceChange` once Git is free.
+ */
 export async function changeEngineWorkspace(
   repo: EngineRepository,
   id: ThreadId,
@@ -109,9 +117,9 @@ export async function changeEngineWorkspace(
     if (repo.requireState(id).initialRoot === undefined)
       repo.apply(id, [{ type: "queue.changed", count: repo.queuedCount(id) }], now());
   };
-  const roots = repo.store.workspaceReservations.roots(id, reservation.roots);
-  const rootOwners = repo.store.workspaceReservations.owners(roots);
-  const owners = [...new Set([id, ...(reservation.threads ?? rootOwners)])];
+  const reservations = repo.store.workspaceReservations;
+  const roots = reservations.roots(id, reservation.roots);
+  const owners = [...new Set([id, ...reservations.owners(reservation.writes ?? roots)])];
   repo.store.atomic(() => {
     for (const owner of owners) {
       const peer = repo.state(owner);
@@ -166,6 +174,9 @@ export async function changeEngineWorkspace(
     if (safeToRelease) repo.store.workspaceReservations.release(commandId);
     repo.transitions.releaseGuards(commandId);
     publishQueue();
-    for (const owner of new Set([id, ...rootOwners])) wake(owner);
+    // Threads in a fenced root were refused while it was held; wake them now it is released.
+    // A thread the engine has never run (imported, or never started) has nothing to wake.
+    for (const owner of new Set([id, ...reservations.owners(roots)]))
+      if (repo.state(owner)) wake(owner);
   }
 }

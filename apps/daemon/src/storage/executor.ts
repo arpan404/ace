@@ -72,13 +72,6 @@ export function fenceStorageItem(
       const created = inventory.managed.get(entry.target.path);
       if (!created || created.removed || created.repo !== entry.target.repo)
         throw new StorageRefusal("owner_unavailable");
-      const repository = store.workspaceReservations.repository(entry.target.path);
-      if (
-        repository &&
-        store.workspaceReservations.repositoryReserved(repository) &&
-        !store.workspaceReservations.ownsRepositoryReservation(repository, `storage:${planId}`)
-      )
-        throw new StorageRefusal("cleanup_in_progress");
       // Fence root admission before the first asynchronous Git or filesystem inspection.
       try {
         store.workspaceReservations.reserve(

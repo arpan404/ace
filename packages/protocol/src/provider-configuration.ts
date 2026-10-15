@@ -47,6 +47,12 @@ export const ProviderConfiguration = z.object({
   favourites: ids.optional(),
   showOnlyFavourites: z.boolean().optional(),
   hideDeprecated: z.boolean().optional(),
+  /**
+   * Per-thread Cursor SDK checkpoint budget in MiB (1-256, 32 when unset).
+   * The daemon converts it to `Limits.maxCheckpointBytes` for every Cursor
+   * thread; a per-account row with `instance` overrides the provider default.
+   */
+  maxCheckpointMb: z.number().int().min(1).max(256).optional(),
 });
 export type ProviderConfiguration = z.infer<typeof ProviderConfiguration>;
 export const ProviderConfigurations = z

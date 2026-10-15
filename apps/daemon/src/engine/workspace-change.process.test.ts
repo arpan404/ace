@@ -264,7 +264,7 @@ test("a binding-only change preserves a peer's live tree and execution root", as
       {
         roots: [original, destination],
         hasOwnedWork: () => false,
-        threads: [first],
+        writes: [],
       },
     );
     expect(h.store.executionWorkspace(first).path).toBe(destination);
@@ -310,6 +310,42 @@ test("a never-started thread has no live work and can change workspace before it
       branch: "feature",
     }));
     expect(h.store.executionWorkspace(id)).toMatchObject({ path: root, ready: true });
+  } finally {
+    await h.close();
+  }
+});
+
+test("a peer's open terminal does not hold a move that leaves its checkout untouched", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames);
+  try {
+    const first = await h.create();
+    const peer = await peerThread(h);
+    const shared = h.store.executionWorkspace(peer).path;
+    const destination = join(h.home, "own-worktree");
+    await mkdir(destination);
+    await h.engine.changeWorkspace(
+      first,
+      "own-worktree",
+      async () => ({ mode: "worktree", worktree: destination }),
+      { roots: [destination], writes: [destination], hasOwnedWork: (id) => id === peer },
+    );
+    expect(h.store.executionWorkspace(first).path).toBe(destination);
+    expect(h.store.executionWorkspace(peer).path).toBe(shared);
+    // The same terminal still holds a change that would rewrite the checkout under it.
+    let rewritten = false;
+    await expect(
+      h.engine.changeWorkspace(
+        first,
+        "shared-branch",
+        async () => {
+          rewritten = true;
+          return { mode: "local", worktree: shared };
+        },
+        { roots: [shared], hasOwnedWork: (id) => id === peer },
+      ),
+    ).rejects.toThrow("terminal_owned");
+    expect(rewritten).toBe(false);
   } finally {
     await h.close();
   }

@@ -185,7 +185,7 @@ export function createRemoteIncomingSession(context: SocketContext): SocketServi
               : {}),
             ...(input.request.instanceId ? { instanceId: input.request.instanceId } : {}),
             ...(attachmentContext ? { context: attachmentContext } : {}),
-            title: input.request.role,
+            title: input.request.role.slice(0, 256),
             trigger: "spawn",
             origin: { kind: "spawn", role: `remote-device:${input.sourceHostId}` },
             input: [

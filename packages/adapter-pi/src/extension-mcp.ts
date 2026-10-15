@@ -74,6 +74,42 @@ const boundedFetch: typeof fetch = async (input, init) => {
     headers: response.headers,
   });
 };
+/**
+ * Bounds in-flight ace MCP calls without refusing any: past the cap a call waits for a free slot,
+ * and a released slot passes straight to the oldest waiter.
+ */
+function callSlots(capacity: number) {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+  const release = () => {
+    const next = waiting.shift();
+    if (next) next();
+    else active--;
+  };
+  return async (signal: AbortSignal | undefined): Promise<() => void> => {
+    signal?.throwIfAborted();
+    if (active < capacity && !waiting.length) active++;
+    else
+      await new Promise<void>((resolve, reject) => {
+        const wake = () => {
+          signal?.removeEventListener("abort", abort);
+          resolve();
+        };
+        const abort = () => {
+          waiting.splice(waiting.indexOf(wake), 1);
+          reject(signal?.reason);
+        };
+        waiting.push(wake);
+        signal?.addEventListener("abort", abort, { once: true });
+      });
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      release();
+    };
+  };
+}
 type McpClient = InstanceType<(typeof import("@modelcontextprotocol/client"))["Client"]>;
 
 /**
@@ -153,7 +189,7 @@ export function registerAceMcpTools(pi: PiExtensionApi, connection: AceMcpConnec
 
 /** Registers the catalogue's tools, keeps them active beside Pi's own, and follows changes. */
 async function listen(pi: PiExtensionApi, client: McpClient): Promise<void> {
-  let calls = 0;
+  const slot = callSlots(64);
   const registered = new Set<string>();
   const refresh = (catalogValue: unknown) => {
     const catalog = Tools.parse(catalogValue);
@@ -168,11 +204,10 @@ async function listen(pi: PiExtensionApi, client: McpClient): Promise<void> {
         promptSnippet: tool.description ?? tool.name,
         parameters: tool.inputSchema,
         async execute(_id, params, signal) {
-          if (calls >= 16) throw new Error("ace MCP call capacity exceeded");
           const args = z.record(z.string(), z.unknown()).parse(params);
           if (Buffer.byteLength(JSON.stringify(args)) > 64 * 1024)
             throw new Error("ace MCP arguments exceed limit");
-          calls++;
+          const done = await slot(signal);
           try {
             const result = Result.parse(
               await client.callTool(
@@ -199,7 +234,7 @@ async function listen(pi: PiExtensionApi, client: McpClient): Promise<void> {
               },
             };
           } finally {
-            calls--;
+            done();
           }
         },
       });

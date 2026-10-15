@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { GitService } from "@ace/git";
-import type { ThreadId } from "@ace/protocol";
+import { maxMessageBytes, type ThreadId } from "@ace/protocol";
 import { transitionHarness } from "./transition-test-support.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -151,7 +151,7 @@ test("merge context admission rejects an escaped summary before changing git fil
     h.command({
       type: "thread.merge",
       threadId: fork,
-      summary: "\0".repeat(16384),
+      summary: "\0".repeat(maxMessageBytes),
       citations: [{ threadId: fork, itemId: cited.id }],
       patch:
         "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-before\n+after\n",

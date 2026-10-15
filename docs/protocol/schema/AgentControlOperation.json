@@ -86,14 +86,10 @@
           "type": "string"
         },
         "role": {
-          "maxLength": 256,
-          "minLength": 1,
-          "type": "string"
+          "$ref": "https://ace.local/protocol/v1/DelegationRole.json"
         },
         "task": {
-          "maxLength": 16384,
-          "minLength": 1,
-          "type": "string"
+          "$ref": "https://ace.local/protocol/v1/MessageText.json"
         },
         "workspaceId": {
           "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
@@ -436,9 +432,7 @@
           "type": "string"
         },
         "text": {
-          "maxLength": 16384,
-          "minLength": 1,
-          "type": "string"
+          "$ref": "https://ace.local/protocol/v1/MessageText.json"
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
@@ -539,9 +533,7 @@
           "type": "string"
         },
         "text": {
-          "maxLength": 16384,
-          "minLength": 1,
-          "type": "string"
+          "$ref": "https://ace.local/protocol/v1/MessageText.json"
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
@@ -578,9 +570,7 @@
           "type": "string"
         },
         "text": {
-          "maxLength": 16384,
-          "minLength": 1,
-          "type": "string"
+          "$ref": "https://ace.local/protocol/v1/MessageText.json"
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
@@ -818,9 +808,7 @@
           "type": "string"
         },
         "text": {
-          "maxLength": 16384,
-          "minLength": 1,
-          "type": "string"
+          "$ref": "https://ace.local/protocol/v1/MessageText.json"
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"

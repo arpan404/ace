@@ -344,3 +344,67 @@ test("an ending tied to a message still in the queue goes with it; the turn befo
   expect(visible.filter((block) => block.kind === "end")).toHaveLength(1);
   expect(visible.at(-1)).toMatchObject({ kind: "end", runId: "A", latest: true });
 });
+
+test("a settled work header stays below earlier asks after history arrives out of order", () => {
+  const base = source(
+    [
+      { id: "earlier", role: "user" },
+      { id: "ask", role: "user", run: "turn" },
+      { id: "answer", role: "assistant", run: "turn" },
+    ],
+    { turn: { ...ended("completed"), startedAt: 2 } },
+  );
+  const tool = mcpTool("tool", 3);
+  const input = {
+    ...base,
+    order: ["tool", "answer", "ask", "earlier"],
+    turnOf: (id: string) => (id === tool.id ? "turn" : base.turnOf?.(id)),
+    item: (id: string) => {
+      const item = base.item(id);
+      return id === tool.id ? tool : item && { ...item, createdAt: item.createdAt * 2 };
+    },
+  };
+  const blocks = buildBlocks(input);
+  expect(shown(blocks)).toEqual(["earlier", "ask", "work:work:tool", "answer"]);
+  expect(blocks.filter((block) => block.kind === "work")).toMatchObject([
+    { outcome: "completed", itemIds: ["tool"] },
+  ]);
+});
+
+test("equal-time asks use creation sequence before a settled work header", () => {
+  const base = source(
+    [
+      { id: "first", role: "user" },
+      { id: "ask", role: "user", run: "turn" },
+    ],
+    { turn: ended("completed") },
+  );
+  const tool = mcpTool("tool", 0);
+  const seqs: Record<string, number> = { first: 1, ask: 2, tool: 3 };
+  expect(
+    shown(
+      buildBlocks({
+        ...base,
+        order: ["tool", "ask", "first"],
+        turnOf: (id) => (id === tool.id ? "turn" : base.turnOf?.(id)),
+        item: (id) => {
+          const item = id === tool.id ? tool : base.item(id);
+          return item && { ...item, createdAt: 0 };
+        },
+        creationSeq: (id) => seqs[id],
+      }),
+    ),
+  ).toEqual(["first", "ask", "work:work:tool"]);
+});
+
+test("an admitted first ask stays ahead of intervening earlier messages while awaiting output", () => {
+  const base = source(
+    [
+      { id: "ask", role: "user", run: "turn" },
+      { id: "follow-up", role: "user" },
+      { id: "answer", role: "assistant", run: "turn" },
+    ],
+    { turn: ended("completed") },
+  );
+  expect(shown(buildBlocks(base))).toEqual(["ask", "follow-up", "answer"]);
+});

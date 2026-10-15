@@ -220,9 +220,29 @@ test("a Pi that exits on startup has said why on stderr before the open fails, a
 test("unrepresentable blocking dialogs close the transport without reporting completion", async () => {
   const h = await sessionHarness();
   try {
-    await expect(h.session.send(text("large-dialog"), "queue")).rejects.toThrow("closed");
+    await expect(h.session.send(text("unanswerable-dialog"), "queue")).rejects.toThrow("closed");
     expect(h.h.state.status.state).not.toBe("done");
     await expect(h.session.send(text("later"), "queue")).rejects.toThrow("closed");
+  } finally {
+    await h.dispose();
+  }
+});
+
+test("a Pi session with 200 open dialogs stays connected and answers the last one", async () => {
+  const h = await sessionHarness();
+  try {
+    await h.session.send(text("many-dialogs"), "queue");
+    await h.wait(received("extension_ui_request", "many-199"));
+    expect(Object.keys(h.h.state.interactions)).toHaveLength(200);
+    await h.session.resolve("many-199", {
+      kind: "question",
+      answers: { "many-199": ["yes"] },
+    });
+    const proof = await h.wait(received("extension_ui_request", "answer-proof"));
+    expect(JSON.parse(str(obj(proof.data).message))).toMatchObject({
+      id: "many-199",
+      confirmed: true,
+    });
   } finally {
     await h.dispose();
   }

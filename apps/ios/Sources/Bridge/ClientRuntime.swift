@@ -3,7 +3,7 @@ import JavaScriptCore
 import CoreFoundation
 
 /// Owns one VM on one dedicated thread with a live run loop. No JSValue reaches SwiftUI.
-final class ClientRuntime: @unchecked Sendable {
+final class ClientRuntime: ClientSession, @unchecked Sendable {
     private let lock = NSLock()
     private var loop: CFRunLoop?
     private var context: JSContext?
@@ -75,7 +75,7 @@ final class ClientRuntime: @unchecked Sendable {
         let runLoop = lock.withLock { stopped ? nil : loop }
         guard let runLoop else { return }
         CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) { [weak self] in
-            guard let self, let context = self.context else { return }
+            guard let self, !self.lock.withLock({ self.stopped }), let context = self.context else { return }
             autoreleasepool { work(context) }
         }
         CFRunLoopWakeUp(runLoop)
@@ -87,12 +87,17 @@ final class ClientRuntime: @unchecked Sendable {
         execute { context in context.objectForKeyedSubscript("aceAck")?.call(withArguments: [accepted]) }
     }
     func stop(completion: @escaping @Sendable () -> Void = {}) {
-        let runLoop = lock.withLock {
+        let state = lock.withLock {
             stopped = true
-            if finished { completion() } else { completions.append(completion) }
-            return loop
+            if !finished { completions.append(completion) }
+            return (loop, finished)
         }
-        if let runLoop { CFRunLoopStop(runLoop); CFRunLoopWakeUp(runLoop) }
+        if state.1 { completion(); return }
+        if let runLoop = state.0 {
+            // Queue the stop: a direct stop before CFRunLoopRun begins can be lost.
+            CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) { CFRunLoopStop(runLoop) }
+            CFRunLoopWakeUp(runLoop)
+        }
     }
 }
 private struct RuntimeConfig: Encodable { let deviceId: String; let hostId: String; let itemLimit: Int }

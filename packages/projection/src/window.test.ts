@@ -77,3 +77,50 @@ it("keeps completed history complete when an earlier partial page is reapplied",
   expect(view.itemOrder).toEqual(["oldest", "middle"]);
   expect(view.seq).toBe(100);
 });
+
+it("merges overlapping history in timestamp order with creation cursors breaking ties", () => {
+  const view = createThreadView(thread, 100);
+  const newer = { ...message("newer"), createdAt: 30 };
+  view.items.newer = newer;
+  view.itemOrder = ["newer"];
+  const history: ItemsPage = {
+    ...page([], null),
+    items: [
+      { ...message("second"), createdAt: 20 },
+      { ...message("first"), createdAt: 10 },
+      { ...message("tie"), createdAt: 20 },
+    ],
+    itemSeqs: { first: 1, tie: 2, second: 3 },
+  };
+  applyItemsPage(view, history);
+  expect(view.itemOrder).toEqual(["first", "tie", "second", "newer"]);
+  applyItemsPage(view, history);
+  expect(view.itemOrder).toEqual(["first", "tie", "second", "newer"]);
+});
+
+it("paging equal-time history keeps live items after the known creation cursors", () => {
+  const view = createThreadView(thread, 100);
+  view.items.middle = message("middle");
+  view.itemOrder = ["middle"];
+  view.itemSeqs = { middle: 2 };
+  applyDelivery(view, {
+    type: "events",
+    subscriptionId: "s",
+    afterSeq: 100,
+    throughSeq: 102,
+    events: ["live-first", "live-second"].map((id, index) =>
+      Event.parse({
+        id,
+        seq: 101 + index,
+        at: 1,
+        threadId: thread.id,
+        payload: { type: "item.created", item: message(id) },
+      }),
+    ),
+  });
+  const history = { ...page(["oldest"], null), itemSeqs: { oldest: 1 } };
+  applyItemsPage(view, history);
+  expect(view.itemOrder).toEqual(["oldest", "middle", "live-first", "live-second"]);
+  applyItemsPage(view, history);
+  expect(view.itemOrder).toEqual(["oldest", "middle", "live-first", "live-second"]);
+});

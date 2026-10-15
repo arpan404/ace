@@ -320,6 +320,7 @@ const server = createServer(async (req, res) => {
   }
   if (path === "/test/state") {
     if (body.sessions) for (const info of body.sessions) sessions.set(info.id, info);
+    if (body.deleted) for (const id of body.deleted) sessions.delete(id);
     if (body.messages)
       for (const [id, records] of Object.entries(body.messages)) messages.set(id, records);
     if (body.inbox) for (const [id, records] of Object.entries(body.inbox)) inbox.set(id, records);

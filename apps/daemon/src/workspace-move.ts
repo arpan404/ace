@@ -106,15 +106,17 @@ export async function ensureThreadWorktree(
   return { path: own.path, branch, created: true };
 }
 /**
- * What a checkout move fences. A move between the main checkout and the thread's own worktree
- * that switches no shared branch touches only that worktree, so siblings keep working.
+ * What a checkout move fences, and which checkout it rewrites. Switching the branch of the main
+ * checkout rewrites the files of every thread working there, so they must all be quiet. A move
+ * into the thread's own worktree rewrites only that worktree, and a move back to the main
+ * checkout without a branch rewrites nothing: threads elsewhere in the project keep working.
  */
 export async function moveReservation(
   context: MoveContext,
   id: ThreadId,
   project: string,
   selection: Pick<Selection, "mode" | "branch">,
-): Promise<Pick<WorkspaceChangeReservation, "roots" | "threads" | "selection">> {
+): Promise<Pick<WorkspaceChangeReservation, "roots" | "writes" | "selection">> {
   const previous = sessionCwd(context.store, id);
   const source = (await exists(previous)) ? await realpath(previous) : previous;
   const root = await realpath(project);
@@ -124,8 +126,10 @@ export async function moveReservation(
     ...(selection.branch ? { branch: selection.branch } : {}),
   };
   if (selection.mode === "local" && selection.branch)
-    return { roots: [...new Set([source, root])], selection: recorded };
-  return { roots: [own.path], threads: [id], selection: recorded };
+    return { roots: [...new Set([source, root])], writes: [root], selection: recorded };
+  if (selection.mode === "worktree")
+    return { roots: [own.path], writes: [own.path], selection: recorded };
+  return { roots: [own.path], writes: [], selection: recorded };
 }
 /** Refuse, before any write, a branch Git would not check out twice. */
 async function assertBranchFree(

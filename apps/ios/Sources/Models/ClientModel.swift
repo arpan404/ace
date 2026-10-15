@@ -30,7 +30,10 @@ import CryptoKit
     var inboxLoaded = false
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
     @ObservationIgnored private var generation = 0
-    @ObservationIgnored private var runtime: ClientRuntime?
+    @ObservationIgnored private var runtime: (any ClientSession)?
+    @ObservationIgnored private let makeRuntime: ClientSessionFactory
+    @ObservationIgnored private var connectionEpoch = 0
+    @ObservationIgnored private var shutdown: Task<Void, Never>?
     @ObservationIgnored private var frames = BridgeFrames()
     @ObservationIgnored private let admissions = CommandAdmissions()
     @ObservationIgnored private var approvalRequests: [String: String] = [:]
@@ -40,16 +43,30 @@ import CryptoKit
     @ObservationIgnored var patchCount = 0
     @ObservationIgnored var streamedUpdates = 0
 
-    init(now: @escaping () -> Double) { self.now = now }
-    func connect(target: ConnectionTarget, directory: URL, itemLimit: Int = 200) {
+    init(now: @escaping () -> Double, makeRuntime: @escaping ClientSessionFactory = {
+        ClientRuntime(target: $0, storageURL: $1, receive: $2, fail: $3)
+    }) { self.now = now; self.makeRuntime = makeRuntime }
+    func connect(target: ConnectionTarget, directory: URL, itemLimit: Int = 200) async {
+        connectionEpoch += 1
+        let epoch = connectionEpoch
+        let closing = retireRuntime()
+        inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false
+        connection = "connecting"; error = nil
+        frames = BridgeFrames(); generation = 0
+        await closing?.value
+        guard connectionEpoch == epoch, !Task.isCancelled else { return }
+        shutdown = nil
         let scope = SHA256.hash(data: Data("\(target.hostId)\u{0}\(target.deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
-        let runtime = ClientRuntime(target: target, storageURL: directory.appendingPathComponent(scope + ".sqlite"), receive: { [weak self] data in
+        let runtime = makeRuntime(target, directory.appendingPathComponent(scope + ".sqlite"), { [weak self] data in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.connectionEpoch == epoch else { return }
                 let accepted = self.receive(data)
                 self.runtime?.acknowledge(accepted: accepted)
             }
-        }, fail: { [weak self] message in Task { @MainActor in self?.error = message } })
+        }, { [weak self] message in Task { @MainActor in
+            guard let self, self.connectionEpoch == epoch else { return }
+            self.error = message
+        } })
         self.runtime = runtime
         runtime.start(itemLimit: itemLimit)
     }
@@ -161,11 +178,23 @@ import CryptoKit
         return true
     }
     func disconnectAndWait() async {
+        connectionEpoch += 1
+        let epoch = connectionEpoch
+        await retireRuntime()?.value
+        if connectionEpoch == epoch { shutdown = nil }
+    }
+    func disconnect() { connectionEpoch += 1; _ = retireRuntime() }
+    private func retireRuntime() -> Task<Void, Never>? {
         admissions.cancel()
         approvalSubmissions = [:]; approvalRequests = [:]
-        guard let runtime else { return }
+        guard let runtime else { return shutdown }
         self.runtime = nil
-        await withCheckedContinuation { continuation in runtime.stop { continuation.resume() } }
+        let previous = shutdown
+        let closing = Task {
+            await previous?.value
+            await withCheckedContinuation { continuation in runtime.stop { continuation.resume() } }
+        }
+        shutdown = closing
+        return closing
     }
-    func disconnect() { admissions.cancel(); approvalSubmissions = [:]; approvalRequests = [:]; runtime?.stop(); runtime = nil }
 }

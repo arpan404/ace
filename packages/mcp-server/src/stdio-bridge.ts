@@ -6,7 +6,11 @@ import { nodeScheduler, type Scheduler } from "./registry.ts";
 import { AceMcpConnectionSchema, type AceMcpConnection } from "./injection.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
 import { coreToolsHeader } from "./toolsets.ts";
-import { maxBridgeResponseBytes, maxBridgeQueuedBytes } from "./result-budgets.ts";
+import {
+  maxBridgeResponseBytes,
+  maxBridgeQueuedBytes,
+  maxRequestBodyBytes,
+} from "./result-budgets.ts";
 const Message = z
   .object({
     jsonrpc: z.literal("2.0"),
@@ -38,7 +42,7 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
     writer.close(error);
     options.input.destroy();
   };
-  const gate = outputGate(2 * 1024 * 1024, () => true, fail);
+  const gate = outputGate(maxRequestBodyBytes, () => true, fail);
   const write = async (value: unknown, writeSignal = signal) => {
     const line = `${JSON.stringify(value)}\n`;
     const bytes = Buffer.byteLength(line);

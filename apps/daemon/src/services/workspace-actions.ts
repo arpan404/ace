@@ -1,7 +1,6 @@
 import { commandNotDispatched } from "../command-not-dispatched.ts";
 import { createWritingCli } from "../source-control-cli.ts";
 import type { CreationProgress } from "../creation-progress.ts";
-import { repositoryTransferGuard } from "./repository-transfers.ts";
 import { loadHostId } from "../local-files.ts";
 import { computerName } from "../computer-name.ts";
 import { actionErrorCode } from "../action-errors.ts";
@@ -32,7 +31,6 @@ export async function startWorkspaceActions({
     ...options.workspaceActions,
     git: {
       ...options.workspaceActions?.git,
-      withRepositoryTransfer: repositoryTransferGuard({ services }),
       onLeaseRetired: ({ lease, repository, reason }) =>
         log.log(
           "warn",
@@ -66,12 +64,18 @@ export async function startWorkspaceActions({
   services.workspaceActions = workspace;
   // Hygiene behind the listener: admission retires stale leases on its own as it meets them.
   const heal = () =>
-    workspace.sweepStaleLeases((path, error) =>
-      log.log("debug", `Git locks in ${path} could not be checked`, logError(error)),
-    );
+    workspace
+      .sweepStaleLeases((path, error) =>
+        log.log("debug", `Git locks in ${path} could not be checked`, logError(error)),
+      )
+      .then(() =>
+        workspace.settleWorkspaceChanges((id, error) =>
+          log.log("debug", `Checkout move of ${id} could not be settled`, logError(error)),
+        ),
+      );
   let sweep = heal();
   // Self-healing: a lease or Git lock whose process ended after admission last looked is
-  // retired by the next sweep, without anyone asking.
+  // retired by the next sweep, and a checkout move it held is settled, without anyone asking.
   const healing = setInterval(() => {
     sweep = sweep.then(heal);
   }, 60_000);

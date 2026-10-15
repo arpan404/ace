@@ -13,6 +13,7 @@ import { observedFetch, sanitize, type Observe } from "./observation.ts";
 import { Routes } from "./routes.ts";
 import { RecentMap } from "./cache.ts";
 import { waitForOutput } from "@ace/provider-kit/flow-control";
+import { transientFailure } from "./recovery-failure.ts";
 export { eventSession } from "./boundaries.ts";
 export type ServerConsumer = {
   outputFlow?: import("@ace/provider-kit/flow-control").OutputFlow;
@@ -43,6 +44,21 @@ export type ServerOptions = {
   /** Explicit external attachment never owns or stops the attached process. */
   attach?: { url: string; authorization: string; version: string };
 };
+/** Recovery retries a failed pass after this long, doubling up to `maxRecoveryBackoffMs`. */
+const recoveryBackoffMs = 100;
+const maxRecoveryBackoffMs = 5000;
+/** A different OpenCode process answered: nothing recovered from it can be trusted. */
+class IdentityChanged extends Error {
+  readonly code = "unreachable";
+}
+/** One session's part of a recovery pass failed; the others are not at fault. */
+class ConsumerFailure extends Error {
+  readonly consumer: ServerConsumer;
+  constructor(consumer: ServerConsumer, cause: unknown) {
+    super("OpenCode session recovery failed", { cause });
+    this.consumer = consumer;
+  }
+}
 const Identity = z.object({ version: z.string(), pid: z.number().int().positive() }).passthrough();
 /** One process/stream/reconnect owner per adapter instance. */
 export class OpenCodeServer {
@@ -67,6 +83,8 @@ export class OpenCodeServer {
   private recovering = false;
   private recoveryStarted = 0;
   private recovery: Promise<void> | undefined;
+  /** Buffered events were dropped, so the next pass must start from a fresh snapshot. */
+  private recoveryStale = false;
   private buffered: { data: unknown; watermark: number; bytes: number }[] = [];
   private bufferedBytes = 0;
   private sequences = new RecentMap<number>(1024);
@@ -303,10 +321,8 @@ export class OpenCodeServer {
       (this.identity && info.pid !== this.identity.pid) ||
       (this.process?.pid !== undefined && info.pid !== this.process.pid)
     )
-      throw Object.assign(new Error("OpenCode process/version identity mismatch"), {
-        // The binary changed between discovery and start (e.g. an update): rediscover and retry.
-        code: "unreachable",
-      });
+      // The binary changed between discovery and start (e.g. an update): rediscover and retry.
+      throw new IdentityChanged("OpenCode process/version identity mismatch");
     this.identity = info;
   }
   reconcileNow(): Promise<void> {
@@ -369,11 +385,12 @@ export class OpenCodeServer {
             this.bufferedBytes += bytes;
             this.buffered.push({ data, watermark, bytes });
             if (this.buffered.length > 4096 || this.bufferedBytes > 8 * 1024 * 1024) {
+              // Memory stays bounded; a fresh snapshot after this point covers what is dropped.
               this.buffered = [];
               this.bufferedBytes = 0;
-              this.controller.abort();
-              if (this.process) void this.process.stop({ graceMs: 0 });
-              throw new Error("OpenCode recovery overflow");
+              this.recoveryStale = true;
+              for (const c of targets) c.frame("note", "recovery.restarted", { watermark });
+              continue;
             }
             for (const c of targets) {
               c.buffered(data, watermark);
@@ -393,49 +410,99 @@ export class OpenCodeServer {
       }
       if (!this.controller.signal.aborted) {
         this.beginRecovery();
-        await new Promise<void>((resolve) => {
-          const cancel = this.runtime.schedule(done, 100);
-          const signal = this.controller.signal;
-          function done() {
-            cancel();
-            signal.removeEventListener("abort", done);
-            resolve();
-          }
-          signal.addEventListener("abort", done, { once: true });
-          if (signal.aborted) done();
-        });
+        await this.pause(100);
       }
     }
   }
-  private recover(): Promise<void> {
-    this.recovery ??= (async () => {
-      const cancel = this.runtime.schedule(() => this.controller.abort(), 30000);
-      try {
-        const expected = this.identity?.version;
-        if (!expected) throw new Error("OpenCode startup identity is unavailable");
-        await this.verify(expected);
-        for (let pass = 0; pass < 2; pass++) for (const c of this.consumers) await c.resync();
-        // Positive work must be established before newer terminal evidence is replayed.
-        for (const c of this.consumers) await c.prepareReplay();
-        for (const entry of this.buffered)
-          for (const c of this.consumers) c.reconcile(entry.data, entry.watermark);
-        for (const c of this.consumers) c.finalizeSnapshots();
-        this.buffered = [];
-        this.bufferedBytes = 0;
-        this.recovering = false;
-        for (const c of this.consumers) c.recovered();
-      } catch {
-        // Failed completeness leaves external servers disconnected; never kill an external owner.
-        if (this.process) {
-          this.controller.abort();
-          await this.process.stop({ graceMs: 0 });
-        }
-      } finally {
+  /** Waits, or stops waiting as soon as the server shuts down. */
+  private pause(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const signal = this.controller.signal;
+      const cancel = this.runtime.schedule(done, ms);
+      function done() {
         cancel();
-        this.recovery = undefined;
+        signal.removeEventListener("abort", done);
+        resolve();
       }
-    })();
+      signal.addEventListener("abort", done, { once: true });
+      if (signal.aborted) done();
+    });
+  }
+  private recover(): Promise<void> {
+    this.recovery ??= this.recoverUntilSettled().finally(() => {
+      this.recovery = undefined;
+    });
     return this.recovery;
+  }
+  /**
+   * Recovery has no deadline. A slow or unreachable pass leaves every session disconnected, never
+   * done, and retries with backoff; a session that cannot be restored is failed alone.
+   */
+  private async recoverUntilSettled(): Promise<void> {
+    let fresh = false;
+    for (let failures = 0; !this.controller.signal.aborted;) {
+      if (fresh || this.recoveryStale) this.restartRecovery();
+      fresh = true;
+      try {
+        if (await this.recoverOnce()) return;
+        continue;
+      } catch (error) {
+        if (this.controller.signal.aborted) return;
+        if (error instanceof IdentityChanged) {
+          // Another process answers. An owned server is replaced; an external one stays
+          // disconnected until its stream reconnects and recovery starts again.
+          if (this.process) {
+            this.controller.abort();
+            await this.process.stop({ graceMs: 0 });
+          }
+          return;
+        }
+        if (error instanceof ConsumerFailure && !transientFailure(error.cause)) {
+          // OpenCode answered, and this session cannot be restored from what it said (its
+          // session is gone or its data can't be represented). Only it ends; the rest go on.
+          error.consumer.exited(false, "OpenCode could not restore this session");
+          continue;
+        }
+      }
+      failures++;
+      await this.pause(Math.min(recoveryBackoffMs * 2 ** (failures - 1), maxRecoveryBackoffMs));
+    }
+  }
+  private async eachConsumer(step: (c: ServerConsumer) => void | Promise<void>): Promise<void> {
+    for (const c of this.consumers) {
+      if (!this.consumers.has(c)) continue;
+      try {
+        await step(c);
+      } catch (error) {
+        throw new ConsumerFailure(c, error);
+      }
+    }
+  }
+  /** A retry starts as a new disconnect: its own snapshots cover everything before it. */
+  private restartRecovery(): void {
+    this.recoveryStale = false;
+    this.buffered = [];
+    this.bufferedBytes = 0;
+    this.recoveryStarted = this.sequence;
+    for (const c of this.consumers) c.disconnected(this.sequence);
+  }
+  /** One complete pass. False when buffered events were dropped and a new pass must run. */
+  private async recoverOnce(): Promise<boolean> {
+    const expected = this.identity?.version;
+    if (!expected) throw new Error("OpenCode startup identity is unavailable");
+    await this.verify(expected);
+    for (let pass = 0; pass < 2; pass++) await this.eachConsumer((c) => c.resync());
+    // Positive work must be established before newer terminal evidence is replayed.
+    await this.eachConsumer((c) => c.prepareReplay());
+    if (this.recoveryStale) return false;
+    for (const entry of this.buffered)
+      for (const c of this.consumers) c.reconcile(entry.data, entry.watermark);
+    for (const c of this.consumers) c.finalizeSnapshots();
+    this.buffered = [];
+    this.bufferedBytes = 0;
+    this.recovering = false;
+    for (const c of this.consumers) c.recovered();
+    return true;
   }
   async release(): Promise<void> {
     if (!this.stopping && !this.consumers.size && !this.readyWaiters) await this.close();

@@ -59,9 +59,12 @@ export function FileGlyph(props: { kind: FileKind; className?: string | undefine
 /** A file name on one line: a long one loses its middle, never its extension. */
 export function FileName(props: { name: string }) {
   const [head, tail] = splitName(props.name);
-  if (!tail) return <span className="min-w-0 truncate">{props.name}</span>;
+  // `truncate` only ellipsizes block-level boxes: the short path must be `block`, or a long
+  // name in a narrow chip (e.g. the composer's image card) paints straight past it. The long
+  // path's root clips as a backstop, so even a pathological extension can't widen the chip.
+  if (!tail) return <span className="block min-w-0 max-w-full truncate">{props.name}</span>;
   return (
-    <span className="flex min-w-0">
+    <span className="flex min-w-0 max-w-full overflow-hidden">
       <span className="min-w-0 truncate">{head}</span>
       <span className="shrink-0">{tail}</span>
     </span>

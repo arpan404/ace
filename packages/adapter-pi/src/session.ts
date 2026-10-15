@@ -211,10 +211,6 @@ export async function openPiSession(
       if (p.success) {
         const d = p.data;
         if (dialogs.has(d.id)) return;
-        if (dialogs.size >= 128) {
-          fatal();
-          return;
-        }
         dialogs.set(d.id, {
           dialog: d,
           cancel: d.timeout === undefined ? () => {} : io.schedule(() => expire(d.id), d.timeout),

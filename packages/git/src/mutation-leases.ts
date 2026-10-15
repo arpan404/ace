@@ -29,7 +29,6 @@ export {
   settleOwnLeases,
 } from "./lease-admission.ts";
 export type { LeaseProbe } from "./lease-admission.ts";
-export { repositoryScope } from "./lease-journal.ts";
 
 // Process-local: the leases each async operation holds, outermost first.
 const scope = new AsyncLocalStorage<readonly OwnedLease[]>();

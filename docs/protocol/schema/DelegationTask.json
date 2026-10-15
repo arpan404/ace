@@ -67,14 +67,10 @@
       "type": "string"
     },
     "role": {
-      "maxLength": 1024,
-      "minLength": 1,
-      "type": "string"
+      "$ref": "https://ace.local/protocol/v1/DelegationRole.json"
     },
     "task": {
-      "maxLength": 16384,
-      "minLength": 1,
-      "type": "string"
+      "$ref": "https://ace.local/protocol/v1/MessageText.json"
     },
     "workspace": {
       "$ref": "https://ace.local/protocol/v1/AgentWorkspace.json"

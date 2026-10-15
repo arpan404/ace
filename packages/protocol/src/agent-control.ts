@@ -12,6 +12,7 @@ import { AutomationRequest } from "./automations.ts";
 import { AgentCatalogInput, AgentWorkspace, ThreadListInput } from "./agent-orchestration.ts";
 import { WaitInput, WaitMode, WaitTimeoutSeconds } from "./agent-monitor.ts";
 import { MachineName } from "./machine-calls.ts";
+import { MessageText } from "./message-limits.ts";
 
 const key = z
   .string()
@@ -37,10 +38,12 @@ export const AgentSelection = z.object({
   options: AgentServiceOptions.optional(),
 });
 export type AgentSelection = z.infer<typeof AgentSelection>;
+/** The role a delegated child plays, here or on another machine. */
+export const DelegationRole = z.string().min(1).max(1024);
 export const DelegationRequest = z.strictObject({
   requestId: key,
-  task: z.string().min(1).max(16384),
-  role: z.string().min(1).max(1024),
+  task: MessageText,
+  role: DelegationRole,
   ...AgentSelection.shape,
   wait: z.boolean().default(false),
   waitMs: z.number().int().min(1).max(240000).optional(),
@@ -156,8 +159,8 @@ export const RemoteDelegationRequest = z.strictObject({
   hostId: HostId,
   mode: z.enum(["worktree", "local"]).default("worktree"),
   workspaceId: WorkspaceId,
-  task: z.string().min(1).max(16384),
-  role: z.string().min(1).max(256),
+  task: MessageText,
+  role: DelegationRole,
   ...AgentSelection.shape,
 });
 export type RemoteDelegationRequest = z.infer<typeof RemoteDelegationRequest>;
@@ -179,7 +182,7 @@ export const ThreadStartOperation = z.strictObject({
   op: z.literal("thread.start"),
   requestId: key,
   title: z.string().min(1).max(256),
-  text: z.string().min(1).max(16384),
+  text: MessageText,
   workspace: AgentWorkspace,
   ...AgentSelection.shape,
 });
@@ -214,7 +217,7 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     op: z.literal("agent.message"),
     threadId: ThreadId,
     requestId: key,
-    text: z.string().min(1).max(16384),
+    text: MessageText,
     delivery: z.enum(["queue", "steer"]).default("queue"),
   }),
   DelegateTaskOperation,
@@ -228,13 +231,13 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     op: z.literal("thread.launch"),
     threadId: ThreadId,
     requestId: key,
-    text: z.string().min(1).max(16384),
+    text: MessageText,
   }),
   z.strictObject({
     op: z.literal("thread.message"),
     threadId: ThreadId,
     requestId: key,
-    text: z.string().min(1).max(16384),
+    text: MessageText,
     delivery: z.enum(["queue", "steer", "restart"]).default("queue"),
   }),
   z.strictObject({ op: z.literal("wait"), ...WaitInput }),
@@ -271,7 +274,7 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     threadId: ThreadId,
     requestId: key,
     entryId: key,
-    text: z.string().min(1).max(16384),
+    text: MessageText,
   }),
   z.strictObject({
     op: z.literal("queue.reorder"),

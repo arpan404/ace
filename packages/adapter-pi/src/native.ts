@@ -28,11 +28,11 @@ export const State = z.looseObject({
 });
 export const Dialog = z.looseObject({
   type: z.literal("extension_ui_request"),
-  id: z.string().min(1).max(256),
+  id: z.string().min(1),
   method: z.enum(["select", "confirm", "input", "editor"]),
   title: z.string().default("Pi extension"),
   message: z.string().optional(),
-  options: z.array(z.string()).max(256).optional(),
+  options: z.array(z.string()).optional(),
   timeout: z.number().nonnegative().optional(),
   prefill: z.string().optional(),
 });

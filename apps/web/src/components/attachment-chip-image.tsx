@@ -77,11 +77,11 @@ export function AttachmentChipImage(props: {
             </>
           )}
         </VisibleImageUrl>
-        <span className="mt-1 block px-0.5 text-xs text-foreground">
+        <span className="mt-1 block min-w-0 px-0.5 text-xs text-foreground">
           <FileName name={item.name} />
         </span>
         {!failed && (
-          <span className="block px-0.5 text-xs text-muted-foreground">
+          <span className="block truncate px-0.5 text-xs text-muted-foreground">
             {uploading ? `Uploading ${percent}%` : fileMeta(item)}
           </span>
         )}
@@ -95,7 +95,7 @@ export function AttachmentChipImage(props: {
         <XIcon aria-hidden size={12} />
       </button>
       {failed && (
-        <p role="status" className="px-0.5 text-xs text-status-failed">
+        <p role="status" className="px-0.5 text-xs wrap-break-word text-status-failed">
           Couldn't upload: {item.error ?? "The upload failed"}
         </p>
       )}

@@ -4,6 +4,7 @@ import { InteractionRequest, InteractionResolution } from "./interactions.ts";
 import { ProviderKind } from "./provider.ts";
 import { ThreadStatus } from "./thread-status.ts";
 import { WatchedThread } from "./agent-monitor.ts";
+import { MessageText } from "./message-limits.ts";
 
 /**
  * Agent calls between paired machines (ADR 0078). The calling daemon forwards over the target's
@@ -70,7 +71,7 @@ export const MachineCall = z.discriminatedUnion("op", [
     requestId: requestKey,
     /** A project id or name on the target; optional when it has exactly one. */
     project: z.string().min(1).max(256).optional(),
-    task: z.string().min(1).max(16384),
+    task: MessageText,
     role: z.string().min(1).max(1024),
     provider: ProviderKind,
     model: z.string().min(1).max(256).optional(),

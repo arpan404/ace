@@ -18,7 +18,7 @@ import QuartzCore
                 do {
                     let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
                         .appendingPathComponent("ace", isDirectory: true)
-                    model.connect(target: target, directory: directory, itemLimit: 2200)
+                    await model.connect(target: target, directory: directory, itemLimit: 2200)
                     #if DEBUG
                     let metrics = SpikeMetrics(model: model, now: { CACurrentMediaTime() }, output: directory.appendingPathComponent("spike-metrics.json"))
                     model.metrics = metrics

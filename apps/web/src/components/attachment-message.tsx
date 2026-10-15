@@ -67,11 +67,13 @@ function Placeholder(props: Shown & { className?: string | undefined }) {
   return (
     <div aria-hidden className={cn("flex flex-col items-end gap-1.5", props.className)}>
       {props.images.length > 0 && (
-        <span className={cn("grid w-fit gap-1.5", props.images.length > 1 && "grid-cols-2")}>
+        <span
+          className={cn("grid w-fit max-w-full gap-1.5", props.images.length > 1 && "grid-cols-2")}
+        >
           {props.images.slice(0, shown + (more ? 1 : 0)).map((image) => (
             <Skeleton
               key={image.key}
-              className="rounded-md"
+              className="max-w-full rounded-md"
               style={tileSize(image, props.images.length)}
             />
           ))}

@@ -1,5 +1,5 @@
 import type { ClientApi } from "@ace/client";
-import type { MessageContext } from "@ace/protocol";
+import { maxMessageBytes, type MessageContext } from "@ace/protocol";
 import {
   choiceSelection,
   imageType,
@@ -27,9 +27,6 @@ export const continuationNote = "Continues in a new thread with your next messag
 export class ContinuationRefused extends Error {
   override name = "ContinuationRefused";
 }
-
-/** A fork's first message is text, at most this long. */
-const maxInput = 16384;
 
 /**
  * Why the new thread's model can't take one of these files, or undefined when it can take them
@@ -78,7 +75,7 @@ export async function continueInNewThread(request: {
     );
   const input = draft.text.trim();
   if (!input) throw new ContinuationRefused("Write a message to start the new thread.");
-  if (input.length > maxInput)
+  if (input.length > maxMessageBytes)
     throw new ContinuationRefused("The message is too long to start a new thread with.");
   const problem = continuationAttachmentProblem(
     draft.files.local,

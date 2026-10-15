@@ -61,10 +61,7 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
       async execute(input, signal) {
         await store.writable();
         const caller = attribution(input.automationId);
-        if (input.worktree || input.prompt.length > 16384)
-          throw new Error(
-            "Use thread.handoff for worktrees; automation prompts must be at most 16 KiB",
-          );
+        if (input.worktree) throw new Error("Use thread.handoff for worktrees");
         const request = {
           requestId: input.idempotencyKey,
           task: input.prompt,
@@ -164,7 +161,6 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
               definition.workspace !== path ||
               definition.worktree ||
               definition.jitterMs !== 0 ||
-              definition.prompt.length > 16384 ||
               !["manual", "schedule"].includes(definition.trigger.kind)
             )
               return { ok: false, code: "unsupported" };

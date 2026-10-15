@@ -1,5 +1,5 @@
 import { useThreadMeta } from "@ace/client-react";
-import type { ForkPoint } from "@ace/protocol";
+import { maxMessageBytes, type ForkPoint } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -84,7 +84,7 @@ export function ForkDialog(props: { thread: ThreadRef; point: ForkPoint; onClose
             aria-label="First message of the fork"
             placeholder="Try the other approach instead…"
             value={text}
-            maxLength={16384}
+            maxLength={maxMessageBytes}
             disabled={sending}
             autoFocus
             onChange={(event) => setText(event.target.value)}

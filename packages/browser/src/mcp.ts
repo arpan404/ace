@@ -4,6 +4,7 @@ import {
   BrowserMeasurementOptions,
   InteractionMeasurement,
   BrowserDialog,
+  browserWaitLimitMs,
 } from "@ace/protocol";
 import type { ApprovalTarget } from "@ace/protocol";
 import { validateMeasurementBudget } from "@ace/interaction";
@@ -171,7 +172,8 @@ export function browserToolkit(
     register(registry) {
       for (const command of BrowserCommand.options) {
         const action = command.shape.action.value;
-        const timeoutMs = Math.min(300_000, startupReserveMs + 100_000);
+        // The longest wait, its 65 s approval reserve, and headroom to report the result.
+        const timeoutMs = Math.min(300_000, startupReserveMs + browserWaitLimitMs + 70_000);
         const name = `ace_browser_${action}`;
         registry.registerContent({
           name,

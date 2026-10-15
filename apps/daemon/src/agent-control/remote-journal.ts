@@ -7,6 +7,11 @@ const reconciliationMs = 7 * 24 * 60 * 60 * 1000;
 const reconciling = `terminal=1 AND json_extract(record,'$.phase')='failed'
   AND json_extract(record,'$.cancellingAt') IS NOT NULL
   AND json_extract(record,'$.result') IS NULL AND json_extract(record,'$.finishedAt')>?`;
+/**
+ * Serialized task bytes one poll reply carries, well inside the daemon's reply frame. Tasks hold
+ * message-sized text, so a full page of them would not fit; the rest wait for the next poll.
+ */
+const pollPageBytes = 1024 * 1024;
 
 /** The originating daemon owns the sole durable task ledger; broker windows hold no run state. */
 export class RemoteTaskJournal {
@@ -81,11 +86,16 @@ export class RemoteTaskJournal {
           .all(this.pollCursor, this.pollCursor, now - reconciliationMs, ...excluded, limit);
       const rotated = select(">", slots);
       if (rotated.length < slots) rotated.push(...select("<=", slots - rotated.length));
-      const last = rotated.at(-1);
-      if (last) this.pollCursor = z.string().parse(last.id);
-      return [...priority, ...rotated].map((row) =>
-        RemoteTask.parse(JSON.parse(z.string().parse(row.record))),
-      );
+      const page: string[] = [];
+      let bytes = 0;
+      for (const [index, row] of [...priority, ...rotated].entries()) {
+        const record = z.string().parse(row.record);
+        bytes += Buffer.byteLength(record);
+        if (page.length && bytes > pollPageBytes) break;
+        page.push(record);
+        if (index >= priority.length) this.pollCursor = z.string().parse(row.id);
+      }
+      return page.map((record) => RemoteTask.parse(JSON.parse(record)));
     });
   }
   save(task: RemoteTask) {

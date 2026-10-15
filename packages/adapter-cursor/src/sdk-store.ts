@@ -21,7 +21,7 @@ export async function openSdkCheckpointStore(
   sdk: Pick<SdkModule, "JsonlLocalAgentStore">,
   root: string,
   cwd: string,
-  maxBytes = 8_388_608,
+  maxBytes = 33_554_432,
 ): Promise<{ store: LocalAgentStore; kind: "sqlite" | "jsonl"; close(): Promise<void> }> {
   const sqlite = await exists(join(root, "index.db"));
   const names = ["agents.ndjson", "runs.ndjson", "run_events.ndjson", "checkpoints.ndjson"];

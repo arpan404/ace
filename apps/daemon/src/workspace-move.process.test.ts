@@ -4,7 +4,7 @@ import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { Command, type ThreadId } from "@ace/protocol";
+import { Command, Thread, type ThreadId } from "@ace/protocol";
 import { transitionHarness } from "./engine/transition-test-support.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
 
@@ -238,6 +238,173 @@ test("git.status reports the HEAD it read, so a terminal commit is not committed
       kind: "gitStatus",
       head: await git(f.h.home, "rev-parse", "HEAD"),
     });
+  } finally {
+    await f.close();
+  }
+});
+
+test("moving thread A to a worktree succeeds while unrelated thread B is working in the same project", async () => {
+  const f = await fixture();
+  try {
+    await git(f.h.home, "branch", "topic");
+    const a = f.local();
+    const b = f.local();
+    await f.h.engine.flush();
+    f.h.held.add(b);
+    expect(f.send(b, "keep working")).toMatchObject({ ok: true });
+    await f.h.engine.flush();
+    expect(f.h.store.getThread(b)?.status.state).not.toBe("done");
+    expect(
+      await f.run({ type: "thread.workspace.set", threadId: a, mode: "worktree", branch: "topic" }),
+    ).toMatchObject({ ok: true });
+    expect(f.h.store.getThread(a)?.details).toMatchObject({ mode: "worktree", branch: "topic" });
+    // B kept its turn and its checkout, and the main checkout kept its branch.
+    expect(f.h.store.getThread(b)?.status.state).not.toBe("done");
+    expect(f.h.store.executionWorkspace(b).path).toBe(await realpath(f.h.home));
+    expect(await git(f.h.home, "branch", "--show-current")).toBe("main");
+  } finally {
+    await f.close();
+  }
+});
+
+test("a project with 300 threads can switch branch", async () => {
+  const f = await fixture();
+  try {
+    await git(f.h.home, "branch", "feature");
+    for (let index = 0; index < 300; index++) {
+      const thread = Thread.parse({
+        id: `quiet-${index}`,
+        workspaceId: f.h.workspace,
+        provider: "codex",
+        title: `Quiet ${index}`,
+        status: { state: "done" },
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      f.h.store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
+    }
+    const thread = f.local();
+    await f.h.engine.flush();
+    expect(
+      await f.run({
+        type: "thread.workspace.set",
+        threadId: thread,
+        mode: "local",
+        branch: "feature",
+      }),
+    ).toMatchObject({ ok: true });
+    expect(await git(f.h.home, "branch", "--show-current")).toBe("feature");
+    expect(f.h.store.workspaceReservations.reserved(await realpath(f.h.home))).toBe(false);
+  } finally {
+    await f.close();
+  }
+});
+
+test("an interrupted workspace change recovers on the next attempt", async () => {
+  const f = await fixture();
+  try {
+    const root = await realpath(f.h.home);
+    const thread = f.local();
+    const sibling = f.local();
+    await f.h.engine.flush();
+    await expect(
+      f.h.engine.changeWorkspace(
+        thread,
+        "lost",
+        async () => {
+          throw new Error("connection lost mid-switch");
+        },
+        { roots: [root], hasOwnedWork: () => false },
+      ),
+    ).rejects.toThrow();
+    expect(f.h.store.getThread(thread)?.details?.workspaceChange).toMatchObject({
+      uncertain: true,
+    });
+    expect(f.send(sibling, "blocked")).toMatchObject({
+      ok: false,
+      error: "workspace_change_in_progress",
+    });
+    expect(
+      await f.run({ type: "thread.workspace.set", threadId: thread, mode: "worktree" }),
+    ).toMatchObject({ ok: true });
+    expect(f.h.store.getThread(thread)?.details?.workspaceChange).toMatchObject({
+      state: "applied",
+    });
+    expect(f.h.store.workspaceReservations.reserved(root)).toBe(false);
+    expect(f.send(sibling, "free again")).toMatchObject({ ok: true });
+  } finally {
+    await f.close();
+  }
+});
+
+test("an uncertain workspace change settles on its own once Git reports the checkout free", async () => {
+  const f = await fixture();
+  try {
+    const root = await realpath(f.h.home);
+    const thread = f.local();
+    const sibling = f.local();
+    await f.h.engine.flush();
+    await expect(
+      f.h.engine.changeWorkspace(
+        thread,
+        "lost",
+        async () => {
+          throw new Error("connection lost mid-switch");
+        },
+        { roots: [root], hasOwnedWork: () => false },
+      ),
+    ).rejects.toThrow();
+    expect(f.send(thread, "blocked")).toMatchObject({ ok: false });
+    await f.runtime.settleWorkspaceChanges((_id, error) => {
+      throw error;
+    });
+    expect(f.h.store.getThread(thread)?.details?.workspaceChange).toMatchObject({
+      state: "failed",
+      uncertain: false,
+      error: "workspace_change_failed",
+    });
+    expect(f.h.store.executionWorkspace(thread).path).toBe(root);
+    expect(f.send(thread, "where I was")).toMatchObject({ ok: true });
+    expect(f.send(sibling, "and me")).toMatchObject({ ok: true });
+  } finally {
+    await f.close();
+  }
+});
+
+test("a workspace change a restart cut off while preparing is settled by the startup sweep", async () => {
+  const f = await fixture();
+  try {
+    const root = await realpath(f.h.home);
+    const thread = f.local();
+    const sibling = f.local();
+    await f.h.engine.flush();
+    // What a daemon that died mid-change leaves on disk; its engine guards die with it.
+    const details = f.h.store.getThread(thread)?.details ?? {};
+    f.h.store.atomic(() => {
+      f.h.store.workspaceReservations.reserve(thread, "cut-off", [root]);
+      f.h.store.appendEvents(thread, [
+        {
+          type: "thread.client.updated",
+          changes: {
+            details: {
+              ...details,
+              workspaceChange: { commandId: "cut-off", state: "preparing", at: 1, lossy: true },
+            },
+          },
+        },
+      ]);
+    });
+    await f.restart();
+    expect(f.send(sibling, "blocked")).toMatchObject({ ok: false });
+    await f.runtime.settleWorkspaceChanges((_id, error) => {
+      throw error;
+    });
+    expect(f.h.store.getThread(thread)?.details?.workspaceChange).toMatchObject({
+      state: "failed",
+      error: "workspace_change_interrupted",
+    });
+    expect(f.send(thread, "after restart")).toMatchObject({ ok: true });
+    expect(f.send(sibling, "and me")).toMatchObject({ ok: true });
   } finally {
     await f.close();
   }

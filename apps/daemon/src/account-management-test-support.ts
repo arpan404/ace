@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { AccountService, openRegistry } from "@ace/accounts";
+import { prepareDaemonHome } from "@ace/service";
 import { ModelCatalog, openModelStorage, createModelDiscovery } from "@ace/models";
 import { NativeAccountProvider } from "@ace/protocol/accounts";
 import { type ClientMessage, type ServerMessage } from "@ace/protocol";
@@ -93,6 +94,7 @@ export async function harness(
   const normalHome = join(root, "normal-home");
   const bin = join(root, "bin");
   await Promise.all([mkdir(dataDir), mkdir(normalHome), mkdir(bin)]);
+  prepareDaemonHome(dataDir);
   await writeFile(join(normalHome, "untouched"), "normal CLI home");
   for (const name of ["codex", "claude", "opencode", "agent", "pi"])
     await writeFile(join(bin, name), cli, { mode: 0o700 });

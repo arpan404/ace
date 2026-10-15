@@ -350,10 +350,11 @@ describe("embedded browser backend", () => {
     });
   });
 
-  it("refuses a ninth view", async () => {
+  it("hosts 32 views at once and refuses a 33rd", async () => {
     const t = setup();
-    for (let index = 1; index <= 8; index++) await t.open(`s-${index}`, `t-${index}`);
-    expect(await t.open("s-9", "t-9")).toMatchObject({ error: "Embedded browser session limit" });
+    for (let index = 1; index <= 32; index++)
+      expect(await t.open(`s-${index}`, `t-${index}`)).not.toHaveProperty("error");
+    expect(await t.open("s-33", "t-33")).toMatchObject({ error: "Embedded browser session limit" });
   });
 });
 

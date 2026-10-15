@@ -9,7 +9,7 @@ import Testing
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let model = ClientModel(now: { 0 })
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
-        model.connect(target: try manyTarget(), directory: root)
+        await model.connect(target: try manyTarget(), directory: root)
         try await untilMany { model.connection == "ready" }
         model.open(id)
         try await untilMany { model.thread?.approvals.first?.options.count == 300 }

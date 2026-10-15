@@ -19,9 +19,6 @@ export class WorkspaceReservations {
     ); CREATE INDEX IF NOT EXISTS workspace_reservation_owner ON workspace_root_reservations(thread_id);
     CREATE TABLE IF NOT EXISTS workspace_canonical_roots (workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id), root TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS workspace_canonical_root ON workspace_canonical_roots(root,workspace_id);`);
-    db.exec(`CREATE TABLE IF NOT EXISTS workspace_repository_roots (root TEXT PRIMARY KEY, repository TEXT NOT NULL);
-      CREATE INDEX IF NOT EXISTS workspace_repository_root ON workspace_repository_roots(repository,root);
-      CREATE TABLE IF NOT EXISTS workspace_repository_reservations (repository TEXT PRIMARY KEY, command_id TEXT NOT NULL);`);
     for (const row of this.statement("SELECT id,path FROM workspaces").all())
       this.registerWorkspace(z.string().parse(row.id), z.string().parse(row.path));
   }
@@ -53,11 +50,7 @@ export class WorkspaceReservations {
   assertAvailable(root: string): void {
     if (this.statement("SELECT 1 FROM storage_removed_roots WHERE root=?").get(root))
       throw new Error("workspace_removed");
-    const kind = this.reservation(root);
-    if (kind)
-      throw new Error(
-        kind === "workspace" ? "workspace_change_in_progress" : "repository_transfer_in_progress",
-      );
+    if (this.reserved(root)) throw new Error("workspace_change_in_progress");
   }
   /** A new checkout made at a path storage cleanup removed earlier makes that root usable again. */
   restoreRoot(root: string): void {
@@ -67,52 +60,8 @@ export class WorkspaceReservations {
     return Boolean(this.statement("SELECT 1 FROM storage_removed_roots WHERE root=?").get(root));
   }
   reserved(root: string): boolean {
-    return this.reservation(root) !== undefined;
-  }
-  private reservation(root: string): "workspace" | "repository" | undefined {
-    const row =
-      this.statement(`SELECT 'workspace' AS kind FROM workspace_root_reservations WHERE root=?
-      UNION ALL SELECT 'repository' AS kind FROM workspace_repository_roots r JOIN workspace_repository_reservations f
-      ON r.repository=f.repository WHERE r.root=? LIMIT 1`).get(root, root);
-    return row ? z.enum(["workspace", "repository"]).parse(row.kind) : undefined;
-  }
-  repository(root: string): string | undefined {
-    const row = this.statement(
-      "SELECT repository FROM workspace_repository_roots WHERE root=?",
-    ).get(canonicalRoot(root));
-    return row ? z.string().parse(row.repository) : undefined;
-  }
-  registerRepository(root: string, repository: string): void {
-    this.statement(`INSERT INTO workspace_repository_roots VALUES (?,?)
-      ON CONFLICT(root) DO UPDATE SET repository=excluded.repository`).run(
-      canonicalRoot(root),
-      repository,
-    );
-  }
-  repositoryReserved(repository: string): boolean {
     return Boolean(
-      this.statement("SELECT 1 FROM workspace_repository_reservations WHERE repository=?").get(
-        repository,
-      ),
-    );
-  }
-  ownsRepositoryReservation(repository: string, commandId: string): boolean {
-    return Boolean(
-      this.statement(
-        "SELECT 1 FROM workspace_repository_reservations WHERE repository=? AND command_id=?",
-      ).get(repository, commandId),
-    );
-  }
-  reserveRepository(repository: string, commandId: string): void {
-    if (this.repositoryReserved(repository)) throw new Error("repository_transfer_in_progress");
-    this.statement("INSERT INTO workspace_repository_reservations VALUES (?,?)").run(
-      repository,
-      commandId,
-    );
-  }
-  releaseRepository(commandId: string): void {
-    this.statement("DELETE FROM workspace_repository_reservations WHERE command_id=?").run(
-      commandId,
+      this.statement("SELECT 1 FROM workspace_root_reservations WHERE root=?").get(root),
     );
   }
   threadReserved(id: ThreadId): boolean {
@@ -125,33 +74,29 @@ export class WorkspaceReservations {
     const root = session?.cwd ?? project?.root;
     return typeof root === "string" && this.reserved(root);
   }
+  /** The roots a change fences: the ones asked for, plus any its earlier changes still hold. */
   roots(owner: ThreadId, input: readonly string[]): string[] {
-    const retained = this.statement(
-      "SELECT root FROM workspace_root_reservations WHERE thread_id=?",
-    )
-      .all(owner)
-      .map((row) => z.string().parse(row.root));
-    const roots = [...new Set([...input.map(canonicalRoot), ...retained])];
-    if (!roots.length || roots.length > 8) throw new Error("workspace_root_limit");
+    const roots = [...new Set([...input.map(canonicalRoot), ...this.threadRoots(owner)])];
+    if (!roots.length) throw new Error("workspace_unavailable");
     return roots;
   }
+  /** Every thread bound to one of `roots`, through its session's root or, before it has one, its project. */
   owners(roots: readonly string[]): ThreadId[] {
     const owners = new Set<ThreadId>();
     const sessionsExist = Boolean(
       this.statement("SELECT 1 FROM sqlite_master WHERE name='engine_sessions'").get(),
     );
-    for (const root of roots) {
+    for (const root of new Set(roots.map(canonicalRoot))) {
       // Scope by indexed root/workspace first. No transcript or event history is read.
       const sessions = sessionsExist
-        ? this.statement("SELECT thread_id FROM engine_sessions WHERE cwd=? LIMIT 257").all(root)
+        ? this.statement("SELECT thread_id FROM engine_sessions WHERE cwd=?").all(root)
         : [];
       const local =
         this.statement(`SELECT t.id AS thread_id FROM workspace_canonical_roots w JOIN threads t ON t.workspace_id=w.workspace_id
-        WHERE w.root=? ${sessionsExist ? "AND NOT EXISTS (SELECT 1 FROM engine_sessions s WHERE s.thread_id=t.id)" : ""} LIMIT 257`).all(
+        WHERE w.root=? ${sessionsExist ? "AND NOT EXISTS (SELECT 1 FROM engine_sessions s WHERE s.thread_id=t.id)" : ""}`).all(
           root,
         );
       for (const row of [...sessions, ...local]) owners.add(ThreadId.parse(row.thread_id));
-      if (owners.size > 256) throw new Error("workspace_owner_limit");
     }
     return [...owners];
   }
@@ -171,6 +116,23 @@ export class WorkspaceReservations {
     return this.statement("SELECT root FROM workspace_root_reservations WHERE thread_id=?")
       .all(owner)
       .map((row) => z.string().parse(row.root));
+  }
+  /** Threads whose changes still hold a fence: a change in flight, interrupted, or uncertain. */
+  fencedThreads(): ThreadId[] {
+    return this.statement("SELECT DISTINCT thread_id FROM workspace_root_reservations")
+      .all()
+      .map((row) => ThreadId.parse(row.thread_id));
+  }
+  /**
+   * Whether the engine holds a transition guard on the thread: a change of it is running now.
+   * Guards outlive nothing: a restart prunes the ones whose change is gone.
+   */
+  transitionGuarded(id: ThreadId): boolean {
+    if (!this.statement("SELECT 1 FROM sqlite_master WHERE name='engine_transition_guards'").get())
+      return false;
+    return Boolean(
+      this.statement("SELECT 1 FROM engine_transition_guards WHERE thread_id=?").get(id),
+    );
   }
   releaseThread(owner: ThreadId): void {
     this.statement("DELETE FROM workspace_root_reservations WHERE thread_id=?").run(owner);

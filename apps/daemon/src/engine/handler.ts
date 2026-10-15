@@ -6,7 +6,7 @@ import { ModelSelectionError, type EngineModels } from "./models.ts";
 import { providerCommandDisabled } from "@ace/core";
 import { provisionalTitle } from "./thread-title.ts";
 import { boundedJson } from "@ace/provider-kit/ipc";
-import { isSend, maxMessageBytes } from "./queue-store.ts";
+import { isSend } from "./queue-store.ts";
 import type { Recovery } from "./recovery.ts";
 import { validResolution } from "./resolution.ts";
 import { validateCreation } from "./creation-validation.ts";
@@ -14,11 +14,18 @@ import type { CreationAdmissions } from "./creation-admissions.ts";
 import { createEngineThread } from "./create-thread.ts";
 import { acceptTransition } from "./transition-handler.ts";
 import { baseBranchLabel, requestedBase, requestedBaseKey } from "../worktree-base.ts";
-import { ExecutionOptions, ThreadId, type Command, type CommandResult } from "@ace/protocol";
+import {
+  ExecutionOptions,
+  ThreadId,
+  maxMessageBytes,
+  type Command,
+  type CommandResult,
+} from "@ace/protocol";
 import type { CommandHandler } from "../commands.ts";
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { EngineLimits } from "./limits.ts";
+import { retireUncertainInputs } from "./stale-inputs.ts";
 
 export function engineHandler(
   repo: EngineRepository,
@@ -441,8 +448,10 @@ export function engineHandler(
         if (!admitted) return fail("queue_capacity_exceeded");
         // Any new message, the person's or a parent agent's, is how a stopped or interrupted turn
         // carries on: it releases that hold, drops ace's own "continue", and the queue sends in
-        // order with it last. It is also the go-ahead past a limit that gave no reset.
+        // order with it last. It is also the go-ahead past a limit that gave no reset, and past
+        // inputs whose delivery stayed uncertain: those leave the queue, never sent again.
         if (p.type === "thread.send") {
+          retireUncertainInputs(repo, threadId, now());
           releaseInterruptedHold(repo, threadId, now());
           recovery.releaseLimitHold(threadId, now());
         }
@@ -486,8 +495,7 @@ export function engineHandler(
  * message sent to it, from the person or from a parent agent, is the go-ahead: it never queues
  * behind the stop. The hold and any pending continuation are dropped, so ace sends no synthetic
  * "continue", and what was already queued goes first, in order, with the new message last. Other
- * holds (a limit, an uncertain delivery, a failed send, an unreconciled Cursor SDK checkpoint)
- * keep it waiting.
+ * holds (a limit, a failed send, an unreconciled Cursor SDK checkpoint) keep it waiting.
  */
 function releaseInterruptedHold(repo: EngineRepository, threadId: ThreadId, at: number): void {
   const queue = repo.queue.get(threadId);

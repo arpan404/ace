@@ -10,8 +10,9 @@ prove the SwiftUI/shared `@ace/client` JavaScriptCore bridge architecture, durab
 local admission, approval recovery after persistence failure or daemon refusal,
 and delivery fairness under oversized updates, rejection and continuous streaming.
 
-Stable 60/120 fps on a real device remains unproven. Relaunch after daemon admission
-with a lost receipt, and safe runtime replacement, remain unverified.
+Stable 60/120 fps on a real device remains unproven. Safe runtime replacement and
+relaunch after daemon admission with a lost receipt now have the follow-up
+functional verification below; they do not release the performance gate.
 
 The rejection-versus-newer-update race was fixed in `8aae02b70` after round 4.
 Its regressions pass, but the fix has not been re-reviewed. PR #567 remains draft
@@ -147,15 +148,37 @@ the field now uses the shared 48-point minimum touch height and token insets, an
 the replay case passes with native typing. This is functional verification, not a
 new input-latency or rendering measurement.
 
-Two round-1 gaps remain for Phase 1:
+Two gaps were deferred after round 1 (addressed by the follow-up below):
 
-- A second `ClientModel.connect()` still replaces a runtime without awaiting its
-  shutdown or rejecting callbacks from the older connection. The spike app starts
-  one connection; reusable multi-machine connection lifecycle needs this fix.
-- The termination/relaunch test covers a persisted send before daemon admission.
-  It does not force the separate failure window of daemon admission followed by a
-  lost receipt, termination and replay. Add that contract and verify one canonical
-  input after replay settles. Existing replay evidence does not cover this window.
+- A second `ClientModel.connect()` replaced a runtime without awaiting its
+  shutdown or rejecting callbacks from the older connection. The spike app started
+  one connection; reusable multi-machine connection lifecycle needed this fix.
+- The original termination/relaunch test covered a persisted send before daemon
+  admission. It did not force the separate failure window of daemon admission
+  followed by a lost receipt, termination and replay, or verify one canonical input
+  after that replay settled.
+
+### Connection lifecycle and lost-receipt follow-up, 2026-10-13
+
+`ClientModel.connect()` now awaits a serialized old-runtime shutdown before
+creating another VM. A connection generation rejects retired callbacks, while
+replacement clears host-specific native views and bridge-fragment assembly.
+Overlapping replacements select the latest request; disconnect invalidates a
+waiting replacement and cancels local admission waiters. A queued run-loop stop
+also closes the startup race where a direct stop could precede `CFRunLoopRun()`.
+
+Thirty Swift behavior/bridge tests pass with Xcode 26.3 on the iPhone 17 Pro
+iOS 26.3 simulator. Four lifecycle cases include late updates/errors, overlapping
+replacements, disconnect during replacement and immediate shutdown of real VMs.
+The new UI contract passes through actual process termination and relaunch:
+the fixture first admits a unique send, drops its receipt and disables connections;
+the test verifies one canonical input before terminating, restores connectivity,
+then verifies replay of that command and exactly one input after its receipt.
+
+This closes the two functional gaps within the simulator/fixture scope. No physical
+phones were available; rendering, input, paired TLS and daemon-restart durability
+remain unproven. Phase 1 is still held. The cross-platform feature inventory and
+Tailscale pairing plan are in the [mobile roadmap](../mobile/tailscale-roadmap.md).
 
 ## Round-2 transfer correction
 

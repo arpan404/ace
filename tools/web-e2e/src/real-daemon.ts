@@ -6,6 +6,7 @@ import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "no
 import { delimiter, join } from "node:path";
 import { createTurnProvider, ScriptedTurnConfig } from "@ace/adapter-testkit";
 import { AdapterRegistry, readConfig, startDaemon } from "@ace/daemon";
+import { prepareDaemonHome } from "@ace/service";
 import { ThreadId, WorkspaceId, type CommandPayload, type ProviderKind } from "@ace/protocol";
 import { daemonCommands } from "./daemon-socket.ts";
 import {
@@ -78,6 +79,7 @@ function scriptedProvider(provider: ProviderKind) {
 }
 
 rmSync(daemonHome, { recursive: true, force: true });
+prepareDaemonHome(daemonHome);
 const project = join(daemonHome, "projects", workspaceName);
 mkdirSync(project, { recursive: true });
 for (const key of [
