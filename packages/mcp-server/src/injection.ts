@@ -32,17 +32,16 @@ export interface SessionGuidance {
   /** Enabled ace groups. Omitted: guidance for every group. */
   groups?: readonly string[] | undefined;
 }
+/** Where the provider natively lists ace's shipped skills; the rest read them via ace_guide. */
+const skills = "The ace guides are also installed as skills of the same names.";
 const prefix: Record<ProviderKind, string> = {
-  codex:
-    "ace tools come from the ace MCP server and may be deferred: search for ace when a task matches. The ace guides are also installed as skills of the same names.",
-  claude:
-    "ace tools are named mcp__ace__<tool>, for example mcp__ace__delegate_task, and may be deferred: search for ace when a task matches. The ace guides are also installed as skills of the same names.",
-  opencode:
-    "OpenCode prefixes every ace MCP tool with ace_: ace_guide is ace_ace_guide, and delegate_task is ace_delegate_task.",
-  cursor: "ace tools come from the ace MCP server.",
+  codex: `ace tools come from the ace MCP server and may be deferred: search for ace when a task matches. ${skills}`,
+  claude: `ace tools are named mcp__ace__<tool>, for example mcp__ace__delegate_task, and may be deferred: search for ace when a task matches. ${skills}`,
+  opencode: `OpenCode prefixes every ace MCP tool with ace_: ace_guide is ace_ace_guide, and delegate_task is ace_delegate_task. ${skills} Load them with your skill tool.`,
+  cursor: `ace tools come from the ace MCP server. ${skills}`,
   antigravity: "ace tools come from the ace MCP server.",
   acp: "ace tools come from the ace MCP server.",
-  pi: "ace tools are the ace_*, screen_* and device_* extension tools.",
+  pi: `ace tools are the ace_*, screen_* and device_* extension tools. ${skills}`,
 };
 
 /**

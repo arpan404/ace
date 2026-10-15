@@ -28,7 +28,11 @@ export class Clock {
       if (timer.at <= this.now && this.timers.delete(timer)) timer.callback();
   }
 }
-export async function setup(extra: ServerOptions = {}, observeFrame?: (frame: Frame) => void) {
+export async function setup(
+  extra: ServerOptions = {},
+  observeFrame?: (frame: Frame) => void,
+  context: Pick<SessionContext, "builtinSkills"> = {},
+) {
   const home = await mkdtemp(join(tmpdir(), "ace-opencode-session-"));
   homes.push(home);
   let origin = "",
@@ -102,6 +106,7 @@ export async function setup(extra: ServerOptions = {}, observeFrame?: (frame: Fr
       threadId: ThreadId.parse("thread_v2"),
       rootKey: "root",
       cwd,
+      ...context,
       ...(permissionMode ? { permissionMode } : {}),
       model,
       ...(executionOptions ? { options: executionOptions } : {}),

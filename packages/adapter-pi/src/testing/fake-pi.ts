@@ -4,7 +4,7 @@ import { createInterface } from "node:readline";
 import { writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { realpathSync } from "node:fs";
+import { readFileSync, readdirSync, realpathSync } from "node:fs";
 import { NativeHistory } from "./native-history.ts";
 import { registerAcePiExtension } from "../index.ts";
 import { createPiExtensionHost } from "./extension-host.ts";
@@ -27,6 +27,21 @@ if (process.env.FAKE_PI_LOAD_FAILURE) {
       'Hint: Start without extensions using "pi -ne".\n',
   );
   process.exit(1);
+}
+/** Like Pi, list each `--skill` directory's `<name>/SKILL.md` skills by their frontmatter name. */
+function skillNames(): string[] {
+  const names: string[] = [];
+  for (let at = 0; at < process.argv.length; at++) {
+    if (process.argv[at] !== "--skill") continue;
+    const root = process.argv[at + 1] ?? "";
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const text = readFileSync(join(root, entry.name, "SKILL.md"), "utf8");
+      const name = /^name:\s*(\S+)/m.exec(text)?.[1];
+      if (name) names.push(name);
+    }
+  }
+  return names;
 }
 function emit(data: unknown) {
   process.stdout.write(JSON.stringify(data) + "\n");
@@ -345,20 +360,22 @@ async function handle(line: string) {
         const allowed =
           toolsIndex < 0 ? undefined : (process.argv[toolsIndex + 1] ?? "").split(",");
         const responseText =
-          message === "tools-proof"
-            ? JSON.stringify({
-                tools: allowed ?? "all",
-                ambientExtensions: !process.argv.includes("--no-extensions"),
-              })
-            : message === "write-proof"
-              ? allowed?.includes("write") || !allowed
-                ? "write available"
-                : "write unavailable"
-              : message === "env-proof"
-                ? (nativeSession.mcp?.bearer ?? "")
-                : message === "context-proof"
-                  ? history.context()
-                  : "hello\u2028world\u2029!";
+          message === "skills-proof"
+            ? JSON.stringify({ skills: skillNames() })
+            : message === "tools-proof"
+              ? JSON.stringify({
+                  tools: allowed ?? "all",
+                  ambientExtensions: !process.argv.includes("--no-extensions"),
+                })
+              : message === "write-proof"
+                ? allowed?.includes("write") || !allowed
+                  ? "write available"
+                  : "write unavailable"
+                : message === "env-proof"
+                  ? (nativeSession.mcp?.bearer ?? "")
+                  : message === "context-proof"
+                    ? history.context()
+                    : "hello\u2028world\u2029!";
         emit({ type: "message_start", message: { role: "assistant", content: [] } });
         emit({
           type: "message_update",

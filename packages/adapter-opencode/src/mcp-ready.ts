@@ -9,11 +9,16 @@ export function mcpReadyPluginDirectory(): string {
   return fileURLToPath(new URL("./mcp-ready-plugin", import.meta.url));
 }
 
-/** Add only a credential-free plugin. User config and persistent files stay provider-owned. */
-export function mcpReadyEnvironment(
+/**
+ * Add ace's credential-free extras to OpenCode's runtime config: the readiness plugin for owned
+ * MCP sessions and ace's shipped skill directories. OpenCode adds `skills` paths from this
+ * layer to the person's own (checked against OpenCode 2.0.29's skill API), and user config and
+ * persistent files stay provider-owned.
+ */
+export function aceConfigEnvironment(
   env: NodeJS.ProcessEnv | undefined,
   content: string,
-  plugin: string,
+  extras: { plugin?: string | undefined; skills?: readonly string[] | undefined },
 ): NodeJS.ProcessEnv {
   if (Buffer.byteLength(content) > 256 * 1024)
     throw new Error("OpenCode configuration exceeds limit");
@@ -26,9 +31,17 @@ export function mcpReadyEnvironment(
     .array(z.unknown())
     .max(64)
     .parse(config["plugins"] ?? []);
+  const skills = z
+    .array(z.string())
+    .max(64)
+    .parse(config["skills"] ?? []);
   return {
     ...env,
-    OPENCODE_CONFIG_CONTENT: JSON.stringify({ ...config, plugins: [...plugins, plugin] }),
+    OPENCODE_CONFIG_CONTENT: JSON.stringify({
+      ...config,
+      ...(extras.plugin ? { plugins: [...plugins, extras.plugin] } : {}),
+      ...(extras.skills?.length ? { skills: [...skills, ...extras.skills] } : {}),
+    }),
   };
 }
 

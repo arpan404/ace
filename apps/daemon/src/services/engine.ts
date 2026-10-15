@@ -7,7 +7,7 @@ import { cursorHosts } from "./cursor-hosts.ts";
 import { openCursorMcp } from "./cursor-mcp.ts";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import { AgentId } from "@ace/protocol";
-import { withDaemonMcp } from "./provider-mcp.ts";
+import { withDaemonMcp, withShippedSkills } from "./provider-mcp.ts";
 import { acpEngineOptions } from "../acp-engine.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
 import { registerAntigravity } from "./antigravity.ts";
@@ -127,7 +127,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     };
     // Cursor SDK owns its scoped HTTP lease, including account identity.
     return adapter.backend === "cursor-sdk"
-      ? configuredAdapter(wrapped, services.providerConfigurations)
+      ? configuredAdapter(withShippedSkills(wrapped), services.providerConfigurations)
       : withDaemonMcp(context, wrapped);
   };
   await registerCursorSdkHome();

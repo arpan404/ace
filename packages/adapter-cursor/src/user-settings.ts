@@ -101,6 +101,38 @@ export async function mirrorCursorUserConfig(
   return result;
 }
 
+/**
+ * Add ace's shipped skills (`<name>/SKILL.md` folders) to the private home's `.cursor/skills`,
+ * after the person's own skills were mirrored there. A skill the person already has under the
+ * same name is theirs and stays untouched. Each session's mirror replaces `skills`, so these
+ * copies never outlive the bundle they came from.
+ */
+export async function addShippedSkills(
+  privateHome: string,
+  directories: readonly string[],
+  limits: MirrorLimits = defaultLimits,
+): Promise<string[]> {
+  const target = join(privateHome, ".cursor", "skills");
+  const added: string[] = [];
+  for (const directory of directories)
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const from = join(directory, entry.name);
+      if (!(await stat(join(from, "SKILL.md")).catch(() => undefined))?.isFile()) continue;
+      const to = join(target, entry.name);
+      if (await lstat(to).catch(() => undefined)) continue;
+      await mkdir(target, { recursive: true, mode: 0o700 });
+      try {
+        await copyTree(from, to, true, { entries: 0, bytes: 0 }, limits);
+        added.push(entry.name);
+      } catch (error) {
+        await rm(to, forced);
+        if (!(error instanceof OverBudget)) throw error;
+      }
+    }
+  return added;
+}
+
 const forced = { recursive: true, force: true } as const;
 const stagingPrefix = ".ace-user-config-";
 function inside(child: string, parent: string): boolean {

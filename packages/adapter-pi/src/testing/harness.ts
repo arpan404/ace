@@ -57,6 +57,7 @@ export async function sessionHarness(
   permissionMode?: SessionContext["permissionMode"],
   /** Every frame the session emits, readable even when opening fails. */
   frames: Frame[] = [],
+  builtinSkills?: SessionContext["builtinSkills"],
 ) {
   const home = existingHome ?? (await mkdtemp(join(tmpdir(), "ace-pi-session-")));
   const sourcePath = join(home, "source.jsonl"),
@@ -79,6 +80,7 @@ export async function sessionHarness(
         rootKey: "root",
         cwd: process.cwd(),
         ...(permissionMode ? { permissionMode } : {}),
+        ...(builtinSkills ? { builtinSkills } : {}),
         env: { ...env, FAKE_PI_HOME: home },
         signal: controller.signal,
         ...(resume
