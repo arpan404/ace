@@ -35,7 +35,7 @@ export function accountList(now: number): FakeAccount[] {
       label: "Personal",
       availability: "available",
       windows: [
-        { id: "five-hour", label: "5-hour", usedPercent: 62, resetsAt: now + 2 * hour },
+        { id: "five-hour", label: "Session (5h)", usedPercent: 62, resetsAt: now + 2 * hour },
         { id: "weekly", label: "Weekly", usedPercent: 41, resetsAt: now + 4 * day },
       ],
     },
@@ -47,7 +47,7 @@ export function accountList(now: number): FakeAccount[] {
       label: "Work",
       availability: "near_limit",
       windows: [
-        { id: "five-hour", label: "5-hour", usedPercent: 86, resetsAt: now + 3 * hour },
+        { id: "five-hour", label: "Session (5h)", usedPercent: 86, resetsAt: now + 3 * hour },
         { id: "weekly", label: "Weekly", usedPercent: 57, resetsAt: now + 2 * day },
       ],
     },
@@ -60,7 +60,7 @@ export function accountList(now: number): FakeAccount[] {
       availability: "available",
       resetCredits: 3,
       windows: [
-        { id: "five-hour", label: "5-hour", usedPercent: 38, resetsAt: now + 3 * hour },
+        { id: "five-hour", label: "Session (5h)", usedPercent: 38, resetsAt: now + 3 * hour },
         { id: "weekly", label: "Weekly", usedPercent: 22, resetsAt: now + 5 * day },
         {
           id: "codex_spark:primary",
@@ -80,7 +80,7 @@ export function accountList(now: number): FakeAccount[] {
       availability: "exhausted",
       resetCredits: 1,
       windows: [
-        { id: "five-hour", label: "5-hour", usedPercent: 100, resetsAt: now + 87 * minute },
+        { id: "five-hour", label: "Session (5h)", usedPercent: 100, resetsAt: now + 87 * minute },
         { id: "weekly", label: "Weekly", usedPercent: 88, resetsAt: now + 6 * day },
       ],
     },

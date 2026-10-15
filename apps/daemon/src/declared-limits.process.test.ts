@@ -303,7 +303,10 @@ process.stdin.resume();
 async function antigravityHarness() {
   const logs: string[] = [];
   const f = await harness(false, {
-    limitsError: (instance, error) => logs.push(`${instance}: ${String(error)}`),
+    // The harness's other CLIs are stand-ins with no usage to read; only Antigravity's is tested.
+    limitsError: (instance, error) => {
+      if (instance === antigravityIdentity.instanceId) logs.push(`${instance}: ${String(error)}`);
+    },
   });
   cleanups.push(() => f.close());
   await f.registry.register(createAntigravityInstance(f.normalHome));

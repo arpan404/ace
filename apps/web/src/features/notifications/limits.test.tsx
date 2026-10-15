@@ -56,7 +56,7 @@ function visibility(state: DocumentVisibilityState) {
 /** Usage's 5-hour bar for Claude Code · Work: what is left of it. */
 const workMeter = () => {
   const work = screen.queryByRole("article", { name: /^Claude Code · Work · / });
-  return work ? within(work).queryByRole("meter", { name: "5-hour" }) : null;
+  return work ? within(work).queryByRole("meter", { name: "Session (5h)" }) : null;
 };
 const findWorkMeter = () =>
   waitFor(() => {
@@ -87,7 +87,9 @@ test("toasts say when an account nears its limit, reaches it and can work again"
   expect(
     await within(await toasts()).findByText("Claude Code · Work is near its usage limit"),
   ).toBeTruthy();
-  expect(within(await toasts()).getByText(/^92% of the 5-hour window used\. Resets/)).toBeTruthy();
+  expect(
+    within(await toasts()).getByText(/^92% of the Session \(5h\) window used\. Resets/),
+  ).toBeTruthy();
 
   report(app, "claude-work", { five_hour: [100, 2 * hour] });
   await refresh();

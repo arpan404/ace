@@ -86,7 +86,7 @@ test("Usage keeps limited-thread counts in a tooltip without recovery controls",
   await expect(team.getByRole("button", { name: "Move running threads" })).toHaveCount(0);
   await team.getByText("Codex · Team", { exact: true }).hover();
   await expect(page.getByRole("tooltip")).toContainText("3 threads at a limit");
-  await expect(team.getByRole("meter", { name: "5-hour window" })).toHaveAttribute(
+  await expect(team.getByRole("meter", { name: "Session (5h) window" })).toHaveAttribute(
     "aria-valuenow",
     "100",
   );

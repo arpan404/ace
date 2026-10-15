@@ -39,7 +39,8 @@ export async function expectProviderAccountGeometry(page: Page, edge: number) {
       await action.count(),
       "Each account has at most one trailing action",
     ).toBeLessThanOrEqual(1);
-    const meter = row.getByRole("meter");
+    // A row may show its session and weekly windows; the first decides where its reading sits.
+    const meter = row.getByRole("meter").first();
     const status = (await meter.count())
       ? row.getByText(`${await meter.getAttribute("aria-valuenow")}%`, { exact: true })
       : row.locator("[data-tone]").or(row.getByText(/ · Not reported yet$/));

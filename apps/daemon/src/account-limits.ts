@@ -1,28 +1,44 @@
 import type { AccountRegistry } from "@ace/accounts";
 import { instanceEnv } from "@ace/accounts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
-import { defaultProviderExecutable, type DiscoveryOptions } from "@ace/provider-kit/discovery";
+import {
+  defaultProviderExecutable,
+  findExecutable,
+  type DiscoveryOptions,
+} from "@ace/provider-kit/discovery";
 import type { ProviderInstance } from "@ace/protocol/accounts";
 import { configuredProviderDiscovery } from "./provider-discovery.ts";
 
-/** Reads one account's Codex limits without a model turn (`account/rateLimits/read`). */
-export type ReadCodexUsage = (options: {
+/**
+ * Reads one account's limits without a model turn, through its own CLI: Codex's
+ * `account/rateLimits/read`, Claude's SDK `get_usage`. Undefined when the login has no plan
+ * limits to report.
+ */
+export type ReadCliUsage = (options: {
   executable: string;
   env: NodeJS.ProcessEnv;
   cwd: string;
   signal: AbortSignal;
-}) => Promise<Record<string, unknown>>;
+}) => Promise<Record<string, unknown> | undefined>;
 
-const defaultRead: ReadCodexUsage = async (options) =>
-  (await import("@ace/adapter-codex/usage-read")).readCodexUsage(options);
+/** The providers whose own CLI reads an account's limits. */
+export type CliUsageProvider = "codex" | "claude";
+
+const defaultReads: Record<CliUsageProvider, ReadCliUsage> = {
+  codex: async (options) => (await import("@ace/adapter-codex/usage-read")).readCodexUsage(options),
+  claude: async (options) =>
+    (await import("@ace/adapter-claude/usage-read")).readClaudePlanUsage({ ...options, args: [] }),
+};
 
 /**
- * Ask every signed-in Codex account for its current limits and record them, so Usage has the
- * 5-hour and weekly windows and banked resets even when no Codex session has run since the last
- * reset. Claude has no equivalent: its CLI reports limits only during a turn, so its windows
- * come from sessions alone. One account failing never stops the others.
+ * Ask every account of `provider` not known to be signed out for its current limits and record
+ * them, so Usage has the session and weekly windows (and Codex's banked resets) at startup and on
+ * every refresh, with no session open. The CLI's own login starts out `unknown` until a session
+ * or a sign-in check says otherwise, so it is asked too: a login that lapsed only fails its read.
+ * One account failing never stops the others.
  */
-export async function refreshCodexLimits(options: {
+export async function refreshCliLimits(options: {
+  provider: CliUsageProvider;
   registry: AccountRegistry;
   env: NodeJS.ProcessEnv;
   cwd: string;
@@ -35,35 +51,39 @@ export async function refreshCodexLimits(options: {
         instance?: string,
       ) => { enabled?: boolean | undefined; binaryPath?: string | undefined })
     | undefined;
-  read?: ReadCodexUsage | undefined;
+  read?: ReadCliUsage | undefined;
   onError?: ((instance: string, error: unknown) => void) | undefined;
 }): Promise<void> {
-  const read = options.read ?? defaultRead;
+  const { provider } = options;
+  const read = options.read ?? defaultReads[provider];
   const accounts = options.registry
     .list()
     .filter(
       ({ instance, quota }) =>
-        instance.provider === "codex" &&
-        quota.auth === "logged_in" &&
+        instance.provider === provider &&
+        quota.auth !== "logged_out" &&
         !quota.blockers.homeUnavailable &&
-        options.configuration?.("codex", instance.id).enabled !== false,
+        options.configuration?.(provider, instance.id).enabled !== false,
     );
   await Promise.all(
     accounts.map(async ({ instance }) => {
       try {
         const discovery = configuredProviderDiscovery(
-          "codex",
-          options.configuration?.("codex", instance.id).binaryPath,
+          provider,
+          options.configuration?.(provider, instance.id).binaryPath,
           options.discovery,
         );
-        const result = await read({
-          executable: discovery.overrides?.codex ?? defaultProviderExecutable("codex"),
-          env: instanceEnv(instance, options.env),
-          cwd: options.cwd,
-          signal: options.signal,
-        });
+        const env = instanceEnv(instance, options.env);
+        const executable = await findExecutable(
+          discovery.overrides?.[provider] ?? defaultProviderExecutable(provider),
+          env,
+        );
+        // A CLI that isn't installed has no limits to read, and that is no error.
+        if (!executable) return;
+        const result = await read({ executable, env, cwd: options.cwd, signal: options.signal });
+        if (!result) return;
         options.registry.ingest(instance.id, {
-          provider: "codex",
+          provider,
           payload: new ProviderPayload(JSON.stringify(result)),
           observedAt: options.now(),
           timeZone: "UTC",

@@ -141,7 +141,9 @@ test("the first read is history; later reads announce near, reached and reset on
     [personal(3, 7 * hour), now],
   );
   expect(first).toEqual([]);
-  expect(warned).toMatchObject([{ kind: "near", window: { label: "5-hour", usedPercent: 91 } }]);
+  expect(warned).toMatchObject([
+    { kind: "near", window: { label: "Session (5h)", usedPercent: 91 } },
+  ]);
   // The same window creeping further is the same news.
   expect(nearer).toEqual([]);
   expect(full).toMatchObject([{ kind: "reached", resetsAt: now + 2 * hour }]);

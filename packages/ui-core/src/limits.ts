@@ -37,7 +37,7 @@ export function accountName(
 /** "5h", "Day", "Week", "Month": a window's name where a meter has room for one word. */
 export function quotaWindowShort(window: Pick<QuotaWindowView, "label">): string {
   switch (window.label) {
-    case "5-hour":
+    case "Session (5h)":
       return "5h";
     case "Daily":
       return "Day";

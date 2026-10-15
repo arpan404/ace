@@ -11,6 +11,8 @@ type Neutral = {
   usedPercent: number;
   resetsAt: number | null;
   windowDurationMins?: number;
+  /** The models it limits, when its group names them ("Gemini Models"). */
+  limitName?: string;
   /** Shown, but never holds the account at its limit (`UsageMapping.holds`). */
   advisory?: true;
 };
@@ -138,6 +140,8 @@ export function mapUsage(answer: unknown, mapping: UsageMapping): UsageReading |
         const reading = window(value, answer, declared);
         if (!name || !reading || name.length > 128) continue;
         if (Object.keys(usageWindows).length >= 32) break;
+        // A group's name says which models its windows limit: "Weekly · Gemini Models".
+        if (group) reading.limitName = group;
         usageWindows[name] = mapping.holds ? reading : { ...reading, advisory: true };
       }
   const planType = planName(first(answer, mapping.plan));

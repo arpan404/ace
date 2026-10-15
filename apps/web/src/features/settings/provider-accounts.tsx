@@ -1,7 +1,7 @@
 import { AccountBadge } from "@/components/ui/provider-account-icon.tsx";
 import { AccountLabelEditor } from "./account-label-editor.tsx";
 import { ApiKeyUpstream, type ProviderKind } from "@ace/protocol";
-import { accountStatus, type AccountView } from "@ace/ui-core";
+import { accountStatus, headlineWindows, type AccountView } from "@ace/ui-core";
 import { DotsThreeIcon } from "@phosphor-icons/react";
 import { useRef, useState } from "react";
 import { CompactWindow, formatResets } from "@/features/accounts/index.ts";
@@ -162,13 +162,11 @@ function AccountItem(props: {
           <span className="relative inline-flex items-center">
             <span className={showDefault ? "inline-flex account-reading" : "inline-flex"}>
               {state.canRun && account.windows[0] ? (
-                <CompactWindow
-                  window={
-                    account.windows.find((window) => window.label === "5-hour") ??
-                    account.windows[0]
-                  }
-                  now={now}
-                />
+                <span className="flex flex-col items-end gap-1">
+                  {headlineWindows(account.windows).map((window) => (
+                    <CompactWindow key={window.id} window={window} now={now} />
+                  ))}
+                </span>
               ) : (
                 <StatusLine
                   tone={state.tone}

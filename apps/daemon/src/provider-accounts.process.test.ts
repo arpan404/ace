@@ -38,6 +38,7 @@ const fs=require('node:fs');const path=require('node:path');const args=process.a
 if(args[0]==='--version')console.log('codex-cli 0.159.1');
 else if(args.includes('--help'))console.log('Usage: codex login logout --with-api-key --device-auth');
 else if(args.includes('status'))console.log(fs.existsSync(home+'/credential')?'Logged in using an API key - '+fs.readFileSync(home+'/credential','utf8'):'Not logged in');
+else if(args[0]==='app-server')process.exit(1);
 else if(args[0]==='logout'){if(fs.existsSync(home+'/refuse-logout')){console.error(fs.readFileSync(home+'/credential','utf8'));process.exit(1);}fs.rmSync(home+'/credential',{force:true});fs.writeFileSync(home+'/logged-out','true');}
 else if(args.includes('--with-api-key')){fs.writeFileSync(home+'/launch.json',JSON.stringify({args,env:process.env}));let value='';process.stdin.on('data',part=>value+=part);process.stdin.on('end',()=>{fs.mkdirSync(home,{recursive:true});fs.writeFileSync(home+'/credential',value.trim());console.log(value);console.error(value);});}
 else {console.log('Open https://auth.openai.com/codex/device\\nEnter code: ABCD-12345');process.stdin.on('data',()=>{fs.mkdirSync(home,{recursive:true});fs.writeFileSync(home+'/credential','browser-fixture');process.exit(0);});}

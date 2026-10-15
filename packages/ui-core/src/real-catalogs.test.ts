@@ -4,7 +4,7 @@ import { accountView, accountStatus, catalogSignal, providerAccountModel } from 
 
 test.each([
   [{ windowDurationMins: 10080, resetsAt: 1000 }, "Weekly"],
-  [{ windowDurationMins: 300, resetsAt: 1000 }, "5-hour"],
+  [{ windowDurationMins: 300, resetsAt: 1000 }, "Session (5h)"],
   [{ resetsAt: 5 * 86400000 }, "Weekly"],
   [{ resetsAt: null }, "Usage"],
 ])("Codex window labels follow reported periods instead of primary slot names", (period, label) => {

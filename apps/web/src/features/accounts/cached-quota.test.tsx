@@ -8,7 +8,7 @@ test("an expired cached five-hour window never presents its old percentage as cu
     <WindowBar
       window={{
         id: "five_hour",
-        label: "5-hour",
+        label: "Session (5h)",
         usedPercent: 5,
         resetsAt: Date.parse("2026-10-07T01:00:00Z"),
       }}

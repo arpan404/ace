@@ -77,7 +77,7 @@ test("limits say what is left, from the share the provider reports used", async 
   report(app.daemon, "claude-work", { five_hour: [100, 3 * hour] });
   await app.open("/usage");
 
-  const personal = await meter("Claude Code", "Personal", "5-hour");
+  const personal = await meter("Claude Code", "Personal", "Session (5h)");
   expect(personal.getAttribute("aria-valuenow")).toBe("38");
   expect(personal.getAttribute("aria-valuetext")).toBe("38% left, resets in 2h");
   expect((await accountBlock("Claude Code", "Personal")).textContent).toContain("38% left");
@@ -126,12 +126,12 @@ test("each account is listed once, with each of its windows beneath it", async (
   ).toEqual(["Personal", "Team"]);
   const personal = within(await accountBlock("Codex", "Personal"));
   expect(personal.getAllByRole("meter").map((each) => each.getAttribute("aria-label"))).toEqual([
-    "5-hour",
+    "Session (5h)",
     "Weekly",
   ]);
   const team = within(await accountBlock("Codex", "Team"));
   expect(team.getAllByRole("meter").map((each) => each.getAttribute("aria-label"))).toEqual([
-    "5-hour",
+    "Session (5h)",
   ]);
 });
 
@@ -161,7 +161,7 @@ test("a window whose reset passed since its reading keeps its place and says how
   };
   await app.open("/usage");
   const personal = await accountBlock("Claude Code", "Personal");
-  expect(personal.textContent).toContain("5-hour");
+  expect(personal.textContent).toContain("Session (5h)");
   expect(personal.textContent).toContain("Reset 1h ago");
   expect(personal.textContent).toContain("Read 3h ago");
   // No stale figure poses as current, and the live weekly reading stays.
@@ -181,7 +181,7 @@ test("Claude's Fable limit shows as its own weekly window", async () => {
   await app.open("/usage");
   const personal = within(await accountBlock("Claude Code", "Personal"));
   expect(personal.getAllByRole("meter").map((each) => each.getAttribute("aria-label"))).toEqual([
-    "5-hour",
+    "Session (5h)",
     "Weekly",
     "Weekly · Fable",
   ]);
@@ -190,24 +190,71 @@ test("Claude's Fable limit shows as its own weekly window", async () => {
   ).toBe("73");
 });
 
-test("an account that reports no 5-hour window says so instead of leaving it out", async () => {
+/** A window as a usage read records it: share used, reset in an hour, its length. */
+const reading = (usedPercent: number, minutes: number, extra = {}) => ({
+  usedPercent,
+  resetsAt: now + hour,
+  windowDurationMins: minutes,
+  ...extra,
+});
+
+test("Claude and Codex show their session and weekly windows as their usage reads report them", async () => {
+  const app = harness();
+  const claude = app.daemon.services.accounts.find((entry) => entry.id === "claude-personal");
+  const codex = app.daemon.services.accounts.find((entry) => entry.id === "codex-personal");
+  if (!claude || !codex) throw new Error("fixture accounts changed");
+  // Claude's `get_usage` read at startup: the account's windows and a model's own weekly limit.
+  claude.quota.windows = {
+    five_hour: reading(32, 300),
+    seven_day: reading(97, 10080),
+    "seven_day_model:Fable": reading(6, 10080, { limitName: "Fable", advisory: true }),
+  };
+  // Codex's `account/rateLimits/read`: its primary and secondary windows, by their lengths.
+  codex.quota.windows = {
+    "codex:primary": reading(40, 300),
+    "codex:secondary": reading(9, 10080),
+  };
+  await app.open("/usage");
+  const labels = async (provider: string) =>
+    within(await accountBlock(provider, "Personal"))
+      .getAllByRole("meter")
+      .map((each) => [each.getAttribute("aria-label"), each.getAttribute("aria-valuenow")]);
+  expect(await labels("Claude Code")).toEqual([
+    ["Session (5h)", "68"],
+    ["Weekly", "3"],
+    ["Weekly · Fable", "94"],
+  ]);
+  expect(await labels("Codex")).toEqual([
+    ["Session (5h)", "60"],
+    ["Weekly", "91"],
+  ]);
+  expect((await accountBlock("Claude Code", "Personal")).textContent).not.toContain(
+    "No session (5h) limit",
+  );
+});
+
+test("an account that reports no session window says so instead of leaving it out", async () => {
   const app = harness();
   report(app.daemon, "codex-personal", { "codex:primary": [2, 29 * day, 43200] });
   await app.open("/usage");
   const personal = await accountBlock("Codex", "Personal");
   expect(personal.textContent).toContain("Monthly");
-  expect(personal.textContent).toContain("No 5-hour limit reported for this account");
+  expect(personal.textContent).toContain("No session (5h) limit reported for this account");
 });
 
 test("Refresh asks each environment for current limits and shows what comes back", async () => {
   const app = harness();
   report(app.daemon, "codex-personal", { five_hour: [40, hour] });
   await app.open("/usage");
-  expect((await meter("Codex", "Personal", "5-hour")).getAttribute("aria-valuenow")).toBe("60");
+  expect((await meter("Codex", "Personal", "Session (5h)")).getAttribute("aria-valuenow")).toBe(
+    "60",
+  );
   report(app.daemon, "codex-personal", { five_hour: [10, hour] }, 3);
   await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
   await waitFor(async () =>
-    expect((await meter("Codex", "Personal", "5-hour")).getAttribute("aria-valuenow")).toBe("90"),
+    expect((await meter("Codex", "Personal", "Session (5h)")).getAttribute("aria-valuenow")).toBe(
+      "90",
+    ),
   );
   expect((await accountBlock("Codex", "Personal")).textContent).toContain("3 banked resets");
 });
@@ -277,7 +324,7 @@ test("the environment filter shows every connected environment, or just the one 
   await waitFor(() =>
     expect(screen.queryByRole("article", { name: /^Codex · Personal/ })).toBeNull(),
   );
-  expect((await meter("Codex", "Team", "5-hour")).getAttribute("aria-valuenow")).toBe("50");
+  expect((await meter("Codex", "Team", "Session (5h)")).getAttribute("aria-valuenow")).toBe("50");
 
   await show("Tokens");
   await userEvent.click(await screen.findByRole("button", { name: "7 days" }));

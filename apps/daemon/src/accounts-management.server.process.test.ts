@@ -171,7 +171,13 @@ test.each([
       const invocations = (await readFile(join(f.dataDir, "fixture-invocations.jsonl"), "utf8"))
         .trim()
         .split("\n")
-        .map((line) => z.object({ provider: z.string() }).parse(JSON.parse(line)));
+        .map((line) =>
+          z.object({ provider: z.string(), home: z.string().optional() }).parse(JSON.parse(line)),
+        )
+        // Startup's usage reads ask the CLI logins in their own homes; this account's private
+        // home sees only its own CLI.
+        .filter((invocation) => invocation.home?.startsWith(home));
+      expect(invocations.length).toBeGreaterThan(0);
       expect(new Set(invocations.map((invocation) => invocation.provider))).toEqual(
         new Set([provider]),
       );

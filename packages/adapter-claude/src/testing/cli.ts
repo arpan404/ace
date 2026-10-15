@@ -3,6 +3,7 @@
 import { readPrivateMcpConfig } from "@ace/mcp-server";
 import { list, object } from "../native.ts";
 import { createInterface } from "node:readline";
+import { readFileSync } from "node:fs";
 if (process.argv.includes("--version")) {
   console.log("2.1.286 (Claude Code)");
   process.exit(0);
@@ -14,6 +15,11 @@ function option(name: string): string | undefined {
 }
 const session = option("--session-id") ?? "fake-session";
 const write = (data: unknown) => console.log(JSON.stringify(data));
+/** `get_usage`: the plan usage in the file the test names, read when asked. */
+const usageAnswer = (): unknown => {
+  const file = process.env["ACE_FAKE_CLAUDE_USAGE_FILE"];
+  return file ? (JSON.parse(readFileSync(file, "utf8")) as unknown) : {};
+};
 const lines = createInterface({ input: process.stdin });
 let id = 0;
 let childText = false;
@@ -72,6 +78,20 @@ for await (const line of lines) {
       });
       continue;
     }
+    // `get_usage`: the plan usage this fake login reports, or a failure that echoes its secret.
+    const failedUsage = process.env["ACE_FAKE_CLAUDE_USAGE_ERROR"];
+    if (request["subtype"] === "get_usage" && failedUsage) {
+      process.stderr.write(`usage endpoint rejected ${failedUsage}\n`);
+      write({
+        type: "control_response",
+        response: {
+          subtype: "error",
+          request_id: data["request_id"],
+          error: `Unauthorized: ${failedUsage}`,
+        },
+      });
+      continue;
+    }
     if (request["subtype"] === "mcp_set_servers") mcp = object(request["servers"]);
     write({
       type: "control_response",
@@ -81,27 +101,29 @@ for await (const line of lines) {
         response:
           request["subtype"] === "initialize"
             ? { commands: [], agents: [], models: [] }
-            : request["subtype"] === "interrupt"
-              ? { still_queued: [] }
-              : request["subtype"] === "mcp_status"
-                ? {
-                    mcpServers: [
-                      ...ownedServers,
-                      ...Object.keys(mcp).map((name) => ({
-                        name,
-                        source: "dynamic",
-                        status: "connected",
-                      })),
-                    ],
-                  }
-                : request["subtype"] === "mcp_set_servers"
+            : request["subtype"] === "get_usage"
+              ? usageAnswer()
+              : request["subtype"] === "interrupt"
+                ? { still_queued: [] }
+                : request["subtype"] === "mcp_status"
                   ? {
-                      added: Object.keys(mcp),
-                      removed: [],
-                      errors: "broken" in mcp ? { broken: "connection refused" } : {},
-                      future: "retained",
+                      mcpServers: [
+                        ...ownedServers,
+                        ...Object.keys(mcp).map((name) => ({
+                          name,
+                          source: "dynamic",
+                          status: "connected",
+                        })),
+                      ],
                     }
-                  : {},
+                  : request["subtype"] === "mcp_set_servers"
+                    ? {
+                        added: Object.keys(mcp),
+                        removed: [],
+                        errors: "broken" in mcp ? { broken: "connection refused" } : {},
+                        future: "retained",
+                      }
+                    : {},
       },
     });
     if (request["subtype"] === "mcp_status" && elicitationWaiting)

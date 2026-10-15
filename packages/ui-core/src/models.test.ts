@@ -69,10 +69,10 @@ test("quota windows read in words and the shortest window comes first", () => {
   });
 
   expect(claude.windows.map((w) => [w.label, w.usedPercent])).toEqual([
-    ["5-hour", 62],
+    ["Session (5h)", 62],
     ["Weekly", 41],
   ]);
-  expect(codex.windows.map((w) => w.label)).toEqual(["5-hour", "Weekly"]);
+  expect(codex.windows.map((w) => w.label)).toEqual(["Session (5h)", "Weekly"]);
 });
 
 test("each model is offered on the account that serves it, with that account's usage", () => {
@@ -86,8 +86,8 @@ test("each model is offered on the account that serves it, with that account's u
   );
 
   expect(choices.map((c) => [c.model, c.account, c.note, c.used])).toEqual([
-    ["Opus", "personal", "62% of 5-hour window used", 0.62],
-    ["Opus", "work", "23% of 5-hour window used", 0.23],
+    ["Opus", "personal", "62% of Session (5h) window used", 0.62],
+    ["Opus", "work", "23% of Session (5h) window used", 0.23],
   ]);
 });
 
@@ -131,8 +131,8 @@ test("New thread keeps each account's own rows and defaults to an account with h
     ["claude-personal", "opus", false],
   ]);
   expect(options.accounts.map((a) => [a.label, a.usage, a.isDefault])).toEqual([
-    ["work", "100% of 5-hour used", false],
-    ["personal", "38% of 5-hour used", true],
+    ["work", "100% of Session (5h) used", false],
+    ["personal", "38% of Session (5h) used", true],
   ]);
 });
 

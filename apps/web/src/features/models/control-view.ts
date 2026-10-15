@@ -7,7 +7,7 @@ export interface AccountRow {
   /** The quiet tag, "personal". */
   label: string;
   authMethod?: string | undefined;
-  /** Its usage ("38% of 5-hour used"), or when it resets after hitting its limit. */
+  /** Its usage ("38% of Session (5h) used"), or when it resets after hitting its limit. */
   detail: string;
   /** Set when it can't take work now. */
   disabled?: string | undefined;
