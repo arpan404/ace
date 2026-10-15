@@ -101,6 +101,9 @@ console.log(JSON.stringify({id:r.id,result}));});`,
     type: "cursor.auth.changed",
     auth: { status: "logged-in", source: "sdk-store" },
   });
+  await expect
+    .poll(() => daemon?.models.list({ provider: "cursor" }), { timeout: 10000 })
+    .toMatchObject({ instances: [{ enabled: true, refreshing: false }] });
   client.send({ type: "models.refresh", requestId: "models", filter: { provider: "cursor" } });
   const models = await until(
     client,

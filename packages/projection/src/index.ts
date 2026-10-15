@@ -1,3 +1,5 @@
+export { chronologicalItemOrder } from "./item-order.ts";
+import { insertChronologicalItem } from "./item-order.ts";
 export {
   isRawHistoryItem,
   historyMessageIdentity,
@@ -269,7 +271,12 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
         !Object.hasOwn(view.items, p.item.id)
       )
         break;
-      if (!Object.hasOwn(view.items, p.item.id)) view.itemOrder.push(p.item.id);
+      const previous = get(view.items, p.item.id);
+      if (!previous) insertChronologicalItem(view.itemOrder, view.items, p.item);
+      else if (previous.createdAt !== p.item.createdAt && view.itemOrder.includes(p.item.id)) {
+        view.itemOrder = view.itemOrder.filter((id) => id !== p.item.id);
+        insertChronologicalItem(view.itemOrder, view.items, p.item);
+      }
       put(view.items, p.item.id, structuredCopy(p.item));
       break;
     }

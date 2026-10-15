@@ -174,7 +174,7 @@ test("search reads tool output and subagent threads, and continues past sparse p
 });
 
 test("live items follow the synthetic turns and count in the turn index", async () => {
-  const daemon = new LongThreadSoak({ clock: () => 0, shape });
+  const daemon = new LongThreadSoak({ clock: () => Date.UTC(2026, 9, 3), shape });
   const client = await connect(daemon);
   const lease = client.thread("thread-multi-day");
   await new Promise((resolve) => setTimeout(resolve, 10));

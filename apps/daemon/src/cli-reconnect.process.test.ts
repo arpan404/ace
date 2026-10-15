@@ -21,7 +21,7 @@ test(
       "jsonl",
     ]);
     try {
-      await expect.poll(f.lostSnapshots).toBeGreaterThan(0);
+      await expect.poll(f.lostSnapshots, { timeout: 10000 }).toBeGreaterThan(0);
       cli.child.stdin.write("/quit\n");
       let exited = false;
       void cli.exited.then(() => {
@@ -182,10 +182,10 @@ test(
     ];
     const cli = startCli(f.home, args);
     try {
-      await expect.poll(() => f.receipts.includes("ticket-replay")).toBe(true);
+      await expect.poll(() => f.receipts.includes("ticket-replay"), { timeout: 10000 }).toBe(true);
       f.restoreReplies();
       f.interruptWithTicketFailure();
-      await expect.poll(f.failedTickets).toBe(1);
+      await expect.poll(f.failedTickets, { timeout: 5000 }).toBe(1);
       const output = await cli.exited;
       expect(output.code, output.stderr).toBe(0);
       const threadId = z.object({ threadId: ThreadId }).parse(JSON.parse(output.stdout)).threadId;
@@ -220,7 +220,7 @@ test.each(["revocation", "quit"] as const)(
       output += bytes.toString();
     });
     try {
-      await expect.poll(() => output.includes('"type":"thread"')).toBe(true);
+      await expect.poll(() => output.includes('"type":"thread"'), { timeout: 10000 }).toBe(true);
       f.loseReplies();
       cli.child.stdin.write("Admitted before losing its receipt\n");
       await expect

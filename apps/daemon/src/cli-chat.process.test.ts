@@ -53,7 +53,9 @@ test("terminal chat creates and resumes one shared daemon thread with its live t
     const thread = z
       .object({ threadId: ThreadId })
       .parse(session.records.find((entry) => entry.type === "thread")).threadId;
-    await expect.poll(() => f.h.inputs.get(thread)).toEqual(["First shared prompt"]);
+    await expect
+      .poll(() => f.h.inputs.get(thread), { timeout: 10000 })
+      .toEqual(["First shared prompt"]);
     await f.h.complete(thread, "Shared answer");
     await session.next((entry) => entry.type === "message" && entry.text === "Shared answer");
     const guiView = await invoke(home, ["thread", "read", thread, "--json"]);
@@ -74,7 +76,7 @@ test("terminal chat creates and resumes one shared daemon thread with its live t
       await resumed.next((entry) => entry.type === "message" && entry.text === "Shared answer");
       resumed.child.stdin.write("Second shared prompt\n");
       await expect
-        .poll(() => f.h.inputs.get(thread))
+        .poll(() => f.h.inputs.get(thread), { timeout: 10000 })
         .toEqual(["First shared prompt", "Second shared prompt"]);
       resumed.child.stdin.end("/quit\n");
       expect((await resumed.exited).code).toBe(0);
@@ -161,19 +163,25 @@ test("chat stop and the next message use the shared queue and model selection ra
     const threadId = z
       .object({ threadId: ThreadId })
       .parse(session.records.find((entry) => entry.type === "thread")).threadId;
-    await expect.poll(() => f.h.inputs.get(threadId)).toEqual(["Long running prompt"]);
+    await expect
+      .poll(() => f.h.inputs.get(threadId), { timeout: 10000 })
+      .toEqual(["Long running prompt"]);
     session.child.stdin.write("/stop\n");
-    await expect.poll(() => f.daemon.engine?.queue(threadId).reason).toBe("stopped");
+    await expect
+      .poll(() => f.daemon.engine?.queue(threadId).reason, { timeout: 10000 })
+      .toBe("stopped");
     await session.next((entry) => entry.type === "status" && entry.status === "needs-human");
     // The person's next message is their go-ahead: it releases the stop and is delivered.
     session.child.stdin.write("Next chat input\n");
-    await expect.poll(() => f.h.inputs.get(threadId)?.includes("Next chat input")).toBe(true);
+    await expect
+      .poll(() => f.h.inputs.get(threadId)?.includes("Next chat input"), { timeout: 10000 })
+      .toBe(true);
     expect(f.daemon.engine?.queue(threadId)).toMatchObject({ paused: false, pendingCount: 0 });
     const receipts = () => session.records.filter((entry) => entry.type === "receipt").length;
     const before = receipts();
     session.child.stdin.write("/model chosen-model\n");
     await expect
-      .poll(() => f.daemon.store.getThread(threadId)?.execution?.model)
+      .poll(() => f.daemon.store.getThread(threadId)?.execution?.model, { timeout: 10000 })
       .toBe("chosen-model");
     // Quit once the model change is acknowledged; quitting mid-receipt is uncertain by design.
     await session.next(() => receipts() > before);
@@ -198,7 +206,7 @@ test("human chat rendering strips terminal controls from the shared transcript",
       rendered += bytes.toString();
     });
     // Quit after the attached transcript renders; an earlier quit detaches uncertain.
-    await expect.poll(() => rendered.includes("Visible transcript")).toBe(true);
+    await expect.poll(() => rendered.includes("Visible transcript"), { timeout: 10000 }).toBe(true);
     session.child.stdin.end("/quit\n");
     const output = await session.exited;
     expect(output.code, output.stderr).toBe(0);

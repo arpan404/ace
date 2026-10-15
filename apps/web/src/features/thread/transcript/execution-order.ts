@@ -26,7 +26,8 @@ export function executionOrder(source: {
       !item.synthetic &&
       item.origin?.commandId &&
       (outputTurns.has(turn) || source.run?.(turn)?.state === "active") &&
-      !seen.has(turn)
+      !seen.has(turn) &&
+      seen.size > 0
     ) {
       const inputs = pending.get(turn) ?? [];
       inputs.push(id);

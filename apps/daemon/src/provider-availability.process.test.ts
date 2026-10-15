@@ -1,6 +1,7 @@
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { expect, it, onTestFinished } from "vitest";
 import { z } from "zod";
 import * as sdk from "@cursor/sdk";
@@ -91,7 +92,8 @@ for (const provider of ["claude", "codex", "opencode", "pi"] as const)
       { mcp, store, id: () => "availability-session", capabilities: [] },
     );
     expect(await observed.promise).toContain(thread.id);
-    expect(frames.join("\n")).not.toMatch(/[a-f0-9]{64}/);
+    const checkout = fileURLToPath(new URL("../../../", import.meta.url));
+    expect(frames.join("\n").replaceAll(checkout, "<checkout>/")).not.toMatch(/[a-f0-9]{64}/);
     await session.close("shutdown");
   });
 

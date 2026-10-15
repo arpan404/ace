@@ -1,3 +1,4 @@
+import { chronologicalItemOrder } from "@ace/projection";
 import type { Item, ItemsPage, ThreadView } from "@ace/protocol";
 
 function seqs(ids: readonly string[], creation: ReadonlyMap<string, number>) {
@@ -32,7 +33,11 @@ export function windowSnapshot(
   limit: number,
   seq: number,
 ): ThreadView {
-  const kept = view.itemOrder.slice(-limit);
+  const kept = chronologicalItemOrder(
+    view.itemOrder,
+    (id) => view.items[id],
+    (id) => creation.get(id),
+  ).slice(-limit);
   const { items: _items, itemOrder: _order, ...rest } = view;
   return {
     ...structuredClone(rest),
