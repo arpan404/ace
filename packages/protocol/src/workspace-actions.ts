@@ -116,6 +116,12 @@ export const WorkspaceActionResult = z.object({
       files: z.array(GitStatusFile).max(gitStatusLimit),
       /** More files changed than `files` holds. */
       truncated: z.boolean(),
+      /** The checkout's HEAD when the status was read; null before the first commit. */
+      head: z
+        .string()
+        .regex(/^[a-f0-9]{40,64}$/)
+        .nullable()
+        .optional(),
     }),
     z.object({
       kind: z.literal("gitDiff"),
@@ -160,6 +166,11 @@ export const WorkspaceCommands = [
     branch: z.string().min(1).max(1024).optional(),
     allowUncommitted: z.boolean().default(false),
   }),
+  /**
+   * Clear a failed or uncertain checkout move after the person confirms: releases its durable
+   * root fence once Git reports the roots available. Fails with `git_quarantined` otherwise.
+   */
+  z.object({ type: z.literal("thread.workspace.clear"), threadId: ThreadId }),
   z.object({ type: z.literal("workspace.script.run"), threadId: ThreadId, scriptId: id }),
   z.object({ type: z.literal("workspace.editor.open"), threadId: ThreadId, editorId: id }),
   /**

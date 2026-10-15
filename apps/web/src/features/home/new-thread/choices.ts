@@ -45,7 +45,8 @@ export interface Resolved {
   /** The option key to save in place of a legacy bare model id the choice matched. */
   upgradedModel?: string | undefined;
   account: AccountOption | undefined;
-  mode: WorkMode;
+  /** Where it runs; undefined until the Settings default is known and nothing was chosen. */
+  mode: WorkMode | undefined;
   /** One of the model's efforts: the chosen one, else the model's default. */
   effort: string | undefined;
   /** One of the model's speeds: as chosen, else as the catalog runs it by default. */
@@ -61,7 +62,7 @@ export function resolve(
   options: NewThreadOptions | undefined,
   choices: Choices,
   provider: ProviderKind | undefined,
-  defaultMode: WorkMode = "worktree",
+  defaultMode: WorkMode | undefined,
 ): Resolved {
   const models = options?.models ?? [];
   const chosen =
@@ -157,7 +158,8 @@ export function completePreparationChoices(saved: Choices, resolved: Resolved): 
     account: saved.account ?? resolved.account?.id,
     effort: saved.effort ?? resolved.effort,
     speed: saved.speed ?? (resolved.model ? resolved.speed : undefined),
-    mode: saved.mode ?? resolved.mode,
+    // Only a mode the person picked: unpicked, it follows Settings' default (and the project).
+    mode: saved.mode,
   };
 }
 

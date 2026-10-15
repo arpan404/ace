@@ -202,6 +202,7 @@ export class FakeDaemon implements Host {
             options.clock(),
           );
       },
+      (command) => this.servicesWire.workspace.git.creationFailure(command.payload),
     );
     this.hostId = HostId.parse(options.hostId ?? "fake-host");
     this.version = options.version ?? "fake";
@@ -351,6 +352,9 @@ export class FakeDaemon implements Host {
     | "setForgeRead"
     | "setDraftGenerator"
     | "setIssueOutcome"
+    | "git"
+    | "failMoves"
+    | "setDetails"
   > {
     return this.servicesWire.workspace;
   }

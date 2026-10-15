@@ -45,7 +45,8 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
       id: id,
       // Socket-scoped read/operate checks are enforced by the authenticated server.
       authorize: () => !store.workspaceReservations.reserved(workspaceRoot),
-      onChange: (change) => eventStore.recordWorkspaceFileChange(workspaceId, change),
+      onChange: (change) =>
+        eventStore.recordWorkspaceFileChange(workspaceId, workspaceRoot, change),
       onUploadRecovery: (notice) =>
         log.log("warn", "Upload receipt settled after destination changed", notice),
       exportSupport: (_device, assertAuthorized) => {

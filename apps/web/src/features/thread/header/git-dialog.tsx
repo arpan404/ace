@@ -101,6 +101,7 @@ export function GitDialog(props: {
           message,
           push,
           paths: pathsOf(files ?? [], chosen),
+          head: status.data?.head,
           draftFingerprint: draftSource?.fingerprint,
         }
       : {

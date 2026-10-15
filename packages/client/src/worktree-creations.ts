@@ -10,7 +10,7 @@ import { Notifications, type Selection } from "./observable.ts";
  * `worktree.creation.request`.
  */
 
-export type WorktreeAction = "cancel" | "local" | "retry";
+export type WorktreeAction = "cancel" | "local" | "retry" | "continue" | "dismiss";
 /** Why the daemon turned an action down, or "offline" when it couldn't be asked. */
 export type WorktreeRefusal =
   | "not_found"

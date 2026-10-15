@@ -13,7 +13,11 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { useLayout } from "@/lib/layout.tsx";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { newThreadDraftKey } from "@/lib/new-thread-draft-key.ts";
-import { forgetReturnedStart, saveReturnedStart } from "@/lib/returned-start.ts";
+import {
+  forgetReturnedStart,
+  saveReturnedStart,
+  type ReturnedStart,
+} from "@/lib/returned-start.ts";
 import { dismissSend } from "../composer/dismissed-sends.ts";
 import { draftOf, restoreReturnedDraft, type SendPayload } from "../composer/returned-draft.ts";
 import { returnDraft, saveOpenDraft, leasable } from "../composer/send-store.ts";
@@ -28,6 +32,7 @@ import {
 import { useThreadSources } from "../sources/index.ts";
 import { commandOf } from "./pending-sends.ts";
 import { ClearStaleLock } from "./clear-stale-lock.tsx";
+import { dismissWorktreeStart } from "../worktree/use-worktree-creation.ts";
 
 type CreatePayload = Extract<SendPayload, { type: "thread.create" }>;
 
@@ -68,7 +73,7 @@ export function FailedSend(props: {
       className="mt-[5px] flex flex-wrap items-center justify-end gap-x-1 gap-y-0.5"
     >
       <NotSent reason={props.reason} />
-      {props.fenced && <ClearStaleLock threadId={props.threadId} />}
+      {props.fenced && <ClearStaleLock target={{ threadId: props.threadId }} />}
       {payload && commandId && (
         <span className="flex gap-1">
           <Button
@@ -109,9 +114,14 @@ export function useSendActions(threadId: string) {
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
   /**
    * A new thread's start back in New thread for its project: its text, files and picks in the
-   * composer, its base in the strip, and `reason` (when given) in the strip's notice.
+   * composer, its base in the strip, and why (when given) in the strip's notice. A worktree
+   * start the daemon kept as failed or cancelled is dismissed there, its message being back.
    */
-  const returnStart = async (commandId: string, payload: CreatePayload, reason?: string) => {
+  const returnStart = async (
+    commandId: string,
+    payload: CreatePayload,
+    returned?: ReturnedStart,
+  ) => {
     const draft = draftOf(payload);
     const { writeDraft } = await import("../composer/draft-store.ts");
     // New thread reads its draft under this host and project; elsewhere it would be lost.
@@ -123,16 +133,17 @@ export function useSendActions(threadId: string) {
       });
       return false;
     }
-    if (reason) saveReturnedStart(storage, key, reason);
+    if (returned) saveReturnedStart(storage, key, returned);
     else forgetReturnedStart(storage, key);
     dismissSend(storage, commandId);
+    if (payload.mode === "worktree") dismissWorktreeStart(client, commandId);
     void navigate({
       to: "/new",
       search: {
         project: payload.workspaceId,
         ...(payload.mode === "worktree" && payload.base ? { base: baseName(payload.base) } : {}),
       },
-      replace: reason !== undefined,
+      replace: returned !== undefined,
     });
     return true;
   };

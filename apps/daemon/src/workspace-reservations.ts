@@ -59,6 +59,13 @@ export class WorkspaceReservations {
         kind === "workspace" ? "workspace_change_in_progress" : "repository_transfer_in_progress",
       );
   }
+  /** A new checkout made at a path storage cleanup removed earlier makes that root usable again. */
+  restoreRoot(root: string): void {
+    this.statement("DELETE FROM storage_removed_roots WHERE root=?").run(root);
+  }
+  removedRoot(root: string): boolean {
+    return Boolean(this.statement("SELECT 1 FROM storage_removed_roots WHERE root=?").get(root));
+  }
   reserved(root: string): boolean {
     return this.reservation(root) !== undefined;
   }
@@ -158,6 +165,15 @@ export class WorkspaceReservations {
     for (const root of roots)
       this.statement(`INSERT INTO workspace_root_reservations VALUES (?,?,?)
       ON CONFLICT(root) DO UPDATE SET command_id=excluded.command_id`).run(root, owner, commandId);
+  }
+  /** The roots a thread's own failed or uncertain changes still fence. */
+  threadRoots(owner: ThreadId): string[] {
+    return this.statement("SELECT root FROM workspace_root_reservations WHERE thread_id=?")
+      .all(owner)
+      .map((row) => z.string().parse(row.root));
+  }
+  releaseThread(owner: ThreadId): void {
+    this.statement("DELETE FROM workspace_root_reservations WHERE thread_id=?").run(owner);
   }
   release(commandId: string): void {
     this.statement("DELETE FROM workspace_root_reservations WHERE command_id=?").run(commandId);

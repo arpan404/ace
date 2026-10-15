@@ -23,8 +23,10 @@ const divider = <span aria-hidden className="mx-0.5 h-3.5 w-px shrink-0 bg-borde
  */
 export function NewThreadEnvironment(props: {
   pullRequest?: { number?: number | undefined; headSha?: string | undefined } | undefined;
-  mode: WorkMode;
+  mode: WorkMode | undefined;
   onMode(mode: WorkMode): void;
+  /** Why this project can't have a worktree ("Not a Git repository"), when it can't. */
+  noWorktree?: string | undefined;
   branches: BaseRefs;
   base: WorktreeBase | undefined;
   onBase(base: WorktreeBase): void;
@@ -33,7 +35,11 @@ export function NewThreadEnvironment(props: {
   const host = useMachineIdentity();
   const [choosing, setChoosing] = useState(false);
   const worktree = props.mode === "worktree";
-  const base = props.base ? baseName(props.base) : "Current branch";
+  const base = props.base
+    ? baseName(props.base)
+    : props.branches.state === "loading"
+      ? "Reading branches…"
+      : "Current branch";
   return (
     <section
       aria-label="Where this thread runs"
@@ -58,16 +64,25 @@ export function NewThreadEnvironment(props: {
         <>
           <Tip
             label={
-              worktree
+              props.noWorktree ??
+              (worktree
                 ? "A branch and folder of its own; your checkout stays as it is"
-                : "In the project's folder, on its current branch"
+                : "In the project's folder, on its current branch")
             }
             side="top"
           >
-            <label className={cn(composerStrip, "shrink-0 cursor-default")}>
+            <label
+              className={cn(
+                composerStrip,
+                "shrink-0 cursor-default",
+                props.noWorktree && "text-subtle-foreground hover:bg-transparent",
+              )}
+            >
               <span>Worktree</span>
               <Checkbox
                 checked={worktree}
+                disabled={props.noWorktree !== undefined || props.mode === undefined}
+                aria-description={props.noWorktree}
                 onCheckedChange={(checked) => props.onMode(checked ? "worktree" : "local")}
               />
             </label>

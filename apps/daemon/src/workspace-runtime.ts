@@ -9,7 +9,9 @@ import { prBasePreparation, prReviewContext, type PrRemotes } from "./pr-worktre
 import type { ForgePrStatus, ForgeRepository } from "@ace/protocol";
 import type { CreationWorkspace } from "./creation-workspace.ts";
 import { decodeProjectRow, projectSelect } from "./project-storage.ts";
-import { CreationDrafts, type CreationProgress } from "./creation-progress.ts";
+import type { CreationProgress } from "./creation-progress.ts";
+import { CreationDrafts } from "./creation-drafts.ts";
+import { clearWorkspaceChange } from "./workspace-change-clear.ts";
 import { threadCleaning, initializeThreadCleanup } from "./thread-cleanup-journal.ts";
 import type { WorkspaceChangeReservation } from "./engine/workspace-change.ts";
 import { moveThread } from "./thread-move.ts";
@@ -63,6 +65,10 @@ export interface WorkspaceRuntimeOptions {
   editorApplications?: readonly string[];
   platform?: NodeJS.Platform;
   machine?: { host: string; name: string };
+  /** How long worktree preparation before `git worktree add` may take; 60 s by default. */
+  preparationTimeoutMs?: number;
+  /** Reports failures nobody waits on: background worktree cleanup and its recovery. */
+  log?: (message: string, error: unknown) => void;
 }
 export class WorkspaceRuntime {
   readonly creationDrafts: CreationDrafts;
@@ -105,6 +111,12 @@ export class WorkspaceRuntime {
     this.roots = new WorkspaceRoots(store, this.git, directory, now, this.machine, {
       ...(options.baseFetchTimeoutMs ? { baseFetchTimeoutMs: options.baseFetchTimeoutMs } : {}),
       ...(options.sourceControl ? { sourceControl: options.sourceControl } : {}),
+      creation: {
+        ...(options.preparationTimeoutMs
+          ? { preparationTimeoutMs: options.preparationTimeoutMs }
+          : {}),
+        ...(options.log ? { log: options.log } : {}),
+      },
       preparePr: prBasePreparation({
         git: this.git,
         signal: this.prLifetime.signal,
@@ -118,6 +130,7 @@ export class WorkspaceRuntime {
     this.creationDrafts = new CreationDrafts(store, now, {
       ready: () => this.roots.creationReady(),
       cleanupComplete: (command) => this.roots.creationCleanupComplete(command),
+      discard: (command) => this.roots.discardCreation(command),
     });
     this.commands = new AsyncCommands(store);
     this.checkpoints = new RunCheckpoints(store, this.git, (id) => this.root(id), now);
@@ -165,6 +178,17 @@ export class WorkspaceRuntime {
   localCreation(command: Command) {
     return this.roots.localCreation(command);
   }
+  /** Whether a failed start left nothing to clean up, after any background cleanup ends. */
+  creationCleanupSettled(command: Command): Promise<boolean> {
+    return this.roots.creationCleanupSettled(command);
+  }
+  /** "Clear stale lock" for a project, then the worktree cleanups that lock held back. */
+  async clearProjectLock(path: string): Promise<boolean> {
+    const { state } = await this.git.clearStaleLeases(path);
+    if (state.status !== "available") return false;
+    await this.roots.retryCreationCleanup();
+    return true;
+  }
   details(id: ThreadId): Promise<ThreadDetails> {
     return this.roots.details(id);
   }
@@ -177,6 +201,10 @@ export class WorkspaceRuntime {
   onTerminalOpened(listener: (threadId: ThreadId, terminalId: string) => void): () => void {
     this.opened.add(listener);
     return () => this.opened.delete(listener);
+  }
+  /** Threads with an open terminal, where a person may commit outside any agent turn. */
+  terminalThreads(): ThreadId[] {
+    return [...new Set([...this.terminals.values()].map((entry) => entry.threadId))];
   }
   hasOwnedWork(id: ThreadId): boolean {
     return this.liveTerminalCount(id) > 0;
@@ -388,11 +416,11 @@ export class WorkspaceRuntime {
       return wrap({ kind: "gitDiff", patch: diff.patch, truncated: diff.truncated });
     }
     if (op.op === "git.status") {
-      const { files, truncated } = await this.git.changedFiles(
-        this.root(op.threadId),
-        gitStatusLimit,
-      );
-      return wrap({ kind: "gitStatus", truncated, files });
+      const root = this.root(op.threadId);
+      const { files, truncated } = await this.git.changedFiles(root, gitStatusLimit);
+      // A commit made after this read must not reuse an older HEAD as its expected one.
+      const head = await this.git.resolveCommit({ worktree: root, ref: "HEAD" }).catch(() => null);
+      return wrap({ kind: "gitStatus", truncated, files, head });
     }
     return wrap({
       kind: "pr",
@@ -450,7 +478,7 @@ export class WorkspaceRuntime {
         if (!this.options.changeWorkspace) return { ok: false, error: "engine_unavailable" };
         await this.reconcileTerminals(threadId);
         if (this.hasOwnedWork(threadId)) return { ok: false, error: "terminal_owned" };
-        const roots = await this.roots.changeRoots(threadId, p.mode);
+        const reservation = await this.roots.changeRoots(threadId, p);
         await this.options.changeWorkspace(
           threadId,
           command.id,
@@ -460,9 +488,13 @@ export class WorkspaceRuntime {
             if (!allowed()) throw new Error("forbidden");
             return details;
           },
-          { roots, hasOwnedWork: (owner) => this.hasOwnedWork(owner) },
+          { ...reservation, hasOwnedWork: (owner) => this.hasOwnedWork(owner) },
         );
         return { ok: true, threadId };
+      }
+      if (p.type === "thread.workspace.clear") {
+        if (!allowed()) return { ok: false, error: "forbidden" };
+        return clearWorkspaceChange(this.store, this.git, threadId, this.now);
       }
       const cwd = this.root(threadId);
       if (p.type === "git.lock.clear") {

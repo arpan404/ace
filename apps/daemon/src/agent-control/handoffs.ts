@@ -1,5 +1,6 @@
 import { logError } from "@ace/diagnostics";
 import { cleanupOwnedWorktree } from "../owned-worktree.ts";
+import { ManagedWorktrees } from "../managed-worktrees.ts";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { mkdir, realpath } from "node:fs/promises";
@@ -19,7 +20,13 @@ import type { DelegationReservation } from "./journal.ts";
 
 export type HandoffGit = Pick<
   GitService,
-  "createWorktree" | "listWorktrees" | "removeWorktree" | "deleteBranch" | "resolveCommit" | "close"
+  | "createWorktree"
+  | "listWorktrees"
+  | "removeWorktree"
+  | "deleteBranch"
+  | "resolveCommit"
+  | "worktreeMetadata"
+  | "close"
 >;
 type Handoff = Extract<ExtensionOperation, { op: "thread.handoff" }>;
 const Resource = z.object({
@@ -37,7 +44,8 @@ const Resource = z.object({
 
 /** Capacity is durable before Git starts. Failed/unaccepted work owns compensating cleanup. */
 export function createHandoffs(context: ServiceContext, delegations: DelegationService) {
-  const { store, config, resources, log } = context;
+  const { store, config, resources, log, now } = context;
+  const managed = new ManagedWorktrees(store, config.dataDir);
   const factory = context.options.agentControl?.handoffGit ?? (() => new GitService());
   const pending = new Map<
     string,
@@ -85,9 +93,10 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
       } finally {
         await git.close();
       }
-      store.atomic((db) =>
-        db.prepare("DELETE FROM agent_handoff_resources WHERE child_id=?").run(resource.child_id),
-      );
+      store.atomic((db) => {
+        if (managed.get(resource.path)?.removed === 0) managed.removed(resource.path);
+        db.prepare("DELETE FROM agent_handoff_resources WHERE child_id=?").run(resource.child_id);
+      });
     }
     delegations.releaseReservation(reservation);
   }
@@ -106,6 +115,14 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
     await Promise.allSettled([...pending.values()].map((entry) => entry.work));
     await recovery.catch(() => {});
   });
+  function sourceCheckout(id: ThreadId): string | undefined {
+    try {
+      const binding = store.executionWorkspace(id);
+      return binding.ready ? binding.path : undefined;
+    } catch {
+      return undefined;
+    }
+  }
   async function handoff(
     caller: McpAttribution,
     operation: Handoff,
@@ -148,7 +165,9 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
     const reservation = delegations.reserve(caller, request, undefined, model);
     const watched = delegations.watchReservation(reservation);
     signal = AbortSignal.any([callerSignal, watched.signal]);
-    let path = join(config.dataDir, "agent-worktrees", key);
+    // Handoff checkouts live with every other managed worktree, so storage cleanup can see them.
+    const parent = join(config.dataDir, "worktrees");
+    let path = join(parent, key);
     let committed = false;
     let git: HandoffGit | undefined;
     // Cancellation reaches Git through `signal`. Closing the service mid-call would kill a
@@ -157,9 +176,9 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
     try {
       git = factory();
       signal.throwIfAborted();
-      await mkdir(join(config.dataDir, "agent-worktrees"), { recursive: true, mode: 0o700 });
+      await mkdir(parent, { recursive: true, mode: 0o700 });
       signal.throwIfAborted();
-      path = join(await realpath(join(config.dataDir, "agent-worktrees")), key);
+      path = join(await realpath(parent), key);
       signal.throwIfAborted();
       const existing = (await git.listWorktrees(repo)).find((tree) => tree.path === path);
       signal.throwIfAborted();
@@ -172,7 +191,11 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
         if (!(error instanceof GitError && error.code === "invalid_ref")) throw error;
       }
       if (occupiedBranch) throw new GitError("branch_exists", "Handoff branch already exists");
-      const baseHead = await git.resolveCommit({ worktree: repo, ref: "HEAD" });
+      // The child continues the source thread's work: its own checkout's HEAD, not the project's.
+      const baseHead = await git.resolveCommit({
+        worktree: sourceCheckout(source.id) ?? repo,
+        ref: "HEAD",
+      });
       signal.throwIfAborted();
       // This exact private path and commit are the cleanup authority.
       store.atomic((db) =>
@@ -211,6 +234,9 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
           );
         throw error;
       }
+      signal.throwIfAborted();
+      // Recorded like every created worktree, so storage cleanup can later retire it.
+      await managed.created(git, repo, path, reservation.record.childId, now());
       signal.throwIfAborted();
       const result = store.atomic(() => {
         signal.throwIfAborted();

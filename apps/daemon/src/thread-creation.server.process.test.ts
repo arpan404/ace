@@ -44,7 +44,8 @@ test("worktree creation refuses an unusable repository before accepting the firs
     };
     expect(await command(client, "create", payload)).toMatchObject({
       ok: false,
-      error: "workspace_unavailable",
+      error: "not_a_repo",
+      title: "Not a Git repository",
     });
     client.send({ type: "subscribe", subscriptionId: "empty", scope: { kind: "threads" } });
     expect(await until(client, (message) => message.type === "snapshot")).toMatchObject({

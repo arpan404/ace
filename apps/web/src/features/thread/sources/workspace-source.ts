@@ -51,10 +51,21 @@ export interface PrInput {
   draftBaseRef?: string | undefined;
 }
 
+/** Checkout refusals the shared action copy doesn't word yet. */
+const moveRefusals: Record<string, string> = {
+  branch_checked_out:
+    "That branch is checked out in another folder: move to a worktree of its own instead.",
+};
+
+/** A workspace refusal code in words, for a toast or the Work card. */
+export function workspaceErrorText(code: string): string {
+  return moveRefusals[code] ?? actionErrorText(code);
+}
+
 export class WorkspaceError extends Error {
   readonly code: string;
   constructor(code: string) {
-    super(actionErrorText(code));
+    super(workspaceErrorText(code));
     this.name = "WorkspaceError";
     this.code = code;
   }
@@ -85,10 +96,11 @@ export interface WorkspaceSource {
   /** The validated launch for opening the checkout in an installed editor. */
   openIn(thread: ThreadRef, editorId: string): Promise<EditorLaunch>;
   /** The files a commit would take, exactly as `git status` reports them (first 500). */
+  /** What a commit would take, and the HEAD it was read at (null before the first commit). */
   gitStatus(
     thread: ThreadRef,
     signal?: AbortSignal,
-  ): Promise<{ files: readonly ChangedFile[]; truncated: boolean }>;
+  ): Promise<{ files: readonly ChangedFile[]; truncated: boolean; head?: string | null }>;
   /**
    * Commits `paths` (every change when absent); `expectedHead` guards against a branch that
    * moved meanwhile.
@@ -144,6 +156,8 @@ export interface WorkspaceSource {
    * refuses while agents or terminals work in it. Uncommitted changes require explicit carry-over.
    */
   setCheckout(thread: ThreadRef, change: CheckoutChange): Promise<void>;
+  /** Release a failed or uncertain checkout move, once the person confirmed. */
+  clearCheckoutMove(thread: ThreadRef): Promise<void>;
 }
 
 export interface CheckoutChange {
@@ -213,12 +227,12 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
     prStatus: async (thread, signal) =>
       (await read({ op: "pr.status", threadId: id(thread) }, "pr", signal)).status,
     async gitStatus(thread, signal) {
-      const { files, truncated } = await read(
+      const { files, truncated, head } = await read(
         { op: "git.status", threadId: id(thread) },
         "gitStatus",
         signal,
       );
-      return { files, truncated };
+      return { files, truncated, ...(head === undefined ? {} : { head }) };
     },
     scripts: async (thread, signal) =>
       (await read({ op: "scripts.list", threadId: id(thread) }, "scripts", signal)).scripts,
@@ -325,6 +339,9 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
         ...(change.branch ? { branch: change.branch } : {}),
         allowUncommitted: change.allowUncommitted ?? false,
       });
+    },
+    async clearCheckoutMove(thread) {
+      await run({ type: "thread.workspace.clear", threadId: id(thread) });
     },
   };
 }

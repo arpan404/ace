@@ -39,17 +39,15 @@ export function scriptsFromFiles(
   manager: "bun" | "npm" | "pnpm" | "yarn",
 ): Script[] {
   const scripts: Script[] = [];
+  // Past the listing limit, further entries are left out; one bad entry never hides the rest.
   const add = (source: Script["source"], name: string, command: string) => {
-    if (scripts.length >= 256) throw new Error("script_count_limit");
-    scripts.push(WorkspaceScript.parse({ id: `${source}:${name}`, source, name, command }));
+    if (scripts.length >= 256) return;
+    const script = WorkspaceScript.safeParse({ id: `${source}:${name}`, source, name, command });
+    if (script.success) scripts.push(script.data);
   };
-  if (files["package.json"]) {
-    const pkg = z
-      .object({ scripts: z.record(z.string().min(1).max(128), z.string().max(8192)).optional() })
-      .parse(JSON.parse(files["package.json"]));
-    for (const [name] of Object.entries(pkg.scripts ?? {}))
-      add("package.json", name, `${manager} run ${shellQuote(name)}`);
-  }
+  const pkg = packageScripts(files["package.json"]);
+  for (const name of Object.keys(pkg))
+    add("package.json", name, `${manager} run ${shellQuote(name)}`);
   for (const line of files.Procfile?.split("\n") ?? []) {
     const match = /^([\w.-]+):\s*(.+)$/.exec(line);
     if (match?.[1] && match[2]) add("Procfile", match[1], match[2]);
@@ -64,6 +62,23 @@ export function scriptsFromFiles(
         add(source, match[1], `${source === "Makefile" ? "make" : "just"} ${shellQuote(match[1])}`);
     }
   return scripts;
+}
+/** A malformed package.json lists no scripts instead of failing every script lookup. */
+function packageScripts(text: string | undefined): Record<string, string> {
+  if (!text) return {};
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return {};
+  }
+  const pkg = z.object({ scripts: z.record(z.string(), z.unknown()).optional() }).safeParse(json);
+  if (!pkg.success) return {};
+  return Object.fromEntries(
+    Object.entries(pkg.data.scripts ?? {}).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
 }
 export function shellQuote(text: string): string {
   return `'${text.replaceAll("'", "'\\''")}'`;

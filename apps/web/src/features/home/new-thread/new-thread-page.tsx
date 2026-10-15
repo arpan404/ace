@@ -48,11 +48,13 @@ import {
   saveChoices,
   withProjectDefaults,
   type Choices,
+  type WorkMode,
 } from "./choices.ts";
 import { ModelPicker } from "./model-picker.tsx";
 import { useBaseRefs } from "@/lib/branches.ts";
 import { useNewThreadOptions } from "@/features/models/index.ts";
 import { useCreateThread } from "./use-create-thread.ts";
+import { noWorktreeReason, useDefaultWorkMode } from "./work-mode.ts";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import {
   preparation,
@@ -261,15 +263,21 @@ function PreparationPage(props: {
   const start = useStartingProvider();
   const options = start.loaded ? catalog : undefined;
   const [picked, setPicked] = useState<ProviderKind | undefined>(restored?.provider);
-  const [useWorktree] = useDaemonSetting("threads.useWorktree");
+  const defaultMode = useDefaultWorkMode();
+  const branches = useBaseRefs(project);
+  // A folder that isn't a Git repository, or one with no commit yet, can only run locally.
+  const noWorktree = props.pullRequest ? undefined : noWorktreeReason(branches);
   const selected = resolve(
     options,
     choices,
     picked ?? projectDefaults?.provider ?? start.provider,
-    useWorktree === false ? "local" : "worktree",
+    noWorktree ? "local" : defaultMode,
   );
-  const resolved = props.pullRequest ? { ...selected, mode: "worktree" as const } : selected;
-  const branches = useBaseRefs(project);
+  const resolved = props.pullRequest
+    ? { ...selected, mode: "worktree" as const }
+    : noWorktree
+      ? { ...selected, mode: "local" as const }
+      : selected;
   // The base picked here, else the one asked for by name (a local branch until the branches
   // say otherwise), else the default branch at its freshest; undefined while the branches load
   // (the daemon then starts from HEAD).
@@ -355,22 +363,28 @@ function PreparationPage(props: {
     metadataSaveRefused.current = !saved;
     setSaveFailed(!saved || contentSaveRefused.current);
   };
+  // A choice is this draft's, and the device's next default for the model and account. Where
+  // it runs is remembered for the device only from the Worktree checkbox (`chooseMode`), so
+  // Settings' default stays in force until the person picks otherwise.
   const choose = (patch: Partial<Choices>) => {
     const next = {
       ...choices,
       project,
       model: resolved.model?.key ?? choices.model,
       account: resolved.account?.id ?? choices.account,
-      mode: resolved.mode,
       effort: resolved.effort,
       speed: resolved.speed,
       ...patch,
     };
     setChoices(next);
-    saveChoices(storage, next);
+    saveChoices(storage, { ...next, mode: loadChoices(storage).mode });
     const nextProvider =
       options?.models.find((row) => row.key === next.model)?.provider ?? provider;
     remember({ choices: next, provider: nextProvider });
+  };
+  const chooseMode = (mode: WorkMode) => {
+    choose({ mode });
+    saveChoices(storage, { ...loadChoices(storage), mode });
   };
   const chooseProject = props.onProject;
   // A model remembered as a bare id (before option keys) is saved under its option key, again
@@ -409,7 +423,6 @@ function PreparationPage(props: {
   const {
     create,
     error,
-    recovering,
     claims: claimed,
   } = useCreateThread(
     (payload) => {
@@ -438,6 +451,7 @@ function PreparationPage(props: {
       !contentSaveRefused.current &&
       !metadataSaveRefused.current &&
       !preparationSaveFailed(storage, draftKey),
+    draftKey,
   );
   const settlePreparation = useEffectEvent(() => {
     const saved = preparation(storage, props.host, draftKey);
@@ -483,6 +497,7 @@ function PreparationPage(props: {
   const accountId = resolved.account?.id;
   const draftThread = useDraftThreadRef(scope.draftId, project, provider, accountId, scope.retry);
   const waitingForAdmission =
+    resolved.mode === undefined ||
     !start.loaded ||
     options === undefined ||
     (!!provider && (daemonDefault === undefined || accessModes.loading));
@@ -520,27 +535,35 @@ function PreparationPage(props: {
       scope.draftId &&
       savedScope !== scope.draftId &&
       !!readDraft(storage, draftKey)?.attachments.length);
-  const admissionProblem = recovering
-    ? "Recovering the previous thread start…"
-    : missingBase
-      ? "The saved base branch is unavailable. Choose an available branch before sending."
-      : missingSelection
-        ? "A saved model, account, or reasoning setting is unavailable. Choose an available setting before sending."
-        : missingFiles
-          ? "Saved attachments are unavailable. Remove and add them again before sending."
-          : waitingForAdmission
-            ? "Checking provider settings…"
-            : accessModes.failed
-              ? "Couldn't check provider access. Reconnect and try again."
-              : !scope.draftId
-                ? "Preparing attachment storage…"
-                : !resolved.model
-                  ? "No model selected. Open the model menu to refresh or sign in."
-                  : noStricterAccess;
+  const admissionProblem = missingBase
+    ? "The saved base branch is unavailable. Choose an available branch before sending."
+    : missingSelection
+      ? "A saved model, account, or reasoning setting is unavailable. Choose an available setting before sending."
+      : missingFiles
+        ? "Saved attachments are unavailable. Remove and add them again before sending."
+        : waitingForAdmission
+          ? "Checking provider settings…"
+          : accessModes.failed
+            ? "Couldn't check provider access. Reconnect and try again."
+            : !scope.draftId
+              ? "Preparing attachment storage…"
+              : !resolved.model
+                ? "No model selected. Open the model menu to refresh or sign in."
+                : noStricterAccess;
+  // A worktree's base is decided by the branches: until they're read (or fail), a remote
+  // branch would be sent as a local one and the default branch as HEAD. The strip stays, so
+  // the person can still turn Worktree off.
+  const branchWait =
+    !props.pullRequest && resolved.mode === "worktree" && branches.state === "loading"
+      ? "Reading the project's branches…"
+      : undefined;
+  const sendProblem = admissionProblem || issueSource.problem || prSource.problem;
   const send = async (draft: Draft) => {
     if (
       !project ||
       !resolved.model ||
+      !resolved.mode ||
+      branchWait ||
       admissionProblem ||
       issueSource.problem ||
       prSource.problem ||
@@ -741,11 +764,8 @@ function PreparationPage(props: {
               }
               busy={false}
               sendBlocked={
-                admissionProblem || issueSource.problem || prSource.problem
-                  ? {
-                      reason: admissionProblem || issueSource.problem || prSource.problem || "",
-                      describedBy: readinessId,
-                    }
+                sendProblem || branchWait
+                  ? { reason: sendProblem || branchWait || "", describedBy: readinessId }
                   : undefined
               }
               onSubmit={send}
@@ -766,9 +786,9 @@ function PreparationPage(props: {
                     data-notices=""
                     className="flex flex-col gap-2 px-3 pt-2.5 pb-1 empty:hidden"
                   >
-                    {(admissionProblem || issueSource.problem || prSource.problem) && (
+                    {sendProblem && (
                       <p id={readinessId} role="status" className="text-xs text-muted-foreground">
-                        {admissionProblem || issueSource.problem || prSource.problem}
+                        {sendProblem}
                       </p>
                     )}
                     <SignInNotice provider={provider} />
@@ -808,7 +828,8 @@ function PreparationPage(props: {
                     )}
                     {returned && !error && (
                       <ReturnedStartNotice
-                        reason={returned}
+                        returned={returned}
+                        workspaceId={project}
                         worktree={resolved.mode === "worktree" && !props.pullRequest}
                         onLocal={() => {
                           choose({ mode: "local" });
@@ -822,10 +843,13 @@ function PreparationPage(props: {
                       />
                     )}
                   </div>
+                  {!sendProblem && branchWait && (
+                    <p id={readinessId} className="sr-only">
+                      {branchWait}
+                    </p>
+                  )}
                   {!(
-                    admissionProblem ||
-                    issueSource.problem ||
-                    prSource.problem ||
+                    sendProblem ||
                     saveFailed ||
                     preparationSaveFailed(storage, draftKey) ||
                     error ||
@@ -843,7 +867,8 @@ function PreparationPage(props: {
                               : undefined
                           }
                           mode={resolved.mode}
-                          onMode={(mode) => choose({ mode })}
+                          onMode={chooseMode}
+                          noWorktree={noWorktree}
                           branches={branches}
                           base={base}
                           onBase={(next) => {

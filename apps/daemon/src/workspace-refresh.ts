@@ -2,11 +2,18 @@ import { ThreadId } from "@ace/protocol";
 import type { Store } from "./store.ts";
 import type { WorkspaceRuntime } from "./workspace-runtime.ts";
 import { organizerSchedule, type OrganizerSchedule } from "./thread-organizer.ts";
+import { HeadWatch, headStamp } from "./workspace-head-watch.ts";
+
+/** Finished threads still notice outside commits, at a slow cadence. */
+const settledCadenceMs = 600_000;
+/** How often threads with an open terminal are checked for a commit or checkout. */
+const headCadenceMs = 5_000;
 
 /** Indexed, durable dirty/deadline queue. A refresh touches at most eight current trees. */
 export class WorkspaceRefresh {
   private stop: () => void;
   private cancel: (() => void) | undefined;
+  private cancelHeads: (() => void) | undefined;
   private pending: Promise<void> | undefined;
   private closed = false;
   constructor(
@@ -90,7 +97,9 @@ export class WorkspaceRefresh {
             !current.details?.linkedPr
           )
             await privateStore.write((db) =>
-              db.prepare("DELETE FROM workspace_refresh WHERE thread_id=? AND due>0").run(id),
+              db
+                .prepare("UPDATE workspace_refresh SET due=? WHERE thread_id=? AND due>0")
+                .run(now() + settledCadenceMs, id),
             );
         } catch (error) {
           report(error);
@@ -108,11 +117,29 @@ export class WorkspaceRefresh {
       this.pending = undefined;
       arm();
     });
+    const heads = new HeadWatch(async (id) => headStamp(runtime.root(id)));
+    const watch = () => {
+      if (this.closed) return;
+      this.cancelHeads = schedule(headCadenceMs, () => {
+        void heads
+          .changed(runtime.terminalThreads())
+          .then(async (moved) => {
+            for (const id of moved) {
+              if (this.closed) return;
+              await runtime.details(id).catch(report);
+            }
+          })
+          .catch(report)
+          .finally(watch);
+      });
+    };
+    watch();
   }
   async close(): Promise<void> {
     this.closed = true;
     this.stop();
     this.cancel?.();
+    this.cancelHeads?.();
     await this.pending;
   }
 }

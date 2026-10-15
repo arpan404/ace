@@ -13,6 +13,7 @@ import {
   CheckCircleIcon,
   GitForkIcon,
   LaptopIcon,
+  PlayIcon,
   StopCircleIcon,
   WarningCircleIcon,
   XIcon,
@@ -25,14 +26,16 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { stripControl } from "../composer/composer-styles.ts";
+import { ClearStaleLock } from "../items/clear-stale-lock.tsx";
 import type { WorktreeAction, WorktreeCreationState } from "./use-worktree-creation.ts";
 
 /*
  * A new thread's worktree as it is made, under the person's first message: a muted heading and
  * one quiet card with a line per step the daemon has reached, checkout's progress bar, a
  * "More details" disclosure over the redacted log, and Cancel / Don't use worktree (Retry once
- * it failed or was cancelled). Once made it folds to one line, "Worktree ready · branch · 4.2s",
- * which opens on the same steps with their timings and the log.
+ * it failed or was cancelled, Continue when only its setup script failed, with the script's
+ * output open). A stale Git lock offers Clear stale lock. Once made it folds to one line,
+ * "Worktree ready · branch · 4.2s", which opens on the same steps with their timings and the log.
  */
 
 /** The collapsed "Worked for" line's look, so settled lines in a transcript read alike. */
@@ -48,8 +51,9 @@ const refusals: Record<NonNullable<WorktreeCreationState["refused"]>, string> = 
   offline: "Couldn't reach the daemon. Try again once connected.",
 };
 
+type CardAction = Exclude<WorktreeAction, "dismiss">;
 const actions: Record<
-  WorktreeAction,
+  CardAction,
   { label: string; busy: string; tip: string; icon: PhosphorIcon }
 > = {
   local: {
@@ -70,33 +74,55 @@ const actions: Record<
     tip: "Try creating the worktree again",
     icon: ArrowClockwiseIcon,
   },
+  continue: {
+    label: "Continue without setup",
+    busy: "Continuing…",
+    tip: "Start the thread in this worktree without running its setup script",
+    icon: PlayIcon,
+  },
 };
 /** Left to right: the way out first, the step forward last. */
-const actionOrder: readonly WorktreeAction[] = ["local", "cancel", "retry"];
+const actionOrder: readonly CardAction[] = ["local", "cancel", "retry", "continue"];
+
+/** The daemon's own words for how the start failed, from its receipt. */
+export interface CreationFailure {
+  title?: string | undefined;
+  detail?: string | undefined;
+}
 
 /** The worktree being made, or how its making ended; nothing until the daemon has reported. */
 export function WorktreeCreationCard(props: {
   state: WorktreeCreationState | undefined;
   onAction(action: WorktreeAction): void;
+  failure?: CreationFailure | undefined;
+  /** The project, for clearing a stale Git lock that stopped the start. */
+  workspaceId?: string | undefined;
 }) {
   const progress = props.state?.progress;
   if (!props.state || !progress) return null;
   if (progress.state === "done" || progress.state === "local")
     return <WorktreeReadyLine progress={progress} />;
-  return <CreationCard state={props.state} progress={progress} onAction={props.onAction} />;
+  return <CreationCard {...props} state={props.state} progress={progress} />;
 }
 
 function CreationCard(props: {
   state: WorktreeCreationState;
   progress: WorktreeCreationProgress;
   onAction(action: WorktreeAction): void;
+  failure?: CreationFailure | undefined;
+  workspaceId?: string | undefined;
 }) {
   const { progress, state } = props;
-  const [open, setOpen] = useState(false);
+  const failed = progress.state === "failed";
+  // A failed setup script's output is what the person needs: it opens with the card.
+  const [opened, setOpen] = useState<boolean>();
+  const open = opened ?? (failed && progress.error === "setup_failed");
   const panel = useId();
   const heading = useId();
   const running = progress.state === "running" || progress.state === "cancelling";
-  const note = worktreeNote(progress);
+  const note = worktreeNote(progress) ?? (failed ? props.failure?.detail : undefined);
+  const title = failed ? props.failure?.title : undefined;
+  const locked = failed && progress.error === "git_quarantined" && props.workspaceId;
   const offered = actionOrder.filter((action) => progress.actions.includes(action));
   return (
     <section
@@ -109,7 +135,9 @@ function CreationCard(props: {
         ) : (
           <Icon icon={GitForkIcon} size={14} className="text-subtle-foreground" />
         )}
-        <span className={running ? "shimmer" : undefined}>{worktreeHeadline(progress)}</span>
+        <span className={running ? "shimmer" : undefined}>
+          {title ?? worktreeHeadline(progress)}
+        </span>
       </p>
       <div className="group py-1 pr-2 pl-3.5">
         <StepList rows={worktreeStepRows(progress)} times={open} />
@@ -142,6 +170,7 @@ function CreationCard(props: {
             More details
           </button>
           <span className="ml-auto flex shrink-0 items-center">
+            {locked && <ClearStaleLock target={{ workspaceId: locked }} />}
             {offered.map((action) => (
               <ActionButton
                 key={action}
@@ -160,7 +189,7 @@ function CreationCard(props: {
 
 /** A quiet labelled action; the label drops to its icon on a phone, the tooltip says what it does. */
 function ActionButton(props: {
-  action: WorktreeAction;
+  action: CardAction;
   sending: WorktreeAction | undefined;
   onClick(): void;
 }) {

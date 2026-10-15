@@ -199,6 +199,10 @@
         "at": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
         },
+        "branch": {
+          "maxLength": 1024,
+          "type": "string"
+        },
         "commandId": {
           "maxLength": 256,
           "minLength": 1,
@@ -211,6 +215,13 @@
         "lossy": {
           "default": true,
           "type": "boolean"
+        },
+        "mode": {
+          "enum": [
+            "local",
+            "worktree"
+          ],
+          "type": "string"
         },
         "state": {
           "enum": [
@@ -237,6 +248,9 @@
     },
     "worktreeCreation": {
       "$ref": "https://ace.local/protocol/v1/WorktreeCreationProgress.json"
+    },
+    "worktreeMissing": {
+      "type": "boolean"
     }
   },
   "type": "object"

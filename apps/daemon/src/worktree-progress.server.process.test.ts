@@ -215,7 +215,7 @@ test("don't use worktree during checkout switches to local and sends the queued 
   }
 });
 
-test("setup failures expose a fixed error and bounded redacted details, then Retry delivers the original message", async () => {
+test("a setup failure keeps its worktree with bounded redacted details, then Retry reruns setup there and delivers the original message", async () => {
   const f = await fixture();
   const secret = "ghp_" + "A".repeat(36);
   try {
@@ -244,29 +244,20 @@ test("setup failures expose a fixed error and bounded redacted details, then Ret
         break;
       }
     }
-    expect(await f.receipt()).toMatchObject({ ok: false, error: "workspace_unavailable" });
-    expect(failure.message).toBe(
-      "We couldn't create the worktree. Try again or use the local checkout.",
-    );
-    expect(failure.actions).toEqual(["retry", "local"]);
+    expect(await f.receipt()).toMatchObject({ ok: false, error: "setup_failed" });
+    expect(failure.error).toBe("setup_failed");
+    expect(failure.actions).toEqual(["retry", "continue", "local"]);
     expect(failure.steps.map((step) => step.step)).toContain("setup");
     expect(failure.details).toHaveLength(200);
     expect(failure.details.join("\n")).not.toContain(secret);
     expect(failure.details.join("\n")).toContain("line-249");
     expect(f.h.inputs).toEqual([]);
-    expect(await f.runtime.git.listWorktrees(f.h.home)).toHaveLength(1);
-    await writeFile(join(f.h.home, "Makefile"), "setup:\n\t@echo setup-complete\n");
-    await git("git", [
-      "-C",
-      f.h.home,
-      "-c",
-      "user.name=Test",
-      "-c",
-      "user.email=test@ace.local",
-      "commit",
-      "-am",
-      "Fix setup",
-    ]);
+    const trees = await f.runtime.git.listWorktrees(f.h.home);
+    expect(trees).toHaveLength(2);
+    const main = await realpath(f.h.home);
+    const kept = trees.find((tree) => tree.path !== main);
+    if (!kept) throw new Error("Missing kept worktree");
+    await writeFile(join(kept.path, "Makefile"), "setup:\n\t@echo setup-complete\n");
     f.action("retry");
     expect(await f.receipt()).toMatchObject({ ok: true });
     await f.h.engine.flush();

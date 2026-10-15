@@ -37,6 +37,7 @@ import { ProjectScriptItems } from "./work-card-actions.tsx";
 import { useCheckoutMoves } from "./work-card-branches.tsx";
 import { RowButton, RowCaret, RowLabel, Section, rowIcon } from "./work-card-parts.tsx";
 import { ScriptConfigurationItems } from "./work-card-scripts.tsx";
+import { CheckoutProblem } from "./work-card-checkout-problem.tsx";
 
 const glyph = (Glyph: typeof CopyIcon) => <Glyph aria-hidden size={16} />;
 
@@ -53,6 +54,7 @@ export function EnvironmentGroup(props: {
   return (
     <Section label="Environment">
       <MachineRow {...props} />
+      <CheckoutProblem thread={props.thread} move={props.move} />
       <OpenInRow thread={props.thread} />
       <AddScriptRow {...props} />
     </Section>
@@ -122,12 +124,9 @@ function MachineRow(props: { thread: ThreadRef; move(move: Move): void; onClose(
           icon={glyph(GitForkIcon)}
           disabled={worktree || !!worktreeReason}
           reason={worktree ? undefined : worktreeReason}
-          onClick={() =>
-            props.move({
-              change: { mode: "worktree", branch: checkout?.branch ?? undefined },
-              done: "Moved to a worktree",
-            })
-          }
+          // No branch: the main checkout's branch can't be checked out twice, so the daemon
+          // makes the worktree a branch of its own from the current HEAD.
+          onClick={() => props.move({ change: { mode: "worktree" }, done: "Moved to a worktree" })}
         >
           Worktree
           {worktree && <span className="ml-auto text-xs text-subtle-foreground">current</span>}

@@ -642,14 +642,31 @@ export class Store {
     const row = this.statement("SELECT path FROM workspaces WHERE id = ?").get(id);
     return typeof row?.path === "string" ? row.path : undefined;
   }
-  /** Indexed fan-out to current workspace threads; never scan event or transcript history. */
-  recordWorkspaceFileChange(workspaceId: WorkspaceId, input: WorkspaceFileChange): void {
+  /**
+   * Indexed fan-out to the current threads running in `root`: those whose session runs there,
+   * and those not yet started whose project is that root. Threads in the project's other
+   * checkouts never hear about it. Never scans event or transcript history.
+   */
+  recordWorkspaceFileChange(
+    workspaceId: WorkspaceId,
+    root: string,
+    input: WorkspaceFileChange,
+  ): void {
     const change = WorkspaceFileChange.parse(input);
+    const sessions = Boolean(
+      this.statement(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='engine_sessions'",
+      ).get(),
+    );
+    const projectRoot = this.workspaceReservations.workspaceRoot(workspaceId, "");
+    const scope = sessions
+      ? `(t.id IN (SELECT thread_id FROM engine_sessions WHERE cwd=?) OR (? AND NOT EXISTS (SELECT 1 FROM engine_sessions s WHERE s.thread_id=t.id)))`
+      : `(? IS NOT NULL AND ?)`;
     let after = "";
     for (;;) {
       const rows = this.statement(
-        "SELECT id FROM threads WHERE workspace_id=? AND archived_at IS NULL AND json_extract(client,'$.deletedAt') IS NULL AND id>? ORDER BY id LIMIT 64",
-      ).all(workspaceId, after);
+        `SELECT t.id FROM threads t WHERE t.workspace_id=? AND t.archived_at IS NULL AND json_extract(t.client,'$.deletedAt') IS NULL AND ${scope} AND t.id>? ORDER BY t.id LIMIT 64`,
+      ).all(workspaceId, root, projectRoot === root ? 1 : 0, after);
       if (!rows.length) return;
       this.transaction(() => {
         for (const row of rows) {

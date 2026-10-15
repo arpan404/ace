@@ -21,14 +21,16 @@ import { useDaemonConnection } from "@/boot/connection.tsx";
 import { withBrowserLock } from "@/boot/web-locks.ts";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import {
-  createAttemptKey,
+  createAttemptsKey,
   forgetCreateAttempt,
-  readCreateAttempt,
+  readCreateAttempts,
   saveCreateAttempt,
+  type CreateAttempt,
 } from "./create-attempt.ts";
 import {
   differentCreateHost,
   settleCreateAttempt,
+  settlingFor,
   useCreateRecovery,
 } from "./use-create-recovery.ts";
 import { useLayout } from "@/lib/layout.tsx";
@@ -97,18 +99,20 @@ export const pendingThreadId = (commandId: string) => `pending:${commandId}`;
  * Start a thread the way a message is sent (UX audit SY-2, SY-4): `thread.create` goes into the
  * client's durable outbox under a command id made here, and the thread opens after the local save on its
  * pending route (`/t/pending:<commandId>`) with the person's message as its first bubble. The
- * pending view moves to the real thread when the daemon's receipt names it. A lost worker
- * leaves an unresolved attempt under its original id; resubmission reconciles that attempt
- * before a new command can be allocated.
+ * pending view moves to the real thread when the daemon's receipt names it. Each start keeps
+ * its own unresolved attempt, so another draft starts at once while the first is still being
+ * made; a lost worker leaves the attempt under its original id, and sending the same draft
+ * again reconciles that attempt instead of allocating another command.
  */
 export function useCreateThread(
   onRecovered: (payload: SubmittedDraft & { workspaceId: string }) => void,
   canNavigate?: (() => boolean) | undefined,
+  /** The composer's draft key: only its own recovered start opens its thread. */
+  draftKey?: string | undefined,
 ): {
   /** Resolves false when the composer must keep its draft, including uncertain worker delivery. */
   create(request: CreateRequest): Promise<boolean>;
   error: string | undefined;
-  recovering: boolean;
   /** A thread start not yet settled carries this draft scope, so no editor may resume it. */
   claims(draftId: string | undefined): boolean;
 } {
@@ -118,7 +122,7 @@ export function useCreateThread(
   const connection = useDaemonConnection();
   const host = useHostIdentity();
   const deviceId = connection.endpoint?.kind === "daemon" ? connection.endpoint.deviceId : "fake";
-  const recoveryKey = createAttemptKey(connection.url, deviceId);
+  const recoveryKey = createAttemptsKey(connection.url, deviceId);
   const [error, setError] = useState<string>();
 
   const mounted = useRef(false);
@@ -137,12 +141,12 @@ export function useCreateThread(
   const flight = useRef<{ payload: SubmittedDraft; promise: Promise<boolean> } | undefined>(
     undefined,
   );
-  const recovery = useCreateRecovery({
+  useCreateRecovery({
     client,
     storage,
     key: recoveryKey,
     hostId: host?.hostId,
-    isSubmitting: () => flight.current !== undefined,
+    draftKey,
     onError: setError,
     onRecovered,
     canNavigate,
@@ -158,7 +162,11 @@ export function useCreateThread(
         const hostId =
           host?.hostId ?? (await client.request({ type: "host.identity" })).identity.hostId;
         const attempt = await withBrowserLock(recoveryKey, () => {
-          const previous = readCreateAttempt(storage, recoveryKey);
+          // The same draft sent again (a lost worker, an uncertain delivery) reconciles its
+          // original command; any other draft starts its own.
+          const previous = readCreateAttempts(storage, recoveryKey).find((saved) =>
+            resubmits(saved, request.draftKey, requested),
+          );
           if (previous && previous.hostId !== hostId) {
             setError(differentCreateHost);
             return undefined;
@@ -177,6 +185,8 @@ export function useCreateThread(
         rememberTitle(commandId, provisionalTitle(attempt.payload.input));
         rememberProvider(storage, attempt.payload.provider);
         submitted = true;
+        // Recovery leaves this start to the wait below.
+        settlingFor(client).add(commandId);
         await client.enqueue(attempt.payload, commandId);
         // A local enqueue reply confirms persistence, not settlement. Keep the journal
         // until a receipt for this ID arrives, including after this page has unmounted.
@@ -189,6 +199,13 @@ export function useCreateThread(
           void navigate({ to: "/t/$threadId", params: { threadId: pendingThreadId(commandId) } });
         return sameSubmittedDraft(requested, attempt.payload);
       } catch (failure) {
+        if (commandId) settlingFor(client).delete(commandId);
+        if (failure instanceof ClientError && failure.code === "busy" && !submitted) {
+          setError(
+            "Too many new threads are still starting on this device. Wait for one to start, then try again.",
+          );
+          return false;
+        }
         if (submitted && failure instanceof ClientError && failure.code === "offline") {
           setError(
             "Thread delivery is uncertain. Reconnect and send this message again to recover the same thread.",
@@ -214,8 +231,7 @@ export function useCreateThread(
   const create = useCallback(
     (request: CreateRequest) => {
       // Share the promise before any awaited identity or persistence work. A second Enter
-      // cannot allocate another command while the first submission remains unresolved.
-      if (recovery.isRecovering()) return Promise.resolve(false);
+      // cannot allocate another command while the first submission is still being saved.
       const payload = createPayload(request);
       const current = flight.current;
       if (current)
@@ -226,18 +242,37 @@ export function useCreateThread(
       flight.current = { payload, promise: pending };
       return pending;
     },
-    [submit, recovery],
+    [submit],
   );
   const claims = useCallback(
     (draftId: string | undefined) => {
       if (!draftId) return false;
       try {
-        return readCreateAttempt(storage, recoveryKey)?.payload.context?.draftId === draftId;
+        return readCreateAttempts(storage, recoveryKey).some(
+          (attempt) => attempt.payload.context?.draftId === draftId,
+        );
       } catch {
         return false;
       }
     },
     [storage, recoveryKey],
   );
-  return { create, error, recovering: recovery.recovering, claims };
+  return { create, error, claims };
+}
+
+/**
+ * Whether sending `payload` from `draftKey` is the saved start sent again: the same composer,
+ * the same draft scope (a new draft gets a new one) and the same words and files.
+ */
+function resubmits(
+  saved: CreateAttempt,
+  draftKey: string | undefined,
+  payload: CreatePayload,
+): boolean {
+  return (
+    saved.draftKey === draftKey &&
+    saved.payload.workspaceId === payload.workspaceId &&
+    saved.payload.context?.draftId === payload.context?.draftId &&
+    sameSubmittedDraft(saved.payload, payload)
+  );
 }

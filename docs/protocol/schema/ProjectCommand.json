@@ -242,6 +242,22 @@
     },
     {
       "properties": {
+        "type": {
+          "const": "workspace.git.lock.clear",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "archiveThreads": {
           "default": false,
           "type": "boolean"

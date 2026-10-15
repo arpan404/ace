@@ -1,13 +1,14 @@
-import { actionErrorCode } from "../action-errors.ts";
-import { Command, type DeviceId, type CommandResult } from "@ace/protocol";
+import { Command, type DeviceId, type CommandResult, type ServerMessage } from "@ace/protocol";
 import { isMutationUnavailable } from "@ace/git";
 import { commandContext } from "../commands.ts";
-import { WorktreeBaseError } from "../worktree-base-resolution.ts";
+import { creationFailure, type CreationFailure } from "../creation-failure.ts";
 import type { CreationProgress } from "../creation-progress.ts";
 import type { CreationAdmission } from "../engine/creation-admissions.ts";
 import type { CreationWorkspace } from "../creation-workspace.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
+/** How a start runs: in a new worktree, falling back to local, or continuing past failed setup. */
+type Launch = "worktree" | "local" | "continue";
 function localCommand(command: Command): Command {
   const p = command.payload;
   if (p.type !== "thread.create" && p.type !== "thread.prepare") return command;
@@ -15,12 +16,33 @@ function localCommand(command: Command): Command {
   const { base: _base, baseBranch: _baseBranch, ...rest } = p;
   return Command.parse({ ...command, payload: { ...rest, mode: "local" } });
 }
+const pullRequestOf = (command: Command) => {
+  const p = command.payload;
+  return (p.type === "thread.create" || p.type === "thread.prepare") && Boolean(p.pullRequest);
+};
 export function createEngineSession(context: SocketContext): SocketService {
   const { options, send, canReadThread } = context;
-  const owned = new Set<CreationProgress>();
   const drafts = options.workspaceActions?.creationDrafts;
-  async function accept(command: Command, device: DeviceId, useLocal = false): Promise<void> {
+  const deliver = (message: ServerMessage) => {
+    if (context.connected()) send(message);
+  };
+  /** Operations this socket follows; a closed socket stops following, the work goes on. */
+  const followed = new Set<string>();
+  // Admitted creation outlives its socket: a dropped connection never discards a finished
+  // worktree, and the device's replay of the same command attaches to it for the receipt.
+  async function follow(operation: CreationProgress, commandId: string): Promise<void> {
+    followed.add(commandId);
+    try {
+      deliver({ type: "commandResult", ...(await operation.settled) });
+    } finally {
+      followed.delete(commandId);
+      drafts?.detach(commandId, deliver);
+    }
+  }
+  async function accept(command: Command, device: DeviceId, how: Launch = "worktree") {
+    const authority = context.authorityLease?.("operate") ?? (() => context.authorize("operate"));
     const payload = command.payload;
+    const useLocal = how === "local";
     if (
       payload.type === "thread.create" &&
       payload.handoffFrom &&
@@ -39,11 +61,14 @@ export function createEngineSession(context: SocketContext): SocketService {
       send({ type: "commandResult", ...receipt });
       return;
     }
+    const running = drafts?.attach(command.id, device, deliver);
+    if (running) return follow(running, command.id);
     let admission: CreationAdmission | undefined;
     let preparation: CreationWorkspace | undefined;
     let operation: CreationProgress | undefined;
     let accepted = useLocal ? localCommand(command) : command;
     let result: CommandResult | undefined;
+    let failure: CreationFailure | undefined;
     let cleanupComplete = true;
     try {
       await options.engine?.prepareCommand(accepted);
@@ -52,7 +77,7 @@ export function createEngineSession(context: SocketContext): SocketService {
         send({ type: "commandResult", ...fenced });
         return;
       }
-      if (!context.connected() || !context.authorize("operate")) return;
+      if (!authority()) return;
       if (
         options.engine &&
         (payload.type === "thread.create" || payload.type === "thread.prepare")
@@ -77,10 +102,9 @@ export function createEngineSession(context: SocketContext): SocketService {
                   : undefined,
             },
           });
-          operation = await drafts.begin(draft, device, (message) => {
-            if (context.connected()) send(message);
-          });
-          owned.add(operation);
+          operation = await drafts.begin(draft, device, deliver);
+          if (how === "continue") operation.skipSetup = true;
+          followed.add(command.id);
         }
       }
       if (admission && !useLocal) {
@@ -109,7 +133,7 @@ export function createEngineSession(context: SocketContext): SocketService {
         admission = reserved;
         if (admission) accepted = admission.command;
       }
-      if (!context.connected() || !context.authorize("operate")) return;
+      if (!authority()) return;
       if (
         payload.type === "thread.create" &&
         payload.handoffFrom &&
@@ -119,7 +143,7 @@ export function createEngineSession(context: SocketContext): SocketService {
         return;
       }
       await preparation?.verify?.();
-      if (!context.connected() || !context.authorize("operate")) return;
+      if (!authority()) return;
       result = options.store.recordCommand(command.id, device, () =>
         options.handler.handle(accepted, {
           ...commandContext(options.store),
@@ -128,34 +152,26 @@ export function createEngineSession(context: SocketContext): SocketService {
         }),
       );
     } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message === "workspace_cleanup_required" &&
-        error.cause !== undefined
-      )
-        options.log?.(error.cause);
-      cleanupComplete =
-        !isMutationUnavailable(error) &&
-        !(error instanceof Error && error.message === "workspace_cleanup_required");
+      const cleanupFailed =
+        error instanceof Error && error.message === "workspace_cleanup_required";
+      if (cleanupFailed) cleanupComplete = false;
+      const cancelled =
+        operation?.action === "cancel" && !isMutationUnavailable(error) && !cleanupFailed;
+      if (!cancelled) {
+        failure = creationFailure(error, pullRequestOf(command));
+        // The cause is what went wrong; the receipt carries only its public code.
+        options.log?.(error instanceof Error && error.cause !== undefined ? error.cause : error);
+      }
       result = {
         commandId: command.id,
         ok: false,
-        ...(operation?.action === "cancel" && cleanupComplete
+        ...(cancelled
           ? { error: "worktree_cancelled" }
-          : error instanceof WorktreeBaseError
-            ? {
-                error: error.code,
-                code: error.code,
-                title: error.title,
-                detail: "We couldn't create the worktree. Try again or use the local checkout.",
-              }
-            : {
-                error:
-                  (payload.type === "thread.create" || payload.type === "thread.prepare") &&
-                  payload.pullRequest
-                    ? actionErrorCode(error)
-                    : "workspace_unavailable",
-              }),
+          : {
+              error: failure?.error ?? "workspace_unavailable",
+              code: failure?.error ?? "workspace_unavailable",
+              ...(failure ? { title: failure.title, detail: failure.detail } : {}),
+            }),
       };
     } finally {
       try {
@@ -166,38 +182,42 @@ export function createEngineSession(context: SocketContext): SocketService {
       }
       admission?.release();
       if (operation) {
+        if (!result?.ok)
+          cleanupComplete =
+            cleanupComplete &&
+            ((await options.workspaceActions?.creationCleanupSettled(command)) ?? true);
         const state = result?.ok
           ? useLocal || operation.action === "local"
             ? "local"
             : "done"
-          : operation.action === "cancel" && cleanupComplete
+          : operation.action === "cancel" && result?.error === "worktree_cancelled"
             ? "cancelled"
             : "failed";
-        operation.finish(state, cleanupComplete);
-        owned.delete(operation);
+        operation.finish(state, cleanupComplete, failure);
         drafts?.release(command.id, Boolean(result?.ok));
+        operation.settle(result ?? { commandId: command.id, ok: false, error: "forbidden" });
+        followed.delete(command.id);
       }
-      if (result && context.connected()) send({ type: "commandResult", ...result });
+      if (result) deliver({ type: "commandResult", ...result });
     }
   }
   let flights = 0;
   // SocketInput serializes handlers. Physical creation must leave that queue free for controls.
-  function launch(command: Command, device: DeviceId, useLocal = false): void {
+  function launch(command: Command, device: DeviceId, how: Launch = "worktree"): void {
     if (flights >= 16) {
       send({ type: "commandResult", commandId: command.id, ok: false, error: "workspace_busy" });
       return;
     }
     flights++;
-    const task = accept(command, device, useLocal)
+    const task = accept(command, device, how)
       .catch((error) => {
         options.log?.(error);
-        if (context.connected())
-          send({
-            type: "commandResult",
-            commandId: command.id,
-            ok: false,
-            error: "workspace_unavailable",
-          });
+        deliver({
+          type: "commandResult",
+          commandId: command.id,
+          ok: false,
+          error: "workspace_unavailable",
+        });
       })
       .finally(() => {
         flights--;
@@ -260,12 +280,17 @@ export function createEngineSession(context: SocketContext): SocketService {
         });
         return true;
       }
+      if (message.action === "dismiss") {
+        response(drafts?.dismiss(message.commandId, device));
+        return true;
+      }
       if (!draft.progress.actions.includes(message.action)) {
         response("settled");
         return true;
       }
       if (draft.operation?.active) {
-        if (message.action === "retry" || draft.operation.action) response("busy");
+        if (message.action === "retry" || message.action === "continue" || draft.operation.action)
+          response("busy");
         else {
           draft.operation.stop(message.action);
           response();
@@ -281,11 +306,12 @@ export function createEngineSession(context: SocketContext): SocketService {
         return true;
       }
       response();
-      launch(draft.command, device, message.action === "local");
+      launch(draft.command, device, message.action === "retry" ? "worktree" : message.action);
       return true;
     },
     close() {
-      for (const operation of owned) if (!operation.action) operation.stop("cancel");
+      for (const id of followed) drafts?.detach(id, deliver);
+      followed.clear();
     },
   };
 }

@@ -46,8 +46,13 @@ export const ThreadDetails = z.object({
       error: z.string().max(128).optional(),
       lossy: z.boolean().default(true),
       uncertain: z.boolean().optional(),
+      /** The requested selection, so a failed change can be retried as it was asked. */
+      mode: z.enum(["local", "worktree"]).optional(),
+      branch: z.string().max(1024).optional(),
     })
     .optional(),
+  /** The thread's checkout folder no longer exists (deleted, or removed by storage cleanup). */
+  worktreeMissing: z.boolean().optional(),
   workspace: z
     .object({
       id: z.string().min(1),

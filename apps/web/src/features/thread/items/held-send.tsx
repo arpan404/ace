@@ -49,7 +49,7 @@ export function HeldSend(props: { threadId: string }) {
         className="mt-[5px] flex flex-wrap items-center justify-end gap-x-1 gap-y-0.5"
       >
         <NotSent reason={shortReason(failure)} />
-        {fenced && <ClearStaleLock threadId={props.threadId} />}
+        {fenced && <ClearStaleLock target={{ threadId: props.threadId }} />}
         <span className="flex gap-1">
           <Button
             size="xs"
