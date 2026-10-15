@@ -16,7 +16,6 @@ export type { DaemonCommandIntegration } from "./services/commands.ts";
 import { assertCompatibleHome, assertTestHomeIsolation } from "@ace/service";
 import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation";
 import { assertModelTestIsolation } from "./models.ts";
-import { fingerprint as relayFingerprint } from "@ace/secure-channel";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, unlinkSync, existsSync } from "node:fs";
@@ -39,15 +38,11 @@ import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { startServer, type ServerOptions } from "./server.ts";
 import { Store } from "./store.ts";
 import { Resources } from "./services/resources.ts";
-import {
-  serviceFactories,
-  requireService,
-  readyServices,
-  type ServiceContext,
-} from "./services/composition.ts";
+import { serviceFactories, readyServices, type ServiceContext } from "./services/composition.ts";
 import { ServiceStartup, systemStartup } from "./services/startup.ts";
 import type { DaemonOptions } from "./services/options.ts";
 export type { DaemonOptions } from "./services/options.ts";
+import { bindLiveServices, daemonHandle, shareDiagnostics } from "./daemon-surface.ts";
 export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from "./engine/index.ts";
 export { AgentPreviews } from "./agent-control/owners.ts";
 export { DelegationService, type DelegationDependencies } from "./agent-control/delegations.ts";
@@ -83,18 +78,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     doctor: () => connectedDoctorReport(config, process.env, now),
     toolchains: () => detectToolchains(process.env),
   };
-  let reportPending: ReturnType<typeof diagnostics.doctor> | undefined;
-  let toolsPending: ReturnType<typeof diagnostics.toolchains> | undefined;
-  const sharedDiagnostics = {
-    doctor: () =>
-      (reportPending ??= diagnostics.doctor().finally(() => {
-        reportPending = undefined;
-      })),
-    toolchains: () =>
-      (toolsPending ??= diagnostics.toolchains().finally(() => {
-        toolsPending = undefined;
-      })),
-  };
+  const sharedDiagnostics = shareDiagnostics(diagnostics);
   options = { ...options, diagnostics: sharedDiagnostics };
   assertCompatibleHome(config.dataDir);
   // Reject test path escapes before optional-service failures can be downgraded to degraded startup.
@@ -362,65 +346,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       log: (error) => log.log("error", "WebSocket failure", logError(error)),
       warn: (message, fields) => log.log("warn", message, fields),
     };
-    // Feature services publish only after initialization. Socket handlers read the
-    // live registry, so a service can become available after endpoint discovery.
-    for (const key of [
-      "screen",
-      "accounts",
-      "accountManagement",
-      "cursorAuth",
-      "providerActivation",
-      "commands",
-      "files",
-      "supportFiles",
-      "threadFiles",
-      "handler",
-      "plugins",
-      "browser",
-      "context",
-      "settings",
-      "models",
-      "providerStatuses",
-      "providerLogin",
-      "providerInstalls",
-      "onboarding",
-      "agentControl",
-      "machineCalls",
-      "mcp",
-      "notifications",
-      "notificationPublicKey",
-      "review",
-      "history",
-      "usage",
-      "agentRegistry",
-      "pi",
-      "engine",
-      "transitions",
-      "workspaceActions",
-      "projects",
-      "canReadThread",
-      "previewClient",
-      "previewSuggestions",
-      "automations",
-      "activityReads",
-      "icons",
-      "storage",
-      "devices",
-    ] as const)
-      Object.defineProperty(serverOptions, key, {
-        enumerable: true,
-        configurable: true,
-        get: () => services[key],
-      });
-    Object.defineProperty(serverOptions, "relay", {
-      enumerable: true,
-      configurable: true,
-      get: () => services.relay,
-      set: (relay: ServerOptions["relay"]) => {
-        if (relay) services.relay = relay;
-        else delete services.relay;
-      },
-    });
+    bindLiveServices(serverOptions, services);
     lifetime.signal.throwIfAborted();
     server = await startServer(serverOptions);
     lifetime.signal.throwIfAborted();
@@ -434,76 +360,17 @@ export async function startDaemon(options: DaemonOptions = {}) {
     lifetime.signal.throwIfAborted();
     initialized = true;
     queueMicrotask(() => socketReady.resolve());
-    return {
-      ...(server.relayHostId && services.relay
-        ? {
-            relayHostId: server.relayHostId,
-            relayFingerprint: relayFingerprint(services.relay.keys.publicKey),
-          }
-        : {}),
-      ...(services.files ? { files: services.files } : {}),
-      serviceStatus: startup.status,
+    return daemonHandle({
+      server,
+      services,
+      startup,
       eventLoop: loop.status,
-      maintenance: server.maintenance,
-      url: server.url,
       tokenPath,
       store,
-      ...(server.remoteUrl && server.fingerprint
-        ? { remoteUrl: server.remoteUrl, fingerprint: server.fingerprint }
-        : {}),
-      ...(server.preview ? { preview: server.preview } : {}),
-      get preparePlugins() {
-        return requireService(services.preparePlugins, "preparePlugins");
-      },
-      get launchPlugins() {
-        return requireService(services.launchPlugins, "launchPlugins");
-      },
-      get browser() {
-        return requireService(services.browser, "browser");
-      },
-      get context() {
-        return requireService(services.context, "context");
-      },
-      get settings() {
-        return requireService(services.settings, "settings");
-      },
-      get devices() {
-        return services.devices;
-      },
-      storage: services.storage,
-      engine: services.engine,
-      agentControl: services.agentControl,
       cliControl: cliControl(serviceContext),
-      accounts: services.accounts,
-      accountManagement: services.accountManagement,
-      cursorAuth: services.cursorAuth,
-      get promptFiles() {
-        return services.promptFiles;
-      },
-      get commands() {
-        return services.commands;
-      },
-      get history() {
-        return services.history;
-      },
-      get models() {
-        return requireService(services.models, "models");
-      },
-      get notificationPublicKey() {
-        return services.notificationPublicKey;
-      },
-      get notifications() {
-        return requireService(services.notifications, "notifications");
-      },
-      get review() {
-        return requireService(services.review, "review");
-      },
-      get mcp() {
-        return requireService(services.mcp, "mcp");
-      },
       log,
       close: (reason?: StopReason) => closeResources(reason),
-    };
+    });
   } catch (error) {
     if (!lifetime.signal.aborted)
       log.log("error", "Daemon startup failed", logFields([["error", logError(error)], ...build]));
