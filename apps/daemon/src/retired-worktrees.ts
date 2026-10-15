@@ -5,7 +5,10 @@ import type { Store } from "./store.ts";
 
 const upgrade = "remove-offshift-2026-10-07";
 
-/** One upgrade pass. Git owns deletion and refuses dirty, locked or quarantined trees. */
+/**
+ * One upgrade pass. Git owns deletion and refuses dirty, locked or quarantined trees; trees with
+ * ignored files are kept too.
+ */
 export async function cleanRetiredWorktrees(
   store: Store,
   directory: string,
@@ -38,6 +41,10 @@ export async function cleanRetiredWorktrees(
             const info = await lstat(path);
             if (!info.isDirectory() || info.isSymbolicLink())
               throw new Error("Retained entry is not a physical worktree directory");
+            // A retired tree's ignored files (an `.env`, local notes) may be the person's only
+            // copy: keep any tree that has them rather than delete them with it.
+            if ((await git.ignoredFiles(path)).length)
+              throw new Error("Retained worktree has ignored files that removal would delete");
             await git.removeWorktree({ repo: path, path });
           } catch (error) {
             retained(path, error);
