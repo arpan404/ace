@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { useRefreshModels } from "./use-refresh-models.ts";
 import type { ProviderKind } from "@ace/protocol";
 import type { ModelProblem, PickerModel } from "@ace/ui-core";
-import { providerNames, freeModelMarker } from "@ace/ui-core";
+import { isPlainCliLogin, providerNames, freeModelMarker } from "@ace/ui-core";
 import {
   CaretRightIcon,
   CheckIcon,
@@ -15,7 +15,6 @@ import { menuItem } from "@/components/ui/menu-styles.ts";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { titleWhenClipped } from "@/lib/clipped-title.ts";
 import { cn } from "@/lib/cn.ts";
 import { SignInButton } from "@/features/sign-in/index.ts";
 
@@ -59,8 +58,12 @@ export function ModelRow(props: {
   const account = accounts.data?.find((entry) => entry.id === model.instance);
   const detail = rowDetail(model);
   const marker = model.isDefault ? (model.userDefault ? "Your choice" : "Recommended") : undefined;
-  const accountLabel =
-    account?.label ?? (model.source?.kind === "account" ? model.source.label : undefined);
+  // The CLI's own login, never renamed, stands for the provider: no account in the row or its
+  // tooltip ("Codex", not "Codex · Your CLI login").
+  const plain = account !== undefined && isPlainCliLogin(account);
+  const accountLabel = plain
+    ? undefined
+    : (account?.label ?? (model.source?.kind === "account" ? model.source.label : undefined));
   const subtitle = [
     [origin(model), accountLabel].filter(Boolean).join(" · "),
     props.mixed && model.legacy ? "Legacy" : undefined,
@@ -78,14 +81,15 @@ export function ModelRow(props: {
   ]
     .filter(Boolean)
     .join(", ");
-  // The rail already names the provider and account; a mixed list (search, Favorites) adds the
-  // provider's mark, and the account only where the provider has more than one.
-  const ambiguous =
-    props.mixed &&
-    !!accountLabel &&
-    (accounts.data?.filter((entry) => entry.provider === model.provider).length ?? 0) > 1;
-  const suffix = [
-    ambiguous ? accountLabel : undefined,
+  // The second line: where the row comes from, always ("Codex · Personal", "OpenCode · OpenCode
+  // Zen"), with the account unless it is the CLI's own login, which stands for the provider.
+  const sourceLabel =
+    model.source && model.source.kind !== "account" ? model.source.label : undefined;
+  const from = [
+    providerNames[model.provider],
+    // An account named after its source ("OpenRouter API") already says where it comes from.
+    sourceLabel && accountLabel?.startsWith(sourceLabel) ? undefined : sourceLabel,
+    accountLabel,
     props.mixed && model.legacy ? "Legacy" : undefined,
     model.unavailable,
   ]
@@ -93,52 +97,68 @@ export function ModelRow(props: {
     .join(" · ");
   // ⌘N and the star show on the highlighted (hovered or keyboard) row and the chosen one.
   const revealed = props.highlighted || props.current;
+  // The hover card's line: the name, what marks it, and where it comes from.
+  const tip = [
+    model.label,
+    model.isNew ? "New" : undefined,
+    freeModelMarker(model) ? "Free" : undefined,
+    detail,
+    marker,
+    from || providerNames[model.provider],
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <div role="none" className="group/row relative">
-      <div
-        role="option"
-        id={props.id}
-        aria-selected={props.current}
-        aria-disabled={model.unavailable ? true : undefined}
-        data-disabled={model.unavailable ? "" : undefined}
-        aria-label={name}
-        title={name}
-        data-highlighted={props.highlighted ? "" : undefined}
-        onMouseMove={props.onHighlight}
-        onClick={props.onPick}
-        className={cn(
-          "flex h-8 w-full items-center gap-1.5 rounded-sm px-2 pr-8 text-ui whitespace-nowrap text-foreground select-none data-highlighted:bg-accent data-disabled:opacity-50 focus-ring-inset",
-          !model.unavailable && "cursor-pointer",
-        )}
-      >
-        {props.mixed && (
-          <ProviderIcon
-            provider={model.provider}
-            acpAgentId={account?.acpAgentId}
-            size={14}
-            className="size-3.5 shrink-0"
-            decorative
-          />
-        )}
-        <span className="truncate font-normal" onPointerEnter={titleWhenClipped(model.label)}>
-          {model.label}
-        </span>
-        {suffix && (
-          <span className="min-w-0 truncate text-xs text-subtle-foreground">{suffix}</span>
-        )}
-        <span className="flex-1" />
-        {props.number !== undefined && (
-          <Kbd
-            keys={`mod+${props.number}`}
-            variant="bare"
-            className={cn(
-              "bg-transparent tabular-nums opacity-0 group-hover/row:opacity-100",
-              revealed && "opacity-100",
-            )}
-          />
-        )}
-        {props.current && <CheckIcon aria-hidden size={12} weight="bold" className="shrink-0" />}
-      </div>
+      <Tip label={tip} side="right">
+        <div
+          role="option"
+          id={props.id}
+          aria-selected={props.current}
+          aria-disabled={model.unavailable ? true : undefined}
+          data-disabled={model.unavailable ? "" : undefined}
+          aria-label={name}
+          data-highlighted={props.highlighted ? "" : undefined}
+          onMouseMove={props.onHighlight}
+          onClick={props.onPick}
+          className={cn(
+            "flex h-11 w-full items-center gap-2 rounded-md px-2.5 pr-8 text-ui whitespace-nowrap text-foreground select-none data-highlighted:bg-accent data-disabled:opacity-50 focus-ring-inset",
+            !model.unavailable && "cursor-pointer",
+          )}
+        >
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="truncate font-medium">{model.label}</span>
+            </span>
+            <span className="flex min-w-0 items-center gap-1 text-xs leading-4 text-subtle-foreground">
+              {/* Only where providers mix (a search, Favorites); a provider's own tab is
+                  already named by the rail. */}
+              {props.mixed && (
+                <ProviderIcon
+                  provider={model.provider}
+                  acpAgentId={account?.acpAgentId}
+                  size={12}
+                  className="size-3 shrink-0"
+                  decorative
+                />
+              )}
+              <span className="truncate">{from}</span>
+            </span>
+          </span>
+
+          {props.number !== undefined && (
+            <Kbd
+              keys={`mod+${props.number}`}
+              variant="bare"
+              className={cn(
+                "bg-transparent tabular-nums opacity-0 group-hover/row:opacity-100",
+                revealed && "opacity-100",
+              )}
+            />
+          )}
+          {props.current && <CheckIcon aria-hidden size={12} weight="bold" className="shrink-0" />}
+        </div>
+      </Tip>
       <Tip label={`${props.starred ? "Remove from" : "Add to"} favorites`}>
         <button
           type="button"
@@ -185,20 +205,24 @@ export function LegacyToggle(props: {
       onClick={props.onToggle}
       className={cn(
         menuItem,
-        "h-7 cursor-pointer gap-1.5 text-xs text-muted-foreground focus-ring-inset",
+        "h-11 cursor-pointer gap-2 px-2.5 text-muted-foreground focus-ring-inset",
       )}
     >
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-ui font-medium text-foreground">Legacy models</span>
+        <span className="text-xs leading-4 text-subtle-foreground tabular-nums">
+          {props.count} {props.count === 1 ? "model" : "models"}
+        </span>
+      </span>
       <CaretRightIcon
         aria-hidden
         size={12}
         weight="bold"
         className={cn(
-          "transition-transform duration-(--motion-fast)",
+          "shrink-0 transition-transform duration-(--motion-fast)",
           props.expanded && "rotate-90",
         )}
       />
-      <span className="flex-1">Legacy models</span>
-      <span className="text-xs text-subtle-foreground tabular-nums">{props.count}</span>
     </div>
   );
 }

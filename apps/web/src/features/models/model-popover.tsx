@@ -4,14 +4,14 @@ import type { ModelControlActions, ModelControlView } from "./control-view.ts";
 import { TunePane, tunable } from "./tune-pane.tsx";
 
 /**
- * The model chip's one popover. It opens on the model list from the chip's name and on Tune
- * (speed, effort) from its effort; Tune's model name opens the list, and picking a model comes
- * back to Tune on that model's default effort. A model with nothing to tune closes it instead.
+ * The model chip's one popover. It opens on Tune (speed, effort), whose model name opens the
+ * provider and model list; picking a model comes back to Tune on that model's default effort.
+ * Without a model, or one with nothing to tune, it opens on the list, and a pick closes it.
  */
 export function ModelPopover(props: {
   view: ModelControlView;
   actions: ModelControlActions;
-  /** Where it opens: the model list (the chip's name) or Tune (its effort and speed). */
+  /** Where it opens: Tune from the chip, the list when asked for it (⌘K "Switch model…"). */
   initialPane: "tune" | "picker";
   onClose(): void;
 }) {

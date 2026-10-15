@@ -69,11 +69,7 @@ export function VirtualPickerRows(props: {
     getScrollElement: () => props.list.current,
     estimateSize: (index) => {
       const entry = entries[index];
-      return entry?.kind === "heading"
-        ? entry.group.problems.length * 48
-        : entry?.item.kind === "legacy"
-          ? 28
-          : 32;
+      return entry?.kind === "heading" ? entry.group.problems.length * 48 : 44;
     },
     overscan: 4,
     rangeExtractor: (range) =>

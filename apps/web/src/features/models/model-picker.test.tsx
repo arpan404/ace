@@ -125,58 +125,40 @@ test("a row under another account moves the thread to that account", async () =>
   expect(await screen.findByRole("button", { name: /^Model: Sonnet 5\.5, Work/ })).toBeTruthy();
 });
 
-test("OpenCode lists its models by source, and a failing source says why beside its last models", async () => {
+test("OpenCode lists every source as one list, each row naming its source, and a failing source stays quiet", async () => {
   const { popover, list } = await openPicker();
-  await chooseSource(popover, "OpenCode · Your CLI login");
-  expect(groupNames(list)).toEqual([
-    "Local",
-    "OpenCode Go",
-    "OpenCode Zen",
-    "Anthropic",
-    "OpenAI",
-    "OpenRouter",
-  ]);
-  // Two local runtimes serve the same model: each row says which.
-  expect(names(group(list, "Local"))).toEqual([
-    "Qwen3 235B A22B, LM Studio, OpenCode · LM Studio · Your CLI login",
-    "Qwen3 235B A22B, Ollama, OpenCode · Ollama · Your CLI login",
-    "Qwen2 72B, LM Studio, OpenCode · LM Studio · Your CLI login",
-    "Qwen2 72B, Ollama, OpenCode · Ollama · Your CLI login",
-  ]);
-  const openRouter = group(list, "OpenRouter");
-  expect(within(openRouter).getByText("OpenRouter could not be reached.")).toBeTruthy();
-  expect(within(openRouter).getByText(/Check your network and refresh models\./)).toBeTruthy();
-  expect(openRouter.getAttribute("aria-describedby")).toBeTruthy();
-  expect(names(openRouter)).toEqual([
-    "Opus 5.5, OpenCode · OpenRouter · Your CLI login",
-    "Sonnet 4.5, OpenCode · OpenRouter · Your CLI login",
-    "Legacy models, 1",
-  ]);
-  expect(within(group(list, "Anthropic")).queryByText(/could not be reached/)).toBeNull();
+  await chooseSource(popover, "OpenCode");
+  // No source headers: one list, one Legacy models row.
+  for (const source of ["Local", "OpenCode Go", "OpenCode Zen", "OpenRouter"])
+    expect(within(list).queryByRole("group", { name: source })).toBeNull();
+  expect(within(list).getAllByRole("option", { name: /^Legacy models/ })).toHaveLength(1);
+  // Two local runtimes serve the same model: each row says which, and so does every other source.
+  const row = (name: RegExp) => within(list).getByRole("option", { name });
+  expect(row(/^Qwen3 235B A22B, LM Studio,/).textContent).toContain("LM Studio");
+  expect(row(/^Qwen3 235B A22B, Ollama,/).textContent).toContain("Ollama");
+  expect(row(/^Opus 5\.5, OpenCode · OpenRouter/).textContent).toContain("OpenRouter");
+  // OpenRouter couldn't be reached, but the other sources list models: no warning, and its
+  // last models still pick.
+  expect(within(list).queryByText(/could not be reached/)).toBeNull();
 });
 
-test("Pi groups its models by the provider it is signed in to", async () => {
+test("Pi lists the models of every provider it is signed in to as one list", async () => {
   const { popover, list } = await openPicker();
-  await chooseSource(popover, "Pi · Your CLI login");
-  expect(groupNames(list)).toEqual(["GitHub Copilot", "Anthropic"]);
-  expect(names(group(list, "GitHub Copilot"))).toEqual([
-    "Opus 5.5, Pi · GitHub Copilot · Your CLI login",
-    "Haiku 4.5, Pi · GitHub Copilot · Your CLI login",
-    "Legacy models, 1",
-  ]);
-  // A provider that isn't installed has nothing to pick: its tab opens on why, never on the
-  // previous tab's models.
-  const antigravity = within(popover).getByRole("tab", { name: "Antigravity" });
-  await userEvent.click(antigravity);
-  expect(antigravity.getAttribute("aria-selected")).toBe("true");
-  expect(within(list).getByRole("status").textContent).toMatch(/isn't installed/);
-  expect(within(list).queryAllByRole("option")).toHaveLength(0);
+  await chooseSource(popover, "Pi");
+  expect(within(list).queryByRole("group", { name: "GitHub Copilot" })).toBeNull();
+  const copilot = within(list).getByRole("option", { name: /^Opus 5\.5, Pi · GitHub Copilot/ });
+  expect(copilot.textContent).toContain("GitHub Copilot");
+  expect(
+    within(list).getByRole("option", { name: /^Opus 5\.5, .*Pi · Anthropic/ }).textContent,
+  ).toContain("Anthropic");
+  // A CLI that isn't installed has no tab at all.
+  expect(within(popover).queryByRole("tab", { name: "Antigravity" })).toBeNull();
 });
 
 test("a provider whose sign-in expired says so and how to fix it, and Refresh models discovers again", async () => {
   const app = harness();
   const { popover, list } = await openPicker(app);
-  await chooseSource(popover, "Cursor · Your Cursor login");
+  await chooseSource(popover, "Cursor");
   expect(within(list).getByText("Cursor sign-in has expired.")).toBeTruthy();
   expect(within(list).getByText(/Sign in using Cursor, then refresh models\./)).toBeTruthy();
   expect(within(list).getByRole("option", { name: /^Composer 2\.5/ })).toBeTruthy();
@@ -214,7 +196,7 @@ test("a provider whose discovery failed with no models left still opens, to say 
             : push(reply),
         );
   const { popover, list } = await openPicker(app);
-  const cursor = await sourceTab(popover, "Cursor · Your Cursor login");
+  const cursor = await sourceTab(popover, "Cursor");
   expect(cursor.getAttribute("aria-disabled")).toBeNull();
   await userEvent.click(cursor);
   expect(within(list).getByText("Cursor sign-in has expired.")).toBeTruthy();
@@ -306,9 +288,9 @@ test("search finds models across every provider, older ones last and marked", as
   expect(names(list)).toEqual([
     "Sonnet 5.5, Claude Code · Personal",
     "Sonnet 5.5, Claude Code · Work",
-    "Sonnet 4.5, OpenCode · Anthropic · Your CLI login",
-    "Sonnet 4.5, OpenCode · OpenCode Zen · Your CLI login",
-    "Sonnet 4.5, OpenCode · OpenRouter · Your CLI login",
+    "Sonnet 4.5, OpenCode · Anthropic",
+    "Sonnet 4.5, OpenCode · OpenCode Zen",
+    "Sonnet 4.5, OpenCode · OpenRouter",
     "Sonnet 4.5, OpenCode · OpenRouter · OpenRouter API",
     "Sonnet 4.5, Claude Code · Personal · Legacy",
     "Sonnet 4.5, Claude Code · Work · Legacy",
@@ -349,17 +331,22 @@ test("⌘ and a number pick that row and close the model picker", async () => {
   );
 });
 
-test("the provider column moves with the arrow keys, one tab per provider", async () => {
+test("the account rail moves with the arrow keys, one tab per account", async () => {
   const { popover, list } = await openPicker();
   const rail = within(popover).getByRole("tablist", { name: "Model sources" });
-  // Several accounts share one provider tab; the list header switches between them.
-  expect(within(rail).queryAllByRole("tab", { name: /^Claude Code/ })).toHaveLength(1);
-  within(rail).getByRole("tab", { name: "Claude Code" }).focus();
-  await userEvent.keyboard("{ArrowDown}");
-  expect(document.activeElement).toBe(within(rail).getByRole("tab", { name: "Codex" }));
+  // Each account is its own tab, told apart by its name and the bubble on its logo.
   expect(
-    within(popover).getByRole("tab", { name: "Codex · Personal", selected: true }),
-  ).toBeTruthy();
+    within(rail)
+      .getAllByRole("tab", { name: /^Claude Code/ })
+      .map((tab) => tab.getAttribute("aria-label")),
+  ).toEqual(["Claude Code", "Claude Code · Personal", "Claude Code · Work"]);
+  within(rail).getByRole("tab", { name: "Claude Code · Work" }).focus();
+  // A signed-out account has no tab, so ↓ goes straight to the next account that is set up.
+  expect(within(rail).queryByRole("tab", { name: "Codex" })).toBeNull();
+  await userEvent.keyboard("{ArrowDown}");
+  expect(document.activeElement).toBe(
+    within(rail).getByRole("tab", { name: "Codex · Personal", selected: true }),
+  );
   expect(names(group(list, "Personal"))).toEqual([
     "GPT-6.1 Sol, recommended, Codex · Personal",
     "GPT-5 Codex, Codex · Personal",
@@ -554,7 +541,7 @@ test("connected Copilot with no enabled models shows its hint and remains refres
           });
         });
   const { popover, list } = await openPicker(app);
-  const tab = await sourceTab(popover, "OpenCode · Your CLI login");
+  const tab = await sourceTab(popover, "OpenCode");
   expect(tab.getAttribute("aria-disabled")).toBeNull();
   await userEvent.click(tab);
   expect(
@@ -593,4 +580,15 @@ test("a dated route is named as a snapshot only inside Legacy when an undated ro
       name: "Haiku 4.5, Oct 2025 snapshot, Claude Code · Personal",
     }),
   ).toBeTruthy();
+});
+
+test("hovering a model shows where it comes from in a tooltip, the CLI's own login as the provider", async () => {
+  const { popover, list } = await openPicker();
+  await chooseSource(popover, "OpenCode");
+  const row = within(list).getByRole("option", { name: /^Sonnet 4\.5, OpenCode · OpenCode Zen/ });
+  await userEvent.hover(row);
+  const tip = await screen.findByRole("tooltip");
+  expect(tip.textContent).toContain("Sonnet 4.5 · OpenCode · OpenCode Zen");
+  expect(tip.textContent).not.toContain("Your CLI login");
+  expect(row.getAttribute("title")).toBeNull();
 });

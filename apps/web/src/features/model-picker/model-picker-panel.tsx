@@ -2,6 +2,7 @@ import { useAccountViews } from "@/lib/account-views.ts";
 import type { ProviderKind } from "@ace/protocol";
 import {
   pickerGroups,
+  pickerSection,
   pickerList,
   providerNames,
   providersWithProblems,
@@ -22,14 +23,13 @@ import {
 import { VirtualPickerRows, type PickerItem } from "./virtual-picker-rows.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { PickerRail } from "./picker-rail.tsx";
-import { pickerEntries, railGroups } from "./picker-entries.ts";
+import { pickerEntries } from "./picker-entries.ts";
 import { useNow } from "@/lib/time.ts";
 import { formatResetCountdown } from "@/features/accounts/index.ts";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useModelInstances, type CatalogState } from "@/lib/model-catalog.ts";
 import { useFavoriteModels } from "./favorites.ts";
-import { AccountSwitch } from "./account-switch.tsx";
 import { GroupProblem, LegacyToggle, ModelRow, PickerEmpty } from "./model-picker-rows.tsx";
 import { useRefreshModels } from "./use-refresh-models.ts";
 
@@ -40,10 +40,10 @@ const numbered = 9;
 const panelHeight = 360;
 
 /**
- * Pick a model: Favorites and one tab per provider down the left (its accounts switched in the
- * list's header), a search over every provider on top with Refresh models, and the tab's models
- * by source (each account, local runtimes,
- * OpenCode Go and Zen, the person's own API keys), current models first and older ones under
+ * Pick a model: Favorites and one tab per account down the left (a provider with several shows
+ * each with its account's bubble), a search over every provider on top with Refresh models, and
+ * the tab's models as one list whose rows name their source where a tab mixes several (local
+ * runtimes, OpenCode Go and Zen, the person's own API keys), current models first and older ones under
  * each group's Legacy models. Each group says when it is refreshing or couldn't be refreshed.
  * ⌘1…⌘9 pick the first rows, a check marks the current one, a star favorites. Arrows move from
  * the search field, → and ← open and close Legacy models, Enter picks; Escape closes the popover.
@@ -90,8 +90,22 @@ export function ModelPickerPanel(props: {
         now,
         (at) =>
           `Limit reached${at === undefined ? " · reset time unknown" : ` · ${formatResetCountdown(at, now)}`}`,
+        // One provider alone (Settings) keeps its tab to say why it has nothing; else the
+        // account the thread runs on keeps its tab.
+        props.only
+          ? { provider: props.only, instance: undefined }
+          : { provider: props.currentProvider, instance: props.currentInstance },
       ),
-    [providers, props.models, providerOnly, accounts.data, now],
+    [
+      providers,
+      props.models,
+      providerOnly,
+      accounts.data,
+      now,
+      props.only,
+      props.currentProvider,
+      props.currentInstance,
+    ],
   );
   const tabs = props.only ? entries.filter((entry) => entry.provider === props.only) : entries;
   const [chosen, setChosen] = useState<string>();
@@ -104,23 +118,6 @@ export function ModelPickerPanel(props: {
     tabs.find((entry) => entry.provider === (props.only ?? props.currentProvider)) ??
     tabs.find((entry) => !entry.reason);
   const tab = selected?.id ?? "favorites";
-  const railTabs = useMemo(() => railGroups(tabs), [tabs]);
-  const railGroup =
-    railTabs.find((group) => group.accounts.some((entry) => entry.id === tab)) ?? railTabs[0];
-  const railTab = railGroup?.id ?? "favorites";
-  // A provider's tab opens on the account the model runs on, else its first usable one.
-  const showGroup = (id: string) => {
-    const group = railTabs.find((candidate) => candidate.id === id);
-    const entry =
-      group?.accounts.find(
-        (candidate) =>
-          candidate.provider === props.currentProvider &&
-          candidate.instance === props.currentInstance,
-      ) ??
-      group?.accounts.find((candidate) => !candidate.reason) ??
-      group?.accounts[0];
-    if (entry) showTab(entry.id);
-  };
   const provider = selected?.provider;
   const selectedInstance = selected?.instance;
   const [query, setQuery] = useState("");
@@ -146,18 +143,19 @@ export function ModelPickerPanel(props: {
     (group: PickerGroup) => toggled.get(group.id) ?? group.legacy.some(isCurrent),
     [toggled, isCurrent],
   );
-  const groups = useMemo(
-    () =>
-      mixed || !provider
-        ? []
-        : pickerGroups(
-            scoped.filter((model) => !selectedInstance || model.instance === selectedInstance),
-            instances.filter((status) => !selectedInstance || status.instance === selectedInstance),
-            provider,
-            accounts.data ?? [],
-          ),
-    [mixed, provider, scoped, selectedInstance, instances, accounts.data],
-  );
+  // One section per tab: no source headers, and a failing source stays quiet while others list.
+  const groups = useMemo(() => {
+    if (mixed || !provider) return [];
+    const section = pickerSection(
+      pickerGroups(
+        scoped.filter((model) => !selectedInstance || model.instance === selectedInstance),
+        instances.filter((status) => !selectedInstance || status.instance === selectedInstance),
+        provider,
+        accounts.data ?? [],
+      ),
+    );
+    return section ? [section] : [];
+  }, [mixed, provider, scoped, selectedInstance, instances, accounts.data]);
 
   const items: PickerItem[] = useMemo(
     () =>
@@ -248,7 +246,7 @@ export function ModelPickerPanel(props: {
           !(items[active]?.kind === "model" && items[active]?.model.legacy)))
     ) {
       event.preventDefault();
-      rail.current?.querySelector<HTMLElement>(`[data-tab="${railTab}"]`)?.focus();
+      rail.current?.querySelector<HTMLElement>(`[data-tab="${tab}"]`)?.focus();
       return;
     }
     if (event.key === "Escape" && props.onClose) {
@@ -385,13 +383,13 @@ export function ModelPickerPanel(props: {
       style={{ height: `min(${panelHeight}px, var(--available-height, ${panelHeight}px))` }}
     >
       <PickerRail
-        groups={railTabs}
-        selected={railTab}
+        entries={tabs}
+        selected={tab}
         searching={!!query}
         listId={listId}
         ref={rail}
         focusList={() => search.current?.focus()}
-        onSelect={showGroup}
+        onSelect={showTab}
       />
       <div
         role="tabpanel"
@@ -431,14 +429,6 @@ export function ModelPickerPanel(props: {
             }
           />
         </div>
-        {!mixed && railGroup && railGroup.accounts.length > 1 && (
-          <AccountSwitch
-            accounts={railGroup.accounts}
-            selected={tab}
-            listId={listId}
-            onSelect={showTab}
-          />
-        )}
         <div
           ref={list}
           role="listbox"

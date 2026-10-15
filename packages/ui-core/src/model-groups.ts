@@ -23,6 +23,8 @@ export interface ModelProblem {
   code?: ModelDiscoveryError["code"] | undefined;
   /** The source the problem is about (an OpenCode or Pi upstream such as "opencode-go"). */
   source?: string | undefined;
+  /** About one source rather than the whole account, so other sources may still list models. */
+  partial?: true | undefined;
 }
 
 export interface PickerGroup {
@@ -142,6 +144,7 @@ export function pickerGroups(
     into: PickerGroup,
     problem: ModelProblem | undefined,
     source?: ModelSource | undefined,
+    partial?: true,
   ) => {
     if (problem && !into.problems.some((known) => known.message === problem.message))
       into.problems.push({
@@ -152,6 +155,7 @@ export function pickerGroups(
           ? { source: source.id }
           : {}),
         ...(problem.actionId ? { actionId: problem.actionId } : {}),
+        ...(partial ? { partial } : {}),
         ...(problem.code === "no_models" || problem.code === "not_configured"
           ? { severity: "info" as const }
           : {}),
@@ -165,7 +169,7 @@ export function pickerGroups(
       if (!listed && !entry.error) continue;
       const into = group(status.instance, entry.source);
       into.refreshing ||= entry.status === "refreshing";
-      report(into, entry.error, entry.source);
+      report(into, entry.error, entry.source, true);
     }
     const whole = status.errorDetail ?? (status.error ? unexplained : undefined);
     const refreshing = status.status === "refreshing" || status.refreshing;
@@ -210,4 +214,36 @@ export function providersWithProblems(
       )
       .map((status) => status.provider),
   );
+}
+
+/**
+ * A picker tab's models as one list: every source's current models (a saved model the catalog
+ * lost still first), then one Legacy section. Rows name their own source, so there are no source
+ * headers. A source that failed says nothing while another source still lists models; a sole
+ * source, or one beside sources with nothing, says why. A problem with the whole account
+ * (its sign-in expired) always shows: the models listed won't run until it is fixed.
+ */
+export function pickerSection(groups: readonly PickerGroup[]): PickerGroup | undefined {
+  const [first] = groups;
+  if (!first) return undefined;
+  const lists = (group: PickerGroup) => group.current.length + group.legacy.length > 0;
+  const seen = new Set<string>();
+  const problems = groups.flatMap((group) =>
+    group.problems.filter((problem) => {
+      // Another source still lists models: this one's failure is not worth a warning.
+      const quiet = problem.partial && groups.some((other) => other !== group && lists(other));
+      if (quiet || seen.has(problem.message)) return false;
+      seen.add(problem.message);
+      return true;
+    }),
+  );
+  return {
+    id: first.id,
+    provider: first.provider,
+    label: undefined,
+    current: groups.flatMap((group) => group.current),
+    legacy: groups.flatMap((group) => group.legacy),
+    refreshing: groups.some((group) => group.refreshing),
+    problems,
+  };
 }

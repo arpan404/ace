@@ -42,13 +42,13 @@ function settledAt(app: ReturnType<typeof harness>) {
   return view?.kind === "threads" ? view.threads["thread-bump-codex"]?.settledAt : undefined;
 }
 
-test("a settled thread is one line of project badge and title, without branch, time or provider", async () => {
+test("a settled thread is one line of project badge, title and age, without branch or provider", async () => {
   const { link, row } = await openSettled();
-  // The badge's initials and the title are all the row shows.
-  expect(link.textContent).toMatch(new RegExp(`^[A-Za-z]{1,2}${title}$`));
+  // The badge's initials and the title lead; its PR or diff and its age follow on the right.
+  expect(link.textContent).toMatch(new RegExp(`^[A-Za-z]{1,2}${title}`));
+  expect(link.textContent).toMatch(/\d+[smhdw]$|\b[A-Z][a-z]{2}$/);
   expect(row.textContent).not.toContain("chore/codex-048");
-  expect(row.textContent).not.toMatch(/\bago\b|\b\d+[smhd]\b/);
-  expect(within(link).queryByRole("img")).toBeNull();
+  expect(within(link).queryByRole("img", { name: /Codex/ })).toBeNull();
   // Assistive tech still hears the context the line leaves out.
   expect(link.getAttribute("aria-label")).toContain("Codex");
 });

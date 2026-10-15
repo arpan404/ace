@@ -1,7 +1,7 @@
 import { AccountSummary } from "@ace/protocol/accounts";
 import { accountView } from "@ace/ui-core";
 import { expect, test } from "vitest";
-import { pickerEntries, railGroups } from "./picker-entries.ts";
+import { pickerEntries } from "./picker-entries.ts";
 
 const account = (
   id: string,
@@ -28,43 +28,65 @@ const account = (
   );
 
 const rail = (accounts: ReturnType<typeof account>[]) =>
-  railGroups(
-    pickerEntries(
-      [
-        { provider: "claude", reason: undefined },
-        { provider: "codex", reason: undefined },
-        { provider: "acp", reason: undefined },
-      ],
-      [],
-      accounts,
-      1,
-      () => "Limit reached",
-    ),
+  pickerEntries(
+    [
+      { provider: "claude", reason: undefined },
+      { provider: "codex", reason: undefined },
+      { provider: "acp", reason: undefined },
+    ],
+    [],
+    accounts,
+    1,
+    () => "Limit reached",
   );
 
-test("a provider's accounts share one rail tab, while each ACP agent keeps its own, by name", () => {
-  const groups = rail([
+test("each account gets its own rail tab, while each ACP agent goes by its own name", () => {
+  const tabs = rail([
     account("claude-personal", "claude", "Personal"),
     account("claude-work", "claude", "Work"),
     account("gemini", "acp", "Google", "official:gemini"),
     account("qwen", "acp", "Alibaba", "official:qwen-code"),
   ]);
-  expect(groups.map((group) => [group.name, group.accounts.map((entry) => entry.name)])).toEqual([
-    ["Favorites", ["Favorites"]],
-    ["Claude Code", ["Claude Code · Personal", "Claude Code · Work"]],
+  expect(tabs.map((tab) => tab.name)).toEqual([
+    "Favorites",
+    "Claude Code · Personal",
+    "Claude Code · Work",
     // A provider with no account still has its tab, to say why it has nothing to pick.
-    ["Codex", ["Codex"]],
-    ["Gemini CLI", ["Gemini CLI"]],
-    ["Qwen Code", ["Qwen Code"]],
+    "Codex",
+    "Gemini CLI",
+    "Qwen Code",
   ]);
-  expect(groups.some((group) => group.name.startsWith("ACP agent"))).toBe(false);
+  expect(tabs.some((tab) => tab.name.startsWith("ACP agent"))).toBe(false);
 });
 
-test("a provider stays usable while any of its accounts can be picked from", () => {
+test("an account at its limit keeps its tab and says why, beside a usable one", () => {
   const codex = rail([
     account("codex-team", "codex", "Team", undefined, true),
     account("codex-personal", "codex", "Personal"),
-  ]).find((group) => group.provider === "codex");
-  expect(codex?.accounts.map((entry) => entry.reason)).toEqual(["Limit reached", undefined]);
-  expect(codex?.reason).toBeUndefined();
+  ]).filter((tab) => tab.provider === "codex");
+  expect(codex.map((tab) => [tab.name, tab.reason])).toEqual([
+    ["Codex · Team", "Limit reached"],
+    ["Codex · Personal", undefined],
+  ]);
+});
+
+const cli = (label: string) =>
+  accountView(
+    AccountSummary.parse({
+      id: "codex-cli-default",
+      provider: "codex",
+      label,
+      implicit: true,
+      availability: "available",
+      quota: { auth: "logged_in", observedAt: 1, windows: {}, blockers: {}, usage: {} },
+    }),
+  );
+
+test("the CLI's own login reads as the provider until it is renamed", () => {
+  const names = (login: ReturnType<typeof cli>) =>
+    rail([login, account("codex-team", "codex", "Team")])
+      .filter((tab) => tab.provider === "codex")
+      .map((tab) => tab.name);
+  expect(names(cli("Your CLI login"))).toEqual(["Codex", "Codex · Team"]);
+  expect(names(cli("Home"))).toEqual(["Codex · Home", "Codex · Team"]);
 });

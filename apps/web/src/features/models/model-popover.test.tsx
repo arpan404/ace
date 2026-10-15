@@ -82,16 +82,19 @@ test("the effort slider snaps to the model's levels, and Reset goes back to its 
   expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Model: Opus 5\.5/ }));
 });
 
-test("the model's name opens the picker inside the same popover", async () => {
+test("the chip opens on Tune, even from its name, and Tune's model name opens the picker", async () => {
   await openThread();
-  const popover = await openEffortControl();
+  const chip = await screen.findByRole("button", { name: /^Model: Opus 5\.5/ });
+  const name = chip.querySelector<HTMLElement>("[data-slot=model-name]");
+  if (!name) throw new Error("The chip shows no model name");
+  await userEvent.click(name);
+  const popover = await screen.findByRole("dialog", { name: "Model and effort" });
+  expect(await within(popover).findByRole("slider", { name: "Effort" })).toBeTruthy();
+  expect(within(popover).queryByRole("listbox", { name: "Models" })).toBeNull();
   await userEvent.click(within(popover).getByRole("button", { name: "Change model: Opus 5.5" }));
   expect(await within(popover).findByRole("listbox", { name: "Models" })).toBeTruthy();
   expect(within(popover).queryByRole("slider")).toBeNull();
   await closeModelControl();
-  // The chip's name opens the model list straight away.
-  const reopened = await openModelControl(/^Model: Opus 5\.5/);
-  expect(await within(reopened).findByRole("listbox", { name: "Models" })).toBeTruthy();
 });
 
 test("picking a model lands on Tune at that model's levels, default effort and own speeds", async () => {

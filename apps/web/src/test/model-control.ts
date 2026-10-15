@@ -65,17 +65,10 @@ export async function chooseAccount(popover: HTMLElement, name: string) {
   await closeModelControl();
 }
 
-/**
- * A model source's tab, "Codex · Team": the rail's own tab when the provider has one account,
- * else the account's tab in the list header once the provider's rail tab is selected.
- */
+/** A model source's rail tab: "Codex · Team" for one of several accounts, else "Codex". */
 export async function sourceTab(popover: HTMLElement, name: string): Promise<HTMLElement> {
   const rail = within(popover).getByRole("tablist", { name: "Model sources" });
-  const direct = within(rail).queryByRole("tab", { name });
-  if (direct) return direct;
-  await userEvent.click(within(rail).getByRole("tab", { name: name.split(" · ")[0] ?? name }));
-  const accounts = within(popover).getByRole("tablist", { name: "Accounts" });
-  return within(accounts).getByRole("tab", { name });
+  return within(rail).getByRole("tab", { name });
 }
 
 /** Show a model source's models: "Codex · Team". */
