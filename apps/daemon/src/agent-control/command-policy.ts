@@ -1,4 +1,3 @@
-import { delegationBudget } from "@ace/orchestrator";
 import type { Command, CommandResult, DelegationPolicy, ThreadId } from "@ace/protocol";
 import type { Engine } from "../engine/index.ts";
 import type { Store } from "../store.ts";
@@ -68,10 +67,7 @@ export function delegationCommandPolicy(deps: {
       ...deps.journal.tree(edge.parentId, deps.now()),
       concurrent: deps.journal.concurrent(edge.parentId),
     };
-    const rejection = tree.cancelled
-      ? "cancelled"
-      : delegationBudget(tree, deps.policy, deps.now());
-    if (rejection) return fail(rejection);
+    if (tree.cancelled) return fail("cancelled");
     if (
       edge.phase === "settled" &&
       (tree.concurrent >= deps.policy.maxConcurrent || deps.journal.activeCount() >= 64)

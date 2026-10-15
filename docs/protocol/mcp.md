@@ -848,7 +848,7 @@ Example:
 
 ## ace_agent_message
 
-Send follow-up work to the same owned child, retaining its permissions and delegation budget. Use a stable requestId.
+Send follow-up work to the same owned child, retaining its permissions. Use a stable requestId.
 
 Required capability: agents. Timeout: 10000 ms.
 

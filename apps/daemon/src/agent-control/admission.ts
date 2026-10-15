@@ -3,7 +3,7 @@ import { incomingRemoteRoot } from "./incoming-root.ts";
 import { AgentControlError, ceilingRefusal, controlAdmissionError } from "./failure.ts";
 import { delegationSelection, validateDelegationSelection } from "./selection.ts";
 import { callerThread } from "./authorization.ts";
-import { admitDelegation, delegationBudget } from "@ace/orchestrator";
+import { admitDelegation } from "@ace/orchestrator";
 import {
   Command,
   AcpIdentity,
@@ -86,10 +86,6 @@ export class DelegationAdmission {
     return {
       ...tree,
       children: tree.children + (external?.children ?? 0),
-      usage: {
-        tokens: tree.usage.tokens + (external?.usage.tokens ?? 0),
-        cost: tree.usage.cost + (external?.usage.cost ?? 0),
-      },
       concurrent: this.journal.concurrent(parent) + (external?.concurrent ?? 0),
     };
   }
@@ -111,7 +107,7 @@ export class DelegationAdmission {
       }
       const now = this.deps.clock.now(),
         tree = this.capacity(caller.threadId, now);
-      const rejection = admitDelegation(tree, this.policy, now);
+      const rejection = admitDelegation(tree, this.policy);
       if (rejection || this.journal.activeCount() >= 64)
         throw new AgentControlError(
           rejection === "cancelled" ? "delegation_cancelled" : "delegation_limit",
@@ -178,15 +174,8 @@ export class DelegationAdmission {
       const r = current.record;
       if (ownership) r.resultDelivery = ownership.resultDelivery;
       this.validate(caller, r.request);
-      const tree = this.capacity(caller.threadId, this.deps.clock.now());
-      const rejection = tree.cancelled
-        ? "cancelled"
-        : delegationBudget(tree, this.policy, this.deps.clock.now());
-      if (rejection)
-        throw new AgentControlError(
-          rejection === "cancelled" ? "delegation_cancelled" : "delegation_limit",
-          rejection,
-        );
+      if (this.journal.tree(caller.threadId, this.deps.clock.now()).cancelled)
+        throw new AgentControlError("delegation_cancelled", "cancelled");
       // Quota may have changed during filesystem work; selected identity is immutable.
       validateDelegationSelection(
         this.deps,

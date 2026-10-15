@@ -32,7 +32,6 @@ export function startAgentControl(context: ServiceContext): void {
     externalCapacity: (parent, root) => ({
       concurrent: remoteTasks.active().filter((task) => task.parentThreadId === parent).length,
       children: remoteTasks.root(root).children,
-      usage: remoteTasks.root(root).usage,
     }),
     store,
     engine,

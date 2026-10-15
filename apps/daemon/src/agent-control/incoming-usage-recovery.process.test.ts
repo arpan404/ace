@@ -3,15 +3,14 @@ import { DelegationService } from "./delegations.ts";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { readConfig, startDaemon } from "@ace/daemon";
-import { RemoteAgentOperation } from "@ace/protocol";
 import { Client } from "../socket-test-support.ts";
 import { once } from "node:events";
 import { readFile } from "node:fs/promises";
 import { DeviceId } from "@ace/protocol";
 import { remoteTarget } from "./remote-target-test-support.ts";
 
-test("upgrade restores skipped incoming usage before first completion sealing and source budget enforcement", async () => {
-  const f = await remoteTarget({ tokens: 40 });
+test("upgrade restores skipped incoming usage before first completion sealing", async () => {
+  const f = await remoteTarget();
   // Model the pre-upgrade owners: incoming root usage is persisted by the engine
   // and analytics, but not observed by the delegation journal or completion owner.
   f.target.controls.delegations.close();
@@ -72,17 +71,6 @@ test("upgrade restores skipped incoming usage before first completion sealing an
             usage: status.usage,
           })?.usage,
         ).toEqual({ tokens: 45, cost: 0.5 });
-        expect(
-          await f.remote.execute(
-            f.parent,
-            RemoteAgentOperation.parse({
-              ...f.task.request,
-              op: "device.delegate",
-              requestId: "over-budget",
-            }),
-            new AbortController().signal,
-          ),
-        ).toMatchObject({ ok: false, code: "limit" });
       }
     } finally {
       wire.close();

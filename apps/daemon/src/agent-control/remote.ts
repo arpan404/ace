@@ -129,7 +129,7 @@ export class RemoteDelegations {
       }
     }, 1000);
   }
-  /** Policy deadlines remain enforced while the client or target device is disconnected. */
+  /** Stops and access changes remain enforced while the client or target device is disconnected. */
   drain() {
     if (this.closed) return;
     this.store.atomic(() => {
@@ -161,16 +161,11 @@ export class RemoteDelegations {
       {
         ...tree,
         children: tree.children + remote.children,
-        usage: {
-          tokens: tree.usage.tokens + remote.usage.tokens,
-          cost: tree.usage.cost + remote.usage.cost,
-        },
         concurrent:
           this.local.journal.concurrent(parent) +
           tasks.filter((task) => task.parentThreadId === parent).length,
       },
       this.local.policy,
-      this.now(),
     )
       ? undefined
       : tree;
@@ -315,17 +310,12 @@ export class RemoteDelegations {
       task.cancellingAt ??= this.now();
       return;
     }
-    const tree = this.local.journal.tree(task.parentThreadId, this.now());
-    const remote = this.journal.root(tree.root);
     if (
       !parent ||
       parent.provider !== task.parentProvider ||
       !remoteAccessHolds(this.engine.access(parent.id), parent, task.access) ||
       this.local.journal.stopped(parent.id) ||
-      this.local.journal.ancestorStopped(parent.id) ||
-      this.now() - tree.startedAt >= this.local.policy.durationMs ||
-      tree.usage.tokens + remote.usage.tokens >= this.local.policy.tokens ||
-      tree.usage.cost + remote.usage.cost >= this.local.policy.cost
+      this.local.journal.ancestorStopped(parent.id)
     ) {
       task.phase = "cancelling";
       task.cancellingAt ??= this.now();

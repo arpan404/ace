@@ -51,8 +51,7 @@ The remaining MCP fork/merge owner bridge is deliberately gated. Main's fork com
 - Closed admission blocks prepared launch, direct engine sends and handoff retries.
 - Large child text is read by bounded byte ranges; streams cannot be substituted across target threads.
 - Actual questions resolve through the public engine command API and allow work to settle.
-- Repeated cumulative usage is counted once; spending the token budget cancels the tree.
-- Elapsed budget cancels silent work without another provider frame.
+- Delegation trees have no token, cost or elapsed-time budget: heavy usage and long-running work never cancel a tree or block new children.
 - Unresponsive and human-waiting children prevent false parent completion.
 - Default daemon composition manages owned project names, PR metadata and automation definitions through the public agent-control API.
 - Preview metadata is bounded before registration; a stale close cannot remove a replacement preview.

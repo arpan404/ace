@@ -113,16 +113,7 @@ export class RemoteTaskJournal {
           .all(root),
       )
       .map((row) => RemoteTask.parse(JSON.parse(z.string().parse(row.record))));
-    return {
-      children: tasks.length,
-      usage: tasks.reduce(
-        (sum, task) => ({
-          tokens: Math.min(Number.MAX_SAFE_INTEGER, sum.tokens + task.usage.tokens),
-          cost: sum.cost + task.usage.cost,
-        }),
-        { tokens: 0, cost: 0 },
-      ),
-    };
+    return { children: tasks.length };
   }
   prune(now: number) {
     pruneRemoteRows(this.store, now);
