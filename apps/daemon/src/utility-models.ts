@@ -72,6 +72,8 @@ export function createUtility(deps: {
   store: Store;
   now(): number;
   onTitleFailure?(threadId: ThreadId, error: unknown): void;
+  shouldGenerateBranch?(threadId: ThreadId): boolean;
+  onBranchSlug?(threadId: ThreadId, slug: string): void | Promise<void>;
 }): UtilityService {
   const models = new UtilityModels({
     choice: async () => (await deps.settings?.get("generation.model"))?.value,
@@ -84,6 +86,8 @@ export function createUtility(deps: {
     now: deps.now,
     generate: (prompt, signal) => models.generate(prompt, signal, titleLimits),
     ...(deps.onTitleFailure ? { onFailure: deps.onTitleFailure } : {}),
+    ...(deps.shouldGenerateBranch ? { shouldGenerateBranch: deps.shouldGenerateBranch } : {}),
+    ...(deps.onBranchSlug ? { onBranchSlug: deps.onBranchSlug } : {}),
   });
   return { models, titles };
 }
