@@ -41,6 +41,7 @@ import { isOneWayMessage, type OneWayMessage } from "./one-way.ts";
 import { Intents, type Intent } from "./intents.ts";
 import { Notifications, type Selection } from "./observable.ts";
 import { Requests } from "./requests.ts";
+import { askCommandStatus, CommandStatusChecks } from "./command-status.ts";
 import { CommandRecordings } from "./command-recordings.ts";
 import {
   commandAdmissionError,
@@ -123,6 +124,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   #sidebar: Sidebar;
   #collections = new Set<Sidebar>();
   #intents: Intents;
+  #statusChecks: CommandStatusChecks;
   #admissions: CommandAdmissions;
   readonly #recordings = new CommandRecordings();
   protected notifications: Notifications;
@@ -213,6 +215,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
           case "cursor.auth.error":
           case "registry.result":
           case "output.data":
+          case "command.status":
             // Resolved above with every other correlated reply.
             break;
           case "error":
@@ -247,6 +250,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         this.requests.disconnect();
         this.#subscriptions.disconnect();
         this.#intents.disconnect();
+        this.#statusChecks.disconnect();
         for (const sidebar of this.#collections) sidebar.disconnect();
       },
       (bytes) => {
@@ -284,6 +288,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         else if (intent?.state !== "pending") {
           this.#waitingHints.get(id)?.();
           this.#waitingHints.delete(id);
+          this.#statusChecks.settled(id);
         }
         if (intent?.state === "failed" && !intent.localFailure)
           this.requests.resolve(
@@ -300,13 +305,31 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         ]);
       },
       send: (command) => {
-        if (this.state === "ready") this.connection.send({ type: "command", command });
+        if (this.state === "ready" && this.connection.send({ type: "command", command }))
+          this.#statusChecks.sent(command.id);
       },
       retryAfter: (attempt, run) =>
         options.scheduler.set(
           retryDelay(attempt, limits.retryBaseMs, limits.retryCapMs, options.random()),
           run,
         ),
+    });
+    this.#statusChecks = new CommandStatusChecks({
+      scheduler: options.scheduler,
+      boundMs: limits.commandStatusMs,
+      awaiting: (id) => this.#intents.awaitingReceipt(id),
+      ask: (ids) =>
+        askCommandStatus(
+          this.requests,
+          (message) => this.state === "ready" && this.connection.send(message),
+          options.id(),
+          ids,
+        ),
+      // Settles the intent as failed, which also settles its durable waiter.
+      lost: (id) =>
+        void this.#intents
+          .acknowledge(CommandResult.parse({ commandId: id, ok: false, error: "command_lost" }))
+          .catch(() => this.connection.fail(new ClientError("storage"))),
     });
   }
   #observeInputs(message: ServerMessage): void {
@@ -444,6 +467,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     this.#readMarkers.close();
     for (const cancel of this.#waitingHints.values()) cancel();
     this.#waitingHints.clear();
+    this.#statusChecks.disconnect();
     this.#serviceListeners.clear();
     this.connection.stop();
     return this.#intents.settled();

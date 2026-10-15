@@ -108,6 +108,11 @@ export interface Limits {
    * accepts and then drops at once keeps backing off instead of being retried at the base delay.
    */
   healthyMs: number;
+  /**
+   * How long a durable command sent on a live connection may go without a receipt before the
+   * client asks the daemon whether it still has it (`command.status`), and again while it runs.
+   */
+  commandStatusMs: number;
 }
 export const defaultLimits: Limits = {
   intents: 256,
@@ -128,6 +133,7 @@ export const defaultLimits: Limits = {
   retryBaseMs: 250,
   retryCapMs: 30000,
   healthyMs: 30000,
+  commandStatusMs: 60_000,
 };
 export { ClientError } from "./errors.ts";
 export interface RequestOptions {
