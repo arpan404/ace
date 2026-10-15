@@ -83,7 +83,8 @@ export class GitHubStatusReader {
     if (pr.number !== number) throw new ForgeError("invalid_data");
     const sha = pr.head.sha;
     // The resources below are independent once the head is known; read them concurrently.
-    const [checks, statuses, inline, issue, reviews, threads] = await Promise.all([
+    // Every read settles before the call returns, so no gh process outlives a failed status.
+    const reads = [
       this.#checks.read(
         api,
         `${root}/commits/${sha}/check-runs?per_page=100&filter=latest`,
@@ -95,7 +96,9 @@ export class GitHubStatusReader {
       this.#issue.read(api, `${root}/issues/${number}/comments?per_page=100`, signal, budget),
       this.#reviews.read(api, `${root}/pulls/${number}/reviews?per_page=100`, signal, budget),
       this.#threads.read(api, repository, number, signal, budget),
-    ]);
+    ] as const;
+    await Promise.allSettled(reads);
+    const [checks, statuses, inline, issue, reviews, threads] = await Promise.all(reads);
     const parts = [response, checks, statuses, inline, issue, reviews, threads];
     if (
       this.#last?.ref.number === number &&
