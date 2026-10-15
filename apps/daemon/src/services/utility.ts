@@ -1,3 +1,5 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { instanceEnv } from "@ace/accounts";
 import { logFields } from "@ace/diagnostics";
 import type { UtilityModel } from "@ace/models";
@@ -5,6 +7,7 @@ import type { CatalogModel, ModelListResult, ProviderKind } from "@ace/protocol"
 import { discoverProvider, findExecutable } from "@ace/provider-kit/discovery";
 import { createUtilityCli, type UtilityCli, type UtilityLaunch } from "../utility-cli.ts";
 import { createUtility } from "../utility-models.ts";
+import { nameWorktreeBranch, runWorktreeGit } from "../engine/worktree-title.ts";
 import type { ServiceContext } from "./types.ts";
 
 export type { UtilityService } from "../utility-models.ts";
@@ -92,6 +95,29 @@ export function startUtility(context: ServiceContext): void {
           ["error", error instanceof Error ? error.message : "unknown"],
         ]),
       ),
+    shouldGenerateBranch: (threadId) => store.getThread(threadId)?.details?.mode === "worktree",
+    onBranchSlug: (threadId, slug) => {
+      // Worktree creation never waits for the model: rename in the background and
+      // keep the title-slug fallback when generation is unavailable or the branch
+      // is no longer untouched.
+      void (async () => {
+        try {
+          const execute = promisify(execFile);
+          const git = (cwd: string, args: string[]) =>
+            runWorktreeGit(execute, process.env, cwd, args);
+          await nameWorktreeBranch(store, threadId, now(), git, slug);
+        } catch (error) {
+          log.log(
+            "debug",
+            "Worktree branch generation skipped",
+            logFields([
+              ["thread", threadId],
+              ["error", error instanceof Error ? error.message : "unknown"],
+            ]),
+          );
+        }
+      })();
+    },
   });
   resources.own(() => utility.titles.close());
   services.utility = utility;

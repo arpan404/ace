@@ -1,4 +1,8 @@
-export { worktreeBranchName } from "./branch-name.ts";
+export {
+  generatedBranchSlug,
+  worktreeBranchName,
+  worktreeBranchSlugMaxChars,
+} from "./branch-name.ts";
 import { workspaceRuntime } from "./runtime.ts";
 import { GitIgnore } from "./ignore.ts";
 import { list } from "./list.ts";
