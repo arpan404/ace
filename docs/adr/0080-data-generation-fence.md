@@ -46,3 +46,25 @@ to start.**
   newer data. It is only kept from opening it.
 - Moving data back to an older build means deleting or restoring ACE_HOME. That is
   deliberate.
+
+## Addendum (2026-10-15): stores this build cannot read
+
+The fence covers newer data. A store in a format this build does not read for another reason,
+such as one left by an older pre-release build, has no migration (the pre-release rule in
+AGENTS.md). The forge link tables and the notification database used to carry upgrade code for
+older layouts; that code is removed.
+
+- A store that finds a format it does not read throws `IncompatibleDataError`
+  (`@ace/provider-kit/incompatible-data`). Its message names the file, what is wrong and the
+  recovery step, and it leaves the file untouched.
+- Service startup stops on that error in either phase instead of degrading, so the person sees
+  one message, not the store's service plus every dependent reporting "Dependency … is
+  unavailable". The CLI exits with `exitCodes["incompatible-data"]` (66).
+- The desktop supervisor does not restart a daemon that exits with 66. It says that saved data
+  from a different build cannot be read and that the daemon log names the file.
+
+`ACE_HOME/daemon-run.json` records how each run ended: `running` once the lock is held, and
+`stopped` with its stop reason as the last step of an orderly shutdown. The next start logs
+"Previous daemon run stopped in order" (with the source and signal) or, when `running` was left
+behind, a warning that the previous run crashed or was killed. That tells an app quit, update
+or `ace stop` apart from a crash in the durable log.

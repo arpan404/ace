@@ -4,6 +4,8 @@
  * `address-in-use`: `ace start` could not listen because another process holds its port.
  * `newer-data`: `ace start` refused ACE_HOME because a newer ace build already wrote its data
  * (the data generation, `apps/daemon/src/data-generation.ts`). 65 is sysexits' EX_DATAERR.
+ * `incompatible-data`: a store under ACE_HOME is in a format this build does not read
+ * (`@ace/provider-kit/incompatible-data`); its message names the file and the recovery.
  */
 export const exitCodes = {
   ok: 0,
@@ -14,4 +16,5 @@ export const exitCodes = {
   uncertain: 5,
   "address-in-use": 6,
   "newer-data": 65,
+  "incompatible-data": 66,
 } as const;

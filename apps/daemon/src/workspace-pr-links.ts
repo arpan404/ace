@@ -1,4 +1,4 @@
-import { ForgeStore, repositoryKey, prUrl, prFromUrl } from "@ace/forge";
+import { ForgeStore, repositoryKey, prUrl } from "@ace/forge";
 import {
   ThreadId,
   type ForgePrRef,
@@ -16,7 +16,6 @@ export class WorkspacePrLinks {
     this.store = store;
     this.now = now;
     this.links = store.atomic((db) => new ForgeStore(db));
-    this.migrateAgentLinks();
     store.atomic((db) => {
       for (const row of db
         .prepare(
@@ -24,32 +23,6 @@ export class WorkspacePrLinks {
         )
         .all())
         this.publish(ThreadId.parse(row.thread_id));
-    });
-  }
-  private migrateAgentLinks(): void {
-    this.store.atomic((db) => {
-      if (
-        !db
-          .prepare("PRAGMA table_info(agent_thread_metadata)")
-          .all()
-          .some((row) => row.name === "pr_url")
-      )
-        return;
-      for (const row of db
-        .prepare("SELECT thread_id,pr_url FROM agent_thread_metadata WHERE pr_url IS NOT NULL")
-        .all()) {
-        if (typeof row.thread_id !== "string" || typeof row.pr_url !== "string") continue;
-        try {
-          const id = ThreadId.parse(row.thread_id);
-          const thread = this.store.getThread(id);
-          if (!thread || thread.deletedAt !== undefined) continue;
-          this.links.link({ threadId: id, pr: prFromUrl(row.pr_url) });
-          this.publish(id);
-        } catch {
-          /* Malformed historical metadata never blocks startup. */
-        }
-      }
-      db.exec("ALTER TABLE agent_thread_metadata DROP COLUMN pr_url");
     });
   }
   publish(id: ThreadId): void {

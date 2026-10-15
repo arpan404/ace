@@ -1,25 +1,15 @@
 import { Event, ThreadId, WorkspaceId } from "@ace/protocol";
 import { expect, it } from "vitest";
 import type { DeliveryResult } from "./index.ts";
-import { setup, writeLegacyQueue } from "./notify.test-helper.ts";
+import { setup } from "./notify.test-helper.ts";
 
-it.each([
-  { outcome: "accepted", queue: "fresh" },
-  { outcome: "retry", queue: "fresh" },
-  { outcome: "accepted", queue: "upgraded" },
-  { outcome: "retry", queue: "upgraded" },
-] as const)(
-  "a late $outcome for a deleted thread cannot discard or defer a live thread's notice on a $queue queue",
-  async ({ outcome, queue }) => {
+it.each([{ outcome: "accepted" }, { outcome: "retry" }] as const)(
+  "a late $outcome for a deleted thread cannot discard or defer a live thread's notice",
+  async ({ outcome }) => {
     const f = setup();
     const response = Promise.withResolvers<DeliveryResult>();
     const started = Promise.withResolvers<void>();
     try {
-      if (queue === "upgraded") {
-        await f.service.close();
-        writeLegacyQueue(f.path, 3);
-        await f.reopen();
-      }
       f.transport.send = async (device, notification) => {
         f.deliveries.push({ device, notification });
         if (notification.threadId === f.threadId) {

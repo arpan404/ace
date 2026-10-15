@@ -1,4 +1,5 @@
 import { logError, logFields } from "@ace/diagnostics";
+import { incompatibleData } from "@ace/provider-kit/incompatible-data";
 import { Resources } from "./resources.ts";
 import type { ServiceContext, Services } from "./types.ts";
 import type { startServer } from "../server.ts";
@@ -26,6 +27,13 @@ export class EssentialServiceError extends Error {
     this.name = "EssentialServiceError";
     this.service = service;
   }
+}
+/**
+ * Persisted data this build cannot read stops startup with that one message. Degrading
+ * would only repeat it as every dependent service reports its dependency unavailable.
+ */
+function stopOnIncompatibleData(error: unknown): void {
+  if (incompatibleData(error)) throw error;
 }
 export interface ServiceStatus {
   name: string;
@@ -290,6 +298,7 @@ export class ServiceStartup {
         this.context.log.log("error", "Degraded service cleanup failed", logError(failure)),
       );
       this.context.signal.throwIfAborted();
+      stopOnIncompatibleData(error);
     }
   }
   async listening(server: Awaited<ReturnType<typeof startServer>>): Promise<void> {
@@ -313,6 +322,7 @@ export class ServiceStartup {
           listener.disable();
           this.degraded(listener.name, error);
           this.context.signal.throwIfAborted();
+          stopOnIncompatibleData(error);
         }
       }
     };

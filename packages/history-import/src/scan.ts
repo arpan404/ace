@@ -1,21 +1,9 @@
 import { scanCodexTitles } from "./codex-titles.ts";
-import { sourceRecords } from "./source-records.ts";
-import { sessionTitle, userPrompt, hasUserInput } from "./user-text.ts";
 import { setImmediate } from "node:timers/promises";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { lstat } from "node:fs/promises";
-import { databaseFingerprint, storageFingerprint } from "./fingerprints.ts";
-import {
-  walkFiles,
-  readHeadTail,
-  readJsonLines,
-  fingerprint,
-  object,
-  string,
-  timestamp,
-} from "@ace/native-session";
-import { HistorySession } from "@ace/protocol/history";
-import { summary, sourceId } from "./metadata.ts";
+import { databaseFingerprint } from "./fingerprints.ts";
+import { walkFiles, RECORD_LIMIT } from "@ace/native-session";
 import { dbSessions, openProviderDb } from "./provider-db.ts";
 import { SnapshotBusy } from "./snapshot-scratch.ts";
 import { SnapshotChanged } from "./sqlite-snapshot.ts";
@@ -23,42 +11,46 @@ import type { ProviderHome } from "./contracts.ts";
 import type { Catalog } from "./catalog.ts";
 import type { InventoryChanges } from "./inventory-watch.ts";
 import { inventoryRoots, changedRoots, changedFiles, isRootDatabase } from "./scan-paths.ts";
+import { ByteBudget } from "./byte-budget.ts";
+import {
+  sampleFile,
+  unsupported,
+  type CatalogWrite,
+  type SampleContext,
+  type ScanTally,
+} from "./sample-file.ts";
+
+/**
+ * Bytes of file samples decoded at once across one provider's inventory. Parsed JSON can be
+ * an order of magnitude larger than its text, and the worker heap is capped at 128 MiB.
+ */
+const DECODE_BUDGET = 2 * 1024 * 1024;
 
 export async function scan(
   catalog: Catalog,
   instances: ProviderHome[],
   signal: AbortSignal,
-  progress: (
-    files: number,
-    result: {
-      files: number;
-      reads: number;
-      bytes: number;
-      skipped: number;
-      unsupported: { instanceId: string; reason: string }[];
-      retry: { instanceId: string; path: string }[];
-    },
-  ) => void | Promise<void> = () => undefined,
+  progress: (files: number, result: ScanTally) => void | Promise<void> = () => undefined,
   changes?: InventoryChanges,
 ) {
-  const result = {
+  const result: ScanTally = {
     files: 0,
     reads: 0,
     bytes: 0,
     skipped: 0,
-    unsupported: [] as { instanceId: string; reason: string }[],
-    retry: [] as { instanceId: string; path: string }[],
+    unsupported: [],
+    retry: [],
   };
   await catalog.cleanup(signal);
   catalog.updates.begin();
   for (const instance of instances) {
     signal.throwIfAborted();
     if (instance.provider === "cursor") {
-      if (result.unsupported.length < 256)
-        result.unsupported.push({
-          instanceId: instance.id,
-          reason: "Cursor transcripts omit tool outputs; TUI chats cannot be loaded through ACP",
-        });
+      unsupported(
+        result,
+        instance.id,
+        "Cursor transcripts omit tool outputs; TUI chats cannot be loaded through ACP",
+      );
       continue;
     }
     const changed =
@@ -76,171 +68,41 @@ export async function scan(
         changed?.filter((path) => !isRootDatabase(instance, path)) ?? inventoryRoots(instance);
       if (changed) for (const path of changed) catalog.updates.path(instance.id, path);
       const budget = { entries: 0 };
+      const decode = new ByteBudget(DECODE_BUDGET);
+      const largeRecords = new ByteBudget(RECORD_LIMIT);
       let batch: string[] = [];
-      const processFile = async (path: string) => {
-        const isStorage = instance.provider === "opencode";
-        if (!path.endsWith(isStorage ? ".json" : ".jsonl")) {
-          if (
-            path.endsWith(".zst") &&
-            result.unsupported.length < 256 &&
-            !result.unsupported.some((r) => r.instanceId === instance.id)
-          )
-            result.unsupported.push({
-              instanceId: instance.id,
-              reason: "Compressed Codex rollouts require provider-owned materialization",
-            });
-          return;
-        }
-        result.files++;
-        if (result.files % 64 === 0) {
+      const context: SampleContext = {
+        catalog,
+        instance,
+        epoch,
+        signal,
+        result,
+        budget: decode,
+        largeRecords,
+        report: async () => {
           await progress(result.files, { ...result });
           await setImmediate();
-          signal.throwIfAborted();
-        }
-        const info = await lstat(path);
-        const fp = isStorage ? await storageFingerprint(instance, path, signal) : fingerprint(info);
-        if (catalog.matches(instance.id, path, fp)) {
-          result.skipped++;
-          return () => {
-            catalog.touch(instance.id, path, fp, epoch);
-          };
-        }
-        const sample = await readHeadTail(instance.homeDir, path, signal);
-        result.reads++;
-        result.bytes += sample.bytes;
-        let s = summary(instance, path, sample.records, sample.exact, sample.mtime);
-        if (isStorage) {
-          const r = object(sample.records[0]);
-          const time = object(r.time);
-          const nativeId = string(r.id) ?? basename(path, ".json");
-          s = HistorySession.parse({
-            ...s,
-            id: sourceId(instance.id, path, nativeId),
-            nativeId,
-            title: sessionTitle(string(r.title) ?? "", "", timestamp(time.updated) ?? sample.mtime),
-            cwd: string(r.directory) ?? "",
-            lastActivity: timestamp(time.updated) ?? sample.mtime,
-            parentNativeId: string(r.parentID),
-            countAccuracy: "sampled",
-          });
-        }
-        if (!isStorage && fp !== sample.fingerprint)
-          throw new Error("Session changed before sampling");
-        let prompt = sample.records.map(userPrompt).find(Boolean) ?? "";
-        let input = sample.records.some(hasUserInput);
-        const headInput = sample.records.slice(0, sample.headCount).some(hasUserInput);
-        if (isStorage || (!sample.exact && !headInput)) {
-          let oversized = false;
-          if (!isStorage) result.reads++;
-          try {
-            for await (const record of isStorage
-              ? sourceRecords(
-                  instance,
-                  {
-                    summary: s,
-                    path,
-                    fingerprint: fp,
-                    kind: isStorage ? "storage" : "jsonl",
-                    instanceId: instance.id,
-                    hidden: false,
-                  },
-                  signal,
-                  catalog.snapshots,
-                )
-              : readJsonLines(instance.homeDir, path, signal)) {
-              if (!isStorage) result.bytes += record.bytes;
-              if ("oversized" in record) oversized = true;
-              if ("value" in record) {
-                prompt = userPrompt(record.value);
-                input = hasUserInput(record.value);
-              }
-              if (input) break;
-            }
-            if (!input && oversized) {
-              const reason =
-                "The first request in this saved conversation is too large to preview. Open it in its original app.";
-              s = { ...s, support: { status: "unsupported", reason } };
-              input = true;
-              if (result.unsupported.length < 256)
-                result.unsupported.push({ instanceId: instance.id, reason });
-            }
-          } catch (error) {
-            if (
-              signal.aborted ||
-              (error instanceof Error && error.message === "Session changed during import")
-            )
-              throw error;
-            const reason =
-              error instanceof Error
-                ? error.message
-                : "This saved conversation could not be read. Open it in its original app to recover its history.";
-            s = { ...s, support: { status: "unsupported", reason } };
-            // Keep the source visible to diagnostics, but never offer a partial import.
-            input = true;
-            if (result.unsupported.length < 256)
-              result.unsupported.push({ instanceId: instance.id, reason });
-          }
-          if (!isStorage)
-            s = {
-              ...summary(instance, path, sample.records, sample.exact, sample.mtime, prompt),
-              support: s.support,
-            };
-          s = {
-            ...s,
-            title: sessionTitle(
-              isStorage
-                ? (string(object(sample.records[0]).title) ?? "")
-                : s.title.startsWith("Session from ")
-                  ? ""
-                  : s.title,
-              prompt,
-              s.lastActivity,
-            ),
-          };
-        }
-        return () => {
-          catalog.put(
-            {
-              summary: s,
-              hidden: !input,
-              path,
-              fingerprint: fp,
-              kind: isStorage ? "storage" : "jsonl",
-              instanceId: instance.id,
-            },
-            epoch,
-          );
-          catalog.remember(instance, path, info.size, info.mtimeMs, fp, epoch);
-        };
-      };
-      const sampleFile = async (path: string) => {
-        try {
-          return await processFile(path);
-        } catch (error) {
-          signal.throwIfAborted();
-          const sourceChanged =
-            error instanceof Error &&
-            (error.message === "Session changed before sampling" ||
-              error.message === "Session changed while sampling" ||
-              error.message === "Session changed during import");
-          const missing = error instanceof Error && "code" in error && error.code === "ENOENT";
-          if (sourceChanged && result.retry.length < 4096)
-            result.retry.push({ instanceId: instance.id, path });
-          else if (!missing && result.unsupported.length < 256)
-            result.unsupported.push({
-              instanceId: instance.id,
-              reason: error instanceof Error ? error.message : "Unreadable saved conversation",
-            });
-          result.skipped++;
-          // A sampling race never changes or prunes the last successfully indexed row.
-          return missing ? undefined : () => catalog.preservePath(instance.id, path, epoch);
-        }
+        },
       };
       const flush = async () => {
-        const writes: (() => void)[] = [];
-        for (let offset = 0; offset < batch.length; offset += 16) {
-          for (const write of await Promise.all(batch.slice(offset, offset + 16).map(sampleFile)))
-            if (write) writes.push(write);
+        const writes: CatalogWrite[] = [];
+        // Suspects from a crashed scan are read on their own, so another crash names its cause.
+        const alone = batch.filter(
+          (path) => catalog.crashes.verdict(instance.id, path).kind === "isolate",
+        );
+        const together = batch.filter((path) => !alone.includes(path));
+        for (let offset = 0; offset < together.length; offset += 16) {
+          const sampled = await Promise.allSettled(
+            together.slice(offset, offset + 16).map((path) => sampleFile(context, path)),
+          );
+          for (const outcome of sampled) {
+            if (outcome.status === "rejected") throw outcome.reason;
+            if (outcome.value) writes.push(outcome.value);
+          }
+        }
+        for (const path of alone) {
+          const write = await sampleFile(context, path);
+          if (write) writes.push(write);
         }
         signal.throwIfAborted();
         catalog.db.exec("BEGIN IMMEDIATE");
@@ -292,6 +154,15 @@ export async function scan(
             result.unsupported.push({ instanceId: instance.id, reason: waiting });
           continue;
         }
+        const verdict = catalog.crashes.verdict(instance.id, path);
+        if (verdict.kind === "blocked") {
+          catalog.preservePath(instance.id, path, epoch);
+          result.skipped++;
+          unsupported(result, instance.id, verdict.reason);
+          continue;
+        }
+        // Marked outside the savepoint: a crash must leave the mark durable.
+        catalog.crashes.reading(instance.id, path);
         let db;
         catalog.db.exec("SAVEPOINT provider_scan");
         try {
@@ -350,6 +221,7 @@ export async function scan(
           }
         } finally {
           await db?.close();
+          catalog.crashes.finished(instance.id, path);
         }
       }
       if (instance.provider === "codex") await scanCodexTitles(catalog, instance, epoch, signal);

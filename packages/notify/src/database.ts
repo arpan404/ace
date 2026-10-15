@@ -10,6 +10,7 @@ import {
 import { ThreadId, type DeviceId } from "@ace/protocol/ids";
 import { CompactThread, Pending, advance, content } from "./model.ts";
 import type { MetadataEvent } from "./metadata.ts";
+import { IncompatibleDataError } from "@ace/provider-kit/incompatible-data";
 import { InteractionTracking, trackingTables } from "./tracking.ts";
 
 const Job = z.object({
@@ -28,6 +29,29 @@ const jobColumns = `id INTEGER PRIMARY KEY AUTOINCREMENT, device TEXT NOT NULL,
 const jobIndexes = `CREATE INDEX IF NOT EXISTS jobs_due ON jobs(due);
   CREATE INDEX IF NOT EXISTS jobs_device ON jobs(device);
   CREATE INDEX IF NOT EXISTS jobs_thread ON jobs(thread);`;
+/** The only format this build reads. Pre-release builds carry no migrations (AGENTS.md). */
+const FORMAT = 4;
+const schema = `CREATE TABLE cursor (id INTEGER PRIMARY KEY CHECK(id=1), seq INTEGER NOT NULL);
+  INSERT INTO cursor VALUES(1,0);
+  CREATE TABLE threads (id TEXT PRIMARY KEY, body TEXT NOT NULL);
+  CREATE TABLE interactions (thread TEXT NOT NULL, id TEXT NOT NULL, seq INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY(thread,id));
+  CREATE INDEX interaction_first ON interactions(thread,seq);
+  CREATE TABLE tasks (thread TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(thread,id));
+  CREATE TABLE pending (thread TEXT PRIMARY KEY, due INTEGER NOT NULL, body TEXT NOT NULL);
+  CREATE INDEX pending_due ON pending(due);
+  CREATE TABLE devices (id TEXT PRIMARY KEY, body TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0,
+    last_seen INTEGER NOT NULL DEFAULT 0, expired INTEGER NOT NULL DEFAULT 0);
+  CREATE INDEX devices_seen ON devices(revoked,last_seen);
+  CREATE TABLE snoozes (thread TEXT PRIMARY KEY, until INTEGER NOT NULL);
+  CREATE TABLE agent_notices (id TEXT PRIMARY KEY, expires INTEGER NOT NULL);
+  CREATE INDEX agent_notices_expiry ON agent_notices(expires);
+  CREATE TABLE jobs (${jobColumns});
+  ${jobIndexes}
+  CREATE TABLE queue_size (id INTEGER PRIMARY KEY CHECK(id=1), n INTEGER NOT NULL);
+  INSERT INTO queue_size VALUES(1,0);
+  CREATE TRIGGER pending_insert AFTER INSERT ON pending BEGIN UPDATE queue_size SET n=n+1 WHERE id=1; END;
+  CREATE TRIGGER pending_delete AFTER DELETE ON pending BEGIN UPDATE queue_size SET n=n-1 WHERE id=1; END;
+  ${trackingTables}`;
 /** All writes are bounded, synchronous SQLite transactions around pure policy. */
 export class NotificationDatabase {
   private db: DatabaseSync;
@@ -41,67 +65,22 @@ export class NotificationDatabase {
     this.tracking = new InteractionTracking((sql) => this.statement(sql));
     this.db = new DatabaseSync(path);
     if (path !== ":memory:") chmodSync(path, 0o600);
-    this.db
-      .exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA cache_size=-512; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=16777216;
-      CREATE TABLE IF NOT EXISTS cursor (id INTEGER PRIMARY KEY CHECK(id=1), seq INTEGER NOT NULL);
-      INSERT OR IGNORE INTO cursor VALUES(1,0);
-      CREATE TABLE IF NOT EXISTS threads (id TEXT PRIMARY KEY, body TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS interactions (thread TEXT NOT NULL, id TEXT NOT NULL, seq INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY(thread,id));
-      CREATE INDEX IF NOT EXISTS interaction_first ON interactions(thread,seq);
-      CREATE TABLE IF NOT EXISTS tasks (thread TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(thread,id));
-      CREATE TABLE IF NOT EXISTS pending (thread TEXT PRIMARY KEY, due INTEGER NOT NULL, body TEXT NOT NULL);
-      CREATE INDEX IF NOT EXISTS pending_due ON pending(due);
-      CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, body TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, last_seen INTEGER NOT NULL DEFAULT 0);
-      CREATE TABLE IF NOT EXISTS snoozes (thread TEXT PRIMARY KEY, until INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS agent_notices (id TEXT PRIMARY KEY, expires INTEGER NOT NULL);
-      CREATE INDEX IF NOT EXISTS agent_notices_expiry ON agent_notices(expires);
-      CREATE TABLE IF NOT EXISTS jobs (${jobColumns});
-      ${jobIndexes}
-      CREATE TABLE IF NOT EXISTS queue_size (id INTEGER PRIMARY KEY CHECK(id=1), n INTEGER NOT NULL);
-      INSERT OR IGNORE INTO queue_size SELECT 1,count(*) FROM pending;
-      CREATE TRIGGER IF NOT EXISTS pending_insert AFTER INSERT ON pending BEGIN UPDATE queue_size SET n=n+1 WHERE id=1; END;
-      CREATE TRIGGER IF NOT EXISTS pending_delete AFTER DELETE ON pending BEGIN UPDATE queue_size SET n=n-1 WHERE id=1; END;
-      ${trackingTables}`);
-    if (
-      !this.db
-        .prepare("PRAGMA table_info(devices)")
-        .all()
-        .some((row) => row.name === "last_seen")
-    )
-      this.db.exec("ALTER TABLE devices ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0");
-    if (
-      !this.db
-        .prepare("PRAGMA table_info(devices)")
-        .all()
-        .some((row) => row.name === "expired")
-    )
-      this.db.exec("ALTER TABLE devices ADD COLUMN expired INTEGER NOT NULL DEFAULT 0");
-    this.db.exec("CREATE INDEX IF NOT EXISTS devices_seen ON devices(revoked,last_seen)");
+    this.db.exec(
+      "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA cache_size=-512; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=16777216;",
+    );
     const version = z
       .number()
       .int()
       .parse(this.db.prepare("PRAGMA user_version").get()?.user_version);
-    if (version === 0 || version === 1 || version === 2 || version === 3) {
-      this.transaction(() => {
-        if (version !== 3) {
-          // Replay state alerts. Accepted agent notices have no replayable source;
-          // retain their jobs and receipts until replay applies thread deletion.
-          this.db.exec(`DELETE FROM threads; DELETE FROM interactions;
-            DELETE FROM interaction_owners; DELETE FROM agent_status; DELETE FROM tasks;
-            DELETE FROM pending;
-            DELETE FROM jobs WHERE json_extract(body,'$.status') IS NOT 'agent_says';
-            UPDATE cursor SET seq=0 WHERE id=1;`);
-        }
-        // Version 3 already projects deletion. Keep its queued jobs and retry deadlines.
-        this.db.exec(`CREATE TABLE jobs_v4 (${jobColumns});
-          INSERT INTO jobs_v4(id,device,thread,body,attempts,due,expires,generation)
-            SELECT id,device,thread,body,attempts,due,expires,generation FROM jobs;
-          DROP TABLE jobs;
-          ALTER TABLE jobs_v4 RENAME TO jobs;
-          ${jobIndexes}
-          PRAGMA user_version=4;`);
-      });
-    } else if (version !== 4) throw new Error("Unsupported notification database version");
+    if (version === 0 && !this.db.prepare("SELECT 1 FROM sqlite_master LIMIT 1").get())
+      this.transaction(() => this.db.exec(`${schema} PRAGMA user_version=${FORMAT};`));
+    else if (version !== FORMAT) {
+      this.db.close();
+      throw new IncompatibleDataError(
+        path,
+        `The notification database is format ${version}, and this build reads format ${FORMAT}`,
+      );
+    }
   }
   private statement(sql: string): StatementSync {
     let value = this.statements.get(sql);

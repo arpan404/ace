@@ -132,6 +132,7 @@ export function renderChat(state: ChatRenderState, record: ChatRecord): string {
               refused: "Operation refused",
               "address-in-use": "Another process is using the daemon's port",
               "newer-data": "A newer ace already uses this data",
+              "incompatible-data": "Saved data from a different ace build cannot be read",
             }[record.status];
       break;
     case "interaction": {

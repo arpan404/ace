@@ -32,6 +32,7 @@ import {
 import { sqliteFailureDetails, systemDiskSpace } from "./sqlite-failure.ts";
 import { createLoopMonitor, systemLoopClock } from "./loop-monitor.ts";
 import { DaemonStop, type StopReason } from "./stop-reason.ts";
+import { beginRun, previousRunRecord, type DaemonRun } from "./run-marker.ts";
 import { readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 
@@ -127,6 +128,15 @@ export async function startDaemon(options: DaemonOptions = {}) {
   }
   const resources = new Resources();
   resources.own(() => log.close());
+  // Under the lock: the last run's ending tells an expected restart from a crash.
+  let run: DaemonRun | undefined;
+  try {
+    run = beginRun(config.dataDir, process.pid, now);
+    const previous = previousRunRecord(run.previous);
+    log.log(previous.level, previous.message, logFields([...previous.fields, ...build]));
+  } catch (error) {
+    log.log("warn", "Daemon run marker could not be written", logError(error));
+  }
   resources.own(
     installFatalLogFlush(process, log, (error) =>
       sqliteFailureDetails(error, config.dataDir, diskSpace),
@@ -135,16 +145,21 @@ export async function startDaemon(options: DaemonOptions = {}) {
   let stopping: { reason: StopReason; at: number } | undefined;
   // Disposers run in reverse: this record is the last line before the log closes.
   resources.own(() => {
-    if (stopping)
-      log.log(
-        "info",
-        "Daemon stopped",
-        logFields([
-          ["source", stopping.reason.source],
-          ["durationMs", Math.max(0, Math.round(now() - stopping.at))],
-          ["pid", process.pid],
-        ]),
-      );
+    if (!stopping) return;
+    try {
+      run?.stopped(stopping.reason);
+    } catch (error) {
+      log.log("warn", "Daemon run marker could not be written", logError(error));
+    }
+    log.log(
+      "info",
+      "Daemon stopped",
+      logFields([
+        ["source", stopping.reason.source],
+        ["durationMs", Math.max(0, Math.round(now() - stopping.at))],
+        ["pid", process.pid],
+      ]),
+    );
   });
   const loop = createLoopMonitor({
     clock: options.loopClock ?? systemLoopClock,

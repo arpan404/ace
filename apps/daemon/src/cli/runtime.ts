@@ -1,4 +1,5 @@
 import { serviceCommand } from "@ace/service";
+import { incompatibleData } from "@ace/provider-kit/incompatible-data";
 import { readHistoryInstances } from "../history.ts";
 import { readModelInstances } from "../models.ts";
 import { createDevThread, stubHandler } from "../commands.ts";
@@ -43,9 +44,11 @@ export async function runtimeCommand(args: Args, config: Config) {
     throw new CliFailure(
       error instanceof NewerDataError
         ? "newer-data"
-        : addressInUse(error)
-          ? "address-in-use"
-          : "failed",
+        : incompatibleData(error)
+          ? "incompatible-data"
+          : addressInUse(error)
+            ? "address-in-use"
+            : "failed",
       message,
     );
   });

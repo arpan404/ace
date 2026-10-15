@@ -9,7 +9,7 @@ import {
   type StopReason,
 } from "./child.ts";
 import { drainForUpdate } from "./drain.ts";
-import { exitDecision, newerDataMessage } from "./exit-policy.ts";
+import { exitDecision, incompatibleDataMessage, newerDataMessage } from "./exit-policy.ts";
 import type { LocalDaemon } from "./probe.ts";
 import { readAdmission, waitForDaemon } from "./readiness.ts";
 import { failure, fresh, startFailed } from "./status.ts";
@@ -22,7 +22,7 @@ import {
 } from "./supervisor-config.ts";
 
 export type { DaemonProcess } from "./child.ts";
-export { newerDataMessage } from "./exit-policy.ts";
+export { incompatibleDataMessage, newerDataMessage } from "./exit-policy.ts";
 export type { SupervisorOptions, SupervisorPorts } from "./supervisor-config.ts";
 
 type Source = DaemonStatus["source"];
@@ -281,6 +281,16 @@ export class DaemonSupervisor {
       crashes: this.crashes,
       maxRestarts: this.options.maxRestarts,
     });
+    if (decision.kind === "incompatible-data") {
+      this.ports.log(
+        "error",
+        "The daemon stopped on saved data it cannot read; not restarting it",
+        exit,
+      );
+      this.status = fresh(this.status);
+      this.update({ state: "failed", message: incompatibleDataMessage });
+      return;
+    }
     if (decision.kind === "newer-data") {
       // Its data belongs to a newer build: every restart would refuse it the same way.
       this.ports.log(
