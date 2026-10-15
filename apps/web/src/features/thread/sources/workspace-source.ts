@@ -51,15 +51,9 @@ export interface PrInput {
   draftBaseRef?: string | undefined;
 }
 
-/** Checkout refusals the shared action copy doesn't word yet. */
-const moveRefusals: Record<string, string> = {
-  branch_checked_out:
-    "That branch is checked out in another folder: move to a worktree of its own instead.",
-};
-
 /** A workspace refusal code in words, for a toast or the Work card. */
 export function workspaceErrorText(code: string): string {
-  return moveRefusals[code] ?? actionErrorText(code);
+  return actionErrorText(code);
 }
 
 export class WorkspaceError extends Error {

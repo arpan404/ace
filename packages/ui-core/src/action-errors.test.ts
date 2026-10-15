@@ -33,6 +33,15 @@ const git = [
   "checkpoint_not_found",
   "restore_collision",
   "unsupported_repository",
+  // The named failure causes in @ace/git's gitFailureCodes.
+  "branch_checked_out",
+  "path_exists",
+  "ref_conflict",
+  "unborn_head",
+  "identity_missing",
+  "nothing_to_commit",
+  "push_rejected",
+  "protected_branch",
 ].map((code) => `git_${code}`);
 const forge = [
   "auth",
