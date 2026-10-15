@@ -938,7 +938,10 @@ export class Engine {
       commandId,
       () => this.clock.now(),
       async (owner) => {
-        const actor = this.actor(owner);
+        // Only a loaded actor can hold a provider session; loading one for every quiet thread
+        // in a large project would only spend the engine's actor capacity.
+        const actor = owner === id ? this.actor(owner) : this.actors.get(owner);
+        if (!actor) return;
         await actor.flush();
         await this.sessions.close(actor, "idle");
         await actor.flush();

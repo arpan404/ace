@@ -175,6 +175,8 @@ export async function changeEngineWorkspace(
     repo.transitions.releaseGuards(commandId);
     publishQueue();
     // Threads in a fenced root were refused while it was held; wake them now it is released.
-    for (const owner of new Set([id, ...reservations.owners(roots)])) wake(owner);
+    // A thread the engine has never run (imported, or never started) has nothing to wake.
+    for (const owner of new Set([id, ...reservations.owners(roots)]))
+      if (repo.state(owner)) wake(owner);
   }
 }
