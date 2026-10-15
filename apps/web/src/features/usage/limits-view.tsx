@@ -10,6 +10,7 @@ import {
 } from "@ace/ui-core";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
+import { BankedResetAction, type RedeemReset } from "./banked-resets.tsx";
 import { cn } from "@/lib/cn.ts";
 import { formatResets } from "@/features/accounts/index.ts";
 
@@ -17,12 +18,16 @@ import { formatResets } from "@/features/accounts/index.ts";
  * Limits, account first: each provider's accounts listed once, each with its windows beneath it.
  * Every figure says what is left; resets, banked resets and pace are plain words.
  */
-export function LimitsView(props: { limits: UsageLimits; now: number }) {
+export function LimitsView(props: {
+  limits: UsageLimits;
+  now: number;
+  redeem?: RedeemReset | undefined;
+}) {
   const { providers, quiet } = props.limits;
   return (
     <div className="flex flex-col gap-10">
       {providers.map((group) => (
-        <ProviderSection key={group.key} group={group} now={props.now} />
+        <ProviderSection key={group.key} group={group} now={props.now} redeem={props.redeem} />
       ))}
       {quiet.length > 0 && (
         <p className="text-xs text-subtle-foreground">No limits reported · {quiet.join(", ")}</p>
@@ -31,7 +36,11 @@ export function LimitsView(props: { limits: UsageLimits; now: number }) {
   );
 }
 
-function ProviderSection(props: { group: ProviderLimits; now: number }) {
+function ProviderSection(props: {
+  group: ProviderLimits;
+  now: number;
+  redeem?: RedeemReset | undefined;
+}) {
   const { group } = props;
   return (
     <section aria-labelledby={`limits-${group.key}`}>
@@ -48,7 +57,13 @@ function ProviderSection(props: { group: ProviderLimits; now: number }) {
         {group.providerLabel}
       </h2>
       {group.accounts.map((entry) => (
-        <Account key={entry.key} entry={entry} provider={group.providerLabel} now={props.now} />
+        <Account
+          key={entry.key}
+          entry={entry}
+          provider={group.providerLabel}
+          now={props.now}
+          redeem={props.redeem}
+        />
       ))}
     </section>
   );
@@ -59,7 +74,12 @@ const planLabel = (plan: string) => plan.charAt(0).toUpperCase() + plan.slice(1)
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 const expiry = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 
-function Account(props: { entry: AccountLimits; provider: string; now: number }) {
+function Account(props: {
+  entry: AccountLimits;
+  provider: string;
+  now: number;
+  redeem?: RedeemReset | undefined;
+}) {
   const { entry } = props;
   const banked = entry.bankedResets;
   return (
@@ -74,7 +94,7 @@ function Account(props: { entry: AccountLimits; provider: string; now: number })
         </p>
         {banked !== undefined && banked > 0 && (
           <Tip
-            label={`${plural(banked, "banked reset")}: each one resets this account's limits once, when you redeem it in ${props.provider}.${
+            label={`${plural(banked, "banked reset")}: each one resets this account's limits once, when you redeem it.${
               entry.bankedExpiresAt !== null
                 ? ` The next expires ${expiry.format(entry.bankedExpiresAt)}.`
                 : ""
@@ -87,6 +107,11 @@ function Account(props: { entry: AccountLimits; provider: string; now: number })
               {plural(banked, "banked reset")}
             </span>
           </Tip>
+        )}
+        {banked !== undefined && banked > 0 && (
+          <div>
+            <BankedResetAction entry={entry} redeem={props.redeem} />
+          </div>
         )}
       </div>
       <div className="flex min-w-0 flex-col gap-3">

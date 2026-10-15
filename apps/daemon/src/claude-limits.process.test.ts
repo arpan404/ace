@@ -32,6 +32,13 @@ const maxUsage = (sessionPercent: number) => ({
       { display_name: "Fable", utilization: 6, resets_at: "2026-10-17T12:00:00.282459+00:00" },
     ],
     extra_usage: { is_enabled: false, utilization: null },
+    cedar_ember: {
+      eligible: true,
+      grants: [
+        { id: "saved", resets_left: 2, ends_at: "2026-11-01T00:00:00Z", usable_now: false },
+        { id: "spent", resets_left: 0, ends_at: "2026-10-16T00:00:00Z" },
+      ],
+    },
   },
   behaviors: null,
 });
@@ -90,6 +97,10 @@ test("Claude usage is read at startup without an open session", async () => {
     .toEqual(["five_hour", "seven_day", "seven_day_model:Fable"]);
   const account = claudeAccount(registry);
   expect(account?.quota.plan).toBe("max");
+  expect(account?.quota.resetCredits).toEqual({
+    available: 2,
+    nextExpiresAt: Date.parse("2026-11-01T00:00:00Z"),
+  });
   expect(account?.quota.windows).toMatchObject({
     five_hour: {
       usedPercent: 32,

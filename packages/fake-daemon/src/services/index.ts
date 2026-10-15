@@ -57,6 +57,7 @@ const fakeInstall: Partial<Record<ProviderKind, { version: string; path?: string
  * public fields to stage what the daemon reports next.
  */
 export class FakeServices {
+  private resetAttempts = new Set<string>();
   readonly providerInstalls: FakeProviderInstalls;
   updateQuota(id: string, quota: AccountSummary["quota"]): void {
     const account = this.accounts.find((candidate) => candidate.id === id);
@@ -583,6 +584,23 @@ export class FakeServices {
       case "accounts.list":
       case "accounts.refreshLimits":
         return { type: "accounts.list", requestId: message.requestId, accounts: this.accounts };
+      case "accounts.consumeReset": {
+        const account = this.accounts.find((entry) => entry.id === message.instanceId);
+        const key = `${message.instanceId}:${message.idempotencyKey}`;
+        let outcome: "reset" | "alreadyRedeemed" | "noCredit" | "nothingToReset";
+        if (this.resetAttempts.has(key)) outcome = "alreadyRedeemed";
+        else if (account?.provider !== "codex" || !account.quota.resetCredits?.available)
+          outcome = "noCredit";
+        else if (!Object.values(account.quota.windows).some((window) => window.usedPercent > 0))
+          outcome = "nothingToReset";
+        else {
+          account.quota.resetCredits.available--;
+          for (const window of Object.values(account.quota.windows)) window.usedPercent = 0;
+          this.resetAttempts.add(key);
+          outcome = "reset";
+        }
+        return { type: "accounts.consumeReset", requestId: message.requestId, outcome };
+      }
       case "accounts.status":
         return {
           type: "accounts.status",

@@ -163,8 +163,8 @@ export const QuotaWindow = z.object({
   advisory: z.literal(true).optional(),
 });
 /**
- * Banked rate-limit resets the provider says the account has earned (Codex
- * `rateLimitResetCredits`). Each one resets the current windows once when redeemed in the CLI.
+ * Banked rate-limit resets the provider reports (Codex reset credits, Claude saved grants).
+ * The provider decides which limits each redemption resets.
  */
 export const QuotaResetCredits = z.object({
   available: z.number().int().nonnegative().max(1_000_000),
@@ -182,7 +182,7 @@ export const AccountQuota = z.object({
   observedAt: z.number().finite().nonnegative(),
   billingMode: z.enum(["api", "subscription", "unknown"]).optional(),
   plan: z.string().min(1).max(128).optional(),
-  /** Absent until the provider reports it; Claude's CLI never does. */
+  /** Absent until the provider reports it. */
   resetCredits: QuotaResetCredits.optional(),
   /**
    * Why the account's usage couldn't be read, in fixed words ("Sign in again in Gemini CLI"):
@@ -310,8 +310,21 @@ export const AccountManagementRequest = z.discriminatedUnion("type", [
   }),
 ]);
 export type AccountManagementRequest = z.infer<typeof AccountManagementRequest>;
+export const AccountResetOutcome = z.enum([
+  "reset",
+  "alreadyRedeemed",
+  "noCredit",
+  "nothingToReset",
+]);
+export type AccountResetOutcome = z.infer<typeof AccountResetOutcome>;
 export const AccountsRequest = z.discriminatedUnion("type", [
   ...AccountManagementRequest.options,
+  z.object({
+    type: z.literal("accounts.consumeReset"),
+    requestId: z.string().max(128),
+    instanceId: AccountInstanceId,
+    idempotencyKey: z.uuid(),
+  }),
   z.object({ type: z.literal("accounts.list"), requestId: z.string().max(128) }),
   /**
    * Ask each signed-in account's CLI for its current limits where the CLI can say without a
@@ -333,6 +346,11 @@ export const AccountsRequest = z.discriminatedUnion("type", [
   }),
 ]);
 export const AccountsResponse = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("accounts.consumeReset"),
+    requestId: z.string().max(128),
+    outcome: AccountResetOutcome,
+  }),
   z.object({
     type: z.literal("accounts.changed"),
     requestId: z.string().max(128),

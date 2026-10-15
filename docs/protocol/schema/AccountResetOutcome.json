@@ -1,0 +1,11 @@
+{
+  "$id": "https://ace.local/protocol/v1/AccountResetOutcome.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "reset",
+    "alreadyRedeemed",
+    "noCredit",
+    "nothingToReset"
+  ],
+  "type": "string"
+}
