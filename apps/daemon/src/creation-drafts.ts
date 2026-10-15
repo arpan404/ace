@@ -13,7 +13,7 @@ export interface CreationRecovery {
 /** Settled starts are forgotten after an hour, so failures never fill the table. */
 export const settledRetentionMs = 3_600_000;
 /** At most this many starts may be running or awaiting cleanup at once. */
-const unsettledLimit = 16;
+const unsettledLimit = 128;
 /** Settled rows kept regardless of age; the oldest go first. */
 const settledLimit = 64;
 

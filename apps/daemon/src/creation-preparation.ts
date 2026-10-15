@@ -1,7 +1,6 @@
 import { GitError, type GitService, type Worktree } from "@ace/git";
 import { lstat } from "node:fs/promises";
 import { join, relative, isAbsolute, sep } from "node:path";
-import { CreationError } from "./creation-failure.ts";
 
 /**
  * Stop waiting for read-only Git work when `signal` aborts. The read itself may finish later;
@@ -11,10 +10,10 @@ export function abortable<T>(work: Promise<T>, signal: AbortSignal | undefined):
   if (!signal) return work;
   if (signal.aborted) {
     work.catch(() => {});
-    return Promise.reject(abortReason(signal));
+    return Promise.reject(signal.reason);
   }
   return new Promise<T>((resolve, reject) => {
-    const abort = () => reject(abortReason(signal));
+    const abort = () => reject(signal.reason);
     signal.addEventListener("abort", abort, { once: true });
     work.then(
       (value) => {
@@ -27,19 +26,6 @@ export function abortable<T>(work: Promise<T>, signal: AbortSignal | undefined):
       },
     );
   });
-}
-
-/** A timeout reads as `preparation_timeout`; a person's Cancel or Use local keeps its own reason. */
-function abortReason(signal: AbortSignal): unknown {
-  return signal.reason instanceof DOMException && signal.reason.name === "TimeoutError"
-    ? new CreationError("preparation_timeout", { cause: signal.reason })
-    : signal.reason;
-}
-
-/** The preparation phase's own deadline, ending early with the caller's signal. */
-export function preparationSignal(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
-  const deadline = AbortSignal.timeout(timeoutMs);
-  return signal ? AbortSignal.any([signal, deadline]) : deadline;
 }
 
 type BranchGit = Pick<GitService, "resolveCommit">;

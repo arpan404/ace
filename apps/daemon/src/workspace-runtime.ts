@@ -68,8 +68,6 @@ export interface WorkspaceRuntimeOptions {
   editorApplications?: readonly string[];
   platform?: NodeJS.Platform;
   machine?: { host: string; name: string };
-  /** How long worktree preparation before `git worktree add` may take; 60 s by default. */
-  preparationTimeoutMs?: number;
   /** Reports failures nobody waits on: background worktree cleanup and its recovery. */
   log?: (message: string, error: unknown) => void;
 }
@@ -118,12 +116,7 @@ export class WorkspaceRuntime {
     this.roots = new WorkspaceRoots(store, this.git, directory, now, this.machine, {
       ...(options.baseFetchTimeoutMs ? { baseFetchTimeoutMs: options.baseFetchTimeoutMs } : {}),
       ...(options.sourceControl ? { sourceControl: options.sourceControl } : {}),
-      creation: {
-        ...(options.preparationTimeoutMs
-          ? { preparationTimeoutMs: options.preparationTimeoutMs }
-          : {}),
-        ...(options.log ? { log: options.log } : {}),
-      },
+      creation: options.log ? { log: options.log } : {},
       preparePr: prBasePreparation({
         git: this.git,
         signal: this.prLifetime.signal,
@@ -346,7 +339,7 @@ export class WorkspaceRuntime {
         await this.manager.release(entry.terminal);
         this.terminals.delete(key);
       }
-    if (this.terminals.size + this.pendingOpens >= 64) throw new Error("terminal_limit");
+    if (this.terminals.size + this.pendingOpens >= 256) throw new Error("terminal_limit");
     this.pendingOpens++;
     try {
       const terminal = this.manager.openTerminal({ cwd: this.root(threadId), name, cols, rows });

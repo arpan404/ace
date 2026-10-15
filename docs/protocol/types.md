@@ -13344,7 +13344,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | draftId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[\\w-]+$"} |
-| items | no | array | {"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/ThreadRefContextItem.json"}} |
+| items | no | array | {"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/ThreadRefContextItem.json"}} |
 | mentions | no | array | {"default":[],"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/Mention.json"}} |
 | attachments | no | array | {"default":[],"maxItems":64,"items":{"type":"object","properties":{"sha256":{"$ref":"https://ace.local/protocol/v1/BlobHash.json"}},"required":["sha256"]}} |
 
@@ -16058,7 +16058,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | id | yes | string | {"minLength":1,"maxLength":64} |
-| text | yes | string | {"minLength":1,"maxLength":500} |
+| text | yes | string | {"minLength":1,"maxLength":4096} |
 | threadId | no | string | {"minLength":1,"maxLength":256} |
 | createdAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 
@@ -16079,7 +16079,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | id | no | string | {"minLength":1,"maxLength":64} |
-| text | yes | string | {"minLength":1,"maxLength":500} |
+| text | yes | string | {"minLength":1,"maxLength":4096} |
 
 Example:
 

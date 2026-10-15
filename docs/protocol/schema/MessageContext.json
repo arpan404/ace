@@ -28,7 +28,7 @@
       "items": {
         "$ref": "https://ace.local/protocol/v1/ThreadRefContextItem.json"
       },
-      "maxItems": 8,
+      "maxItems": 32,
       "type": "array"
     },
     "mentions": {

@@ -8,7 +8,7 @@
       "type": "string"
     },
     "text": {
-      "maxLength": 500,
+      "maxLength": 4096,
       "minLength": 1,
       "type": "string"
     }

@@ -88,7 +88,7 @@ export class FakeTerminals {
       rows: request.rows,
       exitCode: null,
     };
-    if (this.sessions.size >= 64) throw new Error("terminal_limit");
+    if (this.sessions.size >= 256) throw new Error("terminal_limit");
     this.sessions.set(info.id, {
       info,
       ring: new FakeByteRing(this.capacity),

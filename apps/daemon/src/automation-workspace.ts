@@ -19,7 +19,7 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
       );
       const workspace = row ? z.object({ path: z.string() }).parse(row) : undefined;
       if (!workspace) throw new Error("automation_workspace_not_found");
-      if (subscriptions >= 32) throw new Error("automation_watch_limit");
+      if (subscriptions >= 256) throw new Error("automation_watch_limit");
       subscriptions++;
       let closed = false;
       let watcher: WorkspaceWatcher | undefined;

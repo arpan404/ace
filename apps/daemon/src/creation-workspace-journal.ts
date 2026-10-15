@@ -145,7 +145,7 @@ export class CreationWorkspaceJournal {
           )
           .get()?.count,
       );
-      if (count >= 64) throw new Error("workspace_busy");
+      if (count >= 512) throw new Error("workspace_busy");
       db.prepare(
         "INSERT INTO workspace_creation_resources (id,repo,path,branch,base_head,cleanup_head,uncertain,ran_setup,owner_id,non_executing) VALUES (?,?,?,?,?,?,?,?,?,?)",
       ).run(

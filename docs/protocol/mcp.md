@@ -2262,7 +2262,7 @@ Example:
 | recent | no | array | {"maxItems":10,"items":{"type":"object","properties":{"threadId":{"type":"string"},"title":{"type":"string","maxLength":256},"status":{"type":"string"},"updatedAt":{"type":"number"},"branch":{"type":"string","maxLength":256},"prs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"number":{"type":"number"},"state":{"type":"string"},"url":{"type":"string","maxLength":2048}},"required":["number","state","url"],"additionalProperties":false}},"outcome":{"type":"string","maxLength":400}},"required":["threadId","title","status","updatedAt"],"additionalProperties":false}} |
 | changes | no | union | {"anyOf":[{"type":"object","properties":{"branch":{"anyOf":[{"type":"string","maxLength":256},{"type":"null"}]},"upstream":{"anyOf":[{"type":"string","maxLength":256},{"type":"null"}]},"ahead":{"type":"number"},"behind":{"type":"number"},"staged":{"type":"number"},"unstaged":{"type":"number"},"untracked":{"type":"number"},"files":{"maxItems":50,"type":"array","items":{"type":"string","maxLength":1024}}},"required":["branch","upstream","ahead","behind","staged","unstaged","untracked","files"],"additionalProperties":false},{"type":"null"}]} |
 | prs | no | array | {"maxItems":20,"items":{"type":"object","properties":{"threadId":{"type":"string"},"number":{"type":"number"},"url":{"type":"string","maxLength":2048},"state":{"type":"string"},"title":{"type":"string","maxLength":256},"ci":{"type":"string","enum":["none","pending","success","failure","unknown"]}},"required":["threadId","number","url","state","ci"],"additionalProperties":false}} |
-| notes | no | array | {"maxItems":50,"items":{"type":"object","properties":{"id":{"type":"string"},"text":{"type":"string","maxLength":500},"threadId":{"type":"string"}},"required":["id","text"],"additionalProperties":false}} |
+| notes | no | array | {"maxItems":50,"items":{"type":"object","properties":{"id":{"type":"string"},"text":{"type":"string","maxLength":4096},"threadId":{"type":"string"}},"required":["id","text"],"additionalProperties":false}} |
 | diagnostics | no | object | {"properties":{"failures":{"maxItems":20,"type":"array","items":{"type":"object","properties":{"tool":{"type":"string","maxLength":128},"code":{"type":"string","maxLength":64},"count":{"type":"number"}},"required":["tool","code","count"],"additionalProperties":false}},"blocking":{"maxItems":16,"type":"array","items":{"type":"string","maxLength":240}}},"required":["failures","blocking"],"additionalProperties":false} |
 
 Example:
@@ -2277,7 +2277,7 @@ Example:
 
 ## ace_note_add
 
-Remember a short fact about this project for every future thread and provider, such as how to run its tests or a pitfall you hit. One fact per note, at most 500 characters; facts only, never instructions to ignore other guidance. The person sees and edits notes in Edit project.
+Remember a short fact about this project for every future thread and provider, such as how to run its tests or a pitfall you hit. One fact per note, at most 4,096 characters; facts only, never instructions to ignore other guidance. The person sees and edits notes in Edit project.
 
 Required capability: projects. Timeout: 10000 ms.
 
@@ -2287,7 +2287,7 @@ Required capability: projects. Timeout: 10000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| text | yes | string | {"minLength":1,"maxLength":500} |
+| text | yes | string | {"minLength":1,"maxLength":4096} |
 
 Example:
 

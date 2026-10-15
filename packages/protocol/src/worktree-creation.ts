@@ -26,7 +26,7 @@ export const WorktreeCreationProgress = z.object({
   /**
    * The specific failure: `git_quarantined`, `not_a_repo`, `no_commits`, `invalid_ref`,
    * `branch_exists`, `ref_conflict`, `workspace_preparation_collision`, `setup_failed`,
-   * `preparation_timeout`, `worktree_base_not_found`, ... Absent while running or on success.
+   * `worktree_base_not_found`, ... Absent while running or on success.
    */
   error: z.string().max(128).optional(),
   /** With `git_quarantined`: the repository whose stale Git lock blocks creation. */

@@ -13,7 +13,6 @@ const unmade = new Set([
   "invalid_ref",
   "branch_exists",
   "ref_conflict",
-  "preparation_timeout",
   "auth_failed",
   "remote_unreachable",
 ]);
