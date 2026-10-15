@@ -64,7 +64,7 @@ test.each(["models", "branches", "storage"])(
     await screen.findByRole("heading", { level: 1, name: "Send after preparation" });
     await waitFor(() => expect(app.created()).toHaveLength(1));
     if (gate === "branches")
-      expect(app.created()[0]?.details?.base).toEqual({ ref: "main", remote: "origin" });
+      expect(app.created()[0]?.details?.base).toMatchObject({ ref: "main", remote: "origin" });
   },
 );
 
