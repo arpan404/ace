@@ -90,27 +90,3 @@ test("active review publication cannot be reconciled through an alias and preser
     await f.cleanup();
   }
 });
-
-test("migration preserves conflicting drafts from former repository casing aliases", async () => {
-  const f = await setupReview(reviewFixtures());
-  try {
-    await f.send("save-old", { kind: "draft.save", draft: inlineDraft });
-    f.store.atomic((db) =>
-      db
-        .prepare("UPDATE forge_hosted_drafts SET scope=?")
-        .run(JSON.stringify({ repository, number: 7 })),
-    );
-    await f.send("save-new", {
-      kind: "draft.save",
-      draft: { ...inlineDraft, body: "New alias draft" },
-    });
-    await f.restart();
-    const state = await f.state({ ...repository, owner: "Octo", name: "Ace" });
-    expect(state.drafts.map((draft) => draft.body).toSorted()).toEqual(
-      [inlineDraft.body, "New alias draft"].toSorted(),
-    );
-    expect(new Set(state.drafts.map((draft) => draft.id)).size).toBe(2);
-  } finally {
-    await f.cleanup();
-  }
-});

@@ -3,6 +3,7 @@ import type { DaemonStatus } from "../../shared/contract.ts";
 import type { LocalDaemon } from "./probe.ts";
 import {
   DaemonSupervisor,
+  incompatibleDataMessage,
   newerDataMessage,
   type DaemonProcess,
   type SupervisorPorts,
@@ -538,6 +539,24 @@ describe("daemon supervisor", () => {
     expect(supervisor.current().state).toBe("failed");
     expect(m.log).toContainEqual(
       expect.objectContaining({ level: "error", data: { code: 65, signal: null } }),
+    );
+  });
+
+  it("a daemon that stops on saved data it cannot read is not restarted", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports);
+    const reachable = supervisor.reachable();
+    await supervisor.start();
+    m.children[0]?.die(66);
+    expect(supervisor.current()).toMatchObject({
+      state: "failed",
+      message: incompatibleDataMessage,
+    });
+    await expect(reachable).rejects.toThrow(incompatibleDataMessage);
+    await m.advance(600_000);
+    expect(m.children).toHaveLength(1);
+    expect(m.log).toContainEqual(
+      expect.objectContaining({ level: "error", data: { code: 66, signal: null } }),
     );
   });
 

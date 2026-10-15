@@ -149,37 +149,6 @@ test("a known missing PR is refused, while an unauthenticated forge keeps an unv
   }
 });
 
-test("old agent metadata links become visible beside existing forge links on startup", async () => {
-  const f = await fixture(
-    async () => ({ code: 1, stdout: "offline", truncated: false }),
-    (store) =>
-      store.atomic((db) => {
-        db.exec(
-          "CREATE TABLE forge_links(thread_id TEXT PRIMARY KEY,payload TEXT NOT NULL); CREATE TABLE agent_thread_metadata(thread_id TEXT PRIMARY KEY,pr_url TEXT,snoozed_until INTEGER)",
-        );
-        db.prepare("INSERT INTO forge_links VALUES (?,?)").run(
-          "first",
-          JSON.stringify({ threadId: "first", pr: { repository: repo, number: 283 } }),
-        );
-        db.prepare("INSERT INTO agent_thread_metadata VALUES (?,?,NULL)").run(
-          "first",
-          "https://github.com/octo/ace/pull/284",
-        );
-      }),
-  );
-  try {
-    expect(f.store.getThread(ThreadId.parse("first"))?.details?.linkedPrs).toMatchObject([
-      { number: 284 },
-      { number: 283 },
-    ]);
-    expect(
-      await f.forge.agent(ThreadId.parse("first"), "/fake", { op: "thread.list_prs" }, signal()),
-    ).toMatchObject({ ok: true, data: { linkedPrs: [{ number: 284 }, { number: 283 }] } });
-  } finally {
-    await f.close();
-  }
-});
-
 test("a late offline duplicate cannot overwrite a verified association", async () => {
   const waiting = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();

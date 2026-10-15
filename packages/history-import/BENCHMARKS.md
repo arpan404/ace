@@ -59,3 +59,15 @@ The original heap exhaustion from the real-data audit was not reproduced by eith
 Reproduce the isolated scan with `node packages/history-import/bench/scale.ts`; add `--snapshot` for synthetic worker/main heap snapshots. Compile the daemon with `node apps/daemon/bench/compile.ts --output=<scratch-build>`, then run `node apps/daemon/bench/history-idle.ts --entry=<scratch-build>/ace.mjs`. The latter isolates HOME, PATH, provider homes and the ace data directory. `--snapshot` retains its scratch directory and captures a SIGUSR2 heap snapshot; `--idle-ms=120000` selects the short check.
 
 Artifacts: `/tmp/ace-orch/history-{baseline-matched,scale-final,bundled-after,light-use-soak,baseline-light-use-soak,readonly-before,readonly-after,final-perf}.log`; synthetic heap snapshots `/tmp/ace-history-{before,worker,daemon}.heapsnapshot`; fixture screenshots `/tmp/ace-orch/shots/fix-history-memory/`.
+
+## October 15 2026: the scan OOM in issue #712
+
+Commit `511c7065a` raised the fallback preview decoder from 128 KiB to the 1-MiB import limit and sampled 16 files at once instead of two. A transcript whose first prompt sits behind records just under 1 MiB is then decoded record by record; one such record of small arrays parses to about 14 MiB of heap. Sixteen synthetic transcripts with two such records each (32 MB on disk) exhausted the 128-MiB worker heap with `ERR_WORKER_OUT_OF_MEMORY`, and every rescan after the restart did the same.
+
+The scan now:
+
+- admits concurrent samples by the bytes they may decode (2 MiB per provider inventory), not by count;
+- decodes records up to 128 KiB while looking for a first prompt, and decodes larger ones (up to the 1-MiB import limit) one at a time across the whole scan;
+- records each content read in the index before it starts. A read still marked after a restart crashed the reader: alone it waits 30 s, then 60 s, and after three strikes it is reported as unsupported with a reason; several together are each read alone next time.
+
+Synthetic worker measurements (Node v26.8.1, the production 128-MiB limit, 100 ms heap samples): 64 transcripts with six ~1-MB records each scan in 70 ms at a 34-MiB peak, against a heap exhaustion before. The worst case for the new bound, 100 transcripts with ten 130-KB records of small arrays each, also completes with the old generation capped at 52 MiB, against a 34-MiB idle baseline. `memory-bounds.process.test.ts` keeps both behaviours: the large inventory scans without a restart, and a transcript that exhausts the reader settles within two crashes and is reported rather than restarting each scan.

@@ -5,21 +5,19 @@ import { ForgeStore } from "./index.ts";
 const repository = { forge: "github", host: "github.com", owner: "octo", name: "ace" } as const;
 const link = (number: number) => ({ threadId: "thread", pr: { repository, number } });
 
-test("an old single PR remains linked after upgrade, beside new PRs without duplicate or reordered links", () => {
+test("pull request links from an older pre-release format are refused with a recovery message", () => {
   const db = new DatabaseSync(":memory:");
   db.exec("CREATE TABLE forge_links(thread_id TEXT PRIMARY KEY,payload TEXT NOT NULL)");
   db.prepare("INSERT INTO forge_links VALUES (?,?)").run("thread", JSON.stringify(link(283)));
   try {
-    const store = new ForgeStore(db);
-    store.link(link(284));
-    store.link(link(283));
-    expect(store.getLinks("thread").map((entry) => entry.link.pr.number)).toEqual([284, 283]);
-    const reopened = new ForgeStore(db);
-    expect(reopened.getLinks("thread").map((entry) => entry.link.pr.number)).toEqual([284, 283]);
-    reopened.unlink("thread", link(284).pr);
-    expect(reopened.getLinks("thread").map((entry) => entry.link.pr.number)).toEqual([283]);
-    reopened.unlink("thread");
-    expect(reopened.getLinks("thread")).toEqual([]);
+    expect(() => new ForgeStore(db)).toThrow(
+      expect.objectContaining({
+        code: "incompatible-data",
+        message: expect.stringMatching(/older format.*drop the forge_links/),
+      }),
+    );
+    // Refusal leaves the old rows for the person to keep or discard.
+    expect(db.prepare("SELECT count(*) AS n FROM forge_links").get()?.n).toBe(1);
   } finally {
     db.close();
   }

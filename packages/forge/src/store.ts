@@ -8,6 +8,7 @@ import {
   ForgePrRef,
   LinkedPullRequest,
 } from "@ace/protocol/forge";
+import { IncompatibleDataError } from "@ace/provider-kit/incompatible-data";
 import { ForgeError } from "./errors.ts";
 import { redactData } from "./redact.ts";
 
@@ -19,6 +20,27 @@ function decode<T>(schema: z.ZodType<T>, value: unknown): T {
     return schema.parse(JSON.parse(row.data.payload));
   } catch {
     throw new ForgeError("invalid_data");
+  }
+}
+const currentColumns = {
+  forge_links: ["thread_id", "repo", "number", "payload", "generation", "summary"],
+  forge_intents: ["thread_id", "key", "payload", "pr_key"],
+} as const;
+/** Tables from an older pre-release build are refused; ace carries no migrations for them. */
+function assertCurrentSchema(db: DatabaseSync): void {
+  for (const [table, expected] of Object.entries(currentColumns)) {
+    const columns = new Set(
+      db
+        .prepare(`PRAGMA table_info(${table})`)
+        .all()
+        .map((column) => column.name),
+    );
+    if (expected.every((name) => columns.has(name))) continue;
+    throw new IncompatibleDataError(
+      db.location() ?? "the daemon database",
+      `Pull request links are stored in an older format (${table})`,
+      "Quit ace, then start it with a fresh ACE_HOME, or drop the forge_links, forge_intents and forge_link_epochs tables from that file to forget the old pull request links.",
+    );
   }
 }
 /** Caller owns database lifetime. Tables are isolated from daemon migrations. */
@@ -42,51 +64,14 @@ export class ForgeStore {
       throw new RangeError("Invalid queue cap");
     this.#db = db;
     this.#maxPending = maxPending;
-    db.exec(`CREATE TABLE IF NOT EXISTS forge_links (thread_id TEXT PRIMARY KEY, payload TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS forge_intents (thread_id TEXT NOT NULL, key TEXT NOT NULL, payload TEXT, PRIMARY KEY(thread_id,key));
+    db.exec(`CREATE TABLE IF NOT EXISTS forge_links (thread_id TEXT NOT NULL, repo TEXT NOT NULL,
+        number INTEGER NOT NULL, payload TEXT NOT NULL, generation INTEGER NOT NULL, summary TEXT,
+        PRIMARY KEY(thread_id,repo,number));
+      CREATE TABLE IF NOT EXISTS forge_intents (thread_id TEXT NOT NULL, key TEXT NOT NULL, payload TEXT,
+        pr_key TEXT, PRIMARY KEY(thread_id,key));
       CREATE INDEX IF NOT EXISTS forge_pending ON forge_intents(thread_id) WHERE payload IS NOT NULL;
-      CREATE TABLE IF NOT EXISTS forge_link_epochs(thread_id TEXT PRIMARY KEY, generation INTEGER NOT NULL);
-      INSERT OR IGNORE INTO forge_link_epochs SELECT thread_id,1 FROM forge_links;`);
-    const columns = db.prepare("PRAGMA table_info(forge_links)").all();
-    if (!columns.some((column) => column.name === "repo")) {
-      db.exec(`SAVEPOINT forge_migrate;
-        ALTER TABLE forge_links RENAME TO forge_links_legacy;
-        CREATE TABLE forge_links (thread_id TEXT NOT NULL, repo TEXT NOT NULL, number INTEGER NOT NULL,
-          payload TEXT NOT NULL, generation INTEGER NOT NULL, summary TEXT,
-          PRIMARY KEY(thread_id,repo,number));
-        INSERT INTO forge_links SELECT l.thread_id,json_extract(l.payload,'$.pr.repository'),
-          json_extract(l.payload,'$.pr.number'),l.payload,e.generation,NULL
-          FROM forge_links_legacy l JOIN forge_link_epochs e USING(thread_id);
-        DROP TABLE forge_links_legacy;`);
-      for (const row of db.prepare("SELECT rowid,payload FROM forge_links").all()) {
-        const link = decode(ForgeThreadLink, row);
-        const rowid = z.object({ rowid: z.number() }).parse(row).rowid;
-        db.prepare("UPDATE forge_links SET repo=? WHERE rowid=?").run(
-          repositoryKey(link.pr.repository),
-          rowid,
-        );
-      }
-      db.exec("RELEASE forge_migrate");
-    }
-    if (
-      !db
-        .prepare("PRAGMA table_info(forge_intents)")
-        .all()
-        .some((column) => column.name === "pr_key")
-    ) {
-      db.exec("SAVEPOINT forge_intent_migrate; ALTER TABLE forge_intents ADD COLUMN pr_key TEXT;");
-      for (const row of db
-        .prepare("SELECT thread_id,key,payload FROM forge_intents WHERE payload IS NOT NULL")
-        .all()) {
-        const intent = decode(ForgeAutoFixIntent, row);
-        db.prepare("UPDATE forge_intents SET pr_key=? WHERE thread_id=? AND key=?").run(
-          prKey(intent.link.pr),
-          intent.link.threadId,
-          intent.key,
-        );
-      }
-      db.exec("RELEASE forge_intent_migrate");
-    }
+      CREATE TABLE IF NOT EXISTS forge_link_epochs(thread_id TEXT PRIMARY KEY, generation INTEGER NOT NULL);`);
+    assertCurrentSchema(db);
     db.exec(
       "CREATE INDEX IF NOT EXISTS forge_repository_links ON forge_links(repo,number,thread_id)",
     );

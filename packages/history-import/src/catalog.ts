@@ -10,6 +10,7 @@ import { z } from "zod";
 import { ScanUpdates } from "./scan-updates.ts";
 import { SnapshotScratch, type SnapshotScratchOptions } from "./snapshot-scratch.ts";
 import { ReadBackoff } from "./read-backoff.ts";
+import { CrashLedger } from "./crash-ledger.ts";
 
 export const Source = z.object({
   summary: HistorySession,
@@ -27,6 +28,8 @@ export class Catalog {
   /** Private provider-database snapshots; one at a time, swept when stale. */
   readonly snapshots: SnapshotScratch;
   readonly backoff: ReadBackoff;
+  /** Sources in flight when the isolate died; read alone or reported failed. */
+  readonly crashes: CrashLedger;
   private statements = new Map<string, StatementSync>();
   readonly updates: ScanUpdates;
   private registryKey = "";
@@ -35,7 +38,8 @@ export class Catalog {
     HistorySession.parse(JSON.parse(json));
   constructor(path: string, options: { now: () => number; snapshots?: SnapshotScratchOptions }) {
     this.snapshots = new SnapshotScratch(dirname(path), options.snapshots);
-    this.db = new DatabaseSync(path);
+    // Crash-ledger marks are written between samples; wait out another writer's brief commit.
+    this.db = new DatabaseSync(path, { timeout: 2000 });
     this.db.exec(
       "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA cache_size=-1024; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=16777216;",
     );
@@ -65,6 +69,7 @@ export class Catalog {
     }
     this.updates = new ScanUpdates(this.db);
     this.backoff = new ReadBackoff(this.db, options.now);
+    this.crashes = new CrashLedger(this.db, options.now);
     this.reader = new DatabaseSync(path, { readOnly: true });
     this.reader.exec(
       "PRAGMA cache_size=-1024; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256",

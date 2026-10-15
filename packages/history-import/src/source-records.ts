@@ -22,9 +22,11 @@ export async function* sourceRecords(
   source: Source,
   signal: AbortSignal,
   scratch: SnapshotScratch,
+  /** Largest file record decoded; larger ones are yielded opaque. Database rows keep the decoder limit. */
+  recordLimit = RECORD_LIMIT,
 ): AsyncGenerator<HistoryRecord> {
   if (source.kind === "jsonl") {
-    for await (const record of readJsonLines(instance.homeDir, source.path, signal)) {
+    for await (const record of readJsonLines(instance.homeDir, source.path, signal, recordLimit)) {
       const chunks = () =>
         readRange(instance.homeDir, source.path, record.offset, record.bytes, signal);
       yield "value" in record
@@ -52,7 +54,7 @@ export async function* sourceRecords(
         scratch,
         signal,
       )) {
-        for await (const record of readJsonLines(instance.homeDir, part, signal)) {
+        for await (const record of readJsonLines(instance.homeDir, part, signal, recordLimit)) {
           const chunks = () =>
             readRange(instance.homeDir, part, record.offset, record.bytes, signal);
           if ("value" in record)

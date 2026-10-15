@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { ForgeResourceOwner, forgeResourceKey } from "./forge-resource-owner.ts";
 import { actionErrorCode } from "./action-errors.ts";
 import { completePendingForgeReceipt } from "./forge-write-receipts.ts";
@@ -26,38 +25,6 @@ export class WorkspaceForgeReviews {
       CREATE TABLE IF NOT EXISTS forge_hosted_writes (id TEXT PRIMARY KEY, scope TEXT NOT NULL, action TEXT NOT NULL, drafts TEXT NOT NULL, state TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS forge_hosted_write_scope ON forge_hosted_writes(scope,state);
     `);
-      for (const row of db
-        .prepare(
-          "SELECT DISTINCT scope FROM forge_hosted_writes UNION SELECT DISTINCT scope FROM forge_hosted_drafts",
-        )
-        .all()) {
-        const legacy = z.string().parse(row.scope);
-        const pr = ForgePrRef.safeParse(JSON.parse(legacy));
-        if (!pr.success) continue;
-        const canonical = scope(pr.data);
-        db.prepare("UPDATE forge_hosted_writes SET scope=? WHERE scope=?").run(canonical, legacy);
-        for (const old of db
-          .prepare("SELECT id,draft FROM forge_hosted_drafts WHERE scope=?")
-          .all(legacy)) {
-          let draft = ForgeReviewDraft.parse(JSON.parse(z.string().parse(old.draft)));
-          const existing = db
-            .prepare("SELECT draft FROM forge_hosted_drafts WHERE scope=? AND id=?")
-            .get(canonical, draft.id);
-          if (existing && existing.draft !== old.draft)
-            draft = {
-              ...draft,
-              id: `migrated-${createHash("sha256")
-                .update(legacy + z.string().parse(old.draft))
-                .digest("hex")}`,
-            };
-          db.prepare("INSERT OR IGNORE INTO forge_hosted_drafts VALUES (?,?,?)").run(
-            canonical,
-            draft.id,
-            JSON.stringify(draft),
-          );
-        }
-        db.prepare("DELETE FROM forge_hosted_drafts WHERE scope=?").run(legacy);
-      }
       // Repair receipts left pending by the former acceptance/receipt crash window.
       for (const row of db
         .prepare(

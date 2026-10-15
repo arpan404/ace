@@ -25,6 +25,7 @@
     "./flow-control": "./src/flow-control.ts",
     "./sqlite": "./src/sqlite.ts",
     "./open-error": "./src/open-error.ts",
+    "./incompatible-data": "./src/incompatible-data.ts",
     "./startup-output": "./src/startup-output.ts",
     "./shell-command": "./src/shell-command.ts",
     "./discovery-failure": "./src/discovery-failure.ts",
