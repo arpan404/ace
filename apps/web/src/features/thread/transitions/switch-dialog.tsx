@@ -21,6 +21,8 @@ export function SwitchDialog(props: {
   to: ModelChoice;
   busy: boolean;
   continues?: boolean | undefined;
+  /** Something in the message being written that can't go to the new thread, and what to do. */
+  warning?: string | undefined;
   onConfirm(): void;
   onClose(): void;
 }) {
@@ -37,8 +39,14 @@ export function SwitchDialog(props: {
             <DialogTitle>Continue in a new thread?</DialogTitle>
             <DialogDescription>
               {from} keeps this conversation on its own account. Your next message starts a new
-              thread on {target}, with this conversation as its context. This thread stays as it is.
+              thread on {target}, with this conversation as its context. Its files go with it. This
+              thread stays as it is.
             </DialogDescription>
+            {props.warning && (
+              <p role="alert" className="text-sm text-status-failed">
+                {props.warning}
+              </p>
+            )}
           </DialogHeader>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={props.onClose}>

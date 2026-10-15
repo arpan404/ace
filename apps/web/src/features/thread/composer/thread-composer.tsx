@@ -7,6 +7,7 @@ import {
   providerNames,
   threadIsRunning,
   selectionInputs,
+  choiceSelection,
   currentModelChoice,
   resolveEffort,
   runningSubagents,
@@ -164,6 +165,7 @@ export function ThreadComposer({
         actions: sources.actions,
         thread: props.thread,
         choice: target.choice,
+        modalities: catalog && selectionInputs(catalog, choiceSelection(target.choice)),
         draft,
         busy,
       });

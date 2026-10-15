@@ -1,5 +1,12 @@
 import type { ClientApi } from "@ace/client";
-import { choiceSelection, type ModelChoice } from "@ace/ui-core";
+import type { MessageContext } from "@ace/protocol";
+import {
+  choiceSelection,
+  imageType,
+  imagesUnreadable,
+  providerNames,
+  type ModelChoice,
+} from "@ace/ui-core";
 import type { ThreadSources, ThreadRef } from "../sources/index.ts";
 import { latestFinishedTurn } from "../transitions/fork-point.ts";
 import type { Draft } from "./draft.ts";
@@ -25,15 +32,42 @@ export class ContinuationRefused extends Error {
 const maxInput = 16384;
 
 /**
+ * Why the new thread's model can't take one of these files, or undefined when it can take them
+ * all. Only images can be refused: the model's catalog entry says which inputs it reads. Any
+ * other file reaches every provider (inline, as a document or as a path), as a send's does.
+ */
+export function continuationAttachmentProblem(
+  files: readonly { name: string; mimeType?: string | undefined }[],
+  choice: ModelChoice,
+  modalities: readonly string[] | undefined,
+): string | undefined {
+  const images = files.filter((file) =>
+    (file.mimeType ?? imageType(file.name) ?? "").startsWith("image/"),
+  );
+  if (!images.length) return undefined;
+  const unreadable = imagesUnreadable({
+    provider: providerNames[choice.provider],
+    imageInput: undefined,
+    model: choice.model,
+    modalities,
+  });
+  return unreadable && `${unreadable} Remove ${images.map((file) => file.name).join(", ")} first.`;
+}
+
+/**
  * The person's message as the first one of a portable fork on `choice`, from the thread's newest
- * finished turn: the new thread reads this one's history and this thread is left as it is. One
- * durable command, so the message is delivered once. Resolves the new thread's id.
+ * finished turn: the new thread reads this one's history and this thread is left as it is. Its
+ * files, mentions and thread references go with it the way a send carries them, once the files
+ * have uploaded. One durable command, so the message is delivered once. Resolves the new
+ * thread's id.
  */
 export async function continueInNewThread(request: {
   client: ClientApi;
   actions: ThreadSources["actions"];
   thread: ThreadRef;
   choice: ModelChoice;
+  /** The new thread's model's input modalities, from the catalog; undefined if unlisted. */
+  modalities: readonly string[] | undefined;
   draft: Draft;
   busy: boolean;
 }): Promise<string> {
@@ -42,14 +76,28 @@ export async function continueInNewThread(request: {
     throw new ContinuationRefused(
       "Wait for this turn to finish, then send again to continue in a new thread.",
     );
-  if (draft.files.local.length || draft.attachments.length || draft.threadRefs?.length)
-    throw new ContinuationRefused(
-      "Attachments can't carry over to a new thread. Remove them and send, then attach them there.",
-    );
   const input = draft.text.trim();
   if (!input) throw new ContinuationRefused("Write a message to start the new thread.");
   if (input.length > maxInput)
     throw new ContinuationRefused("The message is too long to start a new thread with.");
+  const problem = continuationAttachmentProblem(
+    draft.files.local,
+    request.choice,
+    request.modalities,
+  );
+  if (problem) throw new ContinuationRefused(problem);
+  const outcomes = await draft.files.outcomes;
+  if (outcomes.some((outcome) => "error" in outcome))
+    throw new ContinuationRefused("A file didn't upload. Retry or remove it, then send again.");
+  const hashes = new Set([
+    ...draft.attachments.map((file) => file.sha256),
+    ...outcomes.flatMap((outcome) => ("sha256" in outcome ? [outcome.sha256] : [])),
+  ]);
+  const context: MessageContext = {
+    mentions: draft.mentions,
+    attachments: [...hashes].map((sha256) => ({ sha256 })),
+    ...(draft.threadRefs?.length ? { items: draft.threadRefs } : {}),
+  };
   const lease = request.client.thread(request.thread.id);
   const point = (() => {
     try {
@@ -62,10 +110,13 @@ export async function continueInNewThread(request: {
     throw new ContinuationRefused(
       "This thread has no finished turn to carry over. Start a new thread instead.",
     );
-  return request.actions.fork(request.thread, {
+  const opened = await request.actions.fork(request.thread, {
     point,
     input,
     selection: choiceSelection(request.choice),
     title: request.thread.title,
+    ...(context.mentions.length || context.attachments.length || context.items ? { context } : {}),
   });
+  draft.files.release();
+  return opened;
 }

@@ -84,6 +84,14 @@ export class FakeContextWire {
     }
     return map;
   }
+  /** A continued thread gets its own reference to files its source holds, as the daemon's. */
+  inherit(source: string, threadId: string, hashes: readonly string[]): Attachment[] {
+    const attachments = this.messageAttachments(source, hashes);
+    const target = this.references(threadId);
+    if (target.size + attachments.length > 256) throw new Error("quota");
+    for (const attachment of attachments) target.set(attachment.sha256, attachment);
+    return attachments;
+  }
   adopt(device: string, draftId: string, threadId: string): void {
     const draft = this.drafts.get(draftId);
     const thread = this.context.thread(threadId)?.thread;

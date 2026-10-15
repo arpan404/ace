@@ -3,7 +3,13 @@
 // when it says no. Organization (rename, settle, snooze, pin, archive, delete) is
 // `features/organize`, shared with Home.
 import type { ClientApi } from "@ace/client";
-import { ThreadId, type CommandPayload, type HandoffCitation, type ForkPoint } from "@ace/protocol";
+import {
+  ThreadId,
+  type CommandPayload,
+  type HandoffCitation,
+  type ForkPoint,
+  type MessageContext,
+} from "@ace/protocol";
 import { CommandRefused, runCommand } from "@/lib/daemon-command.ts";
 import type { ThreadRef } from "./workspace-source.ts";
 
@@ -19,6 +25,8 @@ export interface ThreadActionsSource {
       input: string;
       selection?: Selection | undefined;
       title?: string | undefined;
+      /** Files the thread holds (and mentions) that go with the first message, as a send's. */
+      context?: MessageContext | undefined;
     },
   ): Promise<string>;
   merge(
@@ -47,6 +55,7 @@ export function daemonThreadActions(client: ClientApi): ThreadActionsSource {
         input: fork.input,
         budgetBytes: 16384,
         ...(fork.title ? { title: fork.title } : {}),
+        ...(fork.context ? { context: fork.context } : {}),
         ...(fork.selection
           ? { selection: { ...fork.selection, options: fork.selection.options ?? {} } }
           : {}),

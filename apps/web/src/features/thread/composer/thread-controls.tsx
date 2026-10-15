@@ -18,6 +18,8 @@ import {
   resolveEffort,
   speedControl,
   speedOption,
+  selectionInputs,
+  choiceSelection,
   switchUnsupportedNote,
   threadSwitchRoute,
   threadAccessSummary,
@@ -47,7 +49,10 @@ import { useComposerCompact } from "./composer-compact.ts";
 import { chipControl } from "./composer-styles.ts";
 import { selectionIdentity, type PendingTurn } from "./execution.ts";
 import { useModelSwitch } from "./use-model-switch.ts";
-import { continuationNote } from "./continue-in-thread.ts";
+import { continuationAttachmentProblem, continuationNote } from "./continue-in-thread.ts";
+import { readDraft } from "./draft-store.ts";
+import { useLayout } from "@/lib/layout.tsx";
+import { useModelCatalog } from "@/lib/model-catalog.ts";
 import { useAccessModes, useThreadPermission } from "./permission-hooks.ts";
 import { PermissionPicker } from "./permission-picker.tsx";
 
@@ -205,6 +210,16 @@ export function ThreadModelControl(props: {
       });
   });
   const continuedTo = props.continued?.choice;
+  const { storage } = useLayout();
+  const catalogModels = useModelCatalog();
+  // Files in the message being written that the new thread's model can't take, said in the
+  // confirmation; the send checks again with what the message holds then.
+  const carryProblem = (choice: ModelChoice) =>
+    continuationAttachmentProblem(
+      readDraft(storage, `thread:${props.thread.id}`)?.attachments ?? [],
+      choice,
+      catalogModels && selectionInputs(catalogModels, choiceSelection(choice)),
+    );
   const routeOf = (choice: ModelChoice) => (meta ? threadSwitchRoute(meta, choice) : "in_place");
   const switchTo = (choice: ModelChoice) => {
     setAsking(undefined);
@@ -365,6 +380,7 @@ export function ThreadModelControl(props: {
           to={asking}
           busy={props.busy}
           continues={routeOf(asking) === "new_thread"}
+          warning={routeOf(asking) === "new_thread" ? carryProblem(asking) : undefined}
           onConfirm={() => {
             if (routeOf(asking) !== "new_thread") return switchTo(asking);
             setAsking(undefined);

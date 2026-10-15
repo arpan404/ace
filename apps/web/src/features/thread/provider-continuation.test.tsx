@@ -1,4 +1,4 @@
-import { facts } from "@ace/fake-daemon";
+import { facts, fixtureImage } from "@ace/fake-daemon";
 import { ThreadId, type Thread } from "@ace/protocol";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -14,6 +14,7 @@ const threads = (app: ReturnType<typeof harness>): Thread[] => {
   const view = app.daemon.snapshot({ kind: "threads" });
   return view?.kind === "threads" ? Object.values(view.threads) : [];
 };
+const transcript = () => screen.getByRole("feed", { name: "Transcript" });
 const thread = (app: ReturnType<typeof harness>, id: string) =>
   threads(app).find((entry) => entry.id === ThreadId.parse(id));
 
@@ -97,4 +98,42 @@ test("an ACP agent says it starts new threads only before anything is sent", asy
   expect(row?.getAttribute("aria-disabled")).toBe("true");
   expect(row?.textContent).toContain("Starts new threads only");
   expect(thread(app, "cursor-greeting")?.switch).toBeUndefined();
+});
+
+test("files attached to the message go with it to the new thread, once", async () => {
+  const app = await openCursorThread();
+  const png = Uint8Array.from(atob(fixtureImage.data), (char) => char.charCodeAt(0));
+  await userEvent.upload(screen.getByLabelText("Files to attach"), [
+    new File([png], "replay.png", { type: "image/png" }),
+    new File(["remember the margin"], "notes.txt", { type: "text/plain" }),
+  ]);
+  const chips = screen.getByRole("list", { name: "Attachments" });
+  await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
+
+  await chooseModel("GPT-5 Codex", "Codex", /^Model: Composer 2\.5/);
+  const dialog = await screen.findByRole("dialog", { name: "Continue in a new thread?" });
+  expect(within(dialog).getByText(/Its files go with it/)).toBeTruthy();
+  expect(within(dialog).queryByRole("alert")).toBeNull();
+  await userEvent.click(within(dialog).getByRole("button", { name: "Continue on Codex" }));
+  await userEvent.click(await screen.findByRole("combobox", { name: "Message" }));
+  await userEvent.keyboard("look at these{Enter}");
+
+  await waitFor(() => expect(within(transcript()).queryByText("yo")).toBeNull());
+  expect(await within(transcript()).findByRole("img", { name: "replay.png" })).toBeTruthy();
+  const continued = threads(app).filter(
+    (entry) => entry.lineage?.parentThreadId === "cursor-greeting",
+  );
+  expect(continued).toHaveLength(1);
+  const view = app.daemon.snapshot({ kind: "thread", threadId: continued[0]!.id });
+  const sent = Object.values(view?.kind === "thread" ? view.items : {}).filter(
+    (item) => item.type === "message" && item.role === "user",
+  );
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatchObject({
+    attachments: [
+      expect.objectContaining({ name: "replay.png" }),
+      expect.objectContaining({ name: "notes.txt" }),
+    ],
+  });
+  expect(screen.queryByRole("list", { name: "Attachments" })).toBeNull();
 });

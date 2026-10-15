@@ -170,7 +170,7 @@ export function createRecoverySession(context: SocketContext): SocketService {
 }
 
 export function prepareQueuedInput(context: Pick<ServiceContext, "services">): PrepareInput {
-  return async (command, provider, capabilities) => {
+  return async (command, provider, capabilities, continued) => {
     const p = command.payload;
     if (p.type !== "thread.send" && p.type !== "thread.create")
       throw new Error("Expected a message");
@@ -184,6 +184,13 @@ export function prepareQueuedInput(context: Pick<ServiceContext, "services">): P
     if (!p.context) return { input, release() {} };
     if (!context.services.context || !("threadId" in p) || !p.threadId)
       throw new Error("Context requires an existing thread");
+    if (continued && p.context.attachments.length)
+      await context.services.context.inheritAttachments(
+        command.deviceId,
+        continued.inheritFrom,
+        p.threadId,
+        p.context.attachments.map((attachment) => attachment.sha256),
+      );
     const prepared = await context.services.context.compose(
       command.deviceId,
       p.threadId,
