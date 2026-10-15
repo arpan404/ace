@@ -1,5 +1,7 @@
 # Real history import verification
 
+> 2026-10-15: past sessions are now read only from Settings → Providers → Past sessions, on request, with no persistent index (ADR 0033 amendment). Checks below that start from a startup scan or the New thread list describe the earlier design.
+
 This revision addresses real-data audit items 3, 4, 5 and the imported-thread part of 15.
 All writes, imports, browser sessions and migration tests used temporary homes or the fake service.
 No real provider CLI was invoked and no credential file was read.

@@ -266,7 +266,7 @@ test("context reads cannot fall back to the project while an isolated workspace 
   expect(reply.result).toMatchObject({ kind: "error" });
 });
 
-test("history reads with optional wire correlations work through both client APIs without durable receipts", async () => {
+test("finding and releasing past sessions works without durable receipts", async () => {
   const f = await setup(undefined, { instances: [] });
   cleanup = f.cleanup;
   const storage = memoryStorage();
@@ -278,13 +278,11 @@ test("history reads with optional wire correlations work through both client API
     cwd: f.daemon.store.getWorkspacePath(f.workspaceId) ?? "",
     limit: 10,
   });
-  const specialized = await client.listHistory({
-    cwd: f.daemon.store.getWorkspacePath(f.workspaceId) ?? "",
-    limit: 10,
+  expect(direct.sessions).toEqual([]);
+  expect(direct.scan?.state).toBe("ready");
+  expect(await client.request({ type: "history.release" })).toMatchObject({
+    type: "history.release",
   });
-  expect(direct.sessions).toEqual(specialized.sessions);
-  const status = await client.request({ type: "history.scan", action: "status" });
-  expect(status.scan?.state).toBeDefined();
   expect(await storage.load()).toBe(before);
   expect(
     f.daemon.store.atomic(

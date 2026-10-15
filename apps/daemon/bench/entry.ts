@@ -53,7 +53,6 @@ const Request = z.discriminatedUnion("op", [
   }),
   z.object({ id: z.number(), op: z.literal("idle-store") }),
   z.object({ id: z.number(), op: z.literal("idle-sample") }),
-  z.object({ id: z.number(), op: z.literal("history") }),
   z.object({ id: z.number(), op: z.literal("close") }),
   z.object({ id: z.number(), op: z.literal("memory") }),
   z.object({ id: z.number(), op: z.literal("plans") }),
@@ -141,15 +140,6 @@ process.on("message", (input: unknown) => {
         }
         if (errors.length) throw new Error(String(errors[0]));
         process.send?.({ id: request.id, threads: [], memory: process.memoryUsage() });
-        return;
-      }
-      if (request.op === "history") {
-        await daemon.history?.startScan();
-        process.send?.({
-          id: request.id,
-          scan: daemon.history?.scanStatus(),
-          memory: process.memoryUsage(),
-        });
         return;
       }
       if (request.op === "idle-sample") {

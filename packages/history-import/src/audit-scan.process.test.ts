@@ -7,7 +7,7 @@ import { openHistory } from "./index.ts";
 import { environment, jsonl, claudeRecords, codexRecords, cwd, init } from "./test-support.ts";
 
 for (const mode of ["stat", "read"] as const) {
-  test(`a transcript appended during ${mode} sampling preserves its row and retries only that path`, async () => {
+  test(`a transcript appended during ${mode} sampling preserves its row until the next scan reads it`, async () => {
     const env = await environment();
     const home = join(env.root, "claude"),
       codex = join(env.root, "codex");
@@ -30,7 +30,6 @@ for (const mode of ["stat", "read"] as const) {
           execArgv: ["--import", new URL("./sampling-race-preload.ts", import.meta.url).href],
           env: { ...process.env, ACE_TEST_SAMPLE_RACE: JSON.stringify({ path, marker, mode }) },
         }),
-      { watch: () => () => {} },
     );
     try {
       await service.scan();
@@ -40,13 +39,12 @@ for (const mode of ["stat", "read"] as const) {
       const sessions = (await service.list({ type: "history.list", cwd })).sessions;
       expect(sessions).toHaveLength(3);
       expect(sessions.find((session) => session.nativeId === "live")?.title).toBe("before");
-      expect(await service.scanChanges()).toMatchObject({ files: 1, reads: 1 });
+      await service.scan();
       expect(
         (await service.list({ type: "history.list", cwd })).sessions.find(
           (session) => session.nativeId === "live",
         )?.title,
       ).toBe("after race");
-      expect(await service.scanChanges()).toMatchObject({ files: 0, reads: 0 });
     } finally {
       await service.close();
       await env.close();

@@ -17,8 +17,8 @@ export interface Tour {
   scanTimeoutMs: number;
   scrub(text: string): string;
   catalogs(): Promise<void>;
-  scan(): Promise<void>;
-  pastSessionsPath(): Promise<string>;
+  /** The project to look in for past sessions; the first project when undefined. */
+  pastSessionsProject(): Promise<string | undefined>;
   coldPage(): Promise<Page>;
 }
 /** Keep visiting independent pages after a failed step; every attempt gets evidence. */
@@ -105,7 +105,7 @@ export async function runTour(options: Tour) {
     options.report.steps.push({ name, durationMs, screenshot });
     if (
       name.startsWith("thread-") ||
-      ["cold-start", "catalogs-ready", "past-sessions-scan"].includes(name)
+      ["cold-start", "catalogs-ready", "past-sessions-find"].includes(name)
     )
       options.report.timings[name] = durationMs;
     await writeReport(options.out, options.report, options.scrub);
@@ -137,27 +137,26 @@ export async function runTour(options: Tour) {
       options.report.threadsVisited++;
     });
   }
-  await step("new-thread-past-sessions", async () => visit(await options.pastSessionsPath()));
   await step(
-    "past-sessions-scan",
+    "past-sessions-find",
     async () => {
-      await options.scan();
-      await visit(await options.pastSessionsPath());
-      await expect(
-        page.getByRole("button", { name: "Show all past sessions", exact: true }),
-      ).toBeVisible();
-      await page.getByRole("button", { name: "Show all past sessions", exact: true }).click();
-      await expect(page.getByRole("dialog", { name: "Past sessions", exact: true })).toBeVisible();
-      await expect(page.getByText("Looking for saved conversations…", { exact: true })).toHaveCount(
-        0,
-        { timeout: options.scanTimeoutMs },
-      );
+      // Past sessions are read only from Settings, and only when asked.
+      const project = await options.pastSessionsProject();
+      await visit("/settings/providers");
+      if (project) {
+        await page.getByRole("combobox", { name: "Past sessions project" }).click();
+        await page.getByRole("option", { name: project, exact: true }).click();
+      }
+      await page.getByRole("button", { name: "Find past sessions", exact: true }).click();
+      await expect(page.getByText("Looking for past sessions…", { exact: true })).toHaveCount(0, {
+        timeout: options.scanTimeoutMs,
+      });
     },
     { sessions: true },
   );
   await step("import", async () => {
-    const dialog = page.getByRole("dialog", { name: "Past sessions", exact: true });
-    const button = dialog.getByRole("button", { name: /^Import / }).first();
+    const list = page.getByRole("list", { name: /^Past sessions in / });
+    const button = list.getByRole("button", { name: /^Import / }).first();
     await button.hover();
     await button.click();
     await expect(page).toHaveURL(/\/t\//);

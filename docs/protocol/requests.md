@@ -1409,6 +1409,7 @@ Example:
 | cwd | yes | string |  |
 | search | no | string | {"maxLength":256} |
 | openableOnly | no | boolean |  |
+| rescan | no | boolean |  |
 | limit | no | integer | {"default":50,"minimum":1,"maximum":200} |
 | before | no | object | {"properties":{"lastActivity":{"$ref":"https://ace.local/protocol/v1/Timestamp.json"},"id":{"type":"string"}},"required":["lastActivity","id"]} |
 
@@ -1416,6 +1417,10 @@ Example:
 
 ```json
 {
+  "before": {
+    "id": "example",
+    "lastActivity": 0
+  },
   "cwd": "example",
   "requestId": "example",
   "type": "history.list"
@@ -1442,21 +1447,18 @@ Example:
 }
 ```
 
-### history.scan
+### history.release
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| type | yes | `"history.scan"` |  |
+| type | yes | `"history.release"` |  |
 | requestId | no | string | {"minLength":1,"maxLength":256} |
-| action | no | ["start","status"] |  |
 
 Example:
 
 ```json
 {
-  "action": "status",
-  "requestId": "example",
-  "type": "history.scan"
+  "type": "history.release"
 }
 ```
 

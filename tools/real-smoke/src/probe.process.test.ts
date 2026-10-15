@@ -25,7 +25,7 @@ test("the smoke probe keeps its socket active and rejects an outstanding read wi
   socket.on("message", (frame: Buffer) => {
     const message = ClientMessage.parse(JSON.parse(frame.toString()));
     if (message.type === "ping") pinged.resolve();
-    if (message.type === "history.scan") {
+    if (message.type === "history.release") {
       requested.resolve();
       socket.close(4008, "Idle deadline");
     }
@@ -33,7 +33,7 @@ test("the smoke probe keeps its socket active and rejects an outstanding read wi
   try {
     ping?.();
     await pinged.promise;
-    const read = inspector.request({ type: "history.scan", operation: "status" });
+    const read = inspector.request({ type: "history.release" });
     await requested.promise;
     await expect(read).rejects.toThrow("Probe closed (4008): Idle deadline");
     await expect(inspector.request({ type: "accounts.list" })).rejects.toThrow("Idle deadline");

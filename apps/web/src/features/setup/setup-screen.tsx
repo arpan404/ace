@@ -1,4 +1,3 @@
-import { PastSessions } from "@/features/history/index.ts";
 import { useClient } from "@ace/client-react";
 import {
   FolderOpenIcon,
@@ -18,7 +17,6 @@ import { useProviderAccountModels } from "@/features/accounts/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { useProjectDialogs } from "@/features/projects/index.ts";
 import { ProviderRow } from "./provider-card.tsx";
-import { Disclosure } from "@/components/ui/disclosure.tsx";
 
 const steps = [
   {
@@ -146,17 +144,6 @@ export function SetupScreen() {
                   </>
                 )}
               </div>
-            )}
-            {step === 1 && (
-              <Disclosure
-                className="w-full py-3"
-                summaryClassName="text-ui"
-                summary="Bring an existing conversation"
-              >
-                <div className="mt-4">
-                  <PastSessions />
-                </div>
-              </Disclosure>
             )}
           </div>
         </div>

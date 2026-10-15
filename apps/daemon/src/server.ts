@@ -1,5 +1,4 @@
 import { shutdownDeadline } from "./shutdown.ts";
-import type { HistoryScanStatus } from "@ace/protocol/history";
 import { startTransports, startLocalTransports } from "./services/transports.ts";
 import { createSocketRegistry, parseSocketMessage } from "./services/registry.ts";
 import type { SocketMessage } from "./services/socket.ts";
@@ -40,7 +39,6 @@ export async function startServer(options: ServerOptions): Promise<{
   url: string;
   notify(device: DeviceId, notification: Notification): boolean;
   notificationDevices(): readonly DeviceId[];
-  broadcastHistoryScan(scan: HistoryScanStatus): void;
   preview?: DaemonPreview;
   httpUrl: string;
   diagnosticsQueues(): { socketInput: number; healthRequests: number };
@@ -477,17 +475,6 @@ export async function startServer(options: ServerOptions): Promise<{
     },
     get fingerprint() {
       return pairing()?.fingerprint;
-    },
-    broadcastHistoryScan(scan) {
-      for (const [socket, actor] of authenticated) {
-        const current = actor.revocable ? options.store.devices.get(actor.id) : actor;
-        if (
-          socket.readyState === WebSocket.OPEN &&
-          current?.revokedAt === null &&
-          allows(current, "read")
-        )
-          receivers.get(actor.id)?.get(socket)?.({ type: "history.scan.updated", scan });
-      }
     },
     notificationDevices: () => [...receivers.keys()],
     notify(device, notification) {

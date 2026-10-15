@@ -66,11 +66,10 @@ for (const { theme, width } of cases) {
     await expect(page.getByRole("button", { name: "Stop Calculator" })).toBeVisible();
     await shot(page, "17-computer-profile", suffix);
     await page.keyboard.press("Escape");
-    await page.goto("/setup");
-    await page.getByRole("button", { name: "Continue", exact: true }).click();
-    await page.getByText("Bring an existing conversation").click();
+    await page.goto("/settings/providers");
     await page.getByRole("combobox", { name: "Past sessions project" }).click();
     await page.getByRole("option", { name: "relay", exact: true }).click();
+    await page.getByRole("button", { name: "Find past sessions", exact: true }).click();
     const past = page.getByRole("list", { name: "Past sessions in relay" });
     await past
       .getByRole("button", { name: /^Import / })

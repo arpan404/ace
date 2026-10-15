@@ -48,19 +48,16 @@ for (const theme of themes)
     });
   }
 
-test("Setup keeps the history dialog and importing reachable away from new thread", async ({
+test("past sessions are found and imported from Settings, never from new thread", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/setup");
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await page.getByText("Bring an existing conversation").click();
+  await page.goto("/settings/providers");
   await page.getByRole("combobox", { name: "Past sessions project" }).click();
   await page.getByRole("option", { name: "relay", exact: true }).click();
-  await page.getByRole("button", { name: "Show all past sessions" }).click();
-  const dialog = page.getByRole("dialog", { name: "Past sessions" });
-  await expect(dialog.getByRole("textbox", { name: "Search past sessions" })).toBeVisible();
-  await dialog
+  await page.getByRole("button", { name: "Find past sessions", exact: true }).click();
+  await page
+    .getByRole("list", { name: "Past sessions in relay" })
     .getByRole("button", { name: /^Import / })
     .first()
     .click();
@@ -69,8 +66,7 @@ test("Setup keeps the history dialog and importing reachable away from new threa
   );
   await page.goto("/new?project=relay");
   await expect(page.getByRole("region", { name: "Where this thread runs" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Past sessions" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Show all past sessions" })).toHaveCount(0);
+  await expect(page.getByText(/past sessions/i)).toHaveCount(0);
 });
 
 test("failed starts retain three-line row height and recovery text", async ({ page }) => {

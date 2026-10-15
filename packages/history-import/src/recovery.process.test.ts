@@ -55,7 +55,7 @@ test("a crashed scan restarts with backoff and cached sessions can still be list
   const page = await listing;
   expect(page.sessions.length).toBeGreaterThan(0);
   expect(delays[0]).toBe(1000);
-  const scan = await service.scanChanges();
+  const scan = await service.scan();
   expect(scan.skipped).toBe(130);
   const source = page.sessions[0];
   if (!source) throw new Error("Missing cached session");

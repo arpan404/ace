@@ -64,9 +64,9 @@ test("the network guard refuses prompts, login, installation and malformed JSON 
     const echoed = new Promise<string>((resolve) =>
       socket.once("message", (data) => resolve(data.toString())),
     );
-    socket.send(JSON.stringify({ type: "history.scan", action: "status" }));
-    expect(JSON.parse(await echoed).type).toBe("history.scan");
-    expect(received.map((text) => JSON.parse(text).type)).toEqual(["history.scan"]);
+    socket.send(JSON.stringify({ type: "history.release" }));
+    expect(JSON.parse(await echoed).type).toBe("history.release");
+    expect(received.map((text) => JSON.parse(text).type)).toEqual(["history.release"]);
     expect(failures.filter((failure) => failure.code === "refused-command")).toHaveLength(4);
     socket.close();
   } finally {

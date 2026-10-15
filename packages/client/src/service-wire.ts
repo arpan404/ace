@@ -19,6 +19,6 @@ export {
   ServerMessage,
   SettingsResult,
 } from "@ace/protocol";
-export { HistoryListResponse, HistoryScanResponse } from "@ace/protocol/history";
+export { HistoryListResponse } from "@ace/protocol/history";
 
 export { decodeServiceResponse } from "./service-requests.ts";

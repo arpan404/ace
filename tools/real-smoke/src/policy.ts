@@ -29,7 +29,7 @@ const reads = new Set([
   "commands.list",
   "commands.resolve",
   "history.list",
-  "history.scan",
+  "history.release",
   "history.import",
   "usage.summary",
   "usage.series",

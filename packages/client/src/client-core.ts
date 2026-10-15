@@ -17,7 +17,6 @@ import type {
   ThreadMarkReadInput,
 } from "./long-thread.ts";
 import { ReadMarkers } from "./read-markers.ts";
-import type { HistoryScanStatus } from "@ace/protocol/history";
 import type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
 import { decodeUtf16 } from "./utf16.ts";
 import { decodeBase64 } from "./base64.ts";
@@ -128,7 +127,6 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   #admissions: CommandAdmissions;
   readonly #recordings = new CommandRecordings();
   protected notifications: Notifications;
-  protected historyState: HistoryScanStatus | undefined;
   protected closed = false;
   #readMarkers: ReadMarkers;
   #serviceListeners = new Set<(message: ServerMessage) => void>();
@@ -181,8 +179,6 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
             if (this.#hostId && this.#hostId !== message.hostId)
               throw new ClientError("protocol", "Transport changed daemon identity");
             this.#hostId = message.hostId;
-            this.historyState = undefined;
-            this.notifications.emit(["historyScan"]);
             if (options.storage.hostBinding) {
               void this.#bindHost(message.hostId).then(
                 () => this.#replay(),
@@ -195,18 +191,6 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
             void this.#intents
               .acknowledge(message)
               .catch(() => this.connection.fail(new ClientError("storage")));
-            break;
-          case "history.scan.updated":
-            this.historyState = message.scan;
-            this.notifications.emit(["historyScan"]);
-            break;
-          case "history.scan":
-          case "history.list":
-            if (message.scan) {
-              this.historyState = message.scan;
-              this.notifications.emit(["historyScan"]);
-            }
-            // The reply itself was resolved above with every other correlated reply.
             break;
           case "queue.result":
           case "settings.result":

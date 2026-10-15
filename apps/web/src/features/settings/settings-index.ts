@@ -23,6 +23,20 @@ const entries = [
     keywords: ["disk", "space", "clean", "worktrees", "attachments", "recordings", "logs", "cache"],
   },
   {
+    id: "past-sessions",
+    page: "/settings/providers",
+    title: "Past sessions",
+    keywords: [
+      "history",
+      "import",
+      "continue",
+      "claude",
+      "codex",
+      "opencode",
+      "saved conversations",
+    ],
+  },
+  {
     id: "source-control",
     page: "/settings/source-control",
     title: "Source control",

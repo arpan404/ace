@@ -1,7 +1,6 @@
 /* oxlint-disable unicorn/require-post-message-target-origin -- Node worker_threads has no targetOrigin. */
 import { Worker, type WorkerOptions } from "node:worker_threads";
 import { type WorkerPort, type IdleWorkerRuntime } from "@ace/provider-kit/idle-worker";
-import { InventoryWatch, type WatchDirectory } from "./inventory-watch.ts";
 import { RecoveringWorker } from "./recovering-worker.ts";
 import { validateIndexPath } from "./index-path.ts";
 type HistoryWorker = WorkerPort & { idle?(): void; started?: boolean };
@@ -32,7 +31,6 @@ export type { HistoryOptions, ImportSink, ProviderHome } from "./contracts.ts";
 export type { HistorySession } from "@ace/protocol/history";
 
 export interface HistoryRuntime {
-  watch?: WatchDirectory;
   delay?: IdleWorkerRuntime["delay"];
 }
 const Iteration = z.object({ done: z.boolean(), values: z.array(Packet).max(16) });
@@ -66,14 +64,12 @@ export async function openHistory(
         }),
     },
   );
-  const inventory = new InventoryWatch(parsed.instances, runtime.watch);
-  const service = new HistoryService(worker, inventory);
+  const service = new HistoryService(worker);
   worker.start();
   try {
     await service.ready;
     return service;
   } catch (error) {
-    inventory.close();
     await worker.terminate();
     throw error;
   }
@@ -83,7 +79,6 @@ export class HistoryService {
   private archiveWriting = false;
   private recoverable = false;
   private recoveryListeners = new Set<(retrying: boolean) => void>();
-  private inventory: InventoryWatch | undefined;
   private seq = 0;
   private pending:
     | { id: number; resolve: (value: unknown) => void; reject: (error: Error) => void }
@@ -98,12 +93,11 @@ export class HistoryService {
   private reads = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
   private scanning = false;
   readonly ready: Promise<unknown>;
-  constructor(worker: HistoryWorker, inventory?: InventoryWatch) {
+  constructor(worker: HistoryWorker) {
     this.worker = worker;
     this.recoverable = worker instanceof RecoveringWorker;
     if (worker instanceof RecoveringWorker) {
       worker.on("recovery", (retrying: boolean) => {
-        if (retrying) this.inventory?.reset();
         for (const listener of this.recoveryListeners) listener(retrying);
       });
       worker.on("fatal", (error: Error) => {
@@ -111,7 +105,6 @@ export class HistoryService {
         this.fail(error);
       });
     }
-    this.inventory = inventory;
     this.ready = new Promise((resolve, reject) => {
       this.pending = { id: 0, resolve, reject };
     });
@@ -214,30 +207,7 @@ export class HistoryService {
     if (!this.importing && !this.scanning && this.requestDone) await this.requestDone;
     if (this.importing || this.pending || this.scanning || this.closed || this.closing)
       throw new Error("History operation already in progress or closed");
-    // The authoritative scan covers already observed paths. Keep changes arriving
-    // during the scan for the next batch rather than retaining startup debris.
-    this.inventory?.take();
     return this.runScan({ op: "scan" }, signal, onProgress);
-  }
-  /** Consume observed changes. Explicit scan() stays authoritative when native events are delayed. */
-  async scanChanges(
-    signal?: AbortSignal,
-    onProgress?: (files: number, result: z.infer<typeof ScanResult>) => void | Promise<void>,
-  ) {
-    // A list started just before a scan still owns the request slot. Drain that read
-    // before claiming the scan instead of turning harmless overlap into a failure.
-    if (!this.importing && !this.scanning && this.requestDone) await this.requestDone;
-    if (this.importing || this.pending || this.scanning || this.closed || this.closing)
-      throw new Error("History operation already in progress or closed");
-    const changes = this.inventory?.take();
-    return this.runScan(
-      { op: "scan", ...(changes === undefined ? {} : { changes }) },
-      signal,
-      onProgress,
-    );
-  }
-  subscribeChanges(listener: () => void): () => void {
-    return this.inventory?.subscribe(listener) ?? (() => {});
   }
   private async runScan(
     request: Extract<z.infer<typeof Request>, { op: "scan" }>,
@@ -250,12 +220,7 @@ export class HistoryService {
     this.scanning = true;
     try {
       const result = ScanResult.parse(await this.request(request, signal));
-      this.inventory?.commit();
-      this.inventory?.retry(result.retry);
       return result;
-    } catch (error) {
-      this.inventory?.reset();
-      throw error;
     } finally {
       this.onProgress = undefined;
       this.scanning = false;
@@ -275,10 +240,15 @@ export class HistoryService {
   private requireIdle(): void {
     if (this.importing) throw new Error("Import in progress");
   }
-  async list(request: z.input<typeof HistoryListRequest>) {
+  /** `exclude` holds `provider:nativeId` keys of sessions ace already owns. */
+  async list(request: z.input<typeof HistoryListRequest>, exclude: readonly string[] = []) {
     this.requireIdle();
     return HistoryListResponse.parse(
-      await this.request({ op: "list", request: HistoryListRequest.parse(request) }),
+      await this.request({
+        op: "list",
+        request: HistoryListRequest.parse(request),
+        exclude: [...exclude],
+      }),
     );
   }
   async get(id: string) {
@@ -429,7 +399,6 @@ export class HistoryService {
       .parse(await fork({ instanceId, nativeSessionId }));
   }
   async close(): Promise<void> {
-    this.inventory?.close();
     this.recoveryListeners.clear();
     this.closing ??= (async () => {
       if (this.worker.started === false) {

@@ -13,6 +13,9 @@ export class FakeHistory {
   private transcripts: Record<string, { role: "user" | "assistant"; text: string; at?: number }[]> =
     {};
   private imported = new Map<string, ThreadId>();
+  /** Times a client asked for past sessions, and times it ended that look. */
+  lists = 0;
+  releases = 0;
   private scan: import("@ace/protocol").HistoryScanStatus | undefined;
   seedScan(scan: import("@ace/protocol").HistoryScanStatus): void {
     this.scan = scan;
@@ -32,10 +35,12 @@ export class FakeHistory {
       unsupported: [],
     };
     if (message.type === "history.list") {
+      this.lists++;
       const sessions = this.sessions
         .filter(
           (session) =>
             session.cwd === message.cwd &&
+            !this.imported.has(session.id) &&
             !session.parentNativeId &&
             (!message.openableOnly || session.support.status === "supported") &&
             (!message.search || session.title.toLowerCase().includes(message.search.toLowerCase())),
@@ -62,14 +67,9 @@ export class FakeHistory {
       });
       return true;
     }
-    if (message.type === "history.scan") {
-      send({
-        type: "history.scan",
-        requestId: message.requestId,
-        scan,
-        files: scan.stats.files,
-        unsupported: [],
-      });
+    if (message.type === "history.release") {
+      this.releases++;
+      send({ type: "history.release", requestId: message.requestId });
       return true;
     }
     const progress = (phase: "preparing" | "unsupported" | "completed") => {

@@ -84,7 +84,11 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
       ? Replies<"files.data" | "files.error">
       : Q["type"] extends "files.chunk"
         ? Replies<"files.upload" | "files.error">
-        : Q["type"] extends "history.list" | "history.scan" | "history.import" | "history.continue"
+        : Q["type"] extends
+              | "history.list"
+              | "history.release"
+              | "history.import"
+              | "history.continue"
           ? Extract<Reply, { type: Q["type"] }>
           : Q["type"] extends "devices.request"
             ? Replies<"devices.result">
@@ -177,7 +181,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "machines.request": ["machines.result"],
   "pi.control": ["pi.result"],
   "history.list": ["history.list"],
-  "history.scan": ["history.scan"],
+  "history.release": ["history.release"],
   "history.import": ["history.import"],
   "history.continue": ["history.continue"],
   "devices.request": ["devices.result"],

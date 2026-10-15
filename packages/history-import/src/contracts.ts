@@ -45,10 +45,6 @@ export const ImportInit = z.object({
 export type ImportInit = z.infer<typeof ImportInit>;
 export const ScanResult = HistoryScanStats.extend({
   unsupported: z.array(z.object({ instanceId: z.string(), reason: z.string() })).max(256),
-  retry: z
-    .array(z.object({ instanceId: z.string(), path: z.string().refine(isAbsolute) }))
-    .max(4096)
-    .default([]),
 });
 export const Packet = z.discriminatedUnion("type", [
   z.object({ type: z.literal("thread"), thread: Thread }),
@@ -90,19 +86,12 @@ export const Request = z.discriminatedUnion("op", [
   z.object({ op: z.literal("archive.agents"), id: ThreadId }),
   z.object({ op: z.literal("archive.page"), request: PageRequest }),
   z.object({ op: z.literal("archive.blob"), request: BlobRequest }),
+  z.object({ op: z.literal("scan") }),
   z.object({
-    op: z.literal("scan"),
-    changes: z
-      .array(
-        z.object({
-          instanceId: z.string(),
-          paths: z.array(z.string().max(4096).refine(isAbsolute)).max(4096),
-        }),
-      )
-      .max(256)
-      .optional(),
+    op: z.literal("list"),
+    request: HistoryListRequest,
+    exclude: z.array(z.string().max(4096)).max(100_000).default([]),
   }),
-  z.object({ op: z.literal("list"), request: HistoryListRequest }),
   z.object({ op: z.literal("get"), id: z.string() }),
   z.object({ op: z.literal("reference"), id: z.string() }),
   z.object({ op: z.literal("import"), init: ImportInit }),

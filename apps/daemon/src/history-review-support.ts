@@ -244,7 +244,11 @@ export async function reviewFixture(backpressure = true) {
         history: options,
       });
       store = daemon.store;
-      return connect();
+      const reconnected = await connect();
+      // Past sessions are read only on request: after a restart the person finds them again.
+      reconnected.send({ type: "history.list", cwd, limit: 50 });
+      if ((await reconnected.next()).type !== "history.list") throw new Error("Missing list");
+      return reconnected;
     },
     async close() {
       pauseHold?.proceed.resolve();
