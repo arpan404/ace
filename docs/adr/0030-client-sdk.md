@@ -59,3 +59,12 @@ Wire pages have a 1 MiB response budget. Message, reasoning and notice text use 
 Text appends write only their new bytes and one size counter, reusing prepared statements. They never parse, scan or rewrite the previous multipart preview. Preview materialization occurs on explicit page reads. Startup upgrades existing items and indexed text chunks once, retaining one row or chunk at a time. This adds an indexed copy of text to support bounded detail reads; it does not rewrite the full item per delta. Oversized non-text metadata that cannot fit a page produces a correlated read error rather than an oversized frame.
 
 New shell output writes use bounded chunks of at most 64 KiB without allocating a Buffer for an entire append. Output ranges slice intersecting blobs in SQLite before transfer to JavaScript, including legacy multi-megabyte chunks. The range query seeks the predecessor and returns only the requested bytes. Merge-time benchmarks cover one-byte reads inside 1/16 MiB single blobs and persistence into 1/200-part messages. These new paths have not been benchmarked under the owner's no-execution rule; their throughput and RSS need run at merge.
+
+## Amendment 2026-10-14: fatal closes
+
+Only refusals another attempt can't change are fatal: 4001, 4003, the transport's local 4002,
+and a changed daemon identity. Close 1009 and server frames the client can't read now reconnect
+with the normal backoff, whose attempt count resets only once a connection stays healthy. A
+frame the client's schemas reject (another build's message, or a welcome for another protocol
+version) is reported as `ClientError("version_mismatch")` until a good welcome. Transports pass
+the close reason, and `ConnectionInfo.lastClose` keeps the last `{code, reason, at}`.
