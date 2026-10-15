@@ -27,6 +27,7 @@ When these conflict, choose in that order.
 - No god files. Keep modules small and single-purpose: aim for under 400 lines per file. **Hard limit: 1,500 lines** per source file (tests included), enforced in CI by `bun run check:size`. A file approaching the limit is split by responsibility, never by arbitrary cuts.
 - Decode provider data leniently: unknown event types and fields are kept as raw data, never dropped and never fatal.
 - Before adding logic, check for an existing module that owns it. Duplicate logic across packages is a bug.
+- UI work follows [DESIGN.md](DESIGN.md).
 
 ## Design for modularity and testability
 

@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>ace · proposed default theme (Mono), light and dark</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  /* Proposed tokens (docs/design/2026-10-14-ui-quality-proposal.md §2). Zero chroma; status is the only colour. */
+  .theme-light {
+    --canvas: #ffffff; --sidebar: #f6f6f6; --surface: #f0f0f0; --raised: #ffffff;
+    --hover: rgb(0 0 0 / 5%); --active: rgb(0 0 0 / 9%);
+    --border: rgb(0 0 0 / 8%); --border-strong: rgb(0 0 0 / 16%);
+    --faint: #8f8f8f; --subtle: #6a6a6a; --muted: #575757; --text: #171717; --disabled: #a8a8a8;
+    --ink: #171717; --on-ink: #ffffff;
+    --working: #2a55b0; --needs: #9a5900; --failed: #a3233a; --done: #007856;
+    --glass: rgb(252 252 252 / 72%); --glass-dock: rgb(255 255 255 / 62%); --glass-ink: rgb(0 0 0 / 88%); --glass-ink-2: rgb(0 0 0 / 62%);
+    --shadow-float: 0 1px 2px rgb(0 0 0 / 6%), 0 8px 24px -8px rgb(0 0 0 / 18%);
+    --shadow-dock: 0 10px 28px -16px rgb(0 0 0 / 30%);
+    --hl: rgb(255 255 255 / 18%); --btn-shadow: 0 1px 1px rgb(0 0 0 / 10%); --btn-shadow-2: 0 1px 1px rgb(0 0 0 / 5%);
+    color-scheme: light;
+  }
+  .theme-dark {
+    --canvas: #111111; --sidebar: #0b0b0b; --surface: #191919; --raised: #1f1f1f;
+    --hover: rgb(255 255 255 / 5%); --active: rgb(255 255 255 / 9%);
+    --border: rgb(255 255 255 / 8%); --border-strong: rgb(255 255 255 / 14%);
+    --faint: #666666; --subtle: #8a8a8a; --muted: #a6a6a6; --text: #ececec; --disabled: #4f4f4f;
+    --ink: #ececec; --on-ink: #111111;
+    --working: #6b90d9; --needs: #edc070; --failed: #e4697d; --done: #57bd9b;
+    --glass: rgb(40 40 40 / 76%); --glass-dock: rgb(36 36 36 / 64%); --glass-ink: rgb(255 255 255 / 92%); --glass-ink-2: rgb(255 255 255 / 66%);
+    --shadow-float: 0 1px 2px rgb(0 0 0 / 50%), 0 12px 32px -8px rgb(0 0 0 / 55%);
+    --shadow-dock: 0 10px 28px -16px rgb(0 0 0 / 70%);
+    --hl: rgb(255 255 255 / 8%); --btn-shadow: 0 1px 1px rgb(0 0 0 / 40%); --btn-shadow-2: 0 1px 1px rgb(0 0 0 / 30%);
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #e9e9e9; font: 13px/18px -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased; font-feature-settings: "tnum" 1, "cv11" 1; }
+  .mono { font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace; }
+  .page { padding: 24px; display: grid; gap: 24px; grid-template-columns: 1fr 1fr; max-width: 1840px; margin: 0 auto; }
+  @media (max-width: 1500px) { .page { grid-template-columns: 1fr; } }
+  h1 { grid-column: 1 / -1; font: 600 20px/26px inherit; letter-spacing: -0.015em; margin: 0; color: #171717; }
+  h1 small { font-weight: 400; color: #6a6a6a; }
+  .caption { grid-column: 1 / -1; color: #575757; max-width: 72ch; margin: -12px 0 0; }
+  .window { color: var(--text); background: var(--canvas); border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 1px rgb(0 0 0 / 10%), 0 20px 60px -20px rgb(0 0 0 / 35%); display: grid; grid-template-columns: 272px 1fr; height: 760px; }
+
+  /* Sidebar */
+  .sidebar { background: var(--sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; min-width: 0; }
+  .sb-top { display: flex; align-items: center; justify-content: space-between; height: 44px; padding: 0 12px 0 16px; }
+  .wordmark { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
+  .sb-filter { display: flex; align-items: center; justify-content: space-between; height: 32px; padding: 0 12px 0 16px; color: var(--muted); }
+  .sb-filter b { font-weight: 500; color: var(--text); }
+  .label { font-size: 11px; line-height: 14px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; color: var(--subtle); padding: 10px 16px 4px; }
+  .row { position: relative; display: grid; grid-template-rows: 16px 20px 16px; gap: 0; padding: 8px 12px 8px 16px; border-bottom: 1px solid var(--border); min-width: 0; }
+  .row.selected { background: var(--active); }
+  .row.selected::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--ink); }
+  .row:hover { background: var(--hover); }
+  .l1, .l3 { display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 16px; color: var(--muted); min-width: 0; }
+  .l1 .proj { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mark { width: 16px; height: 16px; border-radius: 4px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--border); color: var(--muted); font-size: 9px; font-weight: 600; letter-spacing: 0; display: grid; place-items: center; }
+  .l2 { font-size: 14px; line-height: 20px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row.muted .l2 { color: var(--muted); font-weight: 500; }
+  .row.read .l2 { color: var(--muted); font-weight: 400; }
+  .l3 { color: var(--subtle); }
+  .l3 .branch { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .l3 .right { margin-left: auto; display: flex; gap: 6px; color: var(--faint); }
+  .status { display: inline-flex; align-items: center; gap: 4px; font-weight: 500; font-size: 12px; white-space: nowrap; }
+  .status.needs { color: var(--needs); } .status.failed { color: var(--failed); } .status.working { color: var(--muted); font-weight: 400; }
+  .row.selected .status.working { color: var(--working); font-weight: 500; }
+  .time { color: var(--subtle); font-size: 12px; }
+  .settled { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--border); color: var(--muted); }
+  .settled .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sb-bottom { margin-top: auto; display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px 0 16px; border-top: 1px solid var(--border); color: var(--text); }
+  .avatar { width: 20px; height: 20px; border-radius: 999px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--border); font-size: 9px; font-weight: 600; display: grid; place-items: center; color: var(--muted); }
+
+  /* Main */
+  .main { display: grid; grid-template-rows: 44px 1fr auto; min-width: 0; position: relative; }
+  .header { display: flex; align-items: center; gap: 8px; padding: 0 10px 0 12px; border-bottom: 1px solid var(--border); }
+  .crumb { display: flex; align-items: center; gap: 6px; color: var(--muted); min-width: 0; }
+  .crumb .sep { color: var(--faint); }
+  .crumb .title { color: var(--text); font-weight: 500; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hdr-right { margin-left: auto; display: flex; gap: 4px; }
+  .ib { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: var(--muted); position: relative; }
+  .ib:hover { background: var(--hover); color: var(--text); }
+  .ib .dot { position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 999px; background: var(--needs); box-shadow: 0 0 0 2px var(--canvas); }
+  .transcript { overflow: hidden; padding: 20px 0 0; }
+  .column { max-width: 640px; margin: 0 auto; padding: 0 24px; display: flex; flex-direction: column; }
+  .prose { font-size: 15px; line-height: 24px; color: var(--text); }
+  .prose p { margin: 0 0 12px; }
+  .prose p:last-child { margin-bottom: 0; }
+  .prose ul { margin: 0 0 12px; padding-left: 20px; }
+  .prose li { margin: 0; }
+  .prose b { font-weight: 600; }
+  .prose code { font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace; font-size: 0.92em; background: var(--surface); border-radius: 4px; padding: 1px 5px; }
+  .bubble { align-self: flex-end; max-width: 82%; background: var(--surface); border-radius: 12px 8px 12px 12px; padding: 10px 14px; }
+  .stamp { align-self: flex-end; font-size: 12px; line-height: 16px; color: var(--subtle); margin: 6px 2px 20px; }
+  .worked { display: flex; align-items: center; gap: 6px; height: 28px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); color: var(--muted); margin: 0 0 16px; }
+  .worked .t { margin-left: auto; font-size: 12px; color: var(--subtle); }
+  .steps { display: flex; flex-direction: column; margin: 4px 0 16px; }
+  .step { display: flex; align-items: center; gap: 8px; height: 24px; color: var(--muted); font-size: 13px; min-width: 0; }
+  .step svg { color: var(--faint); flex: none; }
+  .step code { font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 12px; background: var(--surface); border-radius: 4px; padding: 1px 5px; color: var(--muted); }
+  .step .more { color: var(--subtle); font-size: 12px; margin-left: auto; }
+  .group { border-left: 1px solid var(--border); padding-left: 12px; margin-left: 7px; }
+  .working-line { display: flex; align-items: center; gap: 8px; height: 24px; color: var(--muted); margin-top: 8px; }
+  .working-line svg { color: var(--working); }
+
+  /* Composer dock */
+  .dock { padding: 0 24px 16px; position: relative; }
+  /* The dim layer behind the dock (§6.3): a plain gradient, not a filter. */
+  .dock::before { content: ""; position: absolute; left: 0; right: 0; bottom: 0; top: -40px; background: linear-gradient(to top, var(--canvas) 0 16px, color-mix(in srgb, var(--canvas) 40%, transparent) 75%, transparent); pointer-events: none; }
+  .dock-inner { max-width: 640px; margin: 0 auto; position: relative; }
+  .strip { position: relative; margin: 0 16px -16px; padding: 12px 16px 28px; background: var(--glass-dock); backdrop-filter: blur(28px) saturate(140%); border: 1px solid var(--border-strong); border-bottom: 0; border-radius: 16px 16px 0 0; }
+  .strip .q { font-size: 14px; line-height: 20px; font-weight: 500; }
+  .strip .q code { font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 13px; font-weight: 400; }
+  .strip .risk { font-size: 12px; line-height: 16px; color: var(--failed); margin: 2px 0 10px; }
+  .strip .acts { display: flex; gap: 8px; align-items: center; }
+  .strip .acts .details { margin-left: auto; color: var(--muted); display: inline-flex; align-items: center; gap: 2px; }
+  .composer { position: relative; background: var(--glass-dock); backdrop-filter: blur(28px) saturate(140%); border: 1px solid var(--border-strong); border-radius: 16px; box-shadow: inset 0 1px 0 rgb(255 255 255 / 60%), var(--shadow-dock); }
+  .theme-dark .composer { box-shadow: inset 0 1px 0 rgb(255 255 255 / 10%), var(--shadow-dock); }
+  .composer .input { padding: 12px 14px 6px; min-height: 60px; font-size: 15px; line-height: 24px; color: var(--subtle); }
+  .composer .foot { display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 7px 0 7px; }
+  .rb { width: 30px; height: 30px; border-radius: 999px; display: grid; place-items: center; color: var(--muted); }
+  .rb:hover { background: var(--hover); color: var(--text); }
+  .chip { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px 0 8px; border-radius: 999px; color: var(--text); }
+  .chip:hover { background: var(--hover); }
+  .chip .eff { color: var(--muted); }
+  .chip .dot { color: var(--faint); }
+  .chip svg.caret { color: var(--faint); }
+  .send { width: 30px; height: 30px; border-radius: 999px; background: var(--ink); color: var(--on-ink); display: grid; place-items: center; border: 1px solid var(--ink); box-shadow: inset 0 1px var(--hl), var(--btn-shadow); margin-left: 4px; }
+
+  /* Buttons */
+  .btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 8px; font-size: 13px; font-weight: 500; border: 1px solid var(--border-strong); background: var(--raised); color: var(--text); box-shadow: inset 0 1px var(--hl), var(--btn-shadow-2); }
+  .btn.primary { background: var(--ink); color: var(--on-ink); border-color: var(--ink); box-shadow: inset 0 1px var(--hl), var(--btn-shadow); }
+  .btn.ghost { border-color: transparent; background: transparent; box-shadow: none; color: var(--muted); font-weight: 400; }
+  .btn.danger { background: var(--failed); border-color: var(--failed); color: #fff; box-shadow: inset 0 1px var(--hl), var(--btn-shadow); }
+
+  /* Menu sample floating over the transcript */
+  .menu { position: absolute; right: 16px; top: 52px; width: 224px; padding: 6px; border-radius: 12px; background: var(--glass); backdrop-filter: blur(20px) saturate(150%); box-shadow: inset 0 1px 0 rgb(255 255 255 / 90%), inset 0 0 0 1px rgb(255 255 255 / 35%), 0 0 0 1px rgb(0 0 0 / 10%), var(--shadow-float); }
+  .theme-dark .menu { backdrop-filter: blur(20px) saturate(140%); box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%), inset 0 0 0 1px rgb(255 255 255 / 5%), 0 0 0 1px rgb(0 0 0 / 60%), var(--shadow-float); }
+  .mi { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px; color: var(--glass-ink); }
+  .mi svg { color: var(--glass-ink-2); }
+  .mi .k { margin-left: auto; font-size: 12px; color: var(--glass-ink-2); }
+  .mi.hover { background: var(--hover); }
+  .mi.danger { color: var(--failed); } .mi.danger svg { color: var(--failed); }
+  .msep { height: 1px; background: var(--border); margin: 6px 0; }
+
+  svg { display: block; }
+  .tiers { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .tier { padding: 16px; border-radius: 12px; display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; background: var(--canvas); color: var(--text); box-shadow: 0 0 0 1px rgb(0 0 0 / 10%); }
+  .tier div { font-size: 12px; line-height: 16px; }
+  .tier div span { display: block; height: 28px; border-radius: 6px; margin-bottom: 4px; box-shadow: inset 0 0 0 1px var(--border); }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>ace · proposed default theme (Mono) <small>— light and dark, sidebar · transcript · composer</small></h1>
+  <p class="caption">Same screen in both modes. What to look at: text tiers one clear step apart (17.9 / 7.2 / 5.3 / 3.2 : 1), 500-weight titles, full-width hairline rows with no radius, a 2px selection bar, monochrome project and provider marks (colour only on status words), 15/24 prose with hairline turn boundaries, 24px tool rows a step quieter than the answer, a 16px-radius glass dock (62/64% tint over a dim gradient) with a real shadow and a folded strip, 28px bevelled buttons, 12px glass menus at 72/76% tint with a dark outer hairline and a white inner rim. The glass section further down compares this with today's recipe over busy content.</p>
+
+  <!-- ============ LIGHT ============ -->
+  <div class="window theme-light" id="light">
+    <aside class="sidebar">
+      <div class="sb-top"><span class="wordmark">ace</span>
+        <div style="display:flex;gap:2px">
+          <span class="ib"><svg width="16" height="16" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"><circle cx="116" cy="116" r="76"/><path d="M172 172l56 56"/></svg></span>
+          <span class="ib"><svg width="16" height="16" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"><path d="M96 216H48a8 8 0 0 1-8-8v-44l120-120 52 52-120 120Z"/><path d="M136 64l56 56"/></svg></span>
+        </div>
+      </div>
+      <div class="sb-filter"><span><b>All projects</b> ▾</span><span style="display:inline-flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:999px;background:var(--needs)"></span>6 need you</span></div>
+
+      <div class="row selected">
+        <div class="l1"><span class="mark">BA</span><span class="proj">billing-api</span><span class="status needs"><svg width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M128 24a104 104 0 1 0 104 104A104 104 0 0 0 128 24Zm-8 56a8 8 0 0 1 16 0v56a8 8 0 0 1-16 0Zm8 104a12 12 0 1 1 12-12 12 12 0 0 1-12 12Z"/></svg>Approve</span></div>
+        <div class="l2">Fix flaky checkout test</div>
+        <div class="l3"><span class="branch mono">fix/checkout-flake</span><span class="right"><svg width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M128 20c-8 0-14 30-30 46S52 80 52 88s30 14 46 30 14 46 22 46 14-30 30-46 46-14 46-22-30-14-46-30-14-46-22-46Z" opacity=".9"/></svg></span></div>
+      </div>
+      <div class="row">
+        <div class="l1"><span class="mark">RE</span><span class="proj">relay</span><span class="status failed"><svg width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M128 24a104 104 0 1 0 104 104A104 104 0 0 0 128 24Zm37.7 130.3a8 8 0 0 1-11.4 11.4L128 139.3l-26.3 26.4a8 8 0 0 1-11.4-11.4l26.4-26.3-26.4-26.3a8 8 0 0 1 11.4-11.4l26.3 26.4 26.3-26.4a8 8 0 0 1 11.4 11.4L139.3 128Z"/></svg>Failed</span></div>
+        <div class="l2">Retry budget for app-server restarts</div>
+        <div class="l3"><span class="branch mono">fix/restart-retry</span><span class="right"><span class="mono" style="font-size:11.5px">#188</span><svg width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M128 20c-8 0-14 30-30 46S52 80 52 88s30 14 46 30 14 46 22 46 14-30 30-46 46-14 46-22-30-14-46-30-14-46-22-46Z" opacity=".9"/></svg></span></div>
+      </div>
+      <div class="row">
+        <div class="l1"><span class="mark">AM</span><span class="proj">ace-mobile</span><span class="status needs"><svg width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M128 24a104 104 0 1 0 104 104A104 104 0 0 0 128 24Zm-8 56a8 8 0 0 1 16 0v56a8 8 0 0 1-16 0Zm8 104a12 12 0 1 1 12-12 12 12 0 0 1-12 12Z"/></svg>Answer</span></div>
+        <div class="l2">Approval sheet loses its state on rotate</div>
+        <div class="l3"><span class="branch mono">fix/sheet-rotate</span><span class="right"><svg width="14" height="14" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="20"><circle cx="128" cy="128" r="88"/><circle cx="128" cy="128" r="40"/></svg></span></div>
+      </div>
+      <div class="row muted">
+        <div class="l1"><span class="mark">AC</span><span class="proj">ace</span><span class="status working"><svg width="12" height="12" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="round"><path d="M128 40a88 88 0 1 1-62 26"/></svg>Working</span></div>
+        <div class="l2">Dedupe thread events after reconnect</div>
+        <div class="l3"><span class="branch mono">fix/replay-dedupe</span><span class="right"><span class="mono" style="font-size:11.5px">#214</span><svg width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M128 20c-8 0-14 30-30 46S52 80 52 88s30 14 46 30 14 46 22 46 14-30 30-46 46-14 46-22-30-14-46-30-14-46-22-46Z" opacity=".9"/></svg></span></div>
+      </div>
+      <div class="row muted">
+        <div class="l1"><span class="mark">AC</span><span class="proj">ace</span><span class="time">Background</span></div>
+        <div class="l2">Check the skeladb project page</div>
+        <div class="l3"><span class="branch mono">main</span><span class="right"><svg width="14" height="14" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="20"><circle cx="128" cy="128" r="88"/><circle cx="128" cy="128" r="40"/></svg></span></div>
+      </div>
+      <div class="row read">
+        <div class="l1"><span class="mark">RE</span><span class="proj">relay</span><span class="time">2h</span></div>
+        <div class="l2">Add rate limit headers to the relay</div>
+        <div class="l3"><span class="branch mono">feat/rate-headers</span><span class="right"><svg width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M128 20c-8 0-14 30-30 46S52 80 52 88s30 14 46 30 14 46 22 46 14-30 30-46 46-14 46-22-30-14-46-30-14-46-22-46Z" opacity=".9"/></svg></span></div>
+      </div>
+      <div class="label">Settled</div>
+      <div class="settled"><span class="t">Migrate sessions table to v2</span><span class="time">Yesterday</span></div>
+      <div class="settled"><span class="t">Fix the login redirect loop</span><span class="time">Mon</span></div>
+      <div class="sb-bottom"><span class="avatar">AB</span><span style="flex:1">Arpan Bhandari</span><span class="ib" style="width:28px;height:28px"><svg width="16" height="16" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="18"><circle cx="128" cy="128" r="36"/><path d="M128 36v24M128 196v24M36 128h24M196 128h24M63 63l17 17M176 176l17 17M63 193l17-17M176 80l17-17"/></svg></span></div>
+    </aside>
+
+    <section class="main">
+      <div class="header">
+        <span class="ib"><svg width="16" height="16" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="18"><rect x="40" y="48" width="176" height="160" rx="12"/><path d="M96 48v160"/></svg></span>
+        <div class="crumb"><span class="mark">BA</span><span>billing-api</span><span class="sep">/</span><span class="title">Fix flaky checkout test</span></div>
+        <div class="hdr-right">
+          <span class="ib"><svg width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><circle cx="64" cy="128" r="14"/><circle cx="128" cy="128" r="14"/><circle cx="192" cy="128" r="14"/></svg></span>
+          <span class="ib"><svg width="16" height="16" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="18" stroke-linecap="round"><rect x="40" y="48" width="176" height="160" rx="12"/><path d="M80 96h96M80 128h96M80 160h56"/></svg><span class="dot"></span></span>
+          <span class="ib"><svg width="16" height="16" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="18"><rect x="40" y="48" width="176" height="160" rx="12"/><path d="M160 48v160"/></svg></span>
+        </div>
+      </div>
+
+      <div class="transcript">
+        <div class="column">
+          <div class="bubble prose">checkout.spec.ts fails about one run in five. Find out why and fix it.</div>
+          <div class="stamp">3:51 PM</div>
+
+          <div class="worked"><svg width="14" height="14" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"><path d="M96 48l80 80-80 80"/></svg>Worked for 2m 14s<span class="t">3:54 PM</span></div>
+
+          <div class="prose">
+            <p>The flake comes from a fixed timer in the payment poller, not from the test itself.</p>
+            <ul>
+              <li><code>pollPayment()</code> retries on a hard-coded 50 ms interval; the test asserts after 40 ms.</li>
+              <li>Under load the first poll lands late, so the assertion sees the previous status.</li>
+            </ul>
+            <p>I made the poller await the first tick and gave the test a <code>waitFor</code> with a 500 ms ceiling. <b>612 tests passed</b> locally, 20 runs in a row.</p>
+          </div>
+
+          <div class="working-line"><svg width="14" height="14" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="round"><path d="M128 40a88 88 0 1 1-62 26"/></svg>Working for 41s</div>
+          <div class="steps group">
+            <div class="step"><svg width="16" height="16" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="18" stroke-linecap="round"><circle cx="116" cy="116" r="76"/><path d="M172 172l56 56"/></svg>Explored 6 files<span class="more">›</span></div>
+            <div class="step"><svg width="16" height="16" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"><path d="M40 72l64 56-64 56M128 184h88"/></svg>Running in background <code>bun run test --watch checkout</code><span class="more">3m</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dock">
+        <div class="dock-inner">
+          <div class="strip">
+            <div class="q">Run <code>rm -rf node_modules/.cache/vitest</code>?</div>
+            <div class="risk">High risk · Hard to undo</div>
+            <div class="acts"><span class="btn primary">Allow once</span><span class="btn">Deny</span><span class="details">Details <svg width="12" height="12" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"><path d="M96 48l80 80-80 80"/></svg></span></div>
+          </div>
+          <div class="composer">
+            <div class="input">Ask anything</div>
+            <div class="foot">
+              <span class="rb"><svg width="16" height="16" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="20" stroke-linecap="round"><path d="M128 40v176M40 128h176"/></svg></span>
+              <span class="rb"><svg width="16" height="16" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"><path d="M40 112V56a16 16 0 0 1 16-16h144a16 16 0 0 1 16 16v56c0 60-40 96-88 112-48-16-88-52-88-112Z"/></svg></span>
+              <span class="chip"><svg width="14" height="14" viewBox="0 0 256 256" fill="currentColor" style="color:var(--muted)"><path d="M128 20c-8 0-14 30-30 46S52 80 52 88s30 14 46 30 14 46 22 46 14-30 30-46 46-14 46-22-30-14-46-30-14-46-22-46Z"/></svg>Opus 5.5<span class="dot">·</span><span class="eff">Medium</span><svg class="caret" width="12" height="12" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"><path d="M56 96l72 72 72-72"/></svg></span>
+              <span class="send"><svg width="14" height="14" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"><path d="M128 216V56M56 128l72-72 72 72"/></svg></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="menu">
+        <div class="mi"><svg width="16" height="16" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"><path d="M96 216H48a8 8 0 0 1-8-8v-44l120-120 52 52-120 120Z"/><path d="M136 64l56 56"/></svg>Rename<span class="k">⌥⌘R</span></div>
+        <div class="mi hover"><svg width="16" height="16" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"><path d="M136 120l80-80M160 40h56v56M216 136v72a8 8 0 0 1-8 8H48a8 8 0 0 1-8-8V48a8 8 0 0 1 8-8h72"/></svg>Open in…<span class="k">›</span></div>
+        <div class="mi"><svg width="16" height="16" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="18" stroke-linecap="round"><circle cx="116" cy="116" r="76"/><path d="M172 172l56 56"/></svg>Search this thread<span class="k">⌘F</span></div>
+        <div class="msep"></div>
+        <div class="mi"><svg width="16" height="16" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"><path d="M128 32v96l40 40"/><circle cx="128" cy="128" r="96"/></svg>Snooze<span class="k">›</span></div>
+        <div class="mi"><svg width="16" height="16" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"><rect x="32" y="56" width="192" height="40" rx="8"/><path d="M48 96v104a8 8 0 0 0 8 8h144a8 8 0 0 0 8-8V96M104 144h48"/></svg>Archive<span class="k">⇧⌘A</span></div>
+        <div class="mi danger"><svg width="16" height="16" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"><path d="M216 56H40M104 104v64M152 104v64M200 56v152a8 8 0 0 1-8 8H64a8 8 0 0 1-8-8V56M168 56V40a16 16 0 0 0-16-16h-48a16 16 0 0 0-16 16v16"/></svg>Delete thread</div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============ DARK (cloned from light by script) ============ -->
+  <div class="window theme-dark" id="dark"></div>
+
+  <!-- ============ GLASS: current vs proposed over busy content ============ -->
+  <h1 style="margin-top:8px">Glass <small>— current recipe vs proposed, over the same busy backdrop, light and dark</small></h1>
+  <p class="caption">Left of each pair: today's stack (blur 24/28, saturate 180/165, contrast 72/70%, brightness 114/72%, tint white 52% / #1A1A1A 64%, white-only rim, darkened text). Right: proposed (blur 20–28, saturate 140–150, no scrim, tint 62–76%, dark outer hairline + white inner rim, alpha "vibrancy" inks, a dim gradient behind the dock). Both are real <code>backdrop-filter</code>; scroll-less, so look at what the body does to the code block and the colour patch behind it.</p>
+  <style>
+    .glass-grid { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .glass-pane { position: relative; height: 420px; border-radius: 12px; overflow: hidden; background: var(--canvas); color: var(--text); box-shadow: 0 0 0 1px rgb(0 0 0 / 10%); display: grid; grid-template-columns: 1fr 1fr; }
+    .busy { position: absolute; inset: 0; padding: 16px 20px; font-size: 14px; line-height: 22px; color: var(--text); }
+    .busy pre { margin: 10px 0; padding: 12px; border-radius: 8px; background: var(--surface); font: 12.5px/20px "SF Mono", ui-monospace, Menlo, monospace; color: var(--text); white-space: pre; }
+    .busy .kw { color: #7a3fb0; } .busy .str { color: #0b7a4b; } .busy .fn { color: #1f5fbf; } .busy .cm { color: var(--subtle); }
+    .theme-dark .busy .kw { color: #c79bff; } .theme-dark .busy .str { color: #7fd6a8; } .theme-dark .busy .fn { color: #8ab4ff; }
+    .blob { position: absolute; width: 220px; height: 220px; border-radius: 999px; filter: blur(2px); opacity: .85; background: radial-gradient(circle at 30% 30%, #ffb14e, #e5484d 45%, #3e63dd 100%); }
+    .half { position: relative; }
+    .half .tag { position: absolute; top: 10px; left: 12px; font-size: 11px; line-height: 14px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; color: var(--subtle); background: var(--canvas); padding: 2px 6px; border-radius: 4px; z-index: 3; }
+    .g-menu { position: absolute; top: 44px; left: 24px; width: 208px; padding: 6px; border-radius: 12px; z-index: 2; }
+    .g-dock { position: absolute; left: 20px; right: 20px; bottom: 16px; border-radius: 16px; z-index: 2; }
+    .g-dock .in { padding: 12px 14px 6px; min-height: 56px; font-size: 15px; line-height: 24px; }
+    .g-dock .ft { display: flex; align-items: center; height: 44px; padding: 0 8px; gap: 8px; font-size: 13px; }
+    .g-dock .ft .s { margin-left: auto; width: 30px; height: 30px; border-radius: 999px; background: var(--ink); }
+    .g-mi { display: flex; align-items: center; height: 30px; padding: 0 8px; border-radius: 6px; font-size: 13px; }
+    .g-mi .k { margin-left: auto; font-size: 12px; }
+    .g-sep { height: 1px; margin: 6px 0; }
+    /* CURRENT recipe, reproduced from glass.css + tokens.ts */
+    .cur-light .g-menu, .cur-light .g-dock { background: rgb(255 255 255 / .52); backdrop-filter: blur(24px) saturate(180%) contrast(72%) brightness(114%); -webkit-backdrop-filter: blur(24px) saturate(180%) contrast(72%) brightness(114%); box-shadow: inset 0 1px 0 0 rgb(255 255 255 / .95), inset 0 0 0 1px rgb(255 255 255 / .4), inset 0 -1px 0 0 rgb(255 255 255 / .3), 0 0 0 .5px rgb(17 17 17 / .12), 0 1px 2px rgb(17 17 17 / .05), 0 6px 16px -4px rgb(17 17 17 / .1), 0 22px 48px -18px rgb(17 17 17 / .2); }
+    .cur-light .g-dock { box-shadow: none; border: 1px solid #e6e6e6; border-radius: 22px; }
+    .cur-light .g-mi, .cur-light .g-dock { color: #0a0a0a; } .cur-light .g-mi .k, .cur-light .g-dock .in { color: #2d2d2d; } .cur-light .g-sep { background: #e6e6e6; }
+    .cur-dark .g-menu, .cur-dark .g-dock { background: rgb(26 26 26 / .64); backdrop-filter: blur(28px) saturate(165%) contrast(70%) brightness(72%); -webkit-backdrop-filter: blur(28px) saturate(165%) contrast(70%) brightness(72%); box-shadow: inset 0 1px 0 0 rgb(255 255 255 / .16), inset 0 0 0 1px rgb(255 255 255 / .06), inset 0 -1px 0 0 rgb(255 255 255 / .04), 0 0 0 .5px rgb(0 0 0 / .55), 0 1px 2px rgb(0 0 0 / .4), 0 8px 20px -6px rgb(0 0 0 / .45), 0 28px 56px -20px rgb(0 0 0 / .6); }
+    .cur-dark .g-dock { box-shadow: none; border: 1px solid #212121; border-radius: 22px; }
+    .cur-dark .g-mi, .cur-dark .g-dock { color: #f6f6f6; } .cur-dark .g-mi .k, .cur-dark .g-dock .in { color: #cdcdcd; } .cur-dark .g-sep { background: #212121; }
+    /* PROPOSED recipe (§6.3) */
+    .new-light .g-menu { background: rgb(252 252 252 / .72); backdrop-filter: blur(20px) saturate(150%); -webkit-backdrop-filter: blur(20px) saturate(150%); box-shadow: inset 0 1px 0 rgb(255 255 255 / .9), inset 0 0 0 1px rgb(255 255 255 / .35), 0 0 0 1px rgb(0 0 0 / .10), 0 1px 2px rgb(0 0 0 / .06), 0 8px 24px -8px rgb(0 0 0 / .18); }
+    .new-light .g-dock { background: rgb(255 255 255 / .62); backdrop-filter: blur(28px) saturate(140%); -webkit-backdrop-filter: blur(28px) saturate(140%); box-shadow: inset 0 1px 0 rgb(255 255 255 / .9), inset 0 0 0 1px rgb(255 255 255 / .35), 0 0 0 1px rgb(0 0 0 / .10), 0 10px 28px -16px rgb(0 0 0 / .30); }
+    .new-light .dim { position: absolute; left: 0; right: 0; bottom: 0; height: 150px; background: linear-gradient(to top, #ffffff 0 16px, rgb(255 255 255 / .35) 70%, transparent); z-index: 1; }
+    .new-light .g-mi, .new-light .g-dock { color: rgb(0 0 0 / .88); } .new-light .g-mi .k, .new-light .g-dock .in { color: rgb(0 0 0 / .62); } .new-light .g-sep { background: rgb(0 0 0 / .08); }
+    .new-dark .g-menu { background: rgb(40 40 40 / .76); backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); box-shadow: inset 0 1px 0 rgb(255 255 255 / .12), inset 0 0 0 1px rgb(255 255 255 / .05), 0 0 0 1px rgb(0 0 0 / .6), 0 1px 2px rgb(0 0 0 / .5), 0 12px 32px -8px rgb(0 0 0 / .55); }
+    .new-dark .g-dock { background: rgb(36 36 36 / .64); backdrop-filter: blur(28px) saturate(130%); -webkit-backdrop-filter: blur(28px) saturate(130%); box-shadow: inset 0 1px 0 rgb(255 255 255 / .12), inset 0 0 0 1px rgb(255 255 255 / .05), 0 0 0 1px rgb(0 0 0 / .6), 0 10px 28px -16px rgb(0 0 0 / .7); }
+    .new-dark .dim { position: absolute; left: 0; right: 0; bottom: 0; height: 150px; background: linear-gradient(to top, #111111 0 16px, rgb(17 17 17 / .5) 70%, transparent); z-index: 1; }
+    .new-dark .g-mi, .new-dark .g-dock { color: rgb(255 255 255 / .92); } .new-dark .g-mi .k, .new-dark .g-dock .in { color: rgb(255 255 255 / .66); } .new-dark .g-sep { background: rgb(255 255 255 / .08); }
+    @supports (mix-blend-mode: plus-lighter) { .new-dark .g-mi, .new-dark .g-dock .in, .new-dark .g-dock .ft { mix-blend-mode: plus-lighter; } }
+    .g-mi.hov { background: rgb(0 0 0 / .05); } .theme-dark .g-mi.hov { background: rgb(255 255 255 / .06); }
+  </style>
+  <div class="glass-grid">
+    <div class="glass-pane theme-light" data-glass-pane>
+      <div class="busy" data-busy></div>
+      <div class="half cur-light"><span class="tag">Current</span><div class="g-menu" data-menu></div><div class="g-dock" data-dock></div></div>
+      <div class="half new-light"><span class="tag">Proposed</span><div class="dim"></div><div class="g-menu" data-menu></div><div class="g-dock" data-dock></div></div>
+    </div>
+    <div class="glass-pane theme-dark" data-glass-pane>
+      <div class="busy" data-busy></div>
+      <div class="half cur-dark"><span class="tag">Current</span><div class="g-menu" data-menu></div><div class="g-dock" data-dock></div></div>
+      <div class="half new-dark"><span class="tag">Proposed</span><div class="dim"></div><div class="g-menu" data-menu></div><div class="g-dock" data-dock></div></div>
+    </div>
+  </div>
+  <script>
+    const busy = `
+      <div class="blob" style="right:12%;top:30px"></div>
+      <p>The flake comes from a fixed timer in the payment poller, not from the test itself. Under load the first poll lands late, so the assertion sees the previous status. I made the poller await the first tick and gave the test a ceiling.</p>
+      <pre><span class="kw">export async function</span> <span class="fn">pollPayment</span>(id: string) {
+  <span class="kw">const</span> first = <span class="kw">await</span> <span class="fn">tick</span>();           <span class="cm">// was: setTimeout(50)</span>
+  <span class="kw">return</span> <span class="fn">waitFor</span>(() => <span class="fn">status</span>(id) === <span class="str">"settled"</span>, { ceiling: 500 });
+}</pre>
+      <p>612 tests passed locally, twenty runs in a row. The payment poller retries on a fixed 50 ms timer; the test asserts after 40 ms. Checkpoint 24, dependency 61: examined migration and retained original permissions.</p>`;
+    const menu = `<div class="g-mi">Rename<span class="k">⌥⌘R</span></div><div class="g-mi hov">Open in…<span class="k">›</span></div><div class="g-mi">Search this thread<span class="k">⌘F</span></div><div class="g-sep"></div><div class="g-mi">Snooze<span class="k">›</span></div><div class="g-mi">Archive<span class="k">⇧⌘A</span></div>`;
+    const dock = `<div class="in">Ask anything</div><div class="ft"><span>+</span><span>Ask</span><span class="s"></span></div>`;
+    for (const el of document.querySelectorAll("[data-busy]")) el.innerHTML = busy;
+    for (const el of document.querySelectorAll("[data-menu]")) el.innerHTML = menu;
+    for (const el of document.querySelectorAll("[data-dock]")) el.innerHTML = dock;
+  </script>
+
+  <!-- ============ APPEARANCE PAGE ============ -->
+  <h1 style="margin-top:8px">Settings · Appearance <small>— proposed page (§7), light and dark</small></h1>
+  <p class="caption">Order: Colour scheme (preview cards kept) · Theme (orbs, duplicate, new, import) · Accent · Interface (Contrast, Translucency, Diff colours, Chat width, Density) · Motion (speed with a one-shot preview, Reduce motion) · Typography (interface font + composer preview, monospace font + diff/terminal preview, word wrap). Rows are 48px on grouped cards; previews are the real components at the chosen settings.</p>
+  <style>
+    .ap-grid { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .ap { color: var(--text); background: var(--canvas); border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 1px rgb(0 0 0 / 10%); display: grid; grid-template-columns: 220px 1fr; height: 1180px; }
+    .ap-nav { background: var(--sidebar); border-right: 1px solid var(--border); padding: 12px 8px; }
+    .ap-nav .n { height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 0; color: var(--muted); position: relative; }
+    .ap-nav .n.on { background: var(--active); color: var(--text); font-weight: 500; }
+    .ap-nav .n.on::before { content: ""; position: absolute; left: -8px; top: 0; bottom: 0; width: 2px; background: var(--ink); }
+    .ap-nav .n i { width: 16px; height: 16px; border-radius: 4px; background: var(--border); display: block; }
+    .ap-body { padding: 20px 28px; overflow: hidden; }
+    .ap-body h2 { font: 600 20px/26px inherit; letter-spacing: -0.015em; margin: 0 0 14px; }
+    .sec { margin-bottom: 16px; }
+    .sec > .h { font-size: 11px; line-height: 14px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; color: var(--subtle); margin: 0 0 6px 2px; display: flex; align-items: center; }
+    .sec > .h .act { margin-left: auto; text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 400; color: var(--muted); display: flex; gap: 10px; }
+    .card { background: var(--surface); border-radius: 12px; border: 1px solid var(--border); }
+    .r { display: flex; align-items: center; height: 44px; padding: 0 14px; border-bottom: 1px solid var(--border); gap: 12px; }
+    .r:last-child { border-bottom: 0; }
+    .r .lbl { font-size: 13px; font-weight: 500; }
+    .r .sub { font-size: 12px; color: var(--subtle); margin-left: 6px; font-weight: 400; }
+    .r .ctl { margin-left: auto; display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
+    .sel { height: 26px; padding: 0 8px 0 10px; border-radius: 6px; background: var(--raised); border: 1px solid var(--border-strong); box-shadow: inset 0 1px var(--hl), var(--btn-shadow-2); color: var(--text); display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+    .sel::after { content: "⌄"; color: var(--faint); font-size: 12px; margin-top: -4px; }
+    .sw { width: 30px; height: 18px; border-radius: 999px; background: var(--ink); position: relative; }
+    .sw::after { content: ""; position: absolute; top: 2px; right: 2px; width: 14px; height: 14px; border-radius: 999px; background: var(--on-ink); }
+    .sw.off { background: var(--border-strong); } .sw.off::after { right: auto; left: 2px; background: var(--raised); }
+    .slider { width: 180px; height: 4px; border-radius: 999px; background: var(--border-strong); position: relative; }
+    .slider::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: var(--v); background: var(--ink); border-radius: 999px; }
+    .slider::after { content: ""; position: absolute; left: calc(var(--v) - 8px); top: -6px; width: 16px; height: 16px; border-radius: 999px; background: var(--raised); border: 1px solid var(--border-strong); box-shadow: 0 1px 2px rgb(0 0 0 / 15%); }
+    .val { width: 44px; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
+    .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 12px 14px; }
+    .mode { border-radius: 8px; border: 1px solid var(--border); background: var(--raised); overflow: hidden; }
+    .mode.on { box-shadow: 0 0 0 2px var(--ink); border-color: transparent; }
+    .mode .pv { height: 64px; display: grid; grid-template-columns: 36% 64%; }
+    .mode .pv .a { background: #f6f6f6; border-right: 1px solid rgb(0 0 0 / 8%); } .mode .pv .b { background: #fff; }
+    .mode .pv.d .a { background: #0b0b0b; border-right-color: rgb(255 255 255 / 8%); } .mode .pv.d .b { background: #111; }
+    .mode .pv.s .b { background: linear-gradient(90deg, #fff 50%, #111 50%); }
+    .mode .n { height: 28px; display: flex; align-items: center; padding: 0 10px; font-size: 13px; font-weight: 500; }
+    .themes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 12px 14px; }
+    .th { border-radius: 8px; border: 1px solid var(--border); background: var(--raised); padding: 10px; display: flex; align-items: center; gap: 10px; font-size: 13px; position: relative; }
+    .th.on { box-shadow: 0 0 0 2px var(--ink); border-color: transparent; font-weight: 500; }
+    .orb { width: 26px; height: 26px; border-radius: 999px; flex: none; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); position: relative; }
+    .orb::after { content: ""; position: absolute; width: 8px; height: 8px; border-radius: 999px; right: -1px; bottom: -1px; background: var(--acc); box-shadow: 0 0 0 2px var(--raised); }
+    .th .dup { position: absolute; right: 6px; top: 6px; width: 18px; height: 18px; border-radius: 4px; color: var(--faint); font-size: 11px; display: grid; place-items: center; }
+    .th.new { border-style: dashed; color: var(--muted); justify-content: center; }
+    .accents { display: flex; gap: 10px; padding: 12px 14px; align-items: center; }
+    .disc { width: 22px; height: 22px; border-radius: 999px; }
+    .disc.on { box-shadow: 0 0 0 2px var(--canvas), 0 0 0 4px var(--ink); }
+    .disc.custom { background: conic-gradient(#e5484d, #f5a524, #30a46c, #3e63dd, #8e4ec6, #e5484d); }
+    .pv-card { margin: 0 14px 12px; border-radius: 8px; background: var(--raised); border: 1px solid var(--border); padding: 10px 12px; font-size: 13px; line-height: 18px; }
+    .pv-card .chip { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 4px; background: var(--surface); font-size: 12px; color: var(--muted); vertical-align: middle; }
+    .pv-card.mono { font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace; font-size: 12.5px; line-height: 20px; }
+    .dl { display: flex; gap: 10px; padding: 0 8px; border-radius: 3px; }
+    .dl .g { width: 14px; color: var(--subtle); text-align: right; }
+    .dl.add { background: color-mix(in srgb, var(--done) 12%, var(--raised)); } .dl.add .g { color: var(--done); }
+    .dl.del { background: color-mix(in srgb, var(--failed) 12%, var(--raised)); } .dl.del .g { color: var(--failed); }
+    .theme-dark .dl.add { background: color-mix(in srgb, var(--done) 18%, var(--raised)); } .theme-dark .dl.del { background: color-mix(in srgb, var(--failed) 18%, var(--raised)); }
+    .term { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); color: var(--muted); }
+    .term .ok { color: var(--done); } .term .warn { color: var(--needs); } .term .p { color: var(--working); }
+    .mpv { width: 150px; height: 36px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--raised); position: relative; overflow: hidden; }
+    .mpv::after { content: ""; position: absolute; left: 6px; top: 6px; bottom: 6px; width: 56px; border-radius: 4px; background: var(--active); }
+  </style>
+  <div class="ap-grid">
+    <div class="ap theme-light" id="ap-light">
+      <nav class="ap-nav">
+        <div class="n"><i></i>General</div>
+        <div class="n on"><i></i>Appearance</div>
+        <div class="n"><i></i>Prompts</div>
+        <div class="n"><i></i>Providers</div>
+        <div class="n"><i></i>Notifications</div>
+        <div class="n"><i></i>Source control</div>
+        <div class="n"><i></i>Remote devices</div>
+        <div class="n"><i></i>Keyboard</div>
+        <div class="n"><i></i>Advanced</div>
+      </nav>
+      <div class="ap-body">
+        <h2>Appearance</h2>
+
+        <div class="sec"><div class="h">Colour scheme</div>
+          <div class="card"><div class="modes">
+            <div class="mode"><div class="pv s"><div class="a"></div><div class="b"></div></div><div class="n">System</div></div>
+            <div class="mode on"><div class="pv"><div class="a"></div><div class="b"></div></div><div class="n">Light</div></div>
+            <div class="mode"><div class="pv d"><div class="a"></div><div class="b"></div></div><div class="n">Dark</div></div>
+          </div></div>
+        </div>
+
+        <div class="sec"><div class="h">Theme<span class="act"><span>+ New theme</span><span>Import…</span></span></div>
+          <div class="card"><div class="themes">
+            <div class="th on"><span class="orb" style="background:linear-gradient(90deg,#fff 50%,#111 50%);--acc:#171717"></span>ace<span class="dup">⧉</span></div>
+            <div class="th"><span class="orb" style="background:linear-gradient(90deg,#f9f6f0 50%,#1c1915 50%);--acc:#7d3560"></span>Folio<span class="dup">⧉</span></div>
+            <div class="th"><span class="orb" style="background:linear-gradient(90deg,#e7e8ea 50%,#0c0d0f 50%);--acc:#1f6a73"></span>Umbra<span class="dup">⧉</span></div>
+            <div class="th"><span class="orb" style="background:linear-gradient(90deg,#fff 50%,#000 50%);--acc:#000"></span>Signal<span class="dup">⧉</span></div>
+            <div class="th"><span class="orb" style="background:linear-gradient(90deg,#f6f6f2 50%,#0f1110 50%);--acc:#566a0c"></span>Tty<span class="dup">⧉</span></div>
+            <div class="th"><span class="orb" style="background:linear-gradient(90deg,#f3f5f8 50%,#171b21 50%);--acc:#13627e"></span>Harbor<span class="dup">⧉</span></div>
+            <div class="th"><span class="orb" style="background:linear-gradient(90deg,#f3f5f8 50%,#121820 50%);--acc:#2d8fb0"></span>Harbor Night<span class="dup">⋯</span></div>
+            <div class="th new">+ New from ace</div>
+          </div></div>
+        </div>
+
+        <div class="sec"><div class="h">Accent</div>
+          <div class="card"><div class="accents">
+            <span class="disc on" style="background:var(--ink)"></span><span class="disc" style="background:#3e63dd"></span><span class="disc" style="background:#8e4ec6"></span><span class="disc" style="background:#0e7c86"></span><span class="disc" style="background:#30a46c"></span><span class="disc" style="background:#b3540a"></span><span class="disc" style="background:#e5484d"></span><span class="disc custom"></span>
+          </div></div>
+        </div>
+
+        <div class="sec"><div class="h">Interface</div>
+          <div class="card">
+            <div class="r"><span class="lbl">Contrast</span><span class="sub">Text tiers and hairlines · AA kept at every setting</span><span class="ctl"><span class="slider" style="--v:50%"></span><span class="val">50</span></span></div>
+            <div class="r"><span class="lbl">Translucency</span><span class="sub">Solid … Glass</span><span class="ctl"><span class="slider" style="--v:100%"></span><span class="val">100</span></span></div>
+            <div class="r"><span class="lbl">Diff colours</span><span class="ctl"><span class="sel">Red &amp; green</span></span></div>
+            <div class="r"><span class="lbl">Chat width</span><span class="ctl"><span class="sel">Comfortable · 760px</span></span></div>
+            <div class="r"><span class="lbl">Density</span><span class="ctl"><span class="sel">Comfortable</span></span></div>
+          </div>
+        </div>
+
+        <div class="sec"><div class="h">Motion</div>
+          <div class="card">
+            <div class="r"><span class="lbl">Panel animation speed</span><span class="sub">Plays once when you move it</span><span class="ctl"><span class="mpv"></span><span class="slider" style="--v:45%"></span><span class="val">200 ms</span></span></div>
+            <div class="r"><span class="lbl">Reduce motion</span><span class="ctl"><span class="sel">System</span></span></div>
+          </div>
+        </div>
+
+        <div class="sec"><div class="h">Typography<span class="act"><span>Advanced ›</span></span></div>
+          <div class="card">
+            <div class="r"><span class="lbl">Interface font</span><span class="ctl"><span class="sel">System · SF Pro</span><span class="sel">13 px</span></span></div>
+            <div class="pv-card">Fix the flaky checkout test in <span class="chip">checkout.spec.ts</span> and run the suite with <span class="chip">@explorer</span> watching for timing.</div>
+            <div class="r"><span class="lbl">Transcript size</span><span class="ctl"><span class="sel">Default · 15 px</span></span></div>
+            <div class="r"><span class="lbl">Monospace font</span><span class="ctl"><span class="sel">System mono · SF Mono</span><span class="sel">12.5 px</span></span></div>
+            <div class="pv-card mono">
+              <div class="dl del"><span class="g">−</span><span>return setTimeout(poll, 50);</span></div>
+              <div class="dl add"><span class="g">+</span><span>const first = await tick();</span></div>
+              <div class="dl add"><span class="g">+</span><span>return waitFor(() =&gt; status(id) === "settled");</span></div>
+              <div class="term"><span class="p">➜</span> ace <span class="p">git:(fix/checkout-flake)</span> bun run test<br><span class="ok">✓ 612 passed</span> &nbsp; <span class="warn">⚠ 2 warnings</span> &nbsp; <span style="color:var(--failed)">✗ 0 failed</span> &nbsp; <span style="color:var(--subtle)">1.24s</span><br><span class="p">➜</span> ace <span class="p">git:(fix/checkout-flake)</span> <span style="color:var(--faint)">▍</span></div>
+            </div>
+            <div class="r"><span class="lbl">Word wrap</span><span class="sub">Code blocks, diffs, tables and file previews</span><span class="ctl"><span class="sw"></span></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="ap theme-dark" id="ap-dark"></div>
+  </div>
+  <script>document.getElementById("ap-dark").innerHTML = document.getElementById("ap-light").innerHTML;</script>
+
+  <div class="tiers">
+    <div class="tier theme-light">
+      <div><span style="background:#ffffff"></span>canvas<br>#FFFFFF</div>
+      <div><span style="background:#f6f6f6"></span>sidebar<br>#F6F6F6</div>
+      <div><span style="background:#f0f0f0"></span>surface<br>#F0F0F0</div>
+      <div style="color:#171717"><span style="background:#171717"></span>text 17.9:1<br>#171717</div>
+      <div style="color:#575757"><span style="background:#575757"></span>muted 7.2:1<br>#575757</div>
+      <div style="color:#6a6a6a"><span style="background:#6a6a6a"></span>subtle 5.3:1<br>#6A6A6A</div>
+    </div>
+    <div class="tier theme-dark">
+      <div><span style="background:#111111"></span>canvas<br>#111111</div>
+      <div><span style="background:#0b0b0b"></span>sidebar<br>#0B0B0B</div>
+      <div><span style="background:#191919"></span>surface<br>#191919</div>
+      <div style="color:#ececec"><span style="background:#ececec"></span>text 16:1<br>#ECECEC</div>
+      <div style="color:#a6a6a6"><span style="background:#a6a6a6"></span>muted 7.8:1<br>#A6A6A6</div>
+      <div style="color:#8a8a8a"><span style="background:#8a8a8a"></span>subtle 5.5:1<br>#8A8A8A</div>
+    </div>
+  </div>
+</div>
+<script>
+  // The dark window is the same markup under the dark token set.
+  document.getElementById("dark").innerHTML = document.getElementById("light").innerHTML;
+</script>
+</body>
+</html>
