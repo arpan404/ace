@@ -15,11 +15,8 @@ export const DelegationReservation = z.object({
 export type DelegationReservation = z.infer<typeof DelegationReservation>;
 const treeRow = z.object({
   root_id: ThreadId,
-  started_at: z.number(),
-  children: z.number(),
   tokens: z.number(),
   cost: z.number(),
-  cancelled: z.number(),
 });
 /** One writer on Store's transaction boundary; only indexed current rows enter memory. */
 export class DelegationJournal {
@@ -33,10 +30,8 @@ export class DelegationJournal {
       db.exec(`
       CREATE TABLE IF NOT EXISTS delegation_trees (
         root_id TEXT PRIMARY KEY REFERENCES threads(id), started_at INTEGER NOT NULL,
-        children INTEGER NOT NULL DEFAULT 0, tokens INTEGER NOT NULL DEFAULT 0,
-        cost REAL NOT NULL DEFAULT 0, cancelled INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 0
+        tokens INTEGER NOT NULL DEFAULT 0, cost REAL NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 0
       );
-      CREATE INDEX IF NOT EXISTS delegation_deadlines ON delegation_trees(cancelled,started_at) WHERE active>0;
       CREATE TABLE IF NOT EXISTS delegation_participants (
         thread_id TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE,
         root_id TEXT NOT NULL REFERENCES delegation_trees(root_id), active INTEGER NOT NULL DEFAULT 0
@@ -53,22 +48,12 @@ export class DelegationJournal {
         child_id TEXT PRIMARY KEY REFERENCES threads(id), parent_id TEXT NOT NULL REFERENCES threads(id),
         root_id TEXT NOT NULL REFERENCES delegation_trees(root_id), request_id TEXT NOT NULL,
         record JSON NOT NULL, phase TEXT NOT NULL, result_pending INTEGER NOT NULL DEFAULT 0,
-        UNIQUE(parent_id, request_id)
+        wake_suppressed INTEGER NOT NULL DEFAULT 0, UNIQUE(parent_id, request_id)
       );
       CREATE INDEX IF NOT EXISTS delegated_parent ON delegated_threads(parent_id, phase);
       CREATE INDEX IF NOT EXISTS delegated_root ON delegated_threads(root_id, child_id);
       CREATE INDEX IF NOT EXISTS delegated_active ON delegated_threads(child_id) WHERE phase<>'settled';
       CREATE INDEX IF NOT EXISTS delegated_live_root ON delegated_threads(root_id,phase);
-      CREATE TABLE IF NOT EXISTS delegation_capacity (
-        singleton INTEGER PRIMARY KEY CHECK(singleton=1), receipts INTEGER NOT NULL, reservations INTEGER NOT NULL DEFAULT 0
-      );
-      INSERT OR IGNORE INTO delegation_capacity(singleton,receipts) SELECT 1,COUNT(*) FROM delegated_threads;
-      CREATE TRIGGER IF NOT EXISTS delegation_receipt_added AFTER INSERT ON delegated_threads BEGIN
-        UPDATE delegation_capacity SET receipts=receipts+1 WHERE singleton=1;
-      END;
-      CREATE TRIGGER IF NOT EXISTS delegation_receipt_deleted AFTER DELETE ON delegated_threads BEGIN
-        UPDATE delegation_capacity SET receipts=receipts-1 WHERE singleton=1;
-      END;
       CREATE TABLE IF NOT EXISTS delegation_reservations (
         child_id TEXT PRIMARY KEY, parent_id TEXT NOT NULL, root_id TEXT NOT NULL,
         request_id TEXT NOT NULL, reservation JSON NOT NULL, UNIQUE(parent_id,request_id)
@@ -94,22 +79,6 @@ export class DelegationJournal {
       );
     `),
     );
-    store.atomic((db) => {
-      if (
-        !db
-          .prepare("PRAGMA table_info(delegated_threads)")
-          .all()
-          .some((column) => column.name === "wake_suppressed")
-      ) {
-        db.exec(
-          "ALTER TABLE delegated_threads ADD COLUMN wake_suppressed INTEGER NOT NULL DEFAULT 0",
-        );
-        // Existing stopped children must not wake a resumed root after upgrading.
-        db.exec(
-          "UPDATE delegated_threads SET wake_suppressed=1,result_pending=0 WHERE child_id IN (SELECT thread_id FROM delegation_subtree_stops)",
-        );
-      }
-    });
   }
   private sql(query: string) {
     let statement = this.statements.get(query);
@@ -133,22 +102,21 @@ export class DelegationJournal {
     ).get(parent, request);
     return row ? this.decode(row.record) : undefined;
   }
+  /** The root whose tree this thread belongs to: its own when it was never delegated. */
+  rootOf(thread: ThreadId): ThreadId {
+    return this.get(thread)?.rootId ?? this.participant(thread)?.root_id ?? thread;
+  }
   tree(thread: ThreadId, now: number) {
     const edge = this.get(thread);
-    const root = edge?.rootId ?? this.participant(thread)?.root_id ?? thread;
+    const root = this.rootOf(thread);
     this.sql("INSERT OR IGNORE INTO delegation_trees(root_id,started_at) VALUES (?,?)").run(
       root,
       now,
     );
-    const row = treeRow.parse(this.sql("SELECT * FROM delegation_trees WHERE root_id=?").get(root));
-    return {
-      root,
-      depth: edge?.depth ?? 0,
-      startedAt: row.started_at,
-      children: row.children,
-      usage: { tokens: row.tokens, cost: row.cost },
-      cancelled: row.cancelled === 1,
-    };
+    const row = treeRow.parse(
+      this.sql("SELECT root_id,tokens,cost FROM delegation_trees WHERE root_id=?").get(root),
+    );
+    return { root, depth: edge?.depth ?? 0, usage: { tokens: row.tokens, cost: row.cost } };
   }
   /** Budget membership grants no child attachment or write authority. */
   enroll(thread: ThreadId, root: ThreadId) {
@@ -177,28 +145,21 @@ export class DelegationJournal {
       .all()
       .map((row) => z.object({ thread_id: ThreadId, root_id: ThreadId }).parse(row));
   }
-  participants(root: ThreadId) {
-    return this.sql(
-      "SELECT thread_id FROM delegation_participants WHERE root_id=? ORDER BY thread_id LIMIT 64",
-    )
-      .all(root)
-      .map((row) => ThreadId.parse(row.thread_id));
-  }
-  concurrent(parent: ThreadId) {
+  /** Children holding a run slot. Created, queued and settled children hold none. */
+  running(parent: ThreadId) {
     return Number(
-      this.sql(`SELECT
-      (SELECT COUNT(*) FROM delegated_threads WHERE parent_id=? AND phase<>'settled') +
-      (SELECT COUNT(*) FROM delegation_reservations WHERE parent_id=?) AS n`).get(parent, parent)
-        ?.n,
+      this.sql(
+        "SELECT COUNT(*) AS n FROM delegated_threads WHERE parent_id=? AND phase IN ('running','cancelling')",
+      ).get(parent)?.n,
     );
   }
+  /** Bounds live rows recovery loads into memory; settled history never counts. */
   assertCapacity() {
-    const row = z
-      .object({ receipts: z.number(), reservations: z.number() })
-      .parse(
-        this.sql("SELECT receipts,reservations FROM delegation_capacity WHERE singleton=1").get(),
-      );
-    if (row.receipts + row.reservations >= this.capacity)
+    const live = Number(
+      this.sql(`SELECT (SELECT COUNT(*) FROM delegated_threads WHERE phase<>'settled') +
+        (SELECT COUNT(*) FROM delegation_reservations) AS n`).get()?.n,
+    );
+    if (live >= this.capacity)
       throw new AgentControlError("delegation_limit", "Delegation journal capacity");
   }
   private decodeReservation(value: unknown) {
@@ -217,20 +178,14 @@ export class DelegationJournal {
     ).get(parent, request);
     return row ? this.decodeReservation(row.reservation) : undefined;
   }
+  /** In-flight preparations only; each is released or committed when its owner finishes. */
   reservations() {
-    return this.sql("SELECT reservation FROM delegation_reservations ORDER BY child_id LIMIT 4")
+    return this.sql("SELECT reservation FROM delegation_reservations ORDER BY child_id")
       .all()
       .map((row) => this.decodeReservation(row.reservation));
   }
   reserve(reservation: DelegationReservation) {
     this.assertCapacity();
-    if (
-      Number(
-        this.sql("SELECT reservations FROM delegation_capacity WHERE singleton=1").get()
-          ?.reservations,
-      ) >= 4
-    )
-      throw new AgentControlError("delegation_limit", "Reservation capacity");
     const r = reservation.record;
     this.sql("INSERT INTO delegation_reservations VALUES (?,?,?,?,?)").run(
       r.childId,
@@ -239,10 +194,7 @@ export class DelegationJournal {
       r.requestId,
       JSON.stringify(reservation),
     );
-    this.sql("UPDATE delegation_capacity SET reservations=reservations+1 WHERE singleton=1").run();
-    this.sql("UPDATE delegation_trees SET children=children+1,active=active+1 WHERE root_id=?").run(
-      r.rootId,
-    );
+    this.sql("UPDATE delegation_trees SET active=active+1 WHERE root_id=?").run(r.rootId);
   }
   release(reservation: DelegationReservation) {
     const r = reservation.record;
@@ -250,17 +202,13 @@ export class DelegationJournal {
       r.childId,
     ).changes;
     if (!deleted) return;
-    this.sql("UPDATE delegation_capacity SET reservations=reservations-1 WHERE singleton=1").run();
-    this.sql("UPDATE delegation_trees SET children=children-1,active=active-1 WHERE root_id=?").run(
-      r.rootId,
-    );
+    this.sql("UPDATE delegation_trees SET active=active-1 WHERE root_id=?").run(r.rootId);
   }
   add(record: DelegationRecord) {
     const reservation = this.reservation(record.parentId, record.requestId);
     if (!reservation || reservation.record.childId !== record.childId)
       throw new Error("Missing reservation");
     this.sql("DELETE FROM delegation_reservations WHERE child_id=?").run(record.childId);
-    this.sql("UPDATE delegation_capacity SET reservations=reservations-1 WHERE singleton=1").run();
     this.sql(
       "INSERT INTO delegated_threads(child_id,parent_id,root_id,request_id,record,phase) VALUES (?,?,?,?,?,?)",
     ).run(
@@ -279,13 +227,6 @@ export class DelegationJournal {
       record.childId,
     );
   }
-  activeCount() {
-    return Number(
-      this.sql(`SELECT (SELECT COUNT(*) FROM delegated_threads WHERE phase<>'settled') +
-        (SELECT COUNT(*) FROM delegation_participants WHERE active=1) + reservations AS n
-        FROM delegation_capacity WHERE singleton=1`).get()?.n,
-    );
-  }
   readMetadata(thread: ThreadId) {
     const row = this.sql("SELECT snoozed_until FROM agent_thread_metadata WHERE thread_id=?").get(
       thread,
@@ -302,17 +243,35 @@ export class DelegationJournal {
   /** Recovery also restores ownership of provider work committed just before a crash. */
   revived() {
     return this.sql(`SELECT record FROM delegated_threads JOIN threads ON threads.id=child_id
-      WHERE phase='settled' AND json_extract(threads.status,'$.state') NOT IN ('done','failed')
+      WHERE phase='settled' AND json_extract(threads.status,'$.state') NOT IN ('done','failed','new')
       AND json_extract(threads.client,'$.deletedAt') IS NULL ORDER BY child_id LIMIT 10001`)
       .all()
       .map((row) => this.decode(row.record));
   }
-  family(root: ThreadId) {
-    return this.sql(
-      "SELECT record FROM delegated_threads WHERE root_id=? ORDER BY child_id LIMIT 64",
-    )
-      .all(root)
+  /** Direct children, settled ones included. */
+  children(parent: ThreadId) {
+    return this.sql("SELECT record FROM delegated_threads WHERE parent_id=? ORDER BY child_id")
+      .all(parent)
       .map((row) => this.decode(row.record));
+  }
+  /** Every delegated descendant at any depth, settled ones included. */
+  descendants(thread: ThreadId) {
+    return this.sql(`WITH RECURSIVE tree(id,level) AS (
+        SELECT child_id,1 FROM delegated_threads WHERE parent_id=?
+        UNION ALL SELECT d.child_id,tree.level+1 FROM delegated_threads d JOIN tree ON d.parent_id=tree.id
+        WHERE tree.level<8
+      ) SELECT record FROM delegated_threads JOIN tree ON child_id=tree.id ORDER BY child_id`)
+      .all(thread)
+      .map((row) => this.decode(row.record));
+  }
+  /** Unsettled descendants; reads only the tree's live rows, never its settled history. */
+  liveDescendants(thread: ThreadId) {
+    return this.sql(
+      "SELECT record FROM delegated_threads WHERE root_id=? AND phase<>'settled' ORDER BY child_id",
+    )
+      .all(this.rootOf(thread))
+      .map((row) => this.decode(row.record))
+      .filter((edge) => this.isDescendant(edge.childId, thread));
   }
   isDescendant(target: ThreadId, ancestor: ThreadId): boolean {
     let child = this.get(target);
@@ -328,16 +287,27 @@ export class DelegationJournal {
       return {
         ...(edge ? { parentId: edge.parentId } : {}),
         // A filtered host stop fences this member's admission, not its unselected children.
+        // A root's Stop never fences: only cancelled delegated children carry the fence.
         stopped:
-          this.subtreeStopped(id) || (edge?.phase === "cancelling" && !this.memberStopped(id)),
+          !!edge &&
+          (this.subtreeStopped(id) || (edge.phase === "cancelling" && !this.memberStopped(id))),
       };
     });
   }
-  reopen(record: DelegationRecord) {
+  /** Being cancelled, or under a cancelled ancestor: this thread may not start new children. */
+  fenced(thread: ThreadId): boolean {
+    const edge = this.get(thread);
+    return (
+      (!!edge && (edge.phase === "cancelling" || this.subtreeStopped(thread))) ||
+      this.ancestorStopped(thread)
+    );
+  }
+  reopen(record: DelegationRecord, now: number) {
     this.sql("DELETE FROM delegation_subtree_stops WHERE thread_id=?").run(record.childId);
     this.sql("DELETE FROM delegation_member_stops WHERE thread_id=?").run(record.childId);
     this.sql("UPDATE delegated_threads SET wake_suppressed=0 WHERE child_id=?").run(record.childId);
     this.revive(record);
+    this.rearm(record.childId, now);
   }
   /** Native work must be counted even when Stop still owns its cancellation. */
   revive(record: DelegationRecord) {
@@ -381,21 +351,48 @@ export class DelegationJournal {
   deferWake(parent: ThreadId, due: number) {
     this.sql("UPDATE delegation_wakes SET due=? WHERE parent_id=?").run(due, parent);
   }
-  pending(parent: ThreadId) {
+  /** One delivery page of undelivered results; later pages stay pending for the next wake. */
+  pending(parent: ThreadId, limit = 64) {
     return this.sql(
-      "SELECT record FROM delegated_threads WHERE parent_id=? AND result_pending=1 ORDER BY child_id LIMIT 64",
+      "SELECT record FROM delegated_threads WHERE parent_id=? AND result_pending=1 ORDER BY child_id LIMIT ?",
     )
-      .all(parent)
+      .all(parent, limit)
       .map((row) => this.decode(row.record));
   }
   consumeChild(child: ThreadId) {
     this.sql("UPDATE delegated_threads SET result_pending=0 WHERE child_id=?").run(child);
   }
-  consume(parent: ThreadId) {
+  /** Marks exactly these results delivered. The wake stays due while any result remains. */
+  consumeDelivered(parent: ThreadId, children: readonly ThreadId[]) {
+    for (const child of children)
+      this.sql(
+        "UPDATE delegated_threads SET result_pending=0 WHERE child_id=? AND parent_id=?",
+      ).run(child, parent);
+    if (!this.hasPending(parent))
+      this.sql("DELETE FROM delegation_wakes WHERE parent_id=?").run(parent);
+  }
+  /** The parent is gone: nothing can read these results. */
+  discard(parent: ThreadId) {
     this.sql(
       "UPDATE delegated_threads SET result_pending=0 WHERE parent_id=? AND result_pending=1",
     ).run(parent);
     this.sql("DELETE FROM delegation_wakes WHERE parent_id=?").run(parent);
+  }
+  /** A stopped parent is not woken; its results stay pending until it takes new input. */
+  holdWake(parent: ThreadId) {
+    this.sql("DELETE FROM delegation_wakes WHERE parent_id=?").run(parent);
+  }
+  rearm(parent: ThreadId, due: number) {
+    if (!this.hasPending(parent)) return;
+    this.sql("INSERT INTO delegation_wakes VALUES (?,?) ON CONFLICT(parent_id) DO NOTHING").run(
+      parent,
+      due,
+    );
+  }
+  private hasPending(parent: ThreadId) {
+    return !!this.sql(
+      "SELECT 1 FROM delegated_threads WHERE parent_id=? AND result_pending=1 LIMIT 1",
+    ).get(parent);
   }
   stopped(thread: ThreadId) {
     return this.subtreeStopped(thread) || this.memberStopped(thread);
@@ -414,11 +411,12 @@ export class DelegationJournal {
     this.sql("INSERT OR IGNORE INTO delegation_member_stops VALUES (?)").run(thread);
   }
   /** Explicit accepted work restores only this member's authority and result delivery. */
-  resumeMember(thread: ThreadId) {
+  resumeMember(thread: ThreadId, now: number) {
     if (!this.memberStopped(thread)) return;
     this.sql("DELETE FROM delegation_member_stops WHERE thread_id=?").run(thread);
     if (!this.subtreeStopped(thread))
       this.sql("UPDATE delegated_threads SET wake_suppressed=0 WHERE child_id=?").run(thread);
+    this.rearm(thread, now);
   }
   stop(thread: ThreadId) {
     this.sql("INSERT OR IGNORE INTO delegation_subtree_stops VALUES (?)").run(thread);
@@ -428,16 +426,19 @@ export class DelegationJournal {
       "UPDATE delegated_threads SET wake_suppressed=1,result_pending=0 WHERE child_id=?",
     ).run(child);
   }
+  /**
+   * Stop on a delegated child cancels it with its subtree. Stop on a root only holds its
+   * result wakes: it never fences the root's future children or its later admissions.
+   */
   cancel(thread: ThreadId) {
-    this.stop(thread);
-    this.sql("UPDATE delegation_trees SET cancelled=1 WHERE root_id=?").run(thread);
+    if (this.get(thread)) this.stop(thread);
+    else this.stopMember(thread);
   }
   /** A new accepted person input reopens only the root, preserving child stops. */
-  resumeRoot(thread: ThreadId) {
+  resumeRoot(thread: ThreadId, now: number) {
     this.sql("DELETE FROM delegation_subtree_stops WHERE thread_id=?").run(thread);
     this.sql("DELETE FROM delegation_member_stops WHERE thread_id=?").run(thread);
-    this.sql("UPDATE delegation_trees SET cancelled=0 WHERE root_id=?").run(thread);
-    this.consume(thread);
+    this.rearm(thread, now);
   }
   usageOffset(thread: ThreadId): number {
     return Number(

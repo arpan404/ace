@@ -142,7 +142,6 @@ export class AgentMonitor {
   }
   /** Every delegated descendant of the caller, a few short fields each. */
   snapshot(caller: McpAttribution): MonitorSnapshot {
-    const root = this.deps.journal.get(caller.threadId)?.rootId ?? caller.threadId;
     const now = this.deps.clock.now();
     const counts: Record<WatchedState, number> = {
       working: 0,
@@ -152,8 +151,7 @@ export class AgentMonitor {
       cancelled: 0,
     };
     const children: MonitoredChild[] = [];
-    for (const edge of this.deps.journal.family(root)) {
-      if (!this.deps.journal.isDescendant(edge.childId, caller.threadId)) continue;
+    for (const edge of this.deps.journal.descendants(caller.threadId)) {
       const thread = this.deps.store.getThread(edge.childId);
       if (!thread) continue;
       const state = this.state(thread.id);
@@ -190,6 +188,10 @@ export class AgentMonitor {
     this.stopRemote?.();
     for (const wait of this.waits) wait.finish("interrupted");
   }
+  /** A journal-only change (a child settled without ever running) that no event announces. */
+  changed(ids: readonly string[]) {
+    if (this.waits.size) this.recheck(new Set(ids));
+  }
   private observe(events: readonly Event[]) {
     if (!this.waits.size) return;
     const touched = new Set<string>();
@@ -218,13 +220,7 @@ export class AgentMonitor {
     const thread = this.deps.store.getThread(id);
     if (!thread || thread.deletedAt !== undefined) return "cancelled";
     const record = this.deps.journal.get(id);
-    const pending =
-      !!record &&
-      this.deps.journal
-        .family(record.rootId)
-        .some(
-          (edge) => edge.phase !== "settled" && this.deps.journal.isDescendant(edge.childId, id),
-        );
+    const pending = !!record && this.deps.journal.liveDescendants(id).length > 0;
     const root = thread.rootAgentId && this.deps.store.getMcpAgent(thread.id, thread.rootAgentId);
     return watchedState(
       thread,
@@ -303,10 +299,8 @@ export class AgentMonitor {
   /** Requests from the thread and its delegated descendants, oldest first, at most eight. */
   private needs(thread: Thread): WatchedRequest[] {
     const asking = [...(thread.live?.asking ?? [])];
-    const record = this.deps.journal.get(thread.id);
-    for (const edge of this.deps.journal.family(record?.rootId ?? thread.id)) {
+    for (const edge of this.deps.journal.liveDescendants(thread.id)) {
       if (asking.length >= 8) break;
-      if (!this.deps.journal.isDescendant(edge.childId, thread.id)) continue;
       asking.push(...(this.deps.store.getThread(edge.childId)?.live?.asking ?? []));
     }
     return asking.slice(0, 8).flatMap((entry) => {

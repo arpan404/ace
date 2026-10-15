@@ -12,11 +12,7 @@ export function readThreadTree(
   // Without agent control the thread is its whole tree only when no delegated child was
   // ever persisted for it; otherwise its children's facts are not ready yet.
   if (!journal && delegatedChildPersisted(store, threadId)) return undefined;
-  const record = journal?.get(threadId);
-  const root = record?.rootId ?? journal?.participant(threadId)?.root_id ?? threadId;
-  const descendants = journal
-    ? journal.family(root).filter((edge) => journal.isDescendant(edge.childId, threadId))
-    : [];
+  const descendants = journal?.descendants(threadId) ?? [];
   const members = [threadId, ...descendants.map((edge) => edge.childId)];
   const data = members.map((id) => {
     const value = store.getThread(id);

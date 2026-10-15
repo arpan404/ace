@@ -29,10 +29,7 @@ export function startAgentControl(context: ServiceContext): void {
   // Recovery needs remote accounting before the remote execution owner is constructed.
   const remoteTasks = new RemoteTaskJournal(store);
   const delegations = new DelegationService({
-    externalCapacity: (parent, root) => ({
-      concurrent: remoteTasks.active().filter((task) => task.parentThreadId === parent).length,
-      children: remoteTasks.root(root).children,
-    }),
+    externalCapacity: (parent) => ({ concurrent: remoteTasks.running(parent) }),
     store,
     engine,
     clock: options.engine?.clock ?? { ...systemClock, now },

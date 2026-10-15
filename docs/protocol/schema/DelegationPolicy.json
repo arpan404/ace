@@ -9,12 +9,6 @@
       "minimum": 0,
       "type": "integer"
     },
-    "maxChildren": {
-      "default": 64,
-      "maximum": 64,
-      "minimum": 1,
-      "type": "integer"
-    },
     "maxConcurrent": {
       "default": 4,
       "maximum": 64,

@@ -7,4 +7,9 @@ export { compare, mergeWinner } from "./git.ts";
 export { sideBySide } from "./summary.ts";
 export { spawnAgent } from "./spawn.ts";
 
-export { admitDelegation, childResultPrompt, type DelegationCapacity } from "./delegation.ts";
+export {
+  admitDelegation,
+  childResultPrompt,
+  launchSlots,
+  type DelegationCapacity,
+} from "./delegation.ts";

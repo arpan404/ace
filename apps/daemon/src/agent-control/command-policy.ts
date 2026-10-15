@@ -1,12 +1,14 @@
-import type { Command, CommandResult, DelegationPolicy, ThreadId } from "@ace/protocol";
+import type { Command, CommandResult, ThreadId } from "@ace/protocol";
 import type { Engine } from "../engine/index.ts";
 import type { Store } from "../store.ts";
 import type { DelegationJournal } from "./journal.ts";
 
-/** All accepted sends, regardless of transport, reserve the same generation/accounting. */
+/**
+ * All accepted sends, regardless of transport, reserve the same generation/accounting. No send
+ * is refused because of how many agents are working: counts only order queued launches.
+ */
 export function delegationCommandPolicy(deps: {
   journal: DelegationJournal;
-  policy: DelegationPolicy;
   engine: Engine;
   store: Store;
   now(): number;
@@ -14,7 +16,8 @@ export function delegationCommandPolicy(deps: {
   cancel(thread: ThreadId, request: string): void;
   changed(): void;
   suspending?(thread: ThreadId): boolean;
-  capacity?(parent: ThreadId): ReturnType<DelegationJournal["tree"]> & { concurrent: number };
+  /** Starts a child still waiting for a slot, so explicit input never overtakes its task. */
+  launchQueued?(child: ThreadId): void;
   conversationAccepted?(thread: ThreadId): void;
   conversationAdmission?(thread: ThreadId): string | undefined;
 }) {
@@ -40,20 +43,20 @@ export function delegationCommandPolicy(deps: {
       p.type !== "thread.limit"
     )
       return accept();
-    const edge = deps.journal.get(p.threadId);
     const explicit =
       p.type === "thread.resume" ||
       p.type === "queue.resume" ||
       p.type === "thread.switch" ||
       (p.type === "thread.send" &&
         (p.trigger === undefined || p.trigger === "user" || p.trigger === "parent_agent"));
-    if (!edge) {
+    if (!deps.journal.get(p.threadId)) {
       const rejected = deps.conversationAdmission?.(p.threadId);
       if (rejected) return fail(rejected);
+      // A Stop holds automatic wakes until the person or parent speaks again.
       if (deps.journal.stopped(p.threadId) && !explicit) return fail("cancelled");
       const accepted = accept();
       if (accepted.ok) {
-        if (deps.journal.stopped(p.threadId)) deps.journal.resumeRoot(p.threadId);
+        if (deps.journal.stopped(p.threadId)) deps.journal.resumeRoot(p.threadId, deps.now());
         deps.conversationAccepted?.(p.threadId);
         deps.changed();
       }
@@ -61,22 +64,19 @@ export function delegationCommandPolicy(deps: {
     }
     if (!deps.admits()) return fail("Admission closed");
     if (!explicit && deps.journal.stopped(p.threadId)) return fail("cancelled");
-    if (edge.phase === "cancelling" || deps.journal.ancestorStopped(p.threadId))
-      return fail("cancelled");
-    const tree = deps.capacity?.(edge.parentId) ?? {
-      ...deps.journal.tree(edge.parentId, deps.now()),
-      concurrent: deps.journal.concurrent(edge.parentId),
-    };
-    if (tree.cancelled) return fail("cancelled");
     if (
-      edge.phase === "settled" &&
-      (tree.concurrent >= deps.policy.maxConcurrent || deps.journal.activeCount() >= 64)
+      deps.journal.get(p.threadId)?.phase === "cancelling" ||
+      deps.journal.ancestorStopped(p.threadId)
     )
-      return fail("concurrency_limit");
+      return fail("cancelled");
+    if (p.type === "thread.send" && explicit && deps.journal.get(p.threadId)?.phase === "created")
+      deps.launchQueued?.(p.threadId);
+    const edge = deps.journal.get(p.threadId);
+    if (!edge) return fail("cancelled");
     const accepted = accept();
     if (!accepted.ok) return accepted;
-    if (explicit) deps.journal.resumeMember(p.threadId);
-    if (edge.phase === "settled") deps.journal.reopen(edge);
+    if (explicit) deps.journal.resumeMember(p.threadId, deps.now());
+    if (edge.phase === "settled") deps.journal.reopen(edge, deps.now());
     else if (edge.phase === "created") {
       edge.phase = "running";
       deps.journal.save(edge);

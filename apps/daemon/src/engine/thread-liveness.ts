@@ -38,10 +38,6 @@ const resumable = new Set([
   "thread.limit",
 ]);
 
-// DelegationPolicy permits at most 64 owned children over the root's lifetime.
-// Historical ownership outlives sessions and must include the root itself.
-const maxOwnedThreads = 65;
-
 /**
  * Separates genuinely live work from records a dead provider left behind, and stops a
  * thread tree for deletion. Reads only bounded active state, never transcript history.
@@ -51,14 +47,16 @@ export class ThreadLiveness {
   constructor(ports: LivenessPorts) {
     this.ports = ports;
   }
-  /** The thread and every delegated child it owns, breadth first, bounded. */
+  /**
+   * The thread and every delegated child it owns, breadth first. Delegation has no lifetime
+   * child count, so this walks the whole tree; each thread is visited once.
+   */
   tree(id: ThreadId): ThreadId[] {
     const ids = new Set<ThreadId>([id]);
     for (const owner of ids) {
       const state = this.ports.repo.state(owner);
       for (const record of Object.values(state?.agents ?? {}))
         if (record.agent.childThreadId) ids.add(record.agent.childThreadId);
-      if (ids.size > maxOwnedThreads) throw new Error("Thread tree exceeds capacity");
     }
     return [...ids];
   }
