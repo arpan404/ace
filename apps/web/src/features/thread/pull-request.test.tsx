@@ -145,10 +145,12 @@ test.each([
     status: pr({ mergeability: "conflicting", ci: "pending", checks: [check("test", "pending")] }),
     reason: "Resolve the conflicts with main first",
   },
-])("Merge on a PR with $name says what to fix and leaves it open", async ({ status, reason }) => {
+])("Merge on a PR with $name is off and says what to fix", async ({ status, reason }) => {
   const app = await withPr(status);
-  await merge();
-  expect(await screen.findByRole("alertdialog", { name: reason })).toBeTruthy();
+  const card = await openWorkCard();
+  const button = await within(card).findByRole("button", { name: "Merge pull request #42" });
+  await waitFor(() => expect(button.hasAttribute("disabled")).toBe(true));
+  expect(within(card).getByText(`Can't merge: ${reason}`)).toBeTruthy();
   expect(screen.queryByRole("dialog", { name: "Merge PR #42?" })).toBeNull();
   expect(linked(app)).toMatchObject({ number: 42, state: "open" });
 });
@@ -225,8 +227,10 @@ test("a draft PR can't merge from its line", async () => {
   await withPr(pr({ state: "draft" }));
   const card = await openWorkCard();
   const button = await within(card).findByRole("button", { name: "Merge pull request #42" });
-  expect(button.hasAttribute("disabled")).toBe(true);
-  expect(button.getAttribute("title")).toBe("Mark this PR ready on GitHub before merging");
+  await waitFor(() => expect(button.hasAttribute("disabled")).toBe(true));
+  expect(
+    within(card).getByText("Can't merge: A draft can't merge: mark it ready for review on GitHub"),
+  ).toBeTruthy();
 });
 
 test("Link a pull request follows a valid address and explains malformed addresses", async () => {
@@ -275,7 +279,7 @@ test("Create PR links the branch's existing PR instead of opening another, and a
 
 test("a forge refusal reads as a sentence with its fix, not its code", async () => {
   const app = await withPr(pr());
-  app.daemon.refuseCommands("forge_auth", "forge.pr.merge");
+  app.daemon.refuseCommands("forge_cli", "forge.pr.merge");
   await merge();
   await userEvent.click(
     within(await screen.findByRole("dialog", { name: "Merge PR #42?" })).getByRole("button", {
@@ -341,7 +345,17 @@ test("a thread in its own worktree moves back to the local checkout", async () =
 });
 
 test("a linked PR GitHub can't read still shows on its line and can be unlinked", async () => {
-  const app = await withPr(undefined, { linkedPr: { number: 214, state: "open" } });
+  const app = await withPr(undefined, {
+    linkedPrs: [
+      {
+        number: 214,
+        state: "open",
+        repo: repository,
+        url: "https://github.com/acme/api/pull/214",
+        updatedAt: 1,
+      },
+    ],
+  });
   const card = await openWorkCard();
   expect(await within(card).findByRole("button", { name: /^Open pull request #214/ })).toBeTruthy();
   await gitAction("Unlink PR #214");

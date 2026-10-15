@@ -58,11 +58,19 @@ export function workspaceErrorText(code: string): string {
 
 export class WorkspaceError extends Error {
   readonly code: string;
-  constructor(code: string) {
+  /** For a rejected push: the remote revision it was compared against, when Git knew it. */
+  readonly remoteHead: string | undefined;
+  constructor(code: string, remoteHead?: string) {
     super(workspaceErrorText(code));
     this.name = "WorkspaceError";
     this.code = code;
+    this.remoteHead = remoteHead;
   }
+}
+
+/** Pins a force push to the remote revision the person saw (`--force-with-lease`). */
+export interface ForceLease {
+  lease: string;
 }
 
 type Operation = WorkspaceActionRequest["operation"];
@@ -94,7 +102,13 @@ export interface WorkspaceSource {
   gitStatus(
     thread: ThreadRef,
     signal?: AbortSignal,
-  ): Promise<{ files: readonly ChangedFile[]; truncated: boolean; head?: string | null }>;
+  ): Promise<{
+    files: readonly ChangedFile[];
+    truncated: boolean;
+    head?: string | null;
+    /** "skipped" when the person's commit here won't run Git hooks. */
+    hooks: "run" | "skipped";
+  }>;
   /**
    * Commits `paths` (every change when absent); `expectedHead` guards against a branch that
    * moved meanwhile.
@@ -109,12 +123,17 @@ export interface WorkspaceSource {
   push(
     thread: ThreadRef,
     target?: { repository: ForgeRepository; branch: string; head: string | null },
+    force?: ForceLease,
   ): Promise<void>;
   /**
    * Opens a pull request for the branch, or links the one the forge already has for it (the
-   * daemon never opens a second); returns its status as the forge reports it.
+   * daemon never opens a second); returns its status as the forge reports it, and whether it
+   * was the existing one.
    */
-  createPr(thread: ThreadRef, input: PrInput): Promise<ForgePrStatus>;
+  createPr(
+    thread: ThreadRef,
+    input: PrInput,
+  ): Promise<{ status: ForgePrStatus; existing: boolean }>;
   /** Links an existing pull request to the thread. */
   linkPr(thread: ThreadRef, pr: ForgePrRef): Promise<ForgePrStatus>;
   /** Removes the local PR link without contacting the forge. */
@@ -198,7 +217,7 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
   };
   const run = async (payload: CommandPayload): Promise<CommandResult> => {
     const result = await client.command(payload);
-    if (!result.ok) throw new WorkspaceError(result.error ?? "failed");
+    if (!result.ok) throw new WorkspaceError(result.error ?? "failed", result.remoteHead);
     return result;
   };
   return {
@@ -226,12 +245,12 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
     prStatus: async (thread, signal) =>
       (await read({ op: "pr.status", threadId: id(thread) }, "pr", signal)).status,
     async gitStatus(thread, signal) {
-      const { files, truncated, head } = await read(
+      const { files, truncated, head, hooks } = await read(
         { op: "git.status", threadId: id(thread) },
         "gitStatus",
         signal,
       );
-      return { files, truncated, ...(head === undefined ? {} : { head }) };
+      return { files, truncated, hooks: hooks ?? "run", ...(head === undefined ? {} : { head }) };
     },
     scripts: async (thread, signal) =>
       (await read({ op: "scripts.list", threadId: id(thread) }, "scripts", signal)).scripts,
@@ -260,7 +279,7 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
       });
       return result.commit ?? "";
     },
-    async push(thread, target) {
+    async push(thread, target, force) {
       const response = await client.request({
         type: "settings.get",
         key: "sourceControl.preferences",
@@ -274,28 +293,28 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
         threadId: id(thread),
         remote: preferences.remote,
         ...(target ? { target } : {}),
+        ...(force ? { force } : {}),
       });
     },
     async createPr(thread, input) {
-      return status(
-        await run({
-          type: "forge.pr.create",
-          threadId: thread.id,
-          repository: input.repository,
-          ...(input.draftFingerprint ? { draftFingerprint: input.draftFingerprint } : {}),
-          ...(input.draftBaseRef ? { draftBaseRef: input.draftBaseRef } : {}),
-          input: {
-            branch: input.branch,
-            base: input.base,
-            title: input.title,
-            summary: input.summary,
-            // The forge fills these from the fields above.
-            template: { title: "{{title}}", body: "{{summary}}" },
-            draft: input.draft,
-            ...(input.expectedHead ? { expectedHead: input.expectedHead } : {}),
-          },
-        }),
-      );
+      const result = await run({
+        type: "forge.pr.create",
+        threadId: thread.id,
+        repository: input.repository,
+        ...(input.draftFingerprint ? { draftFingerprint: input.draftFingerprint } : {}),
+        ...(input.draftBaseRef ? { draftBaseRef: input.draftBaseRef } : {}),
+        input: {
+          branch: input.branch,
+          base: input.base,
+          title: input.title,
+          summary: input.summary,
+          // The forge fills these from the fields above.
+          template: { title: "{{title}}", body: "{{summary}}" },
+          draft: input.draft,
+          ...(input.expectedHead ? { expectedHead: input.expectedHead } : {}),
+        },
+      });
+      return { status: status(result), existing: result.prExisting === true };
     },
     linkPr: async (thread, pr) =>
       status(await run({ type: "forge.pr.link", link: { threadId: thread.id, pr } })),

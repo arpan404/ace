@@ -355,6 +355,8 @@ export class FakeDaemon implements Host {
     | "git"
     | "failMoves"
     | "setDetails"
+    | "setRemoteDiverged"
+    | "setHooksSkipped"
   > {
     return this.servicesWire.workspace;
   }

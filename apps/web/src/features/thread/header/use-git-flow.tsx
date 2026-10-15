@@ -1,10 +1,11 @@
+import { useThreadMeta } from "@ace/client-react";
 import type { ForgePrRef, ForgePrStatus } from "@ace/protocol";
-import { mergeMethods, prBlocker, type Checkout } from "@ace/ui-core";
+import { actionErrorText, mergeMethods, prBlocker, type Checkout } from "@ace/ui-core";
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import { InlineMarkdown } from "@/components/inline-markdown.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { useCheckoutState, useGitActions, type GitChange } from "../lib/use-git.ts";
+import { useCheckoutState, useGitActions, type GitChange, type GitResult } from "../lib/use-git.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { gitFailureText } from "../lib/git-failure.ts";
 import type { GitDialogKind } from "./git-dialog.tsx";
@@ -21,19 +22,19 @@ const PrFieldDialog = lazy(() =>
 export const failure = (error: unknown) => <InlineMarkdown text={gitFailureText(error)} />;
 
 /** The toast that confirms a change, from what the daemon answered. */
-function confirmation(change: GitChange, status: ForgePrStatus | undefined): string {
+function confirmation(change: GitChange, result: GitResult): string {
+  const status = result.status;
   const number = status?.ref.number ?? "";
   switch (change.kind) {
     case "commit":
       return change.push ? "Committed and pushed" : "Committed";
     case "push":
-      return "Pushed";
+      return change.force ? "Force pushed" : "Pushed";
     case "create-pr": {
       // The daemon links the branch's existing PR rather than opening a second one.
-      const done =
-        status && status.title !== change.title
-          ? `Linked the branch's existing pull request #${number}`
-          : `${change.draft ? "Draft pull request" : "Pull request"} #${number} opened`;
+      const done = result.existing
+        ? `Linked the branch's existing pull request #${number}`
+        : `${change.draft ? "Draft pull request" : "Pull request"} #${number} opened`;
       return change.reviewers?.length
         ? `${done} · asked ${change.reviewers.join(", ")} to review`
         : done;
@@ -74,8 +75,13 @@ export function useGitFlow(thread: ThreadRef): {
   checkout: ReturnType<typeof useCheckoutState>["checkout"];
   status: ForgePrStatus | undefined;
   linkedPrs: ReturnType<typeof useCheckoutState>["linkedPrs"];
-  submit(change: GitChange): Promise<void>;
+  /** Runs the change and confirms it; resolves with a partial result rather than throwing. */
+  submit(change: GitChange): Promise<GitResult>;
   state: ReturnType<typeof useCheckoutState>["state"];
+  /** The failed checkout read's words, with `retry` to read it again. */
+  error: string | undefined;
+  retry(): void;
+  prProblem: ReturnType<typeof useCheckoutState>["prProblem"];
   pending: boolean;
   push(): void;
   /** Remote writes ask for confirmation; every command reports its reconciled result. */
@@ -92,17 +98,27 @@ export function useGitFlow(thread: ThreadRef): {
   /** The open form, if any: render it once. */
   dialog: ReactNode;
 } {
-  const { checkout, status, state, linkedPrs } = useCheckoutState(thread);
+  const { checkout, status, state, error, retry, prProblem, linkedPrs } = useCheckoutState(thread);
   const { change, pending, refreshPr } = useGitActions(thread, checkout);
   const [dialog, setDialog] = useState<GitDialogKind>();
   const [confirm, setConfirm] = useState<Extract<GitChange, { kind: "merge" | "push" }>>();
   const toast = useToast();
   const workspace = useWorkspaceActions(thread.id);
+  // A PR review worktree pushes to the pull request's own branch, not its local one.
+  const pushBranch =
+    useThreadMeta(thread.id)?.details?.pullRequestWorkspace?.headBranch ?? checkout?.branch;
   const submit = async (next: GitChange) => {
     const answered = await change(next);
     // Only a merge that went through makes its method the next one's default.
     if (next.kind === "merge") rememberMergeMethod(next.method);
-    toast.add({ title: confirmation(next, answered) });
+    if (answered.partial?.step === "review-request")
+      toast.error({
+        title: `PR #${answered.status?.ref.number ?? ""} opened; review request failed`,
+        description: failure(answered.partial.error),
+      });
+    // A commit whose push failed stays in its form, which offers the push alone.
+    else if (!answered.partial) toast.add({ title: confirmation(next, answered) });
+    return answered;
   };
   const run = (next: GitChange) => {
     if (next.kind === "push") return setConfirm(next);
@@ -119,16 +135,17 @@ export function useGitFlow(thread: ThreadRef): {
             : {}),
       });
     }
-    void submit(next).catch((error: unknown) =>
-      toast.error({ title: failed[next.kind], description: failure(error) }),
+    void submit(next).catch((reason: unknown) =>
+      toast.error({ title: failed[next.kind], description: failure(reason) }),
     );
   };
-  const prBlocked = checkout ? prBlocker(checkout) : "Not a git checkout";
+  const unread = state === "error" ? "Couldn't read the checkout" : "Not a git checkout";
+  const prBlocked = checkout ? prBlocker(checkout) : unread;
   const pr = checkout?.pr;
   const live = pr?.state === "open" || pr?.state === "draft";
   const draftBlocked = prBlocked ?? (live ? `PR #${pr.number} is already open` : undefined);
   const linkBlocked = !checkout
-    ? "Not a git checkout"
+    ? unread
     : checkout.repository?.forge === "gitlab"
       ? prBlocker(checkout)
       : checkout.repository
@@ -161,6 +178,9 @@ export function useGitFlow(thread: ThreadRef): {
     linkedPrs,
     submit,
     state,
+    error: state === "error" ? actionErrorText(error) : undefined,
+    retry,
+    prProblem,
     pending,
     push: () => run({ kind: "push" }),
     run,
@@ -176,7 +196,7 @@ export function useGitFlow(thread: ThreadRef): {
           {confirm && (
             <GitWriteConfirm
               change={confirm}
-              branch={checkout?.branch ?? "detached HEAD"}
+              branch={pushBranch ?? "detached HEAD"}
               pending={pending}
               onSubmit={submit}
               renderError={failure}

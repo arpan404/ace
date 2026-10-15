@@ -149,7 +149,7 @@ export class FakeForgeWire {
       const existing = this.publications.get(key);
       if (existing) {
         this.publish(id, existing);
-        return { ok: true, pr: existing.ref, prStatus: existing };
+        return { ok: true, pr: existing.ref, prStatus: existing, prExisting: true };
       }
       if (this.publications.size >= 64) return { ok: false, error: "forge_limit" };
       const pr = { repository: p.repository, number: ++this.sequence };

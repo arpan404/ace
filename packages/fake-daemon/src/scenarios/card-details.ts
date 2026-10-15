@@ -66,6 +66,20 @@ function details(
             state: seed.merged ? ("merged" as const) : ("open" as const),
             url: `https://github.com/acme/${workspaceId}/pull/${seed.pr}`,
           },
+          linkedPrs: [
+            {
+              number: seed.pr,
+              state: seed.merged ? ("merged" as const) : ("open" as const),
+              url: `https://github.com/acme/${workspaceId}/pull/${seed.pr}`,
+              repo: {
+                forge: "github" as const,
+                host: "github.com",
+                owner: "acme",
+                name: workspaceId,
+              },
+              updatedAt: 0,
+            },
+          ],
         }
       : {}),
     ...(seed.diff

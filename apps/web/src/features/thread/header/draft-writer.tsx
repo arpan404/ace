@@ -48,6 +48,8 @@ export function DraftWriter(props: {
   const [preference, setPreference] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
+  // A draft asked for on open that failed: one quiet line, never an alert.
+  const [autoFailed, setAutoFailed] = useState(false);
   const [proposal, setProposal] = useState<{
     draft: SourceControlDraft;
     context: SourceControlContext;
@@ -106,6 +108,7 @@ export function DraftWriter(props: {
     active.current = generation;
     setPending(true);
     setError(undefined);
+    setAutoFailed(false);
     setProposal(undefined);
     try {
       const context = await workspace.draftContext(
@@ -129,7 +132,9 @@ export function DraftWriter(props: {
       setProposal({ ...result, selection: selectionKey, textRevision: props.textRevision });
     } catch (failure) {
       // A draft asked for on open fails quietly: the person writes the message by hand.
-      if (active.current === generation && !auto) setError(gitFailureText(failure));
+      if (active.current === generation)
+        if (auto) setAutoFailed(true);
+        else setError(gitFailureText(failure));
     } finally {
       if (active.current === generation) {
         active.current = undefined;
@@ -199,6 +204,11 @@ export function DraftWriter(props: {
       {error && (
         <p role="alert" className="text-sm text-status-failed">
           {error}
+        </p>
+      )}
+      {autoFailed && !error && (
+        <p role="status" className="text-xs text-muted-foreground">
+          Couldn't draft a message: write your own, or press Draft to try again.
         </p>
       )}
       {proposal && (

@@ -478,7 +478,15 @@ test("with an open linked PR, the card opens it in the thread's side panel and o
         worktree: "/Users/dev/api",
         branch: "fix/restart-retry",
         diff: { files: 3, additions: 64, deletions: 12 },
-        linkedPr: { number: 188, state: "open" },
+        linkedPrs: [
+          {
+            number: 188,
+            state: "open",
+            repo: { forge: "github", host: "github.com", owner: "acme", name: "api" },
+            url: "https://github.com/acme/api/pull/188",
+            updatedAt: 1,
+          },
+        ],
         repository: { forge: "github", host: "github.com", owner: "acme", name: "api" },
       }),
     )

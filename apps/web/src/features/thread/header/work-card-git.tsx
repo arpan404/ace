@@ -2,6 +2,7 @@ import { useThreadMeta } from "@ace/client-react";
 import { baseRecordText, checkoutNote } from "@ace/ui-core";
 import { GitBranchIcon, GitDiffIcon } from "@phosphor-icons/react";
 import { DiffStat } from "@/components/diff-stat.tsx";
+import { InlineMarkdown } from "@/components/inline-markdown.tsx";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -11,7 +12,15 @@ import type { Move } from "./checkout-move.tsx";
 import type { useGitFlow } from "./use-git-flow.tsx";
 import { BranchItems } from "./work-card-branches.tsx";
 import { GitAction } from "./git-action.tsx";
-import { Section, RowButton, RowCaret, RowLabel, RowStatic, rowIcon } from "./work-card-parts.tsx";
+import {
+  Section,
+  RowAction,
+  RowButton,
+  RowCaret,
+  RowLabel,
+  RowStatic,
+  rowIcon,
+} from "./work-card-parts.tsx";
 import { PrLine } from "./work-card-pr.tsx";
 
 type GitFlow = ReturnType<typeof useGitFlow>;
@@ -80,6 +89,21 @@ function BranchRow(props: { thread: ThreadRef; git: GitFlow; move(move: Move): v
   const details = useThreadMeta(props.thread.id)?.details;
   const base = details?.base ? baseRecordText(details.base) : undefined;
   const { checkout, state } = props.git;
+  if (!checkout && state === "error")
+    return (
+      <>
+        <RowStatic label="Couldn't read the checkout">
+          <GitBranchIcon aria-hidden size={16} className={rowIcon} />
+          <RowLabel className="text-status-failed">Couldn't read the checkout</RowLabel>
+          <RowAction onClick={props.git.retry}>Retry</RowAction>
+        </RowStatic>
+        {props.git.error && (
+          <p role="alert" className="mx-2 mb-1 text-xs text-muted-foreground">
+            <InlineMarkdown text={props.git.error} />
+          </p>
+        )}
+      </>
+    );
   if (!checkout)
     return (
       <RowStatic>

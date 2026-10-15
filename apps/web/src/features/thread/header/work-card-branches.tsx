@@ -24,7 +24,13 @@ export function useCheckoutMoves(thread: ThreadRef) {
       ? "Wait for the agents to stop: the checkout can't move under live work"
       : undefined;
   const noCheckout =
-    state === "loading" ? "Reading the checkout" : checkout ? undefined : "Not a git checkout";
+    state === "loading"
+      ? "Reading the checkout"
+      : checkout
+        ? undefined
+        : state === "error"
+          ? "Couldn't read the checkout"
+          : "Not a git checkout";
   return {
     checkout,
     switchReason: noCheckout ?? live,
