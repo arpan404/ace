@@ -5,6 +5,7 @@ import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { ProviderInstance } from "@ace/protocol/accounts";
 import type { AccountRegistry } from "./registry.ts";
 import { instanceEnv } from "./instances.ts";
+import { ProviderLoginFailure } from "./login-failure.ts";
 import type { AccountService } from "./service.ts";
 
 /** Accounts selects/reserves homes; one cached owner fences and drains each instance. */
@@ -36,21 +37,45 @@ export function bindCursorSdk(service: AccountService, options: CursorAdapterOpt
       return owner;
     },
   });
+  const stopInstance = async (id: string) => {
+    if (!fenced.has(id) && fenced.size >= 256)
+      throw new Error("Cursor SDK instance fence capacity reached");
+    fenced.add(id);
+    await owners.get(id)?.stopInstance(id);
+  };
+  const rebindInstance = async (id: string) => {
+    if (!fenced.has(id)) return;
+    await owners.get(id)?.close();
+    owners.delete(id);
+    fenced.delete(id);
+  };
   return Object.assign(bound, {
     isFenced(id: string): boolean {
       return fenced.has(id);
     },
-    async stopInstance(id: string) {
-      if (!fenced.has(id) && fenced.size >= 256)
-        throw new Error("Cursor SDK instance fence capacity reached");
-      fenced.add(id);
-      await owners.get(id)?.stopInstance(id);
-    },
-    async rebindInstance(id: string) {
-      if (!fenced.has(id)) return;
-      await owners.get(id)?.close();
-      owners.delete(id);
-      fenced.delete(id);
+    stopInstance,
+    rebindInstance,
+    /**
+     * Sign-in and sign-out replace the credential under every open thread of this account, so
+     * those threads' SDK hosts stop first and release their writer reservations. The instance
+     * stays fenced; the caller rebinds it once the change settles.
+     */
+    async reserveAuthChange(id: string): Promise<() => void> {
+      try {
+        await stopInstance(id);
+      } catch {
+        throw new ProviderLoginFailure(
+          "A Cursor thread didn't stop, so ace left the Cursor sign-in unchanged. Try again.",
+        );
+      }
+      try {
+        return service.reserveAccountChange(id);
+      } catch {
+        await rebindInstance(id);
+        throw new ProviderLoginFailure(
+          "Another change to this Cursor account is still running. Try again when it finishes.",
+        );
+      }
     },
     async close() {
       const results = await Promise.allSettled([...owners.values()].map((owner) => owner.close()));
