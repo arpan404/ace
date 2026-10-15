@@ -36,6 +36,7 @@ export {
 } from "./composer/submitted-draft.ts";
 export { useWorktreeCreation } from "./worktree/use-worktree-creation.ts";
 export { WorktreeCreationCard } from "./worktree/creation-card.tsx";
+export { ClearStaleLock } from "./items/clear-stale-lock.tsx";
 /** The existing composer content owner, reused by visible unsent preparations. */
 export {
   ComposerDraftSchema,

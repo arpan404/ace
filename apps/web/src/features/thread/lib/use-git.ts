@@ -94,6 +94,11 @@ export type GitChange =
       push: boolean;
       /** The files picked (a rename names both paths); every change when absent. */
       paths?: readonly string[];
+      /**
+       * The HEAD `git status` reported with those files, so a commit made meanwhile (in a
+       * terminal) is refused rather than guessed from older thread details.
+       */
+      head?: string | null | undefined;
       draftFingerprint?: string | undefined;
     }
   | { kind: "push" }
@@ -128,7 +133,7 @@ export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined)
         await workspace.commit(
           thread,
           change.message,
-          checkout?.head ?? null,
+          change.head !== undefined ? change.head : (checkout?.head ?? null),
           change.paths,
           change.draftFingerprint,
         );

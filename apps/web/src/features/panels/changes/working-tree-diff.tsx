@@ -19,7 +19,14 @@ export function WorkingTreeDiff(props: {
   onScope(scope: Scope): void;
 }) {
   const diff = useDaemonQuery({
-    queryKey: ["working-tree-diff", props.threadId, props.state, props.details?.head],
+    // A move to another checkout and a commit (a terminal's too) both change what git reports.
+    queryKey: [
+      "working-tree-diff",
+      props.threadId,
+      props.state,
+      props.details?.worktree,
+      props.details?.head,
+    ],
     staleTime: 0,
     retry: false,
     read: (client, signal) => readGitDiff(client, props.threadId, signal),
