@@ -4,6 +4,7 @@ import { lostWork } from "./lost-work.ts";
 import { z } from "zod";
 import {
   Command,
+  maxMessageBytes,
   type CommandResult,
   type ThreadId,
   type CommandPayload,
@@ -11,7 +12,7 @@ import {
 } from "@ace/protocol";
 import type { Fact, ThreadState } from "@ace/core";
 import type { EngineRepository } from "./repository.ts";
-import { maxMessageBytes, maxMessages, isSend } from "./queue-store.ts";
+import { maxMessages, isSend } from "./queue-store.ts";
 import type { EngineClock } from "./actor.ts";
 import type { ContextWindowLookup } from "./context-meter.ts";
 

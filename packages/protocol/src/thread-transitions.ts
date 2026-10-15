@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AgentId, ItemId, RunId, ThreadId, Timestamp } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
 import { MessageContext } from "./context.ts";
+import { MessageText } from "./message-limits.ts";
 
 export const ForkPoint = z.discriminatedUnion("type", [
   z.object({ type: z.literal("turn"), runId: RunId }),
@@ -50,7 +51,7 @@ export const HandoffCitation = z.object({ threadId: ThreadId, itemId: ItemId });
 export type HandoffCitation = z.infer<typeof HandoffCitation>;
 export const MergedForkContext = z.object({
   sourceThreadId: ThreadId,
-  summary: z.string().min(1).max(16384),
+  summary: MessageText,
   citations: z.array(HandoffCitation).min(1).max(100),
   patchApplied: z.boolean(),
 });
@@ -86,7 +87,7 @@ export const TransitionCommands = [
     point: ForkPoint,
     title: z.string().max(256).optional(),
     selection: ExecutionSelection.optional(),
-    input: z.string().min(1).max(16384),
+    input: MessageText,
     /**
      * What goes with the first message, as `thread.send` carries it. Attachments name files the
      * source thread holds; the fork gets its own reference to them before delivery.
@@ -97,7 +98,7 @@ export const TransitionCommands = [
   z.object({
     type: z.literal("thread.merge"),
     threadId: ThreadId,
-    summary: z.string().min(1).max(16384),
+    summary: MessageText,
     citations: z.array(HandoffCitation).min(1).max(100),
     patch: z
       .string()

@@ -19,7 +19,7 @@ See [ADR 0015](../adr/0015-automations.md). Schedule and trigger contracts belon
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
 | access | no | [AccessMode.json](schema/AccessMode.json) |  |
 | model | no | string | {"minLength":1,"maxLength":256} |
-| prompt | yes | string | {"minLength":1,"maxLength":32768} |
+| prompt | yes | [MessageText.json](schema/MessageText.json) |  |
 | worktree | yes | boolean |  |
 | trigger | yes | [AutomationTrigger.json](schema/AutomationTrigger.json) |  |
 | missedRun | yes | ["skip","run_once"] |  |

@@ -1330,8 +1330,8 @@ Example:
 | hostId | yes | [HostId.json](schema/HostId.json) |  |
 | mode | no | ["worktree","local"] | {"default":"worktree"} |
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
-| task | yes | string | {"minLength":1,"maxLength":16384} |
-| role | yes | string | {"minLength":1,"maxLength":256} |
+| task | yes | [MessageText.json](schema/MessageText.json) |  |
+| role | yes | [DelegationRole.json](schema/DelegationRole.json) |  |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
 | access | no | [AccessRequest.json](schema/AccessRequest.json) |  |
 | acpAgentId | no | string | {"minLength":1,"maxLength":256} |
@@ -1451,7 +1451,7 @@ Example:
 | op | yes | `"thread.start"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
 | title | yes | string | {"minLength":1,"maxLength":256} |
-| text | yes | string | {"minLength":1,"maxLength":16384} |
+| text | yes | [MessageText.json](schema/MessageText.json) |  |
 | workspace | yes | [AgentWorkspace.json](schema/AgentWorkspace.json) |  |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
 | access | no | [AccessRequest.json](schema/AccessRequest.json) |  |
@@ -1615,7 +1615,7 @@ Example:
 | op | yes | `"agent.message"` |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| text | yes | string | {"minLength":1,"maxLength":16384} |
+| text | yes | [MessageText.json](schema/MessageText.json) |  |
 | delivery | no | ["queue","steer"] | {"default":"queue"} |
 
 Example:
@@ -1646,8 +1646,8 @@ Semantic rule: Either one task (requestId, task, role, provider) or tasks: [{ re
 | effort | no | union | {"anyOf":[{"type":"string","const":"inherit"},{"$ref":"https://ace.local/protocol/v1/AgentEffort.json"}]} |
 | options | no | [AgentServiceOptions.json](schema/AgentServiceOptions.json) |  |
 | requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| task | no | string | {"minLength":1,"maxLength":16384} |
-| role | no | string | {"minLength":1,"maxLength":1024} |
+| task | no | [MessageText.json](schema/MessageText.json) |  |
+| role | no | [DelegationRole.json](schema/DelegationRole.json) |  |
 | wait | no | boolean |  |
 | waitMs | no | integer | {"minimum":1,"maximum":240000} |
 | workspace | no | [AgentWorkspace.json](schema/AgentWorkspace.json) |  |
@@ -1713,7 +1713,7 @@ Example:
 | op | yes | `"thread.launch"` |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| text | yes | string | {"minLength":1,"maxLength":16384} |
+| text | yes | [MessageText.json](schema/MessageText.json) |  |
 
 Example:
 
@@ -1733,7 +1733,7 @@ Example:
 | op | yes | `"thread.message"` |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| text | yes | string | {"minLength":1,"maxLength":16384} |
+| text | yes | [MessageText.json](schema/MessageText.json) |  |
 | delivery | no | ["queue","steer","restart"] | {"default":"queue"} |
 
 Example:
@@ -1891,7 +1891,7 @@ Example:
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
 | entryId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| text | yes | string | {"minLength":1,"maxLength":16384} |
+| text | yes | [MessageText.json](schema/MessageText.json) |  |
 
 Example:
 
@@ -7591,8 +7591,8 @@ Semantic rule: Either one task (requestId, task, role, provider) or tasks: [{ re
 | effort | no | union | {"anyOf":[{"type":"string","const":"inherit"},{"$ref":"https://ace.local/protocol/v1/AgentEffort.json"}]} |
 | options | no | [AgentServiceOptions.json](schema/AgentServiceOptions.json) |  |
 | requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| task | no | string | {"minLength":1,"maxLength":16384} |
-| role | no | string | {"minLength":1,"maxLength":1024} |
+| task | no | [MessageText.json](schema/MessageText.json) |  |
+| role | no | [DelegationRole.json](schema/DelegationRole.json) |  |
 | wait | no | boolean |  |
 | waitMs | no | integer | {"minimum":1,"maximum":240000} |
 | workspace | no | [AgentWorkspace.json](schema/AgentWorkspace.json) |  |
@@ -7722,8 +7722,8 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| task | yes | string | {"minLength":1,"maxLength":16384} |
-| role | yes | string | {"minLength":1,"maxLength":1024} |
+| task | yes | [MessageText.json](schema/MessageText.json) |  |
+| role | yes | [DelegationRole.json](schema/DelegationRole.json) |  |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
 | access | no | [AccessRequest.json](schema/AccessRequest.json) |  |
 | acpAgentId | no | string | {"minLength":1,"maxLength":256} |
@@ -7754,6 +7754,18 @@ Example:
 }
 ```
 
+## DelegationRole
+
+[JSON Schema](schema/DelegationRole.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"example"
+```
+
 ## DelegationTask
 
 [JSON Schema](schema/DelegationTask.json), input validation.
@@ -7761,8 +7773,8 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| task | yes | string | {"minLength":1,"maxLength":16384} |
-| role | yes | string | {"minLength":1,"maxLength":1024} |
+| task | yes | [MessageText.json](schema/MessageText.json) |  |
+| role | yes | [DelegationRole.json](schema/DelegationRole.json) |  |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
 | access | no | [AccessRequest.json](schema/AccessRequest.json) |  |
 | acpAgentId | no | string | {"minLength":1,"maxLength":256} |
@@ -12268,7 +12280,7 @@ Example:
 | op | yes | `"delegate"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
 | project | no | string | {"minLength":1,"maxLength":256} |
-| task | yes | string | {"minLength":1,"maxLength":16384} |
+| task | yes | [MessageText.json](schema/MessageText.json) |  |
 | role | yes | string | {"minLength":1,"maxLength":1024} |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
 | model | no | string | {"minLength":1,"maxLength":256} |
@@ -13281,7 +13293,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | sourceThreadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| summary | yes | string | {"minLength":1,"maxLength":16384} |
+| summary | yes | [MessageText.json](schema/MessageText.json) |  |
 | citations | yes | array | {"minItems":1,"maxItems":100,"items":{"$ref":"https://ace.local/protocol/v1/HandoffCitation.json"}} |
 | patchApplied | yes | boolean |  |
 
@@ -13346,6 +13358,18 @@ Example:
   "kind": "person",
   "lossy": true
 }
+```
+
+## MessageText
+
+[JSON Schema](schema/MessageText.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"example"
 ```
 
 ## MigrationResult
@@ -18225,8 +18249,8 @@ Example:
 | hostId | yes | [HostId.json](schema/HostId.json) |  |
 | mode | no | ["worktree","local"] | {"default":"worktree"} |
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
-| task | yes | string | {"minLength":1,"maxLength":16384} |
-| role | yes | string | {"minLength":1,"maxLength":256} |
+| task | yes | [MessageText.json](schema/MessageText.json) |  |
+| role | yes | [DelegationRole.json](schema/DelegationRole.json) |  |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
 | access | no | [AccessRequest.json](schema/AccessRequest.json) |  |
 | acpAgentId | no | string | {"minLength":1,"maxLength":256} |
@@ -18767,8 +18791,8 @@ Example:
 | hostId | yes | [HostId.json](schema/HostId.json) |  |
 | mode | no | ["worktree","local"] | {"default":"worktree"} |
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
-| task | yes | string | {"minLength":1,"maxLength":16384} |
-| role | yes | string | {"minLength":1,"maxLength":256} |
+| task | yes | [MessageText.json](schema/MessageText.json) |  |
+| role | yes | [DelegationRole.json](schema/DelegationRole.json) |  |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
 | access | no | [AccessRequest.json](schema/AccessRequest.json) |  |
 | acpAgentId | no | string | {"minLength":1,"maxLength":256} |
@@ -25864,7 +25888,7 @@ Example:
 | op | yes | `"thread.start"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
 | title | yes | string | {"minLength":1,"maxLength":256} |
-| text | yes | string | {"minLength":1,"maxLength":16384} |
+| text | yes | [MessageText.json](schema/MessageText.json) |  |
 | workspace | yes | [AgentWorkspace.json](schema/AgentWorkspace.json) |  |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
 | access | no | [AccessRequest.json](schema/AccessRequest.json) |  |

@@ -36,9 +36,7 @@
       "type": "string"
     },
     "prompt": {
-      "maxLength": 32768,
-      "minLength": 1,
-      "type": "string"
+      "$ref": "https://ace.local/protocol/v1/MessageText.json"
     },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"

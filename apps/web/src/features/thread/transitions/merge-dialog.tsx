@@ -1,5 +1,5 @@
 import { useClient, useThread, useThreadMeta } from "@ace/client-react";
-import { ItemId, ThreadId } from "@ace/protocol";
+import { ItemId, ThreadId, maxMessageBytes } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -49,7 +49,7 @@ export function MergeDialog(props: { thread: ThreadRef; onClose(): void }) {
     answer?.parts
       .flatMap((part) => (part.type === "text" ? [part.text] : []))
       .join("")
-      .slice(0, 16384) ??
+      .slice(0, maxMessageBytes) ??
     "";
   const [includeCode, setIncludeCode] = useState(false);
   const [sending, setSending] = useState(false);
@@ -106,7 +106,7 @@ export function MergeDialog(props: { thread: ThreadRef; onClose(): void }) {
             id="merge-summary"
             autoFocus
             value={summary}
-            maxLength={16384}
+            maxLength={maxMessageBytes}
             disabled={sending}
             onChange={(event) => setSummary(event.target.value)}
           />

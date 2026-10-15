@@ -4,7 +4,9 @@
  * approaches are dropped here: the `$schema` dialect, string lengths, the safe-integer range
  * and `additionalProperties: false` (models send the properties they are shown). The registry
  * still validates each call against the full Zod schema, and a call that crosses one of those
- * bounds or adds an unknown key gets an `invalid_arguments` issue naming the field.
+ * bounds or adds an unknown key gets an `invalid_arguments` issue naming the field and limit.
+ * Text a model writes (tasks, messages, prompts) is bounded only by the person-message limit,
+ * `maxMessageBytes` (256 KiB), far past any single argument a model writes.
  *
  * Types, enums, constants, patterns, required fields, defaults, descriptions, array sizes and
  * extension keys such as `x-mcp-header` are kept: they change what a model sends.
