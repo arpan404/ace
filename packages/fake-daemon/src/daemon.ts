@@ -53,6 +53,7 @@ import {
   type ServerMessage,
 } from "@ace/protocol";
 import { Connection, matches, type Host, type Wire } from "./connection.ts";
+import { CommandFlights } from "./command-status.ts";
 import { fakeHealth } from "./health.ts";
 import { FakeAccess } from "./access.ts";
 import { FakeScreen } from "./screen.ts";
@@ -173,6 +174,7 @@ export class FakeDaemon implements Host {
   /** iOS Simulators and Android emulators, over a dedicated devices channel. */
   readonly appDevices: FakeAppDevices;
   readonly screen: FakeScreen;
+  readonly commandFlights = new CommandFlights();
   constructor(options: FakeDaemonOptions) {
     this.options = options;
     this.worktreeCreations = new FakeWorktreeCreations(
