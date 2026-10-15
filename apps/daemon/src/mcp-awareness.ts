@@ -77,14 +77,10 @@ function children(
   parent: ThreadId,
 ): SessionFacts["children"] {
   if (!delegations) return [];
-  const root = delegations.journal.get(parent)?.rootId ?? parent;
-  return delegations.journal
-    .family(root)
-    .filter((edge) => edge.parentId === parent)
-    .flatMap((edge) => {
-      const child = childTaskView(store, delegations.journal, edge.childId);
-      return child ? [{ id: edge.childId, label: edge.request.role, state: child.view.state }] : [];
-    });
+  return delegations.journal.children(parent).flatMap((edge) => {
+    const child = childTaskView(store, delegations.journal, edge.childId);
+    return child ? [{ id: edge.childId, label: edge.request.role, state: child.view.state }] : [];
+  });
 }
 
 /** The checked-out branch, from `.git/HEAD` (or a worktree's gitdir). Null when detached. */

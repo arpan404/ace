@@ -312,8 +312,16 @@ test("Stop during async context preparation prevents durable admission", async (
   await opened;
   f.service.cancelDescendants(f.caller.threadId);
   ready();
-  expect(await pending).toMatchObject({ ok: false, code: "limit" });
+  await expect(pending).rejects.toMatchObject({ code: "delegation_cancelled" });
   expect(f.remote.journal.count()).toBe(0);
+  // The Stop ended that request only: the parent can delegate remotely again.
+  expect(
+    await f.remote.execute(
+      f.caller,
+      { ...f.operation, requestId: "after-stop" },
+      new AbortController().signal,
+    ),
+  ).toMatchObject({ ok: true });
 });
 
 test("stopping the parent while offline cancels unclaimed work and fences dispatched work until remote acknowledgement", async () => {

@@ -33,37 +33,7 @@ async function assertNoResources(f: Awaited<ReturnType<typeof daemonFixture>>) {
   ).toBe(1);
 }
 
-test("handoff capacity rejection creates no branch, worktree or workspace", async () => {
-  const f = await daemonFixture({ policy: { maxConcurrent: 1 } });
-  try {
-    await initialize(f.h.home);
-    await f.call({
-      op: "delegate_task",
-      requestId: "full",
-      provider: "claude",
-      task: "hold",
-      role: "worker",
-      wait: false,
-      estimatedLoad: 0,
-    });
-    await f.daemon.engine?.flush();
-    for (let i = 0; i < 3; i++)
-      await expect(
-        f.call({
-          op: "thread.handoff",
-          threadId: f.caller.threadId,
-          requestId: `rejected-${i}`,
-          branch: `ace-rejected-${i}`,
-        }),
-      ).rejects.toMatchObject({ code: "delegation_limit" });
-    await assertNoResources(f);
-    expect(f.daemon.store.listThreads()).toHaveLength(2);
-  } finally {
-    await f.daemon.close();
-  }
-});
-
-test("lease revocation while Git is pending cleans resources without accepting child work", async () => {
+test("lease revocation while Git is pending cleans resources while other delegation proceeds", async () => {
   const entered = Promise.withResolvers<void>(),
     ready = Promise.withResolvers<void>();
   const f = await daemonFixture({
@@ -101,34 +71,23 @@ test("lease revocation while Git is pending cleans resources without accepting c
     );
     const rejection = pending.catch((error: unknown) => error);
     await entered.promise;
-    await expect(
-      f.call({
-        op: "delegate_task",
-        requestId: "while-reserved",
-        provider: "claude",
-        task: "work",
-        role: "worker",
-        wait: false,
-        estimatedLoad: 0,
-      }),
-    ).rejects.toMatchObject({ code: "delegation_limit" });
-    controller.abort();
-    ready.resolve();
-    expect(await rejection).toMatchObject({ name: "AbortError" });
-    await f.daemon.engine?.flush();
-    await assertNoResources(f);
-    expect(f.daemon.store.listThreads()).toHaveLength(1);
-    // Cleanup releases the reservation so a fresh request can use the slot.
-    const next = await f.call({
+    // A preparation in flight never blocks ordinary delegation.
+    const beside = await f.call({
       op: "delegate_task",
-      requestId: "after-revoke",
+      requestId: "while-reserved",
       provider: "claude",
       task: "work",
       role: "worker",
       wait: false,
       estimatedLoad: 0,
     });
-    expect(next.ok).toBe(true);
+    expect(beside.ok).toBe(true);
+    controller.abort();
+    ready.resolve();
+    expect(await rejection).toMatchObject({ name: "AbortError" });
+    await f.daemon.engine?.flush();
+    await assertNoResources(f);
+    expect(f.daemon.store.listThreads()).toHaveLength(2);
   } finally {
     ready.resolve();
     await f.daemon.close();
@@ -214,85 +173,61 @@ test("maintenance rejects prepared launches and handoff retries at the trusted o
   }
 });
 
-for (const resumeRoot of [false, true])
-  test(
-    resumeRoot
-      ? "resuming the parent while cancelled Git is pending cleans old work and admits only a fresh handoff"
-      : "cancelling the parent while a worktree is being created prevents child acceptance and cleans Git resources",
-    async () => {
-      const entered = Promise.withResolvers<void>(),
-        ready = Promise.withResolvers<void>();
-      const f = await daemonFixture({
-        handoffGit: () => {
-          const git = new GitService();
-          return {
-            listWorktrees: git.listWorktrees.bind(git),
-            removeWorktree: git.removeWorktree.bind(git),
-            deleteBranch: git.deleteBranch.bind(git),
-            resolveCommit: git.resolveCommit.bind(git),
-            worktreeMetadata: git.worktreeMetadata.bind(git),
-            close: git.close.bind(git),
-            async createWorktree(options) {
-              const tree = await git.createWorktree(options);
-              entered.resolve();
-              await ready.promise;
-              return tree;
-            },
-          };
+test("stopping the parent while a worktree is being created cleans Git resources and leaves the parent free to hand off again", async () => {
+  const entered = Promise.withResolvers<void>(),
+    ready = Promise.withResolvers<void>();
+  const f = await daemonFixture({
+    handoffGit: () => {
+      const git = new GitService();
+      return {
+        listWorktrees: git.listWorktrees.bind(git),
+        removeWorktree: git.removeWorktree.bind(git),
+        deleteBranch: git.deleteBranch.bind(git),
+        resolveCommit: git.resolveCommit.bind(git),
+        worktreeMetadata: git.worktreeMetadata.bind(git),
+        close: git.close.bind(git),
+        async createWorktree(options) {
+          const tree = await git.createWorktree(options);
+          entered.resolve();
+          await ready.promise;
+          return tree;
         },
-      });
-      try {
-        await initialize(f.h.home);
-        const pending = f.call({
+      };
+    },
+  });
+  try {
+    await initialize(f.h.home);
+    const pending = f.call({
+      op: "thread.handoff",
+      threadId: f.caller.threadId,
+      requestId: "parent-cancel",
+      branch: "ace-rejected-parent",
+    });
+    const rejection = pending.catch((error: unknown) => error);
+    await entered.promise;
+    f.controls.delegations.cancelDescendants(f.caller.threadId);
+    ready.resolve();
+    expect(await rejection).toMatchObject({ code: "delegation_cancelled" });
+    await assertNoResources(f);
+    expect(f.daemon.store.listThreads()).toHaveLength(1);
+    // The Stop ended the work in flight; it is not a fence on the parent's next handoff.
+    expect(
+      (
+        await f.call({
           op: "thread.handoff",
           threadId: f.caller.threadId,
-          requestId: "parent-cancel",
-          branch: "ace-rejected-parent",
-        });
-        const rejection = pending.catch((error: unknown) => error);
-        await entered.promise;
-        f.controls.delegations.cancelDescendants(f.caller.threadId);
-        await expect(
-          f.call({
-            op: "thread.handoff",
-            threadId: f.caller.threadId,
-            requestId: "still-stopped",
-            branch: "ace-rejected-stopped",
-          }),
-        ).rejects.toMatchObject({ code: "delegation_cancelled" });
-        if (resumeRoot)
-          expect(
-            f.controls.delegations.command("resume-parent", {
-              type: "thread.send",
-              threadId: f.caller.threadId,
-              trigger: "user",
-              input: [{ type: "text", text: "New work" }],
-            }).ok,
-          ).toBe(true);
-        ready.resolve();
-        expect(await rejection).toMatchObject({ code: "delegation_cancelled" });
-        await assertNoResources(f);
-        expect(f.daemon.store.listThreads()).toHaveLength(1);
-        if (resumeRoot) {
-          expect(
-            (
-              await f.call({
-                op: "thread.handoff",
-                threadId: f.caller.threadId,
-                requestId: "fresh-handoff",
-                branch: "ace-fresh-handoff",
-              })
-            ).ok,
-          ).toBe(true);
-          await f.daemon.engine?.flush();
-          expect(f.daemon.store.listThreads()).toHaveLength(2);
-        }
-      } finally {
-        ready.resolve();
-        await f.daemon.close();
-      }
-    },
-  );
+          requestId: "fresh-handoff",
+          branch: "ace-fresh-handoff",
+        })
+      ).ok,
+    ).toBe(true);
+    await f.daemon.engine?.flush();
+    expect(f.daemon.store.listThreads()).toHaveLength(2);
+  } finally {
+    ready.resolve();
+    await f.daemon.close();
+  }
+});
 
 test("revoked handoff cleanup preserves a user commit made in its pending worktree", async () => {
   const created = Promise.withResolvers<string>(),
@@ -347,18 +282,6 @@ test("revoked handoff cleanup preserves a user commit made in its pending worktr
       (await runGit("git", ["rev-parse", "ace-user-work"], { cwd: f.h.home })).stdout.trim(),
     ).toBe(changed);
     expect(f.daemon.store.listThreads()).toHaveLength(1);
-    // Failed safe cleanup remains bounded and cannot leak a sequence of new worktrees.
-    await expect(
-      f.call({
-        op: "delegate_task",
-        requestId: "while-cleanup-held",
-        provider: "claude",
-        task: "work",
-        role: "worker",
-        wait: false,
-        estimatedLoad: 0,
-      }),
-    ).rejects.toMatchObject({ code: "delegation_limit" });
   } finally {
     ready.resolve();
     await f.daemon.close();

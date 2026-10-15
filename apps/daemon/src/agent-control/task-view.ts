@@ -1,4 +1,5 @@
 import type { AgentTaskView, DelegationRecord, Thread } from "@ace/protocol";
+import { childStatus } from "./child-status.ts";
 
 /** Canonical status wins over retained outcomes, including provider-native revival. */
 export function agentTaskView(
@@ -7,7 +8,7 @@ export function agentTaskView(
   childrenPending: boolean,
   rootIdle: boolean,
 ): AgentTaskView {
-  const status = thread.status.state;
+  const status = childStatus(record, thread).state;
   const state =
     status === "needs_you"
       ? "waiting_on_human"
@@ -33,15 +34,13 @@ export function agentTaskView(
  */
 export function childTaskView(
   store: Pick<import("../store.ts").Store, "getThread" | "getMcpAgent">,
-  journal: Pick<import("./journal.ts").DelegationJournal, "get" | "family" | "isDescendant">,
+  journal: Pick<import("./journal.ts").DelegationJournal, "get" | "liveDescendants">,
   child: import("@ace/protocol").ThreadId,
 ) {
   const record = journal.get(child);
   const thread = store.getThread(child);
   if (!record || !thread) return undefined;
-  const pending = journal
-    .family(record.rootId)
-    .some((edge) => edge.phase !== "settled" && journal.isDescendant(edge.childId, record.childId));
+  const pending = journal.liveDescendants(record.childId).length > 0;
   const root = thread.rootAgentId && store.getMcpAgent(thread.id, thread.rootAgentId);
   const view = agentTaskView(
     thread,

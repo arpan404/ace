@@ -39,18 +39,6 @@ for (const parent of ["claude", "codex"] as const)
         Command.shape.payload.parse({ ...recorded.actions[index], threadId: f.caller.threadId });
       expect(f.controls.delegations.command("stop-parent", action(0)).ok).toBe(true);
       await f.engine.flush();
-      const stopped = await f.call("delegate_task", {
-        requestId: "stopped",
-        provider,
-        task: "Hello",
-        role: "greeter",
-        wait: true,
-      });
-      expect(stopped).toMatchObject({
-        isError: true,
-        content: [{ text: expect.stringContaining('"code":"delegation_cancelled"') }],
-      });
-      expect(f.daemon.store.listThreads()).toHaveLength(1);
       expect(f.controls.delegations.command("resume-person", action(1)).ok).toBe(true);
       await f.engine.flush();
       await resumeQueue(f);

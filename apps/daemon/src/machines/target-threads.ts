@@ -250,10 +250,9 @@ export class TargetThreads {
     const { store } = this.deps;
     const ids = [...(thread.live?.asking ?? [])];
     const journal = this.deps.journal();
-    for (const edge of journal?.family(thread.id) ?? []) {
+    for (const edge of journal?.liveDescendants(thread.id) ?? []) {
       if (ids.length >= 8) break;
-      if (journal?.isDescendant(edge.childId, thread.id))
-        ids.push(...(store.getThread(edge.childId)?.live?.asking ?? []));
+      ids.push(...(store.getThread(edge.childId)?.live?.asking ?? []));
     }
     return ids.slice(0, 8).flatMap((entry) => {
       const interaction = store.getInteraction(entry.id);

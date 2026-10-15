@@ -116,8 +116,8 @@ export const DelegateTaskOperation = z
   });
 export type DelegateTaskOperation = z.infer<typeof DelegateTaskOperation>;
 export const DelegationPolicy = z.strictObject({
+  /** Children one parent runs at once. Further children wait queued, never refused. */
   maxConcurrent: z.number().int().min(1).max(64).default(4),
-  maxChildren: z.number().int().min(1).max(64).default(64),
   maxDepth: z.number().int().min(1).max(8).default(4),
   coalesceMs: z.number().int().min(0).max(1000).default(50),
 });

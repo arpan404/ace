@@ -2,13 +2,12 @@ import type { ThreadId } from "@ace/protocol";
 import type { DelegationReservation } from "./journal.ts";
 import { AgentControlError } from "./failure.ts";
 
-/** At most four filesystem operations; cancellation owns their I/O signals. */
+/** In-flight filesystem preparations; cancellation owns their I/O signals. */
 export class ReservationLifetimes {
   private entries = new Map<ThreadId, { parentId: ThreadId; controller: AbortController }>();
   watch(reservation: DelegationReservation): { signal: AbortSignal; close: () => void } {
     const record = reservation.record;
-    if (this.entries.has(record.childId) || this.entries.size >= 4)
-      throw new AgentControlError("delegation_limit", "Reservation lifetime capacity");
+    if (this.entries.has(record.childId)) throw new Error("Reservation already prepared");
     const entry = { parentId: record.parentId, controller: new AbortController() };
     this.entries.set(record.childId, entry);
     return {
