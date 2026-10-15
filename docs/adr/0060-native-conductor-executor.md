@@ -2,8 +2,6 @@
 
 Date: 2026-10-03. Status: Superseded/removed 2026-10-07 — feature removed; use agent orchestration.
 
-Upgrade behavior is documented in [Offshift removal](../daemon/offshift-removal.md).
-
 ## Context
 
 Deck's durable plan, card and lane reducer exists, but the real daemon has no executor. Its fake client can display runs that the real daemon cannot start. ADR 0004 makes the engine the owner of whole-tree status; ADR 0052 explicitly provides a delegation service for Deck. A second provider runner would lose approvals, queue admission, account selection and recovery.

@@ -2,8 +2,6 @@
 
 Date: 2026-10-02. Status: Superseded/removed 2026-10-07 — feature removed; use agent orchestration.
 
-Upgrade behavior is documented in [Offshift removal](../daemon/offshift-removal.md).
-
 ## Context
 
 The backend build required a human to divide a goal into workstreams, assign isolated branches, move sessions between subscriptions, challenge worker output, request fixes and merge in dependency order. Conductor should own that loop. The human owns policy decisions and exceptions.

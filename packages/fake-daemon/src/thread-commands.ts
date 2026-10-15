@@ -90,8 +90,8 @@ export function sendFacts(
   const root = host.state.rootKey;
   if (root === undefined) return { ok: false, error: "no_agent" };
   const text = inputText(payload.input, payload.context);
-  // Like the daemon: a message is the person's go-ahead after a Stop or a restart, so it never
-  // waits behind that hold.
+  // Like the daemon: any new message, the person's or a parent agent's, is the go-ahead after a
+  // Stop or a restart, so it never waits behind that hold.
   if (
     host.queue.paused &&
     (host.queue.reason === "stopped" || host.queue.reason === "restart") &&

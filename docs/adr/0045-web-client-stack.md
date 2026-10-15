@@ -58,7 +58,7 @@ The boundary with TanStack Query is strict. Query caches request/response result
 
 The shell has one sidebar with the app menu, Search and Activity at the top; New thread, Automations and Skills; the thread list; and a profile menu with Settings at the foot. Thread screens add a resizable side panel with Changes, Agents, Terminal, Logs, Preview and other tabs. Sidebar visibility, panel open state, active tab and sizes are local layout state persisted to `localStorage`; one keymap (`src/lib/keymap.ts`) feeds `useHotkey`, tooltips and Settings › Keyboard.
 
-Routes are file routes: Home, threads, new thread, Activity, Automations, Skills, accounts and Settings. Former Deck, Offsets and Offshifts addresses redirect to Home. `apps/web/README.md` assigns route files and feature folders to slices.
+Routes are file routes: Home, threads, new thread, Activity, Automations, Skills, accounts and Settings. `apps/web/README.md` assigns route files and feature folders to slices.
 
 Below 768px the sidebar becomes a sheet opened from the header.
 
