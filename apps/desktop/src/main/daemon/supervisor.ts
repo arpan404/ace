@@ -1,117 +1,31 @@
-import { exitCodes } from "@ace/service/exit-codes";
 import type { DaemonStatus } from "../../shared/contract.ts";
+import {
+  stopChild,
+  terminate,
+  trackChild,
+  type Child,
+  type DaemonProcess,
+  type StopPorts,
+  type StopReason,
+} from "./child.ts";
+import { drainForUpdate } from "./drain.ts";
+import { exitDecision, newerDataMessage } from "./exit-policy.ts";
 import type { LocalDaemon } from "./probe.ts";
+import { readAdmission, waitForDaemon } from "./readiness.ts";
+import { failure, fresh, startFailed } from "./status.ts";
 import { watchHealth } from "./watchdog.ts";
 
-/** A daemon child process this app started. */
-export interface DaemonProcess {
-  kill(signal: NodeJS.Signals): void;
-  /**
-   * Called once when the process is gone. `error` is set when it never started (ENOENT,
-   * EACCES): Node then emits `error` but no `exit`.
-   */
-  onExit(
-    listener: (code: number | null, signal: NodeJS.Signals | null, error?: string) => void,
-  ): void;
-}
+import {
+  supervisorDefaults,
+  type SupervisorOptions,
+  type SupervisorPorts,
+} from "./supervisor-config.ts";
 
-export interface SupervisorPorts {
-  /**
-   * Start the bundled daemon. Without it (development, attached to `bun run daemon`) the
-   * supervisor only waits for a daemon.
-   */
-  spawn?: (() => DaemonProcess) | undefined;
-  /** A healthy daemon already serving this ACE_HOME, if any. */
-  find(): Promise<LocalDaemon | undefined>;
-  /** Whether the daemon answers its status endpoint, giving up after `timeoutMs`. */
-  healthy(daemon: LocalDaemon, timeoutMs: number): Promise<boolean>;
-  /** The login service from `ace service install`, when one is installed. */
-  service?: { active(): Promise<boolean>; start(): Promise<void> } | undefined;
-  setMaintenance(daemon: LocalDaemon, on: boolean): Promise<number>;
-  blockers(daemon: LocalDaemon): Promise<number>;
-  maintenance(daemon: LocalDaemon): Promise<{ draining: boolean }>;
-  timers: { set(delayMs: number, callback: () => void): () => void };
-  now(): number;
-  /** Every supervisor decision is logged with the facts behind it, so restarts can be explained. */
-  log(level: "info" | "warn" | "error", message: string, data?: Record<string, unknown>): void;
-}
-
-export interface SupervisorOptions {
-  /** Pause between one health check's outcome and the next. */
-  healthIntervalMs?: number;
-  /**
-   * How long one health check waits before it counts as missed. The status endpoint runs on
-   * the daemon's event loop, so a busy daemon (a long SQLite statement, a GC pause) answers
-   * slowly without being hung.
-   */
-  healthTimeoutMs?: number;
-  /** Consecutive missed health checks before the daemon is treated as gone. */
-  healthFailures?: number;
-  readyTimeoutMs?: number;
-  /**
-   * Between SIGTERM and SIGKILL, for any stop of the daemon this app started. Longer than the
-   * daemon's own shutdown overrun (7.5 s), so a daemon that can still stop cleanly does.
-   */
-  stopGraceMs?: number;
-  /**
-   * Restarts in a row (without a stable run in between) before giving up and waiting for
-   * the person to try again. With the default backoff, five give up after about 15 s.
-   */
-  maxRestarts?: number;
-  /** Running this long resets the crash count. */
-  stableMs?: number;
-}
-
-/** Exponential restart delay: 0.5 s, 1 s, 2 s … capped at 30 s. */
-export function restartDelay(attempt: number): number {
-  return Math.min(30_000, 500 * 2 ** Math.max(0, attempt));
-}
+export type { DaemonProcess } from "./child.ts";
+export { newerDataMessage } from "./exit-policy.ts";
+export type { SupervisorOptions, SupervisorPorts } from "./supervisor-config.ts";
 
 type Source = DaemonStatus["source"];
-
-/**
- * `ace start` refuses data written by a newer ace build with this exit code. Restarting
- * cannot help, so the supervisor stops and says what to do instead.
- */
-const NEWER_DATA_EXIT = exitCodes["newer-data"];
-export const newerDataMessage =
-  "A newer version of ace already uses this data. Open the newest ace, or update this one.";
-
-/** A status that will not turn into a running daemon without the repair flow or a restart. */
-export function startFailed(status: DaemonStatus): boolean {
-  if (status.state === "failed" || status.state === "stopping" || status.state === "stopped")
-    return true;
-  // A crash restart carries the exit as its message; a slow start or a user restart does not.
-  return status.state === "restarting" && status.message !== undefined;
-}
-
-function failure(status: DaemonStatus): Error {
-  return new Error(status.message ?? `The daemon is ${status.state}`);
-}
-
-/** What a daemon's exit code says about why it stopped, when it says anything. */
-function exitCause(code: number | null): DaemonStatus["cause"] {
-  return code === exitCodes["address-in-use"] ? "port-in-use" : undefined;
-}
-
-/** The status without the last exit's account, for a new attempt or a running daemon. */
-function fresh(status: DaemonStatus): DaemonStatus {
-  const { message: _message, cause: _cause, retry: _retry, ...rest } = status;
-  return rest;
-}
-
-/** Why this app signalled its daemon: a repair or quit, a hung daemon, or one that never started. */
-type StopReason = "requested" | "unresponsive" | "not-ready";
-
-/** A child this app spawned. `intentional` is set before any stop this app asks for. */
-interface Child {
-  process: DaemonProcess;
-  exited: Promise<void>;
-  done: boolean;
-  intentional: boolean;
-  /** Set when this app signalled it, so its exit names the reason. */
-  stopReason?: StopReason;
-}
 
 /**
  * Keeps one daemon available for this ACE_HOME. It reuses a running daemon (another app
@@ -148,16 +62,7 @@ export class DaemonSupervisor {
 
   constructor(ports: SupervisorPorts, options: SupervisorOptions = {}) {
     this.ports = ports;
-    this.options = {
-      healthIntervalMs: options.healthIntervalMs ?? 5_000,
-      healthTimeoutMs: options.healthTimeoutMs ?? 10_000,
-      healthFailures: options.healthFailures ?? 3,
-      // First start can import provider history before the endpoint is published.
-      readyTimeoutMs: options.readyTimeoutMs ?? 120_000,
-      stopGraceMs: options.stopGraceMs ?? 10_000,
-      maxRestarts: options.maxRestarts ?? 5,
-      stableMs: options.stableMs ?? 60_000,
-    };
+    this.options = supervisorDefaults(options);
   }
 
   current(): DaemonStatus {
@@ -247,24 +152,16 @@ export class DaemonSupervisor {
     const daemon = this.daemon;
     if (!daemon || !this.child) return true;
     const generation = this.generation;
-    const wasPaused = this.status.paused;
     this.draining = true;
     ++this.maintenanceRevision;
     try {
-      let blockers = await this.ports.setMaintenance(daemon, true);
-      if (this.stale(generation) || this.daemon !== daemon) return false;
-      this.update({ paused: true });
-      const until = this.ports.now() + deadlineMs;
-      while (blockers > 0 && this.ports.now() < until) {
-        await new Promise<void>((resolve) => this.ports.timers.set(pollMs, resolve));
-        if (this.stale(generation) || this.daemon !== daemon) return false;
-        blockers = await this.ports.blockers(daemon);
-      }
-      if (this.stale(generation) || this.daemon !== daemon) return false;
-      if (blockers > 0 && !wasPaused) await this.ports.setMaintenance(daemon, false);
-      if (!this.stale(generation) && this.daemon === daemon)
-        this.update({ paused: blockers === 0 || wasPaused });
-      return blockers === 0;
+      return await drainForUpdate(this.ports, daemon, {
+        deadlineMs,
+        pollMs,
+        wasPaused: this.status.paused,
+        current: () => !this.stale(generation) && this.daemon === daemon,
+        paused: (on) => this.update({ paused: on }),
+      });
     } finally {
       this.draining = false;
     }
@@ -334,16 +231,10 @@ export class DaemonSupervisor {
   }
 
   private spawnChild(spawn: () => DaemonProcess): Child {
-    const handle = spawn();
-    const exit = Promise.withResolvers<void>();
-    const child: Child = { process: handle, exited: exit.promise, done: false, intentional: false };
+    const child = trackChild(spawn(), (exited, code, signal, error) =>
+      this.onChildExit(exited, code, signal, error),
+    );
     this.child = child;
-    handle.onExit((code, signal, error) => {
-      if (child.done) return;
-      child.done = true;
-      exit.resolve();
-      this.onChildExit(child, code, signal, error);
-    });
     return child;
   }
 
@@ -384,7 +275,13 @@ export class DaemonSupervisor {
     if (this.runningSince && this.ports.now() - this.runningSince >= this.options.stableMs)
       this.crashes = 0;
     this.runningSince = 0;
-    if (code === NEWER_DATA_EXIT) {
+    const decision = exitDecision({
+      code,
+      signal,
+      crashes: this.crashes,
+      maxRestarts: this.options.maxRestarts,
+    });
+    if (decision.kind === "newer-data") {
       // Its data belongs to a newer build: every restart would refuse it the same way.
       this.ports.log(
         "error",
@@ -396,11 +293,10 @@ export class DaemonSupervisor {
       return;
     }
     this.ports.log("warn", "The daemon exited unexpectedly", exit);
-    const reason = `The daemon exited (${signal ?? `code ${code}`})`;
-    const cause = exitCause(code);
+    const { reason, cause } = decision;
     this.status = fresh(this.status);
     if (cause) this.status.cause = cause;
-    if (this.crashes >= this.options.maxRestarts) {
+    if (decision.kind === "give-up") {
       this.ports.log("error", `${reason}; gave up after ${this.crashes} restarts`, {
         ...exit,
         restarts: this.crashes,
@@ -408,7 +304,8 @@ export class DaemonSupervisor {
       this.update({ state: "failed", message: `${reason}. Restart it or run diagnostics.` });
       return;
     }
-    const delay = restartDelay(this.crashes++);
+    const delay = decision.delayMs;
+    this.crashes++;
     this.ports.log("warn", `${reason}; restarting in ${delay} ms`, {
       ...exit,
       delayMs: delay,
@@ -439,44 +336,21 @@ export class DaemonSupervisor {
     }
   }
 
-  private async waitForDaemon(
-    generation: number,
-    alive: () => boolean,
-  ): Promise<LocalDaemon | undefined> {
-    const deadline = this.ports.now() + this.options.readyTimeoutMs;
-    while (!this.stale(generation) && alive() && this.ports.now() < deadline) {
-      const found = await this.ports.find();
-      if (found) return found;
-      await new Promise<void>((resolve) => this.ports.timers.set(200, resolve));
-    }
-    return undefined;
+  private waitForDaemon(generation: number, alive: () => boolean) {
+    return waitForDaemon(
+      this.ports,
+      this.options.readyTimeoutMs,
+      () => !this.stale(generation) && alive(),
+    );
   }
 
   private async running(daemon: LocalDaemon, source: Source, generation: number): Promise<void> {
-    const deadline = this.ports.now() + this.options.readyTimeoutMs;
-    let admission: { draining: boolean } | undefined;
-    while (!this.stale(generation)) {
-      if (source === "app" && (!this.child || this.child.done)) return;
-      try {
-        admission = await this.ports.maintenance(daemon);
-        break;
-      } catch (error) {
-        if (this.stale(generation) || (source === "app" && (!this.child || this.child.done)))
-          return;
-        if (this.ports.now() >= deadline) {
-          this.couldNotStart(`Cannot read daemon admission: ${String(error)}`);
-          return;
-        }
-        this.ports.log("warn", "Cannot read daemon admission yet", { error: String(error) });
-        await new Promise<void>((resolve) => this.ports.timers.set(200, resolve));
-      }
-    }
-    if (
-      !admission ||
-      this.stale(generation) ||
-      (source === "app" && (!this.child || this.child.done))
-    )
-      return;
+    // A daemon this app started counts only while that child is still alive.
+    const live = () =>
+      !this.stale(generation) && (source !== "app" || (!!this.child && !this.child.done));
+    const admission = await readAdmission(this.ports, daemon, this.options.readyTimeoutMs, live);
+    if (admission.kind === "failed") return this.couldNotStart(admission.reason);
+    if (admission.kind === "abandoned" || !live()) return;
     this.daemon = daemon;
     this.runningSince = this.ports.now();
     this.status = {
@@ -526,67 +400,26 @@ export class DaemonSupervisor {
     });
   }
 
-  /**
-   * Stop our child without marking the stop intentional, so its exit takes the crash path
-   * and restarts: SIGTERM, then SIGKILL only if it is still running after the grace period.
-   */
-  private terminate(child: Child, reason: StopReason): void {
-    const graceMs = this.options.stopGraceMs;
-    child.stopReason = reason;
-    this.ports.log("warn", "Sending SIGTERM to the daemon", { reason, graceMs });
-    child.process.kill("SIGTERM");
-    const cancel = this.ports.timers.set(graceMs, () => {
-      // A repair or quit since then runs its own escalation.
-      if (child.done || child.intentional) return;
-      this.ports.log("error", "The daemon did not exit after SIGTERM; sending SIGKILL", {
-        reason,
-        graceMs,
-      });
-      child.process.kill("SIGKILL");
-    });
-    void child.exited.then(cancel);
+  private stopPorts(): StopPorts {
+    return {
+      graceMs: this.options.stopGraceMs,
+      timers: this.ports.timers,
+      log: (level, message, data) => this.ports.log(level, message, data),
+    };
   }
 
-  /** Stop our child on purpose: SIGTERM, then SIGKILL after the grace period. */
+  /** Signal our child so its exit takes the crash path and restarts it. */
+  private terminate(child: Child, reason: StopReason): void {
+    terminate(child, reason, this.stopPorts());
+  }
+
+  /** Stop our child on purpose (repair, quit); its exit is not a crash. */
   private async stopChild(): Promise<void> {
     const child = this.child;
     if (!child || child.done) return;
-    child.intentional = true;
-    child.stopReason = "requested";
-    const graceMs = this.options.stopGraceMs;
-    this.ports.log("info", "Stopping the daemon", { graceMs });
-    child.process.kill("SIGTERM");
-    let cancel: (() => void) | undefined;
-    const forced = new Promise<void>((resolve) => {
-      cancel = this.ports.timers.set(graceMs, () => {
-        this.ports.log("warn", "The daemon did not exit after SIGTERM; sending SIGKILL", {
-          reason: "requested",
-          graceMs,
-        });
-        child.process.kill("SIGKILL");
-        resolve();
-      });
-    });
-    await Promise.race([child.exited, forced]);
-    cancel?.();
-    if (child.done) return;
-    // SIGKILL cannot be ignored, but a process that never reports its exit must not hold
-    // up repair or quit forever.
-    let gaveUp = false;
-    let cancelWait: (() => void) | undefined;
-    const bound = new Promise<void>((resolve) => {
-      cancelWait = this.ports.timers.set(this.options.stopGraceMs, () => {
-        gaveUp = true;
-        resolve();
-      });
-    });
-    await Promise.race([child.exited, bound]);
-    cancelWait?.();
-    if (gaveUp && !child.done) {
-      this.ports.log("error", "The daemon did not report its exit after SIGKILL");
-      child.done = true;
-      if (this.child === child) this.child = undefined;
-    }
+    await stopChild(child, this.stopPorts());
+    // A child given up on after SIGKILL never reports its exit, so it is forgotten here.
+    if (child.done && this.child === child) this.child = undefined;
   }
 
   private clearTimer(): void {
