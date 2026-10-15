@@ -8,7 +8,7 @@ The convention every UI change in ace follows and every UI review checks. It nam
 2. **Hierarchy by one step at a time.** Text tiers, weights, surfaces and hairlines each move exactly one step between neighbours; never two devices for one distinction.
 3. **Colour means state.** Status hues are the only colour in lists and chrome. Identity (projects, providers) is monochrome ink.
 4. **Edges before air.** Separate things with hairlines, weight and size before adding space.
-5. **Materials, not panels.** Floating layers are glass with an edge and a shadow; content is opaque.
+5. **Materials, not panels.** Floating layers are glass with an edge and a shadow; content is opaque. Controls and the composer carry a little depth (a lit top edge, a 1px lift); content never does.
 6. **Density is a setting, hierarchy is not.** Compact removes padding, never tiers.
 7. **Motion confirms, never entertains.** Things arrive; they don't fly.
 8. **Correct before pretty.** Never show an agent as done while any part of its tree works or waits (AGENTS.md priority 1).
@@ -34,25 +34,56 @@ Rules: never hard-code a colour; never put a status hue on something that is not
 
 `--background` (page and reading column) → `--sidebar` / `--panel` (navigation, side panels) → `--surface-1` / `--card` / `--bubble` (grouped content, user bubble, code) → `--surface-2` / `--popover` (solid floating). Washes: `--hover`, `--active` (= `--fill`, `--fill-strong`). Elevation is an edge plus a shadow (`--float-edge`, `--float-shadow`); content never casts a shadow.
 
+**Depth** is a separate, smaller device for things you press or type into, from the `--depth-*` tokens in `theme/tokens.ts`. Use only these; never write a one-off shadow.
+
+| Token               | Where                                                                                                |
+| ------------------- | ---------------------------------------------------------------------------------------------------- |
+| `--depth-highlight` | Lit top edge: the composer, the attached strip, the active tab.                                      |
+| `--depth-dock`      | The composer's soft lift off the page.                                                               |
+| `--depth-strip`     | The smaller lift of the card attached above the composer.                                            |
+| `--depth-raise`     | 1px rest shadow: secondary, outline and split buttons, active tab, picker previews.                  |
+| `--depth-fill`      | Highlight and bottom shade on an ink or coloured fill: primary, danger, Send/Stop, checked checkbox. |
+| `--depth-well`      | Slight recess of text inputs.                                                                        |
+
+Pressed controls drop their depth (`active:shadow-none`). Rows, cards, bubbles, the sidebar, settings cards and the header stay flat.
+
 ### Hairlines
 
-`--border` between rows and sections; `--border-strong` (= `--input`) on control edges and text fields. Use the separator helpers in `components/ui/rules.ts` (`toolbarEdge`, `sectionRule`, `listDivider`, `controlDivider`); don't draw ad-hoc borders. Sidebar task rows take a `listDivider`; nothing else in the sidebar does.
+`--border` between rows and sections; `--border-strong` (= `--input`) on control edges and text fields. Use the separator helpers in `components/ui/rules.ts` (`toolbarEdge`, `sectionRule`, `listDivider`, `controlDivider`); don't draw ad-hoc borders. Nothing in the sidebar is ruled: task rows are separated by space, not dividers.
 
 ### Radius
 
-`rounded-xs` tags and inline code · `rounded-sm` controls ≤ 28px and menu rows · `rounded-md` buttons, inputs, code blocks · `rounded-lg` / `rounded-card` / `rounded-popup` popovers, cards, dialogs · `rounded-xl` the composer and its strip · `rounded-full` Send/Stop, avatars, accent discs. Concentric: inner radius = outer radius − padding. List rows have no radius.
+One scale, from `tokens.css` ("Corners"); never a literal radius.
+
+| Class                                           | Default | Use                                                                                |
+| ----------------------------------------------- | ------- | ---------------------------------------------------------------------------------- |
+| `rounded-xs`                                    | 4       | Tags, inline code, project marks                                                   |
+| `rounded-sm`                                    | 6       | Controls ≤ 26px, tooltips, previews inset in a card                                |
+| `rounded-md`                                    | 8       | Buttons, inputs, selects, rows (sidebar, menu, palette, list), segmented tab lists |
+| `rounded-lg` / `rounded-card` / `rounded-popup` | 12      | Cards, popovers, menus, dialogs, bubbles, code blocks, toasts                      |
+| `rounded-xl`                                    | 18      | The composer, its attached strip, the file-drop target                             |
+| `rounded-full`                                  | —       | Send/Stop, avatars, accent discs, segmented control, pills                         |
+
+The Appearance **Corners** setting (Sharp 2/3/4/6/10, Default, Round 6/9/12/16/24) rescales every step, so any component built from the scale follows it.
+
+**Radius agrees with padding.** The corner must never be larger than the padding beside it, or the content looks pinched into the curve:
+
+- A surface's radius is at most its horizontal padding (a 12px-padded row takes 8, not 12 or 14).
+- Pick the radius by the element's size: about a quarter of its height for controls (24px → 6, 30–36px → 8). Larger radii make a control read as a pill; use `rounded-full` if that is what you mean.
+- **Concentric nesting:** inner radius = outer radius − the inset between them. A 12px menu with a 4px inset has 8px items; a 12px picker card with a 6px inset has a 6px preview; a 8px segmented list with a 2px inset has 6px tabs. When the arithmetic doesn't land on the scale, change the inset, not the radius.
+- A floating ring or focus ring outside an element follows its radius automatically (box-shadow spread); don't give it its own.
 
 ### Spacing
 
-4px grid: 2, 4, 6, 8, 12, 16, 20, 24, 32, 48. Insets `--surface-inset` (12) and `--surface-gap` (8). Row heights from `--row-height`, `--setting-row-height`, `--picker-row-height`, `--control-height`, `--composer-control`. No 10px or 14px values.
+4px grid: 2, 4, 6, 8, 10, 12, 16, 20, 24, 32, 48 (2px steps below 12 for row and control insets only). Insets `--surface-inset` (12) and `--surface-gap` (8). Row heights from `--row-height`, `--setting-row-height`, `--picker-row-height`, `--control-height`, `--composer-control`. No 14px insets.
 
 ### Type
 
-`text-2xs` 10.5 badges · `text-xs` 12 metadata and shortcuts · `text-ui` / `text-sm` 13 controls, menus, tool rows · `text-base` / `text-md` 14 titles and the composer · `text-prose` the transcript (`--transcript-size`) · `text-lg` 18 dialog titles · `text-xl` / `text-2xl` page titles. Weights: 400 body, **500 titles and selected labels**, 600 page titles and bold in prose. `tracking-title` on titles 18px and up. Mono (`font-mono`) for branches, paths, commands, code; serif only where the theme's `font-prose` says so.
+`text-2xs` 10.5 badges · `text-xs` 12 metadata and shortcuts · `text-ui` / `text-sm` 13 controls, menus, tool rows · `text-base` / `text-md` 14 titles and the composer · `text-prose` the transcript (`--transcript-size`) · `text-lg` 18 dialog titles · `text-xl` / `text-2xl` page titles. Weights: 400 body, **500 titles and selected labels**, 600 page titles and bold in prose. `tracking-title` on titles 18px and up. Mono (`font-mono`) for branches, paths, commands, code. `text-meta` (11.5) for a row's project, branch and status lines. Themes never change type.
 
 ### Icons
 
-Phosphor only, `regular` weight. 16px beside 13–14px text, 14px beside 12px, 12px for status glyphs (`bold` at 12px only). Provider marks and project marks are monochrome in rows; brand colour only in avatars, the model picker rail and account menus. Favicons and app icons at 16px with `rounded-xs`.
+Phosphor only, `regular` weight. 16px beside 13–14px text, 14px beside 12px, 12px for status glyphs (`bold` at 12px only). Provider marks keep their own colours; project marks are quiet (greyed and dimmed) on settled rows. When a provider has more than one account, the account's mark sits as an 11px ink bubble on the provider glyph's bottom-right corner (`ProviderAccountIcon`), its outline cut out of the glyph with a mask rather than a ring, so it reads on any surface. One account: no bubble. Favicons and app icons at 16px with `rounded-xs`.
 
 ### Motion
 
@@ -69,11 +100,11 @@ Two levels. **`glass-thin`** (`.ace-floating`): menus, popovers, selects, contex
 - **Settings page anatomy:** page title (`text-xl` 600), optional one-line description (`muted`), then `SettingSection`s 24px apart. A section is a header plus one card. The title row carries **at most one action** on the right; an Enabled toggle is the first row of the first card; other actions live in the header ⋯ menu.
 - **Section header:** 13px/500 `--muted-foreground`, 6px above the card. Explanations of a whole group go in the section `note` above the card, one or two lines.
 - **Setting row:** `--setting-row-height`, label (`text-ui` 500) left, optional one-line description (`text-xs` subtle) under it, the control right-aligned at a fixed width (select 160–200, text 160, number 80 + unit, toggle, segmented). Add actions are a `SettingAddRow` inside the card. Notes and footers use `SettingNote` and `SettingFooter`.
-- **List row (sidebar task):** three lines, full width, `listDivider` below, no radius, no tint. Line 1: 16px monochrome project mark + project name (`text-xs` muted) … status word or relative time. Line 2: title (`text-base` 500). Line 3: branch (mono, subtle) · machine only with more than one device … provider glyph (14px faint). Selected: `--active` wash edge to edge plus a 2px ink bar on the left. Hover actions appear beside the status, never in its place. Settled rows are one 32px line.
-- **View rows** (settings nav, automations, skills): `ViewRow`, 32px, selected = the same wash and bar as the task list.
+- **List row (sidebar task):** 80px, three lines of 16/20/16 with 4px between them and 10px above and below, 12px side padding, `rounded-md`, inset 8px from the sidebar edge, 4px between rows, no dividers. Line 1 (`text-meta` muted): project mark + project name … status word or relative time. Line 2: title (`text-md` 500). Line 3 (`text-meta`): branch (mono) · PR … machine only with more than one device · provider glyph with the account bubble. Open thread: `--active` fill, no bar; hover: `--hover`. Hover actions appear beside the status, which stays. Settled rows are one 32px line, muted (title subtle, project mark greyed), showing the PR or `+added −removed`, then the age.
+- **View rows** (settings nav, automations, skills): `ViewRow`, 32px, `rounded-md`, selected = the same `--active` fill as the task list.
 - **Side panel:** toolbar (44px, `toolbarEdge`) with a `SegmentedControl` or `Tabs`, a close and an expand icon; body opaque; sections separated by `sectionRule`; `rowCard` for outlined list rows. Nothing else is drawn.
-- **Dialog:** `rounded-card`, solid, 480px (confirmations) or 640px, title `text-lg` 600, body `text-ui` muted, footer right-aligned: Cancel then the action. Danger confirmations: solid red action, focus starts on Cancel.
-- **Popover / menu:** `rounded-popup`, 6px padding, 30px rows `rounded-sm`, 16px icon muted, label `text-ui`, shortcut `text-xs` subtle right-aligned; `--border` separators with 6px margins; destructive rows in `--destructive`.
+- **Dialog:** `rounded-card`, 20px padding, solid, 480px (confirmations) or 640px, title `text-lg` 600, body `text-ui` muted, footer right-aligned: Cancel then the action. Danger confirmations: solid red action, focus starts on Cancel.
+- **Popover / menu:** `rounded-popup`, 4px padding, 30px rows `rounded-md` (concentric), 16px icon muted, label `text-ui`, shortcut `text-xs` subtle right-aligned; `--border` separators with 6px margins; destructive rows in `--destructive`.
 - **Toast:** bottom-right of the content column above the composer dock, 320px, `glass-thin`, icon + one line + optional action, gone in 4s. Never over the header, never under the composer.
 - **Empty state:** `EmptyState` centred: faint icon, title (`text-base` 500), one muted line, one secondary action. Never a bare sentence at the top of a page. Before a query, search and the palette offer recents and commands, not prose.
 - **Error state:** the same anatomy with the failed glyph; the line says what happened and what to do, in that order.
@@ -81,25 +112,26 @@ Two levels. **`glass-thin`** (`.ace-floating`): menus, popovers, selects, contex
 
 ## 4. Components
 
-| Component               | Rule                                                                                                                   | Do                                           | Don't                                                   |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------- |
-| **Button `primary`**    | The one action a surface exists for. Ink fill, white label, inner top highlight, hairline shadow.                      | "Allow once", "Run now", "Save"              | Two primaries on one surface; a primary in a toolbar    |
-| **Button `secondary`**  | Any other labelled action; outlined so it reads as a button at rest.                                                   | "Deny", "Cancel" beside a primary, "Preview" | Outlined buttons as tabs or filters                     |
-| **Button `ghost`**      | Actions inside dense chrome: toolbars, row hovers, dialog Cancel.                                                      | Row actions, header icons                    | Ghost for the main action of a page                     |
-| **Button `danger`**     | The confirming action of a destructive confirmation only.                                                              | "Stop and delete", "Revoke"                  | Red for "Stop" or "Archive"; red outlines               |
-| **`tone="danger"`**     | A ghost or secondary that _opens_ a destructive confirmation; destructive menu rows.                                   | "Delete thread" menu row                     | Colouring the confirming button with it                 |
-| **IconButton**          | Square, 30px (`sm` 24, `lg` 34), `aria-label` is the tooltip.                                                          | Header ⋯, panel toggle                       | Icon-only without a label; icon + text in an IconButton |
-| **Input**               | 28px, `rounded-md`, `--field` fill, `--border-strong` edge, placeholder subtle.                                        | Settings text fields, search                 | Underlines; borderless inputs outside sidebars          |
-| **Select**              | `Select` (never native) for 4+ options; shows the value, caret faint.                                                  | Default provider, Chat width                 | A select for 2–3 states                                 |
-| **Toggle**              | `Switch` for on/off that applies at once.                                                                              | Notifications, Enabled                       | A toggle that needs Save                                |
-| **Slider**              | `Slider` with the value at the right (tabular numbers) and a one-shot preview when the setting is visual.              | Contrast, Translucency, Motion speed         | Sliders for discrete choices under 5                    |
-| **SegmentedControl**    | 2–4 exclusive states in a toolbar or row; 28px; thumb springs.                                                         | Read-only / Ask / Auto review / Full access  | Segments as page navigation; more than 4                |
-| **Tabs**                | Page sections with an underline.                                                                                       | Side panel sections                          | Pill tabs                                               |
-| **Chip / Badge**        | `rounded-xs`, 20px, `text-xs`, surface fill, monochrome.                                                               | File chips, model chip, counts               | Coloured badges for identity                            |
-| **Status glyph + word** | `StatusGlyph` 12px and `StatusLabel`, via `data-tone`. Colour never alone: a glyph or a word accompanies it.           | "● Approve", "✕ Failed"                      | A bare coloured dot; a coloured title                   |
-| **Link**                | `text-link`, no underline at rest, underline on hover; only for navigation.                                            | "Open source", docs                          | Links styled as buttons; buttons styled as links        |
-| **Disclosure**          | `Disclosure` / `SettingDisclosure` with the Phosphor caret.                                                            | "Worked for 2m ›", "Advanced ›"              | The browser's triangle; chevrons that don't turn        |
-| **Code**                | Inline `code` on `--code` at 0.92em; blocks with a header that holds the language and Copy (muted, brighter on hover). |                                              | Copy buttons floating over content                      |
+| Component               | Rule                                                                                                                                                                                                                               | Do                                           | Don't                                                   |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------- |
+| **Button `primary`**    | The one action a surface exists for. Ink fill, white label, `--depth-fill` + `--depth-raise`, flat when pressed.                                                                                                                   | "Allow once", "Run now", "Save"              | Two primaries on one surface; a primary in a toolbar    |
+| **Button `secondary`**  | Any other labelled action; outlined so it reads as a button at rest.                                                                                                                                                               | "Deny", "Cancel" beside a primary, "Preview" | Outlined buttons as tabs or filters                     |
+| **Button `ghost`**      | Actions inside dense chrome: toolbars, row hovers, dialog Cancel.                                                                                                                                                                  | Row actions, header icons                    | Ghost for the main action of a page                     |
+| **Button `danger`**     | The confirming action of a destructive confirmation only.                                                                                                                                                                          | "Stop and delete", "Revoke"                  | Red for "Stop" or "Archive"; red outlines               |
+| **`tone="danger"`**     | A ghost or secondary that _opens_ a destructive confirmation; destructive menu rows.                                                                                                                                               | "Delete thread" menu row                     | Colouring the confirming button with it                 |
+| **IconButton**          | Square, 30px (`sm` 24, `lg` 34), `rounded-md` (`sm` `rounded-sm`), `aria-label` is the tooltip.                                                                                                                                    | Header ⋯, panel toggle                       | Icon-only without a label; icon + text in an IconButton |
+| **Input**               | 32px, `rounded-md` like buttons and selects, `--field` fill, `--border-strong` edge, `--depth-well`, placeholder subtle.                                                                                                           | Settings text fields, search                 | Underlines; borderless inputs outside sidebars          |
+| **Select**              | `Select` (never native) for 4+ options; shows the value, caret faint.                                                                                                                                                              | Default provider, Chat width                 | A select for 2–3 states                                 |
+| **Toggle**              | `Switch` for on/off that applies at once.                                                                                                                                                                                          | Notifications, Enabled                       | A toggle that needs Save                                |
+| **Slider**              | `Slider` with the value at the right (tabular numbers) and a one-shot preview when the setting is visual.                                                                                                                          | Contrast, Translucency, Motion speed         | Sliders for discrete choices under 5                    |
+| **SegmentedControl**    | 2–4 exclusive states in a toolbar or row; 28px; thumb springs.                                                                                                                                                                     | Read-only / Ask / Auto review / Full access  | Segments as page navigation; more than 4                |
+| **Tabs**                | Panel sections: 28px, `rounded-sm`; the active tab takes an 8% ink fill with `--depth-highlight` + `--depth-raise`.                                                                                                                | Side panel sections                          | Underlines and pills mixed in one bar                   |
+| **Chip / Badge**        | `rounded-xs`, 20px, `text-xs`, surface fill, monochrome.                                                                                                                                                                           | File chips, model chip, counts               | Coloured badges for identity                            |
+| **Status glyph + word** | `StatusGlyph` 12px and `StatusLabel`, via `data-tone`. Colour never alone: a glyph or a word accompanies it.                                                                                                                       | "● Approve", "✕ Failed"                      | A bare coloured dot; a coloured title                   |
+| **Link**                | `text-link`, no underline at rest, underline on hover; only for navigation.                                                                                                                                                        | "Open source", docs                          | Links styled as buttons; buttons styled as links        |
+| **Disclosure**          | `Disclosure` / `SettingDisclosure` with the Phosphor caret.                                                                                                                                                                        | "Worked for 2m ›", "Advanced ›"              | The browser's triangle; chevrons that don't turn        |
+| **Picker card**         | Mode and Theme: the preview is the choice, no card around it; name centred below; the chosen one takes the accent ring 2px outside its edge. Previews are the app in miniature in the theme's own tokens, in the scheme on screen. | Mode, Theme                                  | Grey cards, check badges, heavy outlines                |
+| **Code**                | Inline `code` on `--code` at 0.92em; blocks with a header that holds the language and Copy (muted, brighter on hover).                                                                                                             |                                              | Copy buttons floating over content                      |
 
 ## 5. State and attention
 
@@ -108,7 +140,7 @@ Two levels. **`glass-thin`** (`.ace-floating`): menus, popovers, selects, contex
 - **Focus:** `focus-ring` (2px gap, 2px `--focus`) on controls; `focus-ring-inset` on rows inside scrollers; on glass the ring is the full-strength ink. A dialog's auto-focused Cancel shows a hairline until a key is pressed. Programmatic focus targets show no ring.
 - **Hover:** `--hover` wash, text one tier stronger. **Press:** `--active` wash, `scale(0.98)` (not under reduced motion), shadows removed. **Open/expanded:** `aria-expanded` takes the `--active` wash.
 - **Disabled:** 40–50% opacity, no pointer events, and a `reason` tooltip when the user could fix it.
-- **Selection:** `--active` wash edge to edge plus the 2px ink bar for lists; the primary fill for checked controls; `::selection` is the accent at 32%.
+- **Selection:** `--active` fill on the row's rounded box for lists; the primary fill for checked controls; `::selection` is the accent at 32%.
 
 ## 6. Copy
 
@@ -132,10 +164,11 @@ Two levels. **`glass-thin`** (`.ace-floating`): menus, popovers, selects, contex
 ## 8. Owner decisions (binding)
 
 - **Clean, T3-like UI:** every element shows state the user acts on; nothing narrates the UI to itself.
-- **Sidebar:** one flat task list across projects, never grouped by project; three-line rows as specified in §3; full-width with hairline dividers; no rounded cards or tints; settled threads are one line.
+- **Sidebar:** one flat task list across projects, never grouped by project; three-line rows as specified in §3; no dividers, space between rows like T3; the open row is a soft rounded fill; settled threads are one muted line with their PR or diff.
 - **Attention levels:** as in §5.
 - **Composer:** nothing renders below it; exactly one strip slot above it (approval/question first), tucked under the composer's edge; Send and Stop are round; live state is the inline "Working for …" line at the end of the transcript; finished turns fold into "Worked for …" disclosures.
-- **Themes:** Mode (Light/Dark/System) is separate from Theme; the set is ace (Mono, default), Folio, Umbra, Signal, Tty, Harbor; the accent picker stays; floating layers are glass and the composer is translucent glass; motion is 120/200/320 with the spring `linear()` curve. Mode keeps its three preview cards.
+- **Themes:** Mode (Light/Dark/System) is separate from Theme; themes are **colour only** (no fonts, material or spacing) and the set is ace (default), Paper, Midnight, Grove, Harbor, Dusk, with status colours the same in every theme; the accent picker stays; floating layers are glass and the composer is translucent glass; motion is 120/200/320 with the spring `linear()` curve. Mode keeps its three preview cards. Corners is a user setting (Sharp, Default, Round).
+- **Depth:** the composer, its strip and pressable controls carry subtle depth (§2 Surfaces and elevation); the earlier "no material effects" rule is retired.
 - **Danger confirmations:** solid red button, focus starting on Cancel.
 - **Header order:** `[title] [⋯] [Work icon] [panel toggle]`; Work info is a compact floating card.
 - **Model control:** one composer control (model chip + speed icon + effort label) with a T3-style list popover.
@@ -148,10 +181,10 @@ Answer every one with yes before approving a UI PR.
 1. Does every new element show state the user can act on, with no narrating or hint prose?
 2. Are all colours tokens, with status hues used only for status?
 3. Do text tiers follow §2 (title 500, secondary muted, tertiary subtle, icons faint)?
-4. Are rows, controls and insets on the 4px grid at the token heights, with no 10px or 14px literals?
-5. Are radii from the scale and concentric, with list rows at none?
-6. Do separators come from `rules.ts`, with sidebar task rows divided and nothing else in the sidebar ruled?
-7. Is every floating layer `.ace-floating`, `.ace-glass-dock` or `.ace-floating-solid`, with no glass on glass or on a scroller?
+4. Are rows, controls and insets on the grid at the token heights, with no 14px literals?
+5. Are radii from the scale, no larger than the padding beside them, sized to the element, and concentric when nested (§2 Radius)? Does the page still look right under Corners → Sharp and Round?
+6. Do separators come from `rules.ts`, with nothing in the sidebar ruled?
+7. Is depth only from `--depth-*`, on controls and the composer, never on content? Is every floating layer `.ace-floating`, `.ace-glass-dock` or `.ace-floating-solid`, with no glass on glass or on a scroller?
 8. Do primary/secondary/ghost/danger follow §4, with one primary per surface and danger only on the confirming action?
 9. Does the page title row carry at most one action, and do add actions sit inside cards?
 10. Do empty, error and loading states use `EmptyState` and `--skel` as in §3?
