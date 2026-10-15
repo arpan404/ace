@@ -12,7 +12,7 @@ import type { CreationWorkspace } from "./creation-workspace.ts";
 import { decodeProjectRow, projectSelect } from "./project-storage.ts";
 import type { CreationProgress } from "./creation-progress.ts";
 import { CreationDrafts } from "./creation-drafts.ts";
-import { clearWorkspaceChange } from "./workspace-change-clear.ts";
+import { clearWorkspaceChange, settleWorkspaceChange } from "./workspace-change-clear.ts";
 import { threadCleaning, initializeThreadCleanup } from "./thread-cleanup-journal.ts";
 import type { WorkspaceChangeReservation } from "./engine/workspace-change.ts";
 import { moveThread } from "./thread-move.ts";
@@ -92,6 +92,8 @@ export class WorkspaceRuntime {
   private opened = new Set<(threadId: ThreadId, terminalId: string) => void>();
   private terminalId: () => string;
   private writing = new Set<AbortController>();
+  /** Threads whose checkout move is running in this daemon now. */
+  private changing = new Set<ThreadId>();
   constructor(
     store: Store,
     directory: string,
@@ -188,6 +190,51 @@ export class WorkspaceRuntime {
       } catch (error) {
         failed(path, error);
       }
+    }
+  }
+  /**
+   * Self-healing for checkout moves: settle every move a restart interrupted, or whose failure
+   * left its outcome uncertain, once Git reports its roots free. Runs at startup and with the
+   * periodic lock sweep, so a fence never needs a person to clear it.
+   */
+  async settleWorkspaceChanges(failed: (id: ThreadId, error: unknown) => void): Promise<void> {
+    for (const id of this.store.workspaceReservations.fencedThreads()) {
+      try {
+        await this.settleWorkspaceChange(id);
+      } catch (error) {
+        failed(id, error);
+      }
+    }
+  }
+  private settleWorkspaceChange(id: ThreadId): Promise<boolean> {
+    return settleWorkspaceChange(this.store, this.git, id, this.now, (owner) =>
+      this.changing.has(owner),
+    );
+  }
+  /** Before a new attempt: best effort, as the attempt re-fences whatever is still held. */
+  private async settleBeforeAttempt(id: ThreadId): Promise<void> {
+    if (this.changing.has(id)) return;
+    try {
+      await this.settleWorkspaceChange(id);
+    } catch (error) {
+      this.options.log?.("Checkout move could not be settled", error);
+    }
+  }
+  /** Every checkout move goes through here, so a running one is never settled as stale. */
+  private async changeWorkspace(
+    ...args: Parameters<NonNullable<WorkspaceRuntimeOptions["changeWorkspace"]>>
+  ): Promise<void> {
+    const change = this.options.changeWorkspace;
+    if (!change) throw new Error("engine_unavailable");
+    const [id] = args;
+    // The next attempt settles what an earlier, interrupted one left behind.
+    await this.settleBeforeAttempt(id);
+    if (this.changing.has(id)) throw new Error("workspace_change_in_progress");
+    this.changing.add(id);
+    try {
+      await change(...args);
+    } finally {
+      this.changing.delete(id);
     }
   }
   /**
@@ -540,12 +587,14 @@ export class WorkspaceRuntime {
       if (p.type === "thread.move") {
         await this.reconcileTerminals(threadId);
         await this.options.reconcileThread?.(threadId);
+        // A move an earlier restart interrupted no longer holds the thread where it is.
+        await this.settleBeforeAttempt(threadId);
         return moveThread(
           this.store,
           command,
           this.now,
           (owner) => this.hasOwnedWork(owner),
-          this.options.changeWorkspace,
+          this.options.changeWorkspace ? (...args) => this.changeWorkspace(...args) : undefined,
           allowed,
         );
       }
@@ -554,7 +603,7 @@ export class WorkspaceRuntime {
         await this.reconcileTerminals(threadId);
         if (this.hasOwnedWork(threadId)) return { ok: false, error: "terminal_owned" };
         const reservation = await this.roots.changeRoots(threadId, p);
-        await this.options.changeWorkspace(
+        await this.changeWorkspace(
           threadId,
           command.id,
           async () => {
@@ -661,7 +710,7 @@ export class WorkspaceRuntime {
     let prepared: CreationWorkspace | undefined;
     let prStatus: ForgePrStatus | undefined;
     try {
-      await this.options.changeWorkspace(
+      await this.changeWorkspace(
         id,
         command.id,
         async () => {
@@ -711,7 +760,12 @@ export class WorkspaceRuntime {
             machine: this.machine,
           };
         },
-        { roots: [current, project], hasOwnedWork: (owner) => this.hasOwnedWork(owner) },
+        // A pull request checks out into a new worktree: no shared checkout is rewritten.
+        {
+          roots: [current, project],
+          writes: [],
+          hasOwnedWork: (owner) => this.hasOwnedWork(owner),
+        },
         () => {
           if (!prStatus) throw new Error("forge_recovery_unavailable");
           this.forge.admitCheckout(id, prStatus);
