@@ -35,6 +35,7 @@ export {
   installedVersion,
   NewerDataError,
   LiveHomeError,
+  OldAceRunningError,
   HOME_FORMAT_VERSION,
   HOME_FORMAT_FILE,
   BACKUP_README,

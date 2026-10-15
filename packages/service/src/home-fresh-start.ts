@@ -12,6 +12,7 @@ import {
 import { basename, dirname, join, resolve } from "node:path";
 import { assertTestHomeIsolation } from "./test-home-guard.ts";
 import { claimHome, type HomeClaim } from "./home-claim.ts";
+import { carryRelease } from "./home-release.ts";
 import {
   HOME_FORMAT_FILE,
   HOME_FORMAT_VERSION,
@@ -27,7 +28,14 @@ import {
 export type PreparedHome =
   | { state: "created" | "reused"; root: string }
   /** The old home was renamed to `backup` and `root` is a fresh, empty home. */
-  | { state: "fresh"; root: string; backup: string; previousFormat: string };
+  | {
+      state: "fresh";
+      root: string;
+      backup: string;
+      previousFormat: string;
+      /** The installed release moved back into the fresh home, if the backup held one. */
+      release?: string;
+    };
 
 export interface FreshStartPorts {
   now(): Date;
@@ -164,7 +172,15 @@ export function prepareDaemonHome(
       claim.release();
     }
     create(root, version, ports.now());
-    return { state: "fresh", root, backup, previousFormat: formatName(plan.from) };
+    // An install.sh release is the program, not data: it keeps running from the fresh home.
+    const release = carryRelease(backup, root);
+    return {
+      state: "fresh",
+      root,
+      backup,
+      previousFormat: formatName(plan.from),
+      ...(release === undefined ? {} : { release }),
+    };
   }
   throw new Error(`The ace data home ${root} kept changing while ace started; open ace again`);
 }

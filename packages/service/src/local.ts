@@ -37,8 +37,13 @@ export async function serviceCommand(dataDir: string, args: string[]) {
   if (linger && process.platform !== "linux") throw new Error("--linger requires Linux systemd");
   if (args.length !== 1 && !linger)
     throw new Error("Usage: ace service install|uninstall|start|stop|status");
-  if (action === "install" && !existsSync(join(dataDir, "bin/ace")))
-    throw new Error("Install a daemon artifact before registering its service");
+  // A service runs an installed release; the desktop app's `ace` command shim is not one.
+  if (action === "install" && !existsSync(join(dataDir, "current")))
+    throw new Error(
+      existsSync(join(dataDir, "bin/ace"))
+        ? "Install a daemon artifact before registering its service: this home's ace command is the desktop app's, which runs its own daemon. Install a release with install.sh to run one at login without the app."
+        : "Install a daemon artifact before registering its service",
+    );
   if (action !== "uninstall") {
     const result = await localService(dataDir).perform(action);
     if (linger) await enableLinger(process.platform, process.getuid?.() ?? -1, runProcess);

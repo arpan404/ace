@@ -1,8 +1,9 @@
-import { lstatSync, readlinkSync } from "node:fs";
+import { lstatSync, readFileSync, readlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { InstalledRelease, ReleaseDirectory } from "@ace/protocol";
 import { PinnedDirectory } from "@ace/workspace/pinned-directory";
-import { renderLauncher } from "./launcher.ts";
+import { isDesktopShim, renderLauncher } from "./launcher.ts";
+export { CLI_SHIM_MARKER, isDesktopShim, renderLauncher } from "./launcher.ts";
 import { installableVersion } from "./version.ts";
 import { assertTestHomeIsolation } from "./test-home-guard.ts";
 
@@ -10,6 +11,7 @@ export {
   HOME_FORMAT_FILE,
   HOME_FORMAT_VERSION,
   LiveHomeError,
+  OldAceRunningError,
   NewerDataError,
   formatName,
 } from "./home-format.ts";
@@ -39,12 +41,23 @@ function present(path: string): boolean {
   }
 }
 
+function desktopShimAt(path: string): boolean {
+  try {
+    const stats = lstatSync(path);
+    return stats.isFile() && stats.size <= 4096 && isDesktopShim(readFileSync(path, "utf8"));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Refuses a home whose installed launcher or release pointer is not this rewrite's validated
  * installation, before any service manager is asked about it or any binary of it runs.
  */
 export function assertCompatibleHome(root: string): void {
   assertTestHomeIsolation(root);
+  // The desktop app's own `ace` command is not an installation; a home with only that is fine.
+  if (!present(join(root, "current")) && desktopShimAt(join(root, "bin", "ace"))) return;
   if (present(join(root, "bin", "ace")) || present(join(root, "current"))) installedVersion(root);
 }
 
