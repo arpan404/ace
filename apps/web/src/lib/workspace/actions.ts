@@ -1,6 +1,5 @@
 import {
   activateTab,
-  carryPanel,
   closeTab,
   cycleTab,
   findTab,
@@ -40,13 +39,6 @@ export interface WorkspaceActions {
   shortcut(kind: string): void;
   /** A new launcher tab. */
   newTab(): void;
-  /**
-   * Show the panel as it was on scope `from` a moment ago (the thread switched away from): open
-   * or hidden; a scope seen for the first time opens on the same tool when it is one each scope
-   * has, one seen before on its own tab. Nothing changes when `from` is this scope or uses
-   * another workspace.
-   */
-  follow(from: string): void;
   activate(key: string): void;
   /**
    * Close a tab. One whose kind warns (a terminal's running shell) asks first; resolves whether
@@ -202,23 +194,6 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
         const fresh = launcher(workspace);
         return fresh ? openTab(workspace, fresh) : workspace;
       }),
-    follow: (from) => {
-      const current = definition();
-      if (from === scope || !current || store.definition(from) !== current) return;
-      withKinds(() => {
-        const before = store.get(from);
-        const tab = before.open ? shownTab(before) : undefined;
-        const kind = tab && current.kind(tab.kind);
-        // A singleton tool (Changes, Summary, Preview) is one each thread has; a terminal or a
-        // file belongs to the thread it was opened in. A thread already arranged keeps its tab.
-        const tool =
-          tab && kind?.singleton && store.untouched(scope)
-            ? request({ kind: tab.kind })
-            : undefined;
-        if (before.open && !tool && !store.get(scope).tabs.length) show();
-        change((workspace) => carryPanel(workspace, before, tool));
-      });
-    },
     activate: (key) => change((workspace) => activateTab(workspace, key)),
     close: (key) => guardedClose([key]),
     closeOthers: (key) => {

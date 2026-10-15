@@ -20,18 +20,41 @@ async function switchTo(title: RegExp) {
   await screen.findByRole("heading", { level: 1, name: title });
 }
 
-test("the side panel stays open on the same tool when another thread opens", async () => {
+test("another thread starts with its panel hidden and keeps its own selected tool", async () => {
   await twoThreads();
   await userEvent.click(await screen.findByRole("button", { name: "Right panel" }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await userEvent.click(await within(panel).findByRole("tab", { name: /^Changes/ }));
 
   await switchTo(/Migrate settings schema/);
+  expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   const next = await screen.findByRole("region", { name: "Thread panel" });
-  expect(await within(next).findByRole("tab", { name: /^Changes/, selected: true })).toBeTruthy();
+  expect(await within(next).findByRole("tab", { name: /^Summary/, selected: true })).toBeTruthy();
+
+  await switchTo(/Cap cold-start replay/);
+  const restored = await screen.findByRole("region", { name: "Thread panel" });
+  expect(
+    await within(restored).findByRole("tab", { name: /^Changes/, selected: true }),
+  ).toBeTruthy();
 });
 
-test("a side panel hidden in one thread stays hidden in the next", async () => {
+test("returning to a thread restores its open panel even when the previous thread's is hidden", async () => {
+  await twoThreads();
+  await userEvent.click(await screen.findByRole("button", { name: "Right panel" }));
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  await userEvent.click(await within(panel).findByRole("tab", { name: /^Changes/ }));
+
+  await switchTo(/Migrate settings schema/);
+  expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull();
+  await switchTo(/Cap cold-start replay/);
+  const restored = await screen.findByRole("region", { name: "Thread panel" });
+  expect(
+    await within(restored).findByRole("tab", { name: /^Changes/, selected: true }),
+  ).toBeTruthy();
+});
+
+test("a side panel hidden in a thread stays hidden when returning from an open panel", async () => {
   await twoThreads();
   await userEvent.click(await screen.findByRole("button", { name: "Right panel" }));
   await screen.findByRole("region", { name: "Thread panel" });
@@ -39,5 +62,27 @@ test("a side panel hidden in one thread stays hidden in the next", async () => {
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 
   await switchTo(/Migrate settings schema/);
+  expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  await screen.findByRole("region", { name: "Thread panel" });
+  await switchTo(/Cap cold-start replay/);
+  expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull();
+});
+
+test("creating a new thread leaves its panel hidden after leaving a thread with an open panel", async () => {
+  await twoThreads();
+  await userEvent.click(await screen.findByRole("button", { name: "Right panel" }));
+  await screen.findByRole("region", { name: "Thread panel" });
+
+  await userEvent.keyboard("{Meta>}n{/Meta}");
+  await screen.findByRole("heading", { level: 1, name: "New thread" });
+  await userEvent.click(await screen.findByRole("button", { name: /^Project:/ }));
+  await userEvent.click(await screen.findByRole("option", { name: "ace" }));
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Message" }),
+    "Keep this conversation focused{Enter}",
+  );
+  await screen.findByRole("heading", { level: 1, name: "Keep this conversation focused" });
+  await screen.findByRole("button", { name: "Right panel" });
   expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull();
 });
