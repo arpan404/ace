@@ -168,7 +168,7 @@ test("when only the push fails, the commit is reported made and the form offers 
 test("a push the remote rejects after a rebase offers a force push leased to the remote's revision", async () => {
   const app = await openThread(
     { ...checkout, diff: { files: 0, additions: 0, deletions: 0 } },
-    (fake) => fake.daemon.workspace.setRemoteDiverged("thread-git", "b".repeat(40)),
+    (fake) => fake.daemon.workspace.git.setRemoteDiverged("thread-git", "b".repeat(40)),
   );
   const card = await openWorkCard();
   await userEvent.click(within(card).getByRole("button", { name: "Push" }));
@@ -184,7 +184,7 @@ test("a push the remote rejects after a rebase offers a force push leased to the
 });
 
 test("the commit form says when Git hooks won't run for the commit", async () => {
-  await openThread(checkout, (app) => app.daemon.workspace.setHooksSkipped("thread-git"));
+  await openThread(checkout, (app) => app.daemon.workspace.git.setHooksSkipped("thread-git"));
   await gitAction(/^Commit & push/);
   const form = await screen.findByRole("dialog", { name: /^Commit to / });
   expect(await within(form).findByText(/^Git hooks won't run for this commit/)).toBeTruthy();

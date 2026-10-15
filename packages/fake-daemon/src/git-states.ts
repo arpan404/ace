@@ -18,12 +18,44 @@ type Branches = WorkspaceActionResult["result"];
 /*
  * The fake projects' repositories as Git would find them: a folder that isn't a repository, a
  * repository with no commits yet, a stale lock from an earlier daemon, or a setup script that
- * fails. Each fact is set by a test and read by `branches.list` and worktree starts.
+ * fails. Each fact is set by a test and read by `branches.list` and worktree starts. Per
+ * thread, a remote branch that moved on (after a rebase) and a checkout whose hooks won't run.
  */
 export class FakeGitStates {
   private kinds = new Map<string, "none" | "empty" | "detached">();
   private locks = new Map<string, string>();
   private setups = new Map<string, readonly string[]>();
+  /** Per thread, the remote branch's revision when it has commits the checkout doesn't. */
+  private diverged = new Map<string, string>();
+  private hooksSkipped = new Set<string>();
+
+  /**
+   * The remote branch has commits the thread's checkout lacks (after a rebase or amend): a plain
+   * push is rejected with the remote's revision, and only a force push leased to it goes through.
+   */
+  setRemoteDiverged(threadId: string, remoteHead: string): void {
+    this.diverged.set(threadId, remoteHead);
+  }
+  /** The person's commits in the thread's checkout won't run Git hooks (a PR review worktree). */
+  setHooksSkipped(threadId: string): void {
+    this.hooksSkipped.add(threadId);
+  }
+  /** What `git.status` says about hooks for the thread's checkout. */
+  hooks(threadId: string): "run" | "skipped" {
+    return this.hooksSkipped.has(threadId) ? "skipped" : "run";
+  }
+  /** How `git.push` refuses, if it does; a push that goes through brings the remote level. */
+  pushRefusal(
+    threadId: string,
+    force: { lease: string } | undefined,
+  ): { ok: false; error: string; remoteHead?: string } | undefined {
+    const remoteHead = this.diverged.get(threadId);
+    if (remoteHead && !force) return { ok: false, error: "git_push_rejected", remoteHead };
+    if (remoteHead && force?.lease !== remoteHead)
+      return { ok: false, error: "git_push_lease_stale" };
+    this.diverged.delete(threadId);
+    return undefined;
+  }
 
   /**
    * The project's folder isn't a Git repository (`none`), has no commits yet (`empty`), or sits

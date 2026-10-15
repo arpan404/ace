@@ -79,20 +79,6 @@ export class FakeWorkspaceWire {
     this.gitFiles.set(threadId, files);
   }
   private gitPatches = new Map<string, string>();
-  /** Per thread, the remote branch's revision when it has commits the checkout doesn't. */
-  private diverged = new Map<string, string>();
-  /**
-   * The remote branch has commits the checkout lacks (after a rebase or amend): a plain push is
-   * rejected with the remote's revision, and only a force push leased to it goes through.
-   */
-  setRemoteDiverged(threadId: string, remoteHead: string): void {
-    this.diverged.set(threadId, remoteHead);
-  }
-  private hooksSkipped = new Set<string>();
-  /** The person's commits in this checkout won't run Git hooks (a PR review worktree). */
-  setHooksSkipped(threadId: string): void {
-    this.hooksSkipped.add(threadId);
-  }
   setGitDiff(threadId: string, patch: string): void {
     this.gitPatches.set(threadId, patch);
   }
@@ -232,7 +218,7 @@ export class FakeWorkspaceWire {
                     files: this.gitStatus(op.threadId).slice(0, gitStatusLimit),
                     truncated: this.gitStatus(op.threadId).length > gitStatusLimit,
                     head: this.head(op.threadId),
-                    hooks: this.hooksSkipped.has(op.threadId) ? "skipped" : "run",
+                    hooks: this.git.hooks(op.threadId),
                   }
                 : op.op === "thread.details"
                   ? {
@@ -404,12 +390,8 @@ export class FakeWorkspaceWire {
       return { ok: true, commit };
     }
     if (payload.type === "git.push") {
-      const remoteHead = this.diverged.get(payload.threadId);
-      if (remoteHead && !payload.force)
-        return { ok: false, error: "git_push_rejected", remoteHead };
-      if (remoteHead && payload.force?.lease !== remoteHead)
-        return { ok: false, error: "git_push_lease_stale" };
-      this.diverged.delete(payload.threadId);
+      const refused = this.git.pushRefusal(payload.threadId, payload.force);
+      if (refused) return refused;
       this.context.update(payload.threadId, {
         type: "thread.client.updated",
         changes: { details: { ...thread?.details, ahead: 0 } },
