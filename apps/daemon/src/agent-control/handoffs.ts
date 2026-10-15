@@ -284,7 +284,6 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
           entry.branch === operation.branch
           ? entry.work
           : { ok: false, code: "invalid" };
-      if (pending.size >= 4) return { ok: false, code: "limit" };
       const lifetime = new AbortController();
       const work = handoff(caller, operation, AbortSignal.any([signal, lifetime.signal]));
       pending.set(key, {

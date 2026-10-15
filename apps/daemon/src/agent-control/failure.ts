@@ -45,6 +45,11 @@ export function ceilingRefusal(
   );
 }
 
+/** The engine had no free thread slot: the work can wait and retry, it was not refused. */
+export function engineFull(error: unknown): boolean {
+  return error instanceof AgentControlError && error.message === "engine_capacity_exceeded";
+}
+
 /** Only trusted engine admission results enter this mapping, never provider error objects. */
 export function controlAdmissionError(reason: string): AgentControlError {
   const codes: Record<string, PublicToolCode> = {

@@ -1,5 +1,4 @@
 import { delegationRequest } from "./cursor-request.ts";
-import { incomingRemoteRoot } from "./incoming-root.ts";
 import { AgentControlError, ceilingRefusal, controlAdmissionError } from "./failure.ts";
 import { delegationSelection, validateDelegationSelection } from "./selection.ts";
 import { callerThread } from "./authorization.ts";
@@ -53,18 +52,8 @@ export class DelegationAdmission {
         this.deps.engine.childPermissionRefusal(caller.threadId, input.provider, input),
       );
     }
-    const root = this.journal.get(caller.threadId)?.rootId ?? caller.threadId;
-    if (incomingRemoteRoot(this.deps.store, root))
-      throw new AgentControlError(
-        "delegation_denied",
-        "Incoming remote tasks cannot allocate children without a durable source subtree budget",
-      );
-
-    if (
-      this.journal.get(caller.threadId)?.phase === "cancelling" ||
-      this.journal.stopped(caller.threadId) ||
-      this.journal.ancestorStopped(caller.threadId)
-    )
+    // Only a thread that is itself being cancelled is refused; a Stop never fences later work.
+    if (this.journal.fenced(caller.threadId))
       throw new AgentControlError("delegation_cancelled", "cancelled");
     if (input.provider === "acp") {
       const identity = AcpIdentity.parse(input);
@@ -78,16 +67,6 @@ export class DelegationAdmission {
       )
     )
       throw controlAdmissionError("launch_options_unsupported");
-  }
-  /** Admission and revived work share source-owned local and remote accounting. */
-  capacity(parent: ThreadId, now: number) {
-    const tree = this.journal.tree(parent, now);
-    const external = this.deps.externalCapacity?.(parent, tree.root);
-    return {
-      ...tree,
-      children: tree.children + (external?.children ?? 0),
-      concurrent: this.journal.concurrent(parent) + (external?.concurrent ?? 0),
-    };
   }
   reserve(
     caller: McpAttribution,
@@ -106,14 +85,10 @@ export class DelegationAdmission {
         return existing;
       }
       const now = this.deps.clock.now(),
-        tree = this.capacity(caller.threadId, now);
+        tree = this.journal.tree(caller.threadId, now);
+      // Depth bounds recursion. Concurrency never refuses: excess children queue at launch.
       const rejection = admitDelegation(tree, this.policy);
-      if (rejection || this.journal.activeCount() >= 64)
-        throw new AgentControlError(
-          rejection === "cancelled" ? "delegation_cancelled" : "delegation_limit",
-          rejection ?? "active_limit",
-        );
-      this.journal.assertCapacity();
+      if (rejection) throw new AgentControlError("delegation_limit", rejection);
       const selected = delegationSelection(
         this.deps,
         input,
@@ -174,8 +149,6 @@ export class DelegationAdmission {
       const r = current.record;
       if (ownership) r.resultDelivery = ownership.resultDelivery;
       this.validate(caller, r.request);
-      if (this.journal.tree(caller.threadId, this.deps.clock.now()).cancelled)
-        throw new AgentControlError("delegation_cancelled", "cancelled");
       // Quota may have changed during filesystem work; selected identity is immutable.
       validateDelegationSelection(
         this.deps,

@@ -135,17 +135,21 @@ test("interrupt cancels descendants, prevents prepared children launching, and s
   expect(wakes(h.events, parent.threadId)).toHaveLength(0);
 });
 
-test("depth and per-parent concurrency reject extra work without creating threads", async () => {
+test("a child past the parent's slots waits queued and starts when one finishes; only depth refuses", async () => {
   const h = setup({ maxConcurrent: 1, maxDepth: 1 });
   const parent = await h.parent();
   const child = h.delegate(parent, "one");
   await h.engine.flush();
-  expect(() => h.delegate(parent, "two")).toThrow("concurrency");
+  const queued = h.delegate(parent, "two");
+  await h.engine.flush();
+  expect(h.contexts.has(queued.childId)).toBe(false);
+  expect(h.store.getThread(parent.threadId)?.status.state).not.toBe("done");
   expect(() => h.delegate(h.caller(child.childId), "deep")).toThrow("depth");
-  expect(h.store.listThreads()).toHaveLength(2);
-  await h.complete(child.childId, "done");
-  h.delegate(parent, "after-completion");
   expect(h.store.listThreads()).toHaveLength(3);
+  await h.complete(child.childId, "done");
+  await h.engine.flush();
+  expect(h.store.getThread(queued.childId)?.status.state).toBe("working");
+  expect(h.inputs.get(queued.childId)?.join("\n")).toContain("Implement safely");
 });
 
 test("request retries reuse the independent thread and conflicting payloads are rejected", async () => {

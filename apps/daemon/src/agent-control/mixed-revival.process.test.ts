@@ -12,7 +12,7 @@ import { RemoteTaskJournal } from "./remote-journal.ts";
 import { setup } from "./test-support.ts";
 
 test.each([false, true])(
-  "revived work respects remote sibling concurrency, including recovery=%s",
+  "revived work keeps running beside a remote sibling that fills the slots, including recovery=%s",
   async (recovery) => {
     const policy: Partial<DelegationPolicy> = { maxConcurrent: 1 };
     const f = setup(policy);
@@ -27,9 +27,8 @@ test.each([false, true])(
       id: randomUUID,
       policy,
       onError: (error: unknown) => f.errors.push(error),
-      externalCapacity: (owner: typeof parent.threadId, root: typeof parent.threadId) => ({
-        concurrent: ledger.active().filter((task) => task.parentThreadId === owner).length,
-        children: ledger.root(root).children,
+      externalCapacity: (owner: typeof parent.threadId) => ({
+        concurrent: ledger.running(owner),
       }),
     };
     let service = new DelegationService(deps);
@@ -104,9 +103,12 @@ test.each([false, true])(
         service = new DelegationService(deps);
       }
       await f.engine.flush();
-      expect(f.store.getThread(child.childId)?.status.state).toBe("done");
+      // Counts never interrupt work a provider resumed on its own.
+      expect(f.store.getThread(child.childId)?.status.state).toBe("working");
+      expect(f.store.getThread(parent.threadId)?.status.state).not.toBe("done");
+      await f.complete(child.childId, "Second answer");
       expect(await service.wait(parent, child.childId, new AbortController().signal)).toMatchObject(
-        { outcome: "cancelled" },
+        { outcome: "completed", result: "Second answer" },
       );
       expect(f.errors).toEqual([]);
     } finally {

@@ -96,18 +96,4 @@ export class ConversationJournal {
           .parse(row),
       );
   }
-  capacity(parent: ThreadId, root: ThreadId) {
-    return this.store.atomic((db) => ({
-      concurrent: Number(
-        db
-          .prepare(`SELECT COUNT(*) AS n FROM agent_conversations c JOIN delegation_participants p ON p.thread_id=c.thread_id JOIN threads t ON t.id=c.thread_id
-        WHERE c.owner_thread=? AND p.active=1
-        AND json_extract(t.client,'$.deletedAt') IS NULL`)
-          .get(parent)?.n,
-      ),
-      children: Number(
-        db.prepare("SELECT COUNT(*) AS n FROM agent_conversations WHERE root_id=?").get(root)?.n,
-      ),
-    }));
-  }
 }

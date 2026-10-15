@@ -335,7 +335,7 @@ test("restart delivery is accepted once and model configuration retains provider
   ).rejects.toThrow();
 });
 
-test("conversation launches and reopened work compete with children for the same capacity", async () => {
+test("agent-started conversations and their follow-ups are never refused while the parent's slots are full", async () => {
   const h = setup({ maxConcurrent: 1 });
   const parent = await h.parent();
   const runtime = new WorkspaceRuntime(h.store, join(h.home, "owned"), h.clock.now);
@@ -347,14 +347,19 @@ test("conversation launches and reopened work compete with children for the same
         h.service.conversations,
       ),
     });
-    expect((await port.execute(parent, conversation("capacity"), signal())).ok).toBe(true);
+    const busy = h.delegate(parent, "fills-the-slot");
     await h.engine.flush();
-    const thread = h.store.listThreads().find((row) => row.id !== parent.threadId);
+    for (const requestId of ["first", "second"])
+      expect((await port.execute(parent, conversation(requestId), signal())).ok).toBe(true);
+    await h.engine.flush();
+    const started = h.store
+      .listThreads()
+      .filter((row) => row.id !== parent.threadId && row.id !== busy.childId);
+    expect(started).toHaveLength(2);
+    for (const thread of started) expect(h.inputs.get(thread.id)).toContain("Build this");
+    const [thread] = started;
     if (!thread) throw new Error("Conversation missing");
-    expect(() => h.delegate(parent, "too-many")).toThrow();
     await h.complete(thread.id, "finished");
-    const child = h.delegate(parent, "now-admitted");
-    await h.engine.flush();
     expect(
       await port.execute(
         parent,
@@ -366,24 +371,10 @@ test("conversation launches and reopened work compete with children for the same
         }),
         signal(),
       ),
-    ).toMatchObject({ ok: false });
-    await h.complete(child.childId, "finished child");
-    expect(
-      (
-        await port.execute(
-          parent,
-          AgentControlOperation.parse({
-            op: "thread.message",
-            threadId: thread.id,
-            requestId: "reopen-after-capacity",
-            text: "More work",
-          }),
-          signal(),
-        )
-      ).ok,
-    ).toBe(true);
+    ).toMatchObject({ ok: true });
     await h.engine.flush();
     expect(h.inputs.get(thread.id)?.at(-1)).toBe("More work");
+    expect(h.store.getThread(busy.childId)?.status.state).toBe("working");
   } finally {
     await runtime.close();
   }

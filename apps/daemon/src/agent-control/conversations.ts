@@ -138,7 +138,6 @@ export function createConversationStarts(
       if (previous.identity !== identity) return { ok: false, code: "invalid" as const };
       return previous.work;
     }
-    if (pending.size >= 4) return { ok: false, code: "limit" as const };
     const work = start(caller, operation, signal);
     pending.set(key, { identity, work });
     try {

@@ -1,5 +1,4 @@
 import { admitDelegation } from "@ace/orchestrator";
-import { incomingRemoteRoot } from "./incoming-root.ts";
 import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import {
@@ -19,6 +18,7 @@ import type { Engine } from "../engine/index.ts";
 import type { EngineClock } from "../engine/actor.ts";
 import { RemoteTaskJournal } from "./remote-journal.ts";
 import { remoteAccessHolds, remoteChildAccess } from "./remote-access.ts";
+import { AgentControlError } from "./failure.ts";
 import type { DelegationService } from "./delegations.ts";
 
 export const remoteTerminal = (task: RemoteTask) =>
@@ -42,12 +42,13 @@ export class RemoteDelegations {
   private id: () => string;
   private admit: () => boolean;
   private hostId: string;
-  private preparing = 0;
   private waiters = new Map<string, number>();
   private cancelTimer: (() => void) | undefined;
   private closed = false;
   private pruneAt = 0;
   private deliveryRetry = new Map<string, number>();
+  /** Context preparations in flight; a Stop on their parent's tree aborts them. */
+  private preparations = new Set<{ parent: ThreadKey; stop: AbortController }>();
   private clock: EngineClock | undefined;
   private onError: (error: unknown) => void;
   private resolveArtifacts: ((task: RemoteTask) => Promise<unknown>) | undefined;
@@ -147,28 +148,11 @@ export class RemoteDelegations {
       }
     });
   }
+  /** Same bounds as local delegation: a cancelled parent and recursion depth, never counts. */
   private admission(parent: ThreadKey) {
-    const tasks = this.journal.active();
-    if (
-      tasks.length >= 64 ||
-      this.local.journal.ancestorStopped(parent) ||
-      this.local.journal.stopped(parent)
-    )
-      return undefined;
+    if (this.local.journal.fenced(parent)) return "forbidden" as const;
     const tree = this.local.journal.tree(parent, this.now());
-    const remote = this.journal.root(tree.root);
-    return admitDelegation(
-      {
-        ...tree,
-        children: tree.children + remote.children,
-        concurrent:
-          this.local.journal.concurrent(parent) +
-          tasks.filter((task) => task.parentThreadId === parent).length,
-      },
-      this.local.policy,
-    )
-      ? undefined
-      : tree;
+    return admitDelegation(tree, this.local.policy) ? ("limit" as const) : tree;
   }
   register(session: string, hosts: RemoteAgentHost[], valid: () => boolean): string | undefined {
     const broker = this.current();
@@ -314,8 +298,7 @@ export class RemoteDelegations {
       !parent ||
       parent.provider !== task.parentProvider ||
       !remoteAccessHolds(this.engine.access(parent.id), parent, task.access) ||
-      this.local.journal.stopped(parent.id) ||
-      this.local.journal.ancestorStopped(parent.id)
+      this.local.journal.fenced(parent.id)
     ) {
       task.phase = "cancelling";
       task.cancellingAt ??= this.now();
@@ -328,8 +311,7 @@ export class RemoteDelegations {
     this.journal.save(task);
     if (
       (this.deliveryRetry.get(task.id) ?? 0) > this.now() &&
-      !this.local.journal.stopped(task.parentThreadId) &&
-      !this.local.journal.ancestorStopped(task.parentThreadId)
+      !this.local.journal.fenced(task.parentThreadId)
     )
       return;
     try {
@@ -339,11 +321,10 @@ export class RemoteDelegations {
           this.engine.remoteDelegation(task);
           // Results are context on the originating host, with explicit remote identity.
           if (this.waiters.has(task.id)) return;
-          if (
-            !this.local.journal.stopped(parent.id) &&
-            !this.local.journal.ancestorStopped(parent.id) &&
-            (task.phase !== "cancelled" || task.result !== undefined)
-          ) {
+          const fenced = this.local.journal.fenced(parent.id);
+          // A Stop on the parent holds the result, undelivered, until the parent takes input.
+          if (!fenced && this.local.journal.stopped(parent.id)) return;
+          if (!fenced && (task.phase !== "cancelled" || task.result !== undefined)) {
             const answer =
               ["failed", "cancelled"].includes(task.phase) && task.result !== undefined
                 ? ":answer"
@@ -390,6 +371,12 @@ export class RemoteDelegations {
       );
   }
   cancelTree(parent: ThreadKey) {
+    for (const preparation of this.preparations)
+      if (
+        preparation.parent === parent ||
+        this.local.journal.isDescendant(preparation.parent, parent)
+      )
+        preparation.stop.abort();
     this.store.atomic(() => {
       for (const task of this.journal.active())
         if (
@@ -466,8 +453,7 @@ export class RemoteDelegations {
       const access = remoteChildAccess(inherited, request.access, agent.accessModes);
       if (!access || !inherited) return { ok: false, code: "forbidden" };
       const tree = this.admission(parent.id);
-      if (!tree) return { ok: false, code: "limit" };
-      if (incomingRemoteRoot(this.store, tree.root)) return { ok: false, code: "forbidden" };
+      if (typeof tree === "string") return { ok: false, code: tree };
       const task: RemoteTask = {
         id,
         sourceHostId: HostId.parse(this.hostId),
@@ -485,18 +471,22 @@ export class RemoteDelegations {
         delivered: false,
         createdAt: this.now(),
       };
-      if (this.preparing >= 4) return { ok: false, code: "limit" };
-      this.preparing++;
+      const preparation = { parent: caller.threadId, stop: new AbortController() };
+      this.preparations.add(preparation);
       try {
-        if (this.prepareContext) task.context = await this.prepareContext(task, signal);
+        const prepared = AbortSignal.any([signal, preparation.stop.signal]);
+        if (this.prepareContext) task.context = await this.prepareContext(task, prepared);
         else if (request.context) return { ok: false, code: "not_ready" };
       } catch {
         signal.throwIfAborted();
-        return { ok: false, code: "unavailable" };
+        if (!preparation.stop.signal.aborted) return { ok: false, code: "unavailable" };
       } finally {
-        this.preparing--;
+        this.preparations.delete(preparation);
       }
       signal.throwIfAborted();
+      // A Stop during preparation ends this request; it does not fence later ones.
+      if (preparation.stop.signal.aborted)
+        throw new AgentControlError("delegation_cancelled", "cancelled");
       if (
         !this.admit() ||
         !this.store.getMcpAgent(caller.threadId, caller.agentId) ||
@@ -510,7 +500,8 @@ export class RemoteDelegations {
           JSON.stringify(duplicate.request) === JSON.stringify(request)
           ? { ok: true, data: duplicate }
           : { ok: false, code: "invalid" };
-      if (!this.admission(parent.id)) return { ok: false, code: "limit" };
+      const admitted = this.admission(parent.id);
+      if (typeof admitted === "string") return { ok: false, code: admitted };
       this.store.atomic(() => {
         this.journal.save(task);
         this.engine.remoteDelegation(task);
