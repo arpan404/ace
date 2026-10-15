@@ -25,3 +25,29 @@ test.each([
     }
   },
 );
+
+test.each(["stderr", "total"])(
+  "opting into stdout drops still kills on the %s limit",
+  async (kind) => {
+    const child = spawnSupervised({
+      command: process.execPath,
+      args: [
+        "-e",
+        kind === "stderr"
+          ? 'process.stderr.write("x".repeat(64)); setInterval(() => {}, 1000);'
+          : 'process.stdout.write("x".repeat(64) + "\\n"); setInterval(() => {}, 1000);',
+      ],
+      env: {},
+      name: "stdout-drop-other-budget",
+      maxLineBytes: 8,
+      ...(kind === "total" ? { maxOutputBytes: 16 } : {}),
+      onStdoutLineDropped() {
+        throw new Error("No stdout drop should bypass this budget");
+      },
+    });
+    onTestFinished(async () => {
+      await child.stop({ graceMs: 0 });
+    });
+    expect(await child.exited).toMatchObject({ reason: "output-limit", signal: "SIGKILL" });
+  },
+);
