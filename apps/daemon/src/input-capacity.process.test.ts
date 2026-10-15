@@ -119,6 +119,10 @@ it("a reconnect burst of subscriptions right after welcome is served without a 4
     const message = await client.next();
     delivered.push(message.type === "snapshot" ? message.subscriptionId : message.type);
   }
-  expect(delivered).toEqual([...Array.from({ length: 24 }, (_, i) => `s-${i}`), "pong"]);
+  // Subscriptions keep their order; the pong changes no state and is answered as it arrives.
+  expect(delivered.filter((entry) => entry !== "pong")).toEqual(
+    Array.from({ length: 24 }, (_, i) => `s-${i}`),
+  );
+  expect(delivered.filter((entry) => entry === "pong")).toHaveLength(1);
   expect(closed).toBeUndefined();
 });

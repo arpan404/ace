@@ -59,7 +59,7 @@ test("analytics replay backs off, records its cause, and waits for new data once
     if (!timer) throw new Error("No retry armed");
     const before = failures.length;
     timer.fire();
-    for (let i = 0; i < 200 && failures.length === before && failing; i++)
+    for (let i = 0; i < 200 && failures.length === before; i++)
       await new Promise<void>((resolve) => setTimeout(resolve, 5));
     return timer.ms;
   };

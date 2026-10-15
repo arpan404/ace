@@ -32,6 +32,8 @@ function byteLength(data: RawData): number {
  * Serializes authenticated async handlers. A socket whose handlers fall behind stops being
  * read (TCP backpressure reaches the peer) and resumes once it drains, so a reconnect burst
  * is delivered in order. Only input that outgrows the last-resort caps closes with 4009.
+ * Liveness frames that change no state (`immediate` returns true) are answered as they
+ * arrive, never behind queued handlers, so a slow handler cannot fail the peer's heartbeat.
  */
 export class SocketInput {
   private bytes = 0;
@@ -47,6 +49,7 @@ export class SocketInput {
     socket: WebSocket,
     receive: (data: RawData, binary: boolean) => Promise<void>,
     onError: (error: unknown) => void,
+    immediate?: (data: RawData, binary: boolean) => boolean,
   ): void {
     const limits = this.limits;
     let queued = 0;
@@ -58,6 +61,11 @@ export class SocketInput {
       if (bytes + charge > limits.socketBytes || this.bytes + charge > limits.globalBytes) {
         socket.close(4009, "Message backpressure");
         return;
+      }
+      try {
+        if (immediate?.(data, binary)) return;
+      } catch (error) {
+        onError(error);
       }
       queued++;
       bytes += charge;

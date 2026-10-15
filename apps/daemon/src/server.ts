@@ -27,6 +27,8 @@ import { HostId, DeviceId, type ServerMessage, type Notification } from "@ace/pr
 import type { PluginServerMessage } from "@ace/protocol/plugins";
 import { defaultPressure, Outbox } from "./outbox.ts";
 import { SocketInput } from "./socket-input.ts";
+import { CommandLanes, commandLane, settledWithin } from "./command-lanes.ts";
+import { isPing, closeRecord } from "./socket-liveness.ts";
 import { subscribe, pageSubscription } from "./subscription.ts";
 import { WireEncoder } from "./wire-encoder.ts";
 import { bindListener as bind, closeListener } from "./listener.ts";
@@ -40,6 +42,10 @@ const refuseUpgrade = (socket: import("node:stream").Duplex, status: string) =>
 export type { ServerOptions } from "./server-options.ts";
 import type { ServerOptions } from "./server-options.ts";
 import { computerName } from "./computer-name.ts";
+/** A fast command finishes before the socket reads on, keeping its order with later reads. */
+const commandGraceMs = 250;
+/** Commands one socket may leave running before its input waits for them. */
+const commandFlights = 64;
 export async function startServer(options: ServerOptions): Promise<{
   relayHostId?: string | undefined;
   maintenance: MaintenanceGate;
@@ -214,6 +220,7 @@ export async function startServer(options: ServerOptions): Promise<{
   const serviceTasks = new Set<Promise<void>>();
   const serviceSessions = new Map<WebSocket, ReturnType<typeof createServiceSessions>>();
   const input = new SocketInput();
+  const lanes = new CommandLanes();
   const cleanups = new Map<WebSocket, () => void>();
   let disconnects = Promise.resolve();
   const receivers = new Map<DeviceId, Map<WebSocket, (message: ServerMessage) => void>>();
@@ -233,6 +240,8 @@ export async function startServer(options: ServerOptions): Promise<{
     let hasPresence = false;
     let stopEnrollment: (() => void) | undefined;
     let cleaned = false;
+    let welcomed = false;
+    let detached = 0;
     let lastActivity = auth.now();
     socket.on("message", () => {
       lastActivity = auth.now();
@@ -321,8 +330,11 @@ export async function startServer(options: ServerOptions): Promise<{
         socket.close(4008, "Idle timeout");
       outbox.tick();
     });
-    socket.on("close", () => {
+    const opened = auth.now();
+    socket.on("close", (code: number, reason: Buffer) => {
       cleanup();
+      const record = closeRecord(code, reason, auth.now() - opened, device !== undefined);
+      if (record) options.warn?.("WebSocket closed", record);
       options.onDisconnect?.(device);
     });
     const receive = async (data: RawData, binary: boolean) => {
@@ -432,6 +444,7 @@ export async function startServer(options: ServerOptions): Promise<{
           socket.close(limit ? 4013 : 1011, code);
           return;
         }
+        welcomed = true;
         send({
           type: "welcome",
           hostId,
@@ -655,18 +668,44 @@ export async function startServer(options: ServerOptions): Promise<{
             );
             break;
           }
-          try {
-            if (route) await route.accept(message.command, device);
-            else refuseBeforeAccept("not_implemented", "Command is not supported");
-          } catch (error) {
-            options.log?.(error);
-            refuse("command_failed", "Command transaction rolled back", true);
+          if (!route) {
+            refuseBeforeAccept("not_implemented", "Command is not supported");
+            break;
           }
+          // Accepted commands run on their thread's lane, not on this socket's input queue:
+          // a command still waiting after the grace keeps running while the socket goes on.
+          const command = message.command;
+          const actor = device;
+          const task = lanes.run(commandLane(command, actor), actor, command.id, async () => {
+            try {
+              await route.accept(command, actor);
+            } catch (error) {
+              options.log?.(error);
+              refuse("command_failed", "Command transaction rolled back", true);
+            }
+          });
+          detached++;
+          void task.finally(() => detached--);
+          // Bounded work per socket: past the cap the queue waits, so TCP backpressure applies.
+          if (detached > commandFlights) await task;
+          else await settledWithin(task, commandGraceMs, runtime.delay);
           break;
         }
       }
     };
-    input.listen(socket, receive, (error) => options.log?.(error));
+    input.listen(
+      socket,
+      receive,
+      (error) => options.log?.(error),
+      (data, binary) => {
+        // Pong right away once welcomed: it changes no state and must not wait on handlers.
+        if (!welcomed || binary || socket.readyState !== WebSocket.OPEN || !isPing(data))
+          return false;
+        lastActivity = auth.now();
+        send({ type: "pong" });
+        return true;
+      },
+    );
   });
   const stopTimer = runtime.every(
     () => {
@@ -786,7 +825,7 @@ export async function startServer(options: ServerOptions): Promise<{
             wss.close((error) => {
               void shutdownDeadline(
                 "Socket tasks",
-                Promise.all([Promise.allSettled(serviceTasks), disconnects]),
+                Promise.all([Promise.allSettled(serviceTasks), lanes.settled(), disconnects]),
                 runtime.delay,
                 5_000,
               ).then(() => {
