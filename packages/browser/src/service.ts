@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 
 import {
   BrowserOpen,
+  browserSessionLimit,
   type BrowserArtifact,
   type BrowserState,
   type BrowserFrame,
@@ -63,8 +64,9 @@ export class BrowserService {
   constructor(options: BrowserServiceOptions) {
     this.options = options;
     this.profiles = new BrowserProfiles(options.dataDir);
-    this.subscriptions = new BrowserSubscriptions(64 * (options.maxSessions ?? 8), (error) =>
-      options.onError?.(error),
+    this.subscriptions = new BrowserSubscriptions(
+      64 * (options.maxSessions ?? browserSessionLimit),
+      (error) => options.onError?.(error),
     );
     this.now = options.now ?? Date.now;
     this.id = options.id ?? randomUUID;
@@ -75,7 +77,7 @@ export class BrowserService {
         return () => clearTimeout(timer);
       },
     };
-    this.tabs = new TabBudget(options.maxTabs ?? 32);
+    this.tabs = new TabBudget(options.maxTabs ?? 256);
     this.acquisition = ownedHeadless(options, this.lifetime.signal);
     this.headless = this.acquisition.backend;
   }
@@ -101,12 +103,18 @@ export class BrowserService {
     if (existing) await existing.close();
     const pending = this.opening.get(options.threadId);
     if (pending) return (await pending).state;
-    if (this.sessions.size + this.opening.size >= (this.options.maxSessions ?? 8)) {
+    if (
+      this.sessions.size + this.opening.size >=
+      (this.options.maxSessions ?? browserSessionLimit)
+    ) {
       const idle = [...this.sessions.values()]
         .filter((session) => session.evictable)
         .toSorted((a, b) => a.lastActivity - b.lastActivity)[0];
       if (idle) await idle.close();
-      if (this.sessions.size + this.opening.size >= (this.options.maxSessions ?? 8))
+      if (
+        this.sessions.size + this.opening.size >=
+        (this.options.maxSessions ?? browserSessionLimit)
+      )
         throw new Error("All browser pages are in use. Close an idle thread's page and try again.");
     }
     const scope = new AbortController();

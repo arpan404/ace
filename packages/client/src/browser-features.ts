@@ -1,6 +1,6 @@
 import { z } from "zod";
 import {
-  BrowserTab,
+  BrowserTabList,
   BrowserTabsResult,
   BrowserDownload,
   BrowserState,
@@ -20,7 +20,7 @@ export class BrowserFeaturesClient {
   tabs(threadId: string, options?: RequestOptions) {
     return this.read(
       { type: "browser.tabs.list", threadId: ThreadId.parse(threadId) },
-      BrowserTab.array().max(8),
+      BrowserTabList,
       options,
     );
   }

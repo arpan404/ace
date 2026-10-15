@@ -85,8 +85,11 @@ the daemon immediately before dispatch. Native permissions and downloads are
 fail-closed hooks at the backend boundary; version 1 never grants either.
 Desktop must not independently navigate around daemon Fetch/origin approval.
 
-Relay admits at most 128 unsettled requests, eight sessions, and 1 MiB per
-command/result/event. Requests time out at 30 seconds, session open at 60 seconds.
+Relay admits at most 128 unsettled requests, 32 sessions, and 1 MiB per
+command/result/event. Requests time out at 30 seconds, session open at 60 seconds,
+and a navigation at its 120-second wait limit plus the 65-second approval reserve.
+A tab list is bounded at 512 tabs on the wire; the daemon decodes the desktop's
+list leniently, keeping every usable tab and logging any entry it had to skip.
 An outbound transport that refuses a reliable message disconnects the backend;
 commands are never buffered without a bound. Event forwarding is synchronous.
 For frames, desktop keeps one in-flight frame and one replaceable latest frame
