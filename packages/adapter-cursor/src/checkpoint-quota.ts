@@ -71,7 +71,7 @@ export class CheckpointQuota {
       }
       let extra = 0;
       for (const path of potential) if (!this.paths.has(path)) extra++;
-      if (this.paths.size + extra > 128)
+      if (this.paths.size + extra > 2048)
         throw new Error(
           "SDK aggregate checkpoint inventory exceeds budget; previous checkpoint retained",
         );
@@ -104,7 +104,7 @@ export class CheckpointQuota {
           if (size) this.sizes.set(path, size);
           else this.sizes.delete(path);
         }
-      if (this.sizes.size > 128 || this.used > this.max) {
+      if (this.sizes.size > 2048 || this.used > this.max) {
         this.failed = true;
         throw new Error("SDK allocation exceeded its reserved quota");
       }

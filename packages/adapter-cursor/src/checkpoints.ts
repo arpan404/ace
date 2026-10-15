@@ -1,8 +1,11 @@
-import { opendir, lstat, mkdir } from "node:fs/promises";
+import { readdir, lstat, mkdir } from "node:fs/promises";
 import { join, dirname, parse } from "node:path";
 import { createHash } from "node:crypto";
 
-/** Per-thread store bounds the SDK's full-conversation materialization before pagination. */
+/** Per-thread store bounds the SDK's full-conversation materialization before pagination.
+ * The byte budget is adjustable per thread via `Limits.maxCheckpointBytes`
+ * (`DaemonOptions.engine.cursor.limits`, default 32 MiB, max 256 MiB).
+ * Entry (2048) and depth (10) counts are fixed abuse guards, not per-thread settings. */
 export function checkpointDirectory(home: string, threadId: string): string {
   return join(home, ".cursor", "sdk", "ace", createHash("sha256").update(threadId).digest("hex"));
 }
@@ -39,12 +42,13 @@ export async function checkCheckpointBudget(
   while (pending.length) {
     const directory = pending.pop();
     if (!directory) break;
-    const stream = await opendir(directory.path);
-    for await (const entry of stream) {
-      if (++entries > 128 || directory.depth > 6)
+    // readdir (not opendir) so no directory handle is retained per level.
+    for (const entry of await readdir(directory.path, { withFileTypes: true })) {
+      if (++entries > 2048 || directory.depth > 10)
         throw new Error("SDK checkpoint inventory exceeds budget; use explicit context handoff");
       const path = join(directory.path, entry.name);
       paths.add(path);
+      if (entry.isSymbolicLink()) throw new Error("Unsafe SDK checkpoint entry");
       const stat = await lstat(path);
       if (stat.isSymbolicLink()) throw new Error("Unsafe SDK checkpoint entry");
       if (stat.isDirectory()) {

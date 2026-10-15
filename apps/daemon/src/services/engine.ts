@@ -14,6 +14,7 @@ import { registerAntigravity } from "./antigravity.ts";
 import { registerPi } from "./pi.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { daemonCursorInstance } from "./cursor-instance.ts";
+import { cursorCheckpointLimitOverride } from "./cursor-limits.ts";
 import { bindCursorSdk, createInstance } from "@ace/accounts";
 import { activateCursorProvider } from "./cursor-activation.ts";
 import type { ProviderAdapter } from "@ace/engine-api";
@@ -39,6 +40,10 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     instance: defaultInstance,
     slots: cursorHosts(context),
     mcp: engineOptions.cursor?.mcp ?? ((session) => openCursorMcp(context, session)),
+    // Live per-thread checkpoint budget from Settings → Providers → Cursor
+    // (per-account rows override the provider default). Read on every open.
+    limitsForSession: (instanceId?: string) =>
+      cursorCheckpointLimitOverride(services.providerConfigurations?.for("cursor", instanceId)),
   };
   const registry =
     engineOptions.registry ??
