@@ -38,7 +38,9 @@ export function ingestQuota(
   fact: QuotaFact,
 ): { state: AccountQuota; raw: unknown } {
   const payload = ProviderPayloadSchema.safeParse(fact.payload).data;
-  if (fact.provider === "acp") return { state, raw: payload?.data };
+  // ACP frames carry no quota; only ace's own usage-source reading (`usageWindows`) does.
+  if (fact.provider === "acp" && !Object.hasOwn(object(payload?.data), "usageWindows"))
+    return { state, raw: payload?.data };
   // Never enumerate an object whose encoded byte budget was not verified at admission.
   if (!payload)
     return {

@@ -31,6 +31,12 @@ const claudeWindow = z.object({
   rateLimitType: z.string().min(1).max(128).optional(),
   resets_at: resetValue,
 });
+const neutralWindow = z.object({
+  usedPercent: number.max(100),
+  resetsAt: number.nullable().optional(),
+  windowDurationMins: number.positive().optional(),
+  limitName: codexLimitName.optional(),
+});
 export function reset(value: unknown): number | null {
   if (typeof value === "string") {
     const n = Date.parse(value);
@@ -92,7 +98,22 @@ export function decodeWindows(provider: string, body: Record<string, unknown>) {
     }
   };
   const authoritative =
-    Object.hasOwn(body, "rateLimitsByLimitId") || Object.hasOwn(body, "rate_limits");
+    Object.hasOwn(body, "rateLimitsByLimitId") ||
+    Object.hasOwn(body, "rate_limits") ||
+    Object.hasOwn(body, "usageWindows");
+  // ace's own provider-neutral reading (a usage source's result): percent used, epoch-ms reset.
+  if (Object.hasOwn(body, "usageWindows"))
+    each(body["usageWindows"], (name, value) => {
+      const w = neutralWindow.safeParse(value).data;
+      if (!w) {
+        complete = false;
+        return;
+      }
+      put(name, w.usedPercent, w.resetsAt ?? null, {
+        ...(w.windowDurationMins === undefined ? {} : { windowDurationMins: w.windowDurationMins }),
+        ...(w.limitName === undefined ? {} : { limitName: w.limitName }),
+      });
+    });
   if (provider === "codex") {
     const snapshot = (key: string, value: unknown) => {
       const row = container.safeParse(value).data;

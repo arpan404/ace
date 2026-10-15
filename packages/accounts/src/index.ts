@@ -50,3 +50,15 @@ export {
 } from "./login-sessions.ts";
 export { ProviderLoginFailure } from "./login-failure.ts";
 export { loginObservation, loginUrl, loginDeviceCodePrompt } from "./login-output.ts";
+export {
+  UsageSource,
+  type UsageDeclaration,
+  type UsageMapping,
+} from "./usage-sources/declaration.ts";
+export {
+  readDeclaredUsage,
+  type UsagePorts,
+  type UsageAccount,
+  type UsageResult,
+} from "./usage-sources/read.ts";
+export { usageDeclaration } from "./usage-sources/builtin.ts";

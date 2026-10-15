@@ -25,11 +25,14 @@ import {
   logoutArgs,
   type AccountRegistry,
   type AccountService,
+  type UsagePorts,
+  usageDeclaration,
 } from "@ace/accounts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { defaultProviderExecutable, type DiscoveryOptions } from "@ace/provider-kit/discovery";
 import { createManagedHome, deleteManagedHome, registerImplicitAccounts } from "./account-homes.ts";
 import { refreshCodexLimits, type ReadCodexUsage } from "./account-limits.ts";
+import { defaultUsagePorts, refreshDeclaredLimits } from "./declared-limits.ts";
 import type { ModelCatalog } from "@ace/models";
 
 interface AuthTerminal {
@@ -80,6 +83,8 @@ export interface AccountManagementOptions {
   terminal?: TerminalManagerOptions | undefined;
   /** Reads a Codex account's limits without a turn; tests stand in for the CLI. */
   readCodexUsage?: ReadCodexUsage | undefined;
+  /** The I/O behind declared usage sources; tests stand in for the CLI and the network. */
+  usagePorts?: UsagePorts | undefined;
   /** An account whose limits couldn't be read. */
   limitsError?(instance: string, error: unknown): void;
 }
@@ -146,7 +151,36 @@ export class AccountManagement {
     void limits.catch(() => {}).finally(() => this.restorations.delete(limits));
   }
   /** Read every account's current limits where its CLI can say without a model turn. */
-  refreshLimits(): Promise<void> {
+  async refreshLimits(): Promise<void> {
+    await Promise.all([this.refreshCodex(), this.refreshDeclared()]);
+  }
+  /** Accounts whose provider or ACP agent declares a usage source (Cursor, Gemini, ...). */
+  private refreshDeclared(): Promise<void> {
+    return refreshDeclaredLimits({
+      registry: this.options.registry,
+      declaration: (instance) => usageDeclaration(instance),
+      executable: (instance) => {
+        if (instance.provider === "acp") return undefined;
+        const discovery = configuredProviderDiscovery(
+          instance.provider,
+          this.options.configuration?.(instance.provider, instance.id).binaryPath,
+          this.options.discovery,
+        );
+        return instance.provider === "pi"
+          ? (discovery.executable ?? defaultProviderExecutable(instance.provider))
+          : (discovery.overrides?.[instance.provider] ??
+              defaultProviderExecutable(instance.provider));
+      },
+      env: this.options.env,
+      ports: this.options.usagePorts ?? defaultUsagePorts(this.options.now),
+      now: this.options.now,
+      signal: this.options.signal ?? new AbortController().signal,
+      enabled: (instance) =>
+        this.options.configuration?.(instance.provider, instance.id).enabled !== false,
+      onError: (instance, message) => this.options.limitsError?.(instance, new Error(message)),
+    });
+  }
+  private refreshCodex(): Promise<void> {
     return refreshCodexLimits({
       registry: this.options.registry,
       env: this.options.env,
