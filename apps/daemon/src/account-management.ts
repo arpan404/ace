@@ -263,8 +263,12 @@ export class AccountManagement {
     const instance = this.editable(request.instanceId);
     if (instance.provider === "cursor" && this.options.cursor?.()?.busy(instance.id))
       throw new Error("Instance is busy");
-    const release = accounts.reserveAccountChange(instance.id);
-    if (request.type === "accounts.login" || request.type === "accounts.logout") {
+    const signingInOrOut = request.type === "accounts.login" || request.type === "accounts.logout";
+    // Signing in or out stops the account's open threads; removing an account in use is refused.
+    const release = signingInOrOut
+      ? await accounts.reserveAuthChange(instance.id)
+      : accounts.reserveAccountChange(instance.id);
+    if (signingInOrOut) {
       if (!instance.managed) {
         release();
         throw new Error("Login requires a daemon-managed home");

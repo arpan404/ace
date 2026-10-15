@@ -20,6 +20,17 @@ export function raw(type: string, data: unknown, name?: string): RawPayload[] {
   const evidence = sanitize(data);
   return [{ type, data: evidence, ...(name === undefined ? {} : { name }) }];
 }
+/**
+ * A turn that ended because the upstream account ran out of quota or credit, in the words
+ * OpenAI, Anthropic and OpenRouter use; it is a usage limit, not a provider failure.
+ */
+export function failureKind(message: string): "quota" | "provider" {
+  return /insufficient[_ ]quota|exceeded your current quota|usage limit|out of usage|credit balance is too low|insufficient credits/i.test(
+    message,
+  )
+    ? "quota"
+    : "provider";
+}
 export function retryReason(message: string): "rate_limit" | "network" | "upstream" {
   return /429|rate.?limit|too many requests|quota/i.test(message)
     ? "rate_limit"

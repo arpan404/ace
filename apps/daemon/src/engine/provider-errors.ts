@@ -36,6 +36,7 @@ function readable(
     authentication_failed: `${name} could not authenticate. Sign in again using the provider's own CLI.`,
     billing_error: `${name} stopped because this account has a billing issue. Check the account in the provider's CLI or dashboard.`,
     rate_limit: `${name} reached an account limit. Wait for the limit to reset or select another eligible account.`,
+    model_quota: `This ${name} account is out of usage for ${model ? `"${model}"` : "the selected model"}. Choose another model${provider === "cursor" ? " (Cursor suggests Auto)" : ""}, or raise the account's limit.`,
     overloaded_error: `${name} is temporarily overloaded. Try again shortly.`,
   };
   const message = Object.hasOwn(messages, code) ? messages[code] : undefined;
@@ -65,7 +66,10 @@ export function structuredError(
     error.title ??
     (code === "auth" || code === "authentication_failed"
       ? `Not signed in to ${provider === "claude" ? "Claude Code" : provider === "codex" ? "Codex" : provider}`
-      : code === "quota" || code === "rate_limit" || code === "billing_error"
+      : code === "quota" ||
+          code === "model_quota" ||
+          code === "rate_limit" ||
+          code === "billing_error"
         ? "Usage limit reached"
         : code === "network"
           ? "Network trouble"

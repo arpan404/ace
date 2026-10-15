@@ -155,10 +155,18 @@ export class CursorAuthService {
             if (job.instanceId === instance.id) await this.cancel(job);
         }
         const controller = this.lifetime;
-        const auth =
-          request.type === "cursor.auth.logout"
-            ? await this.options.driver.logout(instance, controller.signal)
-            : await this.options.driver.status(instance, controller.signal);
+        let auth: Auth;
+        if (request.type === "cursor.auth.logout") {
+          try {
+            auth = await this.options.driver.logout(instance, controller.signal);
+          } catch (cause) {
+            // Sign-out fenced the account; a failed one keeps its credential, so reopen it.
+            await this.reopen(instance.id);
+            throw cause;
+          }
+          // A launch-environment key still signs this account in.
+          if (auth.status === "logged-in") await this.reopen(instance.id);
+        } else auth = await this.options.driver.status(instance, controller.signal);
         if (request.type === "cursor.auth.select") {
           if (auth.status !== "logged-in") return error("auth_failed");
           await this.options.rebindInstance(instance.id);
@@ -233,10 +241,22 @@ export class CursorAuthService {
       .catch(() => {
         if (!job.controller.signal.aborted) job.state = "failed";
       })
+      .then(async () => {
+        // Sign-in fenced the account; a failed or cancelled one keeps the old credential.
+        if (job.state !== "complete") await this.reopen(instance.id);
+      })
       .finally(() => {
         job.url = undefined;
       });
     return this.event(requestId, job);
+  }
+  /** Best effort: a rebind failure must not mask the auth outcome being reported. */
+  private async reopen(id: string): Promise<void> {
+    try {
+      await this.options.rebindInstance(id);
+    } catch {
+      // The instance stays fenced; the next successful sign-in rebinds it.
+    }
   }
   private async cancel(job: Job): Promise<void> {
     if (job.state === "starting" || job.state === "browser") {

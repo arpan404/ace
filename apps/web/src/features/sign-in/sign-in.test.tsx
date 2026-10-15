@@ -39,7 +39,10 @@ const session = (n: number) => `fake-login-${n}`;
 
 async function providersList(app: Harness) {
   await app.open(`/settings/providers/${targets.get(app) ?? "codex"}`);
-  const row = (await screen.findByRole("button", { name: "Manage Your CLI login" })).closest("li");
+  // The first test in a worker also loads the Settings route's code, which can take over 1s.
+  const row = (
+    await screen.findByRole("button", { name: "Manage Your CLI login" }, { timeout: 5_000 })
+  ).closest("li");
   if (!row) throw new Error("Missing the provider's own CLI account");
   return row;
 }
@@ -225,6 +228,18 @@ test("signing out of the default profile keeps a provider usable through its oth
       }),
     ]),
   });
+}, 30_000);
+
+test("a sign-out that leaves something still signed in says so after it finishes", async () => {
+  const app = harness();
+  stage(app, "codex", { auth: "logged_in", accountLabel: "grace@example.com" });
+  const note = "An environment key still signs Codex in. Remove it there to sign out completely.";
+  app.daemon.services.providerLogin.successNotes.codex = note;
+  const cli = await providersList(app);
+  await userEvent.click(within(cli).getByRole("button", { name: "Manage Your CLI login" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Sign out" }));
+  expect(await screen.findByText("Signed out of Codex")).toBeTruthy();
+  expect(await screen.findByText(note)).toBeTruthy();
 }, 30_000);
 
 test("a sign-in finished on another connection updates Settings live", async () => {

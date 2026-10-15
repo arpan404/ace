@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import { describeProviderError, echoesEarlierError, isBareErrorCode } from "./error-display.ts";
+import {
+  describeProviderError,
+  echoesEarlierError,
+  isBareErrorCode,
+  isLimitError,
+} from "./error-display.ts";
 
 test("a tagged provider error reads in words with the action that fixes it", () => {
   const view = describeProviderError({
@@ -48,6 +53,20 @@ test("a limit the provider names only in words reads as a usage limit with when 
   );
   // A failure that only mentions a limit in passing is not one.
   expect(describeProviderError({ text: "Raised the retry limit to 5" }).code).toBeUndefined();
+});
+
+test("a usage limit for one model reads as a limit and offers another model, not another account", () => {
+  const view = describeProviderError({
+    text: 'This Cursor account is out of usage for "composer-2.5". Choose another model (Cursor suggests Auto), or raise the account\'s limit.',
+    code: "model_quota",
+    provider: "cursor",
+  });
+  expect(view).toMatchObject({
+    title: "Usage limit reached",
+    action: "change_model",
+    message: expect.stringContaining("Choose another model"),
+  });
+  expect(isLimitError(view)).toBe(true);
 });
 
 test("an unknown failure keeps its own first line, never an empty row", () => {

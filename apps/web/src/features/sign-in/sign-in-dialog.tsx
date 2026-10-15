@@ -1,4 +1,4 @@
-import { signInSuccess } from "./success-copy.ts";
+import { signInSuccess, signInSuccessDetail } from "./success-copy.ts";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { providerNames } from "@ace/ui-core";
@@ -61,6 +61,7 @@ export function SignInDialog(props: {
           login.target,
           accounts.data?.find((account) => account.id === login.target.instance)?.label,
         ),
+        ...signInSuccessDetail(view),
       });
     props.onClose();
   });
