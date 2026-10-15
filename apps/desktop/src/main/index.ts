@@ -16,7 +16,7 @@ import {
 } from "electron";
 import type { AppInfo, DeepLink, DesktopSettings } from "../shared/contract.ts";
 import { Background } from "./background.ts";
-import { daemonLogsPath } from "./daemon/logs.ts";
+import { logFolders } from "./daemon/logs.ts";
 import { DaemonRuntime, desktopTarget } from "./daemon/runtime.ts";
 import type { DaemonTarget } from "./daemon/target.ts";
 import { createDesktopLog, type Log } from "./log/desktop-log.ts";
@@ -334,11 +334,11 @@ function main(target: DaemonTarget): void {
       missedConnection = false;
       window?.webContents.reload();
     });
-    /** The daemon's log folder (or home) in the file manager; false when there is none here. */
+    /** The daemon's and the app's log folders in the file manager; false when none opened. */
     const showLogs = async (): Promise<boolean> => {
-      const path = daemonLogsPath(runtime.target, existsSync);
-      if (!path) return false;
-      return (await shell.openPath(path)) === "";
+      const folders = logFolders(runtime.target, app.getPath("logs"), existsSync);
+      const opened = await Promise.all(folders.map((path) => shell.openPath(path)));
+      return opened.some((error) => error === "");
     };
     let bindings: Readonly<Record<string, string>> | undefined;
     const handlers = createHandlers({
