@@ -55,6 +55,8 @@ export async function sessionHarness(
   env: NodeJS.ProcessEnv = {},
   existingHome?: string,
   permissionMode?: SessionContext["permissionMode"],
+  /** Every frame the session emits, readable even when opening fails. */
+  frames: Frame[] = [],
 ) {
   const home = existingHome ?? (await mkdtemp(join(tmpdir(), "ace-pi-session-")));
   const sourcePath = join(home, "source.jsonl"),
@@ -64,7 +66,6 @@ export async function sessionHarness(
     await writeFile(resumedPath, sessionFixture(home, "resumed-native", 3));
   }
   const h = replay(),
-    frames: Frame[] = [],
     timers = new Map<number, { callback: () => void; ms: number }>();
   let timerId = 0,
     secretId = 0;

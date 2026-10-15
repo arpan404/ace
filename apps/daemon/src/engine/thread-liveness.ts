@@ -221,9 +221,8 @@ export function reconcileStoppedThread(repo: EngineRepository, id: ThreadId, at:
       repo.mark(intent, "failed", "Owning provider session is no longer running");
       repo.transitions.releaseGuards(intent.commandId);
     }
-    const count = repo.queuedCount(id);
-    if (state.queueSources.engine !== count)
-      repo.apply(id, [{ type: "queue.changed", source: "engine", count }], at);
+    const fact = repo.engineQueueFact(id);
+    if (fact) repo.apply(id, [fact], at);
     return interrupted;
   });
 }

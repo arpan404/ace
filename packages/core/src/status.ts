@@ -360,6 +360,10 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
   if (statuses.some((status) => status.state === "blocked" && status.on === "background_task")) {
     return { state: "waiting", on: "background_task" };
   }
+  // A send or session start that failed keeps its input, held, for the person's Try again,
+  // Edit or Remove. Nothing is waiting to send by itself: the thread reads as failed, and the
+  // retained input still keeps it from reading done.
+  if (state.queueHeld && state.queueSources.provider === 0) return { state: "failed" };
   if (
     state.queueCount > 0 ||
     records.some(

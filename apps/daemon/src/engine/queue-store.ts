@@ -83,6 +83,11 @@ export class QueueStore {
   ensure(id: ThreadId): void {
     this.sql("INSERT OR IGNORE INTO engine_queue(thread_id) VALUES (?)").run(id);
   }
+  /** Held on input whose send or session start failed; it waits for the person's retry. */
+  heldOnFailedSend(id: ThreadId): boolean {
+    const row = this.sql("SELECT paused, reason FROM engine_queue WHERE thread_id=?").get(id);
+    return row?.paused === 1 && (row.reason === "not_sent" || row.reason === "model_unavailable");
+  }
   get(id: ThreadId): RecoveryRecord {
     const row = this.sql("SELECT * FROM engine_queue WHERE thread_id=?").get(id);
     if (!row) throw new Error("Missing queue metadata");

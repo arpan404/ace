@@ -199,7 +199,16 @@ export type Fact =
   | { type: "signal"; agent?: Key }
   | { type: "process.started" }
   | { type: "process.exited"; deliberate: boolean; message?: string }
-  | { type: "queue.changed"; count: number; source?: "engine" | "provider" }
+  | {
+      type: "queue.changed";
+      count: number;
+      source?: "engine" | "provider";
+      /**
+       * The engine's queue is held on input whose send or session start failed: it waits for
+       * the person's Try again, Edit or Remove, not for the agent. Engine source only.
+       */
+      held?: boolean;
+    }
   | { type: "tick" };
 
 export type AgentSeenFact = Extract<Fact, { type: "agent.seen" }>;

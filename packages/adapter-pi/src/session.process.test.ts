@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { openPiSession } from "./index.ts";
+import type { Frame } from "@ace/engine-api";
+import { createPiTranslator, openPiSession } from "./index.ts";
 import { ThreadId } from "@ace/protocol";
 import { sessionHarness } from "./testing/harness.ts";
 import { obj, str } from "./native.ts";
@@ -195,6 +196,25 @@ test("Pi releases older than 0.85.1 are refused before process launch, naming th
 test("missing ace extension fails startup without falling through to a model prompt", async () => {
   await expect(sessionHarness({}, false, { FAKE_PI_EXTENSION_MISSING: "1" })).rejects.toThrow(
     "extension did not load",
+  );
+});
+test("a Pi that exits on startup has said why on stderr before the open fails, and it is no transcript row", async () => {
+  const frames: Frame[] = [];
+  await expect(
+    sessionHarness({}, false, { FAKE_PI_LOAD_FAILURE: "1" }, undefined, undefined, frames),
+  ).rejects.toThrow();
+  const stderr = frames.filter((frame) => frame.dir === "stderr").map((frame) => frame.data);
+  expect(stderr).toEqual([
+    expect.stringContaining("Failed to load extension"),
+    'Hint: Start without extensions using "pi -ne".',
+  ]);
+  const translator = createPiTranslator({
+    threadId: ThreadId.parse("thread"),
+    rootKey: "root",
+  });
+  const facts = frames.flatMap((frame) => translator.translate(frame, 0));
+  expect(facts.some((fact) => fact.type === "item.upsert" && fact.draft.type === "notice")).toBe(
+    false,
   );
 });
 test("unrepresentable blocking dialogs close the transport without reporting completion", async () => {

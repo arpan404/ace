@@ -98,8 +98,9 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
   };
   function translate(frame: Frame, now: number): Fact[] {
     const decoded = Envelope.safeParse(frame.data);
-    if (!decoded.success)
-      return frame.dir === "stderr" ? [notice(frame, str(frame.data), "warning")] : [];
+    // stderr is diagnostic evidence, kept raw, never a transcript row: a start it explains
+    // shows its tail behind the failed message's Details instead.
+    if (!decoded.success) return [];
     const e = decoded.data;
     if (frame.dir === "note") {
       if (e.type === "started") {

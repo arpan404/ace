@@ -4,6 +4,7 @@ import { providerCommandMetadata, type ProviderCommandEvent } from "./provider-c
 import { isDefaultSelection } from "@ace/models";
 import type { EngineModels } from "./models.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
+import { StartupOutput, withStartupOutput } from "@ace/provider-kit/startup-output";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import { PermissionMode, NativeSessionId } from "@ace/protocol";
 import { supportsPermissionMode } from "@ace/core";
@@ -129,6 +130,8 @@ export class Sessions {
     actor.lifetime = lifetime;
     const generation = ++actor.generation;
     let opening = true;
+    // Why a CLI couldn't start is usually on its stderr; the failure's Details carry it.
+    const startupOutput = new StartupOutput();
     let errorEnvironment: NodeJS.ProcessEnv | undefined;
     let errorSecrets: readonly string[] = [];
     let openingModel: string | undefined;
@@ -309,6 +312,8 @@ export class Sessions {
           this.dependencies.repo.inputs.identify(actor.id, messageIdentity);
         },
         onFrame: (frame) => {
+          if (opening && frame.dir === "stderr" && typeof frame.data === "string")
+            startupOutput.add(frame.data);
           if (state.config.provider === "codex" && frame.dir === "note") {
             if (TurnPermissionSupport.safeParse(frame.data).success)
               actor.enqueue(() => {
@@ -419,7 +424,7 @@ export class Sessions {
     } catch (error) {
       const original = new SessionOpenError(
         `${stateBefore.config.provider} session opening failed`,
-        error,
+        withStartupOutput(error, startupOutput.text),
         { env: { ...process.env, ...errorEnvironment } },
         (value) =>
           typeof value === "string"

@@ -421,6 +421,19 @@ export class EngineRepository {
   sessionOpening(id: ThreadId): boolean {
     return this.opening.has(id);
   }
+  /**
+   * The engine's queue as core sees it: how much retained work there is, and whether it is held
+   * on input that failed to send (waiting for the person, not the agent). Undefined when core
+   * already agrees.
+   */
+  engineQueueFact(id: ThreadId): Extract<Fact, { type: "queue.changed" }> | undefined {
+    const count = this.queuedCount(id);
+    const held = count > 0 && this.queue.heldOnFailedSend(id);
+    const state = this.state(id);
+    if (state && state.queueSources.engine === count && (state.queueHeld ?? false) === held)
+      return undefined;
+    return { type: "queue.changed", source: "engine", count, ...(held ? { held } : {}) };
+  }
   queuedCount(id: ThreadId): number {
     // Recovery prompts live in Thread.queue; only retained work blocks execution completion.
     return this.store.atomic((_db) =>

@@ -272,6 +272,10 @@ function fold(
     case "queue.changed": {
       state.queueSources[fact.source ?? "engine"] = fact.count;
       state.queueCount = state.queueSources.engine + state.queueSources.provider;
+      if (fact.source !== "provider") {
+        if (fact.held && fact.count > 0) state.queueHeld = true;
+        else delete state.queueHeld;
+      }
       break;
     }
     case "signal":

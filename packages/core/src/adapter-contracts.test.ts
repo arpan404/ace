@@ -44,6 +44,19 @@ test("source queues aggregate independently in either draining order", () => {
   h.send({ type: "queue.changed", count: 0, source: "provider" });
   expect(h.state.status.state).toBe("done");
 });
+test("a thread whose queue holds a send that failed reads failed, not waiting to send, and never done", () => {
+  const h = harness();
+  h.send({ type: "process.exited", deliberate: false, message: "pi exited" });
+  h.send({ type: "queue.changed", count: 1, source: "engine", held: true });
+  expect(h.state.status).toEqual({ state: "failed" });
+  // Try again releases the hold: the message is queued work again until it is sent.
+  h.send({ type: "queue.changed", count: 1, source: "engine" });
+  expect(h.state.status).toEqual({ state: "waiting", on: "queue" });
+  // Remove drops it; nothing is left to hold.
+  h.send({ type: "queue.changed", count: 1, source: "engine", held: true });
+  h.send({ type: "queue.changed", count: 0, source: "engine" });
+  expect(h.state.status.state).not.toBe("failed");
+});
 test("an invalid queue source cannot discard held engine input", () => {
   const h = harness();
   h.send({ type: "queue.changed", count: 2 });

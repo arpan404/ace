@@ -20,6 +20,14 @@ let queue = false,
   inputDelivered = false;
 let confirmFork: ((confirmed: boolean) => void) | undefined;
 const extension = process.argv[process.argv.indexOf("-e") + 1] ?? "";
+if (process.env.FAKE_PI_LOAD_FAILURE) {
+  // As Pi does when an extension factory throws: say why on stderr, then exit before any RPC.
+  process.stderr.write(
+    `Error: Failed to load extension "${extension}": Failed to load extension: synthetic factory failure\n` +
+      'Hint: Start without extensions using "pi -ne".\n',
+  );
+  process.exit(1);
+}
 function emit(data: unknown) {
   process.stdout.write(JSON.stringify(data) + "\n");
 }
@@ -27,27 +35,36 @@ const reply = (c: z.infer<typeof Command>, data: unknown = {}) =>
   emit({ type: "response", id: c.id, command: c.type, success: true, data });
 const approvals = new Map<string, (confirmed: boolean) => void>();
 let approvalId = 0;
-// Like real Pi, the host rejects action calls made while the extension factory runs.
-const host = createPiExtensionHost({
-  appendEntry(customType, data) {
-    emit({ type: "entry_appended", entry: history.append(customType, data) });
-  },
-});
-const commands = host.commands;
-// This RPC peer exercises control hooks; it never opens a real MCP connection.
+// This RPC peer exercises control hooks; it never opens a real MCP connection. Like ace's own
+// session file, it lives as long as the process.
 const controlConfig = privateMcpConfig(
   JSON.stringify({ controlSecret: nativeSession.controlSecret }),
   process.cwd(),
 );
-try {
-  await host.start((pi) =>
-    registerAcePiExtension(pi, {
-      ACE_PI_SESSION_FILE: controlConfig.path,
-      ACE_PI_PERMISSION_MODE: process.env.ACE_PI_PERMISSION_MODE,
-    }),
-  );
-} finally {
-  controlConfig.remove();
+process.on("exit", controlConfig.remove);
+// The extension sees one environment for the process, as it sees Pi's process.env.
+const extensionEnv: NodeJS.ProcessEnv = {
+  ACE_PI_SESSION_FILE: controlConfig.path,
+  ACE_PI_PERMISSION_MODE: process.env.ACE_PI_PERMISSION_MODE,
+};
+/**
+ * Like real Pi, the host rejects action calls made while the extension factory runs, and every
+ * session replacement (switch_session, fork, clone) shuts the old runtime down and runs the
+ * extension factory again in a new one.
+ */
+async function loadExtension() {
+  const next = createPiExtensionHost({
+    appendEntry(customType, data) {
+      emit({ type: "entry_appended", entry: history.append(customType, data) });
+    },
+  });
+  await next.start((pi) => registerAcePiExtension(pi, extensionEnv));
+  return next;
+}
+let host = await loadExtension();
+async function replaceRuntime() {
+  await host.shutdown();
+  host = await loadExtension();
 }
 const input = createInterface({ input: process.stdin });
 input.on("line", (line) => {
@@ -60,7 +77,7 @@ async function handle(line: string) {
       reply(c, {
         commands: process.env.FAKE_PI_EXTENSION_MISSING
           ? []
-          : [...commands.keys()].map((name) => ({
+          : [...host.commands.keys()].map((name) => ({
               name,
               source: "extension",
               sourceInfo: { path: extension },
@@ -98,6 +115,7 @@ async function handle(line: string) {
         return;
       }
       if (typeof c.sessionPath === "string") history.load(c.sessionPath);
+      await replaceRuntime();
       reply(c, { cancelled: false });
       return;
     case "clone":
@@ -140,6 +158,7 @@ async function handle(line: string) {
         typeof c.entryId === "string" ? c.entryId : undefined,
         process.env.FAKE_PI_DEFER_CLONE === "1",
       );
+      await replaceRuntime();
       reply(c, { cancelled: false, text: "original prompt" });
       return;
     case "clear_queue":
@@ -184,7 +203,7 @@ async function handle(line: string) {
           message: nativeSession.controlSecret,
         });
         process.stderr.write(`control=${nativeSession.controlSecret}\n`);
-        const command = commands.get("ace-rollback");
+        const command = host.commands.get("ace-rollback");
         if (!command) throw new Error("Missing synthetic control command");
         await command.handler(message.slice("/ace-rollback ".length), {
           async waitForIdle() {},

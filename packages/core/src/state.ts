@@ -97,6 +97,8 @@ export interface ThreadState {
   itemLinks: Record<Key, { childAgent?: Key; targetAgent?: Key; waitingFor?: Key[] }>;
   queueCount: number;
   queueSources: { engine: number; provider: number };
+  /** The engine queue holds input that failed to send; it sends only when the person retries. */
+  queueHeld?: true;
   hasRun: boolean;
   status: ThreadStatus;
 }

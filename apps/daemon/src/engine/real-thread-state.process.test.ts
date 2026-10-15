@@ -219,7 +219,7 @@ test("a failed unsent message prevents settlement until its held queue is resume
       reason: "not_sent",
       messages: [{ id: "retained" }],
     });
-    expect(h.store.getThread(id)?.status).toMatchObject({ state: "waiting", on: "queue" });
+    expect(h.store.getThread(id)?.status).toMatchObject({ state: "failed" });
     expect(h.store.getThread(id)?.settledAt).toBeUndefined();
     fail = false;
     h.command({
