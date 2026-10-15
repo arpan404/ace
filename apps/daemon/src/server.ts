@@ -110,6 +110,7 @@ export async function startServer(options: ServerOptions): Promise<{
     allowedOrigins: webOriginAllowlist(options.webOrigins),
     ...(options.pairingAddress ? { sourceAddress: options.pairingAddress } : {}),
     ...(options.version === undefined ? {} : { version: options.version }),
+    ...(options.eventLoop ? { eventLoop: options.eventLoop } : {}),
     ...(options.serviceStatus ? { serviceStatus: options.serviceStatus } : {}),
     ...(options.engine
       ? { providerProcesses: () => options.engine?.providerProcesses() ?? [] }

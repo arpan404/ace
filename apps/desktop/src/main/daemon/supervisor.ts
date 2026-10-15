@@ -70,10 +70,10 @@ export function restartDelay(attempt: number): number {
 type Source = DaemonStatus["source"];
 
 /**
- * `ace start` refuses data written by a newer ace build and exits with this code. Restarting
+ * `ace start` refuses data written by a newer ace build with this exit code. Restarting
  * cannot help, so the supervisor stops and says what to do instead.
  */
-const NEWER_DATA_EXIT = 65;
+const NEWER_DATA_EXIT = exitCodes["newer-data"];
 export const newerDataMessage =
   "A newer version of ace already uses this data. Open the newest ace, or update this one.";
 
