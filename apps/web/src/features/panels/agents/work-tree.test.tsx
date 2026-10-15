@@ -139,7 +139,9 @@ test("a message queued in the composer shows in the Agents tab without extra exp
   // The pill above the composer and the Agents tab read the same queue.
   expect(await screen.findByRole("list", { name: "Queued messages" })).toBeTruthy();
   expect(
-    await within(panel).findByRole("listitem", { name: "1 queued message: waiting for the agent" }),
+    await within(panel).findByRole("listitem", {
+      name: "1 queued message: sends when the agent is free",
+    }),
   ).toBeTruthy();
   expect(within(panel).queryByRole("region", { name: "Why isn't this done?" })).toBeNull();
 });

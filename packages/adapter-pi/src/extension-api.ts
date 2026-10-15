@@ -1,4 +1,9 @@
-/** Structural subset of the version-pinned public Pi extension API. No provider internals. */
+/**
+ * Structural subset of the version-pinned public Pi extension API. No provider internals.
+ * Pi runs the factory in a loading phase where only registration (`on`, `registerCommand`,
+ * `registerTool`) is allowed; action methods throw until the runtime binds, just before
+ * `session_start`.
+ */
 export interface PiExtensionApi {
   sendMessage?(
     message: { customType: string; content: string; display: boolean; details: unknown },
@@ -58,7 +63,7 @@ export interface PiExtensionApi {
         model?: { provider: string; id: string };
         ui: { notify(message: string, type: "info" | "error"): void };
       },
-    ) => void,
+    ) => void | Promise<void>,
   ): void;
   on(event: "session_shutdown", handler: () => Promise<void>): void;
   on(

@@ -1,4 +1,4 @@
-import { backgroundCommand, formatSpan, taskState } from "@ace/ui-core";
+import { backgroundCommand, formatSpan, taskState, type QueuedInputLine } from "@ace/ui-core";
 import { useItem, useTask } from "@ace/client-react";
 import { ClockIcon, StopIcon, TerminalWindowIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
@@ -21,8 +21,7 @@ const onHover =
 export function BackgroundList(props: {
   threadId: string;
   taskIds: readonly string[];
-  queued: number;
-  queueWaiting: boolean;
+  queued: QueuedInputLine | undefined;
 }) {
   return (
     <ArrivalScope>
@@ -30,7 +29,7 @@ export function BackgroundList(props: {
         {props.taskIds.map((id) => (
           <TaskRow key={id} threadId={props.threadId} taskId={id} />
         ))}
-        {(props.queued > 0 || props.queueWaiting) && <QueueRow count={props.queued} />}
+        {props.queued && <QueueRow line={props.queued} />}
       </ul>
     </ArrivalScope>
   );
@@ -94,26 +93,19 @@ function TaskRow(props: { threadId: string; taskId: string }) {
 }
 
 /** "1 queued message · sends when the agent is free", the composer's queue in one line. */
-function QueueRow(props: { count: number }) {
+function QueueRow(props: { line: QueuedInputLine }) {
   const arrival = useArrival();
-  const label =
-    props.count > 1
-      ? `${props.count} queued messages`
-      : props.count === 1
-        ? "1 queued message"
-        : "Queued messages";
+  const { label, when } = props.line;
   return (
     <li
-      aria-label={`${label}: waiting for the agent`}
+      aria-label={`${label}: ${when}`}
       className={cn("flex h-8 items-center gap-2 px-2 text-ui", capsule, arrival)}
     >
       <span className="grid size-[18px] shrink-0 place-items-center text-muted-foreground">
         <ClockIcon aria-hidden size={15} />
       </span>
       <span className="min-w-0 truncate font-medium">{label}</span>
-      <CapsuleMeta className="flex-1">
-        {props.count > 1 ? "send" : "sends"} when the agent is free
-      </CapsuleMeta>
+      <CapsuleMeta className="flex-1">{when}</CapsuleMeta>
     </li>
   );
 }

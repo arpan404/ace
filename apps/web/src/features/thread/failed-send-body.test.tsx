@@ -4,6 +4,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { openWorkPanel } from "@/test/open-work.ts";
 import { resetDismissed } from "./composer/dismissed-sends.ts";
 import { resetSendStore } from "./composer/send-store.ts";
 
@@ -108,6 +109,27 @@ test("with nothing else queued, a failed send leaves the composer strip empty", 
   expect(screen.queryByRole("region", { name: "Message queue" })).toBeNull();
   expect(screen.queryByText(/could not accept/)).toBeTruthy();
   expect(screen.getAllByText(/could not accept/)).toHaveLength(1);
+});
+
+test("the Summary never lists a failed send as queued or says it sends when the agent is free", async () => {
+  await failedStart();
+  const work = await openWorkPanel();
+  // The thread still waits on the retained message; the failed item alone stands for it.
+  await waitFor(() => expect(work.textContent).not.toMatch(/queued message/i));
+  expect(work.textContent).not.toMatch(/when the agent is free/);
+  expect(within(work).queryByRole("region", { name: "Background" })).toBeNull();
+});
+
+test("the Summary counts only what waits behind a failed send, waiting for it", async () => {
+  await failedStart({ behind: "also check the logs" });
+  const work = await openWorkPanel();
+  const background = await within(work).findByRole("region", { name: "Background" });
+  expect(
+    within(background).getByRole("listitem", {
+      name: "1 queued message: waits for the message that wasn't sent",
+    }),
+  ).toBeTruthy();
+  expect(background.textContent).not.toMatch(/when the agent is free/);
 });
 
 test("Try again sends the kept message: it joins the transcript and the agent starts", async () => {

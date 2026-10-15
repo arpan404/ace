@@ -55,6 +55,7 @@ export * from "./provider-services.ts";
 export * from "./questions.ts";
 export * from "./answered-questions.ts";
 export * from "./queue.ts";
+export * from "./queued-input.ts";
 export * from "./snooze.ts";
 export * from "./live-status.ts";
 export { newestAgentPage, opensAgentPage } from "./agent-page.ts";
