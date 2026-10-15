@@ -199,7 +199,7 @@ export function AddressBar(props: {
               onClick={() => go(suggestion.url)}
               onPointerMove={() => setActive(index)}
               className={cn(
-                "flex h-8 cursor-default items-center gap-2.5 rounded-lg px-2.5 text-ui select-none",
+                "flex h-8 cursor-default items-center gap-2.5 rounded-md px-2.5 text-ui select-none",
                 index === active && "bg-accent",
               )}
             >

@@ -1,4 +1,3 @@
-import { currentAttention } from "@ace/ui-core";
 import { Link, useLocation } from "@tanstack/react-router";
 import {
   settleAction,
@@ -8,16 +7,17 @@ import {
   useThreadActions,
 } from "@/features/organize/index.ts";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import { GitMergeIcon, GitPullRequestIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { RenameField } from "./rename-field.tsx";
 import { RowMoreMenu } from "./row-actions.tsx";
-import { ProjectMark, threadDetails, titleTone } from "./row-parts.tsx";
+import { ProjectMark, threadDetails } from "./row-parts.tsx";
 import { ThreadMenu } from "./thread-menu.tsx";
 import { useThreadCard } from "./use-thread-card.ts";
 
 // The task rows' box and fills, one line tall: settled work is out of the way.
 const row =
-  "flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left text-ui transition-colors duration-(--motion-fast)";
+  "flex h-8 w-full items-center gap-2 rounded-md px-3 text-left text-ui transition-colors duration-(--motion-fast)";
 
 /**
  * A settled thread at rest: its project badge and title on one line. Under the pointer or focus,
@@ -41,11 +41,12 @@ export function SettledRow(props: { threadId: string; leaving?: boolean | undefi
   const unsettle = settleAction(entry, card.flags, actions);
   const body = (
     <>
-      <ProjectMark id={entry.workspaceId} badge={card.badge} />
+      {/* Settled work recedes as a whole: a grey badge and a grey title, full colour only while open. */}
+      <ProjectMark id={entry.workspaceId} badge={card.badge} quiet={!current} />
       <span
         className={cn(
           "min-w-0 flex-1 truncate leading-5",
-          titleTone(currentAttention(card.attention, current)),
+          current ? "text-foreground" : "text-subtle-foreground/75",
         )}
       >
         {renaming ? (
@@ -58,6 +59,27 @@ export function SettledRow(props: { threadId: string; leaving?: boolean | undefi
           card.title
         )}
       </span>
+      {!renaming && (
+        // What the work left behind, then its age: the PR when there is one, else the lines
+        // changed. Faint like the rest of the row; the row's actions take this place on hover.
+        <span className="flex shrink-0 items-center gap-2.5 text-meta text-faint-foreground tabular-nums group-hover/row:invisible group-focus-within/row:invisible">
+          {card.pr !== undefined ? (
+            <span className="inline-flex items-center gap-1">
+              {card.prState === "merged" ? (
+                <GitMergeIcon aria-hidden size={12} />
+              ) : (
+                <GitPullRequestIcon aria-hidden size={12} />
+              )}
+              {card.pr}
+            </span>
+          ) : card.diff && card.diff.added + card.diff.removed > 0 ? (
+            <span>
+              +{card.diff.added} −{card.diff.removed}
+            </span>
+          ) : null}
+          <span>{card.age}</span>
+        </span>
+      )}
     </>
   );
   return (
@@ -75,7 +97,7 @@ export function SettledRow(props: { threadId: string; leaving?: boolean | undefi
             className={cn(
               row,
               "outline-none focus-ring-inset focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset group-hover/row:pr-16 group-focus-within/row:pr-16",
-              current ? "bg-foreground/8" : "hover:bg-accent",
+              current ? "bg-active" : "hover:bg-hover",
             )}
           >
             {body}

@@ -9,7 +9,7 @@ import { expect, test, type Page } from "@playwright/test";
 const out = process.env.ACE_SHOTS_DIR ?? "/tmp/aceshots-cuaui";
 mkdirSync(out, { recursive: true });
 
-// Dark and Light by default; ACE_SHOT_THEMES=light,dark,folio-light,umbra-dark,tty-dark (a mode for
+// Dark and Light by default; ACE_SHOT_THEMES=light,dark,paper-light,midnight-dark,dusk-dark (a mode for
 // ace, or <theme>-<mode>) shoots others.
 const themes = (process.env.ACE_SHOT_THEMES ?? "dark,light").split(",").filter(Boolean);
 

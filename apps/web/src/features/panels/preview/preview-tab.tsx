@@ -115,7 +115,7 @@ function DetectedServers(props: {
                   .forward(props.threadId, server.port)
                   .catch((failure: unknown) => setError(forwardFailure(failure, server.port)));
               }}
-              className="focus-ring flex h-10 w-full min-w-0 items-center gap-2.5 rounded-lg border border-border px-3 text-left transition-colors duration-(--motion-fast) hover:bg-fill"
+              className="focus-ring flex h-10 w-full min-w-0 items-center gap-2.5 rounded-md border border-border px-3 text-left transition-colors duration-(--motion-fast) hover:bg-fill"
             >
               {server.iconUrl ? (
                 <img

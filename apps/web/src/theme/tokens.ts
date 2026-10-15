@@ -179,6 +179,23 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
     // Floating layers: solid edge and shadow, and the glass material (styles/glass.css).
     "--float-edge": light ? `color-mix(in srgb, ${p.border}, ${p.t1} 4%)` : p.border,
     "--float-shadow": floatShadow,
+    // Depth on what floats or presses (one light from above, the same recipe in every theme): a
+    // top-edge highlight, the composer's soft lift, the strip's smaller one, a button's 1px rest,
+    // the highlight on an ink or coloured fill, and a field's slight recess.
+    "--depth-highlight": light
+      ? "inset 0 1px 0 rgb(255 255 255 / 0.85)"
+      : "inset 0 1px 0 rgb(255 255 255 / 0.07)",
+    "--depth-dock": light
+      ? `0 1px 2px rgb(${p.shadow} / 0.05), 0 10px 28px -12px rgb(${p.shadow} / 0.18)`
+      : "0 1px 2px rgb(0 0 0 / 0.5), 0 14px 36px -12px rgb(0 0 0 / 0.65)",
+    "--depth-strip": light ? `0 1px 2px rgb(${p.shadow} / 0.04)` : "0 1px 2px rgb(0 0 0 / 0.4)",
+    "--depth-raise": light ? `0 1px 1px rgb(${p.shadow} / 0.08)` : "0 1px 1px rgb(0 0 0 / 0.45)",
+    "--depth-fill": light
+      ? "inset 0 1px 0 rgb(255 255 255 / 0.16), inset 0 -1px 0 rgb(0 0 0 / 0.12)"
+      : "inset 0 1px 0 rgb(255 255 255 / 0.55), inset 0 -1px 0 rgb(0 0 0 / 0.14)",
+    "--depth-well": light
+      ? `inset 0 1px 1px rgb(${p.shadow} / 0.06)`
+      : "inset 0 1px 1px rgb(0 0 0 / 0.3)",
     // The tint at the chosen translucency, never thinner than AA over realistic blurred
     // backdrops allows (`glassTintAlpha`), with the blur, colour boost and scrim that go with it.
     ...glassVariables(p, scheme, translucency),

@@ -164,7 +164,7 @@ export function AppHeader(
           {props.title !== "" && props.title != null && (
             <h1
               className={cn(
-                "min-w-0 text-ui font-medium",
+                "min-w-0 text-md font-medium",
                 phone ? "line-clamp-2 leading-[18px] break-words" : "truncate",
               )}
             >

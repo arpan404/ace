@@ -10,7 +10,7 @@
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI",
     system-ui, sans-serif;
   --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
-  /* Transcript prose; each theme sets all three (Folio's prose is serif, Tty's is mono). */
+  /* Transcript prose; each theme sets all three, the same in every theme. */
   --font-prose: var(--font-sans);
 
   /* Motion tokens live in motion.css. */
@@ -23,7 +23,7 @@
   --composer-control: 32px;
   /* One edge of the transcript's scrollbar room; 0 with overlay scrollbars. */
   --transcript-gutter: 0px;
-  --transcript-size: 14px;
+  --transcript-size: 15px;
 
   /* Shared control and detail surfaces. Density changes rows, never minimum touch targets. */
   --control-height: 30px;
@@ -40,11 +40,33 @@
   --picker-row-padding: 12px;
   --picker-row-height: 48px;
 
-  /* Corners: 8 controls, rows and code; 14 bubbles and floating layers; 22 the composer. */
-  --radius-sm: 8px;
-  --radius: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 22px;
+  /*
+   * Corners, sized to the padding around them so nested corners stay concentric (inner = outer
+   * minus inset): 4 tags and marks; 6 inputs, small controls and tooltips; 8 buttons, rows and
+   * menu items; 12 cards, popups, dialogs and bubbles (a menu's 4px inset leaves its items 8);
+   * 18 the composer.
+   */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 18px;
+}
+
+/* Corners (Appearance): the same steps, tighter or rounder, keeping the same ratios. */
+:root[data-corners="sharp"] {
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 10px;
+}
+:root[data-corners="round"] {
+  --radius-xs: 6px;
+  --radius-sm: 9px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
 }
 
 :root[data-density="compact"] {

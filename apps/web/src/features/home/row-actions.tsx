@@ -29,8 +29,8 @@ export function RowActions(props: {
   const title = props.entry.title;
   return (
     <div
-      // Centred on the top line (12px padding, 16px line), so the row never moves.
-      className="absolute top-5 right-1.5 hidden -translate-y-1/2 items-center gap-0.5 group-focus-within/row:flex group-hover/row:flex has-[[data-popup-open]]:flex"
+      // Centred on the top line (10px padding, 16px line), so the row never moves.
+      className="absolute top-4.5 right-1.5 hidden -translate-y-1/2 items-center gap-0.5 group-focus-within/row:flex group-hover/row:flex has-[[data-popup-open]]:flex"
       onPointerEnter={props.onHover}
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}

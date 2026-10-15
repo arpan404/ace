@@ -8,7 +8,7 @@ import { themeDeclarations, themeRule } from "./css.ts";
 import { accentIds, themedPalette, type AccentChoice } from "./accent.ts";
 import { nearStatus, statusDistance, statusGap } from "./accent-fit.ts";
 import { deltaE, rgbToOklch } from "./colour.ts";
-import { rampSteps, sharedStatus, themeIds, themes } from "./palettes.ts";
+import { sharedStatus, themeIds, themes } from "./palettes.ts";
 import { paletteSurfaces } from "./surfaces.ts";
 
 const schemes = ["light", "dark"] as const;
@@ -61,35 +61,25 @@ test("no picked accent passes for any status colour: one too close is moved clea
   expect(deltaE(rgb(moved.accent), rgb(working))).toBeGreaterThanOrEqual(statusDistance);
 });
 
-test("an accent boxed in by statuses on every side falls back to the ink", () => {
-  // Tty light's done is teal, so blue has working on one side and done on the other.
-  const palette = themedPalette("tty", "light", { accent: "blue", customAccent: "#3E8E7E" });
-  expect(palette.accent).toBe(themes.tty.light.t1);
-});
-
-test("themes differ in their surfaces, ink or type, not only in their accent", () => {
+test("no two themes share an accent, in either scheme", () => {
+  // Themes are colour only: their accents are what tells them apart at a glance.
   for (const scheme of schemes)
     for (const a of themeIds)
       for (const b of themeIds) {
         if (a >= b) continue;
-        const [x, y] = [themes[a][scheme], themes[b][scheme]];
-        const apart = Math.max(...rampSteps.map((step) => deltaE(rgb(x[step]), rgb(y[step]))));
-        // Folio and Tty share a warm paper by day; one reads in serif, the other in mono.
-        const typeface = themes[a].fonts.prose !== themes[b].fonts.prose;
-        expect(apart > 3 || typeface, `${a} vs ${b} (${scheme})`).toBe(true);
+        const apart = deltaE(rgb(themes[a][scheme].accent), rgb(themes[b][scheme].accent));
+        expect(apart, `${a} vs ${b} (${scheme})`).toBeGreaterThan(8);
       }
 });
 
-test("Signal reads at AAA for body text, with solid layers and full-strength focus rings", () => {
-  for (const scheme of schemes) {
-    const palette = themes.signal[scheme];
-    const surfaces = paletteSurfaces(palette, scheme).map((surface) => surface.rgb);
-    expect(worstContrast(rgb(palette.t1), surfaces)).toBeGreaterThanOrEqual(7);
-    expect(worstContrast(rgb(palette.t2), surfaces)).toBeGreaterThanOrEqual(7);
-    const declarations = themeDeclarations("signal", scheme);
-    expect(declarations["--focus"]).toContain(" 100%");
-    expect(declarations["--glass-tint"]).toContain(" 100%");
-  }
+/** A theme's interface, transcript and code font stacks, as the page receives them. */
+const fonts = (id: (typeof themeIds)[number]) => {
+  const tokens = themeDeclarations(id, "light");
+  return [tokens["--font-sans"], tokens["--font-prose"], tokens["--font-mono"]];
+};
+
+test("every theme keeps the same fonts", () => {
+  for (const id of themeIds) expect([id, fonts(id)]).toEqual([id, fonts("ace")]);
 });
 
 /** Every status colour a theme sets in one scheme: marks and words. */
@@ -139,9 +129,9 @@ test("waiting and not-responding words read at AA on every surface of every them
 });
 
 test("a theme rule themes any element carrying both attributes, so swatches preview real tokens", () => {
-  const rule = themeRule("umbra", "dark");
-  expect(rule.startsWith('[data-theme="umbra"][data-scheme="dark"]{')).toBe(true);
-  expect(rule).toContain(`--background:${themes.umbra.dark.s0}`);
+  const rule = themeRule("midnight", "dark");
+  expect(rule.startsWith('[data-theme="midnight"][data-scheme="dark"]{')).toBe(true);
+  expect(rule).toContain(`--background:${themes.midnight.dark.s0}`);
   expect(rule).toContain("color-scheme:dark");
 });
 
@@ -179,21 +169,14 @@ function stored(value: object) {
 }
 
 test("a stored Surfaces choice carries over to the slider: Solid is 0, Translucent the default", () => {
-  expect(stored({ theme: "umbra", surface: "solid" })).toBe(0);
-  expect(stored({ theme: "umbra", surface: "translucent" })).toBe(defaultAppearance.translucency);
-  expect(stored({ theme: "umbra" })).toBe(defaultAppearance.translucency);
+  expect(stored({ theme: "midnight", surface: "solid" })).toBe(0);
+  expect(stored({ theme: "midnight", surface: "translucent" })).toBe(
+    defaultAppearance.translucency,
+  );
+  expect(stored({ theme: "midnight" })).toBe(defaultAppearance.translucency);
   // Once the slider has been set, its value wins over a leftover Surfaces field.
   expect(stored({ surface: "solid", translucency: 60 })).toBe(60);
   expect(stored({ translucency: 250 })).toBe(defaultAppearance.translucency);
-});
-
-test("a theme whose layers are always solid resolves to solid at any translucency", () => {
-  const signal = { ...defaultAppearance, theme: "signal" as const };
-  expect(resolveAppearance(signal, os).surface).toBe("solid");
-  expect(resolveAppearance({ ...signal, mode: "dark" }, os).surface).toBe("solid");
-  expect(resolveAppearance({ ...defaultAppearance, theme: "harbor" }, os).surface).toBe(
-    "translucent",
-  );
 });
 
 test("Reduce motion follows the OS under System, and On or Off overrides it", () => {

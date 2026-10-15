@@ -9,7 +9,7 @@ import { useLiveConnection } from "@/lib/live-connection.ts";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { useMachines } from "@/lib/machines.ts";
-import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
+import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 
@@ -84,7 +84,7 @@ export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) 
   const { level, word, tone, muted } = props.attention;
   if (word === undefined) return <RowTime card={card} />;
   if (level === "failed-seen")
-    return <span className="shrink-0 text-xs text-muted-foreground">{word}</span>;
+    return <span className="shrink-0 text-meta text-muted-foreground">{word}</span>;
   // The glyph beside the word: the colour is never the only clue.
   const mark = (
     <StatusGlyph state={threadGlyph({ tone, mark: card.status.mark })} tone={tone} size={12} />
@@ -93,14 +93,14 @@ export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) 
     return (
       <span
         data-tone={tone}
-        className="inline-flex shrink-0 items-center gap-1 text-xs whitespace-nowrap text-muted-foreground"
+        className="inline-flex shrink-0 items-center gap-1 text-meta whitespace-nowrap text-muted-foreground"
       >
         {mark}
         <span>{word}</span>
       </span>
     );
   return (
-    <StatusLabel tone={tone} label={word} mark={mark} className="gap-1 text-xs font-normal">
+    <StatusLabel tone={tone} label={word} mark={mark} className="gap-1 text-meta font-normal">
       {tone === "working" && <WorkingFor card={card} />}
     </StatusLabel>
   );
@@ -122,7 +122,7 @@ export function RowTime(props: { card: ThreadCard }) {
   const ongoing = !card.flags.settled && card.status.tone !== "done" && card.status.tone !== "idle";
   const now = useSeconds(fresh && ongoing && card.status.since !== undefined);
   return (
-    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+    <span className="shrink-0 text-meta text-muted-foreground tabular-nums">
       {ongoing && card.status.since !== undefined && fresh
         ? formatSpan(card.status.since, now)
         : card.age}
@@ -139,7 +139,7 @@ export function RowContext(props: { card: ThreadCard }) {
   const { card } = props;
   const devices = use(ManyDevices);
   return (
-    <div className="flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground">
+    <div className="flex min-w-0 items-center gap-1.5 text-meta leading-4 text-muted-foreground">
       {card.branch && (
         <span className="min-w-0 flex-1 truncate font-mono" title={card.branch.name}>
           {card.branch.name}
@@ -162,9 +162,10 @@ export function RowContext(props: { card: ThreadCard }) {
           {card.subagents > 0 && <span className="tabular-nums">{card.subagents}</span>}
           {/* A black-and-white mark (OpenAI, OpenCode) takes the row's muted ink beside the
               machine glyph; coloured marks keep their own colours. */}
-          <ProviderIcon
+          <ProviderAccountIcon
             provider={card.provider}
             acpAgentId={card.acpAgentId}
+            instance={card.account}
             size={14}
             decorative
             className="text-muted-foreground"
@@ -192,6 +193,7 @@ export function useManyDevices(): boolean {
  */
 export function titleTone(attention: RowAttention): string {
   const { level } = attention;
+  // Titles always carry weight 500; muted attention changes the ink, never the weight.
   if (level === "needs-you" || level === "failed") return "font-medium text-foreground";
-  return attention.muted ? "text-muted-foreground" : "text-foreground";
+  return attention.muted ? "font-medium text-muted-foreground" : "font-medium text-foreground";
 }

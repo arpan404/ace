@@ -25,10 +25,7 @@ export function MarkdownImage(props: { src: string; alt: string }) {
     return (
       <Suspense
         fallback={
-          <Skeleton
-            className="my-1 inline-block rounded-[10px]"
-            style={{ width: 320, height: 240 }}
-          />
+          <Skeleton className="my-1 inline-block rounded-md" style={{ width: 320, height: 240 }} />
         }
       >
         <InlineImage.Component src={src} alt={alt} />

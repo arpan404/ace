@@ -10,6 +10,7 @@ import {
   TranscriptSize,
   themeHasGlass,
   transcriptSizes,
+  type Corners,
   type Density,
   type ReduceMotion,
 } from "@/theme/appearance.ts";
@@ -26,6 +27,11 @@ const motionOptions: { value: ReduceMotion; label: string }[] = [
 const densityOptions: { value: Density; label: string }[] = [
   { value: "comfortable", label: "Comfortable" },
   { value: "compact", label: "Compact" },
+];
+const cornerOptions: { value: Corners; label: string }[] = [
+  { value: "sharp", label: "Sharp" },
+  { value: "default", label: "Default" },
+  { value: "round", label: "Round" },
 ];
 const sizeOptions = TranscriptSize.options.map((value) => ({
   value,
@@ -50,7 +56,7 @@ const translucencyText = (value: number) => (value === 0 ? "Solid" : `${value}%`
 
 /**
  * Translucency, from Solid to the theme's most translucent AA-safe glass. Floating layers follow
- * it live while it's dragged. Where layers are always solid (Signal, or the OS reducing
+ * it live while it's dragged. Where layers are always solid (a theme without glass, or the OS reducing
  * transparency) it shows Solid, disabled, and says why; the stored value is kept for later.
  */
 function TranslucencyRow(props: {
@@ -81,7 +87,7 @@ function TranslucencyRow(props: {
   );
 }
 
-/** Mode, theme, translucency, motion, density and transcript size. Every change applies at once. */
+/** Mode, theme, translucency, motion, density, corners and transcript size. Every change applies at once. */
 export function AppearanceSettings() {
   const { appearance, update, resolved, systemReducesTransparency } = useTheme();
   return (
@@ -124,6 +130,17 @@ export function AppearanceSettings() {
             value={appearance.density}
             options={densityOptions}
             onValueChange={(density) => update({ density })}
+          />
+        </SettingRow>
+        <SettingRow
+          {...settingRow("appearance.corners")}
+          description="How round buttons, cards, menus and the composer are."
+        >
+          <SegmentedControl
+            label="Corners"
+            value={appearance.corners}
+            options={cornerOptions}
+            onValueChange={(corners) => update({ corners })}
           />
         </SettingRow>
         <SettingRow {...settingRow("appearance.transcriptSize")}>

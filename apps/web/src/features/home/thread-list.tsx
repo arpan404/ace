@@ -52,7 +52,7 @@ const estimates: Record<HomeRow["kind"], number> = {
   "snoozed-header": 37,
   snoozed: 84,
   "settled-header": 37,
-  settled: 36,
+  settled: 34,
 };
 
 /** Keys that move focus between rows: arrows, and j/k as in other lists. */
@@ -64,7 +64,7 @@ const loadDrag = () => import("./list-drag.ts");
 const BulkBar = deferredComponent(() => import("./bulk-bar.tsx").then((module) => module.BulkBar));
 
 const header =
-  "mt-2 flex h-7 w-full items-center gap-2 rounded-sm px-2.5 text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--motion-fast)";
+  "mt-2 flex h-7 w-full items-center gap-2 rounded-sm px-3 text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--motion-fast)";
 
 /** A section's quiet heading: its name and how many. No rule: spacing sets the sections apart. */
 function HeadingText(props: { label: string; count?: number | undefined }) {
@@ -364,7 +364,8 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                 ref={virtualizer.measureElement}
                 data-index={item.index}
                 className={cn(
-                  // The list sits a little in from the sidebar's edges, so a row's fill is a card.
+                  // Inset from the sidebar's edges, with a small gap between rows: space, not
+                  // rules, separates them.
                   "absolute inset-x-2 top-0",
                   "id" in row ? "pb-1" : row.kind !== "unsent" && "pb-px",
                   // While rows slide past each other each is opaque, and the one moving up

@@ -5,6 +5,7 @@
   data-scheme="dark"
   data-surface="translucent"
   data-density="comfortable"
+  data-corners="default"
 >
   <head>
     <meta charset="UTF-8" />
@@ -126,6 +127,7 @@
           document.head.append(sheet);
           root.setAttribute("data-theme", String(boot.theme));
           if (boot.density) root.setAttribute("data-density", String(boot.density));
+          if (boot.corners) root.setAttribute("data-corners", String(boot.corners));
           if (typeof boot.transcriptPx === "number")
             root.style.setProperty("--transcript-size", boot.transcriptPx + "px");
           root.style.background = "var(--background)";

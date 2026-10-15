@@ -63,7 +63,7 @@ export function AttachmentTiles(props: Shown & { className?: string | undefined 
                 aria-label={`Show ${more} more images`}
                 onClick={(event) => show(shown, event.currentTarget)}
                 style={{ width: 160, height: 120 }}
-                className="grid place-items-center rounded-[10px] bg-secondary text-lg font-medium text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground"
+                className="grid place-items-center rounded-md bg-secondary text-lg font-medium text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground"
               >
                 <span aria-hidden>+{more}</span>
               </button>
@@ -114,9 +114,9 @@ function Tile(props: TileProps & { url: ImageState }) {
       type="button"
       onClick={(event) => props.onOpen(event.currentTarget)}
       style={style}
-      className="relative block overflow-hidden rounded-[10px] bg-secondary"
+      className="relative block overflow-hidden rounded-md bg-secondary"
     >
-      {!ready && <Skeleton className="absolute inset-0 h-auto rounded-[10px]" />}
+      {!ready && <Skeleton className="absolute inset-0 h-auto rounded-md" />}
       {image.state === "ready" && (
         <img
           src={image.url}
@@ -162,7 +162,7 @@ export function FileChip(props: {
     </>
   );
   const chip =
-    "flex max-w-full min-w-0 items-center gap-1.5 rounded-lg bg-secondary py-1 pr-2.5 pl-1.5 text-left leading-4";
+    "flex max-w-full min-w-0 items-center gap-1.5 rounded-md bg-secondary py-1 pr-2.5 pl-1.5 text-left leading-4";
   const onOpen = props.onOpen;
   return (
     <Tip label={tip}>

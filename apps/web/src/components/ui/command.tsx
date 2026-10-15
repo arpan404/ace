@@ -136,7 +136,7 @@ function CommandList({ className, ...props }: Autocomplete.List.Props) {
   return (
     <Autocomplete.List
       data-slot="command-list"
-      className={cn("min-h-0 flex-1 scroll-py-2 overflow-y-auto p-2", className)}
+      className={cn("min-h-0 flex-1 scroll-py-1 overflow-y-auto p-1", className)}
       {...props}
     />
   );

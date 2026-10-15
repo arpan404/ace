@@ -275,7 +275,7 @@ function withSubmitHint(children: ReactNode): ReactNode {
 function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
     <DialogPrimitive.Title
-      className={cn("text-md font-semibold tracking-[-0.005em]", className)}
+      className={cn("text-md font-medium tracking-[-0.005em]", className)}
       {...props}
     />
   );

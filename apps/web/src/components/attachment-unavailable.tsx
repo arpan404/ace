@@ -8,7 +8,7 @@ export function UnavailableTile(props: { name: string; style?: CSSProperties }) 
       role="img"
       aria-label={`${props.name}: image unavailable on this device`}
       style={props.style ?? { width: 240, height: 120 }}
-      className="inline-flex flex-col items-center justify-center gap-1 overflow-hidden rounded-[10px] bg-secondary px-3 text-center text-xs text-muted-foreground"
+      className="inline-flex flex-col items-center justify-center gap-1 overflow-hidden rounded-md bg-secondary px-3 text-center text-xs text-muted-foreground"
     >
       <ImageIcon aria-hidden size={18} className="text-subtle-foreground" />
       <span aria-hidden>Image unavailable on this device</span>

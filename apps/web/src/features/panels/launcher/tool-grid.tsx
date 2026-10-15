@@ -8,7 +8,7 @@ import { keymap } from "@/lib/keymap.ts";
 import type { TabKind, WorkspaceActions, WorkspaceDefinition } from "@/lib/workspace/index.ts";
 
 const card = cn(
-  "focus-ring flex h-11 w-full min-w-0 items-center gap-3 rounded-lg border border-border px-3 text-left text-ui text-foreground",
+  "focus-ring flex h-11 w-full min-w-0 items-center gap-3 rounded-md border border-border px-3 text-left text-ui text-foreground",
   "transition-colors duration-(--motion-fast) hover:bg-fill",
 );
 

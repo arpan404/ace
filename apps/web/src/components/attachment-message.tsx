@@ -33,9 +33,7 @@ export function preloadAttachments(): Promise<unknown> {
 /** The neutral tile for an image this device can't show, with its name. */
 export function UnavailableImage(props: { name: string }) {
   return (
-    <Suspense
-      fallback={<Skeleton className="rounded-[10px]" style={{ width: 240, height: 120 }} />}
-    >
+    <Suspense fallback={<Skeleton className="rounded-md" style={{ width: 240, height: 120 }} />}>
       <Unavailable.Component name={props.name} />
     </Suspense>
   );
@@ -73,7 +71,7 @@ function Placeholder(props: Shown & { className?: string | undefined }) {
           {props.images.slice(0, shown + (more ? 1 : 0)).map((image) => (
             <Skeleton
               key={image.key}
-              className="rounded-[10px]"
+              className="rounded-md"
               style={tileSize(image, props.images.length)}
             />
           ))}
