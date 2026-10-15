@@ -268,9 +268,17 @@ export class WorkspaceCreations {
     } catch (error) {
       if (
         error instanceof GitError &&
-        ["branch_exists", "invalid_ref", "not_a_repo", "git_missing", "git_too_old"].includes(
-          error.code,
-        )
+        [
+          "branch_exists",
+          "invalid_ref",
+          "not_a_repo",
+          "git_missing",
+          "git_too_old",
+          "branch_checked_out",
+          "path_exists",
+          "ref_conflict",
+          "unborn_head",
+        ].includes(error.code)
       ) {
         this.journal.failedBeforeCreation(id);
         resource.uncertain = 0;

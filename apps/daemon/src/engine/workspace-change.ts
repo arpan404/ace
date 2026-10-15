@@ -24,7 +24,16 @@ export class WorkspaceChangeRefused extends Error {
   }
 }
 /** Refusals Git reports before it writes anything. */
-const refusedGit = new Set(["dirty_worktree", "conflicts", "invalid_ref", "invalid_argument"]);
+const refusedGit = new Set([
+  "dirty_worktree",
+  "conflicts",
+  "invalid_ref",
+  "invalid_argument",
+  "branch_checked_out",
+  "path_exists",
+  "ref_conflict",
+  "unborn_head",
+]);
 const failureCode = (error: unknown) =>
   error instanceof WorkspaceChangeRefused
     ? error.code

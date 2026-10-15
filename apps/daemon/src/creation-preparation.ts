@@ -72,6 +72,7 @@ export async function freeBranch(
 
 /** HEAD of a repository with no commits is not a missing ref but a missing history. */
 export async function noCommits(git: BranchGit, repo: string, error: unknown): Promise<boolean> {
+  if (error instanceof GitError && error.code === "unborn_head") return true;
   if (!(error instanceof GitError && error.code === "invalid_ref")) return false;
   try {
     await git.resolveCommit({ worktree: repo, ref: "HEAD" });

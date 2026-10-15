@@ -136,7 +136,7 @@ async function assertBranchFree(
 ): Promise<void> {
   const trees = await git.listWorktrees(project);
   const holder = trees.find((tree) => tree.branch === branch && tree.path !== target);
-  if (holder) throw new WorkspaceChangeRefused("branch_checked_out_elsewhere");
+  if (holder) throw new WorkspaceChangeRefused("branch_checked_out");
 }
 /** The checkout move itself. Everything before the first Git write is a refusal. */
 export async function moveCheckout(

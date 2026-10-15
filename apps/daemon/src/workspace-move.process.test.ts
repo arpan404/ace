@@ -104,10 +104,10 @@ test("a move Git would refuse is turned down before any write and leaves sibling
         mode: "worktree",
         branch: "main",
       }),
-    ).toMatchObject({ ok: false, error: "branch_checked_out_elsewhere" });
+    ).toMatchObject({ ok: false, error: "branch_checked_out" });
     expect(f.h.store.getThread(thread)?.details?.workspaceChange).toMatchObject({
       state: "failed",
-      error: "branch_checked_out_elsewhere",
+      error: "branch_checked_out",
       uncertain: false,
       mode: "worktree",
       branch: "main",

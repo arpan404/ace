@@ -44,6 +44,14 @@ const texts: Record<string, { title: string; detail: string }> = {
     title: "Branch already exists",
     detail: `The worktree's branch already exists. ${local}`,
   },
+  branch_checked_out: {
+    title: "Branch in use",
+    detail: `The branch is already checked out in another worktree. ${local}`,
+  },
+  path_exists: {
+    title: "Worktree folder in use",
+    detail: `Something already exists where the worktree goes. ${local}`,
+  },
   ref_conflict: {
     title: "Branch name conflict",
     detail: `Git couldn't create the worktree's branch because another ref is in the way. ${local}`,
@@ -95,8 +103,10 @@ const gitPassed = new Set([
   "auth_failed",
   "remote_unreachable",
   "git_timeout",
+  "ref_conflict",
+  "path_exists",
+  "branch_checked_out",
 ]);
-const refConflict = /cannot lock ref|reference already exists|unable to create '[^']*\.lock'/i;
 
 const found = (code: string, detail?: string, lockPath?: string): CreationFailure => ({
   error: code,
@@ -123,9 +133,8 @@ export function creationFailure(error: unknown, pullRequest = false): CreationFa
   }
   if (pullRequest) return found(actionErrorCode(error));
   if (error instanceof GitError) {
+    if (error.code === "unborn_head") return found("no_commits");
     if (gitPassed.has(error.code)) return found(error.code);
-    if (error.code === "git_failed" && refConflict.test(error.message))
-      return found("ref_conflict");
     return found(`git_${error.code.replace(/^git_/, "")}`);
   }
   if (error instanceof Error && passed.has(error.message)) return found(error.message);
