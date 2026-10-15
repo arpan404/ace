@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { durableJson } from "@ace/service";
-import { DesktopSettings } from "../shared/contract.ts";
+import { DesktopSettings, type DesktopSettingsPatch } from "../shared/contract.ts";
 
 /** Desktop-only preferences in Electron's userData. Invalid files fall back to defaults. */
 export class SettingsStore {
@@ -24,17 +24,13 @@ export class SettingsStore {
     return () => this.listeners.delete(listener);
   }
   /**
-   * Applies the patch on top of the last saved settings and saves durably. The new value is
-   * kept (and listeners hear of it) only once it is on disk; a failed save changes nothing.
+   * Applies the patch on top of the last saved settings and saves durably. Only the keys the
+   * patch names change. The new value is kept (and listeners hear of it) only once it is on
+   * disk; a failed save changes nothing.
    */
-  async update(patch: {
-    [K in keyof DesktopSettings]?: DesktopSettings[K] | undefined;
-  }): Promise<DesktopSettings> {
-    const defined = Object.fromEntries(
-      Object.entries(patch).filter(([, value]) => value !== undefined),
-    );
+  async update(patch: DesktopSettingsPatch): Promise<DesktopSettings> {
     const saved = this.writing.then(async () => {
-      const next = DesktopSettings.parse({ ...this.value, ...defined });
+      const next = DesktopSettings.parse(merge(this.value, patch));
       await mkdir(dirname(this.path), { recursive: true });
       await durableJson(this.path, next);
       this.value = next;
@@ -45,6 +41,29 @@ export class SettingsStore {
     for (const listener of this.listeners) listener(next);
     return next;
   }
+}
+
+/** The saved settings with the patch's defined keys laid over them, notifications key by key. */
+function merge(saved: DesktopSettings, patch: DesktopSettingsPatch): DesktopSettings {
+  const { notifications, ...top } = patch;
+  return {
+    ...saved,
+    ...defined(top),
+    notifications: {
+      ...saved.notifications,
+      ...defined({ ...notifications, categories: undefined }),
+      categories: {
+        ...saved.notifications.categories,
+        ...defined(notifications?.categories ?? {}),
+      },
+    },
+  };
+}
+
+function defined<T extends object>(value: T): { [K in keyof T]?: Exclude<T[K], undefined> } {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as {
+    [K in keyof T]?: Exclude<T[K], undefined>;
+  };
 }
 
 function load(path: string): DesktopSettings {

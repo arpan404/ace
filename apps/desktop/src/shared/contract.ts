@@ -193,6 +193,9 @@ const Minute = z
   .int()
   .min(0)
   .max(24 * 60 - 1);
+/** Minutes after local midnight; `start > end` wraps past midnight. */
+const QuietHours = z.object({ start: Minute, end: Minute });
+const NotificationToggles = z.partialRecord(NotificationCategory, z.boolean());
 export const DesktopSettings = z.object({
   /** Keep the daemon and tray running after the last window closes. */
   background: z.boolean().default(true),
@@ -200,9 +203,8 @@ export const DesktopSettings = z.object({
   notifications: z
     .object({
       enabled: z.boolean().default(true),
-      categories: z.partialRecord(NotificationCategory, z.boolean()).default({}),
-      /** Minutes after local midnight; `start > end` wraps past midnight. */
-      quietHours: z.object({ start: Minute, end: Minute }).nullable().default(null),
+      categories: NotificationToggles.default({}),
+      quietHours: QuietHours.nullable().default(null),
     })
     .prefault({}),
   /** Bounce the dock icon or flash the taskbar when something needs you. */
@@ -213,7 +215,26 @@ export const DesktopSettings = z.object({
   preventSleep: z.boolean().default(false),
 });
 export type DesktopSettings = z.infer<typeof DesktopSettings>;
-export const DesktopSettingsPatch = DesktopSettings.partial();
+/**
+ * A change to some settings. It carries no defaults: a key the patch leaves out stays as it
+ * was saved. (`DesktopSettings.partial()` would not do: Zod still applies each field's
+ * default, so every patch would reset every setting it didn't name.)
+ */
+export const DesktopSettingsPatch = z.object({
+  background: z.boolean().optional(),
+  openAtLogin: z.boolean().optional(),
+  notifications: z
+    .object({
+      enabled: z.boolean().optional(),
+      categories: NotificationToggles.optional(),
+      quietHours: QuietHours.nullable().optional(),
+    })
+    .optional(),
+  attention: z.boolean().optional(),
+  globalShortcut: z.string().max(64).nullable().optional(),
+  preventSleep: z.boolean().optional(),
+});
+export type DesktopSettingsPatch = z.infer<typeof DesktopSettingsPatch>;
 
 export const ScreenPermission = z.enum([
   "granted",
