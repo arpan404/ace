@@ -46,6 +46,8 @@ export function PrimaryAction(props: {
   /** A Stop is on its way: "Stopping…" until the turn ends. */
   stopping?: boolean | undefined;
   onSend(): void;
+  /** A valid draft can wait for preparation without losing the person's first send. */
+  onPrepare?: (() => void) | undefined;
   onStop(): void;
 }) {
   if (props.mode === "stop")
@@ -89,14 +91,15 @@ export function PrimaryAction(props: {
       <button
         type="button"
         aria-label={labels[mode]}
-        aria-disabled={blocked ? true : undefined}
-        aria-describedby={props.off ? props.describedBy : undefined}
+        aria-disabled={blocked && !props.onPrepare ? true : undefined}
+        aria-describedby={blocked ? props.describedBy : undefined}
         onClick={() => {
           if (!blocked) props.onSend();
+          else props.onPrepare?.();
         }}
         className={cn(
           iconControl,
-          blocked
+          blocked && !props.onPrepare
             ? "cursor-default bg-foreground/10 text-subtle-foreground hover:bg-foreground/10 hover:text-subtle-foreground active:scale-100"
             : "bg-tint text-tint-foreground shadow-[var(--depth-fill),var(--depth-raise)] hover:bg-tint/85 hover:text-tint-foreground active:shadow-none",
           props.off && "opacity-40",

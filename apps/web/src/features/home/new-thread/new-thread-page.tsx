@@ -71,6 +71,8 @@ import { forgetReturnedStart, readReturnedStart } from "@/lib/returned-start.ts"
 import { discardPreparation } from "./discard-preparation.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { SignInNotice } from "@/features/sign-in/index.ts";
+import { Spinner } from "@/components/ui/spinner.tsx";
+import { usePreparedSubmit } from "./use-prepared-submit.ts";
 
 /** Where the thread runs: the composer's top strip, while no notice takes it. */
 const DeferredEnvironment = deferredComponent(() =>
@@ -534,21 +536,23 @@ function PreparationPage(props: {
       scope.draftId &&
       savedScope !== scope.draftId &&
       !!readDraft(storage, draftKey)?.attachments.length);
-  const admissionProblem = missingBase
+  const hardProblem = missingBase
     ? "The saved base branch is unavailable. Choose an available branch before sending."
     : missingSelection
       ? "A saved model, account, or reasoning setting is unavailable. Choose an available setting before sending."
       : missingFiles
         ? "Saved attachments are unavailable. Remove and add them again before sending."
-        : waitingForAdmission
-          ? "Checking provider settings…"
-          : accessModes.failed
-            ? "Couldn't check provider access. Reconnect and try again."
-            : !scope.draftId
-              ? "Preparing attachment storage…"
-              : !resolved.model
-                ? "No model selected. Open the model menu to refresh or sign in."
-                : noStricterAccess;
+        : accessModes.failed
+          ? "Couldn't check provider access. Reconnect and try again."
+          : !waitingForAdmission && !resolved.model
+            ? "No model selected. Open the model menu to refresh or sign in."
+            : noStricterAccess;
+  const admissionWait = waitingForAdmission
+    ? "Checking provider settings…"
+    : !scope.draftId
+      ? "Preparing attachment storage…"
+      : undefined;
+  const admissionProblem = hardProblem ?? admissionWait;
   // A worktree's base is decided by the branches: until they're read (or fail), a remote
   // branch would be sent as a local one and the default branch as HEAD. The strip stays, so
   // the person can still turn Worktree off.
@@ -556,7 +560,22 @@ function PreparationPage(props: {
     !props.pullRequest && resolved.mode === "worktree" && branches.state === "loading"
       ? "Reading the project's branches…"
       : undefined;
-  const sendProblem = admissionProblem || issueSource.problem || prSource.problem;
+  const sourceProblem =
+    (!issueSource.loading && issueSource.problem) ||
+    (!prSource.loading && prSource.problem) ||
+    undefined;
+  const sendProblem =
+    hardProblem || sourceProblem || admissionWait || issueSource.problem || prSource.problem;
+  const pendingSubmit = usePreparedSubmit({
+    waiting:
+      admissionWait ||
+      branchWait ||
+      (issueSource.loading ? issueSource.problem : undefined) ||
+      (prSource.loading ? prSource.problem : undefined),
+    problem: hardProblem || sourceProblem,
+    selection: JSON.stringify([selection, picked, access, baseChoice]),
+    submit: () => composer.current?.submit(),
+  });
   const send = async (draft: Draft) => {
     if (
       !project ||
@@ -727,10 +746,13 @@ function PreparationPage(props: {
                 return !current || current.owner === editorOwner;
               }}
               onFilesAdded={() => {
+                pendingSubmit.cancel();
                 if (awaitingSource) setPreserveSourceDraft(true);
                 remember({ title: "Attached files" });
               }}
               onDraftChange={(content) => {
+                if (JSON.stringify(content) !== JSON.stringify(latestContent.current))
+                  pendingSubmit.cancel();
                 latestContent.current = content;
                 if (draftText(content) !== opened) editedHere.current = true;
                 // Preserve edits made while metadata loads, including unsaved storage refusals.
@@ -760,7 +782,11 @@ function PreparationPage(props: {
               busy={false}
               sendBlocked={
                 sendProblem || branchWait
-                  ? { reason: sendProblem || branchWait || "", describedBy: readinessId }
+                  ? {
+                      reason: sendProblem || branchWait || "",
+                      describedBy: readinessId,
+                      onAttempt: hardProblem || sourceProblem ? undefined : pendingSubmit.request,
+                    }
                   : undefined
               }
               onSubmit={send}
@@ -781,12 +807,42 @@ function PreparationPage(props: {
                     data-notices=""
                     className="flex flex-col gap-2 px-3 pt-2.5 pb-1 empty:hidden"
                   >
-                    {sendProblem && (
-                      <p id={readinessId} role="status" className="text-xs text-muted-foreground">
-                        {sendProblem}
-                      </p>
+                    {pendingSubmit.pending ? (
+                      <div className="flex items-center gap-2 text-ui">
+                        <Spinner />
+                        <p id={readinessId} role="status">
+                          Preparing to send… Your message will send when ready.
+                        </p>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={pendingSubmit.cancel}
+                        >
+                          Cancel send
+                        </Button>
+                      </div>
+                    ) : (
+                      sendProblem && (
+                        <p
+                          id={readinessId}
+                          role={hardProblem || sourceProblem ? "alert" : "status"}
+                          className={
+                            hardProblem || sourceProblem
+                              ? "text-ui text-status-failed"
+                              : "text-xs text-muted-foreground"
+                          }
+                        >
+                          {sendProblem}
+                        </p>
+                      )
                     )}
                     <SignInNotice provider={provider} />
+                    {pendingSubmit.error && (
+                      <p role="alert" className="text-ui text-status-failed">
+                        {pendingSubmit.error}
+                      </p>
+                    )}
                     {(saveFailed || preparationSaveFailed(storage, draftKey)) && (
                       <div role="alert" className="text-ui text-status-failed">
                         <p>
@@ -838,7 +894,7 @@ function PreparationPage(props: {
                       />
                     )}
                   </div>
-                  {!sendProblem && branchWait && (
+                  {!pendingSubmit.pending && !sendProblem && branchWait && (
                     <p id={readinessId} className="sr-only">
                       {branchWait}
                     </p>

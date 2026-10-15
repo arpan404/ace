@@ -30,6 +30,7 @@ export function useIssueSource(workspaceId: string | undefined, url: string | un
     },
   });
   return {
+    loading: Boolean(url && issue && !query.isError && !query.data),
     ref: query.data?.ref,
     text: query.data
       ? `Work on GitHub issue #${query.data.ref.number}: ${query.data.title}\n${query.data.url}\n\n${query.data.body}`

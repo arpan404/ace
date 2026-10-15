@@ -559,7 +559,7 @@ test("Enter opens the new thread at once with the message as its first bubble, e
 afterEach(() => vi.restoreAllMocks());
 
 test.each(["defaults", "native"])(
-  "new-thread sending waits for selected provider %s without losing its draft",
+  "the first submit waits for provider %s and sends once without losing its draft",
   async (check) => {
     const made = app();
     const handle = made.daemon.services.handle.bind(made.daemon.services);
@@ -583,24 +583,21 @@ test.each(["defaults", "native"])(
     await userEvent.type(field, "Preserve this draft until checks finish");
     await waitFor(() => expect(delayed.length).toBeGreaterThan(0));
     expect(screen.getByText("Checking provider settings…")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
+      "true",
+    );
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
     await userEvent.click(field);
     await userEvent.keyboard("{Enter}");
+    expect(screen.getByText("Preparing to send… Your message will send when ready.")).toBeTruthy();
     expect(listed(made).some((thread) => isNew(thread.id))).toBe(false);
     expect(field.textContent).toBe("Preserve this draft until checks finish");
     await act(async () => {
       holding = false;
       for (const release of delayed) release();
     });
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
-        "true",
-      ),
-    );
-    expect(screen.queryByText("Checking provider settings…")).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(await started(made)).toMatchObject({ workspaceId: "relay", provider: "claude" });
+    expect(listed(made).filter((thread) => isNew(thread.id))).toHaveLength(1);
   },
 );
 

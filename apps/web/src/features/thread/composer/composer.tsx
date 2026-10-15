@@ -62,6 +62,8 @@ export type { Draft } from "./draft.ts";
 
 /** What other parts of the thread screen may ask of its composer. */
 export interface ComposerHandle {
+  /** Submit the current draft after its preparation owner has resolved readiness. */
+  submit(): void;
   /** Keep the current draft for the thread that replaces this provisional view. */
   preserveDraft(key: string): void;
   /** A recovered send clears its matching draft and leaves any newer message alone. */
@@ -172,7 +174,9 @@ function ComposerContent({
       }
     | undefined;
   /** Keep drafting and attachment controls available while only sending is blocked. */
-  sendBlocked?: { reason: string; describedBy: string } | undefined;
+  sendBlocked?:
+    | { reason: string; describedBy: string; onAttempt?: (() => void) | undefined }
+    | undefined;
   onPlan?: (() => void) | undefined;
   ref?: Ref<ComposerHandle> | undefined;
 }) {
@@ -385,25 +389,6 @@ function ComposerBody({
     placeCaret.current = next.caret;
     input.current?.focus();
   };
-  useImperativeHandle(ref, () => ({
-    openAdd: () => addMenu.current?.open(),
-    focus: () => input.current?.focus(),
-    takeFiles: intake,
-    preserveDraft: (key) => writeDraft(storage, key, current),
-    discardIfSubmitted(sent) {
-      if (!matchesSubmittedDraft({ ...current, attachments: attachments.ready }, sent))
-        return false;
-      // The recovery owner already removed the matching persisted draft. Stop a stale
-      // unmount flush from restoring it while leaving newer drafts untouched.
-      saved.drop();
-      setText("");
-      setTokens([]);
-      setPicked(new Set());
-      setCaret(0);
-      attachments.clear();
-      return true;
-    },
-  }));
   const rememberMention = (path: string) => {
     setPicked((paths) => new Set(paths).add(path));
     rememberFile(storage, props.thread.workspaceId, path);
@@ -539,20 +524,23 @@ function ComposerBody({
   const off = props.unavailable?.reason;
   const failedUpload = attachments.items.some((item) => item.state === "failed");
   const chips = attachments.items;
-  const blocked =
-    off || props.sendBlocked?.reason
-      ? (off ?? props.sendBlocked?.reason)
-      : attachments.uploading && !props.sendsWhileUploading
-        ? "Waiting for the files to upload"
-        : failedUpload
-          ? "Remove the file that didn't upload first"
-          : empty
-            ? "Write a message first"
-            : undefined;
+  const draftBlocked = off
+    ? off
+    : attachments.uploading && !props.sendsWhileUploading
+      ? "Waiting for the files to upload"
+      : failedUpload
+        ? "Remove the file that didn't upload first"
+        : empty
+          ? "Write a message first"
+          : undefined;
+  const blocked = draftBlocked ?? props.sendBlocked?.reason;
   // Enter empties the composer at once; the message is the parent's from here on. Only a
   // message this device couldn't save comes back, and only into an untouched composer.
   const submit = (opposite: boolean) => {
-    if (blocked) return;
+    if (blocked) {
+      if (!draftBlocked) props.sendBlocked?.onAttempt?.();
+      return;
+    }
     const draft: Draft = {
       text,
       ...composerContent({ ...current, attachments: attachments.ready }),
@@ -599,6 +587,26 @@ function ComposerBody({
       if (!sent) restoreSubmission(returned, draft);
     });
   };
+  useImperativeHandle(ref, () => ({
+    submit: () => submit(false),
+    openAdd: () => addMenu.current?.open(),
+    focus: () => input.current?.focus(),
+    takeFiles: intake,
+    preserveDraft: (key) => writeDraft(storage, key, current),
+    discardIfSubmitted(sent) {
+      if (!matchesSubmittedDraft({ ...current, attachments: attachments.ready }, sent))
+        return false;
+      // The recovery owner already removed the matching persisted draft. Stop a stale
+      // unmount flush from restoring it while leaving newer drafts untouched.
+      saved.drop();
+      setText("");
+      setTokens([]);
+      setPicked(new Set());
+      setCaret(0);
+      attachments.clear();
+      return true;
+    },
+  }));
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
     if (event.key === "Enter" && event.shiftKey && input.current) {
@@ -850,6 +858,9 @@ function ComposerBody({
                   stopping={!!props.stopping}
                   describedBy={props.unavailable?.describedBy ?? props.sendBlocked?.describedBy}
                   onSend={() => submit(false)}
+                  onPrepare={
+                    !draftBlocked && props.sendBlocked?.onAttempt ? () => submit(false) : undefined
+                  }
                   onStop={() => props.onStop?.()}
                 />
               </div>

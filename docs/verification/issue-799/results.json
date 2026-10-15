@@ -1,0 +1,55 @@
+[
+  {
+    "check": "pending first Enter",
+    "scheme": "light",
+    "width": 390,
+    "passed": true
+  },
+  {
+    "check": "pending first Enter",
+    "scheme": "light",
+    "width": 768,
+    "passed": true
+  },
+  {
+    "check": "pending first Enter",
+    "scheme": "light",
+    "width": 1440,
+    "passed": true
+  },
+  {
+    "check": "pending first Enter",
+    "scheme": "light",
+    "width": 1920,
+    "passed": true
+  },
+  {
+    "check": "pending first Enter",
+    "scheme": "dark",
+    "width": 390,
+    "passed": true
+  },
+  {
+    "check": "pending first Enter",
+    "scheme": "dark",
+    "width": 768,
+    "passed": true
+  },
+  {
+    "check": "pending first Enter",
+    "scheme": "dark",
+    "width": 1440,
+    "passed": true
+  },
+  {
+    "check": "pending first Enter",
+    "scheme": "dark",
+    "width": 1920,
+    "passed": true
+  },
+  {
+    "check": "cancel, click Send, repeat Enter, release readiness: exactly one thread",
+    "created": 1,
+    "errors": ["Transition was aborted because of timeout in DOM update. DOM update timed out"]
+  }
+]

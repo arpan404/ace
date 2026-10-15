@@ -28,6 +28,7 @@ export function usePrSource(workspaceId: string | undefined, url: string | undef
   });
   const detail = query.data;
   return {
+    loading: Boolean(url && pr && !query.isError && !detail),
     selection: detail ? { ref: detail.status.ref, headSha: detail.status.headSha } : undefined,
     text: detail
       ? `Work on GitHub PR #${detail.status.ref.number}: ${detail.status.title}\n${detail.status.url}\n\n${detail.headBranch} → ${detail.baseBranch}\n\n${detail.body}`
