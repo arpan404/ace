@@ -332,7 +332,7 @@ export class CursorTranslator implements Translator {
               text,
               event,
               "error",
-              failure.kind === "quota" ? (failure.code ?? "quota") : "cursor.run-failed",
+              failure.code ?? (failure.kind === "quota" ? "quota" : "cursor.run-failed"),
             ),
           );
           if (this.active && !this.replacement && body.settled === true) {

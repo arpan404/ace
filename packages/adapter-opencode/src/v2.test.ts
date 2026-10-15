@@ -740,21 +740,15 @@ it("retry heartbeats, new request metadata and unknown events do not claim that 
   expect(h.view.thread.status.state).toBe("working");
 });
 
-it("new OpenCode text clears overload retries while quota blocks require explicit quota recovery", () => {
-  for (const [message, on] of [
-    ["upstream overloaded", "upstream"],
-    ["429 quota exhausted", "rate_limit"],
-  ] as const) {
+it("an OpenCode retry is a wait that new text clears, even when its words mention a quota", () => {
+  for (const message of ["upstream overloaded", "429 quota exhausted"]) {
     const h = setup();
     h.event("session.execution.started");
     h.event("session.retry.scheduled", { attempt: 1, at: 2000, error: { message } });
-    expect(h.view.thread.status).toEqual(
-      on === "upstream" ? { state: "waiting", on } : { state: "limited", until: 2001 },
-    );
+    // OpenCode is retrying by itself: a throttle, never a usage limit that holds the queue.
+    expect(h.view.thread.status).toEqual({ state: "waiting", on: "upstream" });
     h.event("session.text.delta", { assistantMessageID: "resumed", ordinal: 0, delta: "Progress" });
-    expect(h.view.thread.status).toMatchObject(
-      on === "upstream" ? { state: "working" } : { state: "limited", until: 2001 },
-    );
+    expect(h.view.thread.status).toMatchObject({ state: "working" });
   }
 });
 

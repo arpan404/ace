@@ -5,6 +5,23 @@ import { object, number, decodeResetCredits, decodeWindows } from "./quota-decod
 import { parseLimitReset } from "./reset-time.ts";
 import { reportedBilling } from "./billing.ts";
 
+/**
+ * Codex's `codexErrorInfo` codes that say the account itself is out of usage (app-server
+ * `ErrorNotification` / `TurnError`). Everything else, throttles and retries included, is not.
+ */
+const codexLimitCodes = new Set(["usageLimitExceeded"]);
+const limitMessage = z.string().max(16_384);
+/** The provider's definite usage-limit error in a frame, with its words for the reset time. */
+function definiteLimit(
+  provider: QuotaFact["provider"],
+  body: Record<string, unknown>,
+): { message: string } | undefined {
+  if (provider !== "codex") return undefined;
+  const error = object(body["error"]);
+  const code = z.string().max(128).safeParse(error["codexErrorInfo"]).data;
+  if (code === undefined || !codexLimitCodes.has(code)) return undefined;
+  return { message: limitMessage.safeParse(error["message"]).data ?? "" };
+}
 export function initialQuota(): AccountQuota {
   return { auth: "unknown", observedAt: 0, windows: {}, blockers: {}, usage: {} };
 }
@@ -37,23 +54,15 @@ export function ingestQuota(
   const billing = reportedBilling(body);
   const resetCredits = fact.provider === "codex" ? decodeResetCredits(body) : undefined;
   const blockers = { ...state.blockers };
-  const errorBody = object(body["error"]);
-  const error = z
-    .string()
-    .max(16_384)
-    .safeParse(errorBody["message"] ?? body["error"] ?? body["message"]).data;
-  const limited = Boolean(
-    error &&
-    /usage limit|rate limit|limit reached|out of.*(?:usage|credits)|hit your limit/i.test(error),
-  );
-  if (
-    error &&
-    /usage limit|rate limit|limit reached|out of.*(?:usage|credits)|hit your limit/i.test(error)
-  )
+  // Only the provider's own usage-limit code holds the account; its words only say when it
+  // resets. Free text that mentions a limit (a retried 429, an echoed message) is no signal.
+  const limited = definiteLimit(fact.provider, body);
+  if (limited)
     blockers.limitError = {
       usedPercent: 100,
-      resetsAt: parseLimitReset(error, fact.observedAt, fact.timeZone),
+      resetsAt: parseLimitReset(limited.message, fact.observedAt, fact.timeZone),
       source: "limit_error",
+      observedAt: fact.observedAt,
     };
   const auth = z.enum(["logged_in", "logged_out", "unknown"]).safeParse(body["auth"]).data;
   const usageBody = object(object(body["tokenUsage"])["total"] ?? body["usage"] ?? body["session"]);

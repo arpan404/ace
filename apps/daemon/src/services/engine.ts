@@ -18,6 +18,7 @@ import { bindCursorSdk, createInstance } from "@ace/accounts";
 import { activateCursorProvider } from "./cursor-activation.ts";
 import type { ProviderAdapter } from "@ace/engine-api";
 import { recoveryPorts, prepareQueuedInput } from "./recovery.ts";
+import { recoverOnFreshReadings } from "./limit-recovery.ts";
 import { Engine } from "../engine/index.ts";
 import { accessDefaults } from "../engine/access-defaults.ts";
 import { projectAccess } from "../project-access.ts";
@@ -345,6 +346,16 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     (command) => services.asks?.resolve(command) ?? services.browserPrivateAnswers?.(command),
   );
   services.engine = engine;
+  if (accountRegistry)
+    resources.own(
+      recoverOnFreshReadings({
+        subscribeQuota: (listener) => accountRegistry.subscribeQuota(listener),
+        quota: (id) => accountRegistry.get(id)?.quota,
+        recovered: (id) => engine.accountRecovered(id),
+        now: context.now,
+        onError: (error) => log.log("warn", "Limit recovery deferred", logError(error)),
+      }),
+    );
   services.historyAdapters = historyEnginePort(context, engine, registry);
   services.handler = engine.handler;
 }

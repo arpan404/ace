@@ -57,7 +57,7 @@ function cursorFailing(message: string): ProviderAdapter {
   };
 }
 
-test("Cursor running out of usage is a usage limit that asks for another model, not a failed turn", async () => {
+test("Cursor's out-of-usage words ask for another model but, with no limit code, hold nothing", async () => {
   const h = await harness([], scriptFrames(), {
     provider: "cursor",
     capabilities: cursorCapabilities,
@@ -76,10 +76,9 @@ test("Cursor running out of usage is a usage limit that asks for another model, 
       // The provider's own words stay behind Details, where they were already shown.
       detail: outOfUsage,
     });
-    expect(view.thread.status.state).toBe("limited");
-    expect(Object.values(view.agents)).toContainEqual(
-      expect.objectContaining({ status: expect.objectContaining({ state: "blocked" }) }),
-    );
+    // Prose is not a definite limit: the turn failed and the queue stays free to send.
+    expect(view.thread.status.state).toBe("failed");
+    expect(h.engine.queue(id)).toMatchObject({ paused: false });
   } finally {
     await h.close();
   }

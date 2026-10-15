@@ -1,4 +1,9 @@
-import { availability, blockedUntil, nearLimitPercent } from "@ace/accounts/availability";
+import {
+  availability,
+  blockedUntil,
+  nearLimitPercent,
+  staleReadingMs,
+} from "@ace/accounts/availability";
 import type { LimitPolicy } from "@ace/protocol";
 import type { z } from "zod";
 import { accountStatus } from "./provider-account-model.ts";
@@ -19,6 +24,8 @@ import {
 
 /** From this share of a window used, an account is near its limit (the meters turn amber). */
 export { nearLimitPercent };
+/** A reading older than this is shown with its age and never counts as a limit. */
+export { staleReadingMs };
 
 /** "Claude Code · Personal". */
 export function accountName(

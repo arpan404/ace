@@ -14,7 +14,6 @@ import {
   AccountQuota,
   CursorSdkAuth,
 } from "@ace/protocol/accounts";
-import { object } from "./quota-decode.ts";
 import { availability, blockedUntil } from "./availability.ts";
 import { initialQuota, ingestQuota, type QuotaFact } from "./quota.ts";
 import { instanceEnv } from "./instances.ts";
@@ -159,18 +158,7 @@ export class AccountRegistry {
   }
   private decode(value: unknown) {
     const parsed = row.parse(value);
-    const raw: unknown = JSON.parse(parsed.quota);
-    const legacy = !Object.hasOwn(object(raw), "blockers");
-    const quota = AccountQuota.parse(raw);
-    // The previous format placed local blockers in the provider name namespace.
-    if (legacy && quota.windows["quota_overflow"]?.usedPercent === 100) {
-      quota.blockers.overflow = true;
-      delete quota.windows["quota_overflow"];
-    }
-    if (legacy && quota.windows["limit_error"]) {
-      quota.blockers.limitError = quota.windows["limit_error"];
-      delete quota.windows["limit_error"];
-    }
+    const quota = AccountQuota.parse(JSON.parse(parsed.quota));
     return { instance: ProviderInstance.parse(JSON.parse(parsed.instance)), quota };
   }
   get(id: string) {

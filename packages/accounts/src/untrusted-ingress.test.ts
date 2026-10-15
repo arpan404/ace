@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { availability, ingestQuota, initialQuota } from "./index.ts";
 
-test("uncertified quota maps are blocked without enumerating or reading their entries", () => {
+test("uncertified quota maps are never enumerated, read or taken for a limit", () => {
   let accesses = 0;
   const map = new Proxy(
     {},
@@ -27,6 +27,6 @@ test("uncertified quota maps are blocked without enumerating or reading their en
     },
   );
   expect(accesses).toBe(0);
-  expect(availability(result.state, 1)).toBe("exhausted");
+  expect(availability(result.state, 1)).toBe("available");
   expect(result.raw).toBe(payload);
 });

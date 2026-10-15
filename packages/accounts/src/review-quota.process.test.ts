@@ -46,7 +46,7 @@ test("a malformed authoritative Codex sibling cannot erase the exhausted window"
     ),
   ).toBe("exhausted");
 });
-test("inherited names cannot exceed the retained window cap or reject registry ingestion", async () => {
+test("inherited names cannot exceed the retained window cap, reject registry ingestion or read as a limit", async () => {
   const root = await temp();
   const registry = await openRegistry(join(root, "accounts.sqlite"));
   try {
@@ -70,31 +70,30 @@ test("inherited names cannot exceed the retained window cap or reject registry i
       observedAt: now,
       timeZone: "UTC",
     });
-    expect(registry.summaries(now)[0]?.availability).toBe("exhausted");
+    expect(Object.keys(registry.summaries(now)[0]?.quota.windows ?? {}).length).toBe(32);
+    expect(registry.summaries(now)[0]?.quota.blockers.overflow).toBe(true);
+    expect(registry.summaries(now)[0]?.availability).toBe("available");
   } finally {
     registry.close();
   }
 });
-test("provider names cannot overwrite synthetic overflow exhaustion", () => {
+test("provider names cannot overwrite the local overflow marker", () => {
   const rate_limits = Object.fromEntries(
     Array.from({ length: 40 }, (_, i) => [`w${i}`, { utilization: 0 }]),
   );
-  const exhausted = fold({ rate_limits }).state;
-  expect(
-    availability(
-      fold(
-        { rate_limit_info: { status: "allowed", rateLimitType: "quota_overflow", utilization: 0 } },
-        exhausted,
-      ).state,
-      now,
-    ),
-  ).toBe("exhausted");
+  const overflowed = fold({ rate_limits }).state;
+  const named = fold(
+    { rate_limit_info: { status: "allowed", rateLimitType: "quota_overflow", utilization: 0 } },
+    overflowed,
+  ).state;
+  expect(named.blockers.overflow).toBe(true);
+  expect(availability(named, now)).toBe("available");
 });
 test("incremental updates to an existing window preserve overflow until a complete snapshot", () => {
   const rate_limits = Object.fromEntries(
     Array.from({ length: 40 }, (_, i) => [`w${i}`, { utilization: 0 }]),
   );
-  const exhausted = fold({ rate_limits }).state;
+  const overflowed = fold({ rate_limits }).state;
   const incremental = fold(
     {
       rate_limit_info: {
@@ -103,14 +102,14 @@ test("incremental updates to an existing window preserve overflow until a comple
         utilization: 0,
       },
     },
-    exhausted,
+    overflowed,
   ).state;
-  expect(availability(incremental, now)).toBe("exhausted");
+  expect(incremental.blockers.overflow).toBe(true);
   expect(
-    availability(fold({ rate_limits: { w0: { utilization: 0 } } }, incremental).state, now),
-  ).toBe("available");
+    fold({ rate_limits: { w0: { utilization: 0 } } }, incremental).state.blockers.overflow,
+  ).toBeUndefined();
 });
-test("bounded quota folding retains admitted raw identity while overflow blocks scheduling", () => {
+test("bounded quota folding retains admitted raw identity, and overflow is not a limit", () => {
   const rate_limits = Object.fromEntries(
     Array.from({ length: 40 }, (_, i) => [`w${i}`, { utilization: 0 }]),
   );
@@ -123,7 +122,7 @@ test("bounded quota folding retains admitted raw identity while overflow blocks 
   });
   expect(result.raw).toBe(payload.data);
   expect(Object.keys(result.state.windows)).toHaveLength(32);
-  expect(availability(result.state, now)).toBe("exhausted");
+  expect(availability(result.state, now)).toBe("available");
 });
 test.each([false, true])(
   "physical aliases cannot become independent accounts (missing child %s)",
@@ -163,55 +162,22 @@ test.each([false, true])(
 );
 test("a usage limit error wins over quota windows carried in the same frame", () => {
   const result = fold(
-    { message: "Usage limit reached", rateLimits: { primary: { usedPercent: 0 } } },
+    {
+      error: { message: "You've hit your usage limit.", codexErrorInfo: "usageLimitExceeded" },
+      rateLimits: { primary: { usedPercent: 0 } },
+    },
     logged,
     "codex",
   );
   expect(availability(result.state, now)).toBe("exhausted");
 });
-test("malformed windows consume the ingress budget before a tail window can restore availability", () => {
+test("malformed windows consume the ingress budget, and what was not read is not a limit", () => {
   const rate_limits: Record<string, unknown> = {};
   for (let i = 0; i < 32; i++) rate_limits[`bad${i}`] = { utilization: "invalid" };
   rate_limits["tail"] = { utilization: 0 };
   const result = fold({ rate_limits });
   expect(result.state.windows["tail"]).toBeUndefined();
-  expect(availability(result.state, now)).toBe("exhausted");
-});
-test("reopening an old registry upgrades exhaustion without losing account state", async () => {
-  const { DatabaseSync } = await import("node:sqlite");
-  const root = await temp();
-  const path = join(root, "accounts.sqlite");
-  let registry = await openRegistry(path);
-  await mkdir(join(root, "home"));
-  await registry.register(
-    createInstance({ id: "a", provider: "codex", label: "a", homeDir: join(root, "home") }),
-  );
-  registry.close();
-  const db = new DatabaseSync(path);
-  db.prepare("UPDATE accounts SET quota=? WHERE id=?").run(
-    JSON.stringify({
-      auth: "logged_in",
-      observedAt: now,
-      windows: { quota_overflow: { usedPercent: 100, resetsAt: null } },
-      usage: { inputTokens: 12 },
-    }),
-    "a",
-  );
-  db.close();
-  registry = await openRegistry(path);
-  try {
-    expect(registry.summaries(now)[0]?.availability).toBe("exhausted");
-    expect(registry.summaries(now)[0]?.quota.usage.inputTokens).toBe(12);
-    const next = registry.ingest("a", {
-      provider: "codex",
-      payload: quotaPayload({ rateLimitsByLimitId: { codex: { primary: { usedPercent: 10 } } } }),
-      observedAt: now + 1,
-      timeZone: "UTC",
-    });
-    expect(availability(next.state, now + 1)).toBe("available");
-  } finally {
-    registry.close();
-  }
+  expect(availability(result.state, now)).toBe("available");
 });
 test("reopening a historical registry refuses physical aliases before scheduling", async () => {
   const { DatabaseSync } = await import("node:sqlite");
@@ -244,11 +210,15 @@ test("reopening a historical registry refuses physical aliases before scheduling
     reopened.close();
   }
 });
-test("unknown facts preserve a textual blocker and its last meaningful observation", () => {
-  const state = fold({ message: "Usage limit reached" }).state;
+test("unknown facts preserve a provider limit and its last meaningful observation", () => {
+  const state = fold(
+    { error: { message: "You've hit your usage limit.", codexErrorInfo: "usageLimitExceeded" } },
+    logged,
+    "codex",
+  ).state;
   const payload = { future: true };
   const result = ingestQuota(state, {
-    provider: "claude",
+    provider: "codex",
     payload: quotaPayload(payload),
     observedAt: now + 1,
     timeZone: "UTC",

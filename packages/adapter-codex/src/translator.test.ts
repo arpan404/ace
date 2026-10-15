@@ -230,7 +230,7 @@ test("a completed plan opens review and keeps the thread from finishing", () => 
     markdown: "# Proposal",
   });
 });
-test("provider usage-limit text retains a limit after nominal turn completion", () => {
+test("usage-limit prose fails the turn but, without Codex's code, never limits the thread", () => {
   const h = setup();
   h.start();
   h.item(
@@ -238,7 +238,7 @@ test("provider usage-limit text retains a limit after nominal turn completion", 
     true,
   );
   h.end();
-  expect(h.state.status).toEqual({ state: "limited" });
+  expect(h.state.status.state).toBe("failed");
   expect(Object.values(h.state.runs)).toContainEqual(expect.objectContaining({ state: "failed" }));
 });
 test("ordinary prose mentioning an error does not make the turn fail", () => {
@@ -255,13 +255,23 @@ test("ordinary prose mentioning an error does not make the turn fail", () => {
   h.end();
   expect(h.state.status.state).toBe("done");
 });
-test("generic provider activity cannot clear a usage limit", () => {
+test("a throttle Codex retries is a wait, never a usage limit", () => {
   const h = setup();
   h.start();
   h.recv("error", {
     threadId: "native",
     willRetry: true,
-    error: { codexErrorInfo: "rateLimitExceeded", message: "busy" },
+    error: { codexErrorInfo: "rateLimitExceeded", message: "Rate limit reached; retrying" },
+  });
+  expect(h.state.status).toEqual({ state: "waiting", on: "upstream" });
+});
+test("generic provider activity cannot clear a usage limit", () => {
+  const h = setup();
+  h.start();
+  h.recv("error", {
+    threadId: "native",
+    willRetry: false,
+    error: { codexErrorInfo: "usageLimitExceeded", message: "You've hit your usage limit." },
   });
   expect(h.state.status).toEqual({ state: "limited" });
   h.item({ type: "agentMessage", id: "message", text: "retry worked" }, true);

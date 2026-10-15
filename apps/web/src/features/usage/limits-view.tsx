@@ -1,6 +1,7 @@
 import {
   formatAgo,
   resetCountdown,
+  staleReadingMs,
   type AccountLimits,
   type AccountWindow,
   type LimitPace,
@@ -129,8 +130,8 @@ function Pace(props: { pace: LimitPace | undefined }) {
   );
 }
 
-/** A reading older than this says how old it is. */
-const freshMs = 30 * 60_000;
+/** A reading older than this says how old it is, and no longer counts as a limit. */
+const freshMs = staleReadingMs;
 
 function WindowLine(props: { window: AccountWindow; now: number }) {
   const { window, now } = props;

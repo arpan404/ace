@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
@@ -97,6 +97,41 @@ test("refreshing limits records every signed-in Codex account's windows and bank
     43200,
   ]);
   expect(free?.resetCredits?.available).toBe(0);
+});
+
+test("usage windows and resets are read per account from the Codex app-server", async () => {
+  const { registry: accounts, home } = await registry();
+  // Offline Codex app-server: answers `account/rateLimits/read` from each account's own home.
+  const executable = join(home, "codex");
+  await writeFile(
+    executable,
+    `#!${process.execPath}\nimport ${JSON.stringify(new URL("../../../packages/adapter-codex/src/testing/cli.ts", import.meta.url).href)};\n`,
+    { mode: 0o700 },
+  );
+  for (const id of ["plus", "free"])
+    await writeFile(join(home, id, "usage.json"), JSON.stringify(reads[id]));
+  await refreshCodexLimits({
+    registry: accounts,
+    env: { PATH: process.env["PATH"] ?? "" },
+    cwd: home,
+    now: () => now,
+    signal: new AbortController().signal,
+    discovery: { overrides: { codex: executable } },
+  });
+  const windows = (id: string) =>
+    Object.values(accounts.get(id)?.quota.windows ?? {}).map((window) => [
+      window.windowDurationMins,
+      window.usedPercent,
+      window.resetsAt,
+    ]);
+  expect(windows("plus")).toEqual([
+    [300, 0, now + 5 * hour],
+    [10080, 0, now + 150 * hour],
+  ]);
+  expect(windows("free")).toEqual([[43200, 2, now + 700 * hour]]);
+  expect(accounts.get("plus")?.quota.resetCredits?.available).toBe(3);
+  // The signed-out account was never asked and has no windows of its own.
+  expect(windows("signed-out")).toEqual([]);
 });
 
 test("one account whose limits can't be read leaves the others recorded", async () => {

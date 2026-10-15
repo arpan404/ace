@@ -173,12 +173,17 @@ test("snooze reaches its deadline without spending quota and leaves the queue av
   expect(sends(replacement)).toHaveLength(3);
 });
 
-test("a resetless limit refuses a timed action and keeps every message", async () => {
+test("a resetless limit refuses a timed action, and the person's next message is sent, not held", async () => {
   const frames = scriptFrames();
-  const h = await fixture([{ on: "send", frames: [frames.frame(start, quotaEnd)] }], frames);
+  const h = await fixture(
+    [
+      { on: "send", frames: [frames.frame(start, quotaEnd)] },
+      { on: "send", frames: [frames.frame(start, end)] },
+    ],
+    frames,
+  );
   const id = await h.create();
-  h.command({ type: "thread.send", threadId: id, input: text("saved") });
-  await h.engine.flush();
+  expect(h.store.getThread(id)?.status.state).toBe("limited");
   expect(
     h.command({
       type: "thread.limit",
@@ -187,8 +192,11 @@ test("a resetless limit refuses a timed action and keeps every message", async (
       action: "resume_at_reset",
     }).error,
   ).toBe("reset_time_unknown");
-  expect(h.engine.queue(id).messages[0]?.input).toEqual(text("saved"));
-  expect(h.store.getThread(id)?.status.state).toBe("limited");
+  // Nothing says the limit still holds, so the next send is the go-ahead.
+  h.command({ type: "thread.send", threadId: id, input: text("saved") });
+  await h.engine.flush();
+  expect(h.engine.queue(id)).toMatchObject({ paused: false, messages: [] });
+  expect(h.store.getThread(id)?.status.state).toBe("done");
 });
 
 test("move to another account binds native continuation and following messages to the migrated session", async () => {
@@ -282,7 +290,7 @@ test("pausing while native resume is opening fences the continuation and later s
   expect(h.engine.queue(id).messages).toHaveLength(2);
 });
 
-test("an account resetless blocker overrides a provider retry estimate", async () => {
+test("an account limit with no reset overrides a provider retry estimate and never times a resume", async () => {
   const { h, id, replacement } = await limitedThread({ recovery: { resetAt: () => null } });
   expect(
     h.command({
@@ -294,8 +302,8 @@ test("an account resetless blocker overrides a provider retry estimate", async (
   ).toBe("reset_time_unknown");
   h.clock.advance(5000);
   await h.engine.flush();
+  // The provider's 4s estimate never sends anything; only the person or a fresh reading does.
   expect(sends(replacement)).toHaveLength(0);
-  expect(h.engine.queue(id).messages).toHaveLength(2);
 });
 
 test("the default limit policy reloads layered settings when the active thread hits its limit", async () => {

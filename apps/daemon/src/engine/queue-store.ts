@@ -343,6 +343,14 @@ export class QueueStore {
     ).get();
     return row ? z.number().int().nonnegative().parse(row.resume_at) : undefined;
   }
+  /** Threads a usage limit holds, for an account reading that may let them go. */
+  limited(): ThreadId[] {
+    return this.sql(
+      "SELECT thread_id FROM engine_queue WHERE limited=1 AND paused=1 AND reason='limit' LIMIT 256",
+    )
+      .all()
+      .map((row) => QueueSnapshot.shape.threadId.parse(row.thread_id));
+  }
   due(now: number): ThreadId[] {
     return this.sql(
       "SELECT thread_id FROM engine_queue WHERE resume_at<=? ORDER BY resume_at LIMIT 64",

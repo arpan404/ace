@@ -219,3 +219,21 @@ Optional `badgeUsesInitial` on summaries distinguishes a name-derived initial fr
 explicit symbol. Optional `badgeUsesInitial: true` on either rename command resets a
 custom symbol to the current name's initial. Older requests retain explicit symbols.
 No credentials or provider execution are involved in these metadata changes.
+
+## Amendment: definite, fresh limits only
+
+Date: 2026-10-15. This replaces "unknown/resetless exhausted windows stay blocked until fresh
+facts arrive" and window overflow blocking scheduling. An account is exhausted only by a fresh
+(at most 30 minutes old) window at 100% or the provider's own usage-limit code (Codex
+`usageLimitExceeded` in an `error` notification). Free text never sets `limitError`; its words
+only supply the reset time. Stale readings, overflowed or uncertified maps and resetless
+blockers older than the freshness window never hold an account. `blockedUntil` takes the last
+reset among holders that give one; a resetless holder beside them doesn't erase it.
+
+Codex limits are re-read with `account/rateLimits/read` at startup, on request and every five
+minutes, besides `account/rateLimits/updated` during sessions. Claude limits are read once per
+session through the Agent SDK's `get_usage` control request (the CLI calls claude.ai with its
+own login; ace reads no credential), besides `rate_limit_event` during turns. Cursor, OpenCode,
+Gemini/Antigravity and Copilot have no limit source ace can read without handling a credential
+itself, so they show no limits rather than a guessed one. The pre-blocker legacy quota format
+is no longer upgraded.

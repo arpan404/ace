@@ -21,6 +21,7 @@ import {
 import { ClaudeRateLimitObservation } from "./rate-limits.ts";
 import { nativeMcpServers, mcpControls, type ClaudeMcpServers } from "./mcp-controls.ts";
 import { spawnSdkProcess } from "./sdk-process.ts";
+import { readClaudeUsage } from "./usage-read.ts";
 export interface ClaudeOptions {
   executable?: string;
   env?: NodeJS.ProcessEnv;
@@ -316,6 +317,12 @@ export async function openSession(
         });
     })
     .catch(() => {});
+  // This account's plan limits as they stand now, not only as the last turn left them.
+  readClaudeUsage({
+    query: q,
+    emit: (data) => frame("note", "accounts", data),
+    isClosed: () => closed || exited,
+  });
   const ensureOpen = () => {
     if (closed || exited) throw new Error("Claude session is closed");
   };

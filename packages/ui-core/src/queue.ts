@@ -100,7 +100,8 @@ export function queueNotice(
     return {
       kind: "limited",
       title: "Usage limit reached",
-      detail: `${detail}${stuck} Queued messages wait.`,
+      // With no reset, nothing says the limit still holds: the next message tries again.
+      detail: `${detail}${stuck} ${known ? "Queued messages wait." : "Your next message tries again."}`,
       actions: [
         ...(known
           ? [

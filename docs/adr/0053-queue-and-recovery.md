@@ -123,3 +123,22 @@ the execution selection used by fork provenance and subsequent switches.
 The owner permits specific tests of conflicted code during merge resolution.
 Those targeted integration runs are recorded in the PR; the full suite, mutation
 runs and performance measurements remain deferred until merge.
+
+## Amendment: only a definite limit holds the queue
+
+Date: 2026-10-15. A Codex thread showed "Usage limit reached" with no reset and held its
+queue while its account had room. Two guesses caused it: words that mention a limit (a
+throttled request Codex retries, a 429 Claude or OpenCode retries, Cursor or OpenCode prose)
+were read as a usage limit, and a limit with no reset had nothing that ever let it go.
+
+`limited` now comes only from a definite provider signal: Codex `codexErrorInfo:
+usageLimitExceeded` (never `rateLimitExceeded`, which Codex retries), Claude's rejected
+`rate_limit_event` or a turn's `rate_limit`/`billing_error` code, Cursor's SDK `rate_limit` code,
+or an account reading at 100%. Provider retries are waits (`upstream`/`network`). Prose keeps
+an error code for wording (`usage_limit`, `model_quota`) and the turn simply fails.
+
+A limit lets go when the provider says so. A known reset times a resume for every policy except
+migrate (snooze still expires into a manual hold). A completed turn lifts the hold. A fresh
+account reading below the limit resumes held threads on that account. With no reset, the
+person's next message is the go-ahead: the hold and ace's "continue" are dropped and the queue
+sends in order. If the provider refuses again, its signal holds the thread again.

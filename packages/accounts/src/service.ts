@@ -39,7 +39,6 @@ const quotaKeys = [
   "usage",
   "session",
   "total_cost_usd",
-  "message",
   "error",
 ];
 /** The default never infers offline safety from absence of locks or ace processes. */

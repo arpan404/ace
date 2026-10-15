@@ -68,6 +68,7 @@ export function structuredError(
       ? `Not signed in to ${provider === "claude" ? "Claude Code" : provider === "codex" ? "Codex" : provider}`
       : code === "quota" ||
           code === "model_quota" ||
+          code === "usage_limit" ||
           code === "rate_limit" ||
           code === "billing_error"
         ? "Usage limit reached"

@@ -59,12 +59,20 @@ it("a tool still cleaning up when its turn ends holds the thread without taking 
 });
 
 it.each([
-  ["You exceeded your current quota, please check your plan and billing details.", "limited"],
-  ["Your credit balance is too low to access the Anthropic API.", "limited"],
-  ["Connection reset by upstream", "failed"],
-])("a turn the upstream ends with %j reads as %s", (message, state) => {
-  const h = setup();
-  h.event("session.execution.started");
-  h.event("session.execution.failed", { error: { message } });
-  expect(h.view.thread.status.state).toBe(state);
-});
+  ["You exceeded your current quota, please check your plan and billing details.", "usage_limit"],
+  ["Your credit balance is too low to access the Anthropic API.", "usage_limit"],
+  ["Connection reset by upstream", undefined],
+])(
+  "a turn the upstream ends with %j is a failed turn that holds nothing (code %s)",
+  (message, code) => {
+    const h = setup();
+    h.event("session.execution.started");
+    h.event("session.execution.failed", { error: { message } });
+    // OpenCode gives no usage-limit code, so the words name the failure but never limit it.
+    expect(h.view.thread.status.state).toBe("failed");
+    expect(Object.values(h.view.agents)[0]?.status).toMatchObject({
+      state: "failed",
+      error: code ? { code } : { message },
+    });
+  },
+);
