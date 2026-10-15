@@ -23,6 +23,17 @@ import type { DelegationService } from "./delegations.ts";
 
 export const remoteTerminal = (task: RemoteTask) =>
   ["completed", "failed", "cancelled"].includes(task.phase);
+const echoedTaskChars = 4096;
+/**
+ * A remote task as its agent reads it back. The task text can be as long as a message, so a long
+ * one comes back clipped: the agent wrote it, and the whole of it would crowd out the reply.
+ */
+function agentTaskView(task: RemoteTask): RemoteTask {
+  const text = task.request.task;
+  return text.length <= echoedTaskChars
+    ? task
+    : { ...task, request: { ...task.request, task: `${text.slice(0, echoedTaskChars)}…` } };
+}
 /** Volatile broker authority over a durable task ledger. No remote credentials enter the daemon. */
 export class RemoteDelegations {
   readonly journal: RemoteTaskJournal;
@@ -441,7 +452,7 @@ export class RemoteDelegations {
       if (receipt)
         return receipt.parentAgentId === caller.agentId &&
           JSON.stringify(receipt.request) === JSON.stringify(request)
-          ? { ok: true, data: receipt }
+          ? { ok: true, data: agentTaskView(receipt) }
           : { ok: false, code: "invalid" };
       const parent = this.store.getThread(caller.threadId);
       const broker = this.current();
@@ -508,7 +519,7 @@ export class RemoteDelegations {
       if (duplicate)
         return duplicate.parentAgentId === caller.agentId &&
           JSON.stringify(duplicate.request) === JSON.stringify(request)
-          ? { ok: true, data: duplicate }
+          ? { ok: true, data: agentTaskView(duplicate) }
           : { ok: false, code: "invalid" };
       if (!this.admission(parent.id)) return { ok: false, code: "limit" };
       this.store.atomic(() => {
@@ -516,7 +527,7 @@ export class RemoteDelegations {
         this.engine.remoteDelegation(task);
       });
       this.arm();
-      return { ok: true, data: task };
+      return { ok: true, data: agentTaskView(task) };
     }
     let task = this.journal.get(operation.taskId);
     if (!task) return { ok: false, code: "not_found" };
@@ -560,7 +571,7 @@ export class RemoteDelegations {
       return {
         ok: true,
         data: {
-          ...task,
+          ...agentTaskView(task),
           ...(returnedFiles ? { returnedFiles } : {}),
           ...(!remoteTerminal(task) &&
           !this.current()?.hosts.some((host) => host.hostId === targetHost)

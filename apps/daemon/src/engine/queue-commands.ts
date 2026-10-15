@@ -1,8 +1,7 @@
 import { hasNextTurnSelection } from "./input-delivery.ts";
-import { Command, type CommandResult, type ThreadId } from "@ace/protocol";
+import { Command, maxMessageBytes, type CommandResult, type ThreadId } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 import type { EngineClock } from "./actor.ts";
-import { maxMessageBytes } from "./queue-store.ts";
 interface Dependencies {
   repo: EngineRepository;
   clock: EngineClock;

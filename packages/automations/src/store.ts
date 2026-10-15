@@ -7,6 +7,7 @@ import {
   AutomationInbox,
   type AutomationEvent,
   AutomationPollError,
+  maxMessageBytes,
 } from "@ace/protocol";
 import { canAdmit } from "./decisions.ts";
 import type { ExecutionInput, ExecutionResult } from "./contracts.ts";
@@ -28,7 +29,7 @@ const Input = z.object({
   model: z.string().optional(),
   access: Automation.shape.access,
   workspace: z.string(),
-  prompt: z.string().max(65_536),
+  prompt: z.string().max(maxMessageBytes),
   worktree: z.boolean(),
 });
 export class AutomationStore {

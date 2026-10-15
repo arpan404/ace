@@ -8,6 +8,7 @@ import {
 } from "@ace/protocol";
 import { controlOutput } from "./control-outputs.ts";
 import { withControlHint } from "./control-hints.ts";
+import { maxBatchInputBytes, maxControlInputBytes } from "./result-budgets.ts";
 import type { Toolkit } from "./toolkits.ts";
 
 /** The longest bounded wait plus transport grace, still inside every provider's tool timeout. */
@@ -68,6 +69,7 @@ export const agentControlToolCatalog = AgentControlOperation.options.flatMap((sc
           ? z.strictObject({ ...shape, threadId: ThreadId.optional() })
           : z.strictObject(shape),
     output: controlOutput(op),
+    maxInputBytes: op === "delegate_task" ? maxBatchInputBytes : maxControlInputBytes,
     capability:
       controlActions[op].riskClass === "read-only"
         ? null

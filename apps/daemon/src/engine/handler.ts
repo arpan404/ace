@@ -6,7 +6,7 @@ import { ModelSelectionError, type EngineModels } from "./models.ts";
 import { providerCommandDisabled } from "@ace/core";
 import { provisionalTitle } from "./thread-title.ts";
 import { boundedJson } from "@ace/provider-kit/ipc";
-import { isSend, maxMessageBytes } from "./queue-store.ts";
+import { isSend } from "./queue-store.ts";
 import type { Recovery } from "./recovery.ts";
 import { validResolution } from "./resolution.ts";
 import { validateCreation } from "./creation-validation.ts";
@@ -14,7 +14,13 @@ import type { CreationAdmissions } from "./creation-admissions.ts";
 import { createEngineThread } from "./create-thread.ts";
 import { acceptTransition } from "./transition-handler.ts";
 import { baseBranchLabel, requestedBase, requestedBaseKey } from "../worktree-base.ts";
-import { ExecutionOptions, ThreadId, type Command, type CommandResult } from "@ace/protocol";
+import {
+  ExecutionOptions,
+  ThreadId,
+  maxMessageBytes,
+  type Command,
+  type CommandResult,
+} from "@ace/protocol";
 import type { CommandHandler } from "../commands.ts";
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";

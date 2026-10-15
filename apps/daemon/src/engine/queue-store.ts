@@ -25,7 +25,6 @@ export const RecoveryRecord = QueueState.extend({
 });
 export type RecoveryRecord = z.infer<typeof RecoveryRecord>;
 export const maxMessages = 256;
-export const maxMessageBytes = 256 * 1024;
 export function isSend(payload: CommandPayload): boolean {
   return payload.type === "thread.send" || payload.type === "thread.create";
 }

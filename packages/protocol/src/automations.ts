@@ -1,6 +1,7 @@
 import { AccessMode } from "./permissions.ts";
 import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
+import { MessageText } from "./message-limits.ts";
 
 const text = z.string().min(1).max(256);
 const instant = z.number().int().min(0).max(8_640_000_000_000_000);
@@ -41,7 +42,7 @@ export const Automation = z.object({
   provider: ProviderKind,
   access: AccessMode.optional(),
   model: text.optional(),
-  prompt: z.string().min(1).max(32_768),
+  prompt: MessageText,
   worktree: z.boolean(),
   trigger: AutomationTrigger,
   missedRun: z.enum(["skip", "run_once"]),

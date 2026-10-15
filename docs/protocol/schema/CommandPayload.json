@@ -368,9 +368,7 @@
           "$ref": "https://ace.local/protocol/v1/MessageContext.json"
         },
         "input": {
-          "maxLength": 16384,
-          "minLength": 1,
-          "type": "string"
+          "$ref": "https://ace.local/protocol/v1/MessageText.json"
         },
         "point": {
           "$ref": "https://ace.local/protocol/v1/ForkPoint.json"
@@ -415,9 +413,7 @@
           "x-ace-constraint": "Patch is at most 65536 encoded UTF-8 bytes."
         },
         "summary": {
-          "maxLength": 16384,
-          "minLength": 1,
-          "type": "string"
+          "$ref": "https://ace.local/protocol/v1/MessageText.json"
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"

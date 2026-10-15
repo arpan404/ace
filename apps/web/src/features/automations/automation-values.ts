@@ -1,4 +1,10 @@
-import { AccessMode, ProviderKind, type Automation, type AutomationSchedule } from "@ace/protocol";
+import {
+  AccessMode,
+  ProviderKind,
+  maxMessageBytes,
+  type Automation,
+  type AutomationSchedule,
+} from "@ace/protocol";
 import { z } from "zod";
 import { presetToSchedule, scheduleToPreset, weekdays, type SchedulePreset } from "./schedule.ts";
 
@@ -16,7 +22,7 @@ function isTimeZone(zone: string): boolean {
 export const AutomationForm = z
   .object({
     title: z.string().trim().min(1, "Give the automation a name.").max(256),
-    prompt: z.string().trim().min(1, "Say what the agent should do.").max(32_768),
+    prompt: z.string().trim().min(1, "Say what the agent should do.").max(maxMessageBytes),
     workspace: z.string().min(1, "Choose a project."),
     provider: ProviderKind,
     access: AccessMode.optional(),

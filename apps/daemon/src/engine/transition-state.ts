@@ -3,7 +3,13 @@ import { NativeSessionId } from "@ace/protocol";
 import { z } from "zod";
 import { HandoffAccess } from "../handoff-access.ts";
 import type { Store } from "../store.ts";
-import { ExecutionSelection, ExecutionOptions, PortableHandoff, ThreadId } from "@ace/protocol";
+import {
+  ExecutionSelection,
+  ExecutionOptions,
+  PortableHandoff,
+  ThreadId,
+  maxMessageBytes,
+} from "@ace/protocol";
 
 export const NativeFork = z.object({
   nativeSessionId: NativeSessionId,
@@ -13,12 +19,17 @@ const Metadata = z.object({
   selection: ExecutionSelection.optional(),
   fork: NativeFork.optional(),
   handoff: PortableHandoff.optional(),
-  context: z.array(z.string().max(65536)).max(8).default([]),
+  /** Merge summaries are message-sized; an entry also carries their citations and escaping. */
+  context: z
+    .array(z.string().max(2 * maxMessageBytes))
+    .max(8)
+    .default([]),
 });
+const maxMetadataBytes = 4 * maxMessageBytes;
 export type TransitionMetadata = z.infer<typeof Metadata>;
 export function admitTransitionMetadata(input: unknown): TransitionMetadata {
   const metadata = Metadata.parse(input);
-  if (Buffer.byteLength(JSON.stringify(metadata)) > 131072)
+  if (Buffer.byteLength(JSON.stringify(metadata)) > maxMetadataBytes)
     throw new Error("Transition context capacity exceeded");
   return metadata;
 }

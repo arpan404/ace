@@ -1,4 +1,4 @@
-import { TriggerVariables, type Automation } from "@ace/protocol";
+import { TriggerVariables, maxMessageBytes, type Automation } from "@ace/protocol";
 import type { Recurrence, Occurrence } from "./recurrence.ts";
 
 export function renderPrompt(template: string, input: unknown): string {
@@ -10,7 +10,7 @@ export function renderPrompt(template: string, input: unknown): string {
       return variables[key] ?? "";
     },
   );
-  if (rendered.length > 65_536) throw new Error("Rendered prompt exceeds limit");
+  if (rendered.length > maxMessageBytes) throw new Error("Rendered prompt exceeds limit");
   return rendered;
 }
 export function jitterDeadline(
