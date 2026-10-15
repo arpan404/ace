@@ -685,7 +685,6 @@ export function buildBlocks(source: BlockSource): Block[] {
         first.itemIds = turn.work.flatMap((block) => block.itemIds);
         for (const block of turn.work.slice(1)) absorbed.add(workAt.get(block) ?? -1);
       } else {
-        const at = turn.lastMessage >= 0 ? turn.lastMessage : turn.lastBlock + 1;
         const summary: WorkBlock = {
           kind: "work",
           key: `work:turn:${turn.id}`,
@@ -695,7 +694,10 @@ export function buildBlocks(source: BlockSource): Block[] {
           until,
           outcome,
         };
-        if (at < blocks.length) before.set(at, [...(before.get(at) ?? []), summary]);
+        // Above its answer; with none, after its last block, ahead of how it ended, which is
+        // placed there below. Never before the next turn's ask, under this turn's ending.
+        const at = turn.lastMessage;
+        if (at >= 0) before.set(at, [...(before.get(at) ?? []), summary]);
         else place(turn.lastBlock, summary);
         head = summary;
       }

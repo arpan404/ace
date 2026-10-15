@@ -304,6 +304,27 @@ test("an error the agent answered after stays its own row; the ending says the t
   expect(blocks.at(-1)).not.toHaveProperty("errorId");
 });
 
+const failed = (startedAt: number): RunFacts => ({ ...ended("failed"), startedAt });
+
+test("every failed turn reads its 'Failed after' head first, then the failure, old or newest", () => {
+  const blocks = buildBlocks(
+    source(
+      [
+        { id: "first", role: "user", run: "A" },
+        { id: "first-error", run: "A", text: "Invalid parameters for registry model" },
+        { id: "second", role: "user", run: "B" },
+        { id: "second-error", run: "B", text: "Invalid parameters for registry model" },
+      ],
+      { A: failed(4), B: failed(8) },
+    ),
+  );
+  expect(blocks.map((block) => block.kind)).toEqual(["user", "work", "end", "user", "work", "end"]);
+  expect(blocks.filter((block) => block.kind === "work")).toMatchObject([
+    { outcome: "failed" },
+    { outcome: "failed" },
+  ]);
+});
+
 test("an ending tied to a message still in the queue goes with it; the turn before is the newest again", () => {
   // The agent failed with a queued message last in line: the transcript ends on that hidden ask.
   const blocks = buildBlocks({
