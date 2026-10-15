@@ -13,6 +13,7 @@ import {
   type SubscriptionScope,
 } from "@ace/protocol";
 import type { FakeWireSession } from "./services-wire.ts";
+import { CommandFlights } from "./command-status.ts";
 
 /** What a connection needs from the host. FakeDaemon implements it. */
 export interface Host {
@@ -44,6 +45,11 @@ export interface Host {
   /** This socket's stateful services (context, terminals, browser, plugins, planning). */
   session(send: (message: ServerMessage) => void): FakeWireSession;
   release(connection: Connection): void;
+  /**
+   * Commands run across this host's sockets, for `command.status`. A host without it answers
+   * from this socket's own commands only.
+   */
+  readonly commandFlights?: CommandFlights;
 }
 /** The socket half the connection writes to. Delivery is asynchronous, like a real socket. */
 export interface Wire {
@@ -75,12 +81,14 @@ export class Connection {
   }
   private closed = false;
   private subscriptions = new Map<string, Subscription>();
+  private flights: CommandFlights;
   /** Service replies and pushes for this socket; stable, so a service can forget it on close. */
   readonly push = (message: ServerMessage): void => this.send(message);
   constructor(host: Host, wire: Wire) {
     this.host = host;
     this.wire = wire;
     this.session = host.session(this.push);
+    this.flights = host.commandFlights ?? new CommandFlights();
   }
   receive(text: string): void {
     if (this.closed) return;
@@ -221,13 +229,26 @@ export class Connection {
               message.command.payload.mode === "worktree")) &&
           this.host.commandAsync
         ) {
-          void this.host
-            .commandAsync(message.command, this.push)
+          const commandAsync = this.host.commandAsync.bind(this.host);
+          const command = message.command;
+          void this.flights
+            .run(this.device, command.id, () => commandAsync(command, this.push))
             .then((result) => this.send({ type: "commandResult", ...result }));
         } else {
           const result = this.host.command(message.command);
+          this.flights.record(this.device, result);
           this.send({ type: "commandResult", ...result });
         }
+        return;
+      }
+      case "command.status": {
+        // As the daemon does: a settled command's result goes out again before the answer.
+        const commands = message.commandIds.map((commandId) => {
+          const known = this.flights.status(this.device, commandId);
+          if (known.result) this.send({ type: "commandResult", ...known.result });
+          return { commandId, state: known.state };
+        });
+        this.send({ type: "command.status", requestId: message.requestId, commands });
         return;
       }
       case "output.read": {

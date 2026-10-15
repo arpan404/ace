@@ -41,7 +41,7 @@ export function createHandlers(options: {
   authorizeDaemon(url: string): void;
   quit(): void;
   updateKeymap?(bindings: Record<string, string>): void;
-  /** Opens the daemon's logs in the file manager; false when there is nothing to show. */
+  /** Opens the daemon's and the app's log folders; false when there is nothing to show. */
   showLogs(): Promise<boolean>;
   /** Problems the app found itself (the `ace` command), listed after the doctor's checks. */
   desktopChecks(): DoctorReport["checks"];

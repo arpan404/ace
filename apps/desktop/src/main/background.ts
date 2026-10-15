@@ -133,6 +133,8 @@ export class Background {
           : null;
       },
       onAlert: (alert) => void this.alert(alert),
+      onClose: (code, reason) =>
+        this.options.log(`Daemon link closed: ${code}${reason ? ` ${reason}` : ""}`),
       onSummary: (summary) => {
         this.attention.update(summary);
         this.tray.update({ summary });

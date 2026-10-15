@@ -1,7 +1,9 @@
 import { parseCredential } from "./credentials.ts";
 import { retryDelay, disconnectDecision, networkDecision } from "./lifecycle.ts";
 import { fitsUtf8 } from "./bounds.ts";
-import { FragmentPolicy } from "./fragment-policy.ts";
+import { FragmentAssembly, matchesFragments, type FragmentPart } from "./fragment-assembly.ts";
+import { Heartbeat } from "./heartbeat.ts";
+import { HeldFrames, type Frame } from "./held-frames.ts";
 import type { ClientMessage, ServerMessage as Message } from "@ace/protocol";
 import type { WireCodec } from "./wire-codec.ts";
 import {
@@ -23,25 +25,6 @@ export function sameConnectionInfo(a: ConnectionInfo, b: ConnectionInfo): boolea
     a.since === b.since &&
     a.lastReadyAt === b.lastReadyAt &&
     a.lastClose === b.lastClose
-  );
-}
-
-/** Whether reassembled fragments are the message their parts announced. */
-function matchesFragments(
-  part: Extract<Message, { type: "snapshot.part" | "entities.page.part" }>,
-  complete: Message,
-): boolean {
-  if (part.type === "snapshot.part")
-    return (
-      complete.type === "snapshot" &&
-      complete.subscriptionId === part.subscriptionId &&
-      complete.seq === part.seq
-    );
-  return (
-    complete.type === "entities.page" &&
-    complete.requestId === part.requestId &&
-    complete.page.threadId === part.threadId &&
-    complete.page.seq === part.seq
   );
 }
 
@@ -68,16 +51,12 @@ export class Connection {
   #since: number | undefined;
   #lastReadyAt: number | undefined;
   #lastClose: ConnectionClose | undefined;
-  #heartbeat: (() => void) | undefined;
+  #heartbeat: Heartbeat;
   #healthy: (() => void) | undefined;
-  #awaitingPong = false;
   #codec: WireCodec;
   #binary: ((bytes: Uint8Array) => void) | undefined;
-  /** Frames waiting, in order, for the service schemas a frame among them needs. */
-  #held: (string | Uint8Array)[] | undefined;
-  #heldBytes = 0;
-  #fragments: FragmentPolicy;
-  #fragmentTimers = new Map<string, () => void>();
+  #held: HeldFrames;
+  #fragments: FragmentAssembly;
   constructor(
     options: ClientOptions,
     codec: WireCodec,
@@ -94,7 +73,13 @@ export class Connection {
     this.#received = received;
     this.#changed = changed;
     this.#disconnected = disconnected;
-    this.#fragments = new FragmentPolicy(limits.fragmentBytes);
+    this.#heartbeat = new Heartbeat(options.scheduler, limits.heartbeatMs);
+    this.#held = new HeldFrames(limits.frameBytes * 4);
+    this.#fragments = new FragmentAssembly(
+      limits.fragmentBytes,
+      options.scheduler,
+      limits.fragmentMs,
+    );
   }
   get supportsBinary(): boolean {
     return this.#transport?.supportsBinary === true;
@@ -146,16 +131,12 @@ export class Connection {
   }
   #cleanup(): void {
     this.#epoch++;
-    this.#held = undefined;
-    this.#heldBytes = 0;
+    this.#held.clear();
     this.#fragments.clear();
-    for (const cancel of this.#fragmentTimers.values()) cancel();
-    this.#fragmentTimers.clear();
     this.#cancel?.();
     this.#cancel = undefined;
     this.#retry = undefined;
-    this.#heartbeat?.();
-    this.#heartbeat = undefined;
+    this.#heartbeat.stop();
     this.#healthy?.();
     this.#healthy = undefined;
     const transport = this.#transport;
@@ -265,17 +246,14 @@ export class Connection {
   #broken(reason: string, error = new ClientError("protocol", reason)): void {
     this.#lost(1002, reason, error);
   }
-  #receiveFrame(frame: string | Uint8Array, epoch: number): void {
+  #receiveFrame(frame: Frame, epoch: number): void {
     if (epoch !== this.#epoch) return;
     if (frame instanceof Uint8Array && (frame.length <= 16 || frame.length > 65536 + 16)) {
       this.#broken("Binary frame out of bounds");
       return;
     }
-    if (this.#held) {
-      this.#heldBytes += typeof frame === "string" ? frame.length * 2 : frame.byteLength;
-      if (this.#heldBytes > this.#limits.frameBytes * 4)
-        this.#lost(4009, "Held frames over budget");
-      else this.#held.push(frame);
+    if (this.#held.holding) {
+      if (!this.#held.push(frame)) this.#lost(4009, "Held frames over budget");
       return;
     }
     if (typeof frame === "string") this.#receive(frame, epoch);
@@ -300,18 +278,10 @@ export class Connection {
   }
   /** Hold `text` and every frame after it until the service schemas load, then go on in order. */
   #hold(text: string, epoch: number): void {
-    const held: (string | Uint8Array)[] = [text];
-    this.#held = held;
-    this.#heldBytes = text.length * 2;
-    this.#codec.load().then(
-      () => {
-        if (epoch !== this.#epoch || this.#held !== held) return;
-        this.#held = undefined;
-        for (const next of held) {
-          if (epoch !== this.#epoch) return;
-          this.#receiveFrame(next, epoch);
-        }
-      },
+    this.#held.hold(
+      text,
+      this.#codec.load(),
+      (next) => this.#receiveFrame(next, epoch),
       () => {
         if (epoch === this.#epoch) this.fail(new ClientError("protocol"));
       },
@@ -356,11 +326,13 @@ export class Connection {
           this.#healthy = undefined;
           this.#changed();
         });
-        this.#awaitingPong = false;
         this.error = undefined;
         this.#since = this.#lastReadyAt = this.#options.now?.();
         this.state = "ready";
-        this.#tick();
+        this.#heartbeat.start({
+          ping: () => this.send({ type: "ping" }) && this.state === "ready",
+          missed: () => this.#lost(1006, "Heartbeat missed"),
+        });
         this.#received(message);
         this.#changed();
         return;
@@ -372,55 +344,29 @@ export class Connection {
         this.#receiveFragment(message, epoch);
         return;
       }
-      if (message.type === "pong") this.#awaitingPong = false;
+      if (message.type === "pong") this.#heartbeat.pong();
       this.#received(message);
     } catch (error) {
       this.fail(error instanceof ClientError ? error : new ClientError("protocol"));
     }
   }
-  #receiveFragment(
-    message: Extract<Message, { type: "snapshot.part" | "entities.page.part" }>,
-    epoch: number,
-  ): void {
-    const key =
-      message.type === "snapshot.part"
-        ? `snapshot:${message.subscriptionId}`
-        : `page:${message.requestId}`;
+  #receiveFragment(part: FragmentPart, epoch: number): void {
     let data: string | undefined;
     try {
-      data = this.#fragments.add(key, message.seq, message.index, message.data, message.done);
+      data = this.#fragments.add(part, () => {
+        if (epoch === this.#epoch) this.#lost(4009, "Fragments timed out");
+      });
     } catch (error) {
       if (error instanceof ClientError && error.code === "limit")
         this.#lost(4009, "Fragments over budget");
       else this.#broken("Fragment out of sequence");
       return;
     }
-    if (message.index === 0)
-      this.#fragmentTimers.set(
-        key,
-        this.#options.scheduler.set(this.#limits.fragmentMs, () => {
-          if (epoch === this.#epoch) this.#lost(4009, "Fragments timed out");
-        }),
-      );
     if (data === undefined) return;
-    this.#fragmentTimers.get(key)?.();
-    this.#fragmentTimers.delete(key);
     const complete = this.#decode(data);
     if (complete === null) return;
-    if (complete && matchesFragments(message, complete)) this.#received(complete);
+    if (complete && matchesFragments(part, complete)) this.#received(complete);
     else this.#broken("Fragments don't match their message");
-  }
-  #tick(): void {
-    if (this.state !== "ready") return;
-    this.#heartbeat = this.#options.scheduler.set(this.#limits.heartbeatMs, () => {
-      if (this.#awaitingPong) {
-        this.#lost(1006, "Heartbeat missed");
-        return;
-      }
-      this.#awaitingPong = true;
-      this.send({ type: "ping" });
-      if (this.state === "ready") this.#tick();
-    });
   }
   send(message: ClientMessage): boolean {
     if (!this.#transport) return false;
