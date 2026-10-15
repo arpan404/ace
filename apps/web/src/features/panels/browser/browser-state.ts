@@ -4,8 +4,8 @@ import type { WorkspaceTab } from "@/lib/workspace/index.ts";
 import { useScopedRecent, useScopedRecentStore, type ScopedRecent } from "../recent-store.ts";
 
 /*
- * The Browser tool's local state. A thread has one browser session on the daemon with up to
- * eight pages; each browser tab shows one of them (`page-tabs.ts`) and remembers its own
+ * The Browser tool's local state. A thread has one browser session on the daemon with any
+ * number of pages; each browser tab shows one of them (`page-tabs.ts`) and remembers its own
  * address and history, so a tab whose page closed can open it again.
  */
 

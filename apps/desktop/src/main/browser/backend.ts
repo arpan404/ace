@@ -8,6 +8,7 @@ import {
   type BrowserBackendRequest,
   type BrowserBackendServerMessage,
   type BrowserControllerLease,
+  browserSessionLimit,
 } from "@ace/protocol";
 import { claimAfterLease, claimHolds, type RendererClaim } from "./input-grant.ts";
 
@@ -17,7 +18,7 @@ const relayLimits = {
   messageBytes: 1024 * 1024,
   /** One encoded screencast frame. */
   frameBytes: 768 * 1024,
-  sessions: 8,
+  sessions: browserSessionLimit,
 } as const;
 
 /** One embedded browser view, as the backend sees it (a WebContentsView in the app). */

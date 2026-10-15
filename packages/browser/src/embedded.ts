@@ -1,12 +1,15 @@
 import { pageStatus } from "./page-status.ts";
 import { mkdir } from "node:fs/promises";
-import { EmbeddedTabs, NativeTabs } from "./embedded-tabs.ts";
+import { EmbeddedTabs } from "./embedded-tabs.ts";
+import { decodeNativeTabs } from "./native-tabs.ts";
 import { modelScreenshot } from "./model-screenshot.ts";
 import { EventEmitter } from "node:events";
 import { z } from "zod";
 import {
   BrowserBackendOperation,
   BrowserBackendClientMessage,
+  browserSessionLimit,
+  browserWaitLimitMs,
   type BrowserBackendServerMessage,
   type BrowserBackendRequest,
 } from "@ace/protocol";
@@ -15,6 +18,20 @@ import { installOriginGuard } from "./origin-guard.ts";
 import { Screencast } from "./cdp.ts";
 import { navigateCdp } from "./cdp-navigation.ts";
 import type { NavigationClock } from "./navigation.ts";
+
+/** Navigations keep the full wait budget plus the policy approval reserve (65 s). */
+const navigationDeadlineMs = browserWaitLimitMs + 65_000;
+function relayDeadline(operation: BrowserBackendOperation): number {
+  if (operation.kind === "open") return 60_000;
+  if (operation.kind === "navigate") return Math.max(30_000, operation.timeout + 5_000);
+  if (
+    operation.kind === "cdp" &&
+    (operation.method === "Page.navigate" ||
+      (operation.method === "ace.tabs.cdp" && operation.params?.method === "Page.navigate"))
+  )
+    return navigationDeadlineMs;
+  return 30_000;
+}
 
 const Navigation = z.object({
   frame: z.object({
@@ -114,36 +131,26 @@ export class EmbeddedBackend implements BrowserBackend {
     return new Promise((resolve, reject) => {
       let cancelTimer = noop;
       const armTimer = () => {
-        cancelTimer = this.clock.set(
-          operation.kind === "open"
-            ? 60_000
-            : operation.kind === "cdp" &&
-                (operation.method === "Page.navigate" ||
-                  (operation.method === "ace.tabs.cdp" &&
-                    operation.params?.method === "Page.navigate"))
-              ? 95_000
-              : 30_000,
-          () => {
-            signal?.removeEventListener("abort", abort);
-            this.pending.delete(id);
-            session?.pending.delete(id);
-            reject(new Error("Desktop browser command timed out"));
-            if (!session) return;
-            // Uncertain work belongs to this session, never to its siblings.
-            this.loseSession(sessionId, "Desktop browser command timed out");
-            try {
-              this.send({
-                type: "browser.backend.request",
-                backendId: this.id,
-                sessionId,
-                id: String(++this.sequence),
-                operation: { kind: "close" },
-              });
-            } catch {
-              /* Transport loss already closes sessions. */
-            }
-          },
-        );
+        cancelTimer = this.clock.set(relayDeadline(operation), () => {
+          signal?.removeEventListener("abort", abort);
+          this.pending.delete(id);
+          session?.pending.delete(id);
+          reject(new Error("Desktop browser command timed out"));
+          if (!session) return;
+          // Uncertain work belongs to this session, never to its siblings.
+          this.loseSession(sessionId, "Desktop browser command timed out");
+          try {
+            this.send({
+              type: "browser.backend.request",
+              backendId: this.id,
+              sessionId,
+              id: String(++this.sequence),
+              operation: { kind: "close" },
+            });
+          } catch {
+            /* Transport loss already closes sessions. */
+          }
+        });
       };
       armTimer();
       const cancel = () => {
@@ -278,10 +285,8 @@ export class EmbeddedBackend implements BrowserBackend {
       return;
     }
     if (message.method === "ace.tabs.changed") {
-      const tabs = NativeTabs.safeParse(message.params);
-      const active = tabs.success
-        ? tabs.data.tabs.find((tab) => tab.tabId === tabs.data.activeTabId)
-        : undefined;
+      const tabs = decodeNativeTabs(message.params)?.state;
+      const active = tabs?.tabs.find((tab) => tab.tabId === tabs.activeTabId);
       if (active) session.url = active.url;
     }
     if (message.method === "Page.frameNavigated") {
@@ -391,7 +396,7 @@ export class EmbeddedBackend implements BrowserBackend {
     this.transport.close(reason);
   }
   async open(request: BackendOpen): Promise<BrowserBackendSession> {
-    if (this.closed || this.sessions.size >= 8)
+    if (this.closed || this.sessions.size >= browserSessionLimit)
       throw new Error("Embedded browser unavailable or session limit");
     request.signal.throwIfAborted();
     const sessionId = `${this.id}-${++this.sequence}`;
@@ -456,7 +461,8 @@ export class EmbeddedBackend implements BrowserBackend {
         .object({
           url: z.string().max(8192),
           activeTabId: z.string().optional(),
-          tabs: NativeTabs.shape.tabs.optional(),
+          // Decoded leniently by EmbeddedTabs: one odd tab must not fail the whole open.
+          tabs: z.array(z.unknown()).optional(),
         })
         .parse(
           await call({

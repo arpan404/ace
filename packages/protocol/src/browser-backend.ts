@@ -1,7 +1,9 @@
 import { z } from "zod";
-import { BrowserOpen } from "./browser.ts";
+import { BrowserOpen, browserWaitLimitMs } from "./browser.ts";
 import { ThreadId, WorkspaceId } from "./ids.ts";
 const id = z.string().min(1).max(256);
+/** Browser pages one desktop backend hosts at once; the daemon's own page limit matches it. */
+export const browserSessionLimit = 32;
 export const BrowserBackendKind = z.enum(["embedded", "headless"]);
 export const BrowserBackendPreference = z.enum(["auto", "embedded", "headless"]);
 export const BrowserBackendLossPolicy = z.enum(["pause", "headless"]);
@@ -41,7 +43,7 @@ export const BrowserBackendOperation = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("navigate"),
     url: z.string().max(8192),
-    timeout: z.number().int().min(1).max(30_000),
+    timeout: z.number().int().min(1).max(browserWaitLimitMs),
   }),
   z.object({ kind: z.literal("press"), key: id }),
   z.object({
