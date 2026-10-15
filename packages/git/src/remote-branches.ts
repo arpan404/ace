@@ -102,9 +102,15 @@ async function assertRemote(repository: Repository, root: string, remote: string
  */
 export async function branchHead(
   repository: Repository,
-  options: { repo: string; branch: string; remote?: string | undefined },
+  options: {
+    repo: string;
+    branch: string;
+    remote?: string | undefined;
+    signal?: AbortSignal | undefined;
+  },
 ): Promise<string | undefined> {
-  const root = await repository.root(options.repo);
+  const { signal } = options;
+  const root = await repository.root(options.repo, signal);
   await assertBranchName(repository, root, options.branch);
   if (options.remote !== undefined) await assertRemote(repository, root, options.remote);
   const ref =
@@ -114,7 +120,7 @@ export async function branchHead(
   const result = await repository.cli.call(
     root,
     ["rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`],
-    { allowFailure: true },
+    { allowFailure: true, ...(signal ? { signal } : {}) },
   );
   return result.exitCode === 0 ? hash(textOutput(result)) : undefined;
 }
