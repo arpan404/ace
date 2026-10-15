@@ -26,6 +26,7 @@ import { applicationMenu } from "./menu.ts";
 import { cliShimCheck, cliShimLog, type CliShimResult } from "./os/cli-shim.ts";
 import { installCliShim } from "./os/cli-shim-install.ts";
 import { backgroundArgument, startHidden } from "./os/login.ts";
+import { settingsEffects } from "./os/settings-effects.ts";
 import { checkWithFeedback } from "./os/update-feedback.ts";
 import { appPaths } from "./paths.ts";
 import { applyDevCsp, installDaemonNetwork, registerAppScheme, serveRenderer } from "./renderer.ts";
@@ -210,22 +211,27 @@ function main(target: DaemonTarget): void {
     background.windowChanged();
   }
 
+  const applyToOs = settingsEffects({
+    // Login items belong to the installed app; development builds never register one.
+    ...(app.isPackaged && process.platform !== "linux"
+      ? {
+          loginItem: {
+            enabled: () => app.getLoginItemSettings().openAtLogin,
+            setEnabled: (openAtLogin: boolean) =>
+              app.setLoginItemSettings({ openAtLogin, args: [backgroundArgument] }),
+          },
+        }
+      : {}),
+    shortcuts: {
+      register: (accelerator) =>
+        globalShortcut.register(accelerator, () => open({ kind: "new-thread" })),
+      unregister: (accelerator) => globalShortcut.unregister(accelerator),
+    },
+    warn: (message) => log("warn", message),
+  });
   function applySettings(next: DesktopSettings): void {
     background.settingsChanged(next);
-    // Login items belong to the installed app; development builds never register one.
-    if (
-      app.isPackaged &&
-      process.platform !== "linux" &&
-      app.getLoginItemSettings().openAtLogin !== next.openAtLogin
-    )
-      app.setLoginItemSettings({ openAtLogin: next.openAtLogin, args: [backgroundArgument] });
-    globalShortcut.unregisterAll();
-    if (next.globalShortcut)
-      try {
-        globalShortcut.register(next.globalShortcut, () => open({ kind: "new-thread" }));
-      } catch (error) {
-        log("warn", `Global shortcut ${next.globalShortcut} is not available: ${String(error)}`);
-      }
+    applyToOs(next);
     emit(contents(), "settings.changed", next);
   }
 
