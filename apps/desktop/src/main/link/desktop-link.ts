@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Client, webSocketTransport, type Transport } from "@ace/client";
 import {
   DeviceId,
+  HostId,
   NotificationMessage,
   type CommandPayload,
   type ThreadListEntry,
@@ -16,6 +17,11 @@ export interface LinkOptions {
   token: string;
   deviceId: string;
   pairedDeviceId?: string;
+  /**
+   * This computer's daemon: the identity its current home names. The link expects exactly it,
+   * so a fresh start's new daemon is accepted and anything else on that port is refused.
+   */
+  localHostId?: string;
   /** Durable outbox for notification actions, so an Approve survives a reconnect. */
   storage: import("@ace/client").Storage;
   quietHours(): { timeZone: string; startMinute: number; endMinute: number } | null;
@@ -53,6 +59,7 @@ export class DesktopLink {
     this.options = options;
     this.client = new Client({
       deviceId: DeviceId.parse(options.pairedDeviceId ?? options.deviceId),
+      ...(options.localHostId ? { expectedHostId: HostId.parse(options.localHostId) } : {}),
       transport: () => this.transport(),
       credential: options.pairedDeviceId
         ? pairedSocketCredential({

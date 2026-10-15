@@ -2,6 +2,43 @@ import type { Storage } from "@ace/client";
 import { Command } from "@ace/protocol";
 import { z } from "zod";
 
+function openIntents(factory: IDBFactory): Promise<IDBDatabase> {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    // Old tabs can keep their version-1 database open while the new adapter migrates it.
+    const request = factory.open("ace-intents", 1);
+    request.addEventListener("upgradeneeded", () => {
+      request.result.createObjectStore("intents");
+      request.result.createObjectStore("migrated");
+    });
+    request.addEventListener("success", () => resolve(request.result));
+    request.addEventListener("error", () => reject(request.error));
+  });
+}
+
+/**
+ * Forget the daemon an outbox under `key` was bound to, with every intent saved for it: the
+ * person chose to trust the daemon now at that address instead. Intents saved for the old one
+ * can never reach it, so they go too. The carried-over marker stays, so a copy an older build
+ * kept is not brought back.
+ */
+export async function forgetIdbOutbox(key: string, factory: IDBFactory = indexedDB): Promise<void> {
+  const db = await openIntents(factory);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(["intents", "migrated"], "readwrite");
+      tx.objectStore("migrated").delete(["host", key]);
+      tx.objectStore("intents").delete(IDBKeyRange.bound([key], [key, []], false, true));
+      tx.addEventListener("complete", () => resolve());
+      tx.addEventListener("error", () => reject(tx.error));
+      tx.addEventListener("abort", () =>
+        reject(tx.error ?? new Error("Outbox transaction aborted")),
+      );
+    });
+  } finally {
+    db.close();
+  }
+}
+
 /** One record per intent, scoped by daemon and device. Inject the browser factory for tests. */
 export function idbOutbox(
   key: string,
@@ -9,17 +46,7 @@ export function idbOutbox(
   factory: IDBFactory = indexedDB,
 ): Storage {
   let opening: Promise<IDBDatabase> | undefined;
-  const open = () =>
-    (opening ??= new Promise<IDBDatabase>((resolve, reject) => {
-      // Old tabs can keep their version-1 database open while the new adapter migrates it.
-      const request = factory.open("ace-intents", 1);
-      request.addEventListener("upgradeneeded", () => {
-        request.result.createObjectStore("intents");
-        request.result.createObjectStore("migrated");
-      });
-      request.addEventListener("success", () => resolve(request.result));
-      request.addEventListener("error", () => reject(request.error));
-    }));
+  const open = () => (opening ??= openIntents(factory));
   const transact = async <T>(
     mode: IDBTransactionMode,
     act: (tx: IDBTransaction, done: (value: T) => void) => void,

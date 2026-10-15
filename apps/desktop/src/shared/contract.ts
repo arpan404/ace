@@ -22,6 +22,13 @@ export const DaemonConnection = z.discriminatedUnion("mode", [
     url: SocketUrl,
     token: Hex64,
     pairedDeviceId: z.string().min(1).max(256).optional(),
+    /**
+     * Only for the daemon this app runs on this computer: the identity its current home names
+     * (`<home>/host-id`), read with the token. The renderer trusts it over any identity it
+     * remembered, so a fresh start's new daemon is this window's daemon. Never set for a
+     * remote daemon, whose remembered identity stays the check.
+     */
+    localHostId: z.string().min(1).max(256).optional(),
   }),
   /** `dev:desktop:fake`: the renderer runs the in-page fake daemon. */
   z.object({ mode: z.literal("fake") }),

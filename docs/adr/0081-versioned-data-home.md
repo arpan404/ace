@@ -82,3 +82,22 @@ start of an updated app is a fresh start. Nothing is migrated.
 - The selection lock, `legacy-home.json`, `home-policy.ts` and the data-generation file are gone.
 - The accounts registry's repair of older instance-home layouts (ADR 0041's amendment) is
   removed. A managed account under another data root is still refused, as `foreign_home`.
+
+## Amendment: the desktop's own state after a fresh start
+
+A fresh start gives the local daemon a new `host-id` and `daemon-token`, but the desktop app's
+data folder (`<appData>/ace-next`: web storage, IndexedDB, `notification-outboxes`) is not
+part of the home and is not renamed. Clients pin each outbox to the daemon identity they first
+met (ADR 0030, ADR 0066), so the window refused its own new daemon as "another daemon".
+
+- For the daemon it runs on this computer, the desktop reads `host-id` with the token from the
+  current home and hands it to the page and to its own link as `localHostId`. Both expect
+  exactly that identity, and key that daemon's outbox by it instead of by address. A fresh
+  start (or a different `ACE_HOME`) therefore starts an empty outbox with no manual step; work
+  saved for the old daemon stays under the old identity and is never sent to the new one.
+- A daemon reached by address (a remote one, or one entered by hand) keeps the strict check: a
+  different identity at a known address is refused as `identity`, not as a rejected token. The
+  connection screen says it is a different ace and offers "Forget the old ace", which drops the
+  old binding and the work saved for it, then connects.
+- The data folder keeps its name. `<appData>/ace` belongs to the 0.x app (see `user-data.ts`),
+  and keying local state to the home's identity makes a versioned folder unnecessary.

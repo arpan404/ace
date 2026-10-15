@@ -27,7 +27,7 @@ interface Delivery {
   delay: number;
 }
 const keyOf = (end: TerminalEnd) => `${end.threadId}\u0000${end.terminalId}`;
-const unrecoverable = new Set<ClientError["code"]>(["protocol", "auth", "storage"]);
+const unrecoverable = new Set<ClientError["code"]>(["protocol", "auth", "identity", "storage"]);
 
 /** Close delivery is scoped to authenticated host identity, never to an App or a lazy chunk. */
 export function createTerminalEndDelivery(schedule: Schedule, journal: TerminalEndJournal) {

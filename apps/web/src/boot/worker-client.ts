@@ -12,7 +12,7 @@ import { outboxKey, type WorkerTarget } from "./worker-target.ts";
 export function createWorkerClient(target: DaemonTarget, deviceId: string): ClientApi | undefined {
   const worker = workerPort();
   if (!worker) return undefined;
-  const key = outboxKey({ url: target.url, deviceId });
+  const key = outboxKey({ ...target, deviceId });
   const config: WorkerTarget = { ...target, deviceId, seed: readLegacy(key) };
   const liveness = tabLiveness();
   return new RemoteClient(worker.port, config, {

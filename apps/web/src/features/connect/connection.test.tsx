@@ -6,6 +6,9 @@ import { expect, test } from "vitest";
 import { App, AppFrame } from "@/app.tsx";
 import { ConnectionGate } from "@/app/connection-gate.tsx";
 import { fakeClient, memoryKeyValue } from "@/test/harness.tsx";
+import { forgetLocalOutbox, localOutbox } from "@/boot/client.ts";
+import type { DaemonTarget } from "@/boot/connection-settings.ts";
+import { outboxKey } from "@/boot/worker-target.ts";
 
 const token = "ab".repeat(32);
 const url = "ws://127.0.0.1:4242/";
@@ -17,6 +20,9 @@ function boot(
     onDemand?: boolean;
     rememberedToken?: string;
     outbox?: Parameters<typeof fakeClient>[2];
+    /** The window's saved work, as `createDaemonClient` keys it; replaces `outbox`. */
+    store?: ReturnType<typeof memoryKeyValue>;
+    handed?: DaemonTarget;
   } = {},
 ) {
   const daemon = new FakeDaemon({ clock: () => 1, token });
@@ -33,12 +39,19 @@ function boot(
       <ConnectionGate
         stores={{ local, session }}
         defaultUrl={url}
-        createClient={(target) =>
+        createClient={(target) => {
+          const outbox = options.store
+            ? localOutbox(outboxKey({ ...target, deviceId: "test-device" }), options.store)
+            : options.outbox;
+          const make = () => fakeClient(daemon, target.token, outbox, target.localHostId);
           // The in-page fallback client arrives later, after its chunk loads.
-          options.onDemand
-            ? Promise.resolve().then(() => fakeClient(daemon, target.token, options.outbox))
-            : fakeClient(daemon, target.token, options.outbox)
-        }
+          return options.onDemand ? Promise.resolve().then(make) : make();
+        }}
+        forgetIdentity={async (target) => {
+          if (options.store)
+            forgetLocalOutbox(outboxKey({ ...target, deviceId: "test-device" }), options.store);
+        }}
+        {...(options.handed ? { handed: options.handed, desktop: true } : {})}
         {...(options.fragment ? { fragment: options.fragment } : {})}
       >
         {(client) => (
@@ -150,6 +163,39 @@ test("saved work this window can't read is reported as that, never as a rejected
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toMatch(/couldn't read the work it saved/);
   expect(alert.textContent).not.toMatch(/access token/);
+});
+
+/** A window that once worked with another daemon at `url`: its outbox is pinned to that host. */
+function metOtherDaemon() {
+  const store = memoryKeyValue();
+  store.setItem(`${outboxKey({ url, deviceId: "test-device" })}.host`, "the-old-host");
+  return store;
+}
+
+test("a different ace at a known address is named as that, and forgetting the old one connects", async () => {
+  const store = metOtherDaemon();
+  boot({ store });
+  await connectWith(token);
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toMatch(/different ace than the one this window connected to/);
+  expect(alert.textContent).not.toMatch(/access token/);
+  expect(screen.queryByRole("link", { name: /Fix flaky checkout test/ })).toBeNull();
+
+  await userEvent.click(screen.getByRole("button", { name: "Forget the old ace" }));
+  await screen.findByRole("link", { name: /Fix flaky checkout test/ });
+});
+
+test("after a fresh start the desktop opens on its new local daemon without asking for a token", async () => {
+  // The renderer remembers the daemon that `~/.ace` held before the fresh start; the desktop
+  // hands over the new home's token and identity.
+  const store = metOtherDaemon();
+  const daemon = boot({
+    store,
+    handed: { url, token, localHostId: "fake-host" },
+  }).daemon;
+  expect(daemon.hostId).toBe("fake-host");
+  await screen.findByRole("link", { name: /Fix flaky checkout test/ });
+  expect(screen.queryByRole("heading", { name: "Connect to ace" })).toBeNull();
 });
 
 test("the daemon's #token= hand-off connects straight away", async () => {

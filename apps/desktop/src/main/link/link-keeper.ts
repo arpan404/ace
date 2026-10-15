@@ -4,6 +4,8 @@ export interface Endpoint {
   url: string;
   token: string;
   pairedDeviceId?: string | undefined;
+  /** This computer's daemon: the identity its current home names (see `DaemonConnection`). */
+  localHostId?: string | undefined;
 }
 
 /** The daemon's lifecycle as the app sees it (the runtime, or its supervisor in tests). */
@@ -109,6 +111,7 @@ export class LinkKeeper<L extends KeptLink> {
       current.endpoint.url === endpoint.url &&
       current.endpoint.token === endpoint.token &&
       current.endpoint.pairedDeviceId === endpoint.pairedDeviceId &&
+      current.endpoint.localHostId === endpoint.localHostId &&
       !current.link.fatal()
     ) {
       current.link.wake();

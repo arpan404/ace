@@ -62,7 +62,7 @@ test("a reconnect to a different daemon identity becomes fatal before state is r
     );
   scheduler.advance(125);
   await when(client.connectionState(), (state) => state === "fatal");
-  expect(client.error?.code).toBe("protocol");
+  expect(client.error?.code).toBe("identity");
   expect(faults.sent.filter((frame) => JSON.parse(frame).type === "subscribe")).toHaveLength(0);
 });
 

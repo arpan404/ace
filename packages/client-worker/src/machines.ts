@@ -296,7 +296,10 @@ export class MachinePool {
       if (!this.current(live)) return;
       this.publish(live, {
         entry: live.state.entry,
-        status: error instanceof ClientError && error.code === "auth" ? "auth_failed" : "offline",
+        status:
+          error instanceof ClientError && (error.code === "auth" || error.code === "identity")
+            ? "auth_failed"
+            : "offline",
         error: error instanceof ClientError ? error : new ClientError("daemon"),
       });
     });
@@ -323,7 +326,8 @@ export class MachinePool {
         this.publish(live, {
           entry: live.state.entry,
           status:
-            client.state === "fatal" && client.error?.code === "auth"
+            client.state === "fatal" &&
+            (client.error?.code === "auth" || client.error?.code === "identity")
               ? "auth_failed"
               : client.state === "connecting"
                 ? "connecting"
