@@ -8,6 +8,7 @@ import {
 } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
+import { switchRoute } from "@ace/core";
 import { createEngineThread } from "./create-thread.ts";
 import { boundary, handoff, validateCitations } from "./transition-history.ts";
 
@@ -64,17 +65,16 @@ export function acceptTransition(
           return fail("acp_identity_required");
         const acpIdentity = identity?.success ? identity.data : undefined;
         if (!registry.has(selection.provider, acpIdentity)) return fail("provider_unavailable");
-        // Forking into another account needs migration; request a switch on the fork instead.
-        if (
+        // A native fork reads the source account's session; on another account the fork starts
+        // fresh with portable context instead (how a Cursor thread changes account, ADR 0043).
+        const otherAccount =
           selection.provider === inherited.provider &&
           (selection.provider === "cursor"
             ? cursorInstanceId(selection.instanceId)
             : selection.instanceId) !==
             (inherited.provider === "cursor"
               ? cursorInstanceId(inherited.instanceId)
-              : inherited.instanceId)
-        )
-          return fail("fork_account_mismatch_use_switch");
+              : inherited.instanceId);
         const entry = registry.get(selection.provider);
         const capabilities = entry.capabilities;
         const selectedId =
@@ -99,6 +99,7 @@ export function acceptTransition(
               ? { type: "end" as const, nativeId: sourceNativeId ?? "" }
               : undefined;
         const native =
+          !otherAccount &&
           selection.provider === source?.selection.provider &&
           capabilities.fork &&
           !thread.continuation &&
@@ -174,6 +175,9 @@ export function acceptTransition(
           ...metadata,
         };
         const selection = repo.transitions.selection(id, fallback, p.selection);
+        const current = repo.transitions.get(id).selection ?? fallback;
+        if (switchRoute({ ...current, backend: repo.backend(id) }, selection) === "new_thread")
+          return fail("switch_requires_new_thread");
         if (
           Object.keys(selection.options).length &&
           !registry.get(

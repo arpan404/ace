@@ -10,6 +10,8 @@ import type { z } from "zod";
 import type { Sessions } from "./sessions.ts";
 import { handoff, validateCitations } from "./transition-history.ts";
 import { admitTransitionMetadata } from "./transition-state.ts";
+import { switchNeedsNewThread } from "./failure-copy.ts";
+import { switchRoute } from "@ace/core";
 export interface TransitionIO {
   migrate(request: {
     provider: ExecutionSelection["provider"];
@@ -126,15 +128,11 @@ export class ThreadTransitions {
     const backend = this.repo.backend(actor.id);
     const entry = this.registry.get(selection.provider, crossProvider ? undefined : backend);
     const capabilities = entry.capabilities;
-    // Existing SDK stores are pinned to the thread and account. Entering the SDK
-    // uses a fresh session; leaving it or changing accounts must preserve its checkpoint.
-    if (
-      ((crossAccount || crossProvider) && backend === "cursor-sdk") ||
-      (crossAccount && entry.adapter.backend === "cursor-sdk")
-    )
-      throw new Error(
-        "Cursor SDK runtime/account changes require a fresh portable fork or thread.create with handoffFrom; the source checkpoint is preserved",
-      );
+    // Existing SDK stores are pinned to the thread and account. Entering the SDK uses a fresh
+    // session; leaving it or changing accounts continues in a portable fork (clients route the
+    // next message there). Admission refuses these; a switch queued before then lands here.
+    if (switchRoute({ ...current, backend }, selection) === "new_thread")
+      throw new Error(switchNeedsNewThread);
     if (
       !crossProvider &&
       metadata.nativeSessionId &&

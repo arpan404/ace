@@ -67,7 +67,14 @@ export function transitionHarness(
   };
   let serial = 0;
   let closeFailed = false;
-  for (const provider of ["codex", "claude", "cursor", "acp"] satisfies ProviderKind[]) {
+  for (const provider of [
+    "codex",
+    "claude",
+    "cursor",
+    "opencode",
+    "pi",
+    "acp",
+  ] satisfies ProviderKind[]) {
     const adapter: ProviderAdapter = {
       provider,
       ...(provider === "cursor" ? { backend: options.cursorBackend ?? "cursor-sdk" } : {}),

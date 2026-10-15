@@ -159,12 +159,15 @@ test.each([
   follow(h, id);
   await h.engine.flush();
   const original = h.inputs.at(-1)?.nativeId;
-  expect(h.command({ type: "thread.switch", threadId: id, selection }).ok).toBe(true);
+  expect(h.command({ type: "thread.switch", threadId: id, selection })).toMatchObject({
+    ok: false,
+    error: "switch_requires_new_thread",
+  });
   await h.engine.flush();
   expect(h.store.getThread(id)).toMatchObject({
     provider: "cursor",
     backend: "cursor-sdk",
-    switch: { state: "failed", error: expect.stringContaining("source checkpoint is preserved") },
+    switch: { state: "applied", selection: { provider: "cursor" } },
   });
   follow(h, id);
   await h.engine.flush();

@@ -84,13 +84,10 @@ test("SDK account switches refuse CLI checkpoint migration and retain the source
       type: "thread.switch",
       threadId: id,
       selection: { provider: "cursor", instanceId: "account-b" },
-    }).ok,
-  ).toBe(true);
+    }),
+  ).toMatchObject({ ok: false, error: "switch_requires_new_thread" });
   await h.engine.flush();
-  expect(h.store.getThread(id)?.switch).toMatchObject({
-    state: "failed",
-    error: expect.stringContaining("fresh portable fork"),
-  });
+  expect(h.store.getThread(id)?.switch).toBeUndefined();
   expect(h.store.getThread(id)?.execution?.instanceId).toBe("account-a");
   expect(
     h.command({
@@ -248,14 +245,11 @@ test("switching out of Cursor SDK preserves its checkpoint and requires a fresh 
   const native = h.inputs.at(-1)?.nativeId;
   if (!native) throw new Error("Missing source SDK session");
   expect(
-    h.command({ type: "thread.switch", threadId: source, selection: { provider: "codex" } }).ok,
-  ).toBe(true);
+    h.command({ type: "thread.switch", threadId: source, selection: { provider: "codex" } }),
+  ).toMatchObject({ ok: false, error: "switch_requires_new_thread" });
   await h.engine.flush();
-  expect(h.store.getThread(source)).toMatchObject({
-    provider: "cursor",
-    backend: "cursor-sdk",
-    switch: { state: "failed", error: expect.stringContaining("source checkpoint is preserved") },
-  });
+  expect(h.store.getThread(source)).toMatchObject({ provider: "cursor", backend: "cursor-sdk" });
+  expect(h.store.getThread(source)?.switch).toBeUndefined();
   const before = new Set(h.store.listThreads().map((thread) => thread.id));
   expect(
     h.command({

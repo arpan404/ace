@@ -14,6 +14,14 @@ function resend(item: Item | undefined): ContentPart[] {
   );
 }
 
+/** Whether the provider's text says only what the row already says, perhaps after a label. */
+function repeats(raw: string, shown: { title: string; message?: string | undefined }): boolean {
+  const text = raw.trim();
+  return [shown.message, shown.title].some(
+    (said) => !!said && (text === said || text.endsWith(`: ${said}`)),
+  );
+}
+
 /** Actions that fix the failure where it is; Retry would only fail again. */
 const fixes = new Set(["sign_in", "switch_account", "change_model"]);
 
@@ -65,8 +73,10 @@ export function FailedTurn(props: {
           detail: error ? `${error.kind}: ${error.message}` : undefined,
         },
   );
-  // Native tagged text must not classify or replace the diagnostic's reviewed wording.
-  const view = original ? { ...described, raw: original.detail ?? original.text } : described;
+  // Native tagged text must not classify or replace the diagnostic's reviewed wording. Details
+  // only says what the summary doesn't: never the same words again ("provider: " before them).
+  const raw = original ? (original.detail ?? original.text) : described.raw;
+  const view = { ...described, raw: raw && !repeats(raw, described) ? raw : undefined };
   const retry = async () => {
     setSending(true);
     try {
@@ -93,11 +103,15 @@ export function FailedTurn(props: {
   const fixable = latest && view.action !== undefined && fixes.has(view.action);
   // Nothing said why: "Turn failed" alone. A fix names the failure itself ("Not signed in").
   const known = reported !== undefined || error !== undefined;
+  // A limit names itself ("Usage limit reached · Resets 8:30pm"), never "Turn failed".
+  const heading = fixable || !known || isLimitError(view) ? undefined : "Turn failed";
+  // Under "Turn failed" the failure's own words follow the model, even when they were its title.
+  const said = heading ? (view.message ?? view.title) : view.message;
   const failed = known
     ? {
         ...view,
         message:
-          [model && view.code !== "model_not_found" ? modelLabel(model) : undefined, view.message]
+          [model && view.code !== "model_not_found" ? modelLabel(model) : undefined, said]
             .filter(Boolean)
             .join(" · ") || undefined,
       }
@@ -105,8 +119,7 @@ export function FailedTurn(props: {
   return (
     <ErrorRow
       error={fixable ? failed : { ...failed, action: undefined }}
-      // A limit names itself ("Usage limit reached · Resets 8:30pm"), never "Turn failed".
-      heading={fixable || !known || isLimitError(view) ? undefined : "Turn failed"}
+      heading={heading}
       onRetry={latest && input.length > 0 && !fixable ? () => void retry() : undefined}
       retrying={sending}
     />

@@ -186,8 +186,8 @@ test("a failed turn ends with its reason, and Retry sends the ask again", async 
   const failed = await within(feed).findByRole("group", { name: /^Turn failed/ });
   expect(failed.textContent).toContain("2 tests failing on #74");
 
-  await userEvent.click(within(failed).getByRole("button", { name: "Details" }));
-  expect(within(failed).getByText("provider: 2 tests failing on #74")).toBeTruthy();
+  // Details would only say the same words again behind the failure's kind.
+  expect(within(failed).queryByRole("button", { name: "Details" })).toBeNull();
 
   await userEvent.click(within(failed).getByRole("button", { name: "Retry" }));
   await waitFor(() =>
