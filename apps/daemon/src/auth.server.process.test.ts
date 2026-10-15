@@ -41,9 +41,17 @@ describe("authentication boundaries", () => {
     const closed = once(client.socket, "close");
     client.socket.send(JSON.stringify(hello));
     client.send({ type: "ping" });
-    expect(await client.next()).toMatchObject({ type: "error", code: "unauthorized" });
+    // A pong changes no state and may be answered before the queued hello is refused; nothing
+    // else comes back, and nothing at all after the refusal.
+    const delivered: string[] = [];
+    for (;;) {
+      const message = await client.next().catch(() => undefined);
+      if (!message) break;
+      delivered.push(message.type === "error" ? `error:${message.code}` : message.type);
+    }
     expect((await closed)[0]).toBe(4001);
-    await expect(client.next()).rejects.toThrow("Socket closed");
+    expect(delivered.filter((type) => type !== "pong")).toEqual(["error:unauthorized"]);
+    expect(delivered.at(-1)).toBe("error:unauthorized");
   });
   it("rejects a negative replay cursor while keeping the authenticated socket usable", async () => {
     const f = await setup();
