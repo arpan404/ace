@@ -72,7 +72,8 @@ export function endPrompt(
   const classified =
     s.quirks.classifyError(agent.segment) ??
     (reason === "refusal"
-      ? { kind: "quota" as const, message: "Provider refused the prompt" }
+      ? // ACP `refusal` is the model declining, not an exhausted account.
+        { kind: "provider" as const, code: "refusal", message: "Provider refused the prompt" }
       : undefined) ??
     (Object.keys(error).length
       ? {

@@ -14,9 +14,13 @@ const suggestsModel = /\bswitch to auto\b|\b(?:another|a different) model\b/i;
 export function cursorFailure(
   code: unknown,
   message: string,
+  retryable?: unknown,
 ): { kind: "auth" | "quota" | "network" | "provider"; code?: string } {
   if (code === "auth") return { kind: "auth" };
-  if (code === "rate_limit") return { kind: "quota" };
+  // The SDK raises `RateLimitError` for throttles too; a retryable one is a throttle, not an
+  // exhausted account, so it fails the turn without holding anything.
+  if (code === "rate_limit")
+    return retryable === true ? { kind: "provider", code: "rate_limited" } : { kind: "quota" };
   if (code === "network") return { kind: "network" };
   if (outOfUsage.test(message))
     return { kind: "provider", code: suggestsModel.test(message) ? "model_quota" : "usage_limit" };

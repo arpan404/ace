@@ -19,6 +19,19 @@ test("retry and compaction after agent end keep the thread live until Pi settles
   h.recv(settled);
   expect(h.state.status.state).toBe("done");
 });
+test("a throttle or quota retry from Pi is a wait that never limits the thread", () => {
+  const h = replay();
+  h.recv(start);
+  h.recv({
+    type: "auto_retry_start",
+    attempt: 1,
+    errorMessage: "429 Too Many Requests: You exceeded your current quota",
+  });
+  expect(h.state.status).toEqual({ state: "waiting", on: "upstream" });
+  h.recv({ type: "auto_retry_end", success: true });
+  h.recv(settled);
+  expect(h.state.status.state).toBe("done");
+});
 test("a settled event leaves a dialog pending until its matching native answer", () => {
   const h = replay();
   h.recv(start);

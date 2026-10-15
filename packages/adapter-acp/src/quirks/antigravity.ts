@@ -41,7 +41,10 @@ export const antigravityQuirks: AcpQuirks = {
     return Object.hasOwn(names, name) ? names[name] : undefined;
   },
   classifyError(text) {
-    if (text.startsWith("Usage Limit Reached")) return { kind: "quota", message: text };
+    // Antigravity says this only in message text, with no reset and no code: it names the
+    // failure but never holds queued messages.
+    if (text.startsWith("Usage Limit Reached"))
+      return { kind: "provider", code: "usage_limit", message: text };
     if (text.startsWith("Agent execution error:")) return { kind: "provider", message: text };
     if (text.toLowerCase().startsWith("connection lost")) return { kind: "network", message: text };
     return undefined;

@@ -55,6 +55,14 @@ test("permission destinations and native decline defaults remain visible without
   }
 });
 
+test("a throttled request Claude retries is a wait that never limits the thread", () => {
+  const h = harness();
+  h.init();
+  h.system("api_retry", { error: "rate_limit", error_status: 429, attempt: 1 });
+  expect(h.state.status).toEqual({ state: "waiting", on: "upstream" });
+  h.result();
+  expect(h.state.status.state).toBe("done");
+});
 test("a child keeps producing canonical progress while an elicitation waits beyond a minute", () => {
   const h = harness();
   h.init();
