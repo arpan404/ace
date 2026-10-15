@@ -145,25 +145,57 @@ test("streamed assistant text is not duplicated by the final authoritative messa
   expect(item?.type === "message" ? item.parts : []).toEqual([{ type: "text", text: "hello" }]);
   expect(item?.complete).toBe(true);
 });
-test("live tool capacity overflow cannot turn into a successful settled thread", () => {
+test("a Pi turn with 600 tool calls open at once keeps translating and settles once they finish", () => {
   const h = replay();
   h.recv(start);
-  for (let i = 0; i < 257; i++)
+  for (let i = 0; i < 600; i++)
     h.recv({ type: "tool_execution_start", toolCallId: String(i), toolName: "custom", args: {} });
+  for (let i = 0; i < 600; i++)
+    h.recv({ type: "tool_execution_end", toolCallId: String(i), result: result("ok") });
   h.recv(settled);
-  expect(h.state.status.state).not.toBe("done");
+  expect(h.state.status.state).toBe("done");
+  const calls = Object.values(h.state.items).filter((item) => item.type === "tool_call");
+  expect(calls).toHaveLength(600);
+  expect(calls.every((item) => item.complete)).toBe(true);
 });
-test("oversized blocking dialogs cannot be demoted to a notice and successful completion", () => {
+test("a Pi turn with 600 sequential tool calls keeps translating", () => {
+  const h = replay();
+  h.recv(start);
+  for (let i = 0; i < 600; i++) {
+    h.recv({ type: "tool_execution_start", toolCallId: String(i), toolName: "custom", args: {} });
+    h.recv({ type: "tool_execution_end", toolCallId: String(i), result: result("ok") });
+  }
+  h.recv(settled);
+  expect(h.state.status.state).toBe("done");
+  expect(Object.values(h.state.items).filter((item) => item.type === "tool_call")).toHaveLength(
+    600,
+  );
+});
+test("200 open Pi dialogs keep the thread waiting on the person until each is answered", () => {
+  const h = replay();
+  h.recv(start);
+  for (let i = 0; i < 200; i++)
+    h.recv({ type: "extension_ui_request", id: `d${i}`, method: "confirm", title: "Allow?" });
+  h.recv(settled);
+  expect(h.state.status.state).toBe("needs_you");
+  for (let i = 0; i < 199; i++)
+    h.send({ type: "extension_ui_response", id: `d${i}`, confirmed: true });
+  expect(h.state.status.state).toBe("needs_you");
+  h.send({ type: "extension_ui_response", id: "d199", confirmed: true });
+  expect(h.state.status.state).toBe("done");
+});
+test("a blocking dialog with hundreds of options opens as a question", () => {
   const h = replay();
   h.recv(start);
   h.recv({
     type: "extension_ui_request",
     id: "large",
     method: "select",
-    options: Array.from({ length: 257 }, (_, index) => String(index)),
+    options: Array.from({ length: 300 }, (_, index) => String(index)),
   });
   h.recv(settled);
-  expect(h.state.status.state).not.toBe("done");
+  expect(h.state.interactions.large?.state).toBe("pending");
+  expect(h.state.status.state).toBe("needs_you");
 });
 test("unexpected exit expires dialogs and does not report successful completion", () => {
   const h = replay();

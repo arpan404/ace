@@ -54,12 +54,17 @@ it("comment-only keepalives renew transport liveness without marking an idle age
   expect(h.projection.view.thread.status.state).toBe("done");
 });
 
-it("recovery overflow closes the owned lease and expires interactions without reporting completed work", async () => {
+it("a recovery buffer overflow restarts the resync and keeps the session and its pending question", async () => {
   const h = await setup(),
     root = h.session.nativeSessionId;
+  const ask = { sessionID: root, id: "pending", action: "edit", resources: ["x"] };
   await h.publish("session.execution.started");
   await h.publish("permission.asked", { id: "pending", action: "edit", resources: ["x"] });
-  await h.control("/test/state", { fault: { holdHistory: true } });
+  await h.control("/test/state", {
+    active: { [root]: { type: "running" } },
+    permissions: [ask],
+    fault: { holdHistory: true },
+  });
   const from = h.frames.length;
   await h.control("/test/drop", {});
   await h.seen(
@@ -68,7 +73,6 @@ it("recovery overflow closes the owned lease and expires interactions without re
       String(object(f.data).path).split("?")[0] === `/api/session/${root}/message`,
     from,
   );
-  const exited = h.seen((f) => f.channel === "lifecycle" && object(f.data).type === "exited", from);
   await h.control(
     "/test/events",
     Array.from({ length: 4097 }, () => ({
@@ -77,9 +81,68 @@ it("recovery overflow closes the owned lease and expires interactions without re
       data: { sessionID: root, assistantMessageID: "a", ordinal: 0, delta: "x" },
     })),
   );
-  await exited;
-  expect(h.projection.view.thread.status.state).not.toBe("done");
-  expect(Object.values(h.projection.view.interactions)[0]?.state).toBe("expired");
+  await h.seen((f) => f.channel === "recovery.restarted", from);
+  const recovered = h.recovered(h.frames.length);
+  await h.control("/test/release", {});
+  await recovered;
+  expect(h.exits).toEqual([]);
+  expect(Object.values(h.projection.view.interactions)[0]?.state).toBe("pending");
+  expect(h.projection.view.thread.status.state).toBe("needs_you");
+});
+
+it("OpenCode sessions survive a resync slower than 30 seconds", async () => {
+  const clock = new Clock(),
+    h = await setup({ runtime: { monotonic: () => clock.now, schedule: clock.schedule } }),
+    root = h.session.nativeSessionId;
+  await h.publish("session.execution.started");
+  await h.control("/test/state", {
+    active: { [root]: { type: "running" } },
+    fault: { holdHistory: true },
+  });
+  const from = h.frames.length;
+  let resynced = false;
+  void h.recovered(from).then(() => (resynced = true));
+  await h.control("/test/drop", {});
+  for (let step = 0; step < 50; step++) {
+    clock.advance(100);
+    if (
+      h.frames
+        .slice(from)
+        .some(
+          (f) =>
+            f.dir === "send" &&
+            String(object(f.data).path).includes(`/api/session/${root}/message`),
+        )
+    )
+      break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  // The history read is held past the 30 second mark; recovery retries instead of giving up.
+  clock.advance(31_000);
+  for (let step = 0; step < 200; step++) {
+    if (resynced) break;
+    clock.advance(1000);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  expect(resynced).toBe(true);
+  expect(h.exits).toEqual([]);
+  expect(h.projection.view.thread.status.state).toBe("working");
+  await h.publish("session.execution.succeeded");
+  expect(h.projection.view.thread.status.state).toBe("done");
+});
+
+it("recovery ends only the session OpenCode no longer has and keeps the others", async () => {
+  const h = await setup();
+  const other = await h.open("/one");
+  await h.control("/test/state", { deleted: [other.nativeSessionId] });
+  const recovered = h.recovered();
+  await h.control("/test/drop", {});
+  await recovered;
+  expect(h.exits).toEqual([
+    { deliberate: false, message: "OpenCode could not restore this session" },
+  ]);
+  await h.publish("session.execution.started");
+  await h.publish("session.execution.succeeded");
 });
 
 it("a dropped local stream recovers without replaying a prompt and native progress releases its upstream retry", async () => {

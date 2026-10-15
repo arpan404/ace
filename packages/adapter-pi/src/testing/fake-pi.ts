@@ -319,13 +319,17 @@ async function handle(line: string) {
         emit({ type: "agent_settled" });
         return;
       }
-      if (message === "large-dialog") {
-        emit({
-          type: "extension_ui_request",
-          id: "large",
-          method: "select",
-          options: Array.from({ length: 257 }, (_, index) => String(index)),
-        });
+      if (message === "unanswerable-dialog") {
+        // A blocking dialog without an id can never be answered.
+        emit({ type: "extension_ui_request", id: "", method: "select", options: ["a"] });
+      } else if (message === "many-dialogs") {
+        for (let index = 0; index < 200; index++)
+          emit({
+            type: "extension_ui_request",
+            id: `many-${index}`,
+            method: "confirm",
+            title: "Continue?",
+          });
       } else if (message === "dialogs") {
         emit({
           type: "extension_ui_request",
