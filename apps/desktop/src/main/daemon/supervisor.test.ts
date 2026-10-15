@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { DaemonStatus } from "../../shared/contract.ts";
 import type { LocalDaemon } from "./probe.ts";
-import { DaemonSupervisor, type DaemonProcess, type SupervisorPorts } from "./supervisor.ts";
+import {
+  DaemonSupervisor,
+  newerDataMessage,
+  type DaemonProcess,
+  type SupervisorPorts,
+} from "./supervisor.ts";
 
 const local: LocalDaemon = {
   origin: "http://127.0.0.1:4242",
@@ -15,7 +20,7 @@ function machine() {
   const timers: { at: number; callback: () => void; cancelled: boolean }[] = [];
   const children: FakeChild[] = [];
   const signals: string[] = [];
-  const log: string[] = [];
+  const log: { level: string; message: string; data?: Record<string, unknown> }[] = [];
   const state = {
     answering: false,
     healthy: true,
@@ -23,7 +28,16 @@ function machine() {
     blockers: 0,
     maintenance: false,
     admissionAvailable: true,
+    /** How long the daemon takes to answer a health check (a busy event loop). */
+    healthDelayMs: 0,
+    /** A hung daemon: health requests get no answer and fail at their own timeout. */
+    hung: false,
+    /** Ignores SIGTERM, as a hung daemon does. */
+    ignoresSigterm: false,
+    /** Exits this long after SIGTERM, as a daemon finishing its shutdown does. */
+    sigtermExitMs: 0,
   };
+  const later = (delayMs: number, callback: () => void) => ports.timers.set(delayMs, callback);
   class FakeChild implements DaemonProcess {
     exit:
       | ((code: number | null, signal: NodeJS.Signals | null, error?: string) => void)
@@ -34,7 +48,10 @@ function machine() {
     kill(signal: NodeJS.Signals) {
       signals.push(signal);
       if (this.unstarted) return;
-      if (signal === "SIGKILL" || state.healthy) this.die(null, signal);
+      if (signal === "SIGKILL") this.die(null, signal);
+      else if (!state.healthy || state.ignoresSigterm) return;
+      else if (state.sigtermExitMs) later(state.sigtermExitMs, () => this.die(0));
+      else this.die(null, signal);
     }
     onExit(listener: (code: number | null, signal: NodeJS.Signals | null, error?: string) => void) {
       this.exit = listener;
@@ -59,7 +76,13 @@ function machine() {
       return child;
     },
     find: async () => (state.answering ? local : undefined),
-    healthy: async () => state.answering && state.healthy,
+    healthy: (_daemon, timeoutMs) =>
+      new Promise((resolve) => {
+        if (state.hung) later(timeoutMs, () => resolve(false));
+        else if (state.healthDelayMs)
+          later(state.healthDelayMs, () => resolve(state.answering && state.healthy));
+        else resolve(state.answering && state.healthy);
+      }),
     setMaintenance: async (_daemon, on) => {
       state.maintenance = on;
       return state.blockers;
@@ -79,7 +102,7 @@ function machine() {
       },
     },
     now: () => now,
-    log: (level, message) => log.push(`${level}: ${message}`),
+    log: (level, message, data) => log.push({ level, message, ...(data ? { data } : {}) }),
   };
   async function advance(ms: number) {
     const until = now + ms;
@@ -418,19 +441,119 @@ describe("daemon supervisor", () => {
     expect(supervisor.current().state).toBe("restarting");
   });
 
-  it("kills the daemon it started when it stops answering health checks", async () => {
+  it.each([4_000, 6_000, 12_000])(
+    "the watchdog does not kill a daemon that is busy but responsive (answers in %i ms)",
+    async (delayMs) => {
+      const m = machine();
+      const supervisor = new DaemonSupervisor(m.ports);
+      await supervisor.start();
+      m.state.answering = true;
+      await m.advance(300);
+      // Every health check waits on a busy event loop; past the check's own deadline, the
+      // late answer still shows the daemon is alive.
+      m.state.healthDelayMs = delayMs;
+      await m.advance(600_000);
+      expect(m.signals).toEqual([]);
+      expect(m.children).toHaveLength(1);
+      expect(supervisor.current()).toMatchObject({ state: "running", source: "app" });
+    },
+  );
+
+  it("a daemon that stops answering is asked to stop before it is killed, and the reason is logged", async () => {
     const m = machine();
-    const supervisor = new DaemonSupervisor(m.ports, {
-      healthIntervalMs: 1_000,
-      healthFailures: 2,
-    });
+    const supervisor = new DaemonSupervisor(m.ports, { stopGraceMs: 10_000 });
     await supervisor.start();
     m.state.answering = true;
     await m.advance(300);
-    m.state.healthy = false;
-    await m.advance(2_000);
-    expect(m.signals).toContain("SIGKILL");
+    m.state.hung = true;
+    m.state.ignoresSigterm = true;
+    let waited = 0;
+    while (m.signals.length === 0 && waited < 600_000) {
+      await m.advance(1_000);
+      waited += 1_000;
+    }
+    expect(m.signals).toEqual(["SIGTERM"]);
+    // Busy daemons get their chance: three checks of 10 s each, 5 s apart.
+    expect(waited).toBeGreaterThanOrEqual(45_000);
+    const missed = m.log.filter((entry) => entry.message === "The daemon missed a health check");
+    expect(missed.map((entry) => entry.data?.missed)).toEqual([1, 2, 3]);
+    expect(m.log).toContainEqual(
+      expect.objectContaining({
+        level: "error",
+        message: "The daemon stopped answering health checks; stopping it",
+        data: expect.objectContaining({ missed: 3 }),
+      }),
+    );
+
+    await m.advance(9_000);
+    expect(m.signals).toEqual(["SIGTERM"]);
+    await m.advance(1_000);
+    expect(m.signals).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(m.log).toContainEqual(
+      expect.objectContaining({
+        message: "The daemon did not exit after SIGTERM; sending SIGKILL",
+        data: expect.objectContaining({ reason: "unresponsive" }),
+      }),
+    );
+    expect(m.log).toContainEqual(
+      expect.objectContaining({
+        message: "The daemon exited unexpectedly",
+        data: { code: null, signal: "SIGKILL", stoppedBy: "unresponsive" },
+      }),
+    );
     expect(supervisor.current().state).toBe("restarting");
+  });
+
+  it("a daemon that exits after SIGTERM is not SIGKILLed", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    m.state.answering = true;
+    await m.advance(300);
+    m.state.hung = true;
+    m.state.sigtermExitMs = 7_500; // the daemon's own shutdown takes its full overrun
+    while (m.signals.length === 0) await m.advance(1_000);
+    await m.advance(30_000);
+    expect(m.signals).toEqual(["SIGTERM"]);
+    expect(m.children[0]?.alive).toBe(false);
+    expect(m.children).toHaveLength(2); // restarted after a clean stop
+    expect(m.log).toContainEqual(
+      expect.objectContaining({
+        message: "The daemon exited unexpectedly",
+        data: { code: 0, signal: null, stoppedBy: "unresponsive" },
+      }),
+    );
+  });
+
+  it("a daemon that refuses newer data is not restarted", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports);
+    const reachable = supervisor.reachable();
+    await supervisor.start();
+    m.children[0]?.die(65);
+    expect(supervisor.current()).toMatchObject({ state: "failed", message: newerDataMessage });
+    await expect(reachable).rejects.toThrow(newerDataMessage);
+    await m.advance(600_000);
+    expect(m.children).toHaveLength(1);
+    expect(supervisor.current().state).toBe("failed");
+    expect(m.log).toContainEqual(
+      expect.objectContaining({ level: "error", data: { code: 65, signal: null } }),
+    );
+  });
+
+  it("logs why it restarts a crashed daemon, with the exit and the delay", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    m.state.answering = true;
+    await m.advance(300);
+    m.children[0]?.die(1);
+    expect(m.log).toContainEqual(
+      expect.objectContaining({
+        level: "warn",
+        data: { code: 1, signal: null, delayMs: 500, attempt: 1, of: 5 },
+      }),
+    );
   });
 
   it("stops its own daemon with SIGTERM, then SIGKILL after the grace period", async () => {

@@ -1,6 +1,7 @@
 import { exitCodes } from "@ace/service/exit-codes";
 import type { DaemonStatus } from "../../shared/contract.ts";
 import type { LocalDaemon } from "./probe.ts";
+import { watchHealth } from "./watchdog.ts";
 
 /** A daemon child process this app started. */
 export interface DaemonProcess {
@@ -22,7 +23,8 @@ export interface SupervisorPorts {
   spawn?: (() => DaemonProcess) | undefined;
   /** A healthy daemon already serving this ACE_HOME, if any. */
   find(): Promise<LocalDaemon | undefined>;
-  healthy(daemon: LocalDaemon): Promise<boolean>;
+  /** Whether the daemon answers its status endpoint, giving up after `timeoutMs`. */
+  healthy(daemon: LocalDaemon, timeoutMs: number): Promise<boolean>;
   /** The login service from `ace service install`, when one is installed. */
   service?: { active(): Promise<boolean>; start(): Promise<void> } | undefined;
   setMaintenance(daemon: LocalDaemon, on: boolean): Promise<number>;
@@ -30,14 +32,26 @@ export interface SupervisorPorts {
   maintenance(daemon: LocalDaemon): Promise<{ draining: boolean }>;
   timers: { set(delayMs: number, callback: () => void): () => void };
   now(): number;
-  log(level: "info" | "warn" | "error", message: string): void;
+  /** Every supervisor decision is logged with the facts behind it, so restarts can be explained. */
+  log(level: "info" | "warn" | "error", message: string, data?: Record<string, unknown>): void;
 }
 
 export interface SupervisorOptions {
+  /** Pause between one health check's outcome and the next. */
   healthIntervalMs?: number;
-  /** Consecutive failed health checks before the daemon is treated as gone. */
+  /**
+   * How long one health check waits before it counts as missed. The status endpoint runs on
+   * the daemon's event loop, so a busy daemon (a long SQLite statement, a GC pause) answers
+   * slowly without being hung.
+   */
+  healthTimeoutMs?: number;
+  /** Consecutive missed health checks before the daemon is treated as gone. */
   healthFailures?: number;
   readyTimeoutMs?: number;
+  /**
+   * Between SIGTERM and SIGKILL, for any stop of the daemon this app started. Longer than the
+   * daemon's own shutdown overrun (7.5 s), so a daemon that can still stop cleanly does.
+   */
   stopGraceMs?: number;
   /**
    * Restarts in a row (without a stable run in between) before giving up and waiting for
@@ -54,6 +68,14 @@ export function restartDelay(attempt: number): number {
 }
 
 type Source = DaemonStatus["source"];
+
+/**
+ * `ace start` refuses data written by a newer ace build and exits with this code. Restarting
+ * cannot help, so the supervisor stops and says what to do instead.
+ */
+const NEWER_DATA_EXIT = 65;
+export const newerDataMessage =
+  "A newer version of ace already uses this data. Open the newest ace, or update this one.";
 
 /** A status that will not turn into a running daemon without the repair flow or a restart. */
 export function startFailed(status: DaemonStatus): boolean {
@@ -78,12 +100,17 @@ function fresh(status: DaemonStatus): DaemonStatus {
   return rest;
 }
 
+/** Why this app signalled its daemon: a repair or quit, a hung daemon, or one that never started. */
+type StopReason = "requested" | "unresponsive" | "not-ready";
+
 /** A child this app spawned. `intentional` is set before any stop this app asks for. */
 interface Child {
   process: DaemonProcess;
   exited: Promise<void>;
   done: boolean;
   intentional: boolean;
+  /** Set when this app signalled it, so its exit names the reason. */
+  stopReason?: StopReason;
 }
 
 /**
@@ -123,6 +150,7 @@ export class DaemonSupervisor {
     this.ports = ports;
     this.options = {
       healthIntervalMs: options.healthIntervalMs ?? 5_000,
+      healthTimeoutMs: options.healthTimeoutMs ?? 10_000,
       healthFailures: options.healthFailures ?? 3,
       // First start can import provider history before the endpoint is published.
       readyTimeoutMs: options.readyTimeoutMs ?? 120_000,
@@ -300,7 +328,7 @@ export class DaemonSupervisor {
 
   private couldNotStart(reason: string): void {
     this.daemon = undefined;
-    this.ports.log("error", `The daemon could not start: ${reason}`);
+    this.ports.log("error", "The daemon could not start", { reason });
     this.status = fresh(this.status);
     this.update({ state: "failed", message: `The daemon could not start: ${reason}` });
   }
@@ -325,8 +353,10 @@ export class DaemonSupervisor {
       if (this.stale(generation) || child.done) return;
       if (found) await this.running(found, "app", generation);
       else {
-        this.ports.log("error", "The daemon did not become ready; restarting it");
-        child.process.kill("SIGKILL");
+        this.ports.log("error", "The daemon did not become ready; restarting it", {
+          readyTimeoutMs: this.options.readyTimeoutMs,
+        });
+        this.terminate(child, "not-ready");
       }
     });
   }
@@ -338,8 +368,12 @@ export class DaemonSupervisor {
     error: string | undefined,
   ): void {
     if (this.child === child) this.child = undefined;
+    const exit = { code, signal, ...(child.stopReason ? { stoppedBy: child.stopReason } : {}) };
     // Stops this app asked for (restart, quit) are not crashes.
-    if (child.intentional || !this.wanted) return;
+    if (child.intentional || !this.wanted) {
+      this.ports.log("info", "The daemon exited", exit);
+      return;
+    }
     if (error !== undefined) {
       this.clearTimer();
       this.couldNotStart(error);
@@ -350,17 +384,37 @@ export class DaemonSupervisor {
     if (this.runningSince && this.ports.now() - this.runningSince >= this.options.stableMs)
       this.crashes = 0;
     this.runningSince = 0;
+    if (code === NEWER_DATA_EXIT) {
+      // Its data belongs to a newer build: every restart would refuse it the same way.
+      this.ports.log(
+        "error",
+        "The daemon refused data written by a newer ace; not restarting it",
+        exit,
+      );
+      this.status = fresh(this.status);
+      this.update({ state: "failed", message: newerDataMessage });
+      return;
+    }
+    this.ports.log("warn", "The daemon exited unexpectedly", exit);
     const reason = `The daemon exited (${signal ?? `code ${code}`})`;
     const cause = exitCause(code);
     this.status = fresh(this.status);
     if (cause) this.status.cause = cause;
     if (this.crashes >= this.options.maxRestarts) {
-      this.ports.log("error", `${reason}; gave up after ${this.crashes} restarts`);
+      this.ports.log("error", `${reason}; gave up after ${this.crashes} restarts`, {
+        ...exit,
+        restarts: this.crashes,
+      });
       this.update({ state: "failed", message: `${reason}. Restart it or run diagnostics.` });
       return;
     }
     const delay = restartDelay(this.crashes++);
-    this.ports.log("warn", `${reason}; restarting in ${delay} ms`);
+    this.ports.log("warn", `${reason}; restarting in ${delay} ms`, {
+      ...exit,
+      delayMs: delay,
+      attempt: this.crashes,
+      of: this.options.maxRestarts,
+    });
     this.update({
       state: "restarting",
       restarts: this.status.restarts + 1,
@@ -380,7 +434,7 @@ export class DaemonSupervisor {
       if (!(await service.active())) await service.start();
       return true;
     } catch (error) {
-      this.ports.log("warn", `Login service did not start: ${String(error)}`);
+      this.ports.log("warn", "Login service did not start", { error: String(error) });
       return false;
     }
   }
@@ -413,7 +467,7 @@ export class DaemonSupervisor {
           this.couldNotStart(`Cannot read daemon admission: ${String(error)}`);
           return;
         }
-        this.ports.log("warn", `Cannot read daemon admission yet: ${String(error)}`);
+        this.ports.log("warn", "Cannot read daemon admission yet", { error: String(error) });
         await new Promise<void>((resolve) => this.ports.timers.set(200, resolve));
       }
     }
@@ -435,28 +489,62 @@ export class DaemonSupervisor {
     this.emit();
     for (const resolve of this.waiters) resolve(daemon);
     this.waiters.clear();
-    this.monitor(this.generation, daemon, 0);
+    this.monitor(this.generation, daemon);
   }
 
-  private monitor(generation: number, daemon: LocalDaemon, failures: number): void {
-    this.cancelTimer = this.ports.timers.set(this.options.healthIntervalMs, () => {
-      this.cancelTimer = undefined;
-      void this.ports.healthy(daemon).then((ok) => {
+  private monitor(generation: number, daemon: LocalDaemon): void {
+    const { healthIntervalMs, healthTimeoutMs, healthFailures } = this.options;
+    // The one pending timer is the watch itself; any transition stops it.
+    this.cancelTimer = watchHealth({
+      intervalMs: healthIntervalMs,
+      timeoutMs: healthTimeoutMs,
+      failures: healthFailures,
+      // The request itself may run past the check's own deadline, so a late answer still
+      // counts as one; it ends before the next check could send another.
+      probe: () => this.ports.healthy(daemon, healthTimeoutMs + healthIntervalMs),
+      timers: this.ports.timers,
+      log: (level, message, data) => {
+        if (!this.stale(generation)) this.ports.log(level, message, data);
+      },
+      onUnresponsive: (missed) => {
+        this.cancelTimer = undefined;
         if (this.stale(generation)) return;
-        if (ok) return this.monitor(generation, daemon, 0);
-        if (failures + 1 < this.options.healthFailures)
-          return this.monitor(generation, daemon, failures + 1);
-        this.ports.log("warn", "The daemon stopped answering health checks");
         this.daemon = undefined;
-        // Our own hung child: kill it and let the crash path restart it.
-        if (this.child && !this.child.done) this.child.process.kill("SIGKILL");
-        else {
-          // Someone else's daemon went away: run our own instead.
-          this.update({ state: "unreachable" });
-          void this.start();
+        const facts = { missed, timeoutMs: healthTimeoutMs, intervalMs: healthIntervalMs };
+        this.update({ state: "unreachable" });
+        const child = this.child;
+        if (child && !child.done) {
+          // Our own daemon: ask it to stop, and let the crash path restart it.
+          this.ports.log("error", "The daemon stopped answering health checks; stopping it", facts);
+          this.terminate(child, "unresponsive");
+          return;
         }
-      });
+        // Someone else's daemon went away: run our own instead.
+        this.ports.log("warn", "The daemon stopped answering health checks", facts);
+        void this.start();
+      },
     });
+  }
+
+  /**
+   * Stop our child without marking the stop intentional, so its exit takes the crash path
+   * and restarts: SIGTERM, then SIGKILL only if it is still running after the grace period.
+   */
+  private terminate(child: Child, reason: StopReason): void {
+    const graceMs = this.options.stopGraceMs;
+    child.stopReason = reason;
+    this.ports.log("warn", "Sending SIGTERM to the daemon", { reason, graceMs });
+    child.process.kill("SIGTERM");
+    const cancel = this.ports.timers.set(graceMs, () => {
+      // A repair or quit since then runs its own escalation.
+      if (child.done || child.intentional) return;
+      this.ports.log("error", "The daemon did not exit after SIGTERM; sending SIGKILL", {
+        reason,
+        graceMs,
+      });
+      child.process.kill("SIGKILL");
+    });
+    void child.exited.then(cancel);
   }
 
   /** Stop our child on purpose: SIGTERM, then SIGKILL after the grace period. */
@@ -464,10 +552,17 @@ export class DaemonSupervisor {
     const child = this.child;
     if (!child || child.done) return;
     child.intentional = true;
+    child.stopReason = "requested";
+    const graceMs = this.options.stopGraceMs;
+    this.ports.log("info", "Stopping the daemon", { graceMs });
     child.process.kill("SIGTERM");
     let cancel: (() => void) | undefined;
     const forced = new Promise<void>((resolve) => {
-      cancel = this.ports.timers.set(this.options.stopGraceMs, () => {
+      cancel = this.ports.timers.set(graceMs, () => {
+        this.ports.log("warn", "The daemon did not exit after SIGTERM; sending SIGKILL", {
+          reason: "requested",
+          graceMs,
+        });
         child.process.kill("SIGKILL");
         resolve();
       });
