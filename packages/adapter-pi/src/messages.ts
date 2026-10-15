@@ -16,11 +16,10 @@ export function messageFacts(input: {
   prefix: string;
   message: number;
   data: unknown;
-}): { facts: Fact[]; outcome?: MessageOutcome } | undefined {
+}): { facts: Fact[]; outcome?: MessageOutcome } {
   const e = obj(input.data),
     m = obj(e.message),
     facts: Fact[] = [];
-  if (Array.isArray(m.content) && m.content.length > 256) return undefined;
   const { agent, prefix, message } = input;
   if (m.role === "assistant") {
     let retained = false;

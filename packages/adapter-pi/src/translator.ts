@@ -28,7 +28,6 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
   };
   const tools = new Map<string, { name: string; length: number; surviving: boolean }>();
   const dialogs = new Map<string, number | undefined>();
-  const streamed = new Set<number>();
 
   const notice = (
     frame: Frame,
@@ -49,7 +48,8 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
       { type: "turn.started", agent, nativeTurnId: `${prefix}:run:${++run}`, trigger: "unknown" },
     ];
   };
-  function overflow(frame: Frame): Fact[] {
+  /** A blocking dialog ace cannot represent can never be answered, so completion is unknown. */
+  function unanswerable(frame: Frame): Fact[] {
     poisoned = true;
     return [
       notice(frame, "Pi live state cannot be represented; completion is uncertain", "error"),
@@ -168,7 +168,6 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
       }
       case "message_start": {
         message++;
-        streamed.clear();
         return [];
       }
       case "message_update": {
@@ -176,8 +175,6 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
           index = typeof delta.contentIndex === "number" ? delta.contentIndex : 0;
         const kind = str(delta.type);
         if (kind !== "text_delta" && kind !== "thinking_delta") return [];
-        if (!streamed.has(index) && streamed.size >= 256) return overflow(frame);
-        streamed.add(index);
         return [
           ...start(),
           {
@@ -191,7 +188,6 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
       }
       case "message_end": {
         const translated = messageFacts({ agent, prefix, message, data: frame.data });
-        if (!translated) return overflow(frame);
         for (const fact of translated.facts)
           if (
             fact.type === "item.upsert" &&
@@ -206,7 +202,6 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
         const id = str(e.toolCallId),
           name = str(e.toolName);
         if (!id) return [notice(frame, "Pi tool omitted identity", "warning")];
-        if (!tools.has(id) && tools.size >= 256) return overflow(frame);
         tools.set(id, { name, length: 0, surviving: false });
         const detail = toolDetail(name, e.args);
         return [
@@ -308,7 +303,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
           ];
         }
         const p = Dialog.safeParse(e);
-        if (!p.success && isBlockingDialogMethod(e.method)) return overflow(frame);
+        if (!p.success && isBlockingDialogMethod(e.method)) return unanswerable(frame);
         if (!p.success) {
           if (e.method !== "notify") return [];
           return [
@@ -321,7 +316,6 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
         }
         const d = p.data;
         if (dialogs.has(d.id)) return [];
-        if (dialogs.size >= 128) return overflow(frame);
         const due = d.timeout === undefined ? undefined : now + d.timeout;
         dialogs.set(d.id, due);
         if (due !== undefined && (deadline === undefined || due < deadline)) deadline = due;

@@ -309,3 +309,72 @@ test("Pi's extension reload after switch_session or fork finds ace's session whi
   }
   expect(env.ACE_PI_SESSION_FILE).toBeUndefined();
 });
+
+test("Pi runs 80 ace tool calls at once without refusing any past a call cap", async () => {
+  const registry = new ToolRegistry({
+    scheduler: nodeScheduler,
+    maxCalls: 256,
+    maxCallsPerThread: 256,
+  });
+  const credentials = new CredentialRegistry(() => randomBytes(32).toString("hex"));
+  let started = 0;
+  const gate = Promise.withResolvers<void>();
+  registry.register({
+    name: "ace_hold",
+    description: "Hold",
+    input: z.object({ value: z.string() }),
+    output: z.object({ value: z.string() }),
+    capability: null,
+    timeoutMs: 30_000,
+    async run(args) {
+      started++;
+      await gate.promise;
+      return { value: args.value };
+    },
+  });
+  guides("ace-threads").register(registry);
+  const server = await startMcpServer({ registry, credentials });
+  const lease = credentials.issue(
+    {
+      threadId: ThreadId.parse("thread"),
+      agentId: AgentId.parse("agent"),
+      sessionId: "busy",
+      capabilities: [],
+    },
+    new AbortController().signal,
+  );
+  const host = createPiExtensionHost();
+  const configuration = privateMcpConfig(
+    JSON.stringify({
+      controlSecret: "a".repeat(64),
+      mcp: { url: server.url, bearer: lease.bearer },
+    }),
+  );
+  onTestFinished(configuration.remove);
+  try {
+    await host.start((pi) =>
+      registerAcePiExtension(pi, { ACE_PI_SESSION_FILE: configuration.path }),
+    );
+    await openFamilies(host.tools, ["ace-threads"], ["ace_hold"]);
+    const hold = host.tools.get("ace_hold");
+    if (!hold) throw new Error("Missing ace_hold");
+    const calls = Array.from({ length: 80 }, (_, i) =>
+      hold.execute(`call-${i}`, { value: String(i) }, undefined),
+    );
+    // Past the old cap of 16 in flight, later calls used to fail outright.
+    for (let attempt = 0; attempt < 500; attempt++) {
+      if (started >= 17) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    gate.resolve();
+    const results = await Promise.all(calls);
+    expect(results.map((result) => obj(obj(result.details).aceMcp).isError)).toEqual(
+      Array.from({ length: 80 }, () => false),
+    );
+    expect(started).toBe(80);
+  } finally {
+    await host.shutdown();
+    lease.end();
+    await server.close();
+  }
+});

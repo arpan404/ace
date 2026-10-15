@@ -30,20 +30,28 @@ test("final messages preserve unknown native data without multiplying raw bytes 
   expect(messages).toHaveLength(128);
   expect(encoded).toContain('"unknown":127');
 });
-test("too many final blocks leave completion uncertain instead of admitting unbounded facts", () => {
+test("a Pi message with 300 streamed and final blocks keeps every block and completes", () => {
   const h = replay();
   h.recv({ type: "agent_start" });
+  h.recv({ type: "message_start" });
+  for (let i = 0; i < 300; i++)
+    h.recv({
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", contentIndex: i, delta: `b${i}` },
+    });
   h.recv({
     type: "message_end",
     message: {
       role: "assistant",
-      content: Array.from({ length: 257 }, () => ({ type: "text", text: "a" })),
+      content: Array.from({ length: 300 }, (_, i) => ({ type: "text", text: `b${i}` })),
       stopReason: "stop",
     },
   });
   h.recv({ type: "agent_settled" });
-  expect(h.state.status.state).not.toBe("done");
-  expect(Object.values(h.state.items).filter((item) => item.type === "message")).toHaveLength(0);
+  expect(h.state.status.state).toBe("done");
+  const messages = Object.values(h.state.items).filter((item) => item.type === "message");
+  expect(messages).toHaveLength(300);
+  expect(messages.every((item) => item.complete)).toBe(true);
 });
 test("cumulative multi-block shell output appends boundary separators and only new text", () => {
   const h = replay();
