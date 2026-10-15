@@ -22,7 +22,10 @@ export interface UsagePorts {
     valueColumn: string;
   }): Promise<string | undefined>;
   fetch(url: string, init: RequestInit): Promise<Response>;
-  /** Runs a CLI and returns its stdout. */
+  /**
+   * Runs a CLI with no input and returns its stdout. Rejects with a `UsageRunError`: `missing`
+   * when the executable isn't there, `signed_out` when its output holds any `signedOut` words.
+   */
   run(options: {
     executable: string;
     args: string[];
@@ -30,9 +33,21 @@ export interface UsagePorts {
     cwd: string;
     timeoutMs: number;
     signal: AbortSignal;
+    signedOut?: string[];
   }): Promise<string>;
+  /** Runs `use` in a fresh empty directory, removed afterwards. */
+  inScratchDir<T>(use: (dir: string) => Promise<T>): Promise<T>;
   platform: NodeJS.Platform;
   now(): number;
+}
+
+/** Why a usage command gave no answer; it never carries the command's output. */
+export class UsageRunError extends Error {
+  readonly kind: "missing" | "signed_out" | "failed";
+  constructor(kind: "missing" | "signed_out" | "failed") {
+    super("Usage command failed");
+    this.kind = kind;
+  }
 }
 
 export interface UsageAccount {
@@ -294,17 +309,24 @@ async function fromCommand(
   if (!executable) return undefined;
   let answer: unknown;
   try {
-    const stdout = await ports.run({
-      executable,
-      args: source.args,
-      env: account.env,
-      cwd: account.homeDir,
-      timeoutMs: source.timeoutMs,
-      signal,
-    });
+    const run = (cwd: string) =>
+      ports.run({
+        executable,
+        args: source.args,
+        env: account.env,
+        cwd,
+        timeoutMs: source.timeoutMs,
+        signal,
+        ...(source.signedOut.length ? { signedOut: source.signedOut } : {}),
+      });
+    const stdout = await (source.scratchCwd ? ports.inScratchDir(run) : run(account.homeDir));
     if (stdout.length > maxBytes) throw new Error("too large");
     answer = JSON.parse(stdout);
-  } catch {
+  } catch (error) {
+    // A CLI that isn't installed has no usage to show; a lapsed login is reported, not retried.
+    if (error instanceof UsageRunError && error.kind === "missing") return undefined;
+    if (error instanceof UsageRunError && error.kind === "signed_out")
+      return { ok: false, reason: "signed_out", message: `Sign in again in ${cli}` };
     return { ok: false, reason: "unavailable", message: `${cli} usage is unavailable` };
   }
   // The CLI answered for its own login, which may be another account's.

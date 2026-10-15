@@ -35,6 +35,18 @@ export function createAcpInstance(input: {
       : {}),
   });
 }
+/**
+ * Antigravity's own CLI login as an account, so its plan limits have a row. ace's Antigravity
+ * provider runs `agy_acp_server` in the user's normal environment, so this is the login it uses.
+ */
+export const antigravityIdentity = AcpIdentity.parse({
+  acpAgentId: "official:antigravity-acp",
+  installationId: "antigravity-cli",
+  instanceId: "antigravity-cli-default",
+});
+export const createAntigravityInstance = (userHome: string) =>
+  createAcpInstance({ identity: antigravityIdentity, label: "Antigravity", userHome });
+
 export function acpIsolation(): { status: "unsupported"; reason: string } {
   return {
     status: "unsupported",

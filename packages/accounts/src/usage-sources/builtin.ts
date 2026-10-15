@@ -87,6 +87,41 @@ function openCodeGo(token: z.input<typeof TokenStore>): z.input<typeof UsageSour
 }
 
 const declarations: Record<string, Declared> = {
+  // Antigravity CLI 1.3.5 (`agy`): `-p /usage` is its built-in slash command, answered with no
+  // model turn (`num_turns` 0, no tokens) and no browser while signed in. Signed out, print mode
+  // says "authentication required" and exits. Each group's models share a weekly limit and the
+  // other group's keep working, so a spent group never holds the account. `agy` reads its own
+  // default login, the one ace's Antigravity provider runs with.
+  "official:antigravity-acp": {
+    cli: "Antigravity",
+    sources: [
+      {
+        kind: "command",
+        executable: "agy",
+        args: ["-p", "/usage", "--output-format", "json"],
+        timeoutMs: 15_000,
+        scratchCwd: true,
+        signedOut: ["authentication required", "not signed in"],
+        mapping: {
+          expect: [
+            { path: ["status"], equals: "SUCCESS" },
+            { path: ["command", "name"], equals: "usage" },
+          ],
+          windows: [
+            {
+              group: { each: ["command", "data", "groups", "*"], name: ["name"] },
+              each: ["buckets", "*"],
+              name: ["window"],
+              amount: { path: ["remaining_fraction"], scale: "remainingFraction" },
+              resetsAt: { path: ["reset_time"], unit: "iso" },
+              // The only window 1.3.5 reports; another is shown without a length, not guessed.
+              durationByName: { path: ["window"], minutes: { weekly: 10080 } },
+            },
+          ],
+        },
+      },
+    ],
+  },
   cursor: {
     cli: "Cursor",
     sources: [
