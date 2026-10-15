@@ -85,7 +85,7 @@ test("a remote's branch protection refusal is told apart from a rejected push", 
     await commit(repo, "mine\n");
     await expect(
       service.asPerson(() => service.push({ worktree: repo, remote: "origin" })),
-    ).rejects.toMatchObject({ code: "push_protected" });
+    ).rejects.toMatchObject({ code: "protected_branch" });
   } finally {
     await service.close();
   }

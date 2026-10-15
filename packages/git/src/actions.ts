@@ -3,8 +3,7 @@ import { writingContext } from "./writing-context.ts";
 import { z } from "zod";
 import type { Repository } from "./repository.ts";
 import { GitError, type PushOptions } from "./types.ts";
-import { GitDiagnostics } from "./diagnostics.ts";
-import { parsePushPorcelain } from "./leased-push.ts";
+import { failureMessage } from "./failure-text.ts";
 const head = z.string().regex(/^[a-f0-9]{40,64}$/);
 /** Pathspec bytes one commit may name: well inside every platform's argument limit. */
 const maxPathBytes = 256 * 1024;
@@ -135,58 +134,46 @@ export async function pushBranch(repository: Repository, options: PushOptions): 
     }
     const ref = `refs/heads/${destination}`;
     options.beforePush?.();
-    const diagnostics = new GitDiagnostics();
-    const output = await repository.cli.push(
-      root,
-      [
-        "push",
-        "--porcelain",
-        "--set-upstream",
-        // Pinned to the revision the person saw, never to a freshly fetched one.
-        ...(lease ? [`--force-with-lease=${ref}:${lease}`] : []),
-        "--",
-        remote,
-        `HEAD:${ref}`,
-      ],
-      {
-        write: true,
-        allowFailure: true,
-        timeoutMs: 600_000,
-        captureBytes: 65536,
-        stderr: (chunk) => diagnostics.accept(chunk),
-        env: { GIT_TRACE2_EVENT: "1", GCM_INTERACTIVE: "never" },
-      },
-    );
-    const refused = parsePushPorcelain(output.stdout.toString("utf8")).find(
-      (entry) => entry.ref === ref && entry.status === "rejected",
-    );
-    if (output.exitCode === 0 && !refused) return;
-    const code = diagnostics.finish();
-    // Git's own diagnostics name hooks, credentials and the network; the ref report the rest.
-    if (code !== "git_failed" && code !== "hook_failed")
-      throw new GitError(code, "Git command failed", { code: output.exitCode });
-    const rejection = refusalCode(refused?.reason ?? null, output.stderr);
-    if (!rejection) throw new GitError(code, "Git command failed", { code: output.exitCode });
-    const tracked =
-      rejection === "push_rejected"
-        ? await read(() =>
-            repository.cli.call(
-              root,
-              [
-                "rev-parse",
-                "--verify",
-                "--quiet",
-                `refs/remotes/${remote}/${destination}^{commit}`,
-              ],
-              { allowFailure: true },
-            ),
-          )
-        : undefined;
-    const remoteHead = head.safeParse(tracked?.stdout.toString("utf8").trim());
-    throw new GitError(rejection, "The remote refused the push", {
-      code: output.exitCode,
-      ...(remoteHead.success ? { remoteHead: remoteHead.data } : {}),
-    });
+    try {
+      await repository.cli.push(
+        root,
+        [
+          "push",
+          "--set-upstream",
+          // Pinned to the revision the person saw, never to a freshly fetched one.
+          ...(lease ? [`--force-with-lease=${ref}:${lease}`] : []),
+          "--",
+          remote,
+          `HEAD:${ref}`,
+        ],
+        {
+          write: true,
+          timeoutMs: 600_000,
+          captureBytes: 65536,
+          env: { GIT_TRACE2_EVENT: "1", GCM_INTERACTIVE: "never" },
+        },
+      );
+    } catch (error) {
+      if (!(error instanceof GitError)) throw error;
+      const stderr = typeof error.details.stderr === "string" ? error.details.stderr : "";
+      // Git's diagnostics name a rejection, protection, hooks, credentials and the network. A
+      // refused lease is reported only as its ref's "stale info".
+      if (lease && error.code === "git_failed" && /\[rejected\][^\n]*\(stale info\)/.test(stderr))
+        throw new GitError("push_lease_stale", failureMessage("push_lease_stale"), error.details);
+      if (error.code !== "push_rejected") throw error;
+      const tracked = await read(() =>
+        repository.cli.call(
+          root,
+          ["rev-parse", "--verify", "--quiet", `refs/remotes/${remote}/${destination}^{commit}`],
+          { allowFailure: true },
+        ),
+      );
+      const remoteHead = head.safeParse(tracked.stdout.toString("utf8").trim());
+      throw new GitError(error.code, error.message, {
+        ...error.details,
+        ...(remoteHead.success ? { remoteHead: remoteHead.data } : {}),
+      });
+    }
   });
 }
 
@@ -208,16 +195,6 @@ export async function probeRemote(
   });
 }
 
-/** Classify a refused ref from Git's porcelain reason and the remote's own message. */
-function refusalCode(
-  reason: string | null,
-  stderr: string,
-): "push_rejected" | "push_lease_stale" | "push_protected" | undefined {
-  if (reason === "stale info") return "push_lease_stale";
-  if (/protected branch|GH006/i.test(`${reason ?? ""}\n${stderr}`)) return "push_protected";
-  if (reason === "non-fast-forward" || reason === "fetch first") return "push_rejected";
-  return undefined;
-}
 export async function switchBranch(
   repository: Repository,
   options: { worktree: string; branch: string; allowUncommitted: boolean },

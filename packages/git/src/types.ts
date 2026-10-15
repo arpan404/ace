@@ -91,12 +91,8 @@ export type GitErrorCode =
   | "head_moved"
   | "conflicts"
   | "hook_failed"
-  /** The remote refused a non-fast-forward update; `details.remoteHead` when tracked locally. */
-  | "push_rejected"
   /** A force-with-lease push refused: the remote no longer holds the leased revision. */
   | "push_lease_stale"
-  /** The remote's branch protection refused the update. */
-  | "push_protected"
   | "auth_failed"
   | "remote_unreachable"
   | "remote_ref_not_found"

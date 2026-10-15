@@ -66,10 +66,30 @@ const forge = [
   "write_pending",
   "write_uncertain",
 ].map((kind) => `forge_${kind}`);
-const push = ["push_rejected", "push_lease_stale", "push_protected", "pr_head_unavailable"].map(
-  (code) => `git_${code}`,
-);
-const connection = ["offline", "timeout", "maintenance", "action_not_dispatched"];
+const push = [
+  "push_rejected",
+  "push_lease_stale",
+  "protected_branch",
+  "pr_head_unavailable",
+  "identity_missing",
+  "nothing_to_commit",
+].map((code) => `git_${code}`);
+const connection = [
+  "offline",
+  "timeout",
+  "maintenance",
+  "action_not_dispatched",
+  "action_not_observed",
+  ...[
+    "offline",
+    "no_commits",
+    "pr_exists",
+    "head_missing",
+    "base_missing",
+    "unprocessable",
+    "fork_deleted",
+  ].map((kind) => `forge_${kind}`),
+];
 const review = [
   "review_not_found",
   "review_comment_unavailable",

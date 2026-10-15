@@ -22,18 +22,18 @@ Example:
 
 ```json
 {
-  "at": 3,
+  "at": 4,
   "id": "example",
   "payload": {
-    "meter": {
+    "run": {
       "agentId": "example",
-      "epoch": 0,
-      "model": "example",
-      "source": "catalog",
-      "usedTokens": null,
-      "windowTokens": null
+      "id": "example",
+      "startedAt": 1,
+      "state": "active",
+      "threadId": "example",
+      "trigger": "user"
     },
-    "type": "context_meter.updated"
+    "type": "run.started"
   },
   "seq": 8,
   "threadId": "example"
@@ -56,62 +56,24 @@ Example:
 ```json
 {
   "changes": {
-    "activitySeq": 2,
+    "autoSettleAt": null,
     "details": {
       "baseBranch": "example",
-      "behind": 1,
+      "behind": 2,
       "branch": "example",
+      "diff": {
+        "additions": 8,
+        "deletions": 9,
+        "files": 5
+      },
       "head": null,
-      "linkedIssues": [],
-      "linkedPrs": [],
-      "pullRequestWorkspace": {
-        "baseBranch": "example",
-        "baseSha": "755e7e19ac5b97b5bca995b5cb228f3c8a0a47e8baf4b4e2484a804",
-        "context": "example",
-        "contextTruncated": false,
-        "headBranch": "example",
-        "headRepository": {
-          "forge": "github",
-          "host": "Ty737ka",
-          "name": "ELXj56u",
-          "owner": "OsxUgpmHXjs/T9pVQmLAsL/CTb/74y4/3MxpE4H9DfM/2/0Cjg/8"
-        },
-        "headSha": "f3c37ae4fc4394697fc4487bf46dd1ea542249acf60644c35c8cbc7f19f6",
-        "ref": {
-          "number": 8,
-          "repository": {
-            "forge": "gitlab",
-            "host": "AG7iq",
-            "name": "i_s",
-            "owner": "w/LJx4PFXfaW/P-K5ALI/76WWD3uVK/oW4wE4/sKLdm_"
-          }
-        }
+      "machine": {
+        "host": "example",
+        "name": "example"
       },
-      "repository": {
-        "forge": "gitlab",
-        "host": "4Tw557UK",
-        "name": "WLE",
-        "owner": "AaNTQ/R5Bwz/azQ9Eol6/jGznYw2RGXN"
-      },
-      "worktree": "example",
-      "worktreeCreation": {
-        "actions": [],
-        "attempt": 8,
-        "cleanupComplete": true,
-        "commandId": "example",
-        "details": [],
-        "elapsedMs": 3,
-        "percent": 6,
-        "startedAt": 8,
-        "state": "local",
-        "step": "fetching",
-        "steps": []
-      }
+      "worktree": "example"
     },
-    "hasSentMessage": true,
     "pinned": false,
-    "settledAt": 6,
-    "settledReason": null,
     "unread": false
   },
   "type": "thread.client.updated"
@@ -146,56 +108,41 @@ Example:
       },
       "visibility": "limited"
     },
-    "activityAt": 2,
+    "activityAt": 7,
+    "activitySeq": 3,
     "archivedAt": 0,
-    "autoSettleAt": 4,
-    "capabilities": {
-      "backgroundTaskControl": false,
-      "backgroundVisibility": "partial",
-      "childFidelity": "full",
-      "fork": false,
-      "forkPoints": [],
-      "imageInput": true,
-      "interruptCascades": false,
-      "launchOptions": [],
-      "planMode": true,
-      "resume": false,
-      "rewindFiles": true,
-      "steer": false,
-      "steeringMode": "interrupt-restart",
-      "subagentTranscripts": true,
-      "tokenUsage": false
+    "autoSettleAt": 9,
+    "continuation": {
+      "actionId": "thread.continue_new",
+      "reason": "cursor_cli_retired",
+      "state": "read_only"
     },
     "createdAt": 2,
     "delegatedBy": "example",
-    "handoff": {
-      "bytes": 6,
-      "sourceThreadId": "example",
-      "truncated": true
-    },
     "id": "example",
     "live": {
-      "contextMeter": {
-        "at": 0,
-        "limit": 10,
-        "used": 7
-      },
-      "options": {},
-      "subagentCount": 4,
-      "waitingOn": 7,
-      "watching": [],
-      "workingSince": 5
+      "askingThreads": [],
+      "runningSubagentCount": 7,
+      "workingSince": 0
     },
-    "provider": "pi",
+    "permission": {
+      "custom": "example",
+      "effective": "full-access",
+      "override": null,
+      "pending": true
+    },
+    "pinned": true,
+    "provider": "antigravity",
     "queue": {
-      "paused": true,
-      "reason": "manual",
-      "resumeAt": null,
-      "revision": 5
+      "paused": false,
+      "pendingCount": 8,
+      "reason": null,
+      "resumeAt": 8,
+      "revision": 2
     },
     "rootAgentId": "example",
     "settledAt": 3,
-    "settledReason": "manual",
+    "snoozedUntil": 6,
     "status": {
       "state": "new"
     },
@@ -210,6 +157,7 @@ Example:
       "state": "applied"
     },
     "title": "example",
+    "titleSource": "provider",
     "updatedAt": 9,
     "workspaceId": "example"
   },

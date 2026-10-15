@@ -112,6 +112,16 @@ const copy: Record<string, string> = {
   forge_unsupported:
     "This forge or GitHub feature isn't supported here: open the pull request on its website.",
   forge_conflict: "This changed on GitHub since ace last read it. Refresh, then retry.",
+  forge_offline: "GitHub can't be reached from the daemon: check its connection, then retry.",
+  forge_no_commits:
+    "The branch has no commits its base doesn't: commit and push changes before opening a PR.",
+  forge_pr_exists: "This branch already has an open pull request: link it instead.",
+  forge_head_missing: "The branch isn't on GitHub yet: push it, then retry.",
+  forge_base_missing: "The base branch isn't on GitHub: pick another base, then retry.",
+  forge_unprocessable:
+    "GitHub couldn't accept that: check the title, base and reviewers, then retry.",
+  forge_fork_deleted: "The pull request's fork was deleted: its branch can't be read or updated.",
+  action_not_observed: "The daemon didn't see the result yet: refresh to check it before retrying.",
   forge_write_refused: "GitHub refused the change: refresh the pull request, then retry.",
   forge_validation_failed:
     "GitHub rejected the request as invalid: check what you entered, then retry.",
@@ -181,6 +191,7 @@ const uncertain = new Set([
   "forge_write_uncertain",
   "forge_outcome_uncertain",
   "uncertain_delivery",
+  "action_not_observed",
   "offline",
   "timeout",
 ]);

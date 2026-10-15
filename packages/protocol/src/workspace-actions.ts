@@ -255,7 +255,11 @@ export const GitActionError = z.enum([
   /** A force-with-lease push refused: the remote moved past the leased revision. */
   "git_push_lease_stale",
   /** The remote's branch protection refused the push. */
-  "git_push_protected",
+  "git_protected_branch",
+  /** No author name or email is configured for the commit. */
+  "git_identity_missing",
+  /** The commit had nothing to take. */
+  "git_nothing_to_commit",
   /** A PR checkout's head repository is gone, or no configured remote pushes to it. */
   "git_pr_head_unavailable",
   "git_auth_failed",
