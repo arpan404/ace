@@ -44,16 +44,14 @@ export const HistoryScanStatus = z.object({
   error: z.string().max(8192).optional(),
 });
 export type HistoryScanStatus = z.infer<typeof HistoryScanStatus>;
-export const HistoryScanUpdated = z.object({
-  type: z.literal("history.scan.updated"),
-  scan: HistoryScanStatus,
-});
 export const HistoryListRequest = z.object({
   type: z.literal("history.list"),
   requestId: z.string().min(1).max(256).optional(),
   cwd: z.string(),
   search: z.string().max(256).optional(),
   openableOnly: z.boolean().optional(),
+  /** Read provider history again instead of reusing this session's in-memory results. */
+  rescan: z.boolean().optional(),
   limit: z.number().int().min(1).max(200).default(50),
   before: z.object({ lastActivity: Timestamp, id: z.string() }).optional(),
 });
@@ -86,17 +84,14 @@ export const HistoryImportResponse = z.discriminatedUnion("status", [
   }),
 ]);
 
-export const HistoryScanRequest = z.object({
-  type: z.literal("history.scan"),
+/** End the on-demand past-sessions session: everything read from provider history is discarded. */
+export const HistoryReleaseRequest = z.object({
+  type: z.literal("history.release"),
   requestId: z.string().min(1).max(256).optional(),
-  action: z.enum(["start", "status"]).optional(),
 });
-export const HistoryScanResponse = z.object({
-  type: z.literal("history.scan"),
+export const HistoryReleaseResponse = z.object({
+  type: z.literal("history.release"),
   requestId: z.string().min(1).max(256).optional(),
-  scan: HistoryScanStatus.optional(),
-  files: z.number().int().nonnegative(),
-  unsupported: z.array(z.object({ instanceId: z.string(), reason: z.string() })).max(256),
 });
 export const HistoryContinueRequest = z.object({
   type: z.literal("history.continue"),

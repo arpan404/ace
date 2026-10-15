@@ -29,7 +29,6 @@ export interface ScanTally {
   bytes: number;
   skipped: number;
   unsupported: { instanceId: string; reason: string }[];
-  retry: { instanceId: string; path: string }[];
 }
 export interface SampleContext {
   catalog: Catalog;
@@ -66,9 +65,8 @@ export async function sampleFile(
         error.message === "Session changed while sampling" ||
         error.message === "Session changed during import");
     const missing = error instanceof Error && "code" in error && error.code === "ENOENT";
-    if (sourceChanged && result.retry.length < 4096)
-      result.retry.push({ instanceId: instance.id, path });
-    else if (!missing)
+    // A source that changed while sampled is read by the next scan the person asks for.
+    if (!sourceChanged && !missing)
       unsupported(
         result,
         instance.id,

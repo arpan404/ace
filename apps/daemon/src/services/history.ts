@@ -14,18 +14,6 @@ export async function startHistory(context: ServiceContext): Promise<void> {
   });
   resources.own(() => history.close());
   services.history = history;
-  context.readiness?.(() => {
-    const scan = history.scanStatus();
-    return {
-      state:
-        scan.state === "scanning" ? "starting" : scan.state === "failed" ? "degraded" : "ready",
-      ...(scan.error ? { error: `Service history: ${scan.error}` } : {}),
-    };
-  });
-  context.onListen.push((server) => {
-    resources.own(history.subscribeScan((scan) => server.broadcastHistoryScan(scan)));
-    server.broadcastHistoryScan(history.scanStatus());
-  });
 }
 
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -39,15 +27,12 @@ export function createHistorySession(context: SocketContext): SocketService {
     },
     async handle(message) {
       switch (message.type) {
-        case "history.scan":
+        case "history.release":
         case "history.list":
         case "history.import":
         case "history.continue": {
-          const scope =
-            message.type === "history.list" ||
-            (message.type === "history.scan" && message.action === "status")
-              ? "read"
-              : "operate";
+          // Listing reads provider files on the person's behalf, so it needs operate scope.
+          const scope = message.type === "history.release" ? "read" : "operate";
           const correlation =
             "requestId" in message && message.requestId ? { requestId: message.requestId } : {};
           if (!authorize(scope)) {

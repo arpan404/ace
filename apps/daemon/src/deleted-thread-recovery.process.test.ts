@@ -11,7 +11,7 @@ import { Client, token } from "./socket-test-support.ts";
 import { openDaemonHistory } from "./history.ts";
 
 test.each<ProviderKind>(["claude", "codex", "opencode", "cursor", "pi", "acp"])(
-  "%s deletion survives database reopen, history scanning and reconnect",
+  "%s deletion survives database reopen, finding past sessions and reconnect",
   async (provider) => {
     const root = await mkdtemp(join(tmpdir(), "ace-deleted-recovery-"));
     const path = join(root, "events.sqlite");
@@ -81,8 +81,11 @@ test.each<ProviderKind>(["claude", "codex", "opencode", "cursor", "pi", "acp"])(
         instances: [{ id: "account", provider: "claude", homeDir: home }],
       });
       try {
-        await history.startScan();
-        expect(history.scanStatus().state).toBe("ready");
+        const found = await history.handle(
+          { type: "history.list", cwd: "/repo", limit: 10 },
+          new AbortController().signal,
+        );
+        expect(found.type).toBe("history.list");
         expect(store.getThread(thread.id)?.deletedAt).toBe(1000);
         const reconnected = await connect();
         reconnected.send({ type: "command", command });

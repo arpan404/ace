@@ -48,7 +48,7 @@ port.on("message", async (value: unknown) => {
         id,
         value:
           request.op === "list"
-            ? catalog.list(request.request)
+            ? catalog.list(request.request, request.exclude)
             : (catalog.get(request.id)?.summary ?? null),
       });
     } catch (error) {
@@ -97,11 +97,10 @@ port.on("message", async (value: unknown) => {
         options.instances,
         controller.signal,
         (files, scanProgress) => progress.update({ progress: files, result: scanProgress }),
-        request.changes,
       );
       result = inventory;
       progress.finish({ progress: inventory.files, result: inventory });
-    } else if (request.op === "list") result = catalog.list(request.request);
+    } else if (request.op === "list") result = catalog.list(request.request, request.exclude);
     else if (request.op === "get") result = catalog.get(request.id)?.summary ?? null;
     else if (request.op === "reference") {
       const source = catalog.get(request.id);

@@ -30,20 +30,22 @@ Example:
 
 ```json
 {
-  "access": "auto-review",
-  "concurrency": 7,
+  "concurrency": 6,
   "enabled": true,
   "id": "example",
-  "jitterMs": 9,
+  "jitterMs": 5,
   "missedRun": "run_once",
   "prompt": "example",
-  "provider": "claude",
+  "provider": "opencode",
   "title": "example",
   "trigger": {
-    "kind": "manual"
+    "kind": "file",
+    "paths": [
+      "example"
+    ]
   },
   "workspace": "example",
-  "worktree": true
+  "worktree": false
 }
 ```
 
@@ -96,7 +98,7 @@ Example:
 
 ```json
 {
-  "at": 4,
+  "at": 3,
   "message": "example"
 }
 ```
@@ -118,20 +120,23 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 1,
-    "enabled": true,
+    "concurrency": 7,
+    "enabled": false,
     "id": "example",
-    "jitterMs": 2,
-    "missedRun": "skip",
+    "jitterMs": 7,
+    "missedRun": "run_once",
     "model": "example",
     "prompt": "example",
-    "provider": "pi",
+    "provider": "opencode",
     "title": "example",
     "trigger": {
-      "kind": "manual"
+      "kind": "file",
+      "paths": [
+        "example"
+      ]
     },
     "workspace": "example",
-    "worktree": true
+    "worktree": false
   },
   "requestId": "example",
   "type": "automation.put"
@@ -206,7 +211,7 @@ Example:
 
 ```json
 {
-  "limit": 9,
+  "limit": 2,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -232,6 +237,10 @@ Example:
 ```json
 {
   "automations": [],
+  "inbox": {
+    "before": null,
+    "runs": []
+  },
   "ok": false,
   "requestId": "example",
   "type": "automation.result"
@@ -262,12 +271,11 @@ Example:
   "automationId": "example",
   "eventKey": "example",
   "id": "example",
-  "result": "example",
-  "startedAt": 2,
-  "status": "succeeded",
+  "startedAt": 0,
+  "status": "running",
   "threadId": "example",
   "title": "example",
-  "trigger": "schedule"
+  "trigger": "file"
 }
 ```
 
@@ -325,7 +333,7 @@ Example:
   "kind": "schedule",
   "schedule": {
     "expression": "example",
-    "kind": "cron",
+    "kind": "rrule",
     "startAt": 0,
     "timezone": "example"
   }
@@ -349,8 +357,8 @@ Example:
 {
   "event": "ci_failed",
   "kind": "github",
-  "pollIntervalMs": 60000,
-  "repository": "en9Y5el5/mg3X"
+  "pollIntervalMs": 60008,
+  "repository": "65sGWAyj/jC-9"
 }
 ```
 

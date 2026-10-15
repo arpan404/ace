@@ -7,7 +7,6 @@ import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import type { StatementSync } from "node:sqlite";
 import { HistoryListRequest, HistoryListResponse, HistorySession } from "@ace/protocol/history";
 import { z } from "zod";
-import { ScanUpdates } from "./scan-updates.ts";
 import { SnapshotScratch, type SnapshotScratchOptions } from "./snapshot-scratch.ts";
 import { ReadBackoff } from "./read-backoff.ts";
 import { CrashLedger } from "./crash-ledger.ts";
@@ -35,7 +34,6 @@ export class Catalog {
   /** Sources in flight when the isolate died; read alone or reported failed. */
   readonly crashes: CrashLedger;
   private statements = new Map<string, StatementSync>();
-  readonly updates: ScanUpdates;
   private registryKey = "";
   private needsCleanup = true;
   private displaySummary: (json: string) => HistorySession = (json) =>
@@ -75,7 +73,6 @@ export class Catalog {
         `The saved-history index is format ${String(format ?? "unknown")}, and this build reads format ${FORMAT}`,
       );
     }
-    this.updates = new ScanUpdates(this.db);
     this.backoff = new ReadBackoff(this.db, options.now);
     this.crashes = new CrashLedger(this.db, options.now);
     this.reader = new DatabaseSync(path, { readOnly: true });
@@ -230,7 +227,6 @@ export class Catalog {
   }
   put(source: Source, epoch: number): void {
     const s = source.summary;
-    this.updates.source(source.instanceId, s.nativeId, s.parentNativeId);
     this.statement(
       "INSERT INTO sources VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET fingerprint=excluded.fingerprint,cwd=excluded.cwd,activity=excluded.activity,parent=excluded.parent,summary=excluded.summary,epoch=excluded.epoch,own_activity=excluded.own_activity,hidden=excluded.hidden",
     ).run(
@@ -359,16 +355,18 @@ export class Catalog {
       "INSERT INTO native_titles SELECT ?,?,?,? WHERE EXISTS (SELECT 1 FROM sources WHERE instance=? AND native=?) ON CONFLICT(instance,native) DO UPDATE SET title=excluded.title,origin=excluded.origin WHERE excluded.origin='index' OR native_titles.origin<>'index'",
     ).run(instance, native, title, origin, instance, native);
   }
-  list(input: z.infer<typeof HistoryListRequest>) {
+  /** `exclude` holds `provider:nativeId` keys of sessions ace itself owns, so none appear twice. */
+  list(input: z.infer<typeof HistoryListRequest>, exclude: readonly string[] = []) {
     const { cwd, limit, before, search, openableOnly } = HistoryListRequest.parse(input);
     const cursor = before ? " AND (activity<? OR (activity=? AND id<?))" : "";
     const rows = this.readStatement(
-      `SELECT id,activity,summary FROM visible_sources sources WHERE cwd=? AND parent IS NULL AND hidden=0 AND (?=0 OR (json_extract(summary,'$.support.status')='supported' AND NOT EXISTS (${blockedDescendant}))) AND (?='' OR instr(lower(COALESCE((SELECT title FROM native_titles t WHERE t.instance=sources.instance AND t.native=sources.native),json_extract(summary,'$.title'))),lower(?))>0) AND NOT EXISTS (${preferredDuplicate("sources")})${cursor} ORDER BY activity DESC,id DESC LIMIT ?`,
+      `SELECT id,activity,summary FROM visible_sources sources WHERE cwd=? AND parent IS NULL AND hidden=0 AND (?=0 OR (json_extract(summary,'$.support.status')='supported' AND NOT EXISTS (${blockedDescendant}))) AND (?='' OR instr(lower(COALESCE((SELECT title FROM native_titles t WHERE t.instance=sources.instance AND t.native=sources.native),json_extract(summary,'$.title'))),lower(?))>0) AND NOT EXISTS (SELECT 1 FROM json_each(?) WHERE value=json_extract(summary,'$.provider')||':'||sources.native) AND NOT EXISTS (${preferredDuplicate("sources")})${cursor} ORDER BY activity DESC,id DESC LIMIT ?`,
     ).all(
       cwd,
       openableOnly ? 1 : 0,
       search ?? "",
       search ?? "",
+      JSON.stringify(exclude),
       ...(before ? [before.lastActivity, before.lastActivity, before.id] : []),
       limit + 1,
     );

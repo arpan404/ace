@@ -1,6 +1,5 @@
 import { useIssueSource, usePrSource } from "@/features/forge/index.ts";
 import { useNavigate } from "@tanstack/react-router";
-import { ProjectPastSessions } from "@/features/history/index.ts";
 import { ProjectPicker } from "./project-picker.tsx";
 import type { AccessMode, BranchRef, ProviderKind, WorktreeBase } from "@ace/protocol";
 import { Suspense, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
@@ -711,10 +710,6 @@ function PreparationPage(props: {
                 />
                 ?
               </h2>
-            </div>
-            {/* Past sessions sit under the question, never below the composer. */}
-            <div className="w-full shrink-0 px-2 pb-4 text-left">
-              <ProjectPastSessions projectId={project} />
             </div>
           </div>
           <div className="shrink-0">

@@ -1,5 +1,7 @@
 # Daemon startup regression review
 
+> 2026-10-15: startup no longer scans provider history (ADR 0033 amendment). The history rows below describe the earlier design; `history-startup.process.test.ts` now asserts that startup reads no provider history file and creates no history index.
+
 The owner's merge-only execution rule permits targeted tests for merge conflicts.
 After merging origin/main 41df1b1d, 20 tests passed across these five files:
 `composition.process.test.ts`, `startup.process.test.ts`,

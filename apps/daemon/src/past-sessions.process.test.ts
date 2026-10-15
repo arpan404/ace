@@ -155,7 +155,6 @@ async function fixture(provider: Exclude<HistoryProvider, "cursor">) {
       history: { instances: [{ id: "fixture", provider, homeDir: historyHome }] },
     });
     cleanup.push(daemon.close);
-    await daemon.history?.startScan();
     return daemon;
   };
   return { root, home, cwd, path, records, receipt, launch };
@@ -247,38 +246,6 @@ for (const provider of ["claude", "codex", "opencode"] as const) {
     expect(await readFile(f.path, "utf8")).toBe(
       f.records.map((record) => JSON.stringify(record)).join("\n") + "\n",
     );
-  });
-  test(`${provider} startup reuses its saved index and reads only the changed session`, async () => {
-    const f = await fixture(provider);
-    let daemon = await f.launch();
-    await daemon.close();
-    daemon = await f.launch();
-    expect(daemon.history?.scanStatus().stats).toMatchObject({ reads: 0, skipped: 1 });
-    const changedScan = Promise.withResolvers<void>();
-    const stop = daemon.history?.subscribeScan((scan) => {
-      if (scan.state === "ready" && scan.stats.reads === 1) changedScan.resolve();
-    });
-    await write(
-      f.path,
-      provider === "opencode"
-        ? [{ id: native, directory: f.cwd, title: "changed title", time: { updated: 2000 } }]
-        : [
-            ...f.records,
-            provider === "claude"
-              ? { type: "ai-title", sessionId: native, aiTitle: "changed title" }
-              : {
-                  type: "response_item",
-                  payload: {
-                    type: "message",
-                    role: "user",
-                    content: [{ type: "input_text", text: "another saved prompt" }],
-                  },
-                },
-          ],
-    );
-    await daemon.history?.startScan();
-    await changedScan.promise;
-    stop?.();
   });
 }
 test("a provider without native resume offers import only and never opens a session", async () => {

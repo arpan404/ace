@@ -177,8 +177,10 @@ test("allows automatic UI reads without granting execution or plugin changes", (
   ];
   for (const message of messages) expect(smokeMessage(message).type).toBe(message.type);
 });
-test("allows scanning and importing into the guarded daemon", () => {
-  expect(smokeMessage({ type: "history.scan", action: "start" }).type).toBe("history.scan");
+test("allows finding and importing past sessions into the guarded daemon", () => {
+  expect(smokeMessage({ type: "history.list", cwd: "/repo", rescan: true }).type).toBe(
+    "history.list",
+  );
   expect(
     smokeMessage({ type: "history.import", sourceId: "session", workspaceId: "scratch-workspace" })
       .type,

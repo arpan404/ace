@@ -79,8 +79,11 @@ export function checkPage(facts: PageFacts): Finding[] {
       add("empty-models", "Model choices remain empty after the catalog is ready");
     if (facts.expected.skills && /No skills|Loading skills|No commands|No results/.test(facts.text))
       add("empty-skills", "Skills remain empty after the catalog is ready");
-    if (facts.expected.sessions && /No matching sessions|Loading past sessions/.test(facts.text))
-      add("empty-sessions", "Past sessions remain empty after the scan is ready");
+    if (
+      facts.expected.sessions &&
+      /No past sessions in |Looking for past sessions/.test(facts.text)
+    )
+      add("empty-sessions", "Past sessions remain empty after Find past sessions");
   }
   return failures;
 }

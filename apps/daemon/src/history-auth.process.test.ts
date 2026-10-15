@@ -3,12 +3,11 @@ import { DeviceId, SocketTicket, WorkspaceId, ThreadId } from "@ace/protocol";
 import { accessRequest } from "./client-access.ts";
 import { fixture } from "./socket-test-support.ts";
 
-test("history requires authentication and read-only devices cannot scan import or continue", async () => {
+test("history requires authentication and read-only devices cannot find, import or continue past sessions", async () => {
   const f = await fixture({
     history: {
       async handle(request) {
-        if (request.type === "history.list")
-          return { type: "history.list", sessions: [], next: null };
+        if (request.type === "history.release") return { type: "history.release" };
         throw new Error("unexpected operate request");
       },
     },
@@ -32,9 +31,9 @@ test("history requires authentication and read-only devices cannot scan import o
       ticket: ticket.ticket,
     });
     expect((await client.next()).type).toBe("welcome");
+    client.send({ type: "history.release" });
+    expect(await client.next()).toMatchObject({ type: "history.release" });
     client.send({ type: "history.list", cwd: "/repo", limit: 50 });
-    expect(await client.next()).toMatchObject({ type: "history.list", sessions: [] });
-    client.send({ type: "history.scan" });
     expect(await client.next()).toMatchObject({ type: "error", code: "forbidden" });
     client.send({
       type: "history.import",
