@@ -5,7 +5,8 @@ export interface TransportEvents {
   open(): void;
   message(text: string): void;
   binary?(bytes: Uint8Array): void;
-  close(code: number): void;
+  /** The socket closed, with its close code and the peer's reason when it gave one. */
+  close(code: number, reason?: string): void;
 }
 export interface Transport {
   readonly supportsBinary?: boolean;
@@ -46,6 +47,18 @@ export interface ConnectionInfo {
   since?: number;
   /** When the connection last became ready. */
   lastReadyAt?: number;
+  /** Why the last connection ended, for diagnostics; absent until one has. */
+  lastClose?: ConnectionClose;
+}
+/**
+ * How a connection ended: the socket's close code and reason, or the client's own (1006 for a
+ * missed heartbeat or handshake, 1002 for a server frame it couldn't read).
+ */
+export interface ConnectionClose {
+  code: number;
+  reason: string;
+  /** When it closed; absent without `now`. */
+  at?: number;
 }
 export interface ClientOptions {
   deviceId: DeviceId;

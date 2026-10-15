@@ -19,6 +19,7 @@ const codes = new Set<string>([
   "not_dispatched",
   "busy",
   "protocol",
+  "version_mismatch",
   "auth",
   "storage",
   "daemon",

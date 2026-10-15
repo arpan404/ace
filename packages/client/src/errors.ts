@@ -9,6 +9,8 @@ export class ClientError extends Error {
     | "limit"
     | "busy"
     | "protocol"
+    /** The daemon sent a frame this client's protocol schemas can't read: a different build. */
+    | "version_mismatch"
     | "auth"
     | "storage"
     | "daemon";

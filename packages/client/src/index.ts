@@ -8,6 +8,7 @@ export type {
   ClientOptions,
   ConnectionState,
   ConnectionInfo,
+  ConnectionClose,
   Transport,
   TransportEvents,
   Storage,

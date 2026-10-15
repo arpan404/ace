@@ -60,15 +60,17 @@ test("a service message that beats its schemas waits for them, and frames after 
 
 test("a malformed service message is still refused once the schemas have loaded", async () => {
   const codec = new GatedCodec();
-  const { link, frame } = connection(codec);
+  const { link, frame, received } = connection(codec);
   link.start();
   frame({ type: "welcome", hostId: "host", protocolVersion: 1, headSeq: 0 });
   frame({ type: "settings.changed", subscriptionId: "settings", entries: "not a list" });
   codec.gate.resolve();
   await codec.load();
   await Promise.resolve();
-  expect(link.state).toBe("fatal");
-  expect(link.error?.code).toBe("protocol");
+  expect(received).toEqual(["welcome"]);
+  // A frame of another build drops the socket and retries; it never strands the session.
+  expect(link.state).toBe("reconnecting");
+  expect(link.error?.code).toBe("version_mismatch");
 });
 
 test("imported thread provenance is decoded and validated before history service schemas load", () => {

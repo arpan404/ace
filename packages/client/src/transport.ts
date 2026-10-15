@@ -4,7 +4,10 @@ export interface SocketLike {
   binaryType?: string;
   addEventListener(type: "open" | "error", listener: () => void): void;
   addEventListener(type: "message", listener: (event: { data: unknown }) => void): void;
-  addEventListener(type: "close", listener: (event: { code: number }) => void): void;
+  addEventListener(
+    type: "close",
+    listener: (event: { code: number; reason?: string }) => void,
+  ): void;
   send(text: string): void;
   close(): void;
 }
@@ -33,16 +36,16 @@ export function webSocketTransport(createSocket: () => SocketLike): Transport {
         )
           next.binary(event.data instanceof Uint8Array ? event.data : new Uint8Array(event.data));
         else {
-          next.close(4002);
+          next.close(4002, "Unsupported frame type");
           opened.close();
         }
       });
       opened.addEventListener("close", (event) => {
-        if (current()) next.close(event.code);
+        if (current()) next.close(event.code, event.reason ?? "");
       });
       opened.addEventListener("error", () => {
         if (!current()) return;
-        next.close(1006);
+        next.close(1006, "Socket error");
         opened.close();
       });
     },
