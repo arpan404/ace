@@ -1,4 +1,5 @@
 import { realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { createTestHomeGuard } from "./test-isolation-policy.ts";
@@ -67,6 +68,40 @@ export function assertTestHomeIsolation(
     paths: path,
     realpath: realpathSync,
   })(candidate);
+}
+
+function within(root: string, candidate: string): boolean {
+  const difference = path.relative(root, candidate);
+  return (
+    difference === "" || (!path.isAbsolute(difference) && difference.split(/[\\/]/)[0] !== "..")
+  );
+}
+
+/**
+ * A test's git working directory must already exist inside the temp root. A missing or relative
+ * cwd would fall back to the checkout running the tests, and git would then write its config.
+ */
+export function assertTestGitDirectory(cwd: string, temporaryRoot = tmpdir()): string {
+  if (!path.isAbsolute(cwd)) throw new Error(`Test git cwd must be absolute: ${cwd}`);
+  const canonical = realpathSync(cwd);
+  const root = realpathSync(temporaryRoot);
+  if (!within(root, canonical))
+    throw new Error(`Test git cwd ${canonical} is outside the test temp root ${root}`);
+  assertTestHomeIsolation(canonical);
+  return cwd;
+}
+
+/**
+ * Inherited repository selectors (GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR, GIT_INDEX_FILE, ...)
+ * would point a fixture's git at the checkout running the tests. Only the discovery ceiling stays.
+ */
+export function testGitEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const parsed = parseTestEnvironment(env);
+  return Object.fromEntries(
+    Object.entries(parsed).filter(
+      ([key]) => !key.startsWith("GIT_") || key === "GIT_CEILING_DIRECTORIES",
+    ),
+  );
 }
 
 export function assertTestEnvironmentIsolation(env: NodeJS.ProcessEnv): void {

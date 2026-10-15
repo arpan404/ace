@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { spawnGitProcess } from "@ace/git";
+import { assertTestGitDirectory } from "@ace/provider-kit/test-isolation";
 import {
   Command,
   Thread,
@@ -31,7 +32,7 @@ export const run = promisify(execFile);
 export const names = ["model", "api", "ui"] as const;
 export type Heads = Record<(typeof names)[number], string>;
 export async function git(cwd: string, ...args: string[]) {
-  return (await run("git", ["-C", cwd, ...args])).stdout.trim();
+  return (await run("git", ["-C", assertTestGitDirectory(cwd), ...args])).stdout.trim();
 }
 
 /** File contents a layer's commit writes, keyed by layer then path. */

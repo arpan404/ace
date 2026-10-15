@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { ThreadId, type WorktreeBase } from "@ace/protocol";
+import { assertTestGitDirectory } from "@ace/provider-kit/test-isolation";
 import { transitionHarness } from "./engine/transition-test-support.ts";
 import { startServer } from "./server.ts";
 import { token } from "./socket-test-support.ts";
@@ -15,7 +16,7 @@ afterEach(async () => {
 });
 
 const run = async (cwd: string, ...args: string[]) =>
-  (await git("git", ["-C", cwd, ...args])).stdout.trim();
+  (await git("git", ["-C", assertTestGitDirectory(cwd), ...args])).stdout.trim();
 
 /**
  * A daemon whose workspace is a checkout of a bare `origin` (with `origin/main` fetched and set

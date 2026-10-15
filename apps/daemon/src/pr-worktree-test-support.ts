@@ -2,6 +2,7 @@ import { appendFile, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Command, ThreadId } from "@ace/protocol";
+import { assertTestGitDirectory } from "@ace/provider-kit/test-isolation";
 import {
   fakeGh,
   standard,
@@ -17,7 +18,7 @@ import { startServer } from "./server.ts";
 import { token } from "./socket-test-support.ts";
 
 export const run = async (cwd: string, ...args: string[]) =>
-  (await git("git", ["-C", cwd, ...args])).stdout.trim();
+  (await git("git", ["-C", assertTestGitDirectory(cwd), ...args])).stdout.trim();
 
 /** Real Git and SQLite/socket edges; only the person's gh executable is substituted. */
 export async function prDaemon(
