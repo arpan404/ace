@@ -372,7 +372,7 @@ it("bounds GitHub processes and resumes queued sources when requests complete", 
 });
 it("records oversized rendered prompts without invoking the executor", () => {
   const h = harness();
-  h.service.put(definition({ prompt: "{{subject}}".repeat(9) }));
+  h.service.put(definition({ prompt: "{{subject}}".repeat(40) }));
   expect(
     h.service.trigger("triage", { key: "too-large", variables: { subject: "x".repeat(8192) } }),
   ).toMatchObject({ status: "failed", result: "Rendered prompt exceeds limit" });
