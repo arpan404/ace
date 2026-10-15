@@ -12,12 +12,16 @@ try {
   const started = performance.now();
   const changes = 100;
   for (let i = 0; i < changes; i++)
-    store.recordWorkspaceFileChange(workspace, {
-      id: `change-${i}`,
-      op: "write",
-      path: "file",
-      version: `v${i}`,
-    });
+    store.recordWorkspaceFileChange(
+      workspace,
+      store.workspaceReservations.workspaceRoot(workspace, home),
+      {
+        id: `change-${i}`,
+        op: "write",
+        path: "file",
+        version: `v${i}`,
+      },
+    );
   const seconds = (performance.now() - started) / 1000;
   process.stdout.write(
     JSON.stringify({

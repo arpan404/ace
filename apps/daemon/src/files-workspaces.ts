@@ -86,7 +86,7 @@ export class FilesWorkspaces {
       now,
       id,
       authorize: () => !store.workspaceReservations.reserved(root),
-      onChange: (change) => store.recordWorkspaceFileChange(thread.workspaceId, change),
+      onChange: (change) => store.recordWorkspaceFileChange(thread.workspaceId, root, change),
       onUploadRecovery: (notice) =>
         log?.log("warn", "Upload receipt settled after destination changed", notice),
     }).catch((error: unknown) => {
