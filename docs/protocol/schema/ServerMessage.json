@@ -1577,6 +1577,41 @@
     },
     {
       "properties": {
+        "commands": {
+          "items": {
+            "properties": {
+              "commandId": {
+                "$ref": "https://ace.local/protocol/v1/CommandId.json"
+              },
+              "state": {
+                "$ref": "https://ace.local/protocol/v1/CommandStatusState.json"
+              }
+            },
+            "required": [
+              "commandId",
+              "state"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "type": {
+          "const": "command.status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "commands"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "type": {
           "const": "pong",
           "type": "string"

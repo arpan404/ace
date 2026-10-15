@@ -3035,6 +3035,26 @@ Example:
 }
 ```
 
+### command.status
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"command.status"` |  |
+| requestId | yes | string | {"minLength":1} |
+| commandIds | yes | array | {"minItems":1,"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/CommandId.json"}} |
+
+Example:
+
+```json
+{
+  "commandIds": [
+    "example"
+  ],
+  "requestId": "example",
+  "type": "command.status"
+}
+```
+
 ### ping
 
 | Field | Required | Type | Constraints |

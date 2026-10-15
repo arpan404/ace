@@ -171,6 +171,13 @@ export const CommandResult = z.object({
     .optional(),
 });
 export type CommandResult = z.infer<typeof CommandResult>;
+/**
+ * What the daemon knows of a command a client still waits on: `running` while it executes,
+ * `settled` once its receipt has been sent again ahead of the reply, `unknown` when the daemon
+ * has no record of it and isn't running it (a restart dropped it, or it ended without a result).
+ */
+export const CommandStatusState = z.enum(["running", "settled", "unknown"]);
+export type CommandStatusState = z.infer<typeof CommandStatusState>;
 /** The core client messages, in the order the full `ClientMessage` lists them. */
 export const CoreClientMessage = z.discriminatedUnion("type", [
   z
@@ -223,6 +230,12 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     requestId: z.string().min(1),
     subscriptionId: z.string().min(1),
     before: ThreadListCursor,
+  }),
+  /** Asks after commands sent on this socket that have no receipt yet; answered in order. */
+  z.object({
+    type: z.literal("command.status"),
+    requestId: z.string().min(1),
+    commandIds: z.array(CommandId).min(1).max(64),
   }),
   z.object({ type: z.literal("ping") }),
 ]);
@@ -327,6 +340,11 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
     eof: z.boolean(),
   }),
   ItemsPage.extend({ type: z.literal("items.page"), requestId: z.string() }),
+  z.object({
+    type: z.literal("command.status"),
+    requestId: z.string(),
+    commands: z.array(z.object({ commandId: CommandId, state: CommandStatusState })),
+  }),
   z.object({ type: z.literal("pong") }),
 ]);
 export type CoreServerMessage = z.infer<typeof CoreServerMessage>;
@@ -340,6 +358,7 @@ export const coreClientTypes: ReadonlySet<string> = new Set([
   "items.page",
   "threads.page",
   "entities.page",
+  "command.status",
   "ping",
 ]);
 /** `type` of every core server message. */
@@ -359,5 +378,6 @@ export const coreServerTypes: ReadonlySet<string> = new Set([
   "threads.page",
   "entities.page",
   "entities.page.part",
+  "command.status",
   "pong",
 ]);

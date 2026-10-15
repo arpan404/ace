@@ -2527,6 +2527,32 @@
     },
     {
       "properties": {
+        "commandIds": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/CommandId.json"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "requestId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "command.status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "commandIds"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "type": {
           "const": "ping",
           "type": "string"
