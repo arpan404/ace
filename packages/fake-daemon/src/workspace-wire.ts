@@ -10,6 +10,7 @@ import {
   type WorkspaceActionRequest,
   type CommandPayload,
   type CommandResult,
+  type ThreadDetails,
   type ThreadId,
 } from "@ace/protocol";
 import { synthesizedStatus } from "./catalog/git-status.ts";
@@ -17,12 +18,27 @@ import { scriptOutput } from "./catalog/scripts.ts";
 import { FakeForgeWire } from "./forge-wire.ts";
 import { emptyIssueList, FakeIssueWire } from "./issue-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
-import { fakeBranchRefs } from "./worktree-base.ts";
+import { FakeGitStates } from "./git-states.ts";
 import type { FakeServiceContext } from "./service-context.ts";
 const emptyDiff = { files: 0, additions: 0, deletions: 0 };
 
 export class FakeWorkspaceWire {
   readonly drafts = new FakeSourceControlDrafts();
+  /** The projects' repositories as Git finds them: not one, empty, locked, failing setup. */
+  readonly git = new FakeGitStates();
+  private moveFailure: string | undefined;
+  /** Every checkout move fails with `error` (its change kept as failed), or none does. */
+  failMoves(error: string | undefined): void {
+    this.moveFailure = error;
+  }
+  /** Change a thread's checkout facts, as the daemon's refresh would (a terminal commit). */
+  setDetails(threadId: string, details: Partial<ThreadDetails>): void {
+    const thread = this.context.thread(threadId)?.thread;
+    this.context.update(threadId, {
+      type: "thread.client.updated",
+      changes: { details: { ...thread?.details, ...details } },
+    });
+  }
   setDraftGenerator(generate: FakeSourceControlDrafts["generate"]) {
     this.drafts.generate = generate;
   }
@@ -72,6 +88,10 @@ export class FakeWorkspaceWire {
       this.gitFiles.get(threadId) ??
       synthesizedStatus(this.context.thread(threadId)?.thread.details?.diff ?? emptyDiff)
     ).toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  }
+  /** The checkout's HEAD as `git.status` reports it, when the thread records a commit id. */
+  private head(threadId: string): string | null | undefined {
+    return this.context.thread(threadId)?.thread.details?.head;
   }
   scripts(workspaceId: string | undefined) {
     const names =
@@ -189,13 +209,7 @@ export class FakeWorkspaceWire {
               scripts: this.scripts(this.context.thread(op.threadId)?.thread.workspaceId),
             }
           : op.op === "branches.list"
-            ? {
-                kind: "branches",
-                branches: ["main", "develop"],
-                truncated: false,
-                refs: fakeBranchRefs,
-                defaultBranch: "main",
-              }
+            ? this.git.branches(op.workspaceId)
             : op.op === "pr.status"
               ? { kind: "pr", status: this.forge.status(op.threadId) }
               : op.op === "git.status"
@@ -203,6 +217,7 @@ export class FakeWorkspaceWire {
                     kind: "gitStatus",
                     files: this.gitStatus(op.threadId).slice(0, gitStatusLimit),
                     truncated: this.gitStatus(op.threadId).length > gitStatusLimit,
+                    head: this.head(op.threadId),
                   }
                 : op.op === "thread.details"
                   ? {
@@ -216,6 +231,12 @@ export class FakeWorkspaceWire {
     payload: CommandPayload,
     commandId = "fixture",
   ): Omit<CommandResult, "commandId"> | undefined {
+    if (payload.type === "workspace.git.lock.clear") {
+      if (!this.projects.get(payload.workspaceId))
+        return { ok: false, error: "workspace_not_found" };
+      this.git.clearLock(payload.workspaceId);
+      return { ok: true };
+    }
     const project = this.projects.command(payload);
     if (project) return project;
     const forge = this.forge.command(payload);
@@ -245,6 +266,23 @@ export class FakeWorkspaceWire {
         return { ok: false, error: "git_dirty_worktree" };
       if (payload.branch && !["main", "develop"].includes(payload.branch))
         return { ok: false, error: "git_invalid_ref" };
+      const change = {
+        commandId,
+        at: this.context.now(),
+        lossy: true,
+        mode: payload.mode,
+        ...(payload.branch ? { branch: payload.branch } : {}),
+      };
+      if (this.moveFailure) {
+        const error = this.moveFailure;
+        this.context.update(payload.threadId, {
+          type: "thread.client.updated",
+          changes: {
+            details: { ...details, workspaceChange: { ...change, state: "failed", error } },
+          },
+        });
+        return { ok: false, error };
+      }
       for (const state of ["preparing", "applied"] as const)
         this.context.update(payload.threadId, {
           type: "thread.client.updated",
@@ -257,11 +295,22 @@ export class FakeWorkspaceWire {
                 payload.mode === "worktree"
                   ? `/fake/worktrees/${payload.threadId}`
                   : `/fake/${view.thread.workspaceId}`,
-              workspaceChange: { commandId, state, at: this.context.now(), lossy: true },
+              workspaceChange: { ...change, state },
+              worktreeMissing: undefined,
             },
           },
         });
       return { ok: true, threadId: payload.threadId };
+    }
+    if (payload.type === "thread.workspace.clear") {
+      const details = thread?.details;
+      if (!thread || !details) return { ok: false, error: "thread_not_found" };
+      const { workspaceChange: _cleared, ...rest } = details;
+      this.context.update(payload.threadId, {
+        type: "thread.client.updated",
+        changes: { details: rest },
+      });
+      return { ok: true };
     }
     if (payload.type === "workspace.editor.open") {
       const editor = this.editors.find((entry) => entry.id === payload.editorId);

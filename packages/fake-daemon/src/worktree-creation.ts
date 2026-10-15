@@ -6,6 +6,7 @@ import {
   type ClientMessage,
   type WorktreeCreationProgress,
 } from "@ace/protocol";
+import type { FakeCreationFailure } from "./git-states.ts";
 
 type Progress = WorktreeCreationProgress;
 type Send = (message: ServerMessage) => void;
@@ -24,18 +25,21 @@ export class FakeWorktreeCreations {
   private slow: boolean;
   private execute: (command: Command) => CommandResult;
   private persist: (progress: Progress) => void;
+  private failure: (command: Command) => FakeCreationFailure | undefined;
   constructor(
     now: () => number,
     schedule: (callback: () => void, delay: number) => () => void,
     slow: boolean,
     execute: (command: Command) => CommandResult,
     persist: (progress: Progress) => void,
+    failure: (command: Command) => FakeCreationFailure | undefined = () => undefined,
   ) {
     this.now = now;
     this.schedule = schedule;
     this.slow = slow;
     this.execute = execute;
     this.persist = persist;
+    this.failure = failure;
   }
   start(command: Command, send: Send): Promise<CommandResult> {
     const prior = this.drafts.get(command.id);
@@ -81,11 +85,17 @@ export class FakeWorktreeCreations {
       { step: "setup" },
       { step: "done" },
     ];
+    const failure = this.failure(command);
     return new Promise((resolve) => {
       draft.resolve = resolve;
       let index = 0;
       const advance = () => {
         const next = steps[index++];
+        if (failure && next?.step === "done" && failure.step === "setup") {
+          progress.details.push(...failure.output);
+          this.fail(draft, failure);
+          return;
+        }
         if (!next) {
           const result = this.execute(command);
           this.finish(draft, result.ok ? "done" : "failed", result);
@@ -105,6 +115,10 @@ export class FakeWorktreeCreations {
             : `Worktree ${next.step}`,
         );
         this.emit(draft);
+        if (failure?.step === "preparing") {
+          this.fail(draft, failure);
+          return;
+        }
         draft.stop = this.schedule(advance, this.slow ? 1500 : 80);
       };
       advance();
@@ -147,6 +161,20 @@ export class FakeWorktreeCreations {
       );
       return;
     }
+    if (message.action === "dismiss") {
+      if (draft.resolve) return response("busy");
+      this.drafts.delete(draft.command.id);
+      return response();
+    }
+    if (message.action === "continue") {
+      if (draft.resolve || draft.progress.error !== "setup_failed") return response("settled");
+      draft.send = send;
+      response();
+      const result = this.execute(draft.command);
+      this.finish(draft, result.ok ? "done" : "failed", result);
+      send({ type: "commandResult", ...result });
+      return;
+    }
     if (message.action === "cancel" && !draft.resolve) {
       response("settled");
       return;
@@ -172,15 +200,34 @@ export class FakeWorktreeCreations {
       if (!pending) send({ type: "commandResult", ...result });
     }
   }
-  private finish(draft: Draft, state: Progress["state"], result: CommandResult): void {
+  /** A start that stops on its failure: kept (with Continue) when only its setup failed. */
+  private fail(draft: Draft, failure: FakeCreationFailure): void {
+    const { error, title, detail } = failure;
+    const result = { commandId: draft.command.id, ok: false, error, code: error, title, detail };
+    this.finish(draft, "failed", result, failure);
+  }
+  private finish(
+    draft: Draft,
+    state: Progress["state"],
+    result: CommandResult,
+    failure?: FakeCreationFailure,
+  ): void {
     draft.stop?.();
     draft.progress.state = state;
     draft.progress.cleanupComplete = true;
     draft.progress.actions = state === "failed" || state === "cancelled" ? ["retry", "local"] : [];
     delete draft.progress.message;
-    if (state === "failed")
+    delete draft.progress.error;
+    delete draft.progress.lockPath;
+    if (state === "failed") {
       draft.progress.message =
-        "We couldn't create the worktree. Try again or use the local checkout.";
+        result.detail ?? "We couldn't create the worktree. Try again or use the local checkout.";
+      if (result.error && result.error !== "worktree_cancelled")
+        draft.progress.error = result.error;
+      if (failure?.lockPath) draft.progress.lockPath = failure.lockPath;
+      if (failure?.error === "setup_failed")
+        draft.progress.actions = ["retry", "continue", "local"];
+    }
     if (state === "cancelled")
       draft.progress.message = "Worktree creation cancelled. Your first message is still queued.";
     const time = this.now();

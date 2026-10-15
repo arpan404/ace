@@ -20,6 +20,14 @@ function storeFor(client: ClientApi): WorktreeCreations {
   return store;
 }
 
+/**
+ * Forget a settled failed or cancelled start on the daemon (its kept worktree too) once its
+ * message is back in New thread. Best effort: a refusal leaves it for the daemon's own cleanup.
+ */
+export function dismissWorktreeStart(client: ClientApi, commandId: string): void {
+  void storeFor(client).act(commandId, "dismiss");
+}
+
 const idle = { getSnapshot: () => undefined, subscribe: () => () => {} };
 
 /**

@@ -3,14 +3,22 @@ import { useConnectionState } from "@ace/client-react";
 import type { CommandResult } from "@ace/protocol";
 import type { KeyValueStorage } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import { withBrowserLock } from "@/boot/web-locks.ts";
 import { newThreadDraftKey } from "@/lib/new-thread-draft-key.ts";
 import { discardSubmittedDraft, type SubmittedDraft } from "@/features/thread/index.ts";
-import { forgetCreateAttempt, readCreateAttempt, type CreateAttempt } from "./create-attempt.ts";
+import {
+  createAttemptRecordKey,
+  forgetCreateAttempt,
+  readCreateAttempt,
+  readCreateAttempts,
+  type CreateAttempt,
+} from "./create-attempt.ts";
 
 export const differentCreateHost =
   "The previous thread belongs to another daemon. Reconnect to that daemon to recover it.";
+const refusedStart =
+  "The previous thread start was refused. You can edit this message and try again.";
 
 /** Intent subscriptions can share a command without competing for its single SDK waiter. */
 function createReceipt(
@@ -55,50 +63,73 @@ function createReceipt(
   });
 }
 
+/** The starts this window is already waiting on, per client, so recovery doesn't wait twice. */
+const settling = new WeakMap<ClientApi, Set<string>>();
+export function settlingFor(client: ClientApi): Set<string> {
+  let ids = settling.get(client);
+  if (!ids) {
+    ids = new Set();
+    settling.set(client, ids);
+  }
+  return ids;
+}
+
 /** Settlement is correlated by ID, never by whatever the composer currently selects. */
 export async function settleCreateAttempt(
   client: ClientApi,
   storage: KeyValueStorage | undefined,
-  key: string,
+  indexKey: string,
   attempt: CreateAttempt,
   signal?: AbortSignal,
 ) {
-  const receipt = await createReceipt(client, attempt, signal);
-  if (receipt.commandId !== attempt.commandId) throw new ClientError("protocol");
-  const removed = await withBrowserLock(key, () => {
-    if (signal?.aborted) throw new ClientError("aborted");
-    if (readCreateAttempt(storage, key)?.commandId !== receipt.commandId) return false;
-    if (receipt.ok)
-      discardSubmittedDraft(
-        storage,
-        attempt.draftKey ?? newThreadDraftKey(attempt.hostId, attempt.payload.workspaceId),
-        attempt.payload,
-      );
-    return forgetCreateAttempt(storage, key, receipt.commandId);
-  });
-  return removed ? receipt : undefined;
+  const waiting = settlingFor(client);
+  waiting.add(attempt.commandId);
+  try {
+    const receipt = await createReceipt(client, attempt, signal);
+    if (receipt.commandId !== attempt.commandId) throw new ClientError("protocol");
+    const removed = await withBrowserLock(indexKey, () => {
+      if (signal?.aborted) throw new ClientError("aborted");
+      const recordKey = createAttemptRecordKey(indexKey, receipt.commandId);
+      if (!readCreateAttempt(storage, recordKey)) return false;
+      if (receipt.ok)
+        discardSubmittedDraft(
+          storage,
+          attempt.draftKey ?? newThreadDraftKey(attempt.hostId, attempt.payload.workspaceId),
+          attempt.payload,
+        );
+      return forgetCreateAttempt(storage, indexKey, receipt.commandId);
+    });
+    return removed ? receipt : undefined;
+  } finally {
+    waiting.delete(attempt.commandId);
+  }
 }
 
-/** Recover the saved create even when catalog changes make its old selection unavailable. */
+/**
+ * Recover every saved start (a lost worker, a reload) even when catalog changes make its old
+ * selection unavailable. Starts this window is already waiting on are left to that wait. Only a
+ * start from this composer's draft (`draftKey`) opens its thread when it settles.
+ */
 export function useCreateRecovery(options: {
   client: ClientApi;
   storage: KeyValueStorage | undefined;
   key: string;
   hostId: string | undefined;
-  isSubmitting(): boolean;
+  draftKey: string | undefined;
   onError(message: string): void;
   onRecovered(payload: SubmittedDraft & { workspaceId: string }): void;
   canNavigate?: (() => boolean) | undefined;
-}): { recovering: boolean; isRecovering(): boolean } {
+}): void {
   const { client, storage, key, hostId } = options;
   const ready = useConnectionState() === "ready";
   const navigate = useNavigate();
-  const [recovering, setRecovering] = useState(false);
-  const running = useRef(false);
   const [revision, setRevision] = useState(0);
-  const submitting = useEffectEvent(options.isSubmitting);
   const report = useEffectEvent(options.onError);
   const recovered = useEffectEvent(options.onRecovered);
+  const ownDraft = useEffectEvent(
+    (attempt: CreateAttempt) =>
+      attempt.draftKey === undefined || attempt.draftKey === options.draftKey,
+  );
   const navigationAllowed = useEffectEvent(() => options.canNavigate?.() ?? true);
   useEffect(() => {
     const changed = (event: StorageEvent) => {
@@ -110,53 +141,45 @@ export function useCreateRecovery(options: {
   useEffect(() => {
     const controller = new AbortController();
     let active = true;
-    const run = async () => {
-      // No identity read is needed for an empty slot. After any await, re-read under the
-      // lock so another window's newer record cannot be confused with this one.
-      if (!ready || submitting() || !readCreateAttempt(storage, key)) return;
-      running.current = true;
-      setRecovering(true);
-      const owner =
-        hostId ??
-        (await client.request({ type: "host.identity" }, { signal: controller.signal })).identity
-          .hostId;
-      const attempt = await withBrowserLock(key, () => readCreateAttempt(storage, key));
-      if (!active || !attempt) return;
-      if (attempt.hostId !== owner) {
-        report(differentCreateHost);
-        return;
-      }
+    const failed = (error: unknown) => {
+      if (!active || (error instanceof ClientError && error.code === "aborted")) return;
+      report("Thread delivery is uncertain. Reconnect to recover the original thread start.");
+    };
+    const recover = async (attempt: CreateAttempt) => {
       const receipt = await settleCreateAttempt(client, storage, key, attempt, controller.signal);
       if (!active || !receipt) return;
       if (!receipt.ok) {
-        report("The previous thread start was refused. You can edit this message and try again.");
+        if (ownDraft(attempt)) report(receipt.detail ?? refusedStart);
         return;
       }
       recovered(attempt.payload);
-      if (!navigationAllowed()) return;
+      if (!ownDraft(attempt) || !navigationAllowed()) return;
       void navigate({
         to: "/t/$threadId",
         params: { threadId: receipt.threadId ?? `pending:${attempt.commandId}` },
       });
     };
-    void run()
-      .catch((error: unknown) => {
-        if (!active || (error instanceof ClientError && error.code === "aborted")) return;
-        report("Thread delivery is uncertain. Reconnect to recover the original thread start.");
-      })
-      .finally(() => {
-        if (active) {
-          running.current = false;
-          setRecovering(false);
-        }
-      });
+    const run = async () => {
+      // No identity read is needed with nothing saved. After any await, re-read under the
+      // lock so another window's newer records cannot be confused with these.
+      if (!ready || !readCreateAttempts(storage, key).length) return;
+      const owner =
+        hostId ??
+        (await client.request({ type: "host.identity" }, { signal: controller.signal })).identity
+          .hostId;
+      const attempts = await withBrowserLock(key, () => readCreateAttempts(storage, key));
+      if (!active) return;
+      const waiting = settlingFor(client);
+      const open = attempts.filter((attempt) => !waiting.has(attempt.commandId));
+      if (open.some((attempt) => attempt.hostId !== owner)) report(differentCreateHost);
+      for (const attempt of open) if (attempt.hostId === owner) void recover(attempt).catch(failed);
+    };
+    void run().catch(failed);
     return () => {
       active = false;
-      running.current = false;
       controller.abort();
     };
     // Storage events invalidate the read even when every connection dependency is unchanged.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [client, storage, key, hostId, ready, revision, navigate]);
-  return { recovering, isRecovering: () => running.current };
 }

@@ -308,7 +308,13 @@ export class FakeProjects {
   }
   command(input: CommandPayload): Omit<CommandResult, "commandId"> | undefined {
     const decoded = ProjectCommand.safeParse(input);
-    if (!decoded.success || decoded.data.type === "workspace.clone") return undefined;
+    // A stale Git lock is the repository's, cleared by the workspace wire's Git states.
+    if (
+      !decoded.success ||
+      decoded.data.type === "workspace.clone" ||
+      decoded.data.type === "workspace.git.lock.clear"
+    )
+      return undefined;
     const p = decoded.data;
     this.seed();
     try {

@@ -93,15 +93,18 @@ export function PendingThreadView(props: {
   // message's own refusals keep Retry and Edit here; a cancel keeps its card.
   const code = entry?.error ?? intent?.error;
   const returning = isWorktreeCreate(payload) && failed && worktreeUnmade(code);
+  const receipt = intent?.result;
   const { returnStart } = useSendActions(props.threadId);
   const returned = useRef(false);
   useEffect(() => {
     if (!returning || !payload || returned.current) return;
     returned.current = true;
-    void returnStart(commandId, payload, worktreeUnmadeReason(code, progress)).then((moved) => {
-      if (!moved) returned.current = false;
-    });
-  }, [returning, payload, progress, code, commandId, returnStart]);
+    void returnStart(commandId, payload, worktreeUnmadeReason(code, progress, receipt)).then(
+      (moved) => {
+        if (!moved) returned.current = false;
+      },
+    );
+  }, [returning, payload, progress, code, receipt, commandId, returnStart]);
   if (!entry && !intent && ready)
     return (
       <Screen title="New thread">
@@ -132,7 +135,12 @@ export function PendingThreadView(props: {
               </div>
             </div>
             {worktreeSpeaks(progress, failed ? code : undefined) ? (
-              <WorktreeCreationCard state={worktree.state} onAction={worktree.act} />
+              <WorktreeCreationCard
+                state={worktree.state}
+                onAction={worktree.act}
+                failure={failed ? receipt : undefined}
+                workspaceId={workspaceId}
+              />
             ) : (
               payload && !failed && <props.parts.Line activity={startingLine(payload, !!realId)} />
             )}
