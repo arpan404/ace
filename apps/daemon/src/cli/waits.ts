@@ -1,4 +1,4 @@
-import { CliTree, ThreadId, type Thread } from "@ace/protocol";
+import { CliTree, ThreadId, maxWaitThreads, type Thread } from "@ace/protocol";
 import type { Client } from "@ace/client";
 import type { Args } from "./args.ts";
 import { waitSelection, waitSelectionOrRefresh } from "./connection.ts";
@@ -155,7 +155,8 @@ export async function waitThreads(
       signal,
     );
   if (args.flags.stream) throw new CliFailure("refused", "--stream follows one thread");
-  if (unique.length > 16) throw new CliFailure("refused", "Wait for at most 16 threads");
+  if (unique.length > maxWaitThreads)
+    throw new CliFailure("refused", `Wait for at most ${maxWaitThreads} threads`);
   const mode = args.flags.any ? "any" : "all";
   const observation = new AbortController();
   const scoped = AbortSignal.any([signal, observation.signal]);

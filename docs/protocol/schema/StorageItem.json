@@ -77,7 +77,6 @@
         "maxLength": 128,
         "type": "string"
       },
-      "maxItems": 256,
       "type": "array"
     }
   },

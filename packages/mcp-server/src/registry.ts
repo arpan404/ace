@@ -95,8 +95,10 @@ export class ToolRegistry {
     this.scheduler = options.scheduler;
     this.observeCall = options.observeCall;
     this.maxTools = options.maxTools ?? 128;
-    this.maxCalls = options.maxCalls ?? 64;
-    this.maxCallsPerThread = options.maxCallsPerThread ?? 16;
+    // Waits hold a call for up to ten minutes, so these bound runaway work, not normal fan-out:
+    // a parent waiting on many children still has room for every other tool.
+    this.maxCalls = options.maxCalls ?? 1024;
+    this.maxCallsPerThread = options.maxCallsPerThread ?? 256;
   }
   register<I extends z.ZodObject, O extends z.ZodObject>(definition: ToolDefinition<I, O>): void {
     const { name, description, input, output, capability, timeoutMs } = definition;

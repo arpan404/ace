@@ -187,7 +187,8 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
   const lines = createInterface({ input: options.input.pipe(gate), crlfDelay: Infinity });
   lines.on("line", (line) => {
     if (signal.aborted) return;
-    if (tasks.size >= 64) {
+    // Matches the registry's per-thread call bound, so long waits never exhaust the bridge.
+    if (tasks.size >= 256) {
       fail(new Error("MCP bridge request capacity exceeded"));
       return;
     }

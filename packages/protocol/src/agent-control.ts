@@ -43,7 +43,7 @@ export const DelegationRequest = z.strictObject({
   role: z.string().min(1).max(1024),
   ...AgentSelection.shape,
   wait: z.boolean().default(false),
-  waitMs: z.number().int().min(1).max(240000).optional(),
+  waitMs: z.number().int().min(1).max(600000).optional(),
   workspace: AgentWorkspace.optional(),
   estimatedLoad: z.number().min(0).max(100).default(0),
   /** Run on another paired machine from `ace_machines`, in one of its projects (ADR 0078). */
@@ -57,7 +57,7 @@ export type DelegationTask = z.infer<typeof DelegationTask>;
 const single = DelegationRequest.shape;
 const singleKeys = Object.keys(single);
 /**
- * One child (`task`, `role`, `provider`, ...) or a batch of up to eight (`tasks`), never both.
+ * One child (`task`, `role`, `provider`, ...) or a batch of up to 64 (`tasks`), never both.
  * A batch may await `any` or `all` of its children up to `timeoutSeconds`.
  */
 export const DelegateTaskOperation = z
@@ -68,12 +68,12 @@ export const DelegateTaskOperation = z
     task: single.task.optional(),
     role: single.role.optional(),
     wait: z.boolean().optional(),
-    waitMs: z.number().int().min(1).max(240000).optional(),
+    waitMs: z.number().int().min(1).max(600000).optional(),
     workspace: AgentWorkspace.optional(),
     estimatedLoad: z.number().min(0).max(100).optional(),
     machine: MachineName.optional(),
     project: z.string().min(1).max(256).optional(),
-    tasks: z.array(DelegationTask).min(1).max(8).optional(),
+    tasks: z.array(DelegationTask).min(1).max(64).optional(),
     await: z.enum(["none", ...WaitMode.options]).optional(),
     timeoutSeconds: WaitTimeoutSeconds.optional(),
   })
@@ -118,7 +118,7 @@ export type DelegateTaskOperation = z.infer<typeof DelegateTaskOperation>;
 export const DelegationPolicy = z.strictObject({
   /** Children one parent runs at once. Further children wait queued, never refused. */
   maxConcurrent: z.number().int().min(1).max(64).default(4),
-  maxDepth: z.number().int().min(1).max(8).default(4),
+  maxDepth: z.number().int().min(1).max(8).default(8),
   coalesceMs: z.number().int().min(0).max(1000).default(50),
 });
 export type DelegationPolicy = z.infer<typeof DelegationPolicy>;

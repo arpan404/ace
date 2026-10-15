@@ -609,7 +609,7 @@
           "items": {
             "$ref": "https://ace.local/protocol/v1/ThreadId.json"
           },
-          "maxItems": 16,
+          "maxItems": 64,
           "minItems": 1,
           "type": "array"
         },

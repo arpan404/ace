@@ -16,10 +16,11 @@ export function storageTree(store: Store, id: ThreadId): ThreadId[] {
     .statement("SELECT root_id FROM delegation_participants WHERE thread_id=?")
     .get(id)?.root_id;
   if (typeof root !== "string") return [id];
+  // Every member, however large the tree: a partial tree would delete a parent while its
+  // children still hold its worktree, or refuse to clean the tree at all.
   const rows = store
-    .statement("SELECT thread_id FROM delegation_participants WHERE root_id=? LIMIT 257")
+    .statement("SELECT thread_id FROM delegation_participants WHERE root_id=?")
     .all(root);
-  if (rows.length > 256) throw new Error("storage_tree_limit");
   return [
     ...new Set([id, ThreadId.parse(root), ...rows.map((row) => ThreadId.parse(row.thread_id))]),
   ];

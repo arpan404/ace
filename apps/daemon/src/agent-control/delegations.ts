@@ -817,7 +817,7 @@ export class DelegationService {
         ? record.outcome
         : ["done", "failed"].includes(thread.status.state)
           ? (record?.outcome ?? threadOutcome(this.deps.store, thread))
-          : await this.waiters.wait(threadId, signal, caller.threadId);
+          : await this.waiters.wait(threadId, signal);
     signal.throwIfAborted();
     this.delivered(caller, outcome);
     return outcome;

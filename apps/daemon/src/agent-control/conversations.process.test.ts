@@ -411,3 +411,48 @@ test("a top-level conversation starts in its new worktree and retries preserve t
     await runtime.close();
   }
 });
+
+test("a thread start that outlasts its tool call still completes, and a retry returns that thread", async () => {
+  const h = setup();
+  await repository(h.home);
+  const parent = await h.parent();
+  const runtime = new WorkspaceRuntime(h.store, join(h.home, "owned"), h.clock.now);
+  // Git in a large repository: preparing the worktree takes longer than the call waits.
+  const prepare = runtime.prepareAgentCreation.bind(runtime);
+  const entered = Promise.withResolvers<void>();
+  const slowGit = Promise.withResolvers<void>();
+  runtime.prepareAgentCreation = async (command, preparing) => {
+    entered.resolve();
+    await slowGit.promise;
+    return prepare(command, preparing);
+  };
+  try {
+    const port = createAgentControlPort(h.store, h.service, {
+      startConversation: createConversationStarts(
+        { store: h.store, services: { workspaceActions: runtime }, signal: signal() },
+        h.service,
+        h.service.conversations,
+      ),
+    });
+    const request = conversation("slow-checkout", { kind: "new_worktree", base: { ref: "main" } });
+    const call = new AbortController();
+    const first = port.execute(parent, request, call.signal).catch(() => undefined);
+    await entered.promise;
+    call.abort(new Error("Tool timed out"));
+    await first;
+    slowGit.resolve();
+    const retried = await port.execute(parent, request, signal());
+    expect(retried.ok).toBe(true);
+    await h.engine.flush();
+    const thread = h.store.listThreads().find((row) => row.id !== parent.threadId);
+    if (!thread) throw new Error("Conversation missing");
+    expect(retried).toMatchObject({ data: { threadId: thread.id } });
+    expect((await runtime.git.listWorktrees(h.home)).map((tree) => tree.path)).toContain(
+      h.contexts.get(thread.id)?.cwd,
+    );
+    expect(h.inputs.get(thread.id)).toContain("Build this");
+    expect(h.store.listThreads()).toHaveLength(2);
+  } finally {
+    await runtime.close();
+  }
+});

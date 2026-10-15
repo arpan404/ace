@@ -143,15 +143,15 @@ export class WorkspaceReservations {
     for (const root of roots) {
       // Scope by indexed root/workspace first. No transcript or event history is read.
       const sessions = sessionsExist
-        ? this.statement("SELECT thread_id FROM engine_sessions WHERE cwd=? LIMIT 257").all(root)
+        ? this.statement("SELECT thread_id FROM engine_sessions WHERE cwd=?").all(root)
         : [];
       const local =
         this.statement(`SELECT t.id AS thread_id FROM workspace_canonical_roots w JOIN threads t ON t.workspace_id=w.workspace_id
-        WHERE w.root=? ${sessionsExist ? "AND NOT EXISTS (SELECT 1 FROM engine_sessions s WHERE s.thread_id=t.id)" : ""} LIMIT 257`).all(
+        WHERE w.root=? ${sessionsExist ? "AND NOT EXISTS (SELECT 1 FROM engine_sessions s WHERE s.thread_id=t.id)" : ""}`).all(
           root,
         );
+      // Every owner: a delegated tree sharing one worktree may hold hundreds of sessions there.
       for (const row of [...sessions, ...local]) owners.add(ThreadId.parse(row.thread_id));
-      if (owners.size > 256) throw new Error("workspace_owner_limit");
     }
     return [...owners];
   }

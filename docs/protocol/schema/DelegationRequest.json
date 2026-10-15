@@ -81,7 +81,7 @@
       "type": "boolean"
     },
     "waitMs": {
-      "maximum": 240000,
+      "maximum": 600000,
       "minimum": 1,
       "type": "integer"
     },

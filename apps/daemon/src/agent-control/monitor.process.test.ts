@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, onTestFinished, test } from "vitest";
 import { z } from "zod";
 import {
+  AgentControlOperation,
   MonitorSnapshot,
   ThreadId,
   WaitResult,
@@ -269,6 +270,60 @@ test("the tree snapshot stays small with twenty children", async () => {
       "verbose progress line",
     );
     expect(JSON.stringify(result.data).length).toBeLessThan(8192);
+  } finally {
+    await f.daemon.close();
+  }
+});
+
+test("an agent can wait on all 64 children of one batch in a single call, inside the result budget", async () => {
+  const f = await daemonFixture({ policy: { maxConcurrent: 64 } });
+  try {
+    const batch = await f.call(
+      AgentControlOperation.parse({
+        op: "delegate_task",
+        tasks: Array.from({ length: 64 }, (_, index) => ({
+          requestId: `batch-${index}`,
+          provider: "claude",
+          role: "worker",
+          task: `Part ${index}`,
+        })),
+      }),
+    );
+    await f.daemon.engine?.flush();
+    const { threadIds } = z.object({ threadIds: z.array(ThreadId) }).parse(batch.data);
+    expect(threadIds).toHaveLength(64);
+    const pending = wait(f, threadIds, "all");
+    for (const [index, id] of threadIds.entries())
+      await complete(f, id, `part ${index} finished. ${"detail ".repeat(580)}`);
+    const result = waited(await pending);
+    expect(result.status).toBe("ready");
+    expect(result.threads).toHaveLength(64);
+    for (const [index, thread] of result.threads.entries())
+      expect(thread).toMatchObject({
+        threadId: threadIds[index],
+        state: "done",
+        result: expect.stringContaining(`part ${index} finished.`),
+        truncated: true,
+      });
+    // Every provider tool result ace returns must fit 256 KiB of structured JSON.
+    expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(256 * 1024);
+  } finally {
+    await f.daemon.close();
+  }
+});
+
+test("one agent can hold twenty waits at once and each still returns its child's result", async () => {
+  const f = await daemonFixture({ policy: { maxConcurrent: 24 } });
+  try {
+    const children: ThreadId[] = [];
+    for (let index = 0; index < 20; index++) children.push(await spawn(f, `waited-${index}`));
+    const pending = children.map((child) => wait(f, [child], "all"));
+    for (const [index, child] of children.entries()) await complete(f, child, `result ${index}`);
+    for (const [index, waiting] of pending.entries())
+      expect(waited(await waiting)).toMatchObject({
+        status: "ready",
+        threads: [{ threadId: children[index], state: "done", result: `result ${index}` }],
+      });
   } finally {
     await f.daemon.close();
   }
