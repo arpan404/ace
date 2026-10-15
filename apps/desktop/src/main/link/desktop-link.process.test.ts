@@ -105,6 +105,7 @@ async function setup() {
 
   const alerts: Alert[] = [];
   const summaries: WorkSummary[] = [];
+  const closes: { code: number; reason: string }[] = [];
   let saved: string | null = null;
   const keeper = new LinkKeeper(
     runtimeLinkSource(runtime),
@@ -122,11 +123,12 @@ async function setup() {
         quietHours: () => null,
         onAlert: (alert) => alerts.push(alert),
         onSummary: (summary) => summaries.push(summary),
+        onClose: (code, reason) => closes.push({ code, reason }),
       }),
     () => {},
   );
   cleanups.push(() => keeper.close());
-  return { home, runtime, statuses, blocker, daemons, keeper, alerts, summaries };
+  return { home, runtime, statuses, blocker, daemons, keeper, alerts, summaries, closes };
 }
 
 it("attaches notifications, badge and tray once a daemon is up, after the first start failed", async () => {
@@ -220,4 +222,17 @@ it("keeps notifications, badge and tray working when the daemon refuses the brow
     Date.now(),
   );
   await eventually(() => expect(t.summaries.at(-1)).toEqual({ needsYou: 1, working: 0 }));
+});
+
+it("reports the daemon's close code and reason when the link drops", async () => {
+  const t = await setup();
+  await new Promise<void>((resolve) => t.blocker.close(() => resolve()));
+  t.keeper.start();
+  void t.runtime.start();
+  await eventually(() => expect(t.summaries.at(-1)).toEqual({ needsYou: 0, working: 0 }));
+  const daemon = t.daemons.started[0];
+  if (!daemon) throw new Error("no daemon");
+  expect(t.closes).toEqual([]);
+  await daemon.close();
+  await eventually(() => expect(t.closes[0]).toEqual({ code: 1001, reason: "Daemon shutdown" }));
 });

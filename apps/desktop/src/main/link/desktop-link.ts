@@ -21,6 +21,12 @@ export interface LinkOptions {
   quietHours(): { timeZone: string; startMinute: number; endMinute: number } | null;
   onAlert(alert: Alert): void;
   onSummary(summary: WorkSummary): void;
+  /**
+   * The daemon's socket closed, with its close code and reason (`1001 Daemon shutdown`,
+   * `4003 Device revoked` …), so the app's log says why the link dropped. Not called when the
+   * app closes the link itself.
+   */
+  onClose?(code: number, reason: string): void;
 }
 
 /**
@@ -122,7 +128,7 @@ export class DesktopLink {
       this.send?.({ type: "presence.update", threadId: this.presence, inputAgeMs: 0 });
   }
 
-  /** The client's own transport, with notification frames observed on the way in. */
+  /** The client's own transport, with notification frames and closes observed on the way in. */
   private transport(): Transport {
     const inner = webSocketTransport(() => new WebSocket(this.options.url));
     this.send = (frame) => inner.send(JSON.stringify(frame));
@@ -136,6 +142,10 @@ export class DesktopLink {
               if (parsed) this.options.onAlert(alertFromDaemon(parsed.notification));
             }
             events.message(data);
+          },
+          close: (code, reason) => {
+            this.options.onClose?.(code, reason ?? "");
+            events.close(code, reason);
           },
         }),
       send: (text) => inner.send(text),
