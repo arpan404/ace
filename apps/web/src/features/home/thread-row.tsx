@@ -79,13 +79,20 @@ export function ThreadRow(props: {
       <div
         className={cn(
           "flex min-w-0 items-center gap-1.5 text-meta leading-4 text-muted-foreground",
-          // Under the pointer or focus the row's actions sit beside the status, which stays.
-          !renaming && "group-hover/row:pr-24 group-focus-within/row:pr-24",
+          // Reserve the top line's right end whenever its actions replace the status.
+          !renaming &&
+            "group-hover/row:pr-36 group-focus-within/row:pr-36 group-has-[[data-popup-open]]/row:pr-36",
         )}
       >
         <ProjectMark id={entry.workspaceId} badge={card.badge} />
         <span className="min-w-0 flex-1 truncate">{card.project}</span>
-        <span className="flex shrink-0">
+        <span
+          className={cn(
+            "flex shrink-0",
+            !renaming &&
+              "group-hover/row:hidden group-focus-within/row:hidden group-has-[[data-popup-open]]/row:hidden",
+          )}
+        >
           <RowStatus card={card} attention={attention} />
         </span>
       </div>
