@@ -1,4 +1,5 @@
-import { access, chmod, readdir, utimes, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { access, chmod, readdir, readFile, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { GitService, type RetiredLease } from "./index.ts";
@@ -123,6 +124,55 @@ test("the user's own running git's index.lock is never removed", async () => {
     expect(await service.heal(repo)).toEqual([lock]);
     expect(await exists(lock)).toBe(false);
   } finally {
+    await service.close();
+  }
+});
+
+test("Clear stale lock retires an untracked lease carrying this daemon's own token once its process is gone", async () => {
+  const repo = await plainRepository();
+  const leases = join(repo, ".git", "ace-mutation-leases");
+  const markers = await scratch();
+  const started = join(markers, "hook-started");
+  const release = join(markers, "hook-release");
+  await preCommitHook(repo, `touch '${started}'\nwhile [ ! -e '${release}' ]; do sleep 0.05; done`);
+  await writeFile(join(repo, "file.txt"), "change\n");
+  const retired: RetiredLease[] = [];
+  const service = new GitService({
+    leaseWaitMs: 0,
+    onLeaseRetired: (event) => retired.push(event),
+  });
+  try {
+    // While a commit runs, its lease on disk carries this daemon's own endpoint.
+    const commit = service.commit({
+      worktree: repo,
+      message: "Tracked",
+      expectedHead: await scalar(repo, "rev-parse", "HEAD"),
+    });
+    await expect.poll(() => exists(started), { timeout: 10_000 }).toBe(true);
+    const [tracked] = await journal(repo);
+    if (!tracked) throw new Error("no lease while the commit runs");
+    const lease: unknown = JSON.parse(await readFile(join(leases, tracked), "utf8"));
+    await writeFile(release, "");
+    await commit;
+    // The same owner under an id this daemon never tracked: a lease it lost track of.
+    const id = randomUUID();
+    await writeFile(join(leases, id), JSON.stringify({ ...Object(lease), id }));
+    const holder = await holdGit(repo);
+
+    const held = await service.clearStaleLeases(repo);
+    expect(held.retired).toEqual([]);
+    expect(held.state.status).not.toBe("available");
+    expect(held.message).toContain(`pid ${holder.pid}`);
+    expect(await journal(repo)).toEqual([id]);
+
+    await holder.stop();
+    const cleared = await service.clearStaleLeases(repo);
+    expect(cleared.retired).toMatchObject([{ id }]);
+    expect(cleared.state.status).toBe("available");
+    expect(await journal(repo)).toEqual([]);
+    expect(retired).toMatchObject([{ lease: { id }, reason: "own_lease_processes_gone" }]);
+  } finally {
+    await writeFile(release, "");
     await service.close();
   }
 });
