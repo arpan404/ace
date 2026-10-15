@@ -44,7 +44,8 @@ export interface SpawnOptions {
   path: string;
   version: string;
   env: NodeJS.ProcessEnv;
-  onOutput(line: string): void;
+  /** One line of the daemon's output, without its newline. */
+  onOutput(line: string, stream: "stdout" | "stderr"): void;
 }
 
 /**
@@ -92,13 +93,26 @@ export function spawnDaemon(options: SpawnOptions): DaemonProcess {
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
-  for (const stream of [child.stdout, child.stderr]) {
+  for (const [name, stream] of [
+    ["stdout", child.stdout],
+    ["stderr", child.stderr],
+  ] as const) {
     let pending = "";
     stream.setEncoding("utf8");
     stream.on("data", (chunk: string) => {
       const lines = (pending + chunk).split(/\r?\n/);
       pending = lines.pop() ?? "";
-      for (const line of lines) options.onOutput(line);
+      for (const line of lines) options.onOutput(line, name);
+      // A line that never ends must not grow without bound.
+      if (pending.length > 65_536) {
+        options.onOutput(pending, name);
+        pending = "";
+      }
+    });
+    // The last line before exit (a fatal error's) often has no newline.
+    stream.on("end", () => {
+      if (pending) options.onOutput(pending, name);
+      pending = "";
     });
   }
   // A process that never started emits `error` and `close`, but no `exit`.
@@ -113,7 +127,7 @@ export function spawnDaemon(options: SpawnOptions): DaemonProcess {
   };
   child.once("exit", (code, signal) => finish(code, signal));
   child.on("error", (error) => {
-    options.onOutput(`spawn failed: ${error.message}`);
+    options.onOutput(`spawn failed: ${error.message}`, "stderr");
     if (child.pid === undefined) finish(null, null, error.message);
   });
   return {

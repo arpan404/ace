@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { resolveDaemonHome } from "@ace/service/home";
 import type { DaemonConnection, DaemonStatus } from "../../shared/contract.ts";
 import { DoctorReport, providerSummaries, type ProviderSummary } from "../../shared/onboarding.ts";
+import type { Log } from "../log/desktop-log.ts";
 import { loginShellPath } from "./login-path.ts";
 import {
   findRunningDaemon,
@@ -49,7 +50,10 @@ export interface RuntimeOptions {
   target?: DaemonTarget;
   /** Starts the bundled daemon; tests substitute their own. */
   spawnDaemon?: (options: SpawnOptions) => DaemonProcess;
-  log(level: "info" | "warn" | "error", message: string): void;
+  /** The supervisor's decisions and the runtime's own records. */
+  log: Log;
+  /** Each line the spawned daemon prints; by default logged as `daemon: <line>`. */
+  daemonOutput?: (line: string, stream: "stdout" | "stderr") => void;
 }
 
 /**
@@ -105,7 +109,10 @@ export class DaemonRuntime {
               ? () =>
                   (options.spawnDaemon ?? spawnDaemon)({
                     ...this.spawnOptions(home, this.resolvedPath),
-                    onOutput: (line) => options.log("info", `daemon: ${line}`),
+                    onOutput:
+                      options.daemonOutput ??
+                      ((line, stream) =>
+                        options.log(stream === "stderr" ? "warn" : "info", `daemon: ${line}`)),
                   })
               : undefined,
           find: () => findRunningDaemon(home),
