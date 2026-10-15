@@ -7,6 +7,7 @@ import {
   useDaemonConnection,
   type ConnectionProblem,
   type DaemonConnection,
+  versionMismatchWords,
 } from "@/boot/connection.tsx";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
 import { CopyCommand } from "@/components/copy-command.tsx";
@@ -133,6 +134,7 @@ function alertFor(connection: DaemonConnection): ReactNode {
   }
   if (status.kind !== "unreachable") return undefined;
   if (status.offline) return "This device is offline. ace connects once the network is back.";
+  if (status.mismatch) return versionMismatchWords;
   const where = <code className="font-mono text-sm break-all">{connection.url}</code>;
   if (connection.desktop) return <>Couldn't reach ace at {where}. Is it running?</>;
   return (

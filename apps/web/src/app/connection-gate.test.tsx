@@ -1,4 +1,4 @@
-import { Client, ClientError } from "@ace/client";
+import { Client, ClientError, type TransportEvents } from "@ace/client";
 import { FakeDaemon, fakeTransport, flakyCheckout, ScenarioPlayer } from "@ace/fake-daemon";
 import { DeviceId, ServerMessage } from "@ace/protocol";
 import { createMemoryHistory } from "@tanstack/react-router";
@@ -14,6 +14,7 @@ import { ConnectionGate, firstAttemptMs, identityMs } from "./connection-gate.ts
 
 const token = "ab".repeat(32);
 const url = "ws://127.0.0.1:4242/";
+const hostId = "30f6c4b7-ee27-4793-8c80-7613f816a314";
 
 /** A client whose socket never opens: a daemon address that swallows packets. */
 function silentClient(): Client {
@@ -76,6 +77,33 @@ function boot(
   return { daemon, runOutFirstAttempt: () => runOut(firstAttemptMs), runOut };
 }
 
+/** A client whose daemon welcomes it with a protocol version this build doesn't speak. */
+function otherVersionClient(): Client {
+  return new Client({
+    deviceId: DeviceId.parse("other-version-device"),
+    transport: () => {
+      let events: TransportEvents | undefined;
+      return {
+        open(next) {
+          events = next;
+          queueMicrotask(next.open);
+        },
+        send(text) {
+          if (JSON.parse(text).type !== "hello") return;
+          const welcome = { type: "welcome", hostId, protocolVersion: 2, headSeq: 0 };
+          queueMicrotask(() => events?.message(JSON.stringify(welcome)));
+        },
+        close() {},
+      };
+    },
+    credential: async () => token,
+    storage: memoryStorage(),
+    scheduler: { set: () => () => {} },
+    random: () => 0.5,
+    id: () => crypto.randomUUID(),
+  });
+}
+
 /**
  * A worker-style client (no welcome on its public channel) whose host identity reads go
  * through `identity` instead of the daemon.
@@ -127,6 +155,17 @@ test("a daemon that never answers is reported once the first attempt runs out", 
   runOutFirstAttempt();
   expect((await screen.findByRole("alert")).textContent).toMatch(/Couldn't reach/);
   expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+});
+
+test("a daemon of another version is named on the form rather than reported unreachable", async () => {
+  boot({ createClient: otherVersionClient });
+  await connect();
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toBe(
+    "This app and the ace daemon are different versions. Restart ace to update.",
+  );
+  expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  expect(shell()).toBeNull();
 });
 
 test("Cancel stops trying and gives the fields back, token kept", async () => {
@@ -297,7 +336,8 @@ test("Try again recovers a fatal connection after the workspace has opened", asy
           return {
             ...inner,
             open(events) {
-              corrupt = () => events.message("{");
+              // A frame the socket can't represent; unreadable JSON reconnects instead.
+              corrupt = () => events.close(4002, "Unsupported frame type");
               inner.open(events);
             },
           };
@@ -313,6 +353,42 @@ test("Try again recovers a fatal connection after the workspace has opened", asy
   await userEvent.click(await screen.findByRole("button", { name: "Try again" }));
   await waitFor(() => expect(screen.queryByText(/Can't connect:/)).toBeNull());
   expect(await screen.findByRole("link", { name: /Fix flaky checkout test/ })).toBeTruthy();
+});
+
+test("a frame from a daemon of another version keeps the workspace and says so in its notice", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1, token });
+  new ScenarioPlayer(daemon, flakyCheckout()).runThrough("explorer-spawned");
+  let newer: (() => void) | undefined;
+  boot({
+    remembered: true,
+    createClient: () =>
+      new Client({
+        deviceId: DeviceId.parse("mismatch-device"),
+        credential: async () => token,
+        transport: () => {
+          const inner = fakeTransport(daemon);
+          return {
+            ...inner,
+            open(events) {
+              newer = () => events.message(JSON.stringify({ type: "thread.teleported" }));
+              inner.open(events);
+            },
+          };
+        },
+        storage: memoryStorage(),
+        scheduler: { set: () => () => {} },
+        random: () => 0.5,
+        id: () => crypto.randomUUID(),
+      }),
+  });
+  await screen.findByRole("link", { name: /Fix flaky checkout test/ });
+  act(() => newer?.());
+  const notice = await screen.findByText(/different versions/);
+  expect(notice.textContent).toContain(
+    "This app and the ace daemon are different versions. Restart ace to update.",
+  );
+  expect(screen.queryByText(/Can't connect:/)).toBeNull();
+  expect(screen.getByRole("link", { name: /Fix flaky checkout test/ })).toBeTruthy();
 });
 
 test("a connected client whose host identity reply can't be read fails with Try again instead of an endless splash", async () => {

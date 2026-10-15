@@ -61,7 +61,7 @@ interface ClientRequest {
 type Progress =
   | { kind: "connecting" }
   | { kind: "starting" }
-  | { kind: "unreachable"; offline: boolean }
+  | { kind: "unreachable"; offline: boolean; mismatch?: boolean }
   | { kind: "ready" };
 
 function problemOf(code: ClientError["code"] | undefined): ConnectionProblem {
@@ -256,7 +256,11 @@ export function ConnectionGate(props: {
           // token is (the shell's notice says the rest), since the person must paste another.
           if (!welcomed || next.error?.code === "auth") refuse(next.error);
         } else if (!welcomed && now === "reconnecting")
-          progress({ kind: "unreachable", offline: false });
+          progress({
+            kind: "unreachable",
+            offline: false,
+            mismatch: next.error?.code === "version_mismatch",
+          });
         // A client also reads "offline" before it starts; only a network that is down counts.
         else if (!welcomed && now === "offline" && globalThis.navigator?.onLine === false)
           progress({ kind: "unreachable", offline: true });
@@ -265,7 +269,11 @@ export function ConnectionGate(props: {
       stops.push(
         schedule(firstAttemptMs, () => {
           if (!welcomed && next.state !== "starting")
-            progress({ kind: "unreachable", offline: false });
+            progress({
+              kind: "unreachable",
+              offline: false,
+              mismatch: next.error?.code === "version_mismatch",
+            });
         }),
       );
       follow();
@@ -399,11 +407,15 @@ export function ConnectionGate(props: {
   if (failure) throw failure.error;
   // Connecting behind the startup screen: nothing of the gate's own until the daemon answers or
   // doesn't. The desktop's own daemon reconnecting at boot stays there too ("Reconnecting…"),
-  // with Connect manually once it stalls, rather than dropping to the address form.
+  // with Connect manually once it stalls, rather than dropping to the address form. A daemon of
+  // another version is said on the connection screen instead: waiting won't fix it.
   const behindSplash =
     !state.shown &&
     (status.kind === "connecting" ||
-      (status.kind === "unreachable" && props.desktop === true && props.handed !== undefined));
+      (status.kind === "unreachable" &&
+        !status.mismatch &&
+        props.desktop === true &&
+        props.handed !== undefined));
   const manually = props.desktop ? edit : undefined;
   return (
     <DaemonConnectionContext.Provider value={connection}>

@@ -28,9 +28,15 @@ export type ConnectionStatus =
   /** A client is trying the target and hasn't been welcomed yet. */
   | { kind: "connecting" }
   | { kind: "starting" }
-  /** The first attempt failed or is taking too long; the client keeps retrying meanwhile. */
-  | { kind: "unreachable"; offline: boolean }
+  /**
+   * The first attempt failed or is taking too long; the client keeps retrying meanwhile.
+   * `mismatch`: the daemon answered with what this build can't read.
+   */
+  | { kind: "unreachable"; offline: boolean; mismatch?: boolean }
   | { kind: "ready" };
+/** The daemon sent what this build can't read; the client keeps retrying until they match. */
+export const versionMismatchWords =
+  "This app and the ace daemon are different versions. Restart ace to update.";
 /**
  * Why this window stopped trying; retrying with the same target can't help. Only `auth` means
  * the daemon rejected the token; `storage` is this device's own saved data.
