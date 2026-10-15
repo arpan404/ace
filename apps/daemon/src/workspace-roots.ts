@@ -1,11 +1,16 @@
-import { ManagedWorktrees } from "./managed-worktrees.ts";
 import type { PreparePrBase } from "./pr-worktree-resolution.ts";
 import type { CreationProgress } from "./creation-progress.ts";
-import { WorkspaceCreations } from "./creation-workspace.ts";
-import { createHash } from "node:crypto";
-import { mkdir, realpath } from "node:fs/promises";
-import { join } from "node:path";
-import { GitError, type GitService } from "@ace/git";
+import { WorkspaceCreations, type CreationOptions } from "./creation-workspace.ts";
+import { realpath } from "node:fs/promises";
+import type { GitService } from "@ace/git";
+import { checkoutCwd } from "./creation-preparation.ts";
+import {
+  ensureThreadWorktree,
+  exists,
+  moveCheckout,
+  moveReservation,
+  type MoveContext,
+} from "./workspace-move.ts";
 import { workspaceRepository } from "./workspace-repository.ts";
 import type { SourceControl } from "./source-control.ts";
 import { ThreadId, type ThreadDetails, type Command } from "@ace/protocol";
@@ -34,6 +39,7 @@ export class WorkspaceRoots {
       baseFetchTimeoutMs?: number;
       preparePr?: PreparePrBase;
       sourceControl?: SourceControl;
+      creation?: CreationOptions;
     } = {},
   ) {
     this.creations = new WorkspaceCreations(
@@ -43,6 +49,7 @@ export class WorkspaceRoots {
       options.baseFetchTimeoutMs ?? defaultBaseFetchTimeoutMs,
       now,
       options.preparePr,
+      options.creation,
     );
     this.store = store;
     this.git = git;
@@ -56,6 +63,24 @@ export class WorkspaceRoots {
   }
   creationCleanupComplete(command: Command): boolean {
     return this.creations.cleanupComplete(command);
+  }
+  creationCleanupSettled(command: Command): Promise<boolean> {
+    return this.creations.cleanupSettled(command);
+  }
+  discardCreation(command: Command): Promise<void> {
+    return this.creations.discard(command);
+  }
+  retryCreationCleanup(): Promise<void> {
+    return this.creations.retryCleanup();
+  }
+  private get move(): MoveContext {
+    return {
+      store: this.store,
+      git: this.git,
+      directory: this.directory,
+      now: this.now,
+      machine: this.machine,
+    };
   }
   prepareExistingPr(command: Command, progress?: CreationProgress) {
     return this.creations.prepareExisting(command, progress);
@@ -85,10 +110,14 @@ export class WorkspaceRoots {
     if (!project) throw new Error("workspace_not_found");
     // Late preparation never fetches: it starts from a recorded base's exact commit, else the
     // recorded `baseBranch` as Git resolves it (a remote one from its last fetched copy).
-    const { path, branch } = await this.createWorktree(
-      id,
-      project,
-      recordedBaseRef(thread.details),
+    const made = await ensureThreadWorktree(this.move, id, project, {
+      baseRef: recordedBaseRef(thread.details),
+    });
+    const { branch } = made;
+    const path = await checkoutCwd(
+      await this.git.listWorktrees(project),
+      await realpath(project),
+      made.path,
     );
     if (this.closing) throw new Error("workspace_closed");
     this.store.atomic(() => {
@@ -123,60 +152,21 @@ export class WorkspaceRoots {
       throw new Error("invalid_command");
     const path = this.store.getWorkspacePath(p.workspaceId);
     if (!path) throw new Error("workspace_not_found");
-    await this.creations.ready(p.threadId ? ThreadId.parse(p.threadId) : undefined);
+    if (p.threadId) await this.creations.readyForLocal(ThreadId.parse(p.threadId));
+    else await this.creations.ready();
     await this.git.assertMutationAvailable(path);
   }
-  private async createWorktree(
+  changeRoots(
     id: ThreadId,
-    project: string,
-    baseRef: string,
-  ): Promise<{ path: string; branch: string }> {
-    const key = createHash("sha256").update(id).digest("hex");
-    await mkdir(join(this.directory, "worktrees"), { recursive: true, mode: 0o700 });
-    const path = join(await realpath(join(this.directory, "worktrees")), key);
-    const branch = `ace/${key.slice(0, 24)}`;
-    const existing = (await this.git.listWorktrees(project)).find(
-      (tree) => tree.path === path && tree.branch === branch,
-    );
-    if (!existing) {
-      await this.git.createWorktree({
-        repo: project,
-        path,
-        baseRef,
-        branch,
-      });
-      await new ManagedWorktrees(this.store, this.directory).created(
-        this.git,
-        project,
-        path,
-        id,
-        this.now(),
-      );
-    }
-    if (this.closing) throw new Error("workspace_closed");
-    return { path, branch };
-  }
-  async changeRoots(id: ThreadId, mode: "local" | "worktree"): Promise<string[]> {
+    selection: { mode: "local" | "worktree"; branch?: string | undefined },
+  ) {
     const thread = this.store.getThread(id);
     if (!thread) throw new Error("thread_not_found");
     const project = this.store.getWorkspacePath(thread.workspaceId);
     if (!project) throw new Error("workspace_not_found");
-    const row = this.store.atomic((db) =>
-      db.prepare("SELECT cwd FROM engine_sessions WHERE thread_id=?").get(id),
-    );
-    if (typeof row?.cwd !== "string") throw new Error("workspace_unavailable");
-    const source = await realpath(row.cwd);
-    let destination = await realpath(project);
-    if (mode === "worktree") {
-      await mkdir(join(this.directory, "worktrees"), { recursive: true, mode: 0o700 });
-      destination = join(
-        await realpath(join(this.directory, "worktrees")),
-        createHash("sha256").update(id).digest("hex"),
-      );
-    }
-    return [...new Set([source, destination])];
+    return moveReservation(this.move, id, project, selection);
   }
-  async change(
+  change(
     id: ThreadId,
     selection: {
       mode: "local" | "worktree";
@@ -184,72 +174,30 @@ export class WorkspaceRoots {
       allowUncommitted: boolean;
     },
   ): Promise<ThreadDetails> {
-    const thread = this.store.getThread(id);
-    if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
-    const project = this.store.getWorkspacePath(thread.workspaceId);
-    if (!project) throw new Error("workspace_not_found");
-    const previous = this.store.atomic((db) =>
-      db.prepare("SELECT cwd FROM engine_sessions WHERE thread_id=?").get(id),
+    return moveCheckout(this.move, id, selection);
+  }
+  /** A checkout that was deleted, or removed by storage cleanup, is reported, not thrown. */
+  private async missing(id: ThreadId): Promise<ThreadDetails | undefined> {
+    const row = this.store.atomic((db) =>
+      db.prepare("SELECT cwd FROM engine_sessions WHERE thread_id=? AND workspace_ready=1").get(id),
     );
-    if (typeof previous?.cwd !== "string") throw new Error("workspace_unavailable");
-    const status = await this.git.status(previous.cwd);
-    if (status.conflicted.length)
-      throw new GitError("conflicts", "Resolve conflicts before switching");
-    if (
-      !selection.allowUncommitted &&
-      (status.staged.length || status.unstaged.length || status.untracked.length)
-    )
-      throw new GitError("dirty_worktree", "Commit or explicitly allow uncommitted changes");
-    let path = await realpath(project);
-    if (selection.mode === "worktree") {
-      const key = createHash("sha256").update(id).digest("hex");
-      await mkdir(join(this.directory, "worktrees"), { recursive: true, mode: 0o700 });
-      path = join(await realpath(join(this.directory, "worktrees")), key);
-      const existing = (await this.git.listWorktrees(project)).find((tree) => tree.path === path);
-      if (!existing) {
-        await this.git.createWorktree({
-          repo: project,
-          path,
-          branch: selection.branch ?? `ace/${key.slice(0, 24)}`,
-          baseRef: selection.branch ?? recordedBaseRef(thread.details),
-          reuseBranch: true,
-        });
-        await new ManagedWorktrees(this.store, this.directory).created(
-          this.git,
-          project,
-          path,
-          id,
-          this.now(),
-        );
-      } else if (selection.branch)
-        await this.git.switchBranch({
-          worktree: path,
-          branch: selection.branch,
-          allowUncommitted: selection.allowUncommitted,
-        });
-    } else if (selection.branch)
-      await this.git.switchBranch({
-        worktree: path,
-        branch: selection.branch,
-        allowUncommitted: selection.allowUncommitted,
-      });
-    const info = await this.git.repositoryInfo(path);
-    // Switching to a named branch replaces the base the worktree was first made from.
-    const { base, pullRequestWorkspace: _pullRequestWorkspace, ...kept } = thread.details ?? {};
-    return {
-      ...kept,
-      ...(base && !selection.branch ? { base } : {}),
-      mode: selection.mode,
-      worktree: path,
-      branch: info.branch,
-      head: info.head,
-      ahead: info.ahead,
-      behind: info.behind,
-      machine: this.machine,
-      ...(selection.branch ? { baseBranch: selection.branch } : {}),
-    };
+    if (typeof row?.cwd !== "string") return undefined;
+    if (!this.store.workspaceReservations.removedRoot(row.cwd) && (await exists(row.cwd)))
+      return undefined;
+    const current = this.store.getThread(id);
+    if (!current) throw new Error("thread_not_found");
+    const details: ThreadDetails = { ...current.details, worktreeMissing: true };
+    if (!current.details?.worktreeMissing)
+      this.store.appendEvents(
+        id,
+        [{ type: "thread.client.updated", changes: { details } }],
+        this.now(),
+      );
+    return details;
   }
   async details(id: ThreadId): Promise<ThreadDetails> {
+    const missing = await this.missing(id);
+    if (missing) return missing;
     for (let attempt = 0; attempt < 2; attempt++) {
       const check = await this.sourceControl?.guard();
       const root = this.root(id);
@@ -279,6 +227,7 @@ export class WorkspaceRoots {
         machine: this.machine,
         diff: changed,
       };
+      delete details.worktreeMissing;
       if (!repository) delete details.repository;
       if (JSON.stringify(current.details) !== JSON.stringify(details))
         this.store.appendEvents(

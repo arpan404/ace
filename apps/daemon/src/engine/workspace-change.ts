@@ -6,9 +6,31 @@ import { handoff } from "./transition-history.ts";
 export interface WorkspaceChangeReservation {
   roots: readonly string[];
   hasOwnedWork(id: ThreadId): boolean;
-  /** Binding-only changes select one thread; Git changes fence every owner of the roots. */
+  /**
+   * Binding-only changes select one thread and fence exactly `roots`; Git changes fence every
+   * owner of the roots, and the thread's current root too.
+   */
   threads?: readonly ThreadId[];
+  /** The checkout selection asked for, recorded so a failed change can be retried. */
+  selection?: { mode: "local" | "worktree"; branch?: string | undefined };
 }
+
+/** The change was refused before any Git write: its fence can be released at once. */
+export class WorkspaceChangeRefused extends Error {
+  readonly code: string;
+  constructor(code: string, options?: { cause?: unknown }) {
+    super(code, options);
+    this.code = code;
+  }
+}
+/** Refusals Git reports before it writes anything. */
+const refusedGit = new Set(["dirty_worktree", "conflicts", "invalid_ref", "invalid_argument"]);
+const failureCode = (error: unknown) =>
+  error instanceof WorkspaceChangeRefused
+    ? error.code
+    : error instanceof GitError
+      ? `git_${error.code.replace(/^git_/, "")}`
+      : "workspace_change_failed";
 
 /** Persist a fence before closing a session or mutating Git. A restart retains the fence until explicit retry. */
 export async function changeEngineWorkspace(
@@ -57,6 +79,14 @@ export async function changeEngineWorkspace(
                 lossy: true,
                 uncertain,
                 ...(error ? { error } : {}),
+                ...(reservation.selection
+                  ? {
+                      mode: reservation.selection.mode,
+                      ...(reservation.selection.branch
+                        ? { branch: reservation.selection.branch }
+                        : {}),
+                    }
+                  : {}),
               },
             },
           },
@@ -115,13 +145,10 @@ export async function changeEngineWorkspace(
       repo.store.workspaceReservations.release(commandId);
     });
   } catch (error) {
-    const code =
-      error instanceof GitError
-        ? `git_${error.code.replace(/^git_/, "")}`
-        : "workspace_change_failed";
+    const code = failureCode(error);
     const uncertain = !(
-      error instanceof GitError &&
-      ["dirty_worktree", "conflicts", "invalid_ref", "invalid_argument"].includes(error.code)
+      error instanceof WorkspaceChangeRefused ||
+      (error instanceof GitError && refusedGit.has(error.code))
     );
     safeToRelease = !uncertain;
     status("failed", thread.details ?? {}, code, uncertain);

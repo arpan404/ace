@@ -1,9 +1,11 @@
 import { ForgeError } from "@ace/forge";
 import { GitError, isMutationUnavailable } from "@ace/git";
+import { WorkspaceChangeRefused } from "./engine/workspace-change.ts";
 
 /** Fixed public codes only; process output and arbitrary exception messages stay private. */
 export function actionErrorCode(error: unknown): string {
   if (error instanceof ForgeError) return `forge_${error.kind}`;
+  if (error instanceof WorkspaceChangeRefused) return error.code;
   if (error instanceof GitError)
     return isMutationUnavailable(error)
       ? "git_quarantined"
@@ -22,6 +24,8 @@ export function actionErrorCode(error: unknown): string {
       "workspace_busy",
       "thread_creation_in_progress",
       "workspace_preparation_collision",
+      "branch_checked_out_elsewhere",
+      "workspace_change_refused",
       "repository_mismatch",
       "pr_checkout_changed",
       "pr_requires_worktree",
