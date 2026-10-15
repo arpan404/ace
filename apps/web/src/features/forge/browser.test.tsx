@@ -11,6 +11,9 @@ import {
 import { workbench } from "@ace/fake-daemon";
 import { harness } from "@/test/harness.tsx";
 import { openPullRequest } from "./test-support.ts";
+
+// The PR tab loads on first use; load it up front so no test's wait includes the import.
+await import("./pr-panel-tab.tsx");
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "api" } as const;
 const other = { ...repository, name: "web" };
 const detail = (
