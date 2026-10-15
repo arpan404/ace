@@ -25,6 +25,13 @@ export const DaemonTargetShape = {
   url: DaemonUrl,
   token: DaemonToken,
   pairedDeviceId: z.optional(z.string().check(z.minLength(1), z.maxLength(256))),
+  /**
+   * Set only by the desktop app for the daemon it runs on this computer: the identity that
+   * daemon's current home names. The window trusts it over any identity it remembered for the
+   * address (a fresh start makes a new one) and keeps that daemon's saved work under it. Never
+   * stored, and never set for a daemon the person connected to by hand.
+   */
+  localHostId: z.optional(z.string().check(z.minLength(1), z.maxLength(256))),
 };
 
 export const DaemonTarget = z.object(DaemonTargetShape);

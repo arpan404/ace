@@ -1,4 +1,5 @@
 import { projectIntent } from "./project-intents.ts";
+import type { FakeHistory } from "./history-wire.ts";
 import { MachineIcon } from "@ace/protocol";
 import { markUncertainInput, restoreInput, repeatInput } from "./queue-fixtures.ts";
 import { authTerminalOutput } from "./auth-terminal-output.ts";
@@ -336,6 +337,10 @@ export class FakeDaemon implements Host {
   get terminals(): FakeTerminals {
     return this.servicesWire.workspace.terminals;
   }
+  /** Past-session requests clients made: lists read provider history, releases end it. */
+  get pastSessions(): Pick<FakeHistory, "lists" | "releases"> {
+    return this.servicesWire.history;
+  }
   /** The host folders and project catalog behind `projects.request` and project commands. */
   get projects(): FakeProjects {
     return this.servicesWire.workspace.projects;
@@ -416,10 +421,6 @@ export class FakeDaemon implements Host {
 
   seedServices(seed: ServicesSeed): void {
     this.servicesWire.seed(seed);
-    if (seed.historyScan)
-      for (const connection of this.connections)
-        if (connection.authenticated)
-          connection.push({ type: "history.scan.updated", scan: seed.historyScan });
   }
   session(send: (message: ServerMessage) => void): FakeWireSession {
     const services = this.servicesWire.session(send);

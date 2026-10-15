@@ -5,7 +5,6 @@ import { projectEvents } from "./projects.ts";
 import type { ProjectsApi } from "./projects-types.ts";
 import type { ClientApi } from "./api.ts";
 import type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
-import type { HistoryScanStatus, HistoryListRequest } from "@ace/protocol/history";
 import type {
   CursorAuthEvent,
   CursorAuthRequest,
@@ -13,7 +12,6 @@ import type {
   SettingsScope,
   SettingsLayer,
 } from "@ace/protocol";
-import type { Selection } from "./observable.ts";
 import type { ServiceWire } from "./wire-codec.ts";
 import { ClientError, type RequestOptions } from "./types.ts";
 
@@ -55,48 +53,6 @@ export class Client extends ClientCore implements ClientApi {
         if (!this.connection.send(request)) throw new ClientError("offline");
       },
     );
-  }
-  historyScan(): Selection<HistoryScanStatus | undefined> {
-    return this.notifications.select(["historyScan"], () => this.historyState);
-  }
-  scanHistory(options: RequestOptions = {}) {
-    return this.historyRequest(
-      { type: "history.scan", action: "start" },
-      (wire) => wire.HistoryScanResponse.parse,
-      options,
-    );
-  }
-  historyScanStatus(options: RequestOptions = {}) {
-    return this.historyRequest(
-      { type: "history.scan", action: "status" },
-      (wire) => wire.HistoryScanResponse.parse,
-      options,
-    );
-  }
-  listHistory(
-    input: Omit<import("zod").input<typeof HistoryListRequest>, "type" | "requestId">,
-    options: RequestOptions = {},
-  ) {
-    return this.historyRequest(
-      { type: "history.list", ...input },
-      (wire) => wire.HistoryListResponse.parse,
-      options,
-    );
-  }
-  private async historyRequest<T>(
-    input:
-      | import("zod").input<typeof HistoryListRequest>
-      | { type: "history.scan"; action: "start" | "status" },
-    decoder: (wire: ServiceWire) => (value: unknown) => T,
-    options: RequestOptions,
-  ): Promise<T> {
-    if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
-    const requestId = this.options.id();
-    const wire = await this.service();
-    const request = wire.ClientMessage.parse({ ...input, requestId });
-    return this.requests.wait(requestId, decoder(wire), options, () => {
-      if (!this.connection.send(request)) throw new ClientError("offline");
-    });
   }
   private async read<T>(
     payload:

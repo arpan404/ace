@@ -1,76 +1,42 @@
 import { logFields, logError } from "@ace/diagnostics";
 import { randomUUID } from "node:crypto";
+import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { homedir } from "node:os";
-import { z } from "zod";
 import { assertTestHomeIsolation } from "@ace/provider-kit/test-isolation";
-import {
-  openHistory,
-  ProviderHomeSchema,
-  type HistoryOptions,
-  type HistoryService,
-  type HistoryRuntime,
-} from "@ace/history-import";
-import { HistoryScanStatus } from "@ace/protocol/history";
-import { ThreadId, AgentId, type ClientMessage, type ServerMessage } from "@ace/protocol";
-import { HistoryContinuation, type HistoryAdapterPort } from "./history-continuation.ts";
-import { publishHistory, type HistoryPublicationWorkerFactory } from "./history-publisher.ts";
+import type { HistoryOptions, HistoryRuntime } from "@ace/history-import";
+import type { ClientMessage, HistoryOperationProgress, ServerMessage } from "@ace/protocol";
+import type { HistoryAdapterPort } from "./history-continuation.ts";
+import type { HistoryPublicationWorkerFactory } from "./history-publisher.ts";
+import { PastSessions, SESSION_PREFIX, sessionRoot } from "./history-session.ts";
 import type { Store } from "./store.ts";
+
+export { readHistoryInstances } from "./history-instances.ts";
 
 export type HistoryRequest = Extract<
   ClientMessage,
-  { type: "history.scan" | "history.list" | "history.import" | "history.continue" }
+  { type: "history.list" | "history.import" | "history.continue" | "history.release" }
 >;
 export interface DaemonHistoryOptions {
   log?: import("@ace/diagnostics").ComponentLogger;
   onError?(error: unknown, operation: string): void;
   signal?: AbortSignal;
-  spawnWorker?: Parameters<typeof openHistory>[1];
+  spawnWorker?: Parameters<typeof import("@ace/history-import").openHistory>[1];
   spawnPublicationWorker?: HistoryPublicationWorkerFactory;
   historyRuntime?: HistoryRuntime;
-  scheduleScan?: (run: () => void, milliseconds: number) => () => void;
   instances: HistoryOptions["instances"];
   adapters?: HistoryAdapterPort;
   now?: () => number;
   nextId?: () => string;
+  /** Timer for ending a session nobody has used for {@link IDLE_MS}; injected in tests. */
+  schedule?: (run: () => void, milliseconds: number) => () => void;
 }
-export function readHistoryInstances(
-  env: NodeJS.ProcessEnv = process.env,
-  home = homedir(),
-): HistoryOptions["instances"] {
-  const instances = z
-    .array(ProviderHomeSchema)
-    .max(256)
-    .parse(
-      JSON.parse(
-        env.ACE_HISTORY_INSTANCES ??
-          JSON.stringify([
-            {
-              id: "claude-default",
-              provider: "claude",
-              homeDir: env.CLAUDE_CONFIG_DIR ?? join(home, ".claude"),
-            },
-            {
-              id: "codex-default",
-              provider: "codex",
-              homeDir: env.CODEX_HOME ?? join(home, ".codex"),
-            },
-            {
-              id: "pi-default",
-              provider: "pi",
-              homeDir: env.PI_CODING_AGENT_DIR ?? join(home, ".pi/agent"),
-            },
-            {
-              id: "opencode-default",
-              provider: "opencode",
-              homeDir: join(env.XDG_DATA_HOME ?? join(home, ".local/share"), "opencode"),
-            },
-          ]),
-      ),
-    );
-  for (const instance of instances) assertTestHomeIsolation(instance.homeDir);
-  return instances;
-}
+/** A session left open by a page that never said goodbye ends after this long. */
+export const IDLE_MS = 10 * 60_000;
+
+/**
+ * Provider history is read only on request. Nothing happens at startup beyond removing
+ * working files a crashed session left behind; the first `history.list` starts a session.
+ */
 export async function openDaemonHistory(
   dataDir: string,
   store: Store,
@@ -79,246 +45,95 @@ export async function openDaemonHistory(
   options.signal?.throwIfAborted();
   assertTestHomeIsolation(dataDir);
   for (const instance of options.instances) assertTestHomeIsolation(instance.homeDir);
-  const indexPath = join(dataDir, "history/index.sqlite");
-  const service = await openHistory(
-    { indexPath, instances: options.instances },
-    options.spawnWorker,
-    options.historyRuntime,
-  );
+  const root = sessionRoot(dataDir);
+  let names: string[] = [];
   try {
-    options.signal?.throwIfAborted();
-    const history = new DaemonHistory(store, service, dataDir, indexPath, options);
-    history.startScan();
-    return history;
+    names = await readdir(root);
   } catch (error) {
-    await service.close();
-    throw error;
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
   }
+  for (const name of names)
+    if (name.startsWith(SESSION_PREFIX))
+      await rm(join(root, name), { recursive: true, force: true });
+  return new DaemonHistory(store, dataDir, options);
 }
+
 export class DaemonHistory {
-  private log: DaemonHistoryOptions["log"];
   private store: Store;
-  private service: HistoryService;
   private dataDir: string;
-  private indexPath: string;
-  private now: () => number;
-  private onError: DaemonHistoryOptions["onError"];
-  private nextId: () => string;
-  private spawnPublicationWorker: HistoryPublicationWorkerFactory | undefined;
+  private options: DaemonHistoryOptions;
+  private log: DaemonHistoryOptions["log"];
   private lifetime = new AbortController();
-  private externalSignal: AbortSignal | undefined;
-  private active: Promise<ServerMessage> | undefined;
-  private continuation: HistoryContinuation;
-  private scanController: AbortController | undefined;
-  private scanning: Promise<void> | undefined;
-  private changesQueued = false;
-  private changeScan: (() => void) | undefined;
-  private nextChangeScanAt = 0;
-  private scheduleScan: NonNullable<DaemonHistoryOptions["scheduleScan"]>;
-  private unsubscribeChanges: () => void;
-  private unsubscribeRecovery: () => void;
-  private retrying = false;
-  private scanState: HistoryScanStatus = {
-    state: "idle",
-    stats: { files: 0, reads: 0, bytes: 0, skipped: 0 },
-    unsupported: [],
-  };
-  private listeners = new Set<(status: HistoryScanStatus) => void>();
-  scanStatus(): HistoryScanStatus {
-    return HistoryScanStatus.parse(this.scanState);
-  }
-  subscribeScan(listener: (status: HistoryScanStatus) => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
-  private publishScan(status: HistoryScanStatus): void {
-    this.scanState = HistoryScanStatus.parse(status);
-    for (const listener of this.listeners) listener(this.scanStatus());
-  }
-  startScan(): Promise<void> {
-    return this.runScan((signal, progress) => this.service.scan(signal, progress));
-  }
-  private scheduleChanges(): void {
-    this.changesQueued = true;
-    if (this.changeScan || this.scanning || this.active || this.lifetime.signal.aborted) return;
-    this.changeScan = this.scheduleScan(
-      () => {
-        this.changeScan = undefined;
-        if (this.scanning || this.active || this.lifetime.signal.aborted) return;
-        this.changesQueued = false;
-        this.nextChangeScanAt = this.now() + 5000;
-        void this.runScan((signal, progress) => this.service.scanChanges(signal, progress));
-      },
-      Math.max(1000, this.nextChangeScanAt - this.now()),
-    );
-  }
-  private runScan(scan: HistoryService["scan"]): Promise<void> {
-    if (this.scanning) return this.scanning;
-    this.lifetime.signal.throwIfAborted();
-    if (this.active) throw new Error("History import or continuation in progress");
-    const controller = new AbortController();
-    this.scanController = controller;
-    const signal = AbortSignal.any([
-      controller.signal,
-      this.lifetime.signal,
-      ...(this.externalSignal ? [this.externalSignal] : []),
-    ]);
-    this.publishScan({
-      state: "scanning",
-      stats: { files: 0, reads: 0, bytes: 0, skipped: 0 },
-      unsupported: [],
-    });
-    this.scanning = scan(signal, (_files, result) => {
-      this.publishScan({ state: "scanning", stats: result, unsupported: result.unsupported });
-    })
-      .then(
-        (result) => {
-          const reasons = new Map<string, { instanceId: string; reason: string; count: number }>();
-          for (const entry of result.unsupported) {
-            const key = JSON.stringify([entry.instanceId, entry.reason]);
-            const group = reasons.get(key);
-            if (group) group.count++;
-            else reasons.set(key, { ...entry, count: 1 });
-          }
-          for (const entry of reasons.values())
-            this.log?.log(
-              "warn",
-              "Saved history could not be read",
-              logFields([
-                ["instanceId", entry.instanceId],
-                ["reason", entry.reason],
-                ["count", entry.count],
-              ]),
-            );
-          this.publishScan({ state: "ready", stats: result, unsupported: result.unsupported });
-        },
-        (error: unknown) => {
-          if (!signal.aborted) this.reportError(error, "history.scan");
-          this.publishScan({
-            ...this.scanState,
-            state: signal.aborted ? "idle" : this.retrying ? "retrying" : "failed",
-            ...(signal.aborted
-              ? {}
-              : {
-                  error:
-                    error instanceof Error ? error.message.slice(0, 8192) : "History scan failed",
-                }),
-          });
-        },
-      )
-      .finally(() => {
-        this.scanning = undefined;
-        this.scanController = undefined;
-        if (this.changesQueued) this.scheduleChanges();
-      });
-    return this.scanning;
-  }
-  private async stopScan(): Promise<void> {
-    this.scanController?.abort();
-    await this.scanning;
-  }
-  constructor(
-    store: Store,
-    service: HistoryService,
-    dataDir: string,
-    indexPath: string,
-    options: DaemonHistoryOptions,
-  ) {
-    this.log = options.log;
-    this.onError = options.onError;
-    this.externalSignal = options.signal;
+  private session: Promise<PastSessions> | undefined;
+  /** Operations run one at a time: a scan, an import and a continuation share the session. */
+  private queue: Promise<unknown> = Promise.resolve();
+  private pending = 0;
+  private cancelIdle: (() => void) | undefined;
+  private schedule: NonNullable<DaemonHistoryOptions["schedule"]>;
+  constructor(store: Store, dataDir: string, options: DaemonHistoryOptions) {
     this.store = store;
-    this.service = service;
     this.dataDir = dataDir;
-    this.indexPath = indexPath;
-    this.now = options.now ?? Date.now;
-    this.scheduleScan =
-      options.scheduleScan ??
+    this.options = options;
+    this.log = options.log;
+    this.schedule =
+      options.schedule ??
       ((run, milliseconds) => {
         const timer = setTimeout(run, milliseconds);
         timer.unref();
         return () => clearTimeout(timer);
       });
-    this.nextId = options.nextId ?? randomUUID;
-    this.spawnPublicationWorker = options.spawnPublicationWorker;
-    this.unsubscribeRecovery = service.subscribeRecovery((retrying) => {
-      this.retrying = retrying;
-      if (retrying) this.publishScan({ ...this.scanState, state: "retrying", error: undefined });
-      else if (!this.lifetime.signal.aborted) this.scheduleChanges();
-    });
-    this.unsubscribeChanges = service.subscribeChanges(() => this.scheduleChanges());
-    this.continuation = new HistoryContinuation(
-      store,
-      service,
-      options.adapters,
-      this.lifetime.signal,
-    );
   }
-  private reportError(error: unknown, operation: string): void {
-    this.log?.log(
-      "warn",
-      "Past sessions operation failed",
-      logFields([
-        ["operation", operation],
-        ["error", logError(error)],
-      ]),
-    );
-    this.onError?.(error, operation);
+  /** Whether a session is open, so tests and diagnostics can see that nothing is held. */
+  get open(): boolean {
+    return this.session !== undefined;
   }
-  async handle(
+  handle(
     request: HistoryRequest,
     signal: AbortSignal,
-    progress: (event: import("@ace/protocol").HistoryOperationProgress) => void = () => {},
+    progress: (event: HistoryOperationProgress) => void = () => {},
   ): Promise<ServerMessage> {
-    try {
-      return await this.handleRequest(request, signal, progress);
-    } catch (error) {
-      if (!signal.aborted) this.reportError(error, request.type);
-      throw error;
-    }
-  }
-  private async handleRequest(
-    request: HistoryRequest,
-    signal: AbortSignal,
-    progress: (event: import("@ace/protocol").HistoryOperationProgress) => void = () => {},
-  ): Promise<ServerMessage> {
-    signal.throwIfAborted();
-    this.externalSignal?.throwIfAborted();
     this.lifetime.signal.throwIfAborted();
-    if (request.type === "history.scan") {
-      if (request.action !== "status" && !this.active) this.startScan();
-      const scan = this.scanStatus();
-      return {
-        type: "history.scan",
-        requestId: request.requestId,
-        scan,
-        files: scan.stats.files,
-        unsupported: scan.unsupported,
-      };
-    }
-    if (request.type === "history.list") {
-      const page = await this.service.list(request);
-      return {
-        ...page,
-        sessions: page.sessions.map((session) => {
-          session.continuation = this.continuation.support(session.instanceId);
-          return session;
-        }),
-        requestId: request.requestId,
-        scan: this.scanStatus(),
-      };
-    }
-    if (this.active) throw new Error("History operation already in progress");
     const lifetime = AbortSignal.any([
       signal,
       this.lifetime.signal,
-      ...(this.externalSignal ? [this.externalSignal] : []),
+      ...(this.options.signal ? [this.options.signal] : []),
     ]);
-    lifetime.throwIfAborted();
-    const report = (
-      phase: import("@ace/protocol").HistoryOperationProgress["phase"],
-      events?: number,
-    ) => {
+    this.pending++;
+    this.cancelIdle?.();
+    this.cancelIdle = undefined;
+    const run = this.queue.then(() => this.run(request, lifetime, progress));
+    this.queue = run.catch(() => undefined);
+    return run
+      .catch((error: unknown) => {
+        if (!lifetime.aborted) this.reportError(error, request.type);
+        throw error;
+      })
+      .finally(() => {
+        if (--this.pending === 0 && this.session && !this.lifetime.signal.aborted)
+          this.cancelIdle = this.schedule(() => void this.release(), IDLE_MS);
+      });
+  }
+  private async run(
+    request: HistoryRequest,
+    signal: AbortSignal,
+    progress: (event: HistoryOperationProgress) => void,
+  ): Promise<ServerMessage> {
+    signal.throwIfAborted();
+    const correlation = request.requestId ? { requestId: request.requestId } : {};
+    if (request.type === "history.release") {
+      await this.release();
+      return { type: "history.release", ...correlation };
+    }
+    if (request.type === "history.list") return (await this.current()).list(request, signal);
+    const session = this.session && (await this.session);
+    if (!session)
+      return {
+        type: request.type,
+        ...correlation,
+        status: "unsupported",
+        reason: "Find past sessions again, then choose the session.",
+      };
+    const report = (phase: HistoryOperationProgress["phase"], events?: number) => {
       if (request.requestId)
         progress({
           type: "history.operation.progress",
@@ -329,112 +144,55 @@ export class DaemonHistory {
         });
     };
     report("preparing");
-    const active = this.stopScan().then(() => this.run(request, lifetime, report));
-    this.active = active;
     try {
-      const result = await active;
+      const result =
+        request.type === "history.import"
+          ? await session.import(request, signal, report)
+          : await session.continue(request, signal, report);
       report("status" in result && result.status === "unsupported" ? "unsupported" : "completed");
-      if (result.type !== "history.import" && result.type !== "history.continue")
-        throw new Error("Invalid history reply");
-      return request.requestId ? { ...result, requestId: request.requestId } : result;
+      return { ...result, ...correlation };
     } catch (error) {
       report("failed");
       throw error;
-    } finally {
-      this.active = undefined;
-      if (this.changesQueued) this.scheduleChanges();
     }
   }
-  private async run(
-    request: HistoryRequest,
-    signal: AbortSignal,
-    report: (
-      phase: import("@ace/protocol").HistoryOperationProgress["phase"],
-      events?: number,
-    ) => void,
-  ): Promise<ServerMessage> {
-    if (request.type === "history.continue")
-      return this.continuation.continue(request, signal, report);
-    if (request.type !== "history.import") throw new Error("Unexpected history operation");
-    const source = await this.service.get(request.sourceId);
-    if (!source) throw new Error("Unknown registered history source");
-    const workspace = this.store.getWorkspace(request.workspaceId);
-    if (!workspace || workspace.path !== source.cwd)
-      throw new Error("History workspace does not match source cwd");
-    if (source.support.status === "unsupported")
-      return { type: "history.import", status: "unsupported", reason: source.support.reason };
-    const existing = this.store.importedSource(source.id);
-    if (existing) {
-      const resumePersistence = await this.continuation.pausePersistence(signal);
-      try {
-        signal.throwIfAborted();
-        await this.store.startHistoryWriting(signal);
-        try {
-          await this.store.notifyHistory();
-        } finally {
-          this.store.setHistoryWriting(false);
-        }
-      } finally {
-        await resumePersistence();
-      }
-      await this.service.deleteImported(existing.id);
-      return { type: "history.import", status: "imported", threadId: existing.id };
-    }
-    let archived = await this.service.findImported(source.id);
-    if (!archived) {
-      const threadId = ThreadId.parse(this.nextId());
-      report("reading");
-      await this.service.importSession(
-        {
-          sourceId: source.id,
-          threadId,
-          workspaceId: request.workspaceId,
-          agentId: AgentId.parse(this.nextId()),
-          at: this.now(),
-        },
-        undefined,
-        signal,
-      );
-      archived = await this.service.importedThread(threadId);
-    }
-    if (!archived || archived.workspaceId !== request.workspaceId)
-      throw new Error("Archived workspace does not match request");
-    // Stop live callback ingress and drain engine persistence before the worker owns
-    // SQLite. No Store write lease is held while awaiting this boundary.
-    const resumePersistence = await this.continuation.pausePersistence(signal);
-    try {
-      signal.throwIfAborted();
-      report("publishing");
-      await publishHistory(
-        this.store,
-        join(this.dataDir, "events.sqlite"),
-        this.indexPath,
-        archived.id,
-        this.now(),
-        signal,
-        this.spawnPublicationWorker,
-      );
-    } finally {
-      // publishHistory releases its Store lease even on rollback or worker failure.
-      await resumePersistence();
-    }
-    await this.service.deleteImported(archived.id);
-    return { type: "history.import", status: "imported", threadId: archived.id };
+  private current(): Promise<PastSessions> {
+    this.session ??= PastSessions.open(this.store, this.dataDir, {
+      instances: this.options.instances,
+      spawnWorker: this.options.spawnWorker,
+      spawnPublicationWorker: this.options.spawnPublicationWorker,
+      historyRuntime: this.options.historyRuntime,
+      adapters: this.options.adapters,
+      now: this.options.now ?? Date.now,
+      nextId: this.options.nextId ?? randomUUID,
+    }).catch((error: unknown) => {
+      this.session = undefined;
+      throw error;
+    });
+    return this.session;
   }
-  async close() {
-    this.unsubscribeChanges();
-    this.unsubscribeRecovery();
-    this.changeScan?.();
+  /** End the session: its working files are deleted and nothing it read is kept. */
+  private async release(): Promise<void> {
+    this.cancelIdle?.();
+    this.cancelIdle = undefined;
+    const session = this.session;
+    this.session = undefined;
+    if (session) await (await session.catch(() => undefined))?.close();
+  }
+  private reportError(error: unknown, operation: string): void {
+    this.log?.log(
+      "warn",
+      "Past sessions operation failed",
+      logFields([
+        ["operation", operation],
+        ["error", logError(error)],
+      ]),
+    );
+    this.options.onError?.(error, operation);
+  }
+  async close(): Promise<void> {
     this.lifetime.abort();
-    await this.stopScan();
-    this.listeners.clear();
-    // Release requests queued behind a crashed worker before draining their callers.
-    const closingHistory = this.service.close();
-    try {
-      await this.active?.catch(() => undefined);
-      await this.continuation.close();
-    } finally {
-      await closingHistory;
-    }
+    await this.queue;
+    await this.release();
   }
 }

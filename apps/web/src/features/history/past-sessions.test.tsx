@@ -54,44 +54,58 @@ function app() {
   return made;
 }
 
-/** Saved native sessions remain available in Setup, away from the new-thread composer. */
+/** Past sessions are found only from Settings, and only once the person asks. */
 async function openHistory(made: ReturnType<typeof app>) {
-  await made.open("/setup");
-  const continueButton = await screen.findByRole("button", { name: "Continue" });
-  await waitFor(() => expect(continueButton).toHaveProperty("disabled", false));
-  await userEvent.click(continueButton);
-  await screen.findByRole("heading", { name: "Choose your first project" });
-  await userEvent.click(await screen.findByText("Bring an existing conversation"));
+  await made.open("/settings/providers");
   const project = await screen.findByRole("combobox", { name: "Past sessions project" });
   await userEvent.click(project);
   await userEvent.click(await screen.findByRole("option", { name: /^relay$/ }));
+  await userEvent.click(screen.getByRole("button", { name: "Find past sessions" }));
+  return screen.findByRole("list", { name: "Past sessions in relay" });
 }
 
-test("new-thread history follows its single project picker", async () => {
+test("New thread shows no past sessions, even when provider history exists", async () => {
   const made = app();
   await made.open("/new?project=relay");
-  await screen.findByRole("list", { name: "Past sessions in relay" });
-  expect(screen.queryByRole("combobox", { name: "Past sessions project" })).toBeNull();
-  expect(screen.queryByRole("button", { name: /^Setup project:/ })).toBeNull();
-  await userEvent.click(screen.getByRole("button", { name: "Project: relay" }));
-  const popup = await screen.findByRole("dialog", { name: "Choose project" });
-  await userEvent.click(await within(popup).findByRole("option", { name: "docs-site" }));
-  await screen.findByRole("button", { name: "Project: docs-site" });
-  await waitFor(() => expect(screen.queryByRole("region", { name: "Past sessions" })).toBeNull());
+  await screen.findByRole("combobox", { name: "Message" });
+  expect(screen.queryByRole("region", { name: "Past sessions" })).toBeNull();
+  expect(screen.queryByText(/past sessions/i)).toBeNull();
+  expect(screen.queryByText("Fix the old retry loop")).toBeNull();
+  expect(screen.queryByRole("button", { name: /^(Import|Continue) / })).toBeNull();
+  await made.open("/setup");
+  await screen.findByRole("heading", { level: 1, name: "Set up" });
+  expect(screen.queryByText(/past sessions|existing conversation/i)).toBeNull();
+  expect(made.daemon.pastSessions.lists).toBe(0);
+});
+
+test("Settings reads past sessions only when asked and forgets them on leaving", async () => {
+  const made = app();
+  const page = await made.open("/settings/providers");
+  await screen.findByRole("button", { name: "Find past sessions" });
+  expect(screen.queryByText("Fix the old retry loop")).toBeNull();
+  expect(made.daemon.pastSessions.lists).toBe(0);
+  const project = screen.getByRole("combobox", { name: "Past sessions project" });
+  await userEvent.click(project);
+  await userEvent.click(await screen.findByRole("option", { name: /^relay$/ }));
+  await userEvent.click(screen.getByRole("button", { name: "Find past sessions" }));
+  const list = await screen.findByRole("list", { name: "Past sessions in relay" });
+  expect(within(list).getByText("Fix the old retry loop")).toBeTruthy();
+  expect(screen.getByText(/Continue does the same so the conversation can be shown/)).toBeTruthy();
+  expect(made.daemon.pastSessions.lists).toBe(1);
+  // Leaving the page unmounts it.
+  page.unmount();
+  await waitFor(() => expect(made.daemon.pastSessions.releases).toBe(1));
+  await made.open("/settings/providers");
+  await screen.findByRole("button", { name: "Find past sessions" });
   expect(screen.queryByText("Fix the old retry loop")).toBeNull();
 });
 
-test("Setup lists the selected project's sessions and Import opens their saved conversation", async () => {
+test("Import opens the saved conversation and the session is not offered again", async () => {
   const made = app();
-  await openHistory(made);
-  const list = await screen.findByRole("list", { name: "Past sessions in relay" });
-  expect(within(list).queryByText("Unavailable")).toBeNull();
+  const list = await openHistory(made);
   expect(within(list).queryByRole("button", { name: "Continue Trace delivery order" })).toBeNull();
   await userEvent.click(
-    within(list).getAllByRole("button", { name: /^Import / })[0] ??
-      (() => {
-        throw new Error("Missing Import");
-      })(),
+    within(list).getByRole("button", { name: "Import Fix the old retry loop" }),
   );
   await screen.findByRole("heading", { level: 1, name: "Fix the old retry loop" });
   const feed = await screen.findByRole("feed", { name: "Transcript" });
@@ -109,12 +123,14 @@ test("Setup lists the selected project's sessions and Import opens their saved c
   );
   await userEvent.keyboard("{Enter}");
   expect(await within(feed).findByText("Add regression coverage")).toBeTruthy();
+  const again = await openHistory(made);
+  expect(within(again).queryByText("Fix the old retry loop")).toBeNull();
+  expect(within(again).getByText("Trace delivery order")).toBeTruthy();
 });
 
 test("Continue opens a resumed conversation without sending a made-up message", async () => {
   const made = app();
-  await openHistory(made);
-  const list = await screen.findByRole("list", { name: "Past sessions in relay" });
+  const list = await openHistory(made);
   const requests: unknown[] = [];
   const stop = made.client.onMessage((message) => {
     if (message.type === "history.continue") requests.push(message);
@@ -131,87 +147,15 @@ test("Continue opens a resumed conversation without sending a made-up message", 
   stop();
 });
 
-test("Setup can be reopened from the palette and filters past sessions by project", async () => {
-  const made = app();
-  await made.open("/new?project=relay");
-  await screen.findByRole("combobox", { name: "Message" });
-  await userEvent.keyboard("{Meta>}k{/Meta}");
-  await userEvent.type(await screen.findByRole("combobox", { name: "Search commands" }), "Setup");
-  await userEvent.keyboard("{Enter}");
-  await screen.findByRole("heading", { level: 1, name: "Set up" });
-  await userEvent.click(await screen.findByRole("button", { name: "Continue" }));
-  await userEvent.click(await screen.findByText("Bring an existing conversation"));
-  const selector = await screen.findByRole("combobox", { name: "Past sessions project" });
-  await userEvent.click(selector);
-  await userEvent.click(await screen.findByRole("option", { name: "relay" }));
-  await screen.findByText("Fix the old retry loop");
-  await userEvent.click(selector);
-  await userEvent.click(await screen.findByRole("option", { name: "docs-site" }));
-  await waitFor(() => expect(screen.queryByRole("region", { name: "Past sessions" })).toBeNull());
-  expect(screen.queryByText("Fix the old retry loop")).toBeNull();
-});
-
-test("Recent sessions stay capped, unavailable and other-project rows stay out, and the dialog searches older sessions by provider", async () => {
-  const made = app();
-  const sessions = Array.from({ length: 110 }, (_, index) =>
-    HistorySession.parse({
-      id: `saved-${index}`,
-      instanceId: "personal",
-      provider: index === 109 ? "pi" : index % 2 ? "codex" : "opencode",
-      nativeId: `native-${index}`,
-      cwd: "/Users/dev/relay",
-      title: index === 109 ? "Find the missing keyboard shortcut" : `Review retry ${index}`,
-      lastActivity: 1000000 - index,
-      messageCount: 2,
-      countAccuracy: "exact",
-      support: { status: "supported" },
-    }),
-  );
-  made.daemon.seedServices({
-    history: [
-      HistorySession.parse({
-        ...sessions[0],
-        id: "unreadable",
-        title: "Unreadable session",
-        lastActivity: 2000000,
-        support: { status: "unsupported", reason: "The history can't be read." },
-      }),
-      HistorySession.parse({
-        ...sessions[0],
-        id: "other-project",
-        title: "Different project",
-        cwd: "/tmp/other-project",
-      }),
-      ...sessions,
-    ],
-  });
-  await openHistory(made);
-  const list = await screen.findByRole("list", { name: "Past sessions in relay" });
-  expect(within(list).getAllByRole("listitem")).toHaveLength(4);
-  expect(screen.queryByText("Unavailable")).toBeNull();
-  expect(screen.queryByText("Unreadable session")).toBeNull();
-  expect(screen.queryByText("Different project")).toBeNull();
-  expect(screen.queryByText("Find the missing keyboard shortcut")).toBeNull();
-  await userEvent.click(screen.getByRole("button", { name: "Show all past sessions" }));
-  const dialog = await screen.findByRole("dialog", { name: "Past sessions" });
-  expect(await within(dialog).findByRole("list", { name: "OpenCode sessions" })).toBeTruthy();
-  expect(within(dialog).getByRole("list", { name: "Codex sessions" })).toBeTruthy();
-  await userEvent.type(
-    within(dialog).getByRole("textbox", { name: "Search past sessions" }),
-    "keyboard",
-  );
-  expect(await within(dialog).findByText("Find the missing keyboard shortcut")).toBeTruthy();
-  expect(within(dialog).getByRole("list", { name: "Pi sessions" })).toBeTruthy();
-  expect(within(dialog).queryByText("Review retry 0")).toBeNull();
-});
-
-test("A project with no readable sessions has no past sessions section or entry point", async () => {
+test("a project with no past sessions says so after Find instead of showing an empty list", async () => {
   const made = app();
   made.daemon.seedServices({ history: [] });
-  await openHistory(made);
-  await screen.findByRole("combobox", { name: "Past sessions project" });
-  await waitFor(() => expect(screen.queryByRole("region", { name: "Past sessions" })).toBeNull());
-  expect(screen.queryByRole("button", { name: "Show all past sessions" })).toBeNull();
+  await made.open("/settings/providers");
+  await userEvent.click(await screen.findByRole("button", { name: "Find past sessions" }));
+  expect(
+    await screen.findByText(/^No past sessions in .+ that aren't already in ace\.$/),
+  ).toBeTruthy();
+  expect(screen.queryByRole("list", { name: /^Past sessions in / })).toBeNull();
 });
 
 test("old imported Codex notices and new raw-only items take no visible transcript rows", async () => {
@@ -253,99 +197,4 @@ test("old imported Codex notices and new raw-only items take no visible transcri
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   expect(await within(feed).findByText("Saved events arrive before live events.")).toBeTruthy();
   for (const text of labels.filter(Boolean)) expect(within(feed).queryByText(text)).toBeNull();
-});
-
-test("the full session list stays usable while more saved conversations are being found", async () => {
-  const made = app();
-  made.daemon.seedServices({
-    historyScan: {
-      state: "scanning",
-      stats: { files: 64, reads: 64, bytes: 1000, skipped: 0 },
-      unsupported: [],
-    },
-  });
-  await openHistory(made);
-  await userEvent.click(await screen.findByRole("button", { name: "Show all past sessions" }));
-  const dialog = await screen.findByRole("dialog", { name: "Past sessions" });
-  expect(await within(dialog).findByText("Looking for saved conversations…")).toBeTruthy();
-  expect(within(dialog).getByText("Trace delivery order")).toBeTruthy();
-  expect(within(dialog).queryByRole("alert")).toBeNull();
-});
-
-test("past sessions keep their rows and show a calm retrying status until recovery finishes", async () => {
-  const made = app();
-  await openHistory(made);
-  await screen.findByRole("button", { name: "Import Trace delivery order" });
-  made.daemon.seedServices({
-    historyScan: {
-      state: "retrying",
-      stats: { files: 64, reads: 64, bytes: 1000, skipped: 0 },
-      unsupported: [],
-    },
-  });
-  expect(await screen.findByText("Past sessions will be back shortly. Retrying…")).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "Show all past sessions" }));
-  const dialog = await screen.findByRole("dialog", { name: "Past sessions" });
-  expect(
-    await within(dialog).findByText("Past sessions will be back shortly. Retrying…"),
-  ).toBeTruthy();
-  expect(within(dialog).getByText("Trace delivery order")).toBeTruthy();
-  expect(within(dialog).queryByRole("alert")).toBeNull();
-  made.daemon.seedServices({
-    historyScan: {
-      state: "ready",
-      stats: { files: 6000, reads: 6000, bytes: 1000, skipped: 0 },
-      unsupported: [],
-    },
-  });
-  await waitFor(() =>
-    expect(within(dialog).queryByText("Past sessions will be back shortly. Retrying…")).toBeNull(),
-  );
-  await userEvent.click(
-    within(dialog).getByRole("button", { name: "Import Trace delivery order" }),
-  );
-  await screen.findByRole("heading", { name: "Trace delivery order" });
-});
-
-test("an empty inventory stays accessible while scanning and retrying instead of showing failure", async () => {
-  const made = app();
-  made.daemon.seedServices({
-    history: [],
-    historyScan: {
-      state: "scanning",
-      stats: { files: 64, reads: 64, bytes: 1000, skipped: 0 },
-      unsupported: [],
-    },
-  });
-  await openHistory(made);
-  expect(await screen.findByText("Looking for saved conversations…")).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "Show all past sessions" }));
-  const dialog = await screen.findByRole("dialog", { name: "Past sessions" });
-  expect(await within(dialog).findByText("Looking for saved conversations…")).toBeTruthy();
-  expect(within(dialog).queryByText("No matching sessions.")).toBeNull();
-  expect(within(dialog).queryByRole("alert")).toBeNull();
-  made.daemon.seedServices({
-    historyScan: {
-      state: "retrying",
-      stats: { files: 64, reads: 64, bytes: 1000, skipped: 0 },
-      unsupported: [],
-    },
-  });
-  expect(
-    await within(dialog).findByText("Past sessions will be back shortly. Retrying…"),
-  ).toBeTruthy();
-  expect(within(dialog).queryByRole("button", { name: /^Retry$/ })).toBeNull();
-});
-
-test("a missed ready push during reconnect cannot leave the scanning label stuck", async () => {
-  const made = app();
-  await openHistory(made);
-  const stats = { files: 1, reads: 1, bytes: 100, skipped: 0 };
-  made.daemon.seedServices({ historyScan: { state: "scanning", stats, unsupported: [] } });
-  expect(await screen.findByText("Looking for saved conversations…")).toBeTruthy();
-  made.client.networkOnline(false);
-  made.daemon.seedServices({ historyScan: { state: "ready", stats, unsupported: [] } });
-  made.client.networkOnline(true);
-  await waitFor(() => expect(screen.queryByText("Looking for saved conversations…")).toBeNull());
-  expect(await screen.findByText("Fix the old retry loop")).toBeTruthy();
 });

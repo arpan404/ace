@@ -71,50 +71,27 @@ ACP metadata path. OpenCode and Pi model IDs retain their native provider prefix
 Raw Claude and Codex protocol traffic goes to provider diagnostics at debug log
 level. Transcript notices are reserved for user-relevant information and errors.
 
-## History indexing
+## Past sessions (on demand)
 
-`openDaemonHistory` opens the index and starts a worker scan without awaiting it.
-Opening installs trust filters for at most 256 registered homes; it does not
-walk the persisted inventory. Removed or rebound homes are filtered from reads
-immediately, and stale rows are cleaned in yielded background batches.
+Startup opens no provider history. `openDaemonHistory` only removes working
+directories a crashed session left in `ACE_HOME/tmp/past-sessions-*`; no worker
+starts, no file is watched and no index exists until someone asks (ADR 0033,
+2026-10-15 amendment).
 
-`history/index.sqlite` stores file path, size, mtime, fingerprint, registered home,
-provider and scan epoch. Unchanged files require metadata checks but no content
-reads. Changed JSONL files use at most 64 KiB each of head and tail. Four file
-samples run concurrently; each batch commits before yielding. Provider databases
-are fingerprinted with their WAL/journal metadata and streamed into a private
-snapshot only when changed. Snapshots and imports preserve provider files.
-SQLite caches are 2 MiB per history connection; the worker has 128 MiB old-generation
-and 16 MiB young-generation heap limits. Heap limits are a backstop, not an RSS
-measurement. Filesystem streams, SQLite caches and native allocations also count
-toward RSS; the process regression records RSS growth for merge-time verification.
+The first `history.list` starts a session: a history worker with a private index
+and snapshot scratch in a new `ACE_HOME/tmp/past-sessions-*` directory. It scans
+on that first request or when `rescan` is set, then pages from the session index.
+Sessions an ace thread already holds (matched by `provider:nativeId`) are not
+listed. Unchanged files within a session require metadata checks but no content
+reads; changed JSONL files use at most 64 KiB each of head and tail, and provider
+databases are streamed into a private snapshot only when changed. Snapshots and
+imports preserve provider files. SQLite caches are 2 MiB per history connection;
+the worker has 128 MiB old-generation and 16 MiB young-generation heap limits.
 
-A separate read-only WAL connection serves committed index pages during a scan.
-Each lineage batch updates SQL recency and JSON `lastActivity` in the same
-statement. List cursors use the selected SQL ordering columns, including when
-reading an index left inconsistent by an older interrupted scan.
-Up to eight list/get requests may overlap indexing; write/import operations remain
-exclusive. Cleanup, pruning and lineage aggregation yield in capped pages. An
-import or continuation cancels the current scan before using its exclusive lane.
-Shutdown cancels scans, releases progress waiters, closes private snapshots and
-index connections, then terminates the worker. Incomplete scans do not prune
-unvisited sessions; completed file batches survive cancellation and restart.
-
-`history.scan` with `action: "start"` starts or joins background indexing and
-returns immediately. `action: "status"` reads status without triggering a scan and
-requires read scope. Omitted action retains start permission requirements.
-`history.list` serves persisted summaries immediately, with current scan status.
-Both responses accept/echo optional `requestId`; existing fields remain available.
-Their `scan` includes `state` (`idle`, `scanning`, `ready`, `failed`), `stats`
-(`files`, `reads`, `bytes`, `skipped`), unsupported reasons and an optional failure.
-Authenticated read clients receive `history.scan.updated` progress/completion
-through the existing bounded socket outbox; revoked devices receive nothing.
-A client that reconnects fetches status or a list again.
-
-`@ace/client` provides `listHistory({cwd, limit, before})`, `scanHistory()`,
-`historyScanStatus()` and observable `historyScan()`. The observable starts unknown
-on reconnect and is updated by list/scan replies and progress events. A completed
-`scanHistory()` request acknowledges indexing admission, not scan completion.
+Operations in a session run one at a time. `history.release`, ten idle minutes or
+shutdown ends the session: the worker closes and its directory is deleted.
+Import and continue answer `unsupported` once the session has ended. The reply's
+`scan` reports the session's last scan (`state`, `stats`, unreadable sources).
 
 ## Other background work
 

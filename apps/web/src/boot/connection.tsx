@@ -39,9 +39,11 @@ export const versionMismatchWords =
   "This app and the ace daemon are different versions. Restart ace to update.";
 /**
  * Why this window stopped trying; retrying with the same target can't help. Only `auth` means
- * the daemon rejected the token; `storage` is this device's own saved data.
+ * the daemon rejected the token; `identity` means a different daemon than the one this window
+ * met at that address answered (its token may be fine); `storage` is this device's own saved
+ * data.
  */
-export type ConnectionProblem = "auth" | "protocol" | "storage" | "failed";
+export type ConnectionProblem = "auth" | "identity" | "protocol" | "storage" | "failed";
 
 /** Which daemon this window talks to, and how to change it. Provided by the ConnectionGate. */
 export interface DaemonConnection {
@@ -63,6 +65,12 @@ export interface DaemonConnection {
   edit(): void;
   /** Forget the token and return to the connection screen. */
   disconnect(): void;
+  /**
+   * After an `identity` refusal: forget the daemon this window met at the address before, and
+   * the work it saved for it, then connect to the one there now. Absent where nothing can be
+   * forgotten (the fake daemon).
+   */
+  forgetIdentity?: (() => void) | undefined;
   /** Absent only before a daemon is chosen. */
   endpoint?: DaemonEndpoint | undefined;
   /** A `#token=` link waiting for the person to agree before anything is saved. */

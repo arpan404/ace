@@ -322,7 +322,7 @@ test("a pinned client rejects a different host before replaying persisted comman
   cleanup.push(async () => lease.release());
   await client.start();
   await wait(client.connectionState(), (state) => state === "fatal");
-  expect(client.error?.code).toBe("auth");
+  expect(client.error?.code).toBe("identity");
   expect(client.intent("restored").getSnapshot()?.state).toBe("pending");
   expect(
     daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("must-not-replay") }),

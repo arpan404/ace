@@ -9,8 +9,7 @@ import { SnapshotBusy } from "./snapshot-scratch.ts";
 import { SnapshotChanged } from "./sqlite-snapshot.ts";
 import type { ProviderHome } from "./contracts.ts";
 import type { Catalog } from "./catalog.ts";
-import type { InventoryChanges } from "./inventory-watch.ts";
-import { inventoryRoots, changedRoots, changedFiles, isRootDatabase } from "./scan-paths.ts";
+import { inventoryRoots } from "./scan-paths.ts";
 import { ByteBudget } from "./byte-budget.ts";
 import {
   sampleFile,
@@ -31,7 +30,6 @@ export async function scan(
   instances: ProviderHome[],
   signal: AbortSignal,
   progress: (files: number, result: ScanTally) => void | Promise<void> = () => undefined,
-  changes?: InventoryChanges,
 ) {
   const result: ScanTally = {
     files: 0,
@@ -39,10 +37,8 @@ export async function scan(
     bytes: 0,
     skipped: 0,
     unsupported: [],
-    retry: [],
   };
   await catalog.cleanup(signal);
-  catalog.updates.begin();
   for (const instance of instances) {
     signal.throwIfAborted();
     if (instance.provider === "cursor") {
@@ -53,20 +49,10 @@ export async function scan(
       );
       continue;
     }
-    const changed =
-      changes === undefined
-        ? undefined
-        : changedRoots(
-            instance,
-            changes.find((entry) => entry.instanceId === instance.id)?.paths ?? [],
-          );
-    if (changed?.length === 0) continue;
     const epoch = catalog.start(instance.id);
     const readsBefore = result.reads;
     {
-      const roots =
-        changed?.filter((path) => !isRootDatabase(instance, path)) ?? inventoryRoots(instance);
-      if (changed) for (const path of changed) catalog.updates.path(instance.id, path);
+      const roots = inventoryRoots(instance);
       const budget = { entries: 0 };
       const decode = new ByteBudget(DECODE_BUDGET);
       const largeRecords = new ByteBudget(RECORD_LIMIT);
@@ -118,26 +104,19 @@ export async function scan(
         signal.throwIfAborted();
       };
       for (const root of roots)
-        for await (const path of changed === undefined
-          ? walkFiles(root, signal, budget)
-          : changedFiles(root, signal, budget)) {
+        for await (const path of walkFiles(root, signal, budget)) {
           batch.push(path);
           if (batch.length === 64) await flush();
         }
       if (batch.length) await flush();
       // Only recognized database names in the home root are opened. No auth/config files.
-      const databases =
-        changed === undefined
-          ? rootDatabases(instance, signal)
-          : changed.filter((path) => isRootDatabase(instance, path));
-      for await (const path of databases) {
+      for await (const path of rootDatabases(instance, signal)) {
         result.files++;
         let fp;
         try {
           fp = await databaseFingerprint(path);
         } catch (error) {
-          if (changed && error instanceof Error && "code" in error && error.code === "ENOENT")
-            continue;
+          if (error instanceof Error && "code" in error && error.code === "ENOENT") continue;
           throw error;
         }
         if (catalog.touch(instance.id, path, fp, epoch)) {
@@ -204,9 +183,8 @@ export async function scan(
           catalog.db.exec("ROLLBACK TO provider_scan; RELEASE provider_scan");
           catalog.preservePath(instance.id, path, epoch);
           if (signal.aborted) throw error;
-          if (error instanceof SnapshotBusy) {
-            if (result.retry.length < 4096) result.retry.push({ instanceId: instance.id, path });
-          } else {
+          // A busy snapshot is read by the next scan the person asks for.
+          if (!(error instanceof SnapshotBusy)) {
             // Races, refusals and unreadable schemas all wait before the next attempt. A race
             // is not a notice: an active writer keeps producing changes that rescan it.
             const reason =
@@ -226,18 +204,12 @@ export async function scan(
       }
       if (instance.provider === "codex") await scanCodexTitles(catalog, instance, epoch, signal);
       signal.throwIfAborted();
-      if (changed) {
-        for (const path of changed) await catalog.updates.prune(instance.id, path, epoch, signal);
-        await catalog.updates.summarize(instance.id, signal);
-      } else {
-        const removed = await catalog.prune(instance.id, epoch, signal);
-        // The saved tree already has recency for unchanged sources. Avoid rewriting
-        // every summary on warm startup, while still reconciling deletions.
-        if (removed || result.reads !== readsBefore)
-          await catalog.summarizeTree(instance.id, signal, () =>
-            progress(result.files, { ...result }),
-          );
-      }
+      const removed = await catalog.prune(instance.id, epoch, signal);
+      // A repeated scan in the same session already has recency for unchanged sources.
+      if (removed || result.reads !== readsBefore)
+        await catalog.summarizeTree(instance.id, signal, () =>
+          progress(result.files, { ...result }),
+        );
     }
   }
   await progress(result.files, { ...result });

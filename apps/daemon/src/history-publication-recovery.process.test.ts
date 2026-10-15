@@ -4,10 +4,9 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import { expect, test } from "vitest";
-import { openHistory, openArchiveReader } from "@ace/history-import";
-import { type ServerMessage, ThreadId, AgentId } from "@ace/protocol";
+import { type ServerMessage, ThreadId } from "@ace/protocol";
 import { Store } from "./store.ts";
-import { DaemonHistory } from "./history.ts";
+import { openDaemonHistory } from "./history.ts";
 import { subscribe } from "./subscription.ts";
 import { createDevThread } from "./commands.ts";
 
@@ -17,6 +16,7 @@ async function fixture() {
   const homeDir = join(root, "claude");
   const cwd = "/publication";
   await mkdir(join(homeDir, "projects/p"), { recursive: true });
+  await mkdir(data, { recursive: true });
   await writeFile(
     join(homeDir, "projects/p/saved.jsonl"),
     JSON.stringify({
@@ -27,17 +27,12 @@ async function fixture() {
     }) + "\n",
   );
   const instances = [{ id: "account", provider: "claude" as const, homeDir }];
-  const indexPath = join(data, "history/index.sqlite");
-  const service = await openHistory({ indexPath, instances });
   const store = new Store(join(data, "events.sqlite"));
   const workspaceId = store.createWorkspace(cwd, "Publication");
-  await service.scan();
-  const source = (await service.list({ type: "history.list", cwd })).sessions[0];
-  if (!source) throw new Error("Missing source");
   const preload = join(root, "exit.mjs");
   let fail: "after" | "before" | undefined = "after";
   let id = 0;
-  const history = new DaemonHistory(store, service, data, indexPath, {
+  const history = await openDaemonHistory(data, store, {
     instances,
     now: () => 123,
     nextId: () => `import-${++id}`,
@@ -48,6 +43,12 @@ async function fixture() {
       );
     },
   });
+  const page = await history.handle(
+    { type: "history.list", cwd, limit: 10 },
+    new AbortController().signal,
+  );
+  const source = page.type === "history.list" ? page.sessions[0] : undefined;
+  if (!source) throw new Error("Missing source");
   const plain: ServerMessage[] = [];
   const windowed: ServerMessage[] = [];
   const stopPlain = subscribe(store, "plain", { kind: "threads" }, undefined, 100, (message) =>
@@ -63,13 +64,10 @@ async function fixture() {
   );
   return {
     store,
-    service,
     source,
     plain,
     windowed,
     workspaceId,
-    indexPath,
-    databasePath: join(data, "events.sqlite"),
     async fault(boundary: "after" | "before") {
       fail = boundary;
       await writeFile(
@@ -148,53 +146,9 @@ test("a committed import with a lost worker reply reaches both sidebar subscript
       expect(await f.import()).toMatchObject({ status: "imported", threadId: thread?.id });
       expect(f.store.headSeq()).toBe(head);
       expect(events).toEqual([1, 2, 3, 4, 5, 6]);
-      expect(await f.service.findImported(f.source.id)).toBeNull();
     } finally {
       stop();
     }
-  } finally {
-    await f.close();
-  }
-});
-
-test("an idempotent import retry finishes publication and removes staging left after commit", async () => {
-  const f = await fixture();
-  try {
-    const threadId = ThreadId.parse("already-committed");
-    await f.service.importSession({
-      sourceId: f.source.id,
-      threadId,
-      workspaceId: f.workspaceId,
-      agentId: AgentId.parse("root"),
-      at: 123,
-    });
-    // A real independent writer commits while the parent is still alive.
-    const writer = new Store(f.databasePath);
-    const archive = openArchiveReader(f.indexPath, threadId);
-    try {
-      writer.installHistory(archive, 123, () => false);
-      const unrelated = createDevThread(writer, f.workspaceId);
-      writer.deleteThread(unrelated.id);
-    } finally {
-      archive.close();
-      await writer.close();
-    }
-    expect(await f.service.findImported(f.source.id)).not.toBeNull();
-    expect(await f.import()).toMatchObject({ status: "imported", threadId });
-    expect(
-      f.plain
-        .flatMap((message) => (message.type === "events" ? message.events : []))
-        .filter((event) => event.payload.type === "thread.created" && event.threadId === threadId),
-    ).toHaveLength(1);
-    expect(
-      f.windowed.some((message) => message.type === "threads.patch" && threadId in message.threads),
-    ).toBe(true);
-    expect(await f.service.findImported(f.source.id)).toBeNull();
-    const deliveries = f.plain.length;
-    const head = f.store.headSeq();
-    await f.import();
-    expect(f.store.headSeq()).toBe(head);
-    expect(f.plain).toHaveLength(deliveries);
   } finally {
     await f.close();
   }
@@ -251,10 +205,8 @@ test("a worker exit before commit leaves no phantom publication and its archive 
     expect(f.store.headSeq()).toBe(0);
     expect(f.plain.filter((message) => message.type === "events")).toEqual([]);
     expect(f.windowed.filter((message) => message.type === "threads.patch")).toEqual([]);
-    expect(await f.service.findImported(f.source.id)).not.toBeNull();
     f.restore();
     expect(await f.import()).toMatchObject({ status: "imported", threadId: "import-1" });
-    expect(await f.service.findImported(f.source.id)).toBeNull();
   } finally {
     await f.close();
   }

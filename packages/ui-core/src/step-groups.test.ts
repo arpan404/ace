@@ -189,3 +189,27 @@ it("a group of one kind shows that kind's icon: listings show the listing icon",
   const { groups } = groupSteps(facts([shell("a", "ls apps"), shell("b", "ls packages")]));
   expect(groups[0]).toMatchObject({ icon: "list", explore: true });
 });
+
+it("a shell search with no matches never fails its group", () => {
+  const { groups } = groupSteps(
+    facts([
+      shell("miss-1", "rg -n 'missing-symbol' src", "failed"),
+      shell("miss-2", "grep -rn foo src", "failed"),
+      shell("test", "bun run test", "failed"),
+    ]),
+  );
+  expect(groups[0]?.failed).toBe(1);
+  expect(groups[0]?.summary).toBe("Ran 1 command and searched 2 times · 1 failed");
+  expect(groups[0]?.sentence).toBe("Ran 1 command and searched 2 times");
+});
+
+it("only shell searches failing reads as a quiet group", () => {
+  const { groups } = groupSteps(
+    facts([
+      shell("miss-1", "rg -n 'missing-symbol' src", "failed"),
+      shell("miss-2", "ls src", "failed"),
+    ]),
+  );
+  expect(groups[0]?.failed).toBe(0);
+  expect(groups[0]?.summary).toBe("Explored 1 search and 1 folder");
+});

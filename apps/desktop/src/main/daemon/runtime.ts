@@ -187,7 +187,12 @@ export class DaemonRuntime {
       };
     if (!this.supervisor) throw new Error("No local daemon for this target");
     const daemon = await this.supervisor.reachable();
-    return { mode: "daemon", url: daemon.url, token: daemon.token };
+    return {
+      mode: "daemon",
+      url: daemon.url,
+      token: daemon.token,
+      ...(daemon.hostId ? { localHostId: daemon.hostId } : {}),
+    };
   }
 
   /** The local daemon's address, once running (managed or dev). */

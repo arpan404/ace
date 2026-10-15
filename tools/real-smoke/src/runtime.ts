@@ -215,28 +215,9 @@ export async function runSmoke(options: SmokeOptions): Promise<Report> {
         )
         .toBe(true);
     };
-    const scan = async () => {
-      if (!real) return;
+    const pastSessionsProject = async () => {
+      if (!real) return undefined;
       const began = performance.now();
-      await real.inspector.request({ type: "history.scan", action: "start" });
-      await expect
-        .poll(
-          async () => {
-            const reply = await real?.inspector.request(
-              { type: "history.scan", action: "status" },
-              options.stepTimeoutMs,
-            );
-            if (reply?.type !== "history.scan" || reply.scan?.state === "failed")
-              throw new Error("Past sessions scan failed");
-            return reply.scan?.state;
-          },
-          { timeout: options.scanTimeoutMs },
-        )
-        .toBe("ready");
-      report.timings.scan = performance.now() - began;
-    };
-    const pastSessionsPath = async () => {
-      if (!real) return "/new?project=relay";
       const reply = await real.inspector.request({
         type: "workspace.request",
         operation: { op: "workspaces.list", limit: 100 },
@@ -250,11 +231,12 @@ export async function runSmoke(options: SmokeOptions): Promise<Report> {
           openableOnly: true,
           limit: 4,
         });
+        report.timings.scan ??= performance.now() - began;
         if (
           sessions.type === "history.list" &&
           sessions.sessions.some((session) => session.support.status === "supported")
         )
-          return `/new?project=${encodeURIComponent(workspace.id)}`;
+          return workspace.name;
       }
       throw new Error("No importable past session in the first 100 stored workspaces");
     };
@@ -269,27 +251,20 @@ export async function runSmoke(options: SmokeOptions): Promise<Report> {
       scanTimeoutMs: options.scanTimeoutMs,
       scrub,
       catalogs,
-      scan,
-      pastSessionsPath,
+      pastSessionsProject,
       coldPage,
     });
     if (daemon?.child.pid) {
-      // The UI can start another scan; measure only after background catalogs settle.
+      // Measure only after background catalogs settle.
       await expect
         .poll(
           async () => {
-            const scanStatus = await real?.inspector.request({
-              type: "history.scan",
-              action: "status",
-            });
             const models = await real?.inspector.request({ type: "models.list", filter: {} });
             const providers = await real?.inspector.request({
               type: "providers.request",
               operation: "list",
             });
             return (
-              scanStatus?.type === "history.scan" &&
-              scanStatus.scan?.state !== "scanning" &&
               models?.type === "models.result" &&
               "models" in models.result &&
               models.result.instances.every((instance) => !instance.refreshing) &&

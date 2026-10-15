@@ -1,6 +1,6 @@
 # 0033: Import local provider history
 
-Date: 2026-10-02. Status: accepted.
+Date: 2026-10-02. Status: accepted; amended 2026-10-15 (on demand only).
 
 ## Context
 
@@ -63,6 +63,16 @@ At most one stage exists per worker; a concurrent open fails fast as retryable i
 The worker owns synchronous SQLite and JSON decoding. One operation is in flight per service. File sampling runs with at most 16 concurrent reads outside SQLite write transactions; completed metadata writes commit in batches of up to 64 paths. A source that changes during sampling keeps its previous summary and is marked dirty for the next incremental scan without resetting the inventory. JSONL fallback preview uses the shared native decoder’s 1 MiB record budget. Custom sinks pull at most 16 bounded packets; the default archive writes inside the worker without sending items over IPC. A verification barrier follows sink writes before commit. Lists use SQLite ordering and capped pages; no transcript cache grows with history. JSONL record memory is capped; oversized lines stream to blobs from source byte ranges. Non-gating benchmarks cover 5,000-file cold/warm scans and streaming import, with throughput and peak RSS.
 
 Public API tests use temporary homes and actual SQLite files. Cover each supported provider, fixture-derived content, multi-home identity, warm scans counted by actual content reads, partial final lines, unknown data, cancellation, changed sources, lineage refusal, sidechains, deletion, large records and backpressure. Compare source bytes before and after scans/imports. Observe real FileHandle, readFile and stream reads through an injected worker factory to verify warm scans independently of reported counters. Async progress acknowledgments make source-change tests deterministic. Include public regressions for database fallback, identity, account removal, advancing cursors, selected branches, completed calls, paused shutdown, rejected index paths, and raw amplification. Test authenticated daemon routes, home-bound continuation, transactional publication, output/blob retention, and cancellation. Socket regressions cover repeated forks after exit/restart, every item and exit during overlapping publication, refusal of unsafe publication without backpressure, and cancellation/retry at the persistence barrier. Synchronize overlap through committed Store notifications and promise gates rather than sleeps. Maintain mutation cases for public behaviour tests, including all five review survivors. The owner requires tests to run once at merge and prohibits local tests, probes, mutation runs and benchmarks. This revision uses only formatting, lint, type checking and file-size checks. Behaviour, mutation and revised performance verification needs run at merge. Cases are marked "not executed (tests run at merge)". Historical benchmark numbers remain labelled as a pre-review baseline.
+
+## On demand only (2026-10-15)
+
+Amends Context, Decision and Protocol above. A new installation no longer shows sessions the person already has: ace reads provider history only when the person asks, from Settings → Providers → Past sessions. Nothing about past sessions appears on New thread or in Setup.
+
+- No startup scan, file watching or change scans. Daemon startup and the CLI open no provider history file. `ACE_HISTORY_INSTANCES` (or the default homes) only says where to look when asked.
+- There is no persistent history index. The first `history.list` starts a session: its index lives in a private `ACE_HOME/tmp/past-sessions-*` directory, together with snapshot scratch. `history.release` (sent when the page unmounts), ten idle minutes or daemon shutdown ends the session and deletes that directory. Startup removes directories a crashed session left behind. An old `ACE_HOME/history` index is ignored, not migrated. Settling imports saved by old builds is removed.
+- `history.list` scans on its first request in a session or when `rescan` is set, then pages from the session index. It hides every session whose `provider:nativeId` an ace thread already holds, whether ace started it or imported it, so nothing appears twice. Listing needs operate scope because it reads provider files for the person; `history.release` needs read scope.
+- `history.scan` and the `history.scan.updated` push are removed. The list reply's `scan` reports the last scan of the session, including unreadable sources.
+- Import is the one deliberate copy: it publishes the transcript into the event store as a thread, as before. Continue imports the transcript so ace can show it, then resumes the provider's native session; the page says so. Import and continue need an open session; after it ends they answer `unsupported` and the person finds past sessions again. Sending in an already imported thread does not need a session.
 
 ## References
 

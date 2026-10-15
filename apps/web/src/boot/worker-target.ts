@@ -11,6 +11,17 @@ export const WorkerTargetShape = {
 export const WorkerTarget = z.object(WorkerTargetShape);
 export type WorkerTarget = z.infer<typeof WorkerTarget>;
 
-/** One client per daemon and device; the token is not part of it. */
-export const outboxKey = (target: { url: string; deviceId: string }) =>
-  `ace.outbox.${target.url}.${target.deviceId}`;
+/**
+ * One client per daemon and device; the token is not part of it. The desktop's own daemon is
+ * named by the identity its home names, so a fresh start (a new home and identity at the same
+ * address) gets an empty outbox instead of one pinned to the daemon that home replaced. Any
+ * other daemon is named by its address, and its outbox stays pinned to the daemon it met.
+ */
+export const outboxKey = (target: {
+  url: string;
+  deviceId: string;
+  localHostId?: string | undefined;
+}) =>
+  target.localHostId
+    ? `ace.outbox.local.${target.localHostId}.${target.deviceId}`
+    : `ace.outbox.${target.url}.${target.deviceId}`;

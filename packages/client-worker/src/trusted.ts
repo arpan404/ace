@@ -21,6 +21,7 @@ const codes = new Set<string>([
   "protocol",
   "version_mismatch",
   "auth",
+  "identity",
   "storage",
   "daemon",
 ]);

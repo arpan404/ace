@@ -4,7 +4,6 @@ import { migrateSidebarRevisions } from "./sidebar-revisions.ts";
 import { sidebarPageStorage } from "./sidebar-page-storage.ts";
 import { SidebarPageWeight } from "./sidebar-page-weight.ts";
 import { seedSentMessages } from "./draft-migration.ts";
-import { settleLegacyImports } from "./history-migration.ts";
 import { NativeImageStore } from "./native-image-store.ts";
 import { ToolResultStore } from "./tool-result-store.ts";
 import { MeasurementStore } from "./measurement-store.ts";
@@ -216,15 +215,6 @@ export class Store {
           }
         },
         () => this.historyWriting || this.search.hasPendingWrites(),
-      );
-      this.atomic((db) =>
-        settleLegacyImports(
-          db,
-          (id) => this.getThread(id),
-          (id, payloads, at) => {
-            this.appendEvents(id, payloads, at);
-          },
-        ),
       );
     } catch (error) {
       this.db.close();
@@ -974,6 +964,15 @@ export class Store {
   }
   acknowledgeMcpIntent(id: string): boolean {
     return this.transaction(() => this.mcp.acknowledge(id));
+  }
+  /** `provider:nativeId` of every provider session an ace thread already holds, imported or not. */
+  nativeSessionKeys(): string[] {
+    return this.statement(
+      `SELECT json_extract(payload,'$.native.provider')||':'||json_extract(payload,'$.native.nativeId') AS key FROM mcp_agents WHERE json_extract(payload,'$.native.nativeId') IS NOT NULL
+      UNION SELECT json_extract(imported,'$.native.provider')||':'||json_extract(imported,'$.native.nativeId') FROM threads WHERE json_extract(imported,'$.native.nativeId') IS NOT NULL`,
+    )
+      .all()
+      .map((row) => String(row.key));
   }
   getMcpAgent(threadId: ThreadId, agentId: string) {
     return this.mcp.getAgent(threadId, agentId);

@@ -36,7 +36,7 @@ export function SessionRow(props: { session: HistorySession; busy: boolean; open
             icon={PlayIcon}
             size="sm"
             label={`Continue ${session.title}`}
-            tip="Continue in the original provider"
+            tip="Import, then continue in its provider"
             disabled={busy}
             onClick={() => open(session, "continue")}
           />

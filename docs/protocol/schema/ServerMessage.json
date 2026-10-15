@@ -147,10 +147,7 @@
       "$ref": "https://ace.local/protocol/v1/HistoryImportResponse.json"
     },
     {
-      "$ref": "https://ace.local/protocol/v1/HistoryScanResponse.json"
-    },
-    {
-      "$ref": "https://ace.local/protocol/v1/HistoryScanUpdated.json"
+      "$ref": "https://ace.local/protocol/v1/HistoryReleaseResponse.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/HistoryOperationProgress.json"

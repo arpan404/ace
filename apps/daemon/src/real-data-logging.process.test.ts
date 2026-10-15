@@ -91,15 +91,12 @@ test("failed past-session scans keep redacted log fields instead of omitted obje
     await startHistory(context);
     const history = context.services.history;
     if (!history) throw new Error("Missing history service");
-    await history.startScan();
-    expect(history.scanStatus().state).toBe("failed");
     await expect(
       history.handle({ type: "history.list", cwd: root, limit: 10 }, context.signal),
     ).rejects.toThrow();
     await context.resources.close();
     await log.flush();
     const text = await readFile(join(home, "logs/ace.jsonl"), "utf8");
-    expect(text).toContain('"operation":"history.scan"');
     expect(text).toContain('"operation":"history.list"');
     expect(text).not.toContain("UNPREPARED OBJECT OMITTED");
     expect(text).not.toContain("synthetic-private-value");

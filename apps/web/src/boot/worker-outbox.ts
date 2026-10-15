@@ -10,6 +10,8 @@ import { outboxKey, type WorkerTarget } from "./worker-target.ts";
  * The adapter is part of the worker's first script: as a lazy chunk it cost more in chunk
  * overhead than it saved, and the worker's total with its lazy chunks is the tight budget.
  */
-export function workerOutbox(target: Pick<WorkerTarget, "url" | "deviceId" | "seed">): Storage {
+export function workerOutbox(
+  target: Pick<WorkerTarget, "url" | "deviceId" | "seed" | "localHostId">,
+): Storage {
   return idbOutbox(outboxKey(target), target.seed);
 }

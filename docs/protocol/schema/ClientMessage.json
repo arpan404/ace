@@ -978,7 +978,7 @@
       "$ref": "https://ace.local/protocol/v1/HistoryImportRequest.json"
     },
     {
-      "$ref": "https://ace.local/protocol/v1/HistoryScanRequest.json"
+      "$ref": "https://ace.local/protocol/v1/HistoryReleaseRequest.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/HistoryContinueRequest.json"

@@ -25,6 +25,7 @@ const host = new ClientHost({
             transport: () => webSocketTransport(() => new WebSocket(target.url)),
             credential: browserCredential(target),
             storage: workerOutbox(target),
+            expectedHostId: target.localHostId,
           }),
         ),
     };

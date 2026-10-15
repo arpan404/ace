@@ -39,7 +39,12 @@ afterEach(async () => {
 });
 
 /** In-memory Web Storage, so persistence is observable across remounts within a test. */
-export function memoryKeyValue(): KeyValueStorage & { data: Map<string, string> } {
+export function memoryKeyValue(): KeyValueStorage & {
+  data: Map<string, string>;
+  readonly length: number;
+  key(index: number): string | null;
+  removeItem(key: string): void;
+} {
   const data = new Map<string, string>();
   return {
     data,

@@ -12,10 +12,24 @@ async function read(file: string): Promise<string | null> {
   }
 }
 
-/** Notification work belongs to one endpoint/device, pinned to its authenticated host. */
-export function notificationOutbox(userData: string, url: string, deviceId: string): Storage {
+/**
+ * Notification work belongs to one daemon and device, pinned to its authenticated host. For
+ * this computer's daemon the file is named after the identity its current home names, so a
+ * fresh start (a new home, a new identity) starts an empty outbox instead of refusing the new
+ * daemon; a remote daemon's is named after its address and stays pinned to the host it met.
+ */
+export function notificationOutbox(
+  userData: string,
+  target: { url: string; deviceId: string; localHostId?: string },
+): Storage {
   const name = createHash("sha256")
-    .update(JSON.stringify([url, deviceId]))
+    .update(
+      JSON.stringify(
+        target.localHostId
+          ? ["local", target.localHostId, target.deviceId]
+          : [target.url, target.deviceId],
+      ),
+    )
     .digest("hex");
   const directory = join(userData, "notification-outboxes");
   const path = join(directory, `${name}.json`);
