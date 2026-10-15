@@ -158,3 +158,27 @@ test("in a pull request checkout, hooks inside it are the author's and are skipp
     await service.close();
   }
 });
+
+test("in a pull request checkout, a configured hook command naming a file in it is skipped too", async () => {
+  const { repo, service, marker } = await protectedCheckout();
+  try {
+    await put(repo, "tracked.txt", "edited\n");
+    // A named hook in the person's config whose program is a script the PR carries.
+    await hook(join(repo, "scripts"), "check.sh", marker);
+    await scalar(repo, "config", "hook.lint.event", "pre-commit");
+    await scalar(repo, "config", "hook.lint.command", "./scripts/check.sh");
+    expect(await service.reviewerHooks(repo)).toBe("skipped");
+    const expectedHead = await scalar(repo, "rev-parse", "HEAD");
+    await service.asReviewer(() =>
+      service.commit({ worktree: repo, expectedHead, message: "Reviewed" }),
+    );
+    expect(await exists(marker)).toBe(false);
+    // The same hook pointing at the person's own script outside the checkout runs.
+    const own = join(dirname(repo), "own-hooks");
+    await hook(own, "check.sh", marker);
+    await scalar(repo, "config", "hook.lint.command", join(own, "check.sh"));
+    expect(await service.reviewerHooks(repo)).toBe("run");
+  } finally {
+    await service.close();
+  }
+});

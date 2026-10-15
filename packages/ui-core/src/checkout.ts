@@ -18,7 +18,11 @@ export interface Checkout {
   mode: "worktree" | "local";
   /** Null on a detached HEAD. */
   branch: string | null;
-  baseBranch: string;
+  /**
+   * The branch a PR would merge into, when the thread recorded one. Unknown otherwise: the
+   * daemon then resolves it (the thread's base, else the repository's default), never "main".
+   */
+  baseBranch: string | undefined;
   /** Git ref for source comparisons; a remote base must not resolve to a local namesake. */
   baseRef?: string | undefined;
   head: string | null;
@@ -47,12 +51,12 @@ export function checkoutOf(
     mode: details.mode ?? "local",
     branch: details.branch ?? null,
     // The branch a PR merges into: a remote base names its branch on the forge, not `origin/…`.
-    baseBranch: details.base?.ref ?? details.baseBranch ?? "main",
+    baseBranch: details.base?.ref ?? details.baseBranch,
     baseRef: details.base
       ? details.base.remote
         ? `refs/remotes/${details.base.remote}/${details.base.ref}`
         : `refs/heads/${details.base.ref}`
-      : (details.baseBranch ?? "main"),
+      : details.baseBranch,
     head: details.head ?? null,
     changed: details.diff?.files ?? 0,
     additions: details.diff?.additions ?? 0,
@@ -88,7 +92,7 @@ export function prBlocker(checkout: Checkout): string | undefined {
   if (checkout.repository?.forge === "gitlab")
     return "GitLab merge requests aren't supported yet: open one on GitLab.";
   if (!checkout.branch) return "The checkout is on a detached HEAD.";
-  if (checkout.branch === checkout.baseBranch)
+  if (checkout.baseBranch !== undefined && checkout.branch === checkout.baseBranch)
     return `The checkout is on ${checkout.baseBranch}, the branch a PR would merge into.`;
   if (!checkout.repository) return "ace found no GitHub or GitLab remote for this checkout.";
   return undefined;

@@ -139,7 +139,8 @@ export async function repositorySshCommands(
 
 /** Resolve Git's compiled system file without assuming its installation prefix. Names only,
  * pinned to system scope, with includes disabled. This also works on Git before `git var`
- * learned GIT_CONFIG_SYSTEM. An empty system helper configuration needs no restoration. */
+ * learned GIT_CONFIG_SYSTEM. It is found by any key a transfer borrows from it (a credential
+ * helper or `core.sshCommand`); a system file setting neither has nothing to restore. */
 export async function systemCredentialConfigFile(
   query: (args: string[]) => Promise<ConfigOutput>,
 ): Promise<string | undefined> {
@@ -152,7 +153,7 @@ export async function systemCredentialConfigFile(
       "--show-origin",
       "--name-only",
       "--get-regexp",
-      "^credential\\.(.*\\.)?helper$",
+      "^(credential\\.(.*\\.)?helper|core\\.sshcommand)$",
     ]),
   );
   const paths = new Set<string>();
@@ -163,7 +164,7 @@ export async function systemCredentialConfigFile(
       !origin?.startsWith("file:") ||
       origin.length === 5 ||
       !key ||
-      !Helper.shape.key.safeParse(key).success
+      !(Helper.shape.key.safeParse(key).success || key === "core.sshcommand")
     )
       throw new GitError("malformed_output", "Invalid system credential config origin");
     const path = origin.slice(5);

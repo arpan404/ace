@@ -27,6 +27,7 @@ import {
 } from "./non-executing.ts";
 import { credentialHelperArgs, systemCredentialConfigFile } from "./credential-helpers.ts";
 import { userTransportConfig } from "./transport-config.ts";
+import { hooksInsideCheckout } from "./reviewer-hooks.ts";
 import { Readable, type Writable } from "node:stream";
 import { drainProcessExit, killTree, processRuntime } from "./process-runtime.ts";
 import { StringDecoder } from "node:string_decoder";
@@ -226,22 +227,16 @@ export class GitCli {
     const policy = this.executionPolicy.getStore();
     return policy === "non-executing" || (this.protectedPath(path) && !this.personScope());
   }
-  /** Whether the effective hooks directory lies inside the checkout at `cwd`. */
-  async hooksInsideCheckout(cwd: string, signal?: AbortSignal): Promise<boolean> {
-    const query = (args: string[]) =>
-      this.executeRaw(cwd, args, { captureBytes: 65_536, ...(signal ? { signal } : {}) });
-    const [hooks, top] = await Promise.all([
-      query(["rev-parse", "--git-path", "hooks"]),
-      query(["rev-parse", "--path-format=absolute", "--show-toplevel"]),
-    ]);
-    const lexical = resolvePath(cwd, textOutput(hooks));
-    const roots = [textOutput(top)];
-    roots.push(await realpath(roots[0] ?? cwd).catch(() => cwd));
-    const paths = [lexical, await realpath(lexical).catch(() => lexical)];
-    return paths.some((path) =>
-      roots.some(
-        (root) => path === root || path.startsWith(root.endsWith("/") ? root : root + "/"),
-      ),
+  /** Whether a hook Git would run in the checkout at `cwd` lives inside it. */
+  hooksInsideCheckout(cwd: string, signal?: AbortSignal): Promise<boolean> {
+    return hooksInsideCheckout(
+      (args) =>
+        this.executeRaw(cwd, args, {
+          captureBytes: 65_536,
+          allowFailure: true,
+          ...(signal ? { signal } : {}),
+        }),
+      cwd,
     );
   }
   get activeCalls(): number {

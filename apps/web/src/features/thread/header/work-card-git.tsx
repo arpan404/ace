@@ -125,7 +125,7 @@ function BranchRow(props: { thread: ThreadRef; git: GitFlow; move(move: Move): v
           <RowButton aria-label={`Branch ${branch}, switch branch`}>
             <GitBranchIcon aria-hidden size={16} className={rowIcon} />
             <Tip
-              label={`${branch} → ${checkout.baseBranch}${base?.note ? ` · ${base.text}. ${base.note}` : ""}`}
+              label={`${branch} → ${checkout.baseBranch ?? "default branch"}${base?.note ? ` · ${base.text}. ${base.note}` : ""}`}
             >
               <RowLabel className="font-mono text-xs">{branch}</RowLabel>
             </Tip>

@@ -127,6 +127,8 @@ async function socketFixture(behavior: string) {
     connect,
     generation,
     cancel,
+    /** Pause new work, as the daemon does for a storage maintenance window. */
+    enterMaintenance: () => server.maintenance.enter(),
     async close() {
       for (const client of clients) await client.close();
       await server.close();
@@ -134,6 +136,24 @@ async function socketFixture(behavior: string) {
     },
   };
 }
+
+test("during maintenance a draft generation is refused as maintenance, never as busy", async () => {
+  const f = await socketFixture("hold");
+  try {
+    const owner = await f.connect("owner");
+    f.enterMaintenance();
+    owner.send(f.generation);
+    expect(await owner.next()).toMatchObject({
+      type: "workspace.result",
+      requestId: "generate",
+      result: { kind: "error", code: "maintenance" },
+    });
+    // The CLI was never started.
+    expect(existsSync(join(f.root, "prompt.txt"))).toBe(false);
+  } finally {
+    await f.close();
+  }
+}, 60000);
 
 test("another socket or thread cannot cancel the owner's generation", async () => {
   const f = await socketFixture("hold");

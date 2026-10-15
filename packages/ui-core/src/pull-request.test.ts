@@ -101,6 +101,12 @@ test("unreadable checks read as unavailable and block an immediate merge", () =>
   expect(prOverview(status({ ci: "none", checks: [] }), "main").ci.text).toBe("No checks reported");
 });
 
+test("conflicts with an unrecorded base name it as the PR's base, not a guessed branch", () => {
+  expect(mergeGate(status({ mergeability: "conflicting" }), undefined)).toBe(
+    "Resolve the conflicts with its base first",
+  );
+});
+
 test("unknown mergeability blocks merging until GitHub finishes checking", () => {
   expect(mergeGate(status({ mergeability: "unknown" }), "main")).toMatch(/still checking/);
 });

@@ -54,8 +54,7 @@ export function PrLine(props: {
   const repository = pr.repo ?? git.checkout?.repository;
   const live = pr.state === "open" || pr.state === "draft";
   const same = git.status?.ref.number === pr.number;
-  const gate =
-    git.status && same ? mergeGate(git.status, git.checkout?.baseBranch ?? "main") : undefined;
+  const gate = git.status && same ? mergeGate(git.status, git.checkout?.baseBranch) : undefined;
   const summary = prSummary(pr, git.prProblem);
   return (
     <>
@@ -111,7 +110,7 @@ export function useMergePr(git: GitFlow): {
   const [checking, setChecking] = useState(false);
   const pr = git.checkout?.pr;
   const repository = pr?.repo ?? git.checkout?.repository;
-  const base = git.checkout?.baseBranch ?? "main";
+  const base = git.checkout?.baseBranch;
   const merge = async (method: MergeMethod) => {
     if (!pr || !repository || checking || git.pending) return;
     setChecking(true);

@@ -6,6 +6,10 @@ import { workbench } from "@ace/fake-daemon";
 import { harness } from "@/test/harness.tsx";
 import { openPullRequest } from "./test-support.ts";
 
+// The PR tab loads on first use. Load it before any test, so the first one waits only for
+// what it exercises rather than the module import.
+await import("./pr-panel-tab.tsx");
+
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "api" } as const;
 const workspaceId = WorkspaceId.parse("api");
 const threadId = ThreadId.parse("thread-dedupe-reconnect");
