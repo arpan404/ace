@@ -170,7 +170,8 @@ if (provider === "opencode") {
         if (Buffer.byteLength(body) > 65536) throw new Error("Fake request exceeds bound");
       }
       const entry = z.object({ value: z.string() }).parse(JSON.parse(body));
-      if (!entry.value.includes("ace_thread_rename") || !entry.value.includes("screen_"))
+      // OpenCode reads ace's guidance from MCP instructions; this entry teaches its tool names.
+      if (!entry.value.includes("ace_ace_guide"))
         throw new Error("Native tool guidance is missing");
       res.writeHead(204).end();
       return;

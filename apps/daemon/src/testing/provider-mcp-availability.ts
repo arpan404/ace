@@ -38,7 +38,8 @@ export async function availability(url: string, authorization: string) {
       .result;
   };
   const instructions = z.string().parse((await request("server/discover"))["instructions"]);
-  if (!instructions.includes("ace_status") || !instructions.includes("enabled"))
+  // ace's always-on guidance: where the how-to lives, and what to do when a tool is disabled.
+  if (!instructions.includes("ace_guide") || !instructions.includes("disabled"))
     throw new Error("ace discovery instructions are missing");
   const tools = z
     .array(z.object({ name: z.string(), description: z.string() }))
