@@ -83,3 +83,35 @@ objects→Auto review, `:danger-full-access`→Full access, custom profiles→As
 `plan`→Read-only, `build`→Auto review; Cursor sandbox off with review off→Full access, other
 combinations→Auto review). The daemon default is the most common mapped provider default, the
 stricter on a tie. Cached catalog rows map `reasoningEfforts` to `efforts` once.
+
+## Amendment: native capabilities are never stripped (owner, 2026-10-14)
+
+ace is a control layer over the person's own CLIs. Every agent keeps all of its provider's
+native capabilities: shell and terminal, file read/write/edit, web search and fetch, the
+provider's subagents, plan tools, skills, plugins, settings, instructions and the person's own MCP
+servers. ace's MCP server only adds tools beside them. An access mode changes only the provider's
+own sandbox and approval settings in the table above; Full access means full access. Guidance
+ace injects says its tools are extras and that native tools stay available.
+
+Per provider, at session start:
+
+- **Claude**: Claude Code's preset system prompt with ace's guidance appended, all setting
+  sources (`user`, `project`, `local`), no `--strict-mcp-config`, no tool allow or deny list;
+  ace's server joins the person's MCP servers.
+- **Codex**: `developerInstructions` only (never `baseInstructions`), and `mcp_servers.ace` is the
+  only config override; features, web search, profiles and the person's `config.toml` stay.
+- **OpenCode**: the native Build or Plan agent and the session rules in the table; the person's
+  `OPENCODE_CONFIG_CONTENT` passes through with only ace's readiness plugin added. ace's tool
+  guidance names OpenCode's own top-level tools and says they are called directly, never
+  through Code Mode's `execute`, whose `search()` never lists them (2.0.29). An OpenCode thread
+  on 2026-10-14 searched only the Code Mode catalog, found no shell or file tools there and
+  told the person it had none, although Build with `*` allow offered them.
+- **Cursor SDK**: `local.settingSources: ["all"]`. The SDK loads no ambient layer when this is
+  omitted: no project or user rules, skills, hooks, plugins or MCP servers, not even ace's own
+  always-applied rule in `dirs`. ADR 0043's private per-instance `HOME` still keeps the person's
+  real `~/.cursor` user layer out of reach; bringing it in without exposing credentials is
+  open.
+- **Pi**: Read-only is Pi's own `--tools` allowlist; other modes pass no tool flag, and ace's
+  extension keeps Pi's active native tools when it adds its own.
+- **ACP**: the agent's own file and terminal tools (ace offers no client `fs`/`terminal`), with
+  ace's server appended to the person's.
