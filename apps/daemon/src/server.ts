@@ -1,22 +1,17 @@
-import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { shutdownDeadline } from "./shutdown.ts";
 import type { HistoryScanStatus } from "@ace/protocol/history";
 import { startTransports, startLocalTransports } from "./services/transports.ts";
 import { createSocketRegistry, parseSocketMessage } from "./services/registry.ts";
 import type { SocketMessage } from "./services/socket.ts";
-import { previewHttp } from "./preview-http.ts";
 import { createDaemonPreview, type DaemonPreview } from "./preview.ts";
 import { MaintenanceGate } from "@ace/service";
 import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import { generateSecret, systemCredentials } from "./credential-runtime.ts";
 import { z } from "zod";
 import { defaultTicketLimits } from "./ticket-pool.ts";
-import { createServer as httpServer, type Server } from "node:http";
+import type { Server } from "node:http";
 import { createServer as httpsServer } from "node:https";
-import { attachmentsHttp } from "./attachments-http.ts";
-import { iconsHttp } from "./icons-http.ts";
-import { accessHttp } from "./access-http.ts";
-import { machineCallsHttp } from "./machines/http.ts";
+import { httpChains } from "./server-http.ts";
 import { webOriginAllowlist } from "./web-origins.ts";
 import { PreAuthAdmission } from "./socket-admission.ts";
 import { allows, type Device } from "./devices.ts";
@@ -27,26 +22,18 @@ import { HostId, DeviceId, type ServerMessage, type Notification } from "@ace/pr
 import type { PluginServerMessage } from "@ace/protocol/plugins";
 import { defaultPressure, Outbox } from "./outbox.ts";
 import { SocketInput } from "./socket-input.ts";
-import { CommandLanes, commandLane, settledWithin } from "./command-lanes.ts";
+import { CommandLanes } from "./command-lanes.ts";
+import { readCore } from "./socket-reads.ts";
+import { admitUpgrades } from "./socket-upgrade.ts";
+import { enrollNotifications, helloActor } from "./socket-hello.ts";
+import { admitCommand } from "./socket-commands.ts";
 import { isPing, closeRecord } from "./socket-liveness.ts";
-import { commandState } from "./command-status.ts";
-import { subscribe, pageSubscription } from "./subscription.ts";
 import { WireEncoder } from "./wire-encoder.ts";
 import { bindListener as bind, closeListener } from "./listener.ts";
 import { remoteRuntime } from "./remote-runtime.ts";
-import { webHttp } from "./web-http.ts";
-const refuseUpgrade = (socket: import("node:stream").Duplex, status: string) =>
-  socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`, () =>
-    socket.destroy(),
-  );
-
 export type { ServerOptions } from "./server-options.ts";
 import type { ServerOptions } from "./server-options.ts";
 import { computerName } from "./computer-name.ts";
-/** A fast command finishes before the socket reads on, keeping its order with later reads. */
-const commandGraceMs = 250;
-/** Commands one socket may leave running before its input waits for them. */
-const commandFlights = 64;
 export async function startServer(options: ServerOptions): Promise<{
   relayHostId?: string | undefined;
   maintenance: MaintenanceGate;
@@ -117,53 +104,7 @@ export async function startServer(options: ServerOptions): Promise<{
       : {}),
     ready: () => ready,
   };
-  const local = httpServer(
-    webHttp(
-      options.webRoot,
-      attachmentsHttp(
-        options,
-        auth,
-        false,
-        iconsHttp(
-          options,
-          auth,
-          false,
-          previewHttp(
-            () => preview,
-            accessHttp({
-              ...access,
-              authenticate: auth.localBearer.bind(auth),
-              maintenance,
-              ...(options.shutdown ? { shutdown: options.shutdown } : {}),
-            }),
-          ),
-        ),
-      ),
-    ),
-  );
-  // Paired devices only: one chain for the static and the runtime-toggled TLS listener.
-  const remoteHttp = () =>
-    machineCallsHttp(
-      () => options.machineCalls,
-      auth.deviceBearer.bind(auth),
-      webHttp(
-        options.webRoot,
-        attachmentsHttp(
-          options,
-          auth,
-          true,
-          iconsHttp(
-            options,
-            auth,
-            true,
-            previewHttp(
-              () => preview,
-              accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
-            ),
-          ),
-        ),
-      ),
-    );
+  const { local, remoteHttp } = httpChains(options, auth, access, maintenance, () => preview);
   const remote = options.remote
     ? httpsServer({ ...options.remote.identity, minVersion: "TLSv1.2" }, remoteHttp())
     : undefined;
@@ -176,32 +117,12 @@ export async function startServer(options: ServerOptions): Promise<{
   const remoteSockets = new Set<WebSocket>();
   const preAuth = new PreAuthAdmission(options.preAuth ?? {}, runtime.delay);
   const attach = (listener: Server, isLocal: boolean) =>
-    listener.on("upgrade", (request, socket, head) => {
-      if (request.url !== "/") {
-        socket.destroy();
-        return;
-      }
-      // Loopback shares the HTTP access allowlist. Remote clients authenticate
-      // with paired-device tickets, including native clients with URL-derived Origin.
-      const origin = request.headers.origin;
-      if (isLocal && origin !== undefined && !access.allowedOrigins.has(origin)) {
-        refuseUpgrade(socket, "403 Forbidden");
-        return;
-      }
-      const kind: "local" | "remote" = isLocal ? "local" : "remote";
-      const address = request.socket.remoteAddress ?? "unknown";
-      if (cleanups.size >= 256 || !preAuth.admits(kind, address)) {
-        refuseUpgrade(socket, "503 Service Unavailable");
-        return;
-      }
-      wss.handleUpgrade(request, socket, head, (websocket) => {
-        if (!isLocal) {
-          remoteSockets.add(websocket);
-          websocket.once("close", () => remoteSockets.delete(websocket));
-        }
-        preAuth.track(websocket, kind, address);
-        wss.emit("connection", websocket, isLocal);
-      });
+    admitUpgrades(listener, isLocal, {
+      wss,
+      allowedOrigins: access.allowedOrigins,
+      preAuth,
+      full: () => cleanups.size >= 256,
+      remoteSockets,
     });
   attach(local, true);
   if (remote) attach(remote, false);
@@ -248,7 +169,7 @@ export async function startServer(options: ServerOptions): Promise<{
     let stopEnrollment: (() => void) | undefined;
     let cleaned = false;
     let welcomed = false;
-    let detached = 0;
+    const flights = { count: 0 };
     let lastActivity = auth.now();
     socket.on("message", () => {
       lastActivity = auth.now();
@@ -373,60 +294,31 @@ export async function startServer(options: ServerOptions): Promise<{
           fail("unauthorized", "Valid hello required", true);
           return;
         }
-        const bearer =
-          message.token !== undefined && isLocal && !auth.local(message.token)
-            ? auth.deviceBearer(message.token)
-            : undefined;
-        const desktop = bearer?.scopes.includes("desktop") ? bearer : undefined;
-        const actor =
-          message.ticket !== undefined
-            ? auth.consume(message.ticket)
-            : message.token !== undefined && isLocal && auth.local(message.token)
-              ? {
-                  id: message.deviceId,
-                  name: "Host",
-                  scopes: ["admin", "projects", "accounts"] as const,
-                  createdAt: 0,
-                  lastSeenAt: auth.now(),
-                  revokedAt: null,
-                }
-              : desktop;
-        if (
-          !actor ||
-          ((message.ticket !== undefined || desktop !== undefined) && actor.id !== message.deviceId)
-        ) {
+        const actor = helloActor(message, auth, isLocal);
+        if (!actor) {
           fail("unauthorized", "Valid hello required", true);
           return;
         }
         device = actor.id;
         preAuth.authenticated(socket);
-        authenticated.set(socket, {
-          ...actor,
-          scopes: [...actor.scopes],
-          revocable: message.ticket !== undefined || desktop !== undefined,
-        });
+        authenticated.set(socket, actor);
         try {
           // HTTP discovery is available while listener features initialize. A
           // welcome promises the socket can use the published service registry.
           if (message.channel === undefined && !ready) send({ type: "starting" });
           await options.ready;
-          if (authorize("read") && options.notifications) {
-            const notifications = options.notifications;
-            let attempt = 0;
-            const enroll = () => {
-              if (cleaned || !authorize("read")) return;
-              const task = notifications.connectDevice(actor.id).catch((error: unknown) => {
-                options.log?.(error);
-                if (!cleaned && authorize("read")) {
-                  stopEnrollment = runtime.delay(enroll, Math.min(30000, 1000 * 2 ** attempt));
-                  attempt = Math.min(attempt + 1, 5);
-                }
-              });
-              serviceTasks.add(task);
-              void task.finally(() => serviceTasks.delete(task));
-            };
-            enroll();
-          }
+          const notifications = options.notifications;
+          if (authorize("read") && notifications)
+            enrollNotifications(actor.id, {
+              connect: (id) => notifications.connectDevice(id),
+              active: () => !cleaned && authorize("read"),
+              delay: runtime.delay,
+              log: (error) => options.log?.(error),
+              tasks: serviceTasks,
+              scheduled: (stop) => {
+                stopEnrollment = stop;
+              },
+            });
         } catch {
           fail("device_unavailable", "Device unavailable", true);
           return;
@@ -461,262 +353,40 @@ export async function startServer(options: ServerOptions): Promise<{
         return;
       }
       for (const service of sessions) if (await service.handle?.(message, device)) return;
+      const actor = device;
       switch (message.type) {
         case "hello":
           fail("unauthorized", "Hello is only valid once", true);
-          break;
+          return;
         case "ping":
           send({ type: "pong" });
-          break;
-        case "threads.page": {
-          const stop = subscriptions.get(message.subscriptionId);
-          try {
-            if (!authorize("read") || !stop) throw new Error("Subscription unavailable");
-            pageSubscription(stop, message.before, message.requestId);
-          } catch {
-            fail("page_failed", "Unable to load this page; retry or refresh the list", false, {
-              requestId: message.requestId,
-            });
-          }
-          break;
-        }
-        case "command.status": {
-          // Queued in order, so a command sent before this request is already on its lane.
-          // Only the asking device's own commands are looked up.
-          const actor = device;
-          const commands = message.commandIds.map((commandId) => {
-            const known = commandState(
-              commandId,
-              options.store.commandReceipt(commandId, actor),
-              lanes.running(actor, commandId) ||
-                options.workspaceActions?.creationDrafts.get(commandId, actor)?.operation
-                  ?.active === true,
-            );
-            if (known.result) send({ type: "commandResult", ...known.result });
-            return { commandId, state: known.state };
+          return;
+        case "command":
+          await admitCommand(message.command, {
+            options,
+            device: actor,
+            routes: sessions.flatMap((service) => (service.command ? [service.command] : [])),
+            maintenance,
+            lanes,
+            flights,
+            open: () => socket.readyState === WebSocket.OPEN && authenticated.has(socket),
+            authorize,
+            send,
+            delay: runtime.delay,
           });
-          send({ type: "command.status", requestId: message.requestId, commands });
-          break;
-        }
-        case "unsubscribe":
-          subscriptions.get(message.subscriptionId)?.();
-          subscriptions.delete(message.subscriptionId);
-          break;
-        case "subscribe": {
-          if (!authorize("read")) {
-            fail("forbidden", "Read scope required", false, {
-              subscriptionId: message.subscriptionId,
-            });
-            break;
-          }
-          subscriptions.get(message.subscriptionId)?.();
-          subscriptions.delete(message.subscriptionId);
-          if (subscriptions.size >= 64) {
-            fail("subscription_limit", "Too many subscriptions", false, {
-              subscriptionId: message.subscriptionId,
-            });
-            break;
-          }
-          if (
-            message.scope.kind === "thread" &&
-            options.canReadThread?.(device, message.scope.threadId) === false
-          ) {
-            fail("read_denied", "Thread is not readable", false, {
-              subscriptionId: message.subscriptionId,
-            });
-            break;
-          }
-          try {
-            const stop = subscribe(
-              options.store,
-              message.subscriptionId,
-              message.scope,
-              message.afterSeq,
-              options.replayLimit ?? 5000,
-              send,
-              250,
-              runtime.delay,
-              message.paced,
-              encoder,
-            );
-            subscriptions.set(message.subscriptionId, stop);
-          } catch {
-            fail("subscribe_failed", "Unknown thread or invalid cursor", false, {
-              subscriptionId: message.subscriptionId,
-            });
-          }
-          break;
-        }
-        case "output.read": {
-          if (!authorize("read")) {
-            fail("forbidden", "Read scope required", false, { requestId: message.requestId });
-            break;
-          }
-          const threadId = options.store.outputThread(message.streamId);
-          if (!threadId || options.canReadThread?.(device, threadId) === false) {
-            fail("read_denied", "Output stream is not readable", false, {
-              requestId: message.requestId,
-            });
-            break;
-          }
-          send({
-            type: "output.data",
-            requestId: message.requestId,
-            streamId: message.streamId,
-            offset: message.offset,
-            ...options.store.readOutput(message.streamId, message.offset, message.limit),
-          });
-          break;
-        }
-        case "entities.page": {
-          if (
-            !authorize("read") ||
-            !options.store.getThread(message.threadId) ||
-            options.canReadThread?.(device, message.threadId) === false
-          ) {
-            fail("read_denied", "Thread is not readable", false, { requestId: message.requestId });
-            break;
-          }
-          try {
-            send({
-              type: "entities.page",
-              requestId: message.requestId,
-              page: options.store.readEntityPage(
-                message.threadId,
-                message.collection,
-                message.before,
-                message.limit,
-              ),
-            });
-          } catch {
-            fail("page_failed", "Could not read entity page", false, {
-              requestId: message.requestId,
-            });
-          }
-          break;
-        }
-        case "items.page": {
-          if (!authorize("read")) {
-            fail("forbidden", "Read scope required", false, { requestId: message.requestId });
-            break;
-          }
-          if (
-            !options.store.getThread(message.threadId) ||
-            options.canReadThread?.(device, message.threadId) === false
-          ) {
-            fail("read_denied", "Thread is not readable", false, { requestId: message.requestId });
-            break;
-          }
-          try {
-            send({
-              type: "items.page",
-              requestId: message.requestId,
-              ...options.store.readItemPage(
-                message.threadId,
-                message.before,
-                message.limit,
-                1024 * 1024 -
-                  Buffer.byteLength(
-                    JSON.stringify({
-                      type: "items.page",
-                      requestId: message.requestId,
-                      threadId: message.threadId,
-                    }),
-                  ) -
-                  128,
-              ),
-            });
-          } catch {
-            fail("read_denied", "Invalid item cursor", false, { requestId: message.requestId });
-          }
-          break;
-        }
-        case "command": {
-          const route = sessions
-            .flatMap((service) => (service.command ? [service.command] : []))
-            .find((service) => service.types.includes(message.command.payload.type));
-          const scope = route?.scope(message.command) ?? "operate";
-          // Refusals carry the command id so the client settles that intent alone and keeps
-          // its connection; transient ones leave the intent pending for a retry.
-          const refuse = (code: string, text: string, retryable = false) =>
-            send({
-              type: "error",
-              code,
-              message: text,
-              commandId: message.command.id,
-              ...(retryable ? { retryable } : {}),
-            });
-          const refuseBeforeAccept = (code: string, text: string, retryable = false) => {
-            if (message.command.payload.type !== "forge.issue.write") {
-              refuse(code, text, retryable);
-              return;
-            }
-            // An admission refusal says nothing about an earlier attempt with this ID.
-            // Look up only the authenticated device's receipt, never the payload's owner.
-            const uncertain = {
-              commandId: message.command.id,
-              ok: false,
-              error: "action_outcome_uncertain",
-            };
-            try {
-              const previous = device && options.store.commandReceipt(message.command.id, device);
-              send({
-                type: "commandResult",
-                ...(previous
-                  ? previous.error === "client_action_pending"
-                    ? uncertain
-                    : previous
-                  : commandNotDispatched(message.command, code)),
-              });
-            } catch {
-              send({ type: "commandResult", ...uncertain });
-            }
-          };
-          if (!authorize(scope)) {
-            refuseBeforeAccept("forbidden", `${scope} scope required`);
-            break;
-          }
-          if (socket.readyState !== WebSocket.OPEN || !authenticated.has(socket)) break;
-          if (!authorize(scope)) {
-            refuseBeforeAccept("forbidden", `${scope} scope required`);
-            break;
-          }
-          if (message.command.deviceId !== device) {
-            refuseBeforeAccept("device_mismatch", "Command device must match hello");
-            break;
-          }
-          if (!maintenance.admitCommand(message.command)) {
-            refuseBeforeAccept(
-              "maintenance",
-              "New work is paused. Resume new work in ace to continue.",
-              true,
-            );
-            break;
-          }
-          if (!route) {
-            refuseBeforeAccept("not_implemented", "Command is not supported");
-            break;
-          }
-          // Accepted commands run on their thread's lane, not on this socket's input queue:
-          // a command still waiting after the grace keeps running while the socket goes on.
-          const command = message.command;
-          const actor = device;
-          const task = lanes.run(commandLane(command, actor), actor, command.id, async () => {
-            try {
-              await route.accept(command, actor);
-            } catch (error) {
-              options.log?.(error);
-              refuse("command_failed", "Command transaction rolled back", true);
-            }
-          });
-          detached++;
-          void task.finally(() => detached--);
-          // Bounded work per socket: past the cap the queue waits, so TCP backpressure applies.
-          if (detached > commandFlights) await task;
-          else await settledWithin(task, commandGraceMs, runtime.delay);
-          break;
-        }
+          return;
       }
+      readCore(message, {
+        options,
+        device: actor,
+        subscriptions,
+        authorize,
+        send,
+        fail,
+        delay: runtime.delay,
+        encoder,
+        lanes,
+      });
     };
     input.listen(
       socket,
