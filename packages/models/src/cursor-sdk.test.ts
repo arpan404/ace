@@ -278,3 +278,71 @@ it("only sends Cursor parameter combinations the SDK lists, at standard context"
     params("272k", "high", "true"),
   );
 });
+
+const values = (...list: string[]) => list.map((value) => ({ value }));
+
+it("every effort and speed of a 40-variant Cursor model resolves to a listed standard-context variant", () => {
+  const instance = ModelInstance.parse({
+    id: "sdk-a",
+    provider: "cursor",
+    backend: "cursor-sdk",
+    homeDir: "/instances/a",
+    cwd: "/workspace",
+    loginRevision: "login-1",
+  });
+  // Claude Opus 4.8's real listing: thinking × context × effort × fast, default at 1m.
+  const efforts = ["low", "medium", "high", "xhigh", "max"];
+  const variants = ["false", "true"].flatMap((thinking) =>
+    ["300k", "1m"].flatMap((context) =>
+      efforts.flatMap((effort) =>
+        ["false", "true"].map((fast) => ({
+          displayName: "Claude Opus 4.8",
+          isDefault:
+            thinking === "true" && context === "1m" && effort === "high" && fast === "false",
+          params: [
+            { id: "cyber", value: "false" },
+            { id: "thinking", value: thinking },
+            { id: "context", value: context },
+            { id: "effort", value: effort },
+            { id: "fast", value: fast },
+          ],
+        })),
+      ),
+    ),
+  );
+  const [row] = normalizeCursorSdk(
+    [
+      {
+        id: "claude-opus-4-8",
+        displayName: "Claude Opus 4.8",
+        parameters: [
+          { id: "thinking", values: values("false", "true") },
+          { id: "context", values: values("300k", "1m") },
+          { id: "effort", values: values(...efforts) },
+          { id: "fast", values: values("false", "true") },
+        ],
+        variants,
+      },
+    ],
+    instance,
+  );
+  if (!row) throw new Error("Claude Opus 4.8 must stay in the catalog");
+  expect(row.efforts.map((effort) => effort.id)).toEqual(efforts);
+  const listed = new Set(variants.map((variant) => JSON.stringify(variant.params)));
+  for (const effort of [undefined, ...efforts])
+    for (const serviceTier of [undefined, "fast", "default"]) {
+      const sent = cursorModelParams(row, {
+        ...(effort ? { effort } : {}),
+        ...(serviceTier ? { serviceTier } : {}),
+      });
+      expect(listed.has(JSON.stringify(sent))).toBe(true);
+      expect(sent).toContainEqual({ id: "context", value: "300k" });
+      expect(sent).toContainEqual({ id: "thinking", value: "true" });
+      if (effort) expect(sent).toContainEqual({ id: "effort", value: effort });
+      if (serviceTier)
+        expect(sent).toContainEqual({
+          id: "fast",
+          value: serviceTier === "fast" ? "true" : "false",
+        });
+    }
+});

@@ -221,6 +221,16 @@ oversized normalized row skips that entry, preserving other usable models. A
 non-empty list with no readable entries fails the refresh and retains the last
 good catalog. Top-level shape and catalog size limits remain enforced.
 
+Cursor variants become service tiers, but the catalog keeps only the variants a
+local SDK run can select. A variant whose `context` is larger than the model's
+smallest listed context is Max Mode. `ModelSelection` can't request Max Mode, and
+Cursor rejects that context without it ("Invalid parameters for registry model"),
+so normalization drops those variants. If the listed default is dropped, the
+default becomes the kept variant that agrees with it on the most other
+parameters. The decoder reads up to 128 variants. Claude Opus 4.7 and 4.8 list
+40, and 20 of them are selectable, so the rows stay within the 32-tier and
+8 KiB limits. Execution sends exactly one kept variant's parameters.
+
 Each skipped entry emits an attempt-local warning with its array index and a
 fixed reason capped at 200 characters. These warnings do not mark a successful
 refresh as failed, schedule retries, or enter catalog state, SQLite or client

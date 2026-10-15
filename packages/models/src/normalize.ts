@@ -20,6 +20,7 @@ import { base } from "./model.ts";
 import { OpenCodeParser } from "./open-code.ts";
 import { chatMetadata } from "./catalog-metadata.ts";
 import { isThinkingToggle, listedEffort, modelEfforts } from "./efforts.ts";
+import { selectableVariants } from "./cursor-variants.ts";
 
 /** Codex's tier ids by speed: `priority` is Fast and `ultrafast` Ultrafast; others (flex) aren't speeds. */
 const codexSpeeds: Readonly<Record<string, "fast" | "ultrafast">> = {
@@ -210,7 +211,8 @@ export function normalizeCursorSdk(
   );
   const models = available.flatMap(({ native, metadata, index }) => {
     const model = base(instance, native.id, metadata.displayName ?? native.id, native);
-    model.serviceTiers = (metadata.variants ?? []).map((variant, variantIndex) => {
+    const variants = metadata.variants && selectableVariants(metadata.variants);
+    model.serviceTiers = (variants ?? []).map((variant, variantIndex) => {
       const fast = variant.params.some((param) => param.id === "fast" && param.value === "true");
       return Object.assign(
         {
@@ -224,7 +226,7 @@ export function normalizeCursorSdk(
         fast ? { speed: "fast" as const } : {},
       );
     });
-    const defaultVariant = metadata.variants?.findIndex((variant) => variant.isDefault);
+    const defaultVariant = variants?.findIndex((variant) => variant.isDefault);
     if (defaultVariant !== undefined && defaultVariant >= 0)
       model.defaultTier = String(defaultVariant);
     // Effort is a parameter, or folded into the variants; either way the picker reads it as
@@ -233,13 +235,13 @@ export function normalizeCursorSdk(
     const declared = metadata.parameters?.find((parameter) => effortIds.has(parameter.id));
     const effortKey =
       declared?.id ??
-      metadata.variants
+      variants
         ?.flatMap((variant) => variant.params)
         .find((parameter) => effortIds.has(parameter.id))?.id;
     const values = (
       declared
         ? declared.values.map((entry) => entry.value)
-        : (metadata.variants ?? []).flatMap((variant) =>
+        : (variants ?? []).flatMap((variant) =>
             variant.params.filter((p) => p.id === effortKey).map((p) => p.value),
           )
     ).filter((entry) => entry.length > 0);
@@ -258,7 +260,7 @@ export function normalizeCursorSdk(
         speed: "fast",
         parameters: { fast: "true", serviceTier: "fast" },
       });
-    const defaultParams = metadata.variants?.find((variant) => variant.isDefault)?.params;
+    const defaultParams = variants?.find((variant) => variant.isDefault)?.params;
     const defaultEffort = listedEffort(
       model.efforts,
       defaultParams?.find((parameter) => parameter.id === effortKey)?.value,
