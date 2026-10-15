@@ -141,16 +141,10 @@ export function Workspace(props: {
   );
   useEffect(() => {
     store.setFocused(scope);
-    // Switching threads keeps the side panel as it was: open on the same tool, or hidden. A
-    // phone's panel is a sheet over the screen, so a new thread there opens on its conversation.
-    const previous = store.previous;
-    if (previous && !sheet) actions.follow(previous);
     return () => {
       if (store.focused === scope) store.setFocused(undefined);
     };
-    // Only on arriving at a scope: a later resize to phone width must not replay the switch.
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [store, scope, actions]);
+  }, [store, scope]);
 
   // Keep tab state after the first open; hidden Activity boundaries pause tool effects.
   const [shown, setShown] = useState(false);

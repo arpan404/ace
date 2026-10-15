@@ -52,7 +52,7 @@ test("the side panel starts on Summary, Changes and Files, and + opens a new tab
   expect(tabNames(panel)).toEqual(["Summary", changes, "Files", "New tab", web]);
 });
 
-test("a thread's tabs stay with it: the panel stays open on another thread's own tabs, and they come back on return", async () => {
+test("a thread's tabs stay with it and come back on return", async () => {
   await openColdStart();
   await userEvent.keyboard("{Control>}{Shift>}l{/Shift}{/Control}");
   const panel = await sidePanel();
@@ -61,7 +61,9 @@ test("a thread's tabs stay with it: the panel stays open on another thread's own
   const threads = screen.getByRole("navigation", { name: "Threads" });
   await userEvent.click(within(threads).getByRole("link", { name: /Migrate settings schema/ }));
   await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
-  // The panel is still there, with this thread's tabs: the other thread's Logs stay with it.
+  expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  // This thread's panel has its own tabs: the other thread's Logs stay with it.
   await waitFor(async () =>
     expect(tabNames(await sidePanel())).toEqual(["Summary", changes, "Files"]),
   );
