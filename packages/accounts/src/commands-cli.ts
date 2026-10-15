@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { resolveDaemonHome } from "@ace/service/home";
+import { prepareDaemonHome, resolveDaemonHome } from "@ace/service/home";
 import { join } from "node:path";
 import { z } from "zod";
 import { ProviderPayload } from "@ace/provider-kit/payload";
@@ -34,7 +34,8 @@ export async function runAccountsCommand(
   const driver = async () =>
     cursorDaemonDriver((auth ??= await (options.cursorAuth ?? (() => daemonCursorAuth(env)))()));
   const [namespace, command, ...rest] = args;
-  const dataDir = resolveDaemonHome(env.HOME ?? homedir(), env.ACE_HOME);
+  // The registry writes into the home, so its format is settled first, as the daemon does.
+  const dataDir = prepareDaemonHome(resolveDaemonHome(env.HOME ?? homedir(), env.ACE_HOME)).root;
   const path = env["ACE_ACCOUNTS_DB"] ?? join(dataDir, "accounts.sqlite");
   if (namespace !== "accounts" || !["add", "list", "status", "discover"].includes(command ?? ""))
     throw new Error(

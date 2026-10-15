@@ -86,7 +86,7 @@ test("an attached image shows as a thumbnail of its own bytes, named, never as a
   const { feed } = await openMessage({
     attachments: [home],
     // A provider echo of the stored blob, as older rows carry it.
-    parts: [{ type: "file", path: `/Users/dev/.ace-next/context/blobs/${"c".repeat(64)}` }],
+    parts: [{ type: "file", path: `/Users/dev/.ace/context/blobs/${"c".repeat(64)}` }],
   });
   const image = await within(feed).findByRole("img", { name: "home.png" });
   const blob = objectUrls.get(image.getAttribute("src") ?? "");

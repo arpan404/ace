@@ -104,7 +104,7 @@ export function uxAudit(): Scenario[] {
       "Read absolute paths in two worktrees",
       [
         `${cwd}/apps/web/src/app.tsx`,
-        "/Users/dev/.ace-next/worktrees/ace/other/src/math.ts",
+        "/Users/dev/.ace/worktrees/ace/other/src/math.ts",
         "/Users/dev/notes/todo.md",
       ].flatMap((path, i) => [
         tool(root, `read-${i}`, {

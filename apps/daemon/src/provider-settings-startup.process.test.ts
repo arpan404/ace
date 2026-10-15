@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { once } from "node:events";
 import { expect, test, vi } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 import { ProviderKind, DeviceId } from "@ace/protocol";
 import { startDaemon, readConfig } from "@ace/daemon";
 import { Client } from "./socket-test-support.ts";
@@ -12,6 +13,7 @@ test("daemon startup honours disabled providers, syncs settings to two sockets a
   onTestFinished,
 }) => {
   const home = await mkdtemp(join(tmpdir(), "ace-provider-settings-"));
+  prepareDaemonHome(home);
   let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;
   const clients: Client[] = [];
   vi.stubEnv("PATH", home);

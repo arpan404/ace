@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
 import { expect, it, vi } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 const hostBoundary = vi.hoisted(() => ({ home: "" }));
 vi.mock("node:os", async (original) => {
   const os = await original<typeof import("node:os")>();
@@ -70,6 +71,7 @@ async function withCursorDaemon(
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-logout-")));
   hostBoundary.home = root;
+  prepareDaemonHome(join(root, "daemon"));
   const user = join(root, "daemon", "instances", "cursor-sdk-default", "user");
   const store = join(user, ".cursor", "sdk", "auth.json");
   const entry = join(root, "sdk-boundary.mjs");

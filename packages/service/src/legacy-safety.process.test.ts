@@ -4,10 +4,12 @@ import { mkdtemp, mkdir, writeFile, readFile, symlink, rm } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { renderLauncher } from "./index.ts";
+import { prepareDaemonHome, renderLauncher } from "./index.ts";
 
 async function installation(home: string, version: string) {
-  const root = join(home, ".ace-next");
+  const root = join(home, "ace-data");
+  // A current-format home: the release checks below are what these tests exercise.
+  prepareDaemonHome(root);
   const target = `${process.platform}-${process.arch}`;
   const release = `releases/${version}-${target}`;
   await mkdir(join(root, release), { recursive: true });

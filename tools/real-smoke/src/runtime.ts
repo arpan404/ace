@@ -330,5 +330,5 @@ export async function runSmoke(options: SmokeOptions): Promise<Report> {
   return report;
 }
 export function defaultSource() {
-  return join(homedir(), ".ace-next");
+  return join(homedir(), ".ace");
 }

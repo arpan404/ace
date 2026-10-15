@@ -17,6 +17,7 @@ import {
 import type { AppInfo, DeepLink, DesktopSettings } from "../shared/contract.ts";
 import { Background } from "./background.ts";
 import { logFolders } from "./daemon/logs.ts";
+import { logFreshStart } from "./daemon/fresh-start-log.ts";
 import { DaemonRuntime, desktopTarget } from "./daemon/runtime.ts";
 import type { DaemonTarget } from "./daemon/target.ts";
 import { createDesktopLog, type Log } from "./log/desktop-log.ts";
@@ -77,7 +78,7 @@ if (unsafe) {
   if (!app.requestSingleInstanceLock()) app.quit();
   else
     main(
-      // The daemon home, chosen once by the shared resolver (`~/.ace-next` by default).
+      // The daemon home, chosen and prepared once by the shared resolver (`~/.ace` by default).
       desktopTarget({
         env: process.env,
         packaged: app.isPackaged,
@@ -130,6 +131,7 @@ function main(target: DaemonTarget): void {
   const logger = openLogs();
   const log = logger("desktop");
   const daemonLog = logger("daemon");
+  void logFreshStart(target, log, new Date());
   const info: AppInfo = {
     version: app.isPackaged ? app.getVersion() : ACE_APP_VERSION,
     platform:
@@ -418,10 +420,12 @@ function main(target: DaemonTarget): void {
     void runtime
       .start()
       .catch((error: unknown) => log("error", `Daemon start failed: ${String(error)}`));
-    // The `ace` command belongs to the installed app; development builds never write one.
-    if (app.isPackaged)
+    // The `ace` command belongs to the installed app; development builds never write one. It
+    // goes in the managed daemon's home, which `desktopTarget` already prepared: after a fresh
+    // start it lands in the new home, never in the backup.
+    if (app.isPackaged && target.kind === "managed")
       void installCliShim({
-        home: homedir(),
+        dataHome: target.home,
         platform: process.platform,
         node: paths.node,
         entry: paths.daemonEntry,

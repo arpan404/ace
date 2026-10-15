@@ -6,6 +6,7 @@ import { automationCommand } from "./automations.ts";
 import { controlCommand, stopCommand } from "./control.ts";
 import { providersCommand, loginCommand } from "./providers.ts";
 import { ClientError } from "@ace/client";
+import { NewerDataError, prepareDaemonHome } from "@ace/service";
 import { readConfig } from "../config.ts";
 import { option, parseArgs, type Args } from "./args.ts";
 import { CliFailure, exitCodes } from "./output.ts";
@@ -116,6 +117,12 @@ export async function main(input: string[]): Promise<void> {
       else process.stdout.write(output.join(""));
       return;
     }
+    // These write into the home without a daemon, so its format is settled first (ADR 0081).
+    if (
+      ["remote", "config", "cloud"].includes(command) ||
+      (command === "pair" && args.words[1] === "redeem")
+    )
+      prepareHome(config.dataDir);
     if (command === "remote") return await remoteCommand(args, config.dataDir);
     if (command === "pair" && args.words[1] === "redeem")
       return await redeemCommand(args, config.dataDir);
@@ -206,5 +213,15 @@ export async function main(input: string[]): Promise<void> {
       process.stderr.write(
         `${message}\n${evidence === undefined ? "" : `${JSON.stringify(evidence)}\n`}`,
       );
+  }
+}
+
+/** Settles the home's format for a command that writes there; newer data keeps its exit code. */
+function prepareHome(dataDir: string): void {
+  try {
+    prepareDaemonHome(dataDir);
+  } catch (error) {
+    if (error instanceof NewerDataError) throw new CliFailure("newer-data", error.message);
+    throw error;
   }
 }

@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { displayCommand, stepPath, unwrapShellCommand } from "./step-display.ts";
 import { mcpToolLabel, namedToolLabel, toolDisplayName } from "./tool-labels.ts";
 
-const cwd = "/Users/ada/.ace-next/worktrees/33594883e2b3ea4fc70aeea5/repo";
+const cwd = "/Users/ada/.ace/worktrees/33594883e2b3ea4fc70aeea5/repo";
 
 test("paths inside the working directory read relative to it", () => {
   expect(stepPath(`${cwd}/apps/web/src/app.tsx`, { cwd }).text).toBe("apps/web/src/app.tsx");
@@ -22,8 +22,8 @@ test("a skill's files read as the skill's name", () => {
 });
 
 test("another worktree of the project is named by its branch", () => {
-  const worktrees = [{ path: "/Users/ada/.ace-next/worktrees/abc", branch: "ace/fix-login" }];
-  expect(stepPath("/Users/ada/.ace-next/worktrees/abc/src/x.ts", { cwd, worktrees }).text).toBe(
+  const worktrees = [{ path: "/Users/ada/.ace/worktrees/abc", branch: "ace/fix-login" }];
+  expect(stepPath("/Users/ada/.ace/worktrees/abc/src/x.ts", { cwd, worktrees }).text).toBe(
     "[ace/fix-login] src/x.ts",
   );
 });

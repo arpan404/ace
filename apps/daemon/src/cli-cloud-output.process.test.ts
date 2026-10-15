@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { z } from "zod";
 import { expect, test } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 import { findExecutable } from "@ace/provider-kit/discovery";
 import { invoke } from "./cli-test-support.ts";
 
@@ -12,6 +13,7 @@ for (const operation of ["exec", "apply"] as const)
   }) => {
     if (!(await findExecutable("jq"))) skip();
     const home = await mkdtemp(join(tmpdir(), "ace-cli-cloud-output-"));
+    prepareDaemonHome(home);
     try {
       const calls = join(home, "calls.jsonl");
       await writeFile(

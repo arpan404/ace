@@ -21,7 +21,7 @@ function desktop() {
     },
     diagnose: async () => [
       { id: "node", status: "ok", message: "Node 24.1" },
-      { id: "home", status: "fail", message: "~/.ace-next is not writable", fix: "chmod u+w" },
+      { id: "home", status: "fail", message: "~/.ace is not writable", fix: "chmod u+w" },
     ],
     showLogs: async () => {
       asked.push("logs");

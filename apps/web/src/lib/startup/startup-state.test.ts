@@ -46,10 +46,10 @@ test("first data arriving before the connection is ready does not lift the scree
 test("a daemon that fails says why with Try again and View logs, and Try again starts over", () => {
   const failed = run(
     { type: "daemon", state: "starting" },
-    { type: "daemon", state: "failed", message: "EACCES: ~/.ace-next" },
+    { type: "daemon", state: "failed", message: "EACCES: ~/.ace" },
   );
   const view = startupView(failed, desktop, (reason) => `friendly: ${reason}`);
-  expect(view.failure).toBe("friendly: EACCES: ~/.ace-next");
+  expect(view.failure).toBe("friendly: EACCES: ~/.ace");
   expect(view.actions).toEqual(["retry", "logs", "quit"]);
   // The client still trying to connect doesn't hide the failure.
   expect(startupStep(failed, { type: "connection", state: "connecting" }).phase).toBe("failed");

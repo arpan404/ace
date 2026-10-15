@@ -42,29 +42,30 @@ After ADR 0031 landed, the same standalone artifact also bundles its bounded log
 
 ## Legacy 0.x isolation
 
-The rewrite never executes a legacy binary to learn its version. Installation checks read only the bounded release metadata behind the validated `current` pointer. Missing, malformed, mismatched or 0.x metadata refuses binary and service use. Registered service commands must point at that installation's launcher with `supervise`. Health adoption accepts `development` or a release with a nonzero major version; a live 0.x daemon cannot satisfy readiness. Explicit legacy homes fail before permissions, locks or SQLite stores are touched.
+The rewrite never executes a legacy binary to learn its version. Installation checks read only the bounded release metadata behind the validated `current` pointer. Missing, malformed, mismatched or 0.x metadata refuses binary and service use. Registered service commands must point at that installation's launcher with `supervise`. Health adoption accepts `development` or a release with a nonzero major version; a live 0.x daemon cannot satisfy readiness. A legacy home, explicit or default, is set aside by the fresh start (ADR 0081) before permissions, locks or SQLite stores are touched.
 
-The CLI's default home remains `~/.ace` for a fresh or recognized rewrite layout. A legacy `bin/ace`, old database filename or unrecognized nonempty default home selects `~/.ace-next`. The new home gets a private `legacy-home.json` marker explaining the isolation and the owner's pending migration decision. Later default launches keep using that marked home, even if the old layout disappears. No legacy database is opened, migrated, copied or modified. An existing unrecognized `~/.ace-next` is refused instead of claimed. An explicit `ACE_HOME` overrides default selection, but cannot opt into opening a recognized legacy layout.
+Superseded 2026-10-15 by ADR 0081: the default home is `~/.ace` again, versioned by its
+`ace-format.json`. A home without a marker or in an older format is renamed aside
+(`~/.ace-v0`, …) and replaced by a fresh one; `~/.ace-next` and `legacy-home.json` are no longer
+read or written.
 
-Every rewrite home uses `dev.ace.next.daemon` on launchd and `ace-next.service` on systemd, leaving the shared 0.x identities alone. Registration validation is mandatory even for callers of `UserService` that supply no optional preflight. The complete generated program must match, allowing only supported environment values to change during reinstall. Loaded manager state is checked independently: launchd path/program/arguments, or systemd fragment, command, execution hooks and drop-ins. Missing registration cannot authorize a loaded service, including a stopped systemd unit. `@ace/service` owns the home resolver and compatibility checks so daemon and desktop service calls share the policy. The desktop app selects its daemon home with the same resolver (ADR 0054), so it needs no `ACE_HOME` to stay clear of a legacy home. Legacy service calls fail closed and the shared health schema rejects 0.x adoption.
+Every rewrite home uses `dev.ace.next.daemon` on launchd and `ace-next.service` on systemd, leaving the shared 0.x identities alone. Registration validation is mandatory even for callers of `UserService` that supply no optional preflight. The complete generated program must match, allowing only supported environment values to change during reinstall. Loaded manager state is checked independently: launchd path/program/arguments, or systemd fragment, command, execution hooks and drop-ins. Missing registration cannot authorize a loaded service, including a stopped systemd unit. `@ace/service` owns the home resolver and compatibility checks so daemon and desktop service calls share the policy. The desktop app selects and prepares its daemon home with the same module (ADR 0054, ADR 0081). Legacy service calls fail closed and the shared health schema rejects 0.x adoption.
 
-Default selection and marker publication share one exclusive `.ace-home-selection.lock` in the supplied user's home, outside both daemon homes. Contending launches wait for publication, then inspect the committed marker. A crashed selector leaves a lock that refuses startup after a bounded wait; the owner must confirm that the selector exited before removing it. No automatic stale-lock removal or legacy migration occurs.
-
-`legacy-home.json` is a versioned schema, capped at 4 KiB, recording the exact legacy home, owner uid and isolation reason. It must be a private regular file with the expected owner and one hard link. Malformed, partial, directory, link, foreign-owner and mismatched-home markers fail closed. The marker is written exclusively to a pending file, synced, and renamed only when complete, while holding the selection lock. Unversioned markers from development builds are refused rather than silently upgraded.
-
-The filesystem shell owns pinned directory descriptors. The supplied root's ancestors are canonicalized at the I/O boundary (including macOS's system `/var` alias); the supplied root itself and descendants refuse symbolic links with lstat/no-follow opens. Descendant creation, publication and lock cleanup use descriptor-relative syscalls. A newly created directory is inspected again after opening it, and selection verifies pathname identity before returning. Replacing `.ace-next` during publication cannot redirect a marker into `.ace`. Directory emptiness inspects at most two entries; release manifests, launchers and service registrations are regular-file reads with byte caps. Selection decisions operate on layout facts in a pure module.
+Release manifests, launchers and service registrations are regular-file reads with byte caps,
+through pinned directory descriptors that refuse symbolic links.
 
 Installation and validation share `renderLauncher(root)` from `@ace/service`; only its exact complete program is accepted. Additional shell commands, an early legacy exec, an overwritten artifact, and mismatched homes cannot borrow a valid release manifest. The existing installer now calls that renderer; archive/build policy is unchanged.
 
-The shared API remains `resolveDaemonHome(home: string, requested?: string): string`. `createDaemonHomeResolver(filesystem)` adds an injectable filesystem boundary for controlled substitution tests. The descriptor addon loads only when filesystem operations run; packaged Electron resolves the already shipped addon at `resourcesPath/daemon/descriptor.node`. Its two new descriptor-relative mutation operations require the normal native rebuild before merge-time tests and packaging. No desktop source changes belong to this PR.
+The shared API is `resolveDaemonHome(home: string, requested?: string): string`, which names the
+home, and `prepareDaemonHome` (ADR 0081), which settles its format before anything writes there.
+The descriptor addon loads only when filesystem operations run; packaged Electron resolves the
+already shipped addon at `resourcesPath/daemon/descriptor.node`.
 
 ## Amendment: rewrite home is always separate
 
-Accepted 2026-10-07 for the home-defaults fix. The default rewrite data directory
-is always `~/.ace-next`, even on a fresh machine or after legacy `~/.ace` has
-been removed. Explicit `ACE_HOME` and the existing development overrides keep
-their behavior. Daemon, desktop and accounts CLI use `@ace/service`'s shared
-resolver. Compatibility, pinned directory and marker checks remain mandatory.
+Accepted 2026-10-07 for the home-defaults fix; its home selection is superseded 2026-10-15 by ADR
+0081, which makes `~/.ace` the default home again with a format marker and a fresh start. Daemon,
+desktop and accounts CLI still use `@ace/service`'s shared resolver.
 
 This does not migrate a legacy ace database. At daemon startup, the rewrite's
 accounts registry repairs recognized ace-created `instances/<id>` homes from

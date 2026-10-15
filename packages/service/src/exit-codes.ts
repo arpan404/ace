@@ -3,7 +3,7 @@
  * login service) reads them, so they live here rather than in the daemon.
  * `address-in-use`: `ace start` could not listen because another process holds its port.
  * `newer-data`: `ace start` refused ACE_HOME because a newer ace build already wrote its data
- * (the data generation, `apps/daemon/src/data-generation.ts`). 65 is sysexits' EX_DATAERR.
+ * (its `ace-format.json`, `HOME_FORMAT_VERSION` in `home-format.ts`). 65 is sysexits' EX_DATAERR.
  * `incompatible-data`: a store under ACE_HOME is in a format this build does not read
  * (`@ace/provider-kit/incompatible-data`); its message names the file and the recovery.
  */

@@ -1,17 +1,12 @@
 import { mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, vi } from "vitest";
-import { assertTestHomeIsolation, resolveDaemonHome } from "@ace/service";
+import { assertTestHomeIsolation, prepareDaemonHome, resolveDaemonHome } from "@ace/service";
 import { readConfig } from "./config.ts";
-import { readFileSync, realpathSync, writeFileSync } from "node:fs";
-import path from "node:path";
-import { createDaemonHomeResolver } from "@ace/service";
-import { createTestHomeGuard } from "@ace/provider-kit/test-isolation";
-import { PinnedDirectory } from "@ace/workspace/pinned-directory";
 import { testHomeEnvironment } from "../../../scripts/test-home-environment.ts";
 import { testHomes, ownedDaemonAttempt, daemonConfig } from "./testing/test-home-fixture.ts";
 
-test("a home alias and its absent descendants cannot enter protected homes or publish legacy markers", async ({
+test("a home alias and its absent descendants cannot enter protected homes", async ({
   onTestFinished,
 }) => {
   const { root, protectedHome, safeHome } = await testHomes(onTestFinished);
@@ -63,24 +58,20 @@ test("aliases of the protected root remain protected even when their data direct
   expect(await readdir(protectedHome)).toEqual([]);
 });
 
-test("an injected resolver refuses protected homes before their filesystem boundary can publish a receipt", async ({
+test("a protected home, or an alias of it, is refused before a fresh start can move or create anything", async ({
   onTestFinished,
 }) => {
-  const { protectedHome } = await testHomes(onTestFinished);
-  const receipt = join(protectedHome, "boundary-receipt");
-  const resolver = createDaemonHomeResolver({
-    assertSafePath: createTestHomeGuard(protectedHome, {
-      cwd: import.meta.dirname,
-      paths: path,
-      realpath: realpathSync,
-    }),
-    open(candidate) {
-      // Observe an actual filesystem effect if the decision ever admits this boundary.
-      writeFileSync(receipt, "opened");
-      return PinnedDirectory.atBoundary(candidate);
-    },
+  const { root, protectedHome } = await testHomes(onTestFinished);
+  const alias = join(root, "alias");
+  await mkdir(join(protectedHome, ".ace"));
+  await writeFile(join(protectedHome, ".ace/ace.db"), "legacy bytes");
+  await symlink(protectedHome, alias, "junction");
+  vi.stubEnv("ACE_TEST_REAL_HOME", protectedHome);
+  onTestFinished(() => {
+    vi.unstubAllEnvs();
   });
-  expect(() => resolver(protectedHome)).toThrow(/ACE_TEST_REAL_HOME guard/);
-  expect(() => readFileSync(receipt, "utf8")).toThrow(/ENOENT/);
-  expect(await readdir(protectedHome)).toEqual([]);
+  for (const home of [join(protectedHome, ".ace"), join(alias, ".ace"), join(alias, "absent")])
+    expect(() => prepareDaemonHome(home)).toThrow(/ACE_TEST_REAL_HOME guard/);
+  expect(await readdir(protectedHome)).toEqual([".ace"]);
+  expect(await readFile(join(protectedHome, ".ace/ace.db"), "utf8")).toBe("legacy bytes");
 });

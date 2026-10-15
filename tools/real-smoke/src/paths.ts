@@ -18,7 +18,7 @@ async function canonical(path: string): Promise<string> {
 /** Reject aliases before any output writes, including error-report writes. */
 export async function prepareOutput(out: string, source: string): Promise<string> {
   const target = await canonical(resolve(out));
-  for (const protectedHome of [source, join(homedir(), ".ace-next")])
+  for (const protectedHome of [source, join(homedir(), ".ace")])
     if (inside(await canonical(resolve(protectedHome)), target))
       throw new Error("Output must be outside ace source homes");
   await mkdir(target, { recursive: true, mode: 0o700 });

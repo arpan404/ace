@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 import { once } from "node:events";
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -18,6 +19,7 @@ import { cursorSdkDiscovery } from "../testing/cursor-sdk-discovery.ts";
 for (const corpus of protocolNoiseCases.filter((c) => c.provider !== "acp")) {
   test(`${corpus.name} unknown frames survive size-limited redacted daemon records without transcript rows`, async () => {
     const home = await mkdtemp(join(tmpdir(), "ace-provider-diagnostics-"));
+    prepareDaemonHome(home);
     const registry = new AdapterRegistry();
     const entry = join(home, "diagnostics-sdk.mjs");
     if (corpus.provider === "cursor")
@@ -165,6 +167,7 @@ createInterface({input:process.stdin}).on('line', line => {
 // Not executed (tests run at merge).
 test("sustained provider diagnostics keep recent evidence within the file retention cap", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ace-provider-log-retention-"));
+  prepareDaemonHome(directory);
   const context = { home: directory };
   const totalBytes = 4096;
   const sink = await createFileSink({ directory, fileBytes: 2048, totalBytes, context });

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, expect, it, vi } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
 import { Capabilities, Command, DeviceId, type CommandPayload } from "@ace/protocol";
 import { AdapterRegistry, readConfig, startDaemon } from "@ace/daemon";
@@ -23,6 +24,7 @@ afterEach(async () => {
 
 it("normal startup accepts a socket connection with settings available to source control", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-startup-"));
+  prepareDaemonHome(home);
   cleanups.push(() => rm(home, { recursive: true, force: true }));
   vi.stubEnv("ACE_ACCOUNTS_DB", join(home, "accounts.sqlite"));
   vi.stubEnv("ACE_MAINTENANCE", "0");
@@ -66,6 +68,7 @@ it("normal startup accepts a socket connection with settings available to source
 
 it("daemon composition applies a fork's patch through git and supplies browser MCP tools", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-composition-"));
+  prepareDaemonHome(home);
   cleanups.push(() => rm(home, { recursive: true, force: true }));
   vi.stubEnv("ACE_ACCOUNTS_DB", join(home, "accounts.sqlite"));
   vi.stubEnv("ACE_MAINTENANCE", "0");

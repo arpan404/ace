@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 import { mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -26,6 +27,7 @@ test(
     await mkdir(bundle);
     await mkdir(project);
     await mkdir(data);
+    prepareDaemonHome(data);
     const publicKey = generateKeyPairSync("ed25519")
       .publicKey.export({ type: "spki", format: "pem" })
       .toString();

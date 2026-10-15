@@ -4,7 +4,7 @@ Run this after a merge batch, before installing a desktop build:
 
 ```sh
 bun run smoke:real
-bun run smoke:real --out /tmp/ace-smoke/review --home-source ~/.ace-next
+bun run smoke:real --out /tmp/ace-smoke/review --home-source ~/.ace
 bun run smoke:real --max-threads 40 --scan-timeout-ms 120000
 ```
 

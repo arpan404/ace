@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, vi } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 import { z } from "zod";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
 import { Capabilities, Command } from "@ace/protocol";
@@ -12,6 +13,7 @@ test.each(["codex", "opencode"] as const)(
   "%s open failures persist model routes and redacted warnings even when the diagnostic hook throws",
   async (provider) => {
     const home = await mkdtemp(join(tmpdir(), "ace-open-warning-"));
+    prepareDaemonHome(home);
     vi.stubEnv("ACE_ACCOUNTS_DB", join(home, "accounts.sqlite"));
     vi.stubEnv("ACE_MAINTENANCE", "0");
     const executable = join(home, "opencode");

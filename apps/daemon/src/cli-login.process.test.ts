@@ -4,11 +4,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 
 test.each(["codex", "claude"])(
   "%s account login streams progress before exit and preserves JSON stdout",
   async (provider) => {
     const home = await mkdtemp(join(tmpdir(), "ace-cli-login-"));
+    prepareDaemonHome(home);
     const bin = join(home, "bin");
     await mkdir(bin);
     await writeFile(

@@ -6,6 +6,7 @@ import { startDaemon, readConfig } from "@ace/daemon";
 import { createInstance, openRegistry, runAccountsCommand } from "@ace/accounts";
 import { daemonCursorAuth } from "@ace/accounts";
 import { spawnSupervised } from "@ace/provider-kit/process";
+import { prepareDaemonHome } from "@ace/service";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -21,7 +22,7 @@ const handler = {
   },
 };
 
-test("accounts CLI and Cursor CLI auth use the daemon's default home without creating ~/.ace", async () => {
+test("accounts CLI and Cursor CLI auth use the daemon's default home, ~/.ace, and nothing else", async () => {
   const root = await home();
   let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;
   try {
@@ -29,14 +30,14 @@ test("accounts CLI and Cursor CLI auth use the daemon's default home without cre
     const output: string[] = [];
     await runAccountsCommand(["accounts", "list"], { env, write: (value) => output.push(value) });
     expect(output).toEqual(["[]\n"]);
-    await access(join(root, ".ace-next", "accounts.sqlite"));
+    await access(join(root, ".ace", "accounts.sqlite"));
     daemon = await startDaemon({
       config: readConfig({ ...env, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }, root),
       handler,
       modelInstances: [],
       history: { instances: [] },
     });
-    await writeFile(join(root, ".ace-next", "daemon-endpoint"), daemon.url.replace("ws:", "http:"));
+    await writeFile(join(root, ".ace", "daemon-endpoint"), daemon.url.replace("ws:", "http:"));
     const auth = await daemonCursorAuth(env);
     try {
       expect(
@@ -51,7 +52,7 @@ test("accounts CLI and Cursor CLI auth use the daemon's default home without cre
     } finally {
       await auth.close();
     }
-    expect(await readdir(root)).toEqual([".ace-next"]);
+    expect(await readdir(root)).toEqual([".ace"]);
   } finally {
     await daemon?.close();
     await rm(root, { recursive: true, force: true });
@@ -62,7 +63,8 @@ test.each([".ace", ".ace-next-old", "nested", "current-nested"])(
   "daemon startup admits only the current %s SDK home and preserves user CLI homes",
   async (layout) => {
     const root = await home();
-    const dataDir = join(root, ".ace-next");
+    const dataDir = join(root, "ace-data");
+    prepareDaemonHome(dataDir);
     const id = "cursor-sdk-default";
     const oldRoot =
       layout === "current-nested" ? dataDir : join(root, layout === "nested" ? ".ace" : layout);
@@ -185,7 +187,8 @@ console.log(JSON.stringify({id:r.id,result:r.method==='status'?{status:'logged-o
 
 test("a genuinely different Cursor SDK home still refuses catalog discovery", async () => {
   const root = await home();
-  const dataDir = join(root, ".ace-next");
+  const dataDir = join(root, "ace-data");
+  prepareDaemonHome(dataDir);
   const userHome = join(root, ".cursor");
   await mkdir(userHome);
   const registry = await openRegistry(join(dataDir, "accounts.sqlite"), dataDir);

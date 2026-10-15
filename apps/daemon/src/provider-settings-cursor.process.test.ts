@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
 import { expect, test, vi } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 import { DeviceId, ProviderKind } from "@ace/protocol";
 import { startDaemon, readConfig } from "@ace/daemon";
 import { spawnSupervised } from "@ace/provider-kit/process";
@@ -15,6 +16,7 @@ test("enabling Cursor after disabled startup admits its SDK account, models and 
   const home = await mkdtemp(join(tmpdir(), "ace-enable-cursor-"));
   const dataDir = join(home, "daemon");
   await mkdir(dataDir);
+  prepareDaemonHome(dataDir);
   vi.stubEnv("HOME", home);
   vi.stubEnv("PATH", home);
   let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;

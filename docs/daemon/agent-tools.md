@@ -294,7 +294,7 @@ suites, not development commands:
 
 The harness uses temporary homes. It does not invoke installed provider CLIs,
 record paid sessions, drive the user's OS, contact external sites, or use
-`~/.ace-next`. Missing Chromium or ffmpeg produces an explicit test skip; no
+`~/.ace`. Missing Chromium or ffmpeg produces an explicit test skip; no
 automatic download occurs. Real OS permission and provider-version compatibility
 remain separate installation checks.
 

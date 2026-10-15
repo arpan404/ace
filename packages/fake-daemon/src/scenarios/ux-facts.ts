@@ -3,7 +3,7 @@ import type { MessageOrigin, ProviderKind } from "@ace/protocol";
 import type { Scenario, Step } from "../scenario.ts";
 import { checkout } from "./checkouts.ts";
 import { endTurn, output, rootAgent, tool, turn } from "./facts.ts";
-export const cwd = "/Users/dev/.ace-next/worktrees/ace/fix-login";
+export const cwd = "/Users/dev/.ace/worktrees/ace/fix-login";
 const root = "root";
 export function input(item: string, text: string, origin: MessageOrigin): Fact {
   return {

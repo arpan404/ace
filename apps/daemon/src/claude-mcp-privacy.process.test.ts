@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { once } from "node:events";
 import { Command, SocketTicket } from "@ace/protocol";
 import { expect, test } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 import { readConfig, startDaemon } from "@ace/daemon";
 import { Client } from "./socket-test-support.ts";
 
@@ -17,6 +18,7 @@ const privateValues = [
 
 test("a paired reader receives only MCP names and states, and native configs never enter event storage", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-claude-mcp-privacy-"));
+  prepareDaemonHome(home);
   const executable = join(home, "claude");
   const script = fileURLToPath(new URL("./testing/claude-controls.ts", import.meta.url));
   await writeFile(executable, `#!/bin/sh\nexec '${process.execPath}' '${script}' "$@"\n`);

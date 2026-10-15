@@ -174,10 +174,13 @@ port, with `*.preview.localhost` origins. Ports require explicit trusted forward
 signed sessions require paired operate authority. Remote daemon access does not
 change this listener's binding.
 
-Default CLI startup uses `~/.ace-next`, including on fresh machines, and records
-the isolation from legacy `~/.ace` in `legacy-home.json`. An explicit legacy
-`ACE_HOME` is refused. The old binary, service and databases are left untouched.
-See ADR 0041 for version checks and the desktop home-selection limitation.
+Default CLI startup uses `~/.ace` (or `ACE_HOME`), and settles its format first, before the
+lock or any store (ADR 0081). A missing home is created with `ace-format.json`. A home without
+that marker, or in an older format, is renamed in one rename to `~/.ace-v0` (or `~/.ace-vN`,
+never over an existing backup) and replaced by a fresh one; a home whose older daemon still
+runs is refused instead. A newer format exits 65 and is not moved. `~/.ace-next` from interim
+builds is ignored. After startup the daemon logs the backup's path and size and leaves a
+`BACKUP-README.txt` in it. See ADR 0041 for release and service version checks.
 
 SQLite's exact uncoded experimental warning from Node 24.13.0 is filtered at the
 shared SQLite boundary in each isolate. Other warnings retain Node's formatter

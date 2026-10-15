@@ -153,7 +153,7 @@ test("a wrapped command reads as the command inside it", () => {
 });
 
 test("paths read relative to where the agent works, and skills by name", () => {
-  const cwd = "/Users/ada/.ace-next/worktrees/3359/app";
+  const cwd = "/Users/ada/.ace/worktrees/3359/app";
   const read = describeStep(
     call({ kind: "file.read", path: `${cwd}/src/app.tsx` }, "succeeded", 0, 1),
     {

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { once } from "node:events";
 import { afterEach, expect, it } from "vitest";
+import { prepareDaemonHome } from "@ace/service";
 import { DoctorReport } from "@ace/diagnostics";
 import { Command, DeviceCredential, DeviceId, PairingResponse } from "@ace/protocol";
 import { nodeBinary } from "@ace/provider-kit/testing";
@@ -20,6 +21,7 @@ afterEach(async () => {
 });
 function home(): string {
   const directory = mkdtempSync(join(tmpdir(), "ace-cli-"));
+  prepareDaemonHome(directory);
   cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
   copyTlsFixture(directory);
   return directory;

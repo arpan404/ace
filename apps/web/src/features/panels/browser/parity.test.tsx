@@ -63,7 +63,7 @@ test("downloads list what the page saved and flag executables; nothing offers to
       mimeType: "application/octet-stream",
       flags: ["executable"],
       state: "complete",
-      path: "/Users/dev/.ace-next/artifacts/installer.pkg",
+      path: "/Users/dev/.ace/artifacts/installer.pkg",
     });
   });
 

@@ -1,13 +1,10 @@
-import { spawn } from "node:child_process";
-import { once } from "node:events";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { accessRequest } from "./client-access.ts";
-import { exitCodes } from "./cli/output.ts";
 import { daemonLogRecords } from "./daemon-log-test-support.ts";
-import { DATA_GENERATION, readConfig, startDaemon } from "./index.ts";
+import { readConfig, startDaemon } from "./index.ts";
 import { readShutdownReceipt } from "./shutdown-receipt.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -19,68 +16,6 @@ async function temporaryHome(prefix: string): Promise<string> {
   cleanups.push(() => rm(home, { recursive: true, force: true }));
   return home;
 }
-test("a daemon refuses data written by a newer ace build before opening any database", async () => {
-  const home = await temporaryHome("ace-newer-data-");
-  await writeFile(
-    join(home, "data-generation"),
-    JSON.stringify({ generation: DATA_GENERATION + 1 }),
-  );
-  const child = spawn(process.execPath, [new URL("./cli.ts", import.meta.url).pathname, "start"], {
-    env: {
-      ...process.env,
-      ACE_HOME: home,
-      ACE_PORT: "0",
-      ACE_LISTEN: "local",
-      ACE_MAINTENANCE: "0",
-      ACE_ACCOUNTS_DB: join(home, "accounts.sqlite"),
-      ACE_DEV: "0",
-      ACE_HISTORY_INSTANCES: "[]",
-      ACE_MODEL_INSTANCES: "[]",
-      ACE_WORKSPACE_ROOT: "",
-      PATH: "",
-    },
-    stdio: ["ignore", "ignore", "pipe"],
-  });
-  cleanups.push(() => {
-    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-  });
-  let stderr = "";
-  child.stderr.on("data", (chunk: Buffer) => {
-    stderr += chunk.toString();
-  });
-  const [code] = (await once(child, "exit")) as [number | null];
-  const message = `data generation ${DATA_GENERATION + 1}, build supports ${DATA_GENERATION}. Open the newest ace or update this one.`;
-  expect(code).toBe(exitCodes["newer-data"]);
-  expect(code).toBe(65);
-  expect(stderr).toContain("This ace build is older than the data in");
-  expect(stderr).toContain(message);
-  const records = await daemonLogRecords(home);
-  expect(records).toContainEqual(
-    expect.objectContaining({
-      level: "error",
-      message: expect.stringContaining(message),
-      data: expect.objectContaining({ storedGeneration: DATA_GENERATION + 1, pid: child.pid }),
-    }),
-  );
-  expect(records.map((record) => record.message)).not.toContain("Daemon listening");
-  const files = await readdir(home);
-  expect(files.filter((name) => /\.sqlite/.test(name))).toEqual([]);
-  expect(files).not.toContain("daemon-endpoint");
-  // The newer generation is never overwritten by the older build.
-  expect(JSON.parse(await readFile(join(home, "data-generation"), "utf8"))).toEqual({
-    generation: DATA_GENERATION + 1,
-  });
-}, 60_000);
-
-test("a daemon records the data generation it writes, so older builds can refuse it", async () => {
-  const home = await temporaryHome("ace-data-generation-");
-  const daemon = await startDaemon({ config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }) });
-  await daemon.close();
-  expect(JSON.parse(await readFile(join(home, "data-generation"), "utf8"))).toEqual({
-    generation: DATA_GENERATION,
-  });
-});
-
 test("a stop request is logged with its own source, then the stop with its duration", async () => {
   const home = await temporaryHome("ace-stop-request-");
   const daemon = await startDaemon({ config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }) });
