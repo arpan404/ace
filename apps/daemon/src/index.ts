@@ -28,6 +28,7 @@ import {
   createHealthMonitor,
 } from "@ace/diagnostics";
 import { installFatalLogFlush } from "./fatal-log.ts";
+import { sqliteFailureDetails, systemDiskSpace } from "./sqlite-failure.ts";
 import { readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 
@@ -201,7 +202,11 @@ export async function startDaemon(options: DaemonOptions = {}) {
       context,
     );
     resources.own(() => log.close());
-    resources.own(installFatalLogFlush(process, log));
+    resources.own(
+      installFatalLogFlush(process, log, (error) =>
+        sqliteFailureDetails(error, config.dataDir, options.diskSpace ?? systemDiskSpace),
+      ),
+    );
     lifetime.signal.throwIfAborted();
     const serviceContext: ServiceContext = {
       signal: lifetime.signal,

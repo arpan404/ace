@@ -1,4 +1,4 @@
-import { logError } from "@ace/diagnostics";
+import { logError, logFields } from "@ace/diagnostics";
 
 export interface FatalEvents {
   on(event: "uncaughtExceptionMonitor", listener: (error: unknown) => void): unknown;
@@ -15,10 +15,25 @@ interface FlushingLog {
  * Keep buffered log lines when the process dies. An uncaught error is recorded and every
  * buffered line is appended synchronously before Node's default crash handling continues;
  * `exit` covers `process.exit` paths that never return to the event loop.
+ * `details` adds fields for errors it recognizes (a full disk names its free space).
  */
-export function installFatalLogFlush(events: FatalEvents, log: FlushingLog): () => void {
+export function installFatalLogFlush(
+  events: FatalEvents,
+  log: FlushingLog,
+  details: (error: unknown) => (readonly [string, unknown])[] | undefined = () => undefined,
+): () => void {
   const fatal = (error: unknown) => {
-    log.log("error", "Fatal error", logError(error));
+    let extra: (readonly [string, unknown])[] | undefined;
+    try {
+      extra = details(error);
+    } catch {
+      extra = undefined;
+    }
+    log.log(
+      "error",
+      "Fatal error",
+      extra ? logFields([["error", logError(error)], ...extra]) : logError(error),
+    );
     log.flushSync();
   };
   const exit = () => log.flushSync();

@@ -2,6 +2,7 @@ import { StorageService } from "../storage/service.ts";
 import { ScheduledStorageCleanup, storageSchedule } from "../storage/schedule.ts";
 import { DataRetention } from "../storage/data-retention.ts";
 import type { ServiceContext } from "./types.ts";
+import { backgroundFailure } from "./background.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 export async function startStorage(context: ServiceContext): Promise<void> {
@@ -24,6 +25,7 @@ export async function startStorage(context: ServiceContext): Promise<void> {
     owner,
     storage,
     context.options.storageSchedule ?? storageSchedule,
+    backgroundFailure(context, "Scheduled storage cleanup failed"),
   );
   context.resources.own(() => schedule.close());
   await schedule.start();
@@ -32,6 +34,7 @@ export async function startStorage(context: ServiceContext): Promise<void> {
     storage,
     context.options.storageSchedule ?? storageSchedule,
     context.options.retentionTiming,
+    backgroundFailure(context, "Data retention failed"),
   );
   context.resources.own(() => retention.close());
   await retention.start();

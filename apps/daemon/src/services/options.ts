@@ -16,6 +16,8 @@ import type { DaemonReviewOptions } from "../review.ts";
 import type { DaemonHistoryOptions } from "../history.ts";
 import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
+  /** Free space of the volume holding ACE_HOME, reported with storage failures. */
+  diskSpace?: import("../sqlite-failure.ts").DiskSpace;
   storageSchedule?: import("../storage/schedule.ts").StorageSchedule;
   /** Automatic data-retention pass timing; tests shorten it. */
   retentionTiming?: import("../storage/data-retention-policy.ts").RetentionTiming;

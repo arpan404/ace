@@ -12,15 +12,22 @@ export class ScheduledStorageCleanup {
   private owner: StorageOwner;
   private service: StorageService;
   private schedule: StorageSchedule;
+  private failed: (error: unknown) => void;
   private cancel: (() => void) | undefined;
   private release: (() => void) | undefined;
   private flight: Promise<void> | undefined;
   private enabled = false;
   private closed = false;
-  constructor(owner: StorageOwner, service: StorageService, schedule: StorageSchedule) {
+  constructor(
+    owner: StorageOwner,
+    service: StorageService,
+    schedule: StorageSchedule,
+    failed: (error: unknown) => void = () => {},
+  ) {
     this.owner = owner;
     this.service = service;
     this.schedule = schedule;
+    this.failed = failed;
     owner.store.atomic((db) =>
       db.exec(
         "CREATE TABLE IF NOT EXISTS storage_schedule(id INTEGER PRIMARY KEY CHECK(id=1),due INTEGER NOT NULL)",
@@ -69,14 +76,21 @@ export class ScheduledStorageCleanup {
             .statement("UPDATE storage_schedule SET due=? WHERE id=1")
             .run(this.owner.now() + (result.state === "pending" ? 60000 : 86400000));
         })
-        .catch(() => {
+        .catch((error: unknown) => {
+          this.failed(error);
           this.owner.store
             .statement("UPDATE storage_schedule SET due=? WHERE id=1")
             .run(this.owner.now() + 60000);
         })
+        .catch(this.failed)
         .finally(() => {
           this.flight = undefined;
-          this.next();
+          // Rescheduling reads the store too; a failed read waits for the next setting change.
+          try {
+            this.next();
+          } catch (error) {
+            this.failed(error);
+          }
         });
     });
   }

@@ -13,6 +13,7 @@ import { DelegationService } from "../agent-control/delegations.ts";
 import { createAgentControlPort } from "../agent-control/tools.ts";
 import { systemClock } from "../engine/actor.ts";
 import type { ServiceContext } from "./types.ts";
+import { backgroundFailure } from "./background.ts";
 import { createWorkspaceDelegations } from "../agent-control/workspaces.ts";
 import { createConversationStarts } from "../agent-control/conversations.ts";
 
@@ -74,18 +75,20 @@ export function startAgentControl(context: ServiceContext): void {
   resources.onShutdown(() => delegations.close());
   const returns = new RemoteReturns(store);
   let returnCleanup: ReturnType<typeof setInterval> | undefined;
-  const cleanReturns = () => {
-    pruneRemoteRows(store, now());
-    return services.context
-      ? returns.cleanup(services.context, (error) =>
-          log.log("warn", "Cancelled output cleanup", logError(error)),
-        )
-      : Promise.resolve();
-  };
+  const cleanReturns = () =>
+    Promise.resolve().then(() => {
+      pruneRemoteRows(store, now());
+      return services.context
+        ? returns.cleanup(services.context, (error) =>
+            log.log("warn", "Cancelled output cleanup", logError(error)),
+          )
+        : undefined;
+    });
+  const returnsFailed = backgroundFailure(context, "Remote return cleanup failed");
   onListen.push(() => {
-    void cleanReturns();
+    cleanReturns().catch(returnsFailed);
     returnCleanup = setInterval(() => {
-      void cleanReturns();
+      cleanReturns().catch(returnsFailed);
     }, 60_000);
     returnCleanup.unref();
   });
