@@ -48,4 +48,5 @@ export {
   type LoginUpdate,
   type LoginSessionsOptions,
 } from "./login-sessions.ts";
+export { ProviderLoginFailure } from "./login-failure.ts";
 export { loginObservation, loginUrl, loginDeviceCodePrompt } from "./login-output.ts";

@@ -1,8 +1,9 @@
 import { expect, test } from "vitest";
-import { ProviderLoginSessions } from "./index.ts";
+import { ProviderLoginFailure, ProviderLoginSessions } from "./index.ts";
 import type { ProviderLoginProgress } from "@ace/protocol";
 
 const start = { type: "provider.login.start", requestId: "start", provider: "codex" } as const;
+const logout = { type: "provider.logout", requestId: "logout", provider: "cursor" } as const;
 
 test.each([true, false])(
   "login success respects admission freshness %s after final cleanup",
@@ -191,4 +192,54 @@ test("a daemon shutting down refuses a new sign-in as stopping", async () => {
     error: "unavailable",
     reason: "stopping",
   });
+});
+
+test.each([
+  ["preparation", "Another change to this Cursor account is still running."],
+  ["the provider step", "Cursor's SDK didn't finish signing out."],
+])("a sign-out that fails in %s tells the user what ace knows failed", async (stage, reason) => {
+  const sessions = new ProviderLoginSessions({
+    now: () => 1000,
+    id: () => "logout",
+    schedule: () => () => {},
+    prepare: async () => {
+      if (stage === "preparation") throw new ProviderLoginFailure(reason);
+      return {
+        run: async () => {
+          throw new ProviderLoginFailure(reason);
+        },
+      };
+    },
+  });
+  try {
+    await sessions.handle("owner", logout);
+    expect(await sessions.completed("owner", "logout")).toMatchObject({
+      action: "logout",
+      state: "failed",
+      message: reason,
+    });
+  } finally {
+    await sessions.close();
+  }
+});
+
+test("provider exception text never reaches the sign-out result", async () => {
+  const sessions = new ProviderLoginSessions({
+    now: () => 1000,
+    id: () => "logout",
+    schedule: () => () => {},
+    prepare: async () => ({
+      run: async () => {
+        throw new Error("token=sk-SYNTHETIC0123456789 rejected");
+      },
+    }),
+  });
+  try {
+    await sessions.handle("owner", logout);
+    const progress = await sessions.completed("owner", "logout");
+    expect(progress.state).toBe("failed");
+    expect(JSON.stringify(progress)).not.toContain("sk-SYNTHETIC");
+  } finally {
+    await sessions.close();
+  }
 });

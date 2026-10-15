@@ -1,5 +1,6 @@
 import { ProviderLoginRequest, ProviderLoginProgress } from "@ace/protocol";
 import type { ProviderLoginInput, ProviderLoginResult, ProviderKind } from "@ace/protocol";
+import { ProviderLoginFailure } from "./login-failure.ts";
 
 export type LoginUpdate = Pick<
   ProviderLoginProgress,
@@ -10,7 +11,12 @@ export interface ProviderLoginDriver {
   run(
     signal: AbortSignal,
     emit: (update: LoginUpdate) => void,
-  ): Promise<{ success: boolean; manual?: ProviderLoginProgress["manual"] }>;
+  ): Promise<{
+    success: boolean;
+    manual?: ProviderLoginProgress["manual"];
+    /** ace-authored outcome detail, such as a credential that still signs the provider in. */
+    message?: string;
+  }>;
   input?(input: ProviderLoginInput): boolean;
   apiKey?(key: Buffer): boolean;
   drain?(): Promise<void>;
@@ -37,8 +43,8 @@ export interface LoginSessionsOptions {
   lifetimeMs?: number;
   instanceKey?(provider: ProviderKind, instance?: string): string | undefined;
   /**
-   * A sign-in ended in `failed` because preparation or the CLI threw. Clients only ever see the
-   * category; the cause goes to the daemon's redacting log so the failure is diagnosable.
+   * A sign-in ended in `failed` because preparation or the CLI threw. Clients see the category, or
+   * a `ProviderLoginFailure`'s ace-authored message; the cause goes to the daemon's redacting log.
    */
   report?(error: unknown, target: { provider: ProviderKind; action: "login" | "logout" }): void;
 }
@@ -249,6 +255,8 @@ export class ProviderLoginSessions {
     const signal = job.controller.signal;
     let success = false;
     let manual: ProviderLoginProgress["manual"];
+    let failure: string | undefined;
+    let outcome: string | undefined;
     try {
       signal.throwIfAborted();
       const driver = await this.options.prepare(
@@ -271,6 +279,7 @@ export class ProviderLoginSessions {
       await driver.drain?.();
       signal.throwIfAborted();
       manual = result.manual ?? manual;
+      outcome = result.message;
       if (result.success) {
         this.emit(job, { state: "verifying" });
         await driver.changed?.(signal);
@@ -278,8 +287,9 @@ export class ProviderLoginSessions {
         success = true;
       }
     } catch (error) {
-      // Exceptions and CLI diagnostics may contain credentials. Publish categories only; the
-      // cause goes to the redacting daemon log, unless the session was cancelled or expired.
+      // Exceptions and CLI diagnostics may contain credentials. Publish categories or ace-authored
+      // failures only; the cause goes to the redacting daemon log, unless the session was cancelled.
+      if (error instanceof ProviderLoginFailure) failure = error.message;
       if (!signal.aborted)
         try {
           this.options.report?.(error, {
@@ -337,8 +347,8 @@ export class ProviderLoginSessions {
             state: success ? "succeeded" : "failed",
             ...(!success && manual ? { manual, hint: manual.instruction } : {}),
             message: success
-              ? "Provider authentication updated."
-              : "Provider authentication could not be completed.",
+              ? (outcome ?? "Provider authentication updated.")
+              : (failure ?? outcome ?? "Provider authentication could not be completed."),
           },
     );
   }

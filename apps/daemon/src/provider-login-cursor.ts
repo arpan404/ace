@@ -1,6 +1,14 @@
-import { loginUrl, type cursorSdkLoginDriver, type ProviderLoginDriver } from "@ace/accounts";
-import { createCursorLoginDriver } from "@ace/adapter-cursor/auth";
+import {
+  loginUrl,
+  ProviderLoginFailure,
+  type cursorSdkLoginDriver,
+  type ProviderLoginDriver,
+} from "@ace/accounts";
+import { createCursorLoginDriver, CursorSdkUnavailableError } from "@ace/adapter-cursor/auth";
 import type { ProviderInstance } from "@ace/protocol/accounts";
+
+const environmentKeyRemains =
+  "ace removed Cursor's saved sign-in, but CURSOR_API_KEY in the environment ace was started with still signs Cursor in. Remove it there to sign out completely.";
 
 /** The adapter stream owns SDK cancellation and drains its isolated host before completion. */
 export function cursorLoginDriver(
@@ -11,9 +19,21 @@ export function cursorLoginDriver(
   return {
     async run(signal, emit) {
       if (action === "logout") {
-        await account.logout(instance, signal);
+        let auth: Awaited<ReturnType<typeof account.logout>>;
+        try {
+          auth = await account.logout(instance, signal);
+        } catch (error) {
+          signal.throwIfAborted();
+          throw new ProviderLoginFailure(
+            error instanceof CursorSdkUnavailableError
+              ? "Cursor's SDK isn't available in this ace install, so ace can't change the Cursor sign-in."
+              : "Cursor's SDK didn't finish signing out, so its saved sign-in may still be in place. Try again; the daemon log has the cause.",
+          );
+        }
         signal.throwIfAborted();
-        return { success: true };
+        return auth.source === "environment" && auth.status === "logged-in"
+          ? { success: true, message: environmentKeyRemains }
+          : { success: true };
       }
       const login = createCursorLoginDriver(
         { id: instance.id, homeDir: instance.homeDir },

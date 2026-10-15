@@ -6,6 +6,7 @@ import {
   createInstance,
   instanceEnv,
   assertManagedHome,
+  ProviderLoginFailure,
   type ProviderLoginDriver,
 } from "@ace/accounts";
 import type { ProviderKind } from "@ace/protocol";
@@ -25,6 +26,9 @@ import type { ServiceContext } from "./types.ts";
 
 import { apiKeyLoginDriver, apiKeySupport } from "../provider-api-key.ts";
 import { cursorApiKeyEntry } from "@ace/adapter-cursor/auth";
+
+const cursorSdkMissing =
+  "Cursor's SDK isn't available in this ace install, so ace can't change the Cursor sign-in.";
 export async function prepareProviderLogin(
   context: ServiceContext,
   manager: TerminalManager,
@@ -55,11 +59,11 @@ export async function prepareProviderLogin(
   if (target.provider === "cursor") {
     const sdk = await discoverCursorSdk(options.engine?.cursor?.discovery);
     signal.throwIfAborted();
-    if (!sdk.supported) throw new Error("SDK unavailable");
+    if (!sdk.supported) throw new ProviderLoginFailure(cursorSdkMissing);
     await services.providerActivation;
     signal.throwIfAborted();
     const binding = services.cursorAccounts;
-    if (!binding) throw new Error("SDK unavailable");
+    if (!binding) throw new ProviderLoginFailure(cursorSdkMissing);
     const instanceId =
       cursorInstanceId(target.instance) ?? registry.selectedCursorSdk() ?? cursorDefault.id;
     if (!registry.get(instanceId) && instanceId === cursorDefault.id)
@@ -71,9 +75,14 @@ export async function prepareProviderLogin(
       throw new Error("SDK requires an SDK instance");
     await registry.validateHome(instance);
     signal.throwIfAborted();
-    if (services.cursorAuth?.isChangingInstance(instanceId)) throw new Error("SDK auth is busy");
+    if (services.cursorAuth?.isChangingInstance(instanceId))
+      throw new ProviderLoginFailure(
+        "Another Cursor sign-in is already running in ace. Finish or cancel it first.",
+      );
     const slots = cursorHosts(context);
-    const release = services.accounts.reserveAccountChange(instanceId);
+    // Open Cursor threads hold this account; stop them before its credential changes.
+    const release = await binding.reserveAuthChange(instanceId);
+    let succeeded = false;
     const before = instance.loginRevision;
     const account = cursorSdkLoginDriver(registry, {
       ...options.engine?.cursor,
@@ -128,11 +137,17 @@ export async function prepareProviderLogin(
           await registry.validateHome(instance);
           runSignal.throwIfAborted();
         }
-        return driver.run(runSignal, emit);
+        const result = await driver.run(runSignal, emit);
+        succeeded = result.success;
+        return result;
       },
       async drain() {
         await driver.drain?.();
         if (target.method === "api_key") await slots.stopInstance(instanceId);
+        // A failed or cancelled change keeps the previous credential, and a signed-in account
+        // stays usable: unfence it so its threads can reopen.
+        if (!succeeded || registry.get(instanceId)?.quota.cursorSdkAuth?.status === "logged-in")
+          await binding.rebindInstance(instanceId);
       },
       release,
       async changed(changeSignal) {
