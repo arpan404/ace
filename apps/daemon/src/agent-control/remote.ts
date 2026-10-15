@@ -333,9 +333,11 @@ export class RemoteDelegations {
           // Results are context on the originating host, with explicit remote identity.
           if (this.waiters.has(task.id)) return;
           const fenced = this.local.journal.fenced(parent.id);
-          // A Stop on the parent holds the result, undelivered, until the parent takes input.
-          if (!fenced && this.local.journal.stopped(parent.id)) return;
-          if (!fenced && (task.phase !== "cancelled" || task.result !== undefined)) {
+          const stopped = this.local.journal.stopped(parent.id);
+          // Work the Stop cancelled is sealed delivered at once, so the broker stops polling it.
+          // An answer that finished on its own waits, undelivered, for the parent's next input.
+          if (!fenced && stopped && task.cancellingAt === undefined) return;
+          if (!fenced && !stopped && (task.phase !== "cancelled" || task.result !== undefined)) {
             const answer =
               ["failed", "cancelled"].includes(task.phase) && task.result !== undefined
                 ? ":answer"

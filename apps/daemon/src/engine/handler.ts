@@ -235,7 +235,9 @@ export function engineHandler(
             if (repo.store.workspaceReservations.reserved(cwd))
               return fail("workspace_change_in_progress");
           }
-          if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
+          // A prepared thread runs nothing until it is sent work, which reserves a slot then.
+          if (!repo.reserve(threadId) && p.type !== "thread.prepare")
+            return fail("engine_capacity_exceeded");
           createEngineThread(repo, {
             id: threadId,
             ...(p.access && p.access !== "inherit" ? { access: p.access } : {}),
