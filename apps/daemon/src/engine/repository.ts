@@ -446,6 +446,11 @@ export class EngineRepository {
       ),
     );
   }
+  /**
+   * Room for one more input. Only inputs still in flight count: waiting to send, sending, or sent
+   * and awaiting the provider's acknowledgement. An uncertain input's delivery attempt is over;
+   * it waits on the person, not on the provider, so it never fills the thread.
+   */
   inputCapacity(id: ThreadId, limit: number): boolean {
     // Both branches use existing live-intent indexes, with output bounded by admission capacity.
     return this.store.atomic(
@@ -454,7 +459,7 @@ export class EngineRepository {
           .statement(`SELECT id FROM intents WHERE thread_id=? AND kind IN ('thread.create','thread.send')
         AND status IN ('pending','queued','running')
         UNION ALL SELECT id FROM intents WHERE thread_id=? AND kind IN ('thread.create','thread.send')
-        AND (awaiting=1 OR uncertain=1) AND status NOT IN ('pending','queued','running') LIMIT ?`)
+        AND awaiting=1 AND status NOT IN ('pending','queued','running') LIMIT ?`)
           .all(id, id, limit).length < limit,
     );
   }

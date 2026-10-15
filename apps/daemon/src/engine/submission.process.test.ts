@@ -156,12 +156,13 @@ test("uncertain resend atomically retires its original while preserving other me
   );
   if (!receipt.threadId) throw new Error("No thread");
   const id = receipt.threadId;
-  await h.engine.flush();
+  // Queued before the delivery turns uncertain; a message sent afterwards would go ahead of it.
   h.command(
     { type: "thread.send", threadId: id, input: [{ type: "text", text: "other queued input" }] },
     "device",
     "other-queued",
   );
+  await h.engine.flush();
   h.command({ type: "queue.pause", threadId: id, expectedRevision: h.engine.queue(id).revision });
   const revision = h.engine.queue(id).revision;
   expect(
