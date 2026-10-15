@@ -1,7 +1,4 @@
-import { stripVTControlCharacters } from "node:util";
-import { StringDecoder } from "node:string_decoder";
-import { homedir } from "node:os";
-import { createRedactor } from "@ace/redaction";
+import { OutputLog } from "./creation-output.ts";
 import {
   ThreadId,
   type Command,
@@ -23,11 +20,7 @@ export class CreationProgress {
   private resolveSettled: (result: CommandResult) => void = () => {};
   private prOnly: boolean;
   private existingPr: boolean;
-  private decoder = new StringDecoder("utf8");
-  private line = "";
-  private oversized = false;
-  private detailBytes = 0;
-  private redact: (text: string) => string;
+  private log: OutputLog;
   private now: () => number;
   private publish: (progress: Progress) => void;
   progress: Progress;
@@ -42,7 +35,6 @@ export class CreationProgress {
     this.settled = new Promise((resolve) => {
       this.resolveSettled = resolve;
     });
-    this.redact = createRedactor({ home: homedir(), env: process.env });
     const p = command.payload;
     this.existingPr = p.type === "forge.pr.worktree";
     this.prOnly =
@@ -61,6 +53,7 @@ export class CreationProgress {
       cleanupComplete: false,
       actions: this.prOnly ? ["cancel"] : ["cancel", "local"],
     };
+    this.log = new OutputLog(this.progress.details);
     this.update("preparing");
   }
   update(step: Progress["step"], percent?: number): void {
@@ -78,34 +71,11 @@ export class CreationProgress {
     this.emit();
   }
   readonly stderr = (chunk: Buffer): void => {
-    for (const char of this.decoder.write(chunk)) {
-      if (char === "\n" || char === "\r") this.flush();
-      else if (!this.oversized) {
-        this.line += char;
-        if (this.line.length > 4096) {
-          this.line = "";
-          this.oversized = true;
-        }
-      }
-    }
+    this.log.write(chunk);
     this.emit();
   };
   private flush(): void {
-    if (this.line || this.oversized) {
-      const clean = this.oversized
-        ? "[Oversized output line omitted]"
-        : stripVTControlCharacters(this.redact(this.line));
-      const detail = clean.length > 1024 ? "[Oversized output line omitted]" : clean;
-      this.progress.details.push(detail);
-      // Bound bytes independently of UTF-16 length, including JSON's worst-case escaping.
-      this.detailBytes += Buffer.byteLength(JSON.stringify(detail));
-      while (this.progress.details.length > 200 || this.detailBytes > 131072) {
-        const removed = this.progress.details.shift();
-        if (removed !== undefined) this.detailBytes -= Buffer.byteLength(JSON.stringify(removed));
-      }
-    }
-    this.line = "";
-    this.oversized = false;
+    this.log.flush();
   }
   stop(action: "cancel" | "local"): void {
     this.action = action;

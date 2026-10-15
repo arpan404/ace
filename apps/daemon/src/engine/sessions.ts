@@ -38,7 +38,7 @@ interface SessionDependencies {
   models: EngineModels;
   repo: EngineRepository;
   permissionSettings?: import("./permissions.ts").PermissionSettings;
-  prepareWorkspace?(id: ThreadId): Promise<string>;
+  prepareWorkspace?(id: ThreadId, options: { runCommands: boolean }): Promise<string>;
   assertWorkspaceAvailable?(cwd: string): Promise<void>;
   registry: AdapterRegistry;
   clock: EngineClock;
@@ -152,7 +152,10 @@ export class Sessions {
       if (!metadata.workspaceReady) {
         if (!this.dependencies.prepareWorkspace)
           throw new Error("Worktree preparation unavailable");
-        const cwd = await this.dependencies.prepareWorkspace(actor.id);
+        // A worktree made now runs the project's setup script, unless access is Read-only.
+        const cwd = await this.dependencies.prepareWorkspace(actor.id, {
+          runCommands: access !== "read-only",
+        });
         await this.dependencies.repo.store.writable();
         this.dependencies.repo.store.completeWorkspacePreparation(actor.id, metadata.cwd, cwd);
         metadata = this.dependencies.repo.session(actor.id);

@@ -737,6 +737,30 @@
     },
     {
       "properties": {
+        "action": {
+          "enum": [
+            "retry",
+            "continue"
+          ],
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.workspace.setup",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "action"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "scriptId": {
           "maxLength": 128,
           "minLength": 1,

@@ -152,6 +152,11 @@ export interface WorkspaceSource {
   setCheckout(thread: ThreadRef, change: CheckoutChange): Promise<void>;
   /** Release a failed or uncertain checkout move, once the person confirmed. */
   clearCheckoutMove(thread: ThreadRef): Promise<void>;
+  /**
+   * After a late worktree's setup script failed: run it again or start without it, then let
+   * the held first message go.
+   */
+  resolveSetup(thread: ThreadRef, action: "retry" | "continue"): Promise<void>;
 }
 
 export interface CheckoutChange {
@@ -336,6 +341,12 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
     },
     async clearCheckoutMove(thread) {
       await run({ type: "thread.workspace.clear", threadId: id(thread) });
+    },
+    async resolveSetup(thread, action) {
+      const threadId = id(thread);
+      await run({ type: "thread.workspace.setup", threadId, action });
+      const { queue } = await client.request({ type: "queue.get", threadId, limit: 1 });
+      await run({ type: "queue.resume", threadId, expectedRevision: queue.revision });
     },
   };
 }

@@ -139,13 +139,17 @@ export class WorkspaceRuntime {
   root(id: ThreadId): string {
     return this.roots.root(id);
   }
-  async prepare(id: ThreadId): Promise<string> {
+  /** Late preparation; `runCommands` false (Read-only access) skips the setup script. */
+  async prepare(
+    id: ThreadId,
+    policy: { runCommands: boolean } = { runCommands: true },
+  ): Promise<string> {
     if (this.options.git?.processRuntime?.cleanupSupervisor) {
       const thread = this.store.getThread(id);
       const project = thread && this.store.getWorkspacePath(thread.workspaceId);
       if (project) await this.git.recoverCleanup(project);
     }
-    const root = await this.roots.prepare(id);
+    const root = await this.roots.prepare(id, policy);
     if (this.options.git?.processRuntime?.cleanupSupervisor) await this.git.recoverCleanup(root);
     await this.git.assertMutationAvailable(root);
     return root;
@@ -499,6 +503,11 @@ export class WorkspaceRuntime {
           { ...reservation, hasOwnedWork: (owner) => this.hasOwnedWork(owner) },
         );
         return { ok: true, threadId };
+      }
+      if (p.type === "thread.workspace.setup") {
+        if (!allowed()) return { ok: false, error: "forbidden" };
+        const refused = this.roots.chooseSetup(threadId, p.action);
+        return refused ? { ok: false, error: refused } : { ok: true, threadId };
       }
       if (p.type === "thread.workspace.clear") {
         if (!allowed()) return { ok: false, error: "forbidden" };

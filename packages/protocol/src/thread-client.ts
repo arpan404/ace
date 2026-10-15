@@ -53,6 +53,20 @@ export const ThreadDetails = z.object({
     .optional(),
   /** The thread's checkout folder no longer exists (deleted, or removed by storage cleanup). */
   worktreeMissing: z.boolean().optional(),
+  /**
+   * The setup script of a worktree made when the thread first ran: `failed` holds the thread's
+   * queue until Retry or Continue (`thread.workspace.setup`); `skipped` says it didn't run
+   * because the thread's access is Read-only. Absent once setup ran or was continued past.
+   */
+  worktreeSetup: z
+    .object({
+      state: z.enum(["failed", "skipped"]),
+      reason: z.literal("read_only").optional(),
+      /** Redacted whole lines of the script's output, newest last. */
+      details: z.array(z.string().max(1024)).max(200),
+      at: Timestamp,
+    })
+    .optional(),
   workspace: z
     .object({
       id: z.string().min(1),

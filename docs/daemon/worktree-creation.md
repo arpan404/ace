@@ -64,6 +64,12 @@ worktree), Continue and Use local. Read-only preparation before `git worktree ad
 a repository subfolder runs in the same subfolder of its worktree. When an earlier cleanup kept
 the thread's branch, a retry uses `ace/<key>-2` and so on rather than adopting it.
 
+A worktree made later, when a thread admitted without one first runs, runs the same one setup
+script, unless the thread's access is Read-only (then `details.worktreeSetup` reads `skipped`).
+A failure keeps the worktree and holds the thread's queue with `details.worktreeSetup` `failed`
+and the output; `thread.workspace.setup` with `retry` or `continue` decides what happens when the
+queue resumes.
+
 Socket creation work is tracked separately from the serial input queue, with at most 16 flights
 per socket and the existing global creation capacity. Controls remain readable during checkout.
 A disconnected socket no longer cancels its creation: the start finishes, and the same device's

@@ -176,6 +176,15 @@ export const WorkspaceCommands = [
    * root fence once Git reports the roots available. Fails with `git_quarantined` otherwise.
    */
   z.object({ type: z.literal("thread.workspace.clear"), threadId: ThreadId }),
+  /**
+   * After `details.worktreeSetup.state === "failed"`: run the setup script again (`retry`) or
+   * start without it (`continue`) when the thread's queue resumes.
+   */
+  z.object({
+    type: z.literal("thread.workspace.setup"),
+    threadId: ThreadId,
+    action: z.enum(["retry", "continue"]),
+  }),
   z.object({ type: z.literal("workspace.script.run"), threadId: ThreadId, scriptId: id }),
   z.object({ type: z.literal("workspace.editor.open"), threadId: ThreadId, editorId: id }),
   /**

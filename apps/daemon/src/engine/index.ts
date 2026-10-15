@@ -80,7 +80,8 @@ export interface EngineOptions {
   preferences?: Partial<RecoveryPreferences>;
   limits?: Partial<EngineLimits>;
   beforeSend?(threadId: ThreadId, commandId: import("@ace/protocol").CommandId): Promise<void>;
-  prepareWorkspace?(threadId: ThreadId): Promise<string>;
+  /** `runCommands` is false when the thread's access is Read-only: no setup script runs. */
+  prepareWorkspace?(threadId: ThreadId, options: { runCommands: boolean }): Promise<string>;
   assertWorkspaceAvailable?(cwd: string): Promise<void>;
   machine?: { host: string; name: string };
   sessionContext?: NonNullable<ConstructorParameters<typeof Sessions>[0]["context"]>;
