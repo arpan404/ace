@@ -92,7 +92,32 @@ export type GitErrorCode =
   | "main_worktree"
   | "checkpoint_not_found"
   | "restore_collision"
-  | "unsupported_repository";
+  | "unsupported_repository"
+  | GitFailureCode;
+
+/**
+ * Failed Git commands whose stderr names one cause. Each is a stable public code; the
+ * failure's `details.stderr` keeps a bounded, redacted tail of what Git said.
+ */
+export const gitFailureCodes = [
+  /** The branch is already checked out in another worktree. */
+  "branch_checked_out",
+  /** The destination path of a new worktree already exists. */
+  "path_exists",
+  /** A ref name collides with an existing one, e.g. branch `ace` versus `ace/<hex>`. */
+  "ref_conflict",
+  /** The repository has no commits yet: HEAD names an unborn branch. */
+  "unborn_head",
+  /** No author/committer name or email is configured. */
+  "identity_missing",
+  /** A commit was asked for, but nothing changed. */
+  "nothing_to_commit",
+  /** The remote refused a non-fast-forward update; fetch and integrate first. */
+  "push_rejected",
+  /** The remote refused the update because the branch is protected. */
+  "protected_branch",
+] as const;
+export type GitFailureCode = (typeof gitFailureCodes)[number];
 
 export class GitError extends Error {
   cleanup?: CleanupReceipt | undefined;

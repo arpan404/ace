@@ -151,10 +151,9 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
     let path = join(config.dataDir, "agent-worktrees", key);
     let committed = false;
     let git: HandoffGit | undefined;
-    const cancelGit = () => {
-      void git?.close();
-    };
-    signal.addEventListener("abort", cancelGit, { once: true });
+    // Cancellation reaches Git through `signal`. Closing the service mid-call would kill a
+    // running write and leave its lease behind; the service is closed only once work ends.
+    let launched: AgentControlResult;
     try {
       git = factory();
       signal.throwIfAborted();
@@ -184,7 +183,13 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
           .run(reservation.record.childId, repo, path, operation.branch, baseHead),
       );
       try {
-        await git.createWorktree({ repo, path, baseRef: baseHead, branch: operation.branch });
+        await git.createWorktree({
+          repo,
+          path,
+          baseRef: baseHead,
+          branch: operation.branch,
+          signal,
+        });
         store.atomic((db) =>
           db
             .prepare(
@@ -219,12 +224,23 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
         return { ok: true, data: { threadId: child.childId, workspaceId: workspace } };
       });
       committed = true;
-      return result;
-    } finally {
+      launched = result;
+    } catch (error) {
+      await settle(true);
+      throw error;
+    }
+    await settle(false);
+    return launched;
+    async function settle(failed: boolean) {
       watched.close();
-      signal.removeEventListener("abort", cancelGit);
-      await git?.close();
-      if (!committed) await cleanup(reservation);
+      try {
+        await git?.close();
+        if (!committed) await cleanup(reservation);
+      } catch (cleanupError) {
+        // The handoff's own failure is what the caller must see; cleanup's is only logged.
+        if (!failed) throw cleanupError;
+        log.log("error", "Handoff cleanup failed", logError(cleanupError));
+      }
     }
   }
   return {

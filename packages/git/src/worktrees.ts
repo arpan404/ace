@@ -1,5 +1,6 @@
-import { ignoredPaths } from "./nested.ts";
 import { deleteUnchangedBranch } from "./branch-cleanup.ts";
+import { findMissing, forgetMissing, missingBlockers } from "./missing-worktrees.ts";
+import { assertNoRefConflict } from "./ref-conflict.ts";
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Repository } from "./repository.ts";
@@ -46,7 +47,15 @@ export async function createWorktree(
     if (exists.exitCode === 0 && !options.reuseBranch) {
       throw new GitError("branch_exists", `Branch already exists: ${options.branch}`);
     }
+    if (exists.exitCode !== 0) await assertNoRefConflict(repository, root, options.branch);
     const path = resolve(options.path);
+    // A worktree folder deleted by hand still holds its path and branch until its entry goes.
+    for (const stale of await missingBlockers(
+      await repository.worktrees(root),
+      path,
+      options.branch,
+    ))
+      await forgetMissing(repository, root, stale);
     const branchArgs = exists.exitCode === 0 ? [] : ["-b", options.branch];
     const staged = options.onProgress !== undefined || options.signal !== undefined;
     options.onProgress?.({ step: "creating" });
@@ -127,7 +136,14 @@ export async function removeWorktree(
   try {
     target = await realpath(options.path);
   } catch {
-    throw new GitError("worktree_not_found", `Worktree path does not exist: ${options.path}`);
+    // Deleted by hand but still registered: only its registration is left to remove.
+    return repository.serial(root, async () => {
+      const missing = await findMissing(await repository.worktrees(root), options.path);
+      if (!missing)
+        throw new GitError("worktree_not_found", `Worktree path does not exist: ${options.path}`);
+      if (missing.main) throw new GitError("main_worktree", "The main worktree cannot be removed");
+      await forgetMissing(repository, root, missing.tree);
+    });
   }
   await repository.serial(target, async () => {
     const trees = await repository.worktrees(root);
@@ -159,8 +175,8 @@ export async function removeWorktree(
       ) {
         throw new GitError("dirty_worktree", "Worktree has uncommitted changes");
       }
-      if ((await ignoredPaths(repository, target)).length)
-        throw new GitError("dirty_worktree", "Worktree has ignored files that would be deleted");
+      // Ignored files (dependencies, build output) are expected after setup and go with the
+      // worktree; only tracked changes and untracked, unignored files make it dirty.
     }
     // No JS recursive deletion. Git owns removal of this exact registered root.
     await repository.cli.call(

@@ -27,6 +27,25 @@ export type ManagedWorktree = z.infer<typeof Record>;
 const absent = (error: unknown) =>
   error instanceof Error && "code" in error && error.code === "ENOENT";
 
+/**
+ * Git writes worktree links as absolute or, with `worktree.useRelativePaths`, relative paths.
+ * Compare where they point, never their spelling.
+ */
+function samePath(a: string, b: string): boolean {
+  if (resolve(a) === resolve(b)) return true;
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch (error) {
+    if (absent(error)) return false;
+    throw error;
+  }
+}
+/** Whether a checkout's `.git` file (`gitdir: <path>`) names `metadata`. */
+function gitdirNames(contents: string, checkout: string, metadata: string): boolean {
+  const match = /^gitdir: (.+)$/.exec(contents.replace(/\n$/, ""));
+  return match?.[1] !== undefined && samePath(resolve(checkout, match[1]), metadata);
+}
+
 /** Creation provenance is never inferred from a branch name, session cwd or directory listing. */
 export class ManagedWorktrees {
   private store: Store;
@@ -115,7 +134,7 @@ export class ManagedWorktrees {
           if (
             info.dev !== row.tree_dev ||
             info.ino !== row.tree_ino ||
-            tree.readText(".git", 8192).replace(/\n$/, "") !== `gitdir: ${row.metadata_path}`
+            !gitdirNames(tree.readText(".git", 8192), path, row.metadata_path)
           )
             return undefined;
         } finally {
@@ -130,7 +149,10 @@ export class ManagedWorktrees {
         if (
           info.dev !== row.metadata_dev ||
           info.ino !== row.metadata_ino ||
-          metadata.readText("gitdir", 8192).replace(/\n$/, "") !== join(path, ".git")
+          !samePath(
+            resolve(row.metadata_path, metadata.readText("gitdir", 8192).replace(/\n$/, "")),
+            join(path, ".git"),
+          )
         )
           return undefined;
       } finally {

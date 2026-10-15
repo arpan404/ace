@@ -69,10 +69,14 @@ async function inspect(
         untracked: z.array(z.string()),
       })
       .parse(status);
+    // Ignored files (dependencies, build output) still change the fingerprint, but deleting
+    // them loses nothing tracked, so they don't make the worktree dirty.
     ignored = await ignoredPaths(repository, path);
-    dirty = Object.values(parsed).some((entries) => entries.length > 0) || ignored.length > 0;
+    dirty = Object.values(parsed).some((entries) => entries.length > 0);
   }
-  // Local remote-tracking evidence only. No network or executable repository configuration.
+  // Local evidence only, no network or executable repository configuration. A commit is safe
+  // when a remote-tracking ref or another local branch has it; a repository with no remote
+  // still keeps commits its other branches contain.
   if (tree.head) {
     const unpublished = await repository.cli.call(root, [
       "rev-list",
@@ -80,6 +84,8 @@ async function inspect(
       tree.head,
       "--not",
       "--remotes",
+      ...(tree.branch ? [`--exclude=${tree.branch}`] : []),
+      "--branches",
     ]);
     unpushed = z.coerce.number().int().nonnegative().parse(textOutput(unpublished)) > 0;
   }
