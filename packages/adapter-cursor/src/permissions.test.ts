@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { HostRuntime, CursorLimitsSchema, type RuntimeSdkBoundary } from "./index.ts";
 import { cursorMode } from "@ace/provider-kit/permission-modes";
+import { developerInstructions } from "@ace/mcp-server";
 test.each([
   [false, false],
   [true, false],
@@ -27,7 +28,7 @@ test.each([
           const directory = options.local?.dirs?.[0];
           if (!directory) throw new Error("Missing native rule workspace");
           expect(await readFile(join(directory, ".cursor/rules/ace.mdc"), "utf8")).toContain(
-            "Never drive Safari/Chrome/Arc/Firefox with screen_*",
+            developerInstructions("cursor"),
           );
           expect(options.systemPrompt).toBeUndefined();
           const agentId = `native-${options.local?.sandboxOptions?.enabled}-${options.local?.autoReview}`;
@@ -57,7 +58,7 @@ test.each([
           const directory = options?.local?.dirs?.[0];
           if (!directory) throw new Error("Missing resumed native rule workspace");
           expect(await readFile(join(directory, ".cursor/rules/ace.mdc"), "utf8")).toContain(
-            "Any website or web app, including localhost",
+            developerInstructions("cursor"),
           );
           expect(options?.systemPrompt).toBeUndefined();
           expect(options?.local?.sandboxOptions?.enabled).toBe(enabled);

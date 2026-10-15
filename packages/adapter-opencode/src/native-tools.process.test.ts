@@ -102,7 +102,24 @@ test("a Full access OpenCode session keeps every native tool: shell, read, edit,
       "external_directory",
     ])
       expect({ tool, effect: effect(rules, tool) }).toEqual({ tool, effect: "allow" });
-    expect(rules.some((rule) => rule.effect !== "allow")).toBe(false);
+    // No rule asks: Full access never prompts.
+    expect(rules.some((rule) => rule.effect === "ask")).toBe(false);
+  } finally {
+    await close();
+  }
+});
+
+test("Full access keeps OpenCode Desktop's browser tools off, as its Build agent does, because no desktop app attaches to ace's server", async () => {
+  const { h, session, close } = await openFullAccess();
+  try {
+    const info = object(object(await h.control(`/api/session/${session.nativeSessionId}`)).data);
+    const rules = z.array(Rule).parse(info.permissions);
+    expect(effect(rules, "browser")).toBe("deny");
+    // Only that desktop-only group is off; MCP tools, ace's included, stay allowed.
+    expect(rules.filter((rule) => rule.effect === "deny").map((rule) => rule.action)).toEqual([
+      "browser",
+    ]);
+    expect(effect(rules, "ace_ace_browser_open")).toBe("allow");
   } finally {
     await close();
   }

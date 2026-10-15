@@ -4,7 +4,7 @@ import { maxProviderPayloadBytes } from "@ace/provider-kit/payload";
 import { setup } from "./testing/v2-session.ts";
 import { object } from "./data.ts";
 
-it("a near-limit native receipt preserves its evidence and leaves room for the next child's lookup", async () => {
+it("a near-limit native receipt keeps its identity with heavy data elided and leaves room for the next child's lookup", async () => {
   const h = await setup();
   // The root has already finished a turn, so a settled tree reads as done rather than new.
   await h.publish("session.execution.started");
@@ -51,11 +51,17 @@ it("a near-limit native receipt preserves its evidence and leaves room for the n
     translator.translate(frame, frame.t);
     return frame.channel === "ancestry.buffered" ? (translator.takeDiagnostics?.() ?? []) : [];
   });
-  expect(
-    receipts.some(
-      (receipt) => "data" in receipt && JSON.stringify(receipt.data) === JSON.stringify(native),
-    ),
-  ).toBe(true);
+  // The receipt keeps its native identity and owner; the heavy opaque value is elided to a
+  // placeholder before it is buffered, so the frame stays far below the payload bound.
+  const kept = receipts.flatMap((receipt) =>
+    "data" in receipt && object(receipt.data).id === native.id ? [object(receipt.data)] : [],
+  );
+  expect(kept).toHaveLength(1);
+  expect(kept[0]).toMatchObject({ id: native.id, type: native.type, created: native.created });
+  const vendor = object(object(kept[0]?.data).vendor);
+  expect(object(kept[0]?.data).sessionID).toBe("large-child");
+  expect(String(vendor.opaque)).toMatch(/elided/);
+  expect(Buffer.byteLength(JSON.stringify(kept[0]))).toBeLessThan(maxProviderPayloadBytes / 64);
   expect(h.projection.view.thread.status.state).toBe("done");
   const next = h.frames.length;
   await h.control("/test/events", [

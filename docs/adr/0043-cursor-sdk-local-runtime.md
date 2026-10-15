@@ -228,3 +228,22 @@ objects nor invokes their getters or `toJSON`. Its durable canonical transcript
 already owns message contents. Identity pages still enforce revision, position,
 checkpoint, worker and frame budgets. A deliberate idle host disposal emits no
 false warning, while any unsettled child work remains explicitly uncertain.
+
+## Amendment: the person's user-level config, credentials still private (2026-10-14)
+
+The private per-instance `HOME` stays the SDK's only home, so credentials and auth state
+(`~/.cursor/sdk/auth.json` and everything else not listed below) live only in ace's per-account
+directory. Owner rule: agents keep everything their native CLI has, including the person's own
+user-level Cursor configuration. So before each session the adapter copies the non-secret entries
+of the person's real `~/.cursor` into the private home's `.cursor`: `mcp.json`, `hooks.json`,
+`rules`, `skills`, `skills-cursor`, `plugins`, `commands` and `agents` (the user layer SDK 1.0.35
+reads). The SDK then loads them through `settingSources: ["all"]` (ADR 0078).
+
+- The real `~/.cursor` is only read. Entries are copies, never links, so nothing the SDK writes
+  reaches it. Nested symbolic links are not followed.
+- Each session start replaces the previous copies, so a server, rule or skill the person removed
+  disappears too. Copies swap in from a staging directory; one adapter copies one at a time.
+- Each entry is bounded (8,192 files and directories, 64 MiB). An entry over the bound is left
+  out rather than copied in part.
+- `sdk/`, `cli-config.json` and any other entry never cross. The redirected-home and private
+  credential checks above are unchanged.
