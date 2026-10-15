@@ -28,7 +28,9 @@ const Metadata = z.object({
         })
         .passthrough(),
     )
-    .max(32)
+    // Read every listed variant (Claude Opus 4.8 lists 40); normalization keeps the selectable
+    // ones, which fit the catalog's 32 tiers.
+    .max(128)
     .optional()
     .catch(undefined),
 });

@@ -100,7 +100,7 @@ function isGreater(left: number[], right: number[]) {
 }
 
 /** "256k" → 256000, "1m" → 1000000. Unknown spellings don't affect the choice. */
-function contextTokens(value: string | undefined) {
+export function contextTokens(value: string | undefined) {
   const match = value?.trim().match(/^(\d+(?:\.\d+)?)\s*([km]?)$/i);
   if (!match?.[1]) return undefined;
   const unit = match[2]?.toLowerCase();
