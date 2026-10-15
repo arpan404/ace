@@ -6,7 +6,13 @@ import { themeIds, themes } from "./palettes.ts";
 import { over } from "./surfaces.ts";
 import { backdropExtremes } from "./backdrops.ts";
 import { themeAccent } from "./accent.ts";
-import { defaultTranslucency, translucencyMax, translucencyStep } from "./translucency.ts";
+import {
+  defaultTranslucency,
+  extraClearTintFloor,
+  translucencyClearMax,
+  translucencyMax,
+  translucencyStep,
+} from "./translucency.ts";
 
 const userAgents = {
   chrome:
@@ -116,7 +122,7 @@ const levels = {
 };
 const percent = (value: string | undefined) => Number.parseFloat(value ?? "") / 100;
 
-/** The slider's least, middle and most translucent glass, and Solid. */
+/** The slider's least, middle and most translucent AA-safe glass, and Solid. */
 const sliderStops = [0, translucencyStep, translucencyMax / 2, translucencyMax];
 
 test("text on glass reads at AA over blurred busy backdrops in every theme, light and dark, anywhere on the Translucency slider", () => {
@@ -192,11 +198,12 @@ test("the slider runs from a solid tint with no blur to the theme's AA-safe glas
       const most = at(translucencyMax);
       expect(most).toEqual(at(defaultTranslucency));
       expect(most.alpha, `${id} ${scheme}`).toBe(themes[id][scheme].glassTint);
-      // Each step toward it is thinner, blurrier and more saturated, never the other way.
+      // Each step toward it is thinner, blurrier and more saturated, never the other way —
+      // and past the AA-safe end only the tint keeps thinning, toward its floor.
       let previous = solid;
       for (
         let translucency = translucencyStep;
-        translucency <= translucencyMax;
+        translucency <= translucencyClearMax;
         translucency += translucencyStep
       ) {
         const next = at(translucency);
@@ -207,6 +214,26 @@ test("the slider runs from a solid tint with no blur to the theme's AA-safe glas
         expect(next.dim).toBeGreaterThanOrEqual(previous.dim);
         previous = next;
       }
+    }
+});
+
+test("past the AA-safe end glass keeps thinning toward a floor, and the filter stays full", () => {
+  for (const id of themeIds)
+    for (const scheme of ["light", "dark"] as const) {
+      if (!themes[id][scheme].material.glass) continue;
+      const at = (translucency: number) => {
+        const tokens = themeDeclarations(id, scheme, themeAccent, translucency);
+        return {
+          alpha: tint(tokens["--glass-tint"]).alpha,
+          blur: Number.parseFloat(tokens["--glass-blur"] ?? ""),
+        };
+      };
+      const safe = at(translucencyMax);
+      const clear = at(translucencyClearMax);
+      // Thinner, but still a surface; the blur is already at full strength.
+      expect(clear.alpha, `${id} ${scheme}`).toBeLessThan(safe.alpha);
+      expect(clear.alpha, `${id} ${scheme}`).toBeGreaterThanOrEqual(extraClearTintFloor);
+      expect(clear.blur, `${id} ${scheme}`).toBe(safe.blur);
     }
 });
 

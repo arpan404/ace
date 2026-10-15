@@ -2,7 +2,7 @@ import * as z from "zod/mini";
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import { accentIds, defaultCustomAccent } from "./accent.ts";
 import { defaultThemeId, themeIds, themes, type Scheme, type ThemeId } from "./palettes.ts";
-import { defaultTranslucency, snapTranslucency, translucencyMax } from "./translucency.ts";
+import { defaultTranslucency, snapTranslucency, translucencyClearMax } from "./translucency.ts";
 
 export const Mode = z.enum(["light", "dark", "system"]);
 export type Mode = z.infer<typeof Mode>;
@@ -26,8 +26,11 @@ export const Appearance = z.object({
   /** Laid over any theme; "theme" keeps the theme's own (accent.ts). */
   accent: z.catch(z.enum(accentIds), "theme"),
   customAccent: z.catch(z.string().check(z.regex(/^#[0-9a-f]{6}$/i)), defaultCustomAccent),
-  /** 0 is solid; `translucencyMax` is the theme's most translucent AA-safe glass. */
-  translucency: z.catch(z.int().check(z.gte(0), z.lte(translucencyMax)), defaultTranslucency),
+  /**
+   * 0 is solid; `translucencyMax` is the theme's most translucent AA-safe glass, and
+   * `translucencyClearMax` is extra-clear glass past it (softer text, not guaranteed AA).
+   */
+  translucency: z.catch(z.int().check(z.gte(0), z.lte(translucencyClearMax)), defaultTranslucency),
   reduceMotion: z.catch(ReduceMotion, "system"),
   density: z.catch(Density, "comfortable"),
   corners: z.catch(Corners, "default"),
