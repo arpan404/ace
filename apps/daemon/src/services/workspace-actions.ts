@@ -195,11 +195,14 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
           tasks.add(task);
           return;
         }
+        // Authority captured at admission survives a reconnect: a socket closing mid-commit or
+        // mid-push is not a refusal, and the replay must find the real outcome in the receipt.
+        const scope = p.type === "forge.pr.status" ? "read" : "operate";
+        const lease = context.authorityLease?.(scope) ?? (() => connected() && authorize(scope));
         const result = await options.workspaceActions.execute(
           command,
           () =>
-            connected() &&
-            authorize(p.type === "forge.pr.status" ? "read" : "operate") &&
+            lease() &&
             (p.type === "forge.hosted.lifecycle" ||
               p.type === "forge.issue.write" ||
               p.type === "forge.issue.reconcile" ||

@@ -39,9 +39,10 @@ export async function pushWorkspace(
     if (!permitted()) throw new Error("forbidden");
   };
   allowed();
+  // Permission gates spawning only. Once git exits 0 the push happened, whatever became of the
+  // socket that asked for it, and its receipt must say so for the reconnected client's replay.
   if (!input.target) {
     await git.push({ worktree: cwd, remote: input.remote, beforePush: allowed });
-    allowed();
     return;
   }
   if (input.remote !== (preferences?.remote ?? "origin")) throw new Error("repository_mismatch");
@@ -60,5 +61,4 @@ export async function pushWorkspace(
     beforePush: allowed,
     expected: { branch: target.branch, head: target.head, pushUrls: remote.pushUrls },
   });
-  allowed();
 }
