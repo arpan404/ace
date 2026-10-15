@@ -106,7 +106,7 @@ test("a PR whose head moves after checkout is removed without admitting a task o
   });
   try {
     const trees = await d.trees();
-    expect(await d.create("moving")).toMatchObject({ ok: false, error: "forge_conflict" });
+    expect(await d.create("moving")).toMatchObject({ ok: false, error: "forge_head_moved" });
     expect(d.h.store.getThread(ThreadId.parse("moving"))).toBeUndefined();
     expect(d.h.inputs).toHaveLength(0);
     expect(await d.trees()).toBe(trees);
@@ -156,7 +156,9 @@ for (const failure of ["missing", "deleted", "mismatch", "fetch"]) {
             ? "repository_mismatch"
             : failure === "fetch"
               ? "git_remote_unreachable"
-              : "forge_not_found",
+              : failure === "deleted"
+                ? "forge_fork_deleted"
+                : "forge_head_missing",
       });
       expect(d.h.inputs).toHaveLength(0);
       expect(await d.trees()).toBe(trees);

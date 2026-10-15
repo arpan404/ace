@@ -252,8 +252,8 @@ test("preferences changed during creation retain the remote receipt and stop loc
 test("a creation preflight failure releases its reservation and a new command can publish", async () => {
   const f = await setup();
   try {
-    // Initial admission and exact-name GET precede the create's identity probe.
-    await f.cli.update({ invalidUser: 4 });
+    // Admission verifies the account (1); the create is verified again right before dispatch.
+    await f.cli.update({ invalidUser: 2 });
     expect(await f.publish()).toMatchObject({
       ok: false,
       error: "forge_invalid_data",
@@ -312,7 +312,7 @@ test("a confirmed creation conflict never adopts the other writer's matching rep
 test("a refused create identity preflight stays editable and restoring the account can publish", async () => {
   const f = await setup();
   try {
-    await f.cli.update({ wrongUser: 4 });
+    await f.cli.update({ wrongUser: 2 });
     expect(await f.publish()).toMatchObject({
       ok: false,
       error: "forge_forbidden",

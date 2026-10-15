@@ -64,14 +64,16 @@ else {
  else if(path.endsWith('/pulls') || path.endsWith('/pulls/7')) http(pr);
  else if(path.includes('/check-runs?')) http({check_runs:[]});
  else if(path==='graphql') {if(f.graphqlError) {http({errors:[{type:f.graphqlError,message:'Provider refusal'}]});process.exit(1)} http({data:{repository:{pullRequest:{reviewThreads:{pageInfo:{hasNextPage:false,endCursor:null},nodes:[]}}}}});}
+ else if(path==='repos/octo/ace') http({name:'ace',owner:{login:'octo'},default_branch:'main'});
  else http([]);
 }
 `;
 /**
- * Every \`gh\` call is bracketed by an identity probe. A reply runs: admission (1), the actor
- * read (2-4), the seven baseline status reads (5-18), then the reply POST between probes 19 and 20.
+ * Admission verifies the account once (1) and reads inside the verification window reuse it.
+ * A reply reads its actor from \`/user\` (2), then every write is verified right before dispatch,
+ * so the reply POST sits between probes 3 and 4.
  */
-export const replyWriteProbe = { preflight: 19, postflight: 20 } as const;
+export const replyWriteProbe = { preflight: 3, postflight: 4 } as const;
 
 export async function forgeIdentityFixture(
   options: { timeoutMs?: number; settings?: (root: string) => SettingsService } = {},

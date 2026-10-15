@@ -16,7 +16,13 @@ export type CommandResult = {
   stdout: string;
   truncated: boolean;
   identityChanged?: true;
+  /** The CLI reported a network failure (DNS, refused, timed out). Stderr itself never escapes. */
+  unreachable?: true;
 };
+
+/** Network failures as gh and git print them; matched privately, never forwarded. */
+const networkFailure =
+  /error connecting to|could not resolve host|no such host|dial tcp|connection refused|connection reset|network is unreachable|i\/o timeout|tls handshake timeout|timed out while/i;
 export type CommandRunner = (request: CommandRequest) => Promise<CommandResult>;
 
 /** Byte-oriented shell: provider-kit's readline probes cannot bound an oversized line.
@@ -98,7 +104,10 @@ export function createCommandRunner(options: {
       }
       chunks.push(chunk);
     });
-    child.stderr.resume();
+    let diagnostics = "";
+    child.stderr.on("data", (chunk: Buffer) => {
+      if (diagnostics.length < 4_096) diagnostics += chunk.toString("utf8", 0, 4_096);
+    });
     child.stdin.on("error", () => {});
     try {
       const code = await new Promise<number | null>((resolve) => {
@@ -117,7 +126,12 @@ export function createCommandRunner(options: {
         request.mode === "tail"
           ? tail.finish()
           : { text: Buffer.concat(chunks, bytes).toString("utf8"), truncated: false };
-      return { code, stdout: output.text, truncated: output.truncated };
+      return {
+        code,
+        stdout: output.text,
+        truncated: output.truncated,
+        ...(code !== 0 && networkFailure.test(diagnostics) ? { unreachable: true as const } : {}),
+      };
     } finally {
       clearTimeout(timer);
       request.signal.removeEventListener("abort", abort);

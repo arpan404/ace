@@ -19,7 +19,11 @@ test("failed preflight reads retain drafts and permit retry after reconnect or r
       await f.send("save", { kind: "draft.save", draft: inlineDraft });
       expect(await f.send("failed")).toMatchObject({
         ok: false,
-        error: failure.status === 429 ? "forge_rate_limit" : "forge_cli",
+        error: failure.offline
+          ? "forge_offline"
+          : failure.status === 429
+            ? "forge_rate_limit"
+            : "forge_cli",
       });
       expect((await f.gh.requests()).some((r) => r.path === "repos/octo/ace/pulls/7/reviews")).toBe(
         false,

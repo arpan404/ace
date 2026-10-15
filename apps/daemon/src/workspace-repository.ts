@@ -5,6 +5,8 @@ import type { ForgeRepository, SourceControlPreferences } from "@ace/protocol";
 export function workspaceRepository(
   remotes: readonly { name: string; fetchUrls: readonly string[] }[],
   preferences?: SourceControlPreferences,
+  /** SSH host aliases resolved to real hosts, from `SourceControl.hostAliases`. */
+  aliases: Readonly<Record<string, string>> = {},
 ): ForgeRepository | undefined {
   const remote = (
     remotes.find((entry) => entry.name === (preferences?.remote ?? "origin")) ??
@@ -17,6 +19,7 @@ export function workspaceRepository(
       preferences
         ? Object.fromEntries(preferences.hosts.map((entry) => [entry.host, "github"]))
         : {},
+      aliases,
     );
   } catch {
     return undefined;

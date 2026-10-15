@@ -9,12 +9,20 @@ import type {
 } from "@ace/protocol";
 
 export type PrRemotes = readonly { name: string; fetchUrls: readonly string[] }[];
-/** Match the PR's base repository, not its fork or whichever remote happens to be first. */
-export function prRemote(remotes: PrRemotes, repository: ForgeRepository): string {
+/** Match the PR's base repository, not its fork or whichever remote happens to be first.
+ * The PR's own host counts as known, so an Enterprise remote matches without a host map. */
+export function prRemote(
+  remotes: PrRemotes,
+  repository: ForgeRepository,
+  aliases: Readonly<Record<string, string>> = {},
+): string {
+  const hosts = { [repository.host]: repository.forge };
   const found = remotes.find((remote) =>
     remote.fetchUrls.some((url) => {
       try {
-        return repositoryKey(repositoryFromRemote(url)) === repositoryKey(repository);
+        return (
+          repositoryKey(repositoryFromRemote(url, hosts, aliases)) === repositoryKey(repository)
+        );
       } catch {
         return false;
       }
@@ -70,6 +78,8 @@ export function prBasePreparation(options: {
   signal: AbortSignal;
   timeoutMs: number;
   remote?: (remotes: PrRemotes, repository: ForgeRepository) => string;
+  /** Resolves SSH host aliases among the remotes' URLs. */
+  hostAliases?: (urls: readonly string[], signal: AbortSignal) => Promise<Record<string, string>>;
 }): PreparePrBase {
   return async (project, selection, io) => {
     const signal = io.signal ? AbortSignal.any([io.signal, options.signal]) : options.signal;
@@ -78,7 +88,14 @@ export function prBasePreparation(options: {
     const initial = await options.checkout(project, selection, signal);
     if (initial.baseSha !== detail.baseSha) throw new ForgeError("conflict");
     const metadata = await options.git.repositoryInfo(project);
-    const remote = (options.remote ?? prRemote)(metadata.remotes, selection.ref.repository);
+    const aliases =
+      (await options.hostAliases?.(
+        metadata.remotes.flatMap((entry) => entry.fetchUrls),
+        signal,
+      )) ?? {};
+    const remote = options.remote
+      ? options.remote(metadata.remotes, selection.ref.repository)
+      : prRemote(metadata.remotes, selection.ref.repository, aliases);
     const head = await options.git.fetchPrHead({
       repo: project,
       remote,
@@ -87,7 +104,7 @@ export function prBasePreparation(options: {
       signal,
       ...(io.stderr ? { stderr: io.stderr } : {}),
     });
-    if (head !== selection.headSha) throw new ForgeError("conflict");
+    if (head !== selection.headSha) throw new ForgeError("head_moved");
     const pullRequestWorkspace: ForgePrWorkspace = {
       ref: selection.ref,
       headSha: head,
@@ -105,6 +122,7 @@ export function prBasePreparation(options: {
         signal.throwIfAborted();
         const latest = await options.checkout(project, selection, signal);
         const actual = await options.git.resolveCommit({ worktree, ref: "HEAD" });
+        if (latest.headSha !== head || actual !== head) throw new ForgeError("head_moved");
         if (
           latest.headSha !== head ||
           latest.baseSha !== detail.baseSha ||

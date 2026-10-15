@@ -7,7 +7,7 @@ import type { Store } from "./store.ts";
 interface WorkspacePrLinks {
   root(id: ThreadId): string;
   forge: {
-    repository(cwd: string): Promise<ForgeRepository>;
+    prRepositories(cwd: string): Promise<ForgeRepository[]>;
     link(id: ThreadId, cwd: string, ref: ForgePrRef, allowed: () => boolean): Promise<unknown>;
   };
 }
@@ -126,8 +126,8 @@ export class PullRequestAutoLink {
       };
       try {
         if (allowed()) {
-          const repository = await this.workspace.forge.repository(pending.cwd);
-          const ref = await this.readCreatedPr(pending, repository);
+          const repositories = await this.workspace.forge.prRepositories(pending.cwd);
+          const ref = await this.readCreatedPr(pending, repositories);
           if (ref && allowed())
             await this.workspace.forge.link(pending.threadId, pending.cwd, ref, allowed);
         }
@@ -143,7 +143,7 @@ export class PullRequestAutoLink {
   }
   private async readCreatedPr(
     pending: z.infer<typeof Pending>,
-    repository: ForgeRepository,
+    repositories: readonly ForgeRepository[],
   ): Promise<ForgePrRef | undefined> {
     if (!pending.streamId) return undefined;
     const info = this.store.outputInfo(pending.streamId);
@@ -163,7 +163,7 @@ export class PullRequestAutoLink {
       const text = decoder.decode(page.bytes, { stream: offset < info.size });
       for (const char of text) {
         if (char === "\n") {
-          const ref = !oversized ? createdPullRequest(line, repository) : undefined;
+          const ref = !oversized ? createdPullRequest(line, repositories) : undefined;
           if (ref) return ref;
           line = "";
           oversized = false;
@@ -172,7 +172,7 @@ export class PullRequestAutoLink {
       }
       await setImmediate();
     }
-    return !oversized ? createdPullRequest(line, repository) : undefined;
+    return !oversized ? createdPullRequest(line, repositories) : undefined;
   }
   async drained(): Promise<void> {
     while (this.flight) await this.flight;

@@ -46,7 +46,7 @@ async function environment(fixtures: Fixtures) {
   const gh = await fakeGh(fixtures);
   const root = await mkdtemp(join(tmpdir(), "ace-issue-recovery-"));
   const store = new Store(join(root, "events.sqlite"));
-  const actions = new IssueActions(store);
+  const actions = new IssueActions(store, () => 1_000);
   const signal = new AbortController().signal;
   return {
     gh,
@@ -265,7 +265,7 @@ test("a stale reconciliation from another owner cannot downgrade a completed wri
     [`${repoPath}/issues`]: [{ body: issueRecord, barrier: "post" }],
     [lookupPath]: [{ body: [], barrier: "reconciliation" }],
   });
-  const other = new IssueActions(app.store);
+  const other = new IssueActions(app.store, () => 1_000);
   const writing = app.actions.execute(command("create"), app.gh.forge, () => true, app.signal);
   let reading: ReturnType<IssueActions["execute"]> | undefined;
   try {

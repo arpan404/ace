@@ -90,3 +90,38 @@ pages. Shell control flow with ambiguous output attribution is skipped.
 The state query uses GitHub's documented PullRequest `state`, `isDraft`, `title`,
 `url` and `updatedAt` fields in the [GraphQL reference](https://docs.github.com/en/graphql/reference/pulls).
 No credentials are read by ace.
+
+## Identity, uncertainty and PR targets (2026-10-14)
+
+Identity is verified once per admission and reused for reads for 60 seconds per host
+and preferences revision. Every write is verified immediately before dispatch; only a
+confirmed different account, or changed preferences, after the write make its outcome
+uncertain. Identity probes use the shared `gh api --include` classifier: a run with no
+HTTP response whose CLI reported a network error is `offline`, gh's sign-in exit (4)
+and 401/403 are `forbidden`, and an exhausted `/user` rate limit is `rate_limit`.
+Readiness reports `offline` and `rate_limited` instead of `login_required`. Status
+resources after the PR head are read concurrently.
+
+An uncertain write fences retries of its own family (merge, review request or reply)
+on that PR, not every later action. Each receipt records when it was journalled; once
+`uncertainWriteWindowMs` (10 minutes) has passed, a complete read that still shows no
+trace of the write settles it as failed and a new write may proceed. Issue actions use
+the same window, and any authorised device may reconcile them. Package reply receipts
+expire the same way.
+
+A batch state read tolerates GitHub's partial answer for deleted numbers: a null alias
+with a NOT_FOUND error naming exactly that alias. Other errors still fail the batch.
+
+Create PR looks only for an open PR with the same head and base, so a merged or closed
+PR no longer blocks a new one; an open match still recovers a lost create. The daemon
+resolves the base: a reviewed draft's base, else the thread's recorded base, else the
+forge's default branch. When the pushed repository is a fork, the PR opens on its parent
+with `head=<fork owner>:<branch>`, and agent-created PR URLs on the parent are linked.
+
+Remote detection resolves SSH host aliases with `ssh -G` (configuration only, never a
+connection), cached for five minutes, and treats `ssh.github.com` as `github.com`. PR
+remote matching treats the PR's own host as known, so Enterprise remotes match.
+
+422 refusals map to `no_commits`, `pr_exists`, `head_missing`, `base_missing`, `conflict`
+(an existing name) or `unprocessable`. Work on PR reports `head_moved` and
+`fork_deleted` instead of `conflict` and `not_found`.

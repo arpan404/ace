@@ -170,7 +170,8 @@ test("a concurrent retry cannot reconcile or clear a receipt while its writer is
 test("a failed PR status read is a read failure rather than an uncertain mutation", async () => {
   const f = await forgeIdentityFixture();
   try {
-    await f.update({ invalidUser: 2 });
+    // The account probe that admits the read returns no identity.
+    await f.update({ invalidUser: 1 });
     const base = reply("failed-status");
     if (!("link" in base.payload)) throw new Error("Expected link");
     expect(

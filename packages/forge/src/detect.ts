@@ -3,9 +3,17 @@ import { ForgeRepository, type ForgeRepository as Repository } from "@ace/protoc
 import { ForgeError } from "./errors.ts";
 import type { CommandRunner } from "./command.ts";
 
+/** GitHub's documented SSH-over-HTTPS endpoint names the same host. */
+const hostEquivalents: Readonly<Record<string, string>> = { "ssh.github.com": "github.com" };
+
+/**
+ * `aliases` maps SSH host aliases (`~/.ssh/config` `Host` entries) to the real host name,
+ * as resolved by `sshHostAliases`. Unresolved hosts are matched literally.
+ */
 export function repositoryFromRemote(
   remote: unknown,
   hosts: Readonly<Record<string, "github" | "gitlab">> = {},
+  aliases: Readonly<Record<string, string>> = {},
 ): Repository {
   const value = z.string().max(4_096).parse(remote);
   let host: string;
@@ -26,6 +34,8 @@ export function repositoryFromRemote(
     path = url.pathname.replace(/^\//, "");
   }
   host = host.toLowerCase();
+  host = aliases[host]?.toLowerCase() ?? host;
+  host = hostEquivalents[host] ?? host;
   const forge = host === "github.com" ? "github" : host === "gitlab.com" ? "gitlab" : hosts[host];
   if (!forge) throw new ForgeError("unsupported");
   const parts = path
@@ -47,7 +57,11 @@ export function repositoryFromRemote(
 export async function detectRepository(
   runner: CommandRunner,
   signal: AbortSignal,
-  options: { remote?: string; hosts?: Readonly<Record<string, "github" | "gitlab">> } = {},
+  options: {
+    remote?: string;
+    hosts?: Readonly<Record<string, "github" | "gitlab">>;
+    aliases?: Readonly<Record<string, string>>;
+  } = {},
 ): Promise<Repository> {
   const result = await runner({ command: "git", args: ["remote", "-v"], signal, mode: "json" });
   if (result.code !== 0) throw new ForgeError("cli");
@@ -59,5 +73,5 @@ export async function detectRepository(
     ? remotes.find((remote) => remote.name === options.remote)
     : (remotes.find((remote) => remote.name === "origin") ?? remotes[0]);
   if (!chosen) throw new ForgeError("not_found");
-  return repositoryFromRemote(chosen.url, options.hosts);
+  return repositoryFromRemote(chosen.url, options.hosts, options.aliases);
 }

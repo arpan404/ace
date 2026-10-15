@@ -388,7 +388,7 @@ test("checkout metadata resolves a fork head and refuses a moved or deleted sour
         });
       else
         await expect(gh.forge.prCheckout(7, signal())).rejects.toMatchObject({
-          kind: scenario === "moved" ? "conflict" : "not_found",
+          kind: scenario === "moved" ? "head_moved" : "head_missing",
         });
     } finally {
       await gh.cleanup();

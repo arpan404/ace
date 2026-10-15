@@ -3,6 +3,7 @@ import { z } from "zod";
 import { SourceControlReadiness, type SourceControlPreferences } from "@ace/protocol";
 import type { CommandRunner, CommandRequest } from "./command.ts";
 import { ForgeError } from "./errors.ts";
+import { GhApi } from "./http.ts";
 
 const login = z.object({
   login: z
@@ -12,49 +13,80 @@ const login = z.object({
 });
 const accounts = z.array(z.object({ login: login.shape.login, active: z.boolean() })).max(100);
 
-/** Ask gh for the effective API identity, including launch-environment authentication. */
+/** Ask gh for the effective API identity, including launch-environment authentication.
+ * The response goes through the shared HTTP classifier: an unreachable host is `offline`,
+ * a rate-limited `/user` is `rate_limit`, and only 401/403 or gh's sign-in exit are `forbidden`. */
 export async function githubIdentity(
   runner: CommandRunner,
   host: string,
   signal: AbortSignal,
+  now: () => number,
 ): Promise<string> {
-  const response = await runner({
-    command: "gh",
-    args: ["api", "user", "--hostname", host],
-    signal,
-    mode: "json",
-  });
-  if (response.code !== 0) throw new ForgeError("forbidden");
-  try {
-    return login.parse(JSON.parse(response.stdout)).login;
-  } catch {
-    throw new ForgeError("invalid_data");
-  }
+  const response = await new GhApi({ runner, host, now }).request("user", signal);
+  const parsed = login.safeParse(response.body);
+  if (!parsed.success) throw new ForgeError("invalid_data");
+  return parsed.data.login;
 }
 
-/** Pin every operation to its admitted account. Never switch shared CLI configuration. */
+/** How long a verified identity admits reads without another `/user` probe. */
+export const identityVerificationMs = 60_000;
+
+export type IdentityRunnerOptions = {
+  now: () => number;
+  /** When the caller last verified the account itself, so the first read needs no probe. */
+  verifiedAt?: number;
+  ttlMs?: number;
+};
+
+/** Pin every operation to its admitted account. Never switch shared CLI configuration.
+ * Reads reuse a verification for a short window; every write is verified immediately before
+ * dispatch. Without `options` (no clock), every request is verified. */
 export function identityRunner(
   runner: CommandRunner,
   host: string,
   account: string,
   assertCurrent: () => void | Promise<void> = () => {},
+  options?: IdentityRunnerOptions,
 ): CommandRunner {
+  let verifiedAt = options?.verifiedAt;
+  const ttl = options?.ttlMs ?? identityVerificationMs;
+  const clock = options?.now ?? (() => 0);
+  const fresh = () => {
+    if (!options || verifiedAt === undefined) return false;
+    const age = options.now() - verifiedAt;
+    return age >= 0 && age < ttl;
+  };
+  const verify = async (signal: AbortSignal) => {
+    if ((await githubIdentity(runner, host, signal, clock)) !== account) {
+      verifiedAt = undefined;
+      throw new ForgeError("forbidden");
+    }
+    verifiedAt = options?.now();
+  };
   return async (request: CommandRequest) => {
     await assertCurrent();
     if (request.command !== "gh") return runner(request);
-    if ((await githubIdentity(runner, host, request.signal)) !== account)
-      throw new ForgeError("forbidden");
-    // Preferences may change while the identity process is running.
-    await assertCurrent();
-    const result = await runner(request);
-    try {
-      if ((await githubIdentity(runner, host, request.signal)) !== account)
-        throw new ForgeError("forbidden");
+    const write = isForgeMutation(request);
+    if (write || !fresh()) {
+      await verify(request.signal);
+      // Preferences may change while the identity process is running.
       await assertCurrent();
-    } catch (error) {
-      // Preserve the response from a dispatched write even if the probe fails or is cancelled.
-      if (isForgeMutation(request)) return { ...result, identityChanged: true };
-      throw error;
+    }
+    const result = await runner(request);
+    if (!write) return result;
+    // A dispatched write keeps its response. Only a confirmed different account, or changed
+    // preferences, make its outcome uncertain; an unavailable probe proves nothing.
+    try {
+      if ((await githubIdentity(runner, host, request.signal, clock)) !== account)
+        return { ...result, identityChanged: true };
+      verifiedAt = options?.now();
+    } catch {
+      /* Offline, rate limited or cancelled after the write: no evidence of a switch. */
+    }
+    try {
+      await assertCurrent();
+    } catch {
+      return { ...result, identityChanged: true };
     }
     return result;
   };
@@ -64,6 +96,7 @@ export async function githubReadiness(
   runner: CommandRunner,
   preferences: SourceControlPreferences,
   signal: AbortSignal,
+  now: () => number,
 ): Promise<SourceControlReadiness> {
   const host = preferences.host;
   const expected = preferences.hosts.find((entry) => entry.host === host)?.account;
@@ -112,7 +145,7 @@ export async function githubReadiness(
       });
       if (result.code === 0) status.accounts = accounts.parse(JSON.parse(result.stdout));
     }
-    status.account = await githubIdentity(runner, host, signal);
+    status.account = await githubIdentity(runner, host, signal, now);
     if (!status.accounts.some((entry) => entry.login === status.account))
       status.accounts.push({ login: status.account, active: true });
     status.api = expected && expected !== status.account ? "account_mismatch" : "ready";
@@ -120,8 +153,20 @@ export async function githubReadiness(
       status.api === "ready"
         ? `GitHub API access verified as ${status.account} on ${host}.`
         : `Run gh auth switch --hostname ${host} --user ${expected} on this computer, then Rescan. Environment authentication may override stored accounts.`;
-  } catch {
+  } catch (error) {
     signal.throwIfAborted();
+    if (status.cli === "available" && error instanceof ForgeError) unreachable(status, error, host);
   }
   return SourceControlReadiness.parse(status);
+}
+
+/** Network and quota failures are not sign-in answers; say what actually happened. */
+function unreachable(status: SourceControlReadiness, error: ForgeError, host: string): void {
+  if (error.kind === "offline") {
+    status.api = "offline";
+    status.instructions = `ace couldn't reach ${host}. Check this computer's network connection, then Rescan.`;
+  } else if (error.kind === "rate_limit") {
+    status.api = "rate_limited";
+    status.instructions = `The ${host} API rate limit was reached. Wait a few minutes, then Rescan.`;
+  }
 }

@@ -298,7 +298,7 @@ describe("Pull-request publication recovery", () => {
   it("looks up a remotely created PR by its exact branch and base", async () => {
     const fixtures = standard();
     const query = new URLSearchParams({
-      state: "all",
+      state: "open",
       head: "octo:work/card",
       base: "main",
       per_page: "2",
@@ -311,7 +311,7 @@ describe("Pull-request publication recovery", () => {
   });
   it("does not accept a branch lookup that returns a different head or multiple PRs", async () => {
     const query = new URLSearchParams({
-      state: "all",
+      state: "open",
       head: "octo:work/card",
       base: "main",
       per_page: "2",

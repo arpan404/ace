@@ -69,6 +69,7 @@ let input=''; for await(const chunk of process.stdin) input+=chunk;
 const pr={number:42,node_id:'PR_42',title:'Existing review PR',html_url:'https://github.com/octo/ace/pull/42',state:state.merged?'closed':'open',draft:false,merged:state.merged,mergeable:true,head:{sha:'${"a".repeat(40)}',ref:state.branch},base:{ref:'main'}};
 let body=[];
 if(path==='user') body={login:'octo'};
+else if(path==='repos/octo/ace') body={name:'ace',owner:{login:'octo'},default_branch:'main'};
 else if(path.startsWith('repos/octo/ace/pulls?')) body=[pr];
 else if(path==='repos/octo/ace/pulls/42') body=pr;
 else if(path.endsWith('/merge')) {state.merged=true;writeFileSync(file,JSON.stringify(state));body={merged:true};}

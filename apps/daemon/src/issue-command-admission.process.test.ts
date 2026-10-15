@@ -44,7 +44,7 @@ async function environment() {
 test("outer command capacity refuses a fresh issue intent without journal ownership and permits a later write", async () => {
   const app = await environment();
   const outer = new AsyncCommands(app.store);
-  const issues = new IssueActions(app.store);
+  const issues = new IssueActions(app.store, () => 1_000);
   const gate = Promise.withResolvers<void>();
   const active: Promise<CommandResult>[] = [];
   const ready: Promise<void>[] = [];

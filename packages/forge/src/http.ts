@@ -8,6 +8,7 @@ import { redactData } from "./redact.ts";
 import type { CommandRunner } from "./command.ts";
 
 import { ReadBudget } from "./read-budget.ts";
+import { ghAuthRequiredExit, onlyMissingFields, unprocessableKind } from "./http-errors.ts";
 
 const envelope = z.object({
   status: z.number().int().min(100).max(599),
@@ -19,18 +20,26 @@ const graphqlResult = z.object({
     .array(
       z.looseObject({
         type: z.string().optional(),
+        path: z.unknown().optional(),
         extensions: z.looseObject({ code: z.string().optional() }).optional(),
       }),
     )
     .optional(),
 });
 /** Successful fields or unknown errors cannot prove that a mutation was refused. */
-function assertGraphqlResult(body: unknown, dispatch: MutationDispatch, retryAt: number): void {
+function assertGraphqlResult(
+  body: unknown,
+  dispatch: MutationDispatch,
+  retryAt: number,
+  query: boolean,
+): void {
   const parsed = graphqlResult.safeParse(body);
   if (!parsed.success) throw new ForgeError("invalid_data");
   const { data, errors } = parsed.data;
   if (!errors?.length) return;
   const refused = !data || Object.values(data).every((value) => value === null);
+  // A read may name missing fields (a deleted PR among many aliases); the rest is valid.
+  if (query && !refused && onlyMissingFields(data, errors)) return;
   const codes = errors.map((error) => error.type ?? error.extensions?.code);
   let error: ForgeError | undefined;
   if (refused && codes.every((code) => code === "RATE_LIMITED"))
@@ -55,6 +64,17 @@ function rateLimitRetryAt(headers: Record<string, string>, now: number): number 
     : Number.isFinite(reset) && reset > now
       ? reset
       : now + 60_000;
+}
+/** gh printed no HTTP response: it never reached the host, or refused for missing sign-in. */
+function noResponse(
+  output: { code: number | null; stdout: string; unreachable?: true },
+  dispatch: MutationDispatch,
+) {
+  if (output.code === ghAuthRequiredExit && !output.stdout.trim()) {
+    dispatch.reject();
+    return new ForgeError("forbidden", undefined, false);
+  }
+  return output.unreachable ? new ForgeError("offline") : new ForgeError("cli");
 }
 export type Page = {
   body: unknown;
@@ -151,7 +171,7 @@ export class GhApi {
       dispatch,
     });
     const split = /\r?\n\r?\n/.exec(output.stdout);
-    if (!split) throw new ForgeError("cli");
+    if (!split) throw noResponse(output, dispatch);
     const headerText = output.stdout.slice(0, split.index);
     const status = /^HTTP\/[\d.]+ (\d{3})/i.exec(headerText);
     const headers: Record<string, string> = {};
@@ -208,9 +228,13 @@ export class GhApi {
     const mergeResult =
       operation !== undefined &&
       (code !== 409 || operation.state !== "uncertain" || operation.uuid !== undefined);
-    if ((code === 409 && !mergeResult) || code === 422) {
+    if (code === 409 && !mergeResult) {
       dispatch.reject();
       throw new ForgeError("conflict", undefined, false);
+    }
+    if (code === 422) {
+      dispatch.reject();
+      throw new ForgeError(unprocessableKind(text), undefined, false);
     }
     if (!mergeResult && (code < 200 || code >= 300)) throw new ForgeError("cli");
     // gh exits 1 for GraphQL errors even with HTTP 200. Classify complete bodies
@@ -223,7 +247,7 @@ export class GhApi {
       } catch {
         throw new ForgeError("invalid_data");
       }
-      assertGraphqlResult(graphqlBody, dispatch, rateLimitRetryAt(headers, this.#now()));
+      assertGraphqlResult(graphqlBody, dispatch, rateLimitRetryAt(headers, this.#now()), reusable);
     }
     if (output.code !== 0 && !mergeResult) throw new ForgeError("cli");
     const version = createHash("sha256").update(text).digest("hex");

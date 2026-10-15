@@ -23,10 +23,22 @@ export const ForgeWriteReceipt = z.object({
       action.type !== "forge.pr.create",
   ),
   phase: z.enum(["pending", "accepted", "reconciled", "failed"]),
+  /** When the write was journalled for dispatch; bounds how long doubt can fence a retry. */
+  at: z.number().int().nonnegative(),
   actor: z.string().optional(),
   replyBaseline: z.array(z.number().int().positive()).optional(),
 });
 export type ForgeWriteReceipt = z.infer<typeof ForgeWriteReceipt>;
+
+/**
+ * Writes that can duplicate or contradict each other share a family and one fence. Merge,
+ * auto-merge and merge-state changes all decide whether and how the PR merges.
+ */
+export function actionFamily(action: ForgeWriteReceipt["action"]): "merge" | "review" | "reply" {
+  if (action.type === "forge.review.request") return "review";
+  if (action.type === "forge.comment.reply") return "reply";
+  return "merge";
+}
 
 export function observedMergeState(
   action: ForgeWriteReceipt["action"],

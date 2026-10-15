@@ -124,19 +124,27 @@ function shellCommands(script: string): string[][] | undefined {
   return commands;
 }
 
-/** gh prints the created PR URL on its own line. Prose and lookalike hosts are ignored. */
+/**
+ * gh prints the created PR URL on its own line. Prose and lookalike hosts are ignored. Any of
+ * `repositories` may own it: the checkout's repository, or the parent a fork's PRs open on.
+ */
 export function createdPullRequest(
   line: string,
-  repository: ForgeRepository,
+  repositories: readonly ForgeRepository[],
 ): ForgePrRef | undefined {
-  if (repository.forge !== "github") return undefined;
+  const candidates = repositories.filter((repository) => repository.forge === "github");
+  if (!candidates.length) return undefined;
   const text = stripVTControlCharacters(line).trim();
   if (!/^https:\/\/[^/]+\/[^/]+\/[^/]+\/pull\/[1-9][0-9]*\/?$/.test(text)) return undefined;
   try {
-    const ref = prFromUrl(text);
-    return repositoryKey(ref.repository) === repositoryKey(repository)
-      ? { ...ref, repository }
-      : undefined;
+    const ref = prFromUrl(
+      text,
+      candidates.map((repository) => repository.host),
+    );
+    const repository = candidates.find(
+      (candidate) => repositoryKey(candidate) === repositoryKey(ref.repository),
+    );
+    return repository ? { ...ref, repository } : undefined;
   } catch {
     return undefined;
   }

@@ -82,37 +82,20 @@ export class GitHubStatusReader {
     const pr = this.#pr.read(response);
     if (pr.number !== number) throw new ForgeError("invalid_data");
     const sha = pr.head.sha;
-    const checks = await this.#checks.read(
-      api,
-      `${root}/commits/${sha}/check-runs?per_page=100&filter=latest`,
-      signal,
-      budget,
-    );
-    const statuses = await this.#statuses.read(
-      api,
-      `${root}/commits/${sha}/statuses?per_page=100`,
-      signal,
-      budget,
-    );
-    const inline = await this.#inline.read(
-      api,
-      `${root}/pulls/${number}/comments?per_page=100`,
-      signal,
-      budget,
-    );
-    const issue = await this.#issue.read(
-      api,
-      `${root}/issues/${number}/comments?per_page=100`,
-      signal,
-      budget,
-    );
-    const reviews = await this.#reviews.read(
-      api,
-      `${root}/pulls/${number}/reviews?per_page=100`,
-      signal,
-      budget,
-    );
-    const threads = await this.#threads.read(api, repository, number, signal, budget);
+    // The resources below are independent once the head is known; read them concurrently.
+    const [checks, statuses, inline, issue, reviews, threads] = await Promise.all([
+      this.#checks.read(
+        api,
+        `${root}/commits/${sha}/check-runs?per_page=100&filter=latest`,
+        signal,
+        budget,
+      ),
+      this.#statuses.read(api, `${root}/commits/${sha}/statuses?per_page=100`, signal, budget),
+      this.#inline.read(api, `${root}/pulls/${number}/comments?per_page=100`, signal, budget),
+      this.#issue.read(api, `${root}/issues/${number}/comments?per_page=100`, signal, budget),
+      this.#reviews.read(api, `${root}/pulls/${number}/reviews?per_page=100`, signal, budget),
+      this.#threads.read(api, repository, number, signal, budget),
+    ]);
     const parts = [response, checks, statuses, inline, issue, reviews, threads];
     if (
       this.#last?.ref.number === number &&

@@ -38,7 +38,15 @@ export const SourceControlReadiness = z.object({
   version: z.string().max(256).nullable(),
   accounts: z.array(z.object({ login: GitHubAccount, active: z.boolean() })).max(100),
   account: GitHubAccount.nullable(),
-  api: z.enum(["ready", "login_required", "account_mismatch", "unavailable"]),
+  /** `offline` and `rate_limited` are network and quota answers, never sign-in problems. */
+  api: z.enum([
+    "ready",
+    "login_required",
+    "account_mismatch",
+    "offline",
+    "rate_limited",
+    "unavailable",
+  ]),
   instructions: z.string().max(512),
   transport: z.enum(["unchecked", "ready", "failed", "no_remote"]),
   transportInstructions: z.string().max(512),

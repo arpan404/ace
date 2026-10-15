@@ -40,7 +40,7 @@ test("failed final verification cleans the fork checkout without executing filte
     const before = await d.trees();
     expect(await d.create("failed-safe-verification")).toMatchObject({
       ok: false,
-      error: "forge_conflict",
+      error: "forge_head_moved",
     });
     expect(await d.trees()).toBe(before);
     expect(d.h.inputs).toHaveLength(0);
