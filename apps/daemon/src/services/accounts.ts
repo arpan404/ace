@@ -16,14 +16,6 @@ export async function startAccounts(context: ServiceContext) {
     process.env.ACE_ACCOUNTS_DB ?? join(config.dataDir, "accounts.sqlite"),
     context.signal,
     config.dataDir,
-    {
-      notice: (event) =>
-        context.log.log(
-          event.outcome === "moved" ? "info" : "warn",
-          "Account instance home migrated",
-          logFields(Object.entries(event)),
-        ),
-    },
   );
   const validation = registry.ready;
   resources.own(async () => {

@@ -2,7 +2,8 @@ import { lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { LiveHomeError } from "./home-format.ts";
+import { LiveHomeError, OldAceRunningError } from "./home-format.ts";
+import { liveFiles, recordedPids, systemOpeners, type OpenersOf } from "./home-openers.ts";
 
 /** Held while a home is renamed aside, so no daemon can take it in between. */
 export interface HomeClaim {
@@ -59,9 +60,15 @@ function openLockDatabase(path: string): DatabaseSync | undefined {
  * Takes the old home's daemon lock the way the daemon does (an exclusive transaction on
  * `daemon-lock.sqlite`) and holds it until released, or throws `LiveHomeError` when a running
  * daemon holds it. Kernel locks end with their process, so a crashed daemon never blocks this.
- * A home without that database (an older layout) falls back to the pid in `daemon-lock`.
+ * A home without that database (an older layout) falls back to the pid in `daemon-lock`, then
+ * to any live pid file, then to whichever process still has the old ace's files open; any of
+ * those throws `OldAceRunningError`.
  */
-export function claimHome(root: string, alive: (pid: number) => boolean = processAlive): HomeClaim {
+export function claimHome(
+  root: string,
+  alive: (pid: number) => boolean = processAlive,
+  openers: OpenersOf = systemOpeners,
+): HomeClaim {
   const database = openLockDatabase(join(root, "daemon-lock.sqlite"));
   if (database) {
     try {
@@ -85,5 +92,13 @@ export function claimHome(root: string, alive: (pid: number) => boolean = proces
   }
   const pid = lockOwner(root);
   if (pid !== undefined && pid !== process.pid && alive(pid)) throw new LiveHomeError(root, pid);
+  if (!database) {
+    const files = liveFiles(root);
+    const running = [
+      ...recordedPids(files).filter((recorded) => alive(recorded)),
+      ...openers(files),
+    ].find((other) => other !== process.pid);
+    if (running !== undefined) throw new OldAceRunningError(root, running);
+  }
   return { release() {} };
 }

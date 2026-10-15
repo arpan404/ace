@@ -113,3 +113,12 @@ export class LiveHomeError extends Error {
     this.home = home;
   }
 }
+
+/** Raised instead of backing up a home an older ace (0.x, with no daemon lock) still has open. */
+export class OldAceRunningError extends LiveHomeError {
+  constructor(home: string, pid: number) {
+    super(home, pid);
+    this.message = `An older ace (pid ${pid}) is still running and using ${home}. Quit the old ace first, then open ace again. Nothing was moved.`;
+    this.name = "OldAceRunningError";
+  }
+}

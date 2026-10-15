@@ -1,11 +1,10 @@
-import { mkdtemp, mkdir, readdir, rm, realpath, writeFile, stat, access } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, rm, realpath, writeFile, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, vi, afterEach } from "vitest";
 import { startDaemon, readConfig } from "@ace/daemon";
 import { createInstance, openRegistry, runAccountsCommand } from "@ace/accounts";
 import { daemonCursorAuth } from "@ace/accounts";
-import { spawnSupervised } from "@ace/provider-kit/process";
 import { prepareDaemonHome } from "@ace/service";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -58,132 +57,6 @@ test("accounts CLI and Cursor CLI auth use the daemon's default home, ~/.ace, an
     await rm(root, { recursive: true, force: true });
   }
 });
-
-test.each([".ace", ".ace-next-old", "nested", "current-nested"])(
-  "daemon startup admits only the current %s SDK home and preserves user CLI homes",
-  async (layout) => {
-    const root = await home();
-    const dataDir = join(root, "ace-data");
-    prepareDaemonHome(dataDir);
-    const id = "cursor-sdk-default";
-    const oldRoot =
-      layout === "current-nested" ? dataDir : join(root, layout === "nested" ? ".ace" : layout);
-    const oldHome = join(
-      oldRoot,
-      "instances",
-      ...(layout.endsWith("nested") ? ["cursor"] : []),
-      id,
-    );
-    await mkdir(oldHome, { recursive: true });
-    if (layout === ".ace-next-old") await writeFile(join(oldRoot, "host-id"), "old-daemon");
-    await mkdir(join(oldHome, "user", ".cursor", "sdk"), { recursive: true });
-    // Opaque synthetic state. Test and fake SDK inspect existence/inodes only.
-    const authFile = join(oldHome, "user", ".cursor", "sdk", "auth.json");
-    await writeFile(authFile, "synthetic-auth-state");
-    const previousAuth = await stat(authFile);
-    const previousHome = await stat(oldHome);
-    const userHomes = [".cursor", ".codex", ".claude"];
-    for (const name of userHomes) await mkdir(join(root, name));
-    const userStats = await Promise.all(userHomes.map((name) => stat(join(root, name))));
-    const registry = await openRegistry(join(dataDir, "accounts.sqlite"), dataDir);
-    await registry.register(
-      createInstance({ id, provider: "cursor", label: "Cursor SDK", homeDir: oldHome }),
-    );
-    registry.close();
-    const entry = join(root, "fake-sdk.mjs");
-    await writeFile(
-      entry,
-      `import {createInterface} from 'node:readline';
-import {existsSync} from 'node:fs';
-import {join} from 'node:path';
-createInterface({input:process.stdin}).on('line',line=>{
-const r=JSON.parse(line);
-if (!existsSync(join(process.env.HOME,'.cursor/sdk/auth.json'))) process.exit(9);
-console.log(JSON.stringify({id:r.id,result:r.method==='status'?{status:'logged-out',source:'none'}:r.method==='models'?[{id:'migrated-model',displayName:process.env.HOME}]:{disposed:true}}));
-});`,
-    );
-    let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;
-    try {
-      daemon = await startDaemon({
-        config: readConfig({ ACE_HOME: dataDir, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }, root),
-        handler,
-        history: { instances: [] },
-        engine: {
-          cursor: {
-            env: {},
-            discovery: {
-              platform: "linux",
-              arch: "x64",
-              nodeVersion: "24.0.0",
-              resolve: (name) =>
-                name === "@cursor/sdk" ? "/sdk/index.js" : "/helper/package.json",
-              read: async (path) =>
-                path === "/sdk/package.json"
-                  ? '{"name":"@cursor/sdk","version":"1.0.35"}'
-                  : '{"name":"@cursor/sdk-linux-x64","version":"1.0.35"}',
-              executable: async () => {},
-            },
-          },
-        },
-        modelDiscovery: {
-          spawn: (options) =>
-            spawnSupervised({ ...options, command: process.execPath, args: [entry] }),
-        },
-      });
-      if (layout !== "current-nested") {
-        await daemon.models.refresh({ provider: "cursor" });
-        expect(daemon.models.list({ provider: "cursor" }).models).toEqual([]);
-        const persisted = await openRegistry(join(dataDir, "accounts.sqlite"), dataDir);
-        try {
-          expect(persisted.get(id)).toMatchObject({
-            instance: { homeDir: oldHome },
-            quota: { blockers: { homeUnavailable: "foreign_home" } },
-          });
-        } finally {
-          persisted.close();
-        }
-        expect((await stat(oldHome)).ino).toBe(previousHome.ino);
-        expect((await stat(authFile)).ino).toBe(previousAuth.ino);
-        await expect(access(join(dataDir, "instances", id))).rejects.toMatchObject({
-          code: "ENOENT",
-        });
-        for (const [index, name] of userHomes.entries())
-          expect(await stat(join(root, name))).toMatchObject({
-            ino: userStats[index]?.ino,
-            mtimeMs: userStats[index]?.mtimeMs,
-          });
-        return;
-      }
-      expect(await daemon.models.refresh({ provider: "cursor" })).toMatchObject([{ stale: false }]);
-      const canonical = join(dataDir, "instances", id);
-      expect(daemon.models.list({ provider: "cursor" }).models).toMatchObject([
-        { id: "migrated-model", displayName: join(canonical, "user") },
-      ]);
-      expect((await stat(canonical)).ino).toBe(previousHome.ino);
-      expect((await stat(join(canonical, "user", ".cursor", "sdk", "auth.json"))).ino).toBe(
-        previousAuth.ino,
-      );
-      await expect(access(oldHome)).rejects.toMatchObject({ code: "ENOENT" });
-      const persisted = await openRegistry(join(dataDir, "accounts.sqlite"), dataDir);
-      try {
-        expect(persisted.get(id)?.instance).toMatchObject({
-          homeDir: canonical,
-          env: { CURSOR_DATA_DIR: canonical },
-        });
-      } finally {
-        persisted.close();
-      }
-      for (const [index, name] of userHomes.entries())
-        expect(await stat(join(root, name))).toMatchObject({
-          ino: userStats[index]?.ino,
-          mtimeMs: userStats[index]?.mtimeMs,
-        });
-    } finally {
-      await daemon?.close();
-      await rm(root, { recursive: true, force: true });
-    }
-  },
-);
 
 test("a genuinely different Cursor SDK home still refuses catalog discovery", async () => {
   const root = await home();

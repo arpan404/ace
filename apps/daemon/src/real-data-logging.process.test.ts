@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, readFile, symlink, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
@@ -14,19 +14,12 @@ import { startHistory } from "./services/history.ts";
 import { Resources } from "./services/resources.ts";
 import type { ServiceContext } from "./services/types.ts";
 
-test("account migrations and failed past-session scans keep redacted log fields instead of omitted objects", async () => {
+test("failed past-session scans keep redacted log fields instead of omitted objects", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-real-shapes-"));
   const home = join(root, "ace");
-  const source = join(home, "instances/cursor/cursor-sdk-default");
-  const shared = join(root, ".agents/skills/check-state");
+  const source = join(home, "instances/cursor-sdk-default");
   const openCode = join(root, "opencode");
   await mkdir(source, { recursive: true });
-  await mkdir(shared, { recursive: true });
-  await writeFile(
-    join(shared, "SKILL.md"),
-    "---\nname: check-state\ndescription: Check saved work\n---\nCheck the visible result.\n",
-  );
-  await symlink(join(root, ".agents/skills"), join(source, "skills"), "dir");
   // Old OpenCode messages can contain tool definitions much larger than the scanner's head.
   await mkdir(join(openCode, "storage/message/legacy"), { recursive: true });
   await writeFile(
@@ -94,11 +87,7 @@ test("account migrations and failed past-session scans keep redacted log fields 
   };
   try {
     await startAccounts(context);
-    const migrated = context.services.accountRegistry?.get(instance.id)?.instance;
-    if (!migrated) throw new Error("Missing migrated account");
-    expect(await readFile(join(migrated.homeDir, "skills/check-state/SKILL.md"), "utf8")).toContain(
-      "Check the visible result.",
-    );
+    expect(context.services.accountRegistry?.get(instance.id)?.instance.homeDir).toBe(source);
     await startHistory(context);
     const history = context.services.history;
     if (!history) throw new Error("Missing history service");
@@ -110,8 +99,6 @@ test("account migrations and failed past-session scans keep redacted log fields 
     await context.resources.close();
     await log.flush();
     const text = await readFile(join(home, "logs/ace.jsonl"), "utf8");
-    expect(text).toContain('"message":"Account instance home migrated"');
-    expect(text).toContain('"instance":"cursor-sdk-default"');
     expect(text).toContain('"operation":"history.scan"');
     expect(text).toContain('"operation":"history.list"');
     expect(text).not.toContain("UNPREPARED OBJECT OMITTED");

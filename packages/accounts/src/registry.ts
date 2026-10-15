@@ -21,7 +21,6 @@ import { instanceEnv } from "./instances.ts";
 import { pickInstance } from "./scheduler.ts";
 import { assertManagedHome } from "./managed-home.ts";
 import { canonicalHome } from "./paths.ts";
-import { migrateInstanceHome, type HomeMigrationNotice } from "./instance-home-migration.ts";
 const selectionRow = z.object({ backend: z.string(), instance_id: AccountInstanceId });
 const row = z.object({ instance: z.string().max(32768), quota: z.string().max(16384) });
 
@@ -83,7 +82,6 @@ export class AccountRegistry {
   }
   private db: DatabaseSync;
   private pending = new Set<string>();
-  private homeMigration: { notice?: (event: HomeMigrationNotice) => void } | undefined;
   private validating = false;
   private managedDataDir: string | undefined;
   ready: Promise<void> = Promise.resolve();
@@ -97,13 +95,8 @@ export class AccountRegistry {
   private clearSelection;
   private deleteSelections;
   private deleteAccount;
-  constructor(
-    db: DatabaseSync,
-    managedDataDir?: string,
-    homeMigration?: { notice?: (event: HomeMigrationNotice) => void },
-  ) {
+  constructor(db: DatabaseSync, managedDataDir?: string) {
     this.db = db;
-    this.homeMigration = homeMigration;
     this.managedDataDir = managedDataDir;
     db.exec("PRAGMA busy_timeout = 3000");
     db.exec(
@@ -309,7 +302,7 @@ export class AccountRegistry {
       throw error;
     }
   }
-  /** Upgrade old lexical identities before accepting assignments or writes. */
+  /** Canonicalize and validate every account home before accepting assignments or writes. */
   canonicalizeHomes(signal?: AbortSignal): Promise<void> {
     this.validating = true;
     this.ready = this.normalizeHomes(signal);
@@ -326,14 +319,7 @@ export class AccountRegistry {
       const quota = { ...account.quota, blockers: { ...account.quota.blockers } };
       delete quota.blockers.homeUnavailable;
       try {
-        const migrated = this.managedDataDir
-          ? await migrateInstanceHome(
-              account.instance,
-              this.managedDataDir,
-              this.homeMigration?.notice,
-            )
-          : account.instance;
-        const instance = await canonicalInstance(migrated);
+        const instance = await canonicalInstance(account.instance);
         // Startup revalidates repaired homes rather than trusting last startup's blocker.
         if (instance.managed) {
           if (!this.managedDataDir) throw new Error("Managed account needs its data root");
@@ -616,7 +602,6 @@ export async function openRegistryIndex(
   path: string,
   signal?: AbortSignal,
   managedDataDir: string = dirname(path),
-  homeMigration?: { notice?: (event: HomeMigrationNotice) => void },
 ): Promise<AccountRegistry> {
   assertTestHomeIsolation(path);
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -629,7 +614,7 @@ export async function openRegistryIndex(
   const stat = await lstat(path);
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Registry must be a regular file");
   await chmod(path, 0o600);
-  const registry = new AccountRegistry(new DatabaseSync(path), managedDataDir, homeMigration);
+  const registry = new AccountRegistry(new DatabaseSync(path), managedDataDir);
   registry.canonicalizeHomes(signal);
   return registry;
 }

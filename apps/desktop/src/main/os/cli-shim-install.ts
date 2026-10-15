@@ -1,5 +1,6 @@
 import { chmod, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import { renderLauncher } from "@ace/service/home";
 import {
   cliShimLocation,
   onPath,
@@ -45,7 +46,11 @@ export async function installCliShim(options: CliShimInstall): Promise<CliShimRe
     return { state: "failed", file, message: message(error) };
   }
   try {
-    const plan = planCliShim(await existing(file, options.platform), content);
+    const plan = planCliShim(
+      await existing(file, options.platform),
+      content,
+      options.platform === "win32" ? undefined : renderLauncher(options.dataHome),
+    );
     if (plan === "foreign") return { state: "foreign", file };
     if (plan !== "unchanged") await writeShim(directory, file, content);
     const state = plan === "create" ? "created" : plan === "replace" ? "replaced" : "unchanged";

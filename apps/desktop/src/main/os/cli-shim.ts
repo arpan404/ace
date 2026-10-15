@@ -1,4 +1,5 @@
 import { posix, win32 } from "node:path";
+import { CLI_SHIM_MARKER } from "@ace/service/home";
 import type { DoctorReport } from "../../shared/onboarding.ts";
 
 type DoctorCheck = DoctorReport["checks"][number];
@@ -10,7 +11,7 @@ type DoctorCheck = DoctorReport["checks"][number];
  */
 
 /** Every shim ace writes carries this line, so a later launch knows the file is its own. */
-export const cliShimMarker = "ace-cli-shim: written by the ace desktop app on launch";
+export const cliShimMarker = CLI_SHIM_MARKER;
 
 export interface CliShimLocation {
   directory: string;
@@ -69,12 +70,19 @@ export type CliShimPlan = "create" | "replace" | "unchanged" | "foreign";
 
 /**
  * Whether to write the shim. Only a file ace wrote (its marker) or an earlier ace launcher is
- * ever replaced; anything else at that path belongs to the person and stays untouched.
+ * ever replaced; an installed release's launcher (`releaseLauncher`) is left as the command, and
+ * anything else at that path belongs to the person and stays untouched.
  */
-export function planCliShim(existing: ExistingShim, desired: string): CliShimPlan {
+export function planCliShim(
+  existing: ExistingShim,
+  desired: string,
+  releaseLauncher?: string,
+): CliShimPlan {
   if (existing.kind === "missing") return "create";
   if (existing.kind === "other") return "foreign";
   if (existing.content === desired && existing.executable) return "unchanged";
+  // An install.sh release's launcher for this home is ace's command too: keep it.
+  if (existing.content === releaseLauncher && existing.executable) return "unchanged";
   return ownedShim(existing.content) ? "replace" : "foreign";
 }
 

@@ -44,6 +44,12 @@ start of an updated app is a fresh start. Nothing is migrated.
   `daemon-lock`. Kernel locks end with their process, so a crashed daemon never blocks a fresh
   start. After taking its own lock, the daemon prepares again, so a newer build that set the home
   aside in between is caught.
+  A home without that lock is an older ace's (0.x keeps no pid, port or socket file; its
+  `~/.ace/daemon` is empty and its server and app hold `userdata/state.sqlite` open). ace then
+  looks, two levels deep and skipping `worktrees`, for live `*.pid` files and for any process that
+  still has the home's databases, journals, sockets or lock files open (`lsof -t`, bounded to
+  five seconds). If one does, it refuses with `OldAceRunningError` ("Quit the old ace first") and
+  moves nothing. A host without `lsof` falls back to the pid checks, so a fresh start never sticks.
 - The backup sits in the home's own parent directory, so the rename never crosses filesystems. A
   home that is a symbolic link is renamed as the link; what it points at stays where it is. If
   the rename still reports `EXDEV`, ace refuses and names the path. It never copies and deletes.
@@ -64,10 +70,15 @@ start of an updated app is a fresh start. Nothing is migrated.
   worktrees from interim builds stay in `~/.ace-next` (and anything older in `~/.ace-v0`) and do
   not appear. This was chosen over a migration while ace is pre-release.
 - A future format bump is the same fresh start with no new code: raise `HOME_FORMAT_VERSION`.
-- An install made with the release installer keeps its release inside the home, so a format bump
-  sets that installation aside too; reinstall afterwards. The desktop app, which ships its own
-  runtime, is unaffected.
+- An install made with the release installer keeps working across a format bump. Its release is
+  the program, not data: after the rename, `releases`, the `current` and `previous` pointers and
+  `bin/ace` move back into the fresh home (renames in the same directory), but only when the
+  launcher, pointer and release metadata are exactly what the installer writes for that home and
+  no update is half applied. A 0.x launcher or the desktop shim stays in the backup.
+- `ace service` accepts a home whose `bin/ace` is the desktop app's shim (it carries
+  `CLI_SHIM_MARKER`): status, stop and uninstall work, and install says a release is needed. The
+  desktop app keeps an installed release's launcher as the `ace` command instead of reporting it
+  as foreign.
 - The selection lock, `legacy-home.json`, `home-policy.ts` and the data-generation file are gone.
-- The accounts registry still repairs older instance-home layouts on startup (ADR 0041's
-  amendment). A fresh home has no such accounts, so it no longer runs in practice; removing it
-  is a follow-up.
+- The accounts registry's repair of older instance-home layouts (ADR 0041's amendment) is
+  removed. A managed account under another data root is still refused, as `foreign_home`.

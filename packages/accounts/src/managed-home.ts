@@ -1,5 +1,5 @@
 import { lstat, realpath } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { AccountEnvKey, ProviderInstance } from "@ace/protocol/accounts";
 import { canonicalHome } from "./paths.ts";
 import { createInstance, instanceEnv } from "./instances.ts";
@@ -41,8 +41,14 @@ export async function assertManagedHome(dataDir: string, input: ProviderInstance
   if (!root.isDirectory() || root.isSymbolicLink()) throw new Error("Managed home refused");
   const parent = join(await realpath(dataDir), "account-homes");
   const expected = join(parent, instance.id);
-  if (!instance.managed || instance.implicit || instance.homeDir !== expected)
-    throw new Error("Managed home refused");
+  if (!instance.managed || instance.implicit) throw new Error("Managed home refused");
+  // Another data root's managed account belongs to that home, not this one.
+  if (instance.homeDir !== expected)
+    throw new Error(
+      basename(dirname(instance.homeDir)) === "account-homes"
+        ? "foreign_home"
+        : "Managed home refused",
+    );
   for (const path of [parent, expected]) {
     const stat = await lstat(path);
     if (!stat.isDirectory() || stat.isSymbolicLink() || (await realpath(path)) !== path)

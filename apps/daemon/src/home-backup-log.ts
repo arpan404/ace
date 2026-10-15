@@ -17,6 +17,7 @@ export async function logHomeBackup(
   const fields = [
     ["backup", prepared.backup],
     ["previousFormat", prepared.previousFormat],
+    ...(prepared.release === undefined ? [] : [["release", prepared.release] as const]),
   ] as const;
   try {
     const { bytes } = await describeBackup(

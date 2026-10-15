@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
+import { renderLauncher } from "@ace/service/home";
 import { installCliShim } from "./cli-shim-install.ts";
 
 const run = promisify(execFile);
@@ -117,6 +118,16 @@ describe.skipIf(process.platform === "win32")("the ace command on launch", () =>
     await expect(install(home, resources)).resolves.toMatchObject({ state: "unchanged" });
     expect(await readFile(shim, "utf8")).toBe(written);
     expect((await stat(shim)).mtime).toEqual(past);
+  });
+
+  it("keeps an installed release's launcher as the ace command instead of calling it foreign", async () => {
+    const { home, resources, shim } = await machine();
+    await mkdir(join(home, ".ace", "bin"), { recursive: true });
+    const launcher = renderLauncher(join(home, ".ace"));
+    await writeFile(shim, launcher, { mode: 0o755 });
+
+    await expect(install(home, resources)).resolves.toMatchObject({ state: "unchanged" });
+    expect(await readFile(shim, "utf8")).toBe(launcher);
   });
 
   it("follows the app to its new folder on the launch after it moves", async () => {
