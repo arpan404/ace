@@ -92,7 +92,11 @@ export function AttachmentChipRow(props: {
       {props.items
         .filter((item) => item.mimeType?.startsWith("image/") && item.kind && item.kind !== "image")
         .map((item) => (
-          <p key={item.key} role="status" className="px-3 pt-1 text-xs text-muted-foreground">
+          <p
+            key={item.key}
+            role="status"
+            className="px-3 pt-1 text-xs wrap-break-word text-muted-foreground"
+          >
             {item.name} is attached as a file. Image previews support PNG, JPEG, GIF and WebP.
           </p>
         ))}
