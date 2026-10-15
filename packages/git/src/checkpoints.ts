@@ -14,6 +14,7 @@ import { parseIndex, parseTree } from "./parse-index.ts";
 import { Repository } from "./repository.ts";
 import { withSnapshotIndex } from "./snapshot-index.ts";
 import { GitError, type Checkpoint } from "./types.ts";
+import { longWriteTimeoutMs } from "./deadlines.ts";
 
 export { withIndex } from "./temporary-index.ts";
 
@@ -63,8 +64,10 @@ export async function snapshot(
           .map((path) => `:(literal)${path}`)
       : ["."];
     if (paths.length)
+      // Hashing a whole checkout can outlast the short metadata-read deadline.
       await cli.call(root, ["add", "--all", "--pathspec-from-file=-", "--pathspec-file-nul"], {
         write: true,
+        timeoutMs: longWriteTimeoutMs,
         env,
         input: paths.join("\0") + "\0",
       });

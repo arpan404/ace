@@ -594,7 +594,12 @@ for await (const line of createInterface({ input: process.stdin })) {
       });
       continue;
     }
-    if (process.env["ACE_FAKE_RESUME"] === "reply-before-start" && active.has("native")) {
+    if (
+      ["reply-before-start", "steer-replaced-turn", "steer-replaced-after-end"].includes(
+        process.env["ACE_FAKE_RESUME"] ?? "",
+      ) &&
+      active.has("native")
+    ) {
       write({ id, error: { message: "active turn must be steered" } });
       continue;
     }
@@ -794,6 +799,27 @@ for await (const line of createInterface({ input: process.stdin })) {
       message(JSON.stringify(p), "plan-proof");
       end();
     }
+  } else if (
+    method === "turn/steer" &&
+    ["steer-replaced-turn", "steer-replaced-after-end"].includes(
+      process.env["ACE_FAKE_RESUME"] ?? "",
+    ) &&
+    p["expectedTurnId"] === "turn"
+  ) {
+    notify("turn/completed", { threadId: "native", turn: { id: "turn", status: "completed" } });
+    active.set("native", "replacement");
+    notify("turn/started", { threadId: "native", turn: { id: "replacement" } });
+    write({
+      id,
+      error: {
+        message:
+          process.env["ACE_FAKE_RESUME"] === "steer-replaced-turn"
+            ? "expected active turn id turn but found replacement"
+            : "no active turn to steer",
+      },
+    });
+  } else if (method === "turn/steer" && process.env["ACE_FAKE_RESUME"] === "steer-refused") {
+    write({ id, error: { message: "provider refused input" } });
   } else if (method === "turn/steer" && process.env["ACE_FAKE_RESUME"] === "steer-race") {
     active.delete(str(p["threadId"]));
     write({ id, error: { message: "no active turn to steer" } });
