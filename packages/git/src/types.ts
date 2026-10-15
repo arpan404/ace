@@ -91,6 +91,8 @@ export type GitErrorCode =
   | "head_moved"
   | "conflicts"
   | "hook_failed"
+  /** A force-with-lease push refused: the remote no longer holds the leased revision. */
+  | "push_lease_stale"
   | "auth_failed"
   | "remote_unreachable"
   | "remote_ref_not_found"
@@ -254,6 +256,10 @@ export function isMutationUnavailable(error: unknown): boolean {
 export type PushOptions = {
   worktree: string;
   remote: string;
+  /** The remote branch to update; the checked-out branch's own name when absent. */
+  destination?: string | undefined;
+  /** Replace the remote branch only while it still holds `lease`, the revision the person saw. */
+  force?: { lease: string } | undefined;
   beforePush?: () => void;
   expected?: { branch: string; head: string | null; pushUrls: readonly string[] };
 };

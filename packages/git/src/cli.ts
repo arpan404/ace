@@ -18,12 +18,15 @@ import { isUtf8 } from "node:buffer";
 import { basename, dirname, join, resolve as resolvePath } from "node:path";
 import { homedir } from "node:os";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { executionKeyQuery, nonExecutingEnv, nonExecutingTransportEnv } from "./non-executing.ts";
 import {
-  credentialHelperArgs,
-  readCredentialHelpers,
-  systemCredentialConfigFile,
-} from "./credential-helpers.ts";
+  executionKeyQuery,
+  hooklessEnv,
+  nonExecutingEnv,
+  nonExecutingTransportEnv,
+  transportEnv,
+} from "./non-executing.ts";
+import { credentialHelperArgs, systemCredentialConfigFile } from "./credential-helpers.ts";
+import { userTransportConfig } from "./transport-config.ts";
 import { Readable, type Writable } from "node:stream";
 import { drainProcessExit, killTree, processRuntime } from "./process-runtime.ts";
 import { StringDecoder } from "node:string_decoder";
@@ -66,6 +69,7 @@ export interface Output {
 
 export class GitCli {
   private readonly protectedWorktrees = new Set<string>();
+  private readonly person = new AsyncLocalStorage<"person" | "reviewer">();
   private readonly executionPolicy = new AsyncLocalStorage<
     "non-executing" | { protocols: readonly string[] }
   >();
@@ -190,10 +194,55 @@ export class GitCli {
     }
   }
   nonExecuting<T>(operation: () => Promise<T>): Promise<T> {
-    return this.executionPolicy.run("non-executing", operation);
+    // Automatic work nested in a person's operation is still automatic.
+    return this.person.exit(() => this.executionPolicy.run("non-executing", operation));
+  }
+  /**
+   * A commit or push the person asked for: it runs their hooks and signing as their own Git
+   * would, even in a protected root. Nested `nonExecuting` scopes stay guarded.
+   */
+  asPerson<T>(operation: () => Promise<T>): Promise<T> {
+    return this.person.run("person", operation);
+  }
+  /**
+   * As `asPerson`, in a checkout holding someone else's code (a pull request under review).
+   * Hooks that live inside that checkout are its author's programs, so there no hook runs.
+   */
+  asReviewer<T>(operation: () => Promise<T>): Promise<T> {
+    return this.person.run("reviewer", operation);
+  }
+  /**
+   * ace's own reads inside a person's operation (status, config, refs) are not commands the
+   * person ran: they keep the checkout's usual protections. Only their `add`, `commit` and
+   * `push` run as their Git would.
+   */
+  bookkeeping<T>(operation: () => Promise<T>): Promise<T> {
+    return this.person.exit(operation);
+  }
+  private personScope(): "person" | "reviewer" | undefined {
+    return this.executionPolicy.getStore() === "non-executing" ? undefined : this.person.getStore();
   }
   executionDisabledAt(path: string): boolean {
-    return this.executionPolicy.getStore() === "non-executing" || this.protectedPath(path);
+    const policy = this.executionPolicy.getStore();
+    return policy === "non-executing" || (this.protectedPath(path) && !this.personScope());
+  }
+  /** Whether the effective hooks directory lies inside the checkout at `cwd`. */
+  async hooksInsideCheckout(cwd: string, signal?: AbortSignal): Promise<boolean> {
+    const query = (args: string[]) =>
+      this.executeRaw(cwd, args, { captureBytes: 65_536, ...(signal ? { signal } : {}) });
+    const [hooks, top] = await Promise.all([
+      query(["rev-parse", "--git-path", "hooks"]),
+      query(["rev-parse", "--path-format=absolute", "--show-toplevel"]),
+    ]);
+    const lexical = resolvePath(cwd, textOutput(hooks));
+    const roots = [textOutput(top)];
+    roots.push(await realpath(roots[0] ?? cwd).catch(() => cwd));
+    const paths = [lexical, await realpath(lexical).catch(() => lexical)];
+    return paths.some((path) =>
+      roots.some(
+        (root) => path === root || path.startsWith(root.endsWith("/") ? root : root + "/"),
+      ),
+    );
   }
   get activeCalls(): number {
     return this.calls.size;
@@ -244,13 +293,22 @@ export class GitCli {
   ): Promise<Output> {
     if (args[0] !== "push")
       return Promise.reject(new GitError("invalid_argument", "Explicit push requires push"));
+    // A person's push runs their pre-push hook and push signing. Submodules are never pushed
+    // along: they go to other remotes ace has not checked.
+    const guards = this.personScope() ? [] : ["--no-verify", "--signed=false"];
     return this.withAuthorizedTransfer(cwd, () =>
       this.executionPolicy.run({ protocols }, () =>
-        this.call(
-          cwd,
-          ["push", "--no-verify", "--signed=false", "--recurse-submodules=no", ...args.slice(1)],
-          options,
-        ),
+        this.call(cwd, ["push", ...guards, "--recurse-submodules=no", ...args.slice(1)], options),
+      ),
+    );
+  }
+  /** Read a remote's branches through exactly the transport a push from `cwd` would use. */
+  lsRemote(cwd: string, args: string[], options: CallOptions): Promise<Output> {
+    if (args[0] !== "ls-remote")
+      return Promise.reject(new GitError("invalid_argument", "Remote probe requires ls-remote"));
+    return this.withAuthorizedTransfer(cwd, () =>
+      this.executionPolicy.run({ protocols: this.transportProtocols }, () =>
+        this.call(cwd, args, options),
       ),
     );
   }
@@ -331,9 +389,44 @@ export class GitCli {
   private async execute(cwd: string, args: string[], options: CallOptions): Promise<Output> {
     const policy = this.executionPolicy.getStore();
     const transport = typeof policy === "object" ? policy : undefined;
-    if (!this.executionDisabledAt(cwd) && !transport) return this.executeRaw(cwd, args, options);
+    const person = this.personScope();
+    // Transfers are guarded unless a person asked for them; local calls follow the root's policy.
+    const guarded = transport ? !person : this.executionDisabledAt(cwd);
+    const hookless =
+      !guarded &&
+      person === "reviewer" &&
+      args[0] !== "--version" &&
+      (await this.hooksInsideCheckout(cwd, options.signal));
+    if (!guarded && !hookless && !transport) return this.executeRaw(cwd, args, options);
     // Inspect effective driver/hook names only, never commands or credential values. Every nested
     // call is guarded here, including temporary-index writes, status and branch cleanup.
+    const keys = guarded || hookless ? await this.executionKeys(cwd, options) : "";
+    const settings =
+      transport && ["push", "fetch", "ls-remote"].includes(args[0] ?? "")
+        ? await this.transportSettings(cwd, options)
+        : { helpers: [], sshCommand: undefined };
+    const env = transport
+      ? guarded
+        ? nonExecutingTransportEnv(keys, transport.protocols, settings.sshCommand)
+        : {
+            ...(hookless ? hooklessEnv(keys) : {}),
+            ...transportEnv(transport.protocols, settings.sshCommand),
+          }
+      : guarded
+        ? nonExecutingEnv(keys)
+        : hooklessEnv(keys);
+    return this.executeRaw(
+      cwd,
+      [
+        ...(guarded || transport ? ["-c", "protocol.allow=never"] : []),
+        ...(transport ? credentialHelperArgs(settings.helpers) : []),
+        ...args,
+      ],
+      { ...options, env: { ...options.env, ...env } },
+    );
+  }
+
+  private async executionKeys(cwd: string, options: CallOptions): Promise<string> {
     const extensions = await this.executeRaw(
       cwd,
       ["-c", "protocol.allow=never", ...executionKeyQuery],
@@ -352,37 +445,13 @@ export class GitCli {
       throw new GitError("git_failed", "Could not inspect execution configuration safely");
     if (!isUtf8(extensions.stdout))
       throw new GitError("malformed_output", "Invalid execution configuration encoding");
-    const helpers =
-      transport && (args[0] === "push" || args[0] === "fetch")
-        ? await this.authorizedCredentialHelpers(cwd, options)
-        : [];
-    return this.executeRaw(
-      cwd,
-      ["-c", "protocol.allow=never", ...(transport ? credentialHelperArgs(helpers) : []), ...args],
-      {
-        ...options,
-        env: {
-          ...options.env,
-          ...(transport
-            ? nonExecutingTransportEnv(extensions.stdout.toString("utf8"), transport.protocols)
-            : nonExecutingEnv(extensions.stdout.toString("utf8"))),
-        },
-      },
-    );
+    return extensions.stdout.toString("utf8");
   }
 
-  private async authorizedCredentialHelpers(
+  private async transportSettings(
     cwd: string,
     options: CallOptions,
-  ): Promise<GitCredentialHelper[]> {
-    const helpers: GitCredentialHelper[] = [];
-    if (this.credentialHelperLookup) {
-      for (const scope of ["system", "global"] as const) {
-        options.signal?.throwIfAborted();
-        helpers.push(...(await this.credentialHelperLookup(scope, options.signal)));
-      }
-      return helpers;
-    }
+  ): Promise<{ helpers: GitCredentialHelper[]; sshCommand: string | undefined }> {
     const query = (args: string[]) =>
       this.executeRaw(cwd, ["-c", "protocol.allow=never", ...args], {
         env: nonExecutingEnv(),
@@ -392,23 +461,24 @@ export class GitCli {
         directoryFd: options.directoryFd,
         ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
       });
+    const lookup = this.credentialHelperLookup;
     const system = this.credentialConfigPaths.system ?? (await systemCredentialConfigFile(query));
-    for (const file of [
-      system,
-      this.credentialConfigPaths.xdg,
-      this.credentialConfigPaths.global,
-    ]) {
-      if (file === undefined) continue;
+    const settings = await userTransportConfig({
+      files: [system, this.credentialConfigPaths.xdg, this.credentialConfigPaths.global],
+      query,
+      protectedRoots: [...this.protectedWorktrees],
+      helpers: !lookup,
+      // A checkout's own SSH command is the person's only where no agent or PR author writes.
+      repositorySsh: !this.protectedPath(cwd),
+      signal: options.signal,
+    });
+    if (!lookup) return settings;
+    const helpers: GitCredentialHelper[] = [];
+    for (const scope of ["system", "global"] as const) {
       options.signal?.throwIfAborted();
-      try {
-        await stat(file);
-      } catch (error) {
-        if (error instanceof Error && "code" in error && error.code === "ENOENT") continue;
-        throw new GitError("filesystem_error", "Could not read user credential config file");
-      }
-      helpers.push(...(await readCredentialHelpers(file, query)));
+      helpers.push(...(await lookup(scope, options.signal)));
     }
-    return helpers;
+    return { helpers, sshCommand: settings.sshCommand };
   }
 
   private executeRaw(cwd: string, args: string[], options: CallOptions): Promise<Output> {

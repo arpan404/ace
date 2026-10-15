@@ -192,6 +192,54 @@ test.each(["move", "fail", "invalid"])(
   },
 );
 
+test("a draft the model wraps in prose and a code fence is still read", async () => {
+  const f = await fixture("claude", "prose");
+  try {
+    expect((await f.generate()).result).toMatchObject({
+      kind: "draft",
+      draft: { subject: "fix: update selected behavior", body: "Explain the selected change." },
+    });
+  } finally {
+    await f.close();
+  }
+});
+
+test.each([
+  ["prose with no object", "I could not write a draft."],
+  ["an object that is not a draft", 'Sure: {"title": "fix"} done'],
+  ["an unclosed object", 'Draft: {"subject": "fix", "body": "x"'],
+])("a reply holding %s is invalid output", async (_case, reply) => {
+  const write = createWritingCli({ generate: async () => reply });
+  const f = await fixture();
+  try {
+    await expect(
+      write(
+        {
+          generationId: "reply",
+          selection: f.selection,
+          fingerprint: (await f.context()).fingerprint,
+          preference: "",
+        },
+        await f.context(),
+        "",
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow("draft_invalid_output");
+  } finally {
+    await f.close();
+  }
+});
+
+test("a generation cancelled before the model starts reports draft_cancelled, not a failure", async () => {
+  const f = await fixture("claude", "wait");
+  try {
+    await expect(f.generate(AbortSignal.abort())).rejects.toThrow("draft_cancelled");
+    expect(existsSync(join(f.root, "prompt.txt"))).toBe(false);
+  } finally {
+    await f.close();
+  }
+});
+
 test("cancelling a waiting CLI stops it and discards its result", async () => {
   const f = await fixture("claude", "wait");
   try {

@@ -1,21 +1,12 @@
 import { useThreadMeta } from "@ace/client-react";
-import type { ForgePrRef, ForgePrStatus, ForgeRepository, ThreadDetails } from "@ace/protocol";
-import { checkoutOf, type Checkout, type MergeMethod } from "@ace/ui-core";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type { ForgePrStatus, ThreadDetails } from "@ace/protocol";
+import { checkoutOf, prPollInterval, type Checkout } from "@ace/ui-core";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { WorkspaceError } from "../sources/workspace-source.ts";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
+import { gitFailureCode } from "./git-failure.ts";
+import { detailsKey, prKey, repositoryKey, statusKey } from "./query-keys.ts";
 
-const detailsKey = (threadId: string) => ["thread", "details", threadId];
-const repositoryKey = (repository: ForgeRepository | undefined) => [
-  repository?.host,
-  repository?.owner,
-  repository?.name,
-];
-const prKey = (threadId: string) => ["thread", "pr", threadId];
-const statusKey = (threadId: string) => ["thread", "git-status", threadId];
-/** The state the daemon publishes in a thread's `linkedPr` for a forge status. */
-const linkState = (status: ForgePrStatus) => (status.state === "unknown" ? "open" : status.state);
+export { useGitActions, type GitChange, type GitResult } from "./use-git-actions.ts";
 
 /**
  * The files a commit of the checkout would take, read fresh each time a commit form opens:
@@ -36,21 +27,32 @@ export function useChangedFiles(thread: ThreadRef, enabled = true) {
 /**
  * The thread checkout's git and PR state. Details are live thread state (the daemon publishes
  * every refresh into the thread); opening the thread asks the daemon to read the checkout again,
- * and a linked PR's status is a one-off forge read.
+ * and a linked PR's status is a forge read.
  */
 export function useCheckout(thread: ThreadRef): Checkout | undefined {
   return useCheckoutState(thread).checkout;
 }
 
 /**
+ * Why the linked PR's state may be stale: the daemon couldn't verify the link with GitHub, the
+ * PR's repository is gone, or the forge read failed.
+ */
+export type PrProblem = "unverified" | "deleted" | "unreadable";
+
+/**
  * The checkout with how far its read got: `loading` until the daemon has answered, `none` when
- * it answered and the thread's directory isn't a git checkout (or the read failed).
+ * it answered and the thread's directory isn't a git checkout, `error` when the read failed (with
+ * the daemon's code, and `retry` to read again).
  */
 export function useCheckoutState(thread: ThreadRef): {
   checkout: Checkout | undefined;
   /** The linked PR as the forge last reported it (checks, mergeability, review threads). */
   status: ForgePrStatus | undefined;
-  state: "loading" | "ready" | "none";
+  state: "loading" | "ready" | "none" | "error";
+  /** The refusal code of a failed checkout read. */
+  error: string | undefined;
+  retry(): void;
+  prProblem: PrProblem | undefined;
   linkedPrs: ThreadDetails["linkedPrs"];
 } {
   const sources = useThreadSources();
@@ -63,194 +65,37 @@ export function useCheckoutState(thread: ThreadRef): {
     read: (_client, signal) => sources.workspace.details(thread, signal),
   });
   const details = live ?? read.data;
-  const linked = details?.linkedPrs?.[0] ?? details?.linkedPr;
-  const pr = useDaemonQuery({
+  const linked = details?.linkedPrs?.[0];
+  const pr = useDaemonQuery<ForgePrStatus | null>({
     // The daemon publishes the link's state as the forge reports it (merged by auto-merge,
     // closed on GitHub): a change reads the full status again.
-    queryKey: [
-      ...prKey(thread.id),
-      ...(details?.linkedPrs?.[0]?.repo
-        ? repositoryKey(details.linkedPrs[0].repo)
-        : repositoryKey(details?.repository)),
-      linked?.number,
-      linked?.state,
-    ],
-    enabled: !thread.draft && linked !== undefined && linked !== null,
+    queryKey: [...prKey(thread.id), ...repositoryKey(linked?.repo), linked?.number, linked?.state],
+    enabled: !thread.draft && linked !== undefined,
     staleTime: 60_000,
     retry: false,
+    // While checks run or GitHub is still computing mergeability, read again on its own: the
+    // PR panel polls on the same rule, so the two never disagree for long.
+    refetchInterval: (query) => prPollInterval(query.state.data),
     read: (_client, signal) => sources.workspace.prStatus(thread, signal),
   });
   const checkout = checkoutOf(details, pr.data);
   const status = pr.data ?? undefined;
-  if (checkout) return { checkout, status, state: "ready", linkedPrs: details?.linkedPrs };
-  const answered = details !== undefined || read.isError;
-  return { checkout, status, state: answered ? "none" : "loading", linkedPrs: details?.linkedPrs };
-}
-
-export type GitChange =
-  | {
-      kind: "commit";
-      message: string;
-      push: boolean;
-      /** The files picked (a rename names both paths); every change when absent. */
-      paths?: readonly string[];
-      /**
-       * The HEAD `git status` reported with those files, so a commit made meanwhile (in a
-       * terminal) is refused rather than guessed from older thread details.
-       */
-      head?: string | null | undefined;
-      draftFingerprint?: string | undefined;
-    }
-  | { kind: "push" }
-  | {
-      kind: "create-pr";
-      title: string;
-      draftFingerprint?: string | undefined;
-      summary: string;
-      draft: boolean;
-      /** GitHub usernames to ask for review once it is open. */
-      reviewers?: readonly string[];
-    }
-  | { kind: "link-pr"; number: number; repository?: ForgeRepository }
-  | { kind: "unlink-pr"; number?: number; repo?: ForgeRepository; all?: true }
-  /** Merge the head the person saw (`headSha`): the forge refuses if the branch moved since. */
-  | { kind: "merge"; method: MergeMethod; auto: boolean; headSha: string; pr?: ForgePrRef }
-  | { kind: "request-review"; reviewers: readonly string[] };
-
-/**
- * Commit, push, open or link a PR, and act on the linked one. Each change reads the checkout
- * again afterwards, so the header moves to the next step from what the daemon reports rather
- * than from a guess; a forge action's answer is the PR's fresh status.
- */
-export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined) {
-  const sources = useThreadSources();
-  const queries = useQueryClient();
-  const mutation = useMutation({
-    mutationKey: ["thread", thread.id, "git-change"],
-    mutationFn: async (change: GitChange): Promise<ForgePrStatus | undefined> => {
-      const workspace = sources.workspace;
-      if (change.kind === "commit") {
-        await workspace.commit(
-          thread,
-          change.message,
-          change.head !== undefined ? change.head : (checkout?.head ?? null),
-          change.paths,
-          change.draftFingerprint,
-        );
-        if (change.push) await workspace.push(thread);
-        return undefined;
-      }
-      if (change.kind === "push") {
-        await workspace.push(thread);
-        return undefined;
-      }
-      if (change.kind === "unlink-pr") {
-        await workspace.unlinkPr(
-          thread,
-          change.all
-            ? { all: true }
-            : {
-                number: change.number ?? checkout?.pr?.number ?? 0,
-                ...(change.repo ? { repo: change.repo } : {}),
-              },
-        );
-        queries.removeQueries({ queryKey: prKey(thread.id) });
-        return undefined;
-      }
-      const repository =
-        change.kind === "link-pr"
-          ? (change.repository ?? checkout?.repository)
-          : change.kind === "merge" && change.pr
-            ? change.pr.repository
-            : checkout?.repository;
-      if (!repository) throw new Error("This checkout has no GitHub remote.");
-      const published = (status: ForgePrStatus) => {
-        queries.setQueryData(
-          [
-            ...prKey(thread.id),
-            ...repositoryKey(status.ref.repository),
-            status.ref.number,
-            linkState(status),
-          ],
-          status,
-        );
-        return status;
-      };
-      if (change.kind === "link-pr")
-        return published(
-          await workspace.linkPr(thread, {
-            repository: change.repository ?? repository,
-            number: change.number,
-          }),
-        );
-      if (!checkout) throw new Error("This checkout can’t open a pull request.");
-      if (change.kind === "create-pr") {
-        const branch = checkout.branch;
-        if (!branch) throw new Error("This checkout can't open a pull request.");
-        if (change.draftFingerprint) {
-          const context = await workspace.draftContext(thread, {
-            kind: "pr",
-            branch,
-            base: checkout.baseBranch,
-            ...(checkout.baseRef ? { baseRef: checkout.baseRef } : {}),
-          });
-          if (context.fingerprint !== change.draftFingerprint)
-            throw new WorkspaceError("draft_changes_moved");
-        }
-        // A branch without an upstream reports nothing ahead; pushing first is always safe.
-        await workspace.push(thread, { repository, branch, head: checkout.head });
-        const status = await workspace.createPr(thread, {
-          repository,
-          branch,
-          base: checkout.baseBranch,
-          title: change.title,
-          draftFingerprint: change.draftFingerprint,
-          draftBaseRef: checkout.baseRef,
-          summary: change.summary,
-          draft: change.draft,
-          ...(checkout.head ? { expectedHead: checkout.head } : {}),
-        });
-        published(status);
-        return change.reviewers?.length
-          ? published(await workspace.requestReview(thread, status.ref, change.reviewers))
-          : status;
-      }
-      const pr =
-        (change.kind === "merge" && change.pr) ||
-        (checkout.pr && {
-          repository: checkout.pr.repo ?? repository,
-          number: checkout.pr.number,
-        });
-      if (!pr) throw new Error("No pull request is linked to this thread.");
-      if (change.kind === "request-review")
-        return published(await workspace.requestReview(thread, pr, change.reviewers));
-      return published(
-        await workspace.mergePr(thread, pr, {
-          headSha: change.headSha,
-          method: change.method,
-          auto: change.auto,
-        }),
-      );
-    },
-    onSettled: async (_status, error, change) => {
-      await queries.invalidateQueries({ queryKey: detailsKey(thread.id) });
-      await queries.invalidateQueries({ queryKey: statusKey(thread.id) });
-      // A commit or push moves the PR's head; a refused forge action may mean it changed.
-      if (error || change.kind === "commit" || change.kind === "push")
-        await queries.invalidateQueries({ queryKey: prKey(thread.id) });
-    },
-  });
-  /** Ask the forge for the linked PR's status now; failures leave the last one shown. */
-  const refreshPr = async (pr?: ForgePrRef) => {
-    const repository = pr?.repository ?? checkout?.pr?.repo ?? checkout?.repository;
-    const number = pr?.number ?? checkout?.pr?.number;
-    if (!repository || number === undefined) return;
-    const status = await sources.workspace.refreshPr(thread, { repository, number });
-    queries.setQueryData(
-      [...prKey(thread.id), ...repositoryKey(status.ref.repository), number, linkState(status)],
-      status,
-    );
-    return status;
+  const prProblem: PrProblem | undefined = linked?.deleted
+    ? "deleted"
+    : pr.isError
+      ? "unreadable"
+      : linked?.unverified
+        ? "unverified"
+        : undefined;
+  const common = {
+    checkout,
+    status,
+    prProblem,
+    linkedPrs: details?.linkedPrs,
+    retry: () => void read.refetch(),
   };
-  return { change: mutation.mutateAsync, pending: mutation.isPending, refreshPr };
+  if (checkout) return { ...common, state: "ready", error: undefined };
+  if (details !== undefined) return { ...common, state: "none", error: undefined };
+  if (read.isError) return { ...common, state: "error", error: gitFailureCode(read.error) };
+  return { ...common, state: "loading", error: undefined };
 }

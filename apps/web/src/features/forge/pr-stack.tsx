@@ -11,7 +11,8 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { openExternal } from "@/boot/open-external.ts";
-import { readForge, forgeError } from "./source.ts";
+import { actionErrorText } from "@ace/ui-core";
+import { readForge } from "./source.ts";
 import { QueryState } from "./query-state.tsx";
 import { StackRail } from "./pr-stack-rail.tsx";
 import { StackConfirm, type StackConfirmation } from "./pr-stack-confirm.tsx";
@@ -187,7 +188,7 @@ export function PrStack(props: {
         receipt.stackOperation?.message ??
           (receipt.ok
             ? "GitHub acknowledged the operation. Refreshing state."
-            : forgeError(receipt.error ?? "action_failed")),
+            : actionErrorText(receipt.error ?? "action_failed")),
       );
     } catch {
       setMessage(

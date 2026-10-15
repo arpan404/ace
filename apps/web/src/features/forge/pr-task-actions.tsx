@@ -3,12 +3,12 @@ import * as z from "zod/mini";
 import { Link } from "@tanstack/react-router";
 import { useClient, useConnectionState, useSidebarAll } from "@ace/client-react";
 import { ThreadId, type ForgePrDetail } from "@ace/protocol";
-import { readJson, writeJson } from "@ace/ui-core";
+import { actionErrorText, outcomeUncertain, readJson, writeJson } from "@ace/ui-core";
 import { useLayout } from "@/lib/layout.tsx";
 import { useWorktreeCreation, WorktreeCreationCard } from "@/features/thread/index.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Select } from "@/components/ui/select.tsx";
-import { forgeError } from "./source.ts";
+import { failureCode } from "./source.ts";
 
 export function PrTaskActions(props: {
   workspaceId: string;
@@ -33,6 +33,14 @@ export function PrTaskActions(props: {
     readJson(storage, key, z.optional(z.string()), undefined),
   );
   const worktree = useWorktreeCreation(commandId);
+  // A settled command keeps its card for this session but isn't restored after a reload.
+  const settle = () => {
+    try {
+      storage?.removeItem?.(key);
+    } catch {
+      /* Private mode: nothing was persisted to forget. */
+    }
+  };
   const prepare = async () => {
     const id = crypto.randomUUID();
     setCommand(id);
@@ -52,11 +60,18 @@ export function PrTaskActions(props: {
       setMessage(
         result.ok
           ? "PR worktree is ready. Open the task to continue."
-          : forgeError(result.error ?? "action_failed"),
+          : actionErrorText(result.error ?? "action_failed"),
       );
+      // The receipt settles it: forget the command unless its outcome is still unknown.
+      if (result.ok || !outcomeUncertain(result.error)) settle();
       if (result.ok) props.onRefresh();
-    } catch {
-      setMessage("This device couldn't save the request. Try again.");
+    } catch (error) {
+      const code = failureCode(error);
+      // Storage means this device never saved the command, so nothing was sent.
+      if (code === "storage" || code === "not_dispatched") {
+        settle();
+        setMessage("This device couldn't save the request. Try again.");
+      } else setMessage(actionErrorText(code ?? "action_outcome_uncertain"));
     } finally {
       setPending(false);
     }

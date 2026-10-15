@@ -60,40 +60,27 @@ export function checkoutOf(
     ahead: details.ahead ?? 0,
     behind: details.behind ?? 0,
     repository: details.repository,
-    pr: details.linkedPrs?.[0]
-      ? {
-          ...details.linkedPrs[0],
-          ...(status?.ref.number === details.linkedPrs[0].number ? { ci: status.ci } : {}),
-        }
-      : pullRequest(details.linkedPr, status, details.repository),
+    pr: linkedPr(details.linkedPrs?.[0], status),
   };
 }
 
-/** Where a PR lives on its forge, for a linked PR the daemon gave no address for. */
-export function pullRequestUrl(repository: ForgeRepository, number: number): string {
-  const base = `https://${repository.host}/${repository.owner}/${repository.name}`;
-  return repository.forge === "gitlab"
-    ? `${base}/-/merge_requests/${number}`
-    : `${base}/pull/${number}`;
-}
-
-function pullRequest(
-  linked: ThreadDetails["linkedPr"],
+function linkedPr(
+  linked: NonNullable<ThreadDetails["linkedPrs"]>[number] | undefined,
   status: ForgePrStatus | null | undefined,
-  repository: ForgeRepository | undefined,
 ): CheckoutPr | undefined {
-  if (status && status.state !== "unknown")
-    return {
-      number: status.ref.number,
-      repo: status.ref.repository,
-      state: status.state,
-      url: status.url,
-      title: status.title,
-      ci: status.ci,
-    };
   if (!linked) return undefined;
-  const url = linked.url ?? (repository && pullRequestUrl(repository, linked.number));
-  return { number: linked.number, state: linked.state, url };
+  // The forge's live status refines the link only when it describes the same PR.
+  const same =
+    status?.ref.number === linked.number &&
+    status.ref.repository.owner === linked.repo.owner &&
+    status.ref.repository.name === linked.repo.name;
+  if (!same) return { ...linked };
+  return {
+    ...linked,
+    ...(status.state === "unknown" ? {} : { state: status.state }),
+    title: status.title,
+    ci: status.ci,
+  };
 }
 
 /** Why a checkout can't open a pull request, or undefined when it can. */

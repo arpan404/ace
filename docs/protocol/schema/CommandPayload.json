@@ -871,6 +871,18 @@
     },
     {
       "properties": {
+        "force": {
+          "properties": {
+            "lease": {
+              "pattern": "^[a-f0-9]{40,64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "lease"
+          ],
+          "type": "object"
+        },
         "remote": {
           "default": "origin",
           "maxLength": 128,

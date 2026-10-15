@@ -1,6 +1,6 @@
 import { repositoryKey } from "@ace/forge";
 import type { GitService } from "@ace/git";
-import type { CommandPayload, ForgeRepository } from "@ace/protocol";
+import type { CommandPayload, ForgePrWorkspace, ForgeRepository } from "@ace/protocol";
 import type { SourceControl } from "./source-control.ts";
 import { workspaceRepository } from "./workspace-repository.ts";
 
@@ -32,6 +32,8 @@ export async function pushWorkspace(
   cwd: string,
   input: Extract<CommandPayload, { type: "git.push" }>,
   permitted: () => boolean,
+  /** The checkout reviews this pull request: an untargeted push updates its head branch. */
+  pullRequest?: Pick<ForgePrWorkspace, "headBranch" | "headRepository">,
 ) {
   const check = await sourceControl?.guard();
   const preferences = await sourceControl?.preferences();
@@ -42,8 +44,33 @@ export async function pushWorkspace(
   allowed();
   // Permission gates spawning only. Once git exits 0 the push happened, whatever became of the
   // socket that asked for it, and its receipt must say so for the reconnected client's replay.
+  const force = input.force ? { force: input.force } : {};
+  if (!input.target && pullRequest) {
+    // The local `ace/…` branch is ace's own; the PR's commits belong on its head branch.
+    const head = pullRequest.headRepository;
+    if (!head || !pullRequest.headBranch) throw new Error("git_pr_head_unavailable");
+    const info = await git.repositoryInfo(cwd);
+    allowed();
+    // Prefer the requested remote; any configured remote (a fork's) that pushes there will do.
+    const remote = [
+      info.remotes.find((entry) => entry.name === input.remote),
+      ...info.remotes.filter((entry) => entry.name !== input.remote),
+    ].find((entry) => remotePushesTo(entry, head, preferences));
+    if (!remote) throw new Error("git_pr_head_unavailable");
+    await git.push({
+      worktree: cwd,
+      remote: remote.name,
+      destination: pullRequest.headBranch,
+      beforePush: allowed,
+      ...force,
+      ...(info.branch
+        ? { expected: { branch: info.branch, head: info.head, pushUrls: remote.pushUrls } }
+        : {}),
+    });
+    return;
+  }
   if (!input.target) {
-    await git.push({ worktree: cwd, remote: input.remote, beforePush: allowed });
+    await git.push({ worktree: cwd, remote: input.remote, beforePush: allowed, ...force });
     return;
   }
   if (input.remote !== (preferences?.remote ?? "origin")) throw new Error("repository_mismatch");
@@ -66,6 +93,7 @@ export async function pushWorkspace(
     worktree: cwd,
     remote: input.remote,
     beforePush: allowed,
+    ...force,
     expected: { branch: target.branch, head: target.head, pushUrls: remote.pushUrls },
   });
 }

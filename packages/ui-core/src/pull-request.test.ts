@@ -1,6 +1,12 @@
 import { ForgeMergeState, ForgePrStatus } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { parsePrReference, parseReviewers, prOverview } from "./pull-request.ts";
+import {
+  mergeGate,
+  parsePrReference,
+  parseReviewers,
+  prOverview,
+  prPollInterval,
+} from "./pull-request.ts";
 
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "api" } as const;
 const check = (name: string, status: "success" | "failure" | "pending") => ({
@@ -78,7 +84,7 @@ test("running checks do not establish auto-merge capability", () => {
     "main",
   );
   expect(view.ci).toEqual({ tone: "pending", text: "Checks running · 1 of 2 done" });
-  expect(view.mergeBlocked).toBeUndefined();
+  expect(view.mergeBlocked).toMatch(/still running/);
   expect(view.autoMergeBlocked).toMatch(/Refresh GitHub merge state/);
 });
 
@@ -86,6 +92,25 @@ test("a draft, merged or closed PR can't merge, and says why", () => {
   expect(prOverview(status({ state: "draft" }), "main").mergeBlocked).toMatch(/ready for review/);
   expect(prOverview(status({ state: "merged" }), "main").mergeBlocked).toBe("Already merged");
   expect(prOverview(status({ state: "closed" }), "main").mergeBlocked).toMatch(/closed/);
+});
+
+test("unreadable checks read as unavailable and block an immediate merge", () => {
+  const view = prOverview(status({ ci: "unknown", checks: [] }), "main");
+  expect(view.ci.text).toBe("Checks unavailable");
+  expect(view.mergeBlocked).toMatch(/Checks unavailable/);
+  expect(prOverview(status({ ci: "none", checks: [] }), "main").ci.text).toBe("No checks reported");
+});
+
+test("unknown mergeability blocks merging until GitHub finishes checking", () => {
+  expect(mergeGate(status({ mergeability: "unknown" }), "main")).toMatch(/still checking/);
+});
+
+test("a PR is read again only while checks run or mergeability is unknown", () => {
+  expect(prPollInterval(status({ ci: "pending" }))).toBeGreaterThan(0);
+  expect(prPollInterval(status({ mergeability: "unknown" }))).toBeGreaterThan(0);
+  expect(prPollInterval(status())).toBe(false);
+  expect(prPollInterval(status({ state: "merged", ci: "pending" }))).toBe(false);
+  expect(prPollInterval(undefined)).toBe(false);
 });
 
 const thread = (id: string, resolved: boolean) => ({

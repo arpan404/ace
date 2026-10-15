@@ -34,6 +34,7 @@ import {
 import { listScripts, installedEditors, shellQuote } from "./workspace-scripts.ts";
 import { createCommandRunner, type CommandRunner } from "@ace/forge";
 import { pushWorkspace } from "./workspace-push.ts";
+import { actionErrorCode, rejectedRemoteHead } from "./action-errors.ts";
 import { WorkspaceForge } from "./workspace-forge.ts";
 import { RunCheckpoints } from "./run-checkpoints.ts";
 import { listClientRuns } from "./run-client-storage.ts";
@@ -389,6 +390,11 @@ export class WorkspaceRuntime {
         )
           throw new Error("draft_changes_moved");
         return wrap({ kind: "draft", draft, context });
+      } catch (error) {
+        // Whatever a cancelled generation was doing (reading Git, waiting on the model), the
+        // person cancelled it: an abort error is not an action failure.
+        if (lifetime.signal.aborted) throw new Error("draft_cancelled", { cause: error });
+        throw error;
       } finally {
         signal?.removeEventListener("abort", stop);
         this.writing.delete(lifetime);
@@ -463,12 +469,26 @@ export class WorkspaceRuntime {
       const { files, truncated } = await this.git.changedFiles(root, gitStatusLimit);
       // A commit made after this read must not reuse an older HEAD as its expected one.
       const head = await this.git.resolveCommit({ worktree: root, ref: "HEAD" }).catch(() => null);
-      return wrap({ kind: "gitStatus", truncated, files, head });
+      // The same decision `git.commit` applies through `asReviewer`.
+      const hooks = this.reviewedPullRequest(op.threadId)
+        ? await this.git.reviewerHooks(root)
+        : "run";
+      return wrap({ kind: "gitStatus", truncated, files, head, hooks });
     }
     return wrap({
       kind: "pr",
       status: await this.forge.status(op.threadId, this.root(op.threadId)),
     });
+  }
+  /**
+   * The pull request the thread's checkout holds, when it works in a PR review worktree (the
+   * same rule that keeps such checkouts protected). Changing workspace drops the binding.
+   */
+  private reviewedPullRequest(id: ThreadId) {
+    const details = this.store.getThread(id)?.details;
+    return details?.pullRequestWorkspace && details.worktree
+      ? details.pullRequestWorkspace
+      : undefined;
   }
   async draftContext(id: ThreadId, selection: SourceControlSelection) {
     const root = this.root(id);
@@ -547,19 +567,37 @@ export class WorkspaceRuntime {
       if (p.type === "git.lock.clear") return this.clearLock(threadId);
       const cwd = this.root(threadId);
       if (p.type === "forge.issue.link") return this.forge.issueCommand(command, cwd, allowed);
+      // The person's own commit and push run their hooks and signing, as their Git would.
+      const review = this.reviewedPullRequest(threadId);
+      const asPerson = <T>(operation: () => Promise<T>) =>
+        review ? this.git.asReviewer(operation) : this.git.asPerson(operation);
       if (p.type === "git.commit")
         return {
           ok: true,
-          commit: await this.git.commit({
-            worktree: cwd,
-            message: p.message,
-            expectedHead: p.expectedHead,
-            paths: p.paths,
-            draftFingerprint: p.draftFingerprint,
-          }),
+          commit: await asPerson(() =>
+            this.git.commit({
+              worktree: cwd,
+              message: p.message,
+              expectedHead: p.expectedHead,
+              paths: p.paths,
+              draftFingerprint: p.draftFingerprint,
+            }),
+          ),
         };
       if (p.type === "git.push") {
-        await pushWorkspace(this.git, this.options.sourceControl, cwd, p, allowed);
+        try {
+          // Only the push itself is the person's; reading the checkout stays ace's own.
+          const git = {
+            push: (options: Parameters<WorkspaceGit["push"]>[0]) =>
+              asPerson(() => this.git.push(options)),
+            repositoryInfo: (path: string) => this.git.repositoryInfo(path),
+          };
+          await pushWorkspace(git, this.options.sourceControl, cwd, p, allowed, review);
+        } catch (error) {
+          const remoteHead = rejectedRemoteHead(error);
+          if (!remoteHead) throw error;
+          return { ok: false, error: actionErrorCode(error), remoteHead };
+        }
         return { ok: true };
       }
       if (p.type === "workspace.editor.open") {

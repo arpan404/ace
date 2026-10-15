@@ -182,7 +182,7 @@ test("changing the selection after editing a draft blocks submitting its old sum
   );
 });
 
-test("a failed opening draft is silent; a failed Draft says so and keeps typed fields and paths", async () => {
+test("a failed opening draft leaves one quiet line; a failed Draft says so and keeps typed fields and paths", async () => {
   let requests = 0;
   const { form } = await open("commit", {}, async () => {
     requests++;
@@ -193,6 +193,7 @@ test("a failed opening draft is silent; a failed Draft says so and keeps typed f
     expect(form.getByRole("button", { name: /^Draft$/ })).toHaveProperty("disabled", false),
   );
   expect(form.queryByRole("alert")).toBeNull();
+  expect(form.getByText(/^Couldn't draft a message/)).toBeTruthy();
   expect(form.getByRole("textbox", { name: "Commit message" })).toHaveProperty(
     "value",
     "Person's initial text",

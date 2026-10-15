@@ -1,4 +1,4 @@
-import { formatAgo } from "@ace/ui-core";
+import { ciLine, formatAgo } from "@ace/ui-core";
 import type { ForgePrStatus } from "@ace/protocol";
 import { CheckCircleIcon, CircleIcon, WarningCircleIcon, ClockIcon } from "@phosphor-icons/react";
 import { useNow } from "@/lib/time.ts";
@@ -38,28 +38,21 @@ export function PrTime(props: { at?: string | null | undefined; prefix?: string 
     </time>
   );
 }
-export function checkSummary(status: Pick<ForgePrStatus, "ci" | "checks">): string {
-  const failures = status.checks.filter((c) => c.status === "failure").length;
-  if (failures) return `${failures} failing`;
-  if (status.ci === "failure") return "Checks failing";
-  if (status.ci === "pending") return "Checks running";
-  if (status.ci === "success") return "All checks passed";
-  if (status.ci === "none") return "No checks reported";
-  return "Checks unavailable";
-}
-export function PrChecksPill(props: { ci: ForgePrStatus["ci"]; checks?: ForgePrStatus["checks"] }) {
+/** The checks in one line, worded as the thread's work card words them (`ciLine`). */
+export function PrChecksPill(props: { status: Pick<ForgePrStatus, "ci" | "checks"> }) {
+  const line = ciLine(props.status);
   const Icon =
-    props.ci === "success"
+    line.tone === "success"
       ? CheckCircleIcon
-      : props.ci === "failure"
+      : line.tone === "failure"
         ? WarningCircleIcon
-        : props.ci === "pending"
+        : line.tone === "pending"
           ? ClockIcon
           : CircleIcon;
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-      <Icon aria-hidden size={16} />
-      {checkSummary({ ci: props.ci, checks: props.checks ?? [] })}
+      <Icon aria-hidden size={14} />
+      {line.text}
     </span>
   );
 }

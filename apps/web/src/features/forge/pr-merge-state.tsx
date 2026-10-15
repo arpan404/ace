@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { useClient, useConnectionState } from "@ace/client-react";
 import type { ForgePrDetail, ForgeMergeState, ForgePrRef } from "@ace/protocol";
-import { autoMergeBlocker } from "@ace/ui-core";
+import { actionErrorText, autoMergeBlocker } from "@ace/ui-core";
 import { Button } from "@/components/ui/button.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
-import { readForge, forgeError } from "./source.ts";
-import { QueryState } from "./query-state.tsx";
+import { runCommand } from "@/lib/daemon-command.ts";
+import { readForge, writeFailure } from "./source.ts";
+import { QueryState, useFreshSinceReconnect } from "./query-state.tsx";
 import { useStackMemberships } from "./pr-stack-groups.tsx";
 
 export function MergeStateSummary({ state }: { state: ForgeMergeState }) {
@@ -92,12 +92,12 @@ export function PrMergeControls(props: {
     },
   });
   const state = query.data;
+  const fresh = useFreshSinceReconnect(query.dataUpdatedAt);
   const associated = props.relatedThreads.some((thread) => thread.id === threadId);
   const disabled =
     props.writeDisabled ||
-    !ready ||
+    !fresh ||
     pending ||
-    query.isFetching ||
     query.isError ||
     !state ||
     !associated ||
@@ -117,17 +117,18 @@ export function PrMergeControls(props: {
       });
       setMessage(
         result.code
-          ? forgeError(result.code)
+          ? actionErrorText(result.code)
           : "GitHub confirmed the action. Refreshing current state.",
       );
     } catch (error) {
-      setUncertain(true);
+      // Only a result that may have reached GitHub fences the controls; a clear refusal
+      // leaves them usable so the person can fix the cause and try again.
+      const failure = writeFailure(error);
+      setUncertain(failure.uncertain);
       setMessage(
-        error instanceof CommandRefused
-          ? error.code === "action_outcome_uncertain"
-            ? "The action may have reached GitHub. Refresh merge state before taking another action."
-            : forgeError(error.code)
-          : "The acknowledgement was lost. Refresh GitHub state before taking another action.",
+        failure.uncertain
+          ? `${failure.text} Refresh merge state before taking another action.`
+          : failure.text,
       );
     } finally {
       await query.refetch();
@@ -145,16 +146,21 @@ export function PrMergeControls(props: {
       {state && !query.isError && <MergeStateSummary state={state} />}
       {state?.writeState && (
         <p role="status">
-          {forgeError(
+          {actionErrorText(
             state.writeState === "pending" ? "forge_write_pending" : "forge_write_uncertain",
           )}
         </p>
       )}
       <Button
-        disabled={!ready || pending || query.isFetching}
+        disabled={!ready || pending}
         onClick={async () => {
-          const result = await query.refetch();
-          if (result.isSuccess) setUncertain(false);
+          setPending(true);
+          try {
+            const result = await query.refetch();
+            if (result.isSuccess) setUncertain(false);
+          } finally {
+            setPending(false);
+          }
         }}
       >
         Refresh merge state

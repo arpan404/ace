@@ -42,6 +42,19 @@ export function checkout(options: {
           url: `https://github.com/acme/${options.workspaceId}/pull/${options.pr.number}`,
         }
       : null,
+    // The daemon publishes every link in `linkedPrs`; `linkedPr` mirrors the first.
+    ...(options.pr
+      ? {
+          linkedPrs: [
+            {
+              ...options.pr,
+              repo: repository,
+              url: `https://github.com/acme/${options.workspaceId}/pull/${options.pr.number}`,
+              updatedAt: 0,
+            },
+          ],
+        }
+      : {}),
     machine: { host: "fake-host", name: "This Mac" },
     diff: options.diff ?? { files: 0, additions: 0, deletions: 0 },
   };

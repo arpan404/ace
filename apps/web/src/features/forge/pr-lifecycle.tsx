@@ -9,7 +9,8 @@ import { prUrl } from "@ace/forge/pr-reference";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
 import { Button } from "@/components/ui/button.tsx";
-import { readForge, forgeError } from "./source.ts";
+import { actionErrorText } from "@ace/ui-core";
+import { readForge } from "./source.ts";
 import { QueryState } from "./query-state.tsx";
 import { PrMetadataEditor } from "./pr-metadata-editor.tsx";
 import { PrRevertForm } from "./pr-revert-form.tsx";
@@ -96,7 +97,7 @@ export function PrLifecycle(props: {
     } catch (error) {
       setMessage(
         error instanceof CommandRefused
-          ? forgeError(error.code)
+          ? actionErrorText(error.code)
           : "Couldn't confirm the action. Refresh and check its result; your edit is retained.",
       );
       void query.refetch();

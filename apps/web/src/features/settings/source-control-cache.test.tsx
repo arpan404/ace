@@ -1,7 +1,7 @@
 import { ClientProvider } from "@ace/client-react";
 import type { ClientApi } from "@ace/client";
 import { FakeDaemon } from "@ace/fake-daemon";
-import { ForgePrStatus, ThreadId } from "@ace/protocol";
+import { ForgePrStatus, ThreadId, WorkspaceId } from "@ace/protocol";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import {
@@ -17,6 +17,8 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useSourceControlCache } from "@/lib/source-control-cache.ts";
 import { fakeClient, memoryKeyValue } from "@/test/harness.tsx";
 import { SourceControlSettings } from "./source-control-page.tsx";
+import { readForge } from "@/features/forge/source.ts";
+import { detail } from "@/features/forge/pr-workspace.fixture.ts";
 
 const repository = { forge: "github", host: "github.com", owner: "octo", name: "ace" } as const;
 function seed(daemon: FakeDaemon, id: string, title: string) {
@@ -51,6 +53,22 @@ function PrTitle({ id }: { id: string }) {
     },
   });
   return <p>{result.data ?? "Reading PR"}</p>;
+}
+const forgeRead = {
+  op: "forge.pr.detail",
+  workspaceId: WorkspaceId.parse("repo"),
+  number: 7,
+} as const;
+function ForgeTitle() {
+  const result = useDaemonQuery({
+    queryKey: ["forge", "repo", undefined, "pr", 7],
+    staleTime: 60_000,
+    read: async (client, signal) => {
+      const value = await readForge(client, forgeRead, signal);
+      return value.resource === "prDetail" ? value.value.status.title : undefined;
+    },
+  });
+  return <p>{result.data ?? "Reading PR panel"}</p>;
 }
 function Watch({ client }: { client: ClientApi }) {
   useSourceControlCache(client);
@@ -124,5 +142,52 @@ test("saving source control preferences and rescanning replace cached PR results
   } finally {
     view.unmount();
     queries.clear();
+  }
+});
+
+test("switching the expected GitHub account re-reads the PR panel instead of showing the old account's data", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  const titled = (title: string) =>
+    daemon.workspace.setForgeRead(forgeRead, {
+      resource: "prDetail",
+      value: { ...detail, status: { ...detail.status, title } },
+    });
+  titled("Seen as ada");
+  const client = fakeClient(daemon);
+  await client.start();
+  await waitFor(() => expect(client.state).toBe("ready"));
+  const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const storage = memoryKeyValue();
+  const router = createRouter({
+    routeTree: createRootRoute({
+      component: () => (
+        <AppFrame environment={{ storage, root: document.documentElement }}>
+          <QueryClientProvider client={queries}>
+            <ClientProvider client={client}>
+              <Watch client={client} />
+              <SourceControlSettings />
+              <ForgeTitle />
+            </ClientProvider>
+          </QueryClientProvider>
+        </AppFrame>
+      ),
+    }),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+  });
+  const view = render(<RouterProvider router={router} />);
+  try {
+    await screen.findByText("Seen as ada");
+    await screen.findByText(/GitHub API access verified as ada/);
+    act(() => titled("Seen as octo"));
+    await userEvent.type(screen.getByRole("textbox", { name: "Expected account" }), "octo");
+    await userEvent.click(screen.getByRole("button", { name: "Save preferences" }));
+    expect(await screen.findByText("Seen as octo")).toBeTruthy();
+    expect(screen.queryByText("Seen as ada")).toBeNull();
+    // The page names both accounts, so the person knows which one to switch to.
+    expect(await screen.findByText("Signed in as ada, expected octo")).toBeTruthy();
+  } finally {
+    view.unmount();
+    queries.clear();
+    await client.close();
   }
 });

@@ -24,7 +24,7 @@ import {
   type ProjectGitPolicy,
 } from "./projects.ts";
 import { integrateRevision } from "./integration.ts";
-import { commitChanges, pushBranch, listBranches, switchBranch } from "./actions.ts";
+import { commitChanges, pushBranch, probeRemote, listBranches, switchBranch } from "./actions.ts";
 import { pushLeasedRefs, type LeasedPushOptions } from "./leased-push.ts";
 import {
   continueStackReplay,
@@ -104,6 +104,23 @@ export class GitService {
    * Explicit user-authorized push/fetch separately restore the user's trusted helpers. */
   nonExecuting<T>(operation: () => Promise<T>): Promise<T> {
     return this.repository.cli.nonExecuting(operation);
+  }
+  /** A commit or push the person asked for runs their hooks and signing, as their Git would. */
+  asPerson<T>(operation: () => Promise<T>): Promise<T> {
+    return this.repository.cli.asPerson(operation);
+  }
+  /** `asPerson` in a checkout of someone else's code: hooks inside that checkout never run. */
+  asReviewer<T>(operation: () => Promise<T>): Promise<T> {
+    return this.repository.cli.asReviewer(operation);
+  }
+  /** Whether the reviewer's own commit in this checkout runs hooks (see `asReviewer`). */
+  async reviewerHooks(worktree: string): Promise<"run" | "skipped"> {
+    const root = await this.repository.root(worktree);
+    return (await this.repository.cli.hooksInsideCheckout(root)) ? "skipped" : "run";
+  }
+  /** Read the remote's branches through the transport a push would use; throws Git's category. */
+  probeRemote(options: { worktree: string; remote: string; signal?: AbortSignal }) {
+    return probeRemote(this.repository, options);
   }
 
   /** Bounded shutdown. Unconfirmed cleanup remains durably quarantined. */

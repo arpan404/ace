@@ -32,7 +32,8 @@ const order: Record<ForgeCheck["status"], number> = {
 const plural = (count: number, one: string, many = `${one}s`) =>
   `${count} ${count === 1 ? one : many}`;
 
-function ciLine(status: ForgePrStatus): PrOverview["ci"] {
+/** The checks in one line; the card and the PR panel both read CI through it. */
+export function ciLine(status: Pick<ForgePrStatus, "ci" | "checks">): PrOverview["ci"] {
   const total = status.checks.length;
   const failed = status.checks.filter((check) => check.status === "failure").length;
   const running = status.checks.filter((check) => check.status === "pending").length;
@@ -44,6 +45,8 @@ function ciLine(status: ForgePrStatus): PrOverview["ci"] {
       text: total ? `Checks running · ${total - running} of ${total} done` : "Checks running",
     };
   if (status.ci === "success") return { tone: "success", text: `${plural(total, "check")} passed` };
+  // "unknown" means GitHub's check state couldn't be read, not that the PR has none.
+  if (status.ci === "unknown") return { tone: "none", text: "Checks unavailable" };
   return { tone: "none", text: "No checks reported" };
 }
 
@@ -55,15 +58,36 @@ function mergeLine(status: ForgePrStatus, base: string): PrOverview["merge"] {
   return { tone: "unknown", text: "GitHub is still checking for conflicts" };
 }
 
-/** Reasons that stop an immediate merge. */
-function blocked(status: ForgePrStatus, base: string, ci: PrTone): string | undefined {
+/**
+ * Why Merge can't run now, or undefined when it can. The work card's Merge and the PR
+ * panel's Merge PR both ask this, so they never disagree about a PR. GitHub's own branch
+ * protection still has the last word.
+ */
+export function mergeGate(status: ForgePrStatus, base: string): string | undefined {
   if (status.state === "merged") return "Already merged";
   if (status.state === "closed") return "The pull request is closed";
   if (status.state === "draft") return "A draft can't merge: mark it ready for review on GitHub";
+  if (status.state === "unknown")
+    return "GitHub didn't report this PR's state: refresh, then retry";
   if (status.mergeability === "conflicting") return `Resolve the conflicts with ${base} first`;
+  if (status.mergeability === "unknown") return "GitHub is still checking for conflicts";
+  const ci = ciLine(status).tone;
   if (ci === "failure") return "Fix the failing checks first";
+  if (ci === "pending") return "Checks are still running: wait, or turn on auto-merge";
+  if (status.ci === "unknown") return "Checks unavailable: refresh GitHub before merging";
   return undefined;
 }
+
+/**
+ * How often to read a PR again while GitHub is still deciding something the person waits on:
+ * running checks, or mergeability it hasn't computed yet. False once nothing is pending.
+ */
+export function prPollInterval(status: ForgePrStatus | null | undefined): number | false {
+  if (!status || (status.state !== "open" && status.state !== "draft")) return false;
+  const running = status.ci === "pending" || status.checks.some((c) => c.status === "pending");
+  return running || status.mergeability === "unknown" ? prPollMs : false;
+}
+export const prPollMs = 15_000;
 
 /** Only the host's capability establishes whether auto-merge can be enabled. */
 export function autoMergeBlocker(state: ForgeMergeState | undefined): string | undefined {
@@ -76,7 +100,7 @@ export function autoMergeBlocker(state: ForgeMergeState | undefined): string | u
 
 export function prOverview(status: ForgePrStatus, base: string): PrOverview {
   const ci = ciLine(status);
-  const reason = blocked(status, base, ci.tone);
+  const reason = mergeGate(status, base);
   return {
     ci,
     checks: status.checks.toSorted(

@@ -163,6 +163,13 @@
                 }
               ]
             },
+            "hooks": {
+              "enum": [
+                "run",
+                "skipped"
+              ],
+              "type": "string"
+            },
             "kind": {
               "const": "gitStatus",
               "type": "string"

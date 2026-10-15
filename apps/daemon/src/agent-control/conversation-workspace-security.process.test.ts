@@ -141,7 +141,7 @@ test("plan-mode conversation preparation from a cached partial clone fails on mi
   }
 });
 
-test("a user can push a new-worktree conversation while its plan-mode Git execution guards remain active", async () => {
+test("a user's push of a new-worktree conversation runs their hooks while ace's own reads stay guarded", async () => {
   const { h, caller, markers } = await hostileWorkspace();
   const remote = await addLocalRemote(h.home);
   const runtime = new WorkspaceRuntime(h.store, join(h.home, "owned"), h.clock.now, {
@@ -197,8 +197,12 @@ test("a user can push a new-worktree conversation while its plan-mode Git execut
     expect(stdout.trim()).toBe(
       await runtime.git.resolveCommit({ worktree: runtime.root(conversation.id), ref: "HEAD" }),
     );
-    for (const marker of markers)
-      await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
+    // The person's push runs their own hooks, as their Git would. ace's reads of the checkout
+    // around it still run no filter, LFS, fsmonitor or setup program.
+    const [filter, lfs, hook, fsmonitor, setup] = markers;
+    await expect(access(hook ?? "")).resolves.toBeUndefined();
+    for (const marker of [filter, lfs, fsmonitor, setup])
+      await expect(access(marker ?? "")).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     await runtime.close();
   }

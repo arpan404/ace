@@ -39,6 +39,7 @@ const messages: Partial<Record<GitErrorCode, string>> = {
   nothing_to_commit: "There is nothing to commit",
   push_rejected: "The remote has commits this branch does not; pull or rebase first",
   protected_branch: "The remote refused the push: the branch is protected",
+  push_lease_stale: "The remote branch moved past the leased revision; fetch and review first",
 };
 
 /** One plain sentence for a failed command's cause. What Git wrote stays in `details.stderr`. */

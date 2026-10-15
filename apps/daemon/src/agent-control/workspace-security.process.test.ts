@@ -184,7 +184,7 @@ test("plan-mode delegation from a cached partial-clone base fails on missing obj
   }
 });
 
-test("a user can push a retained plan-mode child checkout without executing its hooks or filters", async () => {
+test("a user's push of a retained plan-mode child checkout runs their hooks but no filter or setup program", async () => {
   const { h, caller, markers } = await hostileWorkspace();
   const remote = await addLocalRemote(h.home);
   const runtime = new WorkspaceRuntime(h.store, join(h.home, "owned"), h.clock.now, {
@@ -239,8 +239,12 @@ test("a user can push a retained plan-mode child checkout without executing its 
     expect(stdout.trim()).toBe(
       await runtime.git.resolveCommit({ worktree: runtime.root(child.id), ref: "HEAD" }),
     );
-    for (const marker of markers)
-      await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
+    // The person's push runs their own hooks, as their Git would. ace's reads of the checkout
+    // around it still run no filter, LFS, fsmonitor or setup program.
+    const [filter, lfs, hook, fsmonitor, setupScript] = markers;
+    await expect(access(hook ?? "")).resolves.toBeUndefined();
+    for (const marker of [filter, lfs, fsmonitor, setupScript])
+      await expect(access(marker ?? "")).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     await runtime.close();
   }

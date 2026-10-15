@@ -11,6 +11,7 @@ import {
 } from "@ace/forge";
 import { SourceControlPreferences, type SourceControlReadiness } from "@ace/protocol";
 import type { SettingsService } from "@ace/settings";
+import { GitError } from "@ace/git";
 import type { WorkspaceGit } from "./workspace-roots.ts";
 
 /** Machine-local nonsecret preferences. Every scan reads fresh CLI facts. */
@@ -159,17 +160,21 @@ export class SourceControl {
         Object.fromEntries(preferences.hosts.map((entry) => [entry.host, "github"])),
         await this.hostAliases([remote], signal),
       );
-      const result = await runner({
-        command: "git",
-        args: ["-c", "credential.interactive=false", "ls-remote", "--", remote, "HEAD"],
-        mode: "json",
-        signal,
-      });
-      status.transport = result.code === 0 ? "ready" : "failed";
-      status.transportInstructions =
-        result.code === 0
-          ? "Git can read this remote. Push permission is verified only when you push."
-          : "Git cannot read this remote. Check its URL, repository permission and your Git credential helper / SSH key on this computer. API sign-in alone does not grant Git access.";
+      // The same transport a push uses (credential helpers, SSH command, no prompts), so a
+      // ready remote is one a push can reach.
+      const readable = await git
+        .probeRemote({ worktree: cwd, remote: preferences.remote, signal })
+        .then(
+          () => true,
+          (error: unknown) => {
+            if (error instanceof GitError) return false;
+            throw error;
+          },
+        );
+      status.transport = readable ? "ready" : "failed";
+      status.transportInstructions = readable
+        ? "Git can read this remote. Push permission is verified only when you push."
+        : "Git cannot read this remote. Check its URL, repository permission and your Git credential helper / SSH key on this computer. API sign-in alone does not grant Git access.";
     } catch {
       signal.throwIfAborted();
       status.transport = "failed";

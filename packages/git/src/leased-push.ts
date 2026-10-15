@@ -101,7 +101,8 @@ export async function pushLeasedRefs(
         captureBytes: 262_144,
         beforeSpawn: () => options.beforeDispatch?.(),
         ...(options.signal ? { signal: options.signal } : {}),
-        env: { GCM_INTERACTIVE: "never", GIT_SSH_COMMAND: "ssh -o BatchMode=yes" },
+        // The transport supplies the person's own SSH command in batch mode.
+        env: { GCM_INTERACTIVE: "never" },
       },
     );
     const planned = new Set(updates.map((update) => update.ref));

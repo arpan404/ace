@@ -171,6 +171,13 @@ export const CommandResult = z.object({
     .string()
     .regex(/^[a-f0-9]{40,64}$/)
     .optional(),
+  /** A `git_push_rejected` push's remote-tracking revision: the lease for a force push. */
+  remoteHead: z
+    .string()
+    .regex(/^[a-f0-9]{40,64}$/)
+    .optional(),
+  /** `forge.pr.create` linked the branch's existing pull request instead of opening one. */
+  prExisting: z.boolean().optional(),
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 /**

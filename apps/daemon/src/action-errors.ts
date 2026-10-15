@@ -26,6 +26,7 @@ export function actionErrorCode(error: unknown): string {
       "workspace_preparation_collision",
       "workspace_change_refused",
       "repository_mismatch",
+      "git_pr_head_unavailable",
       "pr_checkout_changed",
       "pr_requires_worktree",
       "workspace_cleanup_required",
@@ -52,4 +53,11 @@ export function actionErrorCode(error: unknown): string {
   )
     return error.message;
   return "action_failed";
+}
+
+/** A rejected push's remote-tracking revision, which a person may lease a force push to. */
+export function rejectedRemoteHead(error: unknown): string | undefined {
+  if (!(error instanceof GitError) || error.code !== "push_rejected") return undefined;
+  const head = error.details.remoteHead;
+  return typeof head === "string" && /^[a-f0-9]{40,64}$/.test(head) ? head : undefined;
 }

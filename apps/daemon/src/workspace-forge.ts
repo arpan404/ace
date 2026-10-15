@@ -566,7 +566,7 @@ export class WorkspaceForge {
     input: ForgeCreatePrInput,
     permitted: () => boolean,
     guard?: { fingerprint: string; baseRef?: string | undefined },
-  ): Promise<ForgePrStatus> {
+  ): Promise<{ status: ForgePrStatus; existing: boolean }> {
     const check = await this.sourceControl?.guard();
     const allowed = () => {
       check?.();
@@ -648,7 +648,8 @@ export class WorkspaceForge {
       if (!allowed()) throw new Error("forbidden");
       this.projection.update(id, status, generation);
     });
-    return status;
+    // `existing`: the branch already had this pull request, which is linked, not opened.
+    return { status, existing: !!found };
   }
   async execute(
     input: unknown,
@@ -675,7 +676,7 @@ export class WorkspaceForge {
     if (p.type === "forge.pr.create") {
       if (repositoryKey(p.repository) !== repositoryKey(await this.repository(cwd)))
         throw new Error("repository_mismatch");
-      const status = await this.ensurePr(
+      const { status, existing } = await this.ensurePr(
         id,
         cwd,
         p.input,
@@ -684,7 +685,12 @@ export class WorkspaceForge {
           ? { fingerprint: p.draftFingerprint, baseRef: p.draftBaseRef }
           : undefined,
       );
-      return { ok: true, pr: status.ref, prStatus: status };
+      return {
+        ok: true,
+        pr: status.ref,
+        prStatus: status,
+        ...(existing ? { prExisting: true } : {}),
+      };
     }
     if (p.type === "forge.pr.link") {
       const status = await this.link(id, cwd, p.link.pr, allowed);

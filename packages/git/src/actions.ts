@@ -3,6 +3,7 @@ import { writingContext } from "./writing-context.ts";
 import { z } from "zod";
 import type { Repository } from "./repository.ts";
 import { GitError, type PushOptions } from "./types.ts";
+import { failureMessage } from "./failure-text.ts";
 const head = z.string().regex(/^[a-f0-9]{40,64}$/);
 /** Pathspec bytes one commit may name: well inside every platform's argument limit. */
 const maxPathBytes = 256 * 1024;
@@ -40,20 +41,22 @@ export async function commitChanges(
   const paths = options.paths === undefined ? undefined : commitPaths.safeParse(options.paths);
   if (paths && !paths.success)
     throw new GitError("invalid_argument", "Name between 1 and 1000 paths to commit");
-  const root = await repository.root(options.worktree);
+  // ace's own reads keep the checkout's protections; `add` and `commit` are the person's.
+  const read = <T>(operation: () => Promise<T>) => repository.cli.bookkeeping(operation);
+  const root = await read(() => repository.root(options.worktree));
   return repository.serial(root, async () => {
-    const info = await repository.info(root);
+    const info = await read(() => repository.info(root));
     if (info.head !== expected)
       throw new GitError("head_moved", "HEAD changed; refresh before committing");
     if (options.draftFingerprint) {
       if (
         !paths ||
-        (await writingContext(repository, root, { kind: "commit", paths: paths.data }))
+        (await read(() => writingContext(repository, root, { kind: "commit", paths: paths.data })))
           .fingerprint !== options.draftFingerprint
       )
         throw new GitError("head_moved", "Draft changes moved; regenerate or discard the draft");
     }
-    const status = await repository.status(root);
+    const status = await read(() => repository.status(root));
     if (status.conflicted.length)
       throw new GitError("conflicts", "Resolve conflicts before committing");
     // Literal pathspecs: a file named "*.ts" or ":(glob)x" means that file.
@@ -81,17 +84,17 @@ export async function commitChanges(
         env: { GIT_TRACE2_EVENT: "1", ...literal },
       },
     );
-    return head.parse(await repository.commit(root, "HEAD"));
+    return head.parse(await read(() => repository.commit(root, "HEAD")));
   });
 }
+const remoteName = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[\w./-]+$/)
+  .refine((value) => !value.startsWith("-"));
 export async function pushBranch(repository: Repository, options: PushOptions): Promise<void> {
-  const remote = z
-    .string()
-    .min(1)
-    .max(128)
-    .regex(/^[\w./-]+$/)
-    .refine((value) => !value.startsWith("-"))
-    .parse(options.remote);
+  const remote = remoteName.parse(options.remote);
   const expected =
     options.expected === undefined
       ? undefined
@@ -102,35 +105,96 @@ export async function pushBranch(repository: Repository, options: PushOptions): 
             pushUrls: z.array(z.string().min(1).max(4096)).min(1).max(100),
           })
           .parse(options.expected);
-  const root = await repository.root(options.worktree);
+  const lease = options.force === undefined ? undefined : head.parse(options.force.lease);
+  // ace's own reads keep the checkout's protections; only `push` is the person's.
+  const read = <T>(operation: () => Promise<T>) => repository.cli.bookkeeping(operation);
+  const root = await read(() => repository.root(options.worktree));
   await repository.serial(root, async () => {
-    const info = await repository.info(root);
+    const info = await read(() => repository.info(root));
     if (!info.branch || !info.remotes.some((entry) => entry.name === remote))
       throw new GitError("invalid_argument", "Select a branch and an existing remote");
     const selected = info.remotes.find((entry) => entry.name === remote);
+    const destination = options.destination ?? info.branch;
+    if (
+      destination.startsWith("-") ||
+      (
+        await read(() =>
+          repository.cli.call(root, ["check-ref-format", `refs/heads/${destination}`], {
+            allowFailure: true,
+          }),
+        )
+      ).exitCode !== 0
+    )
+      throw new GitError("invalid_ref", "Invalid destination branch");
     if (expected) {
       if (info.branch !== expected.branch || info.head !== expected.head)
         throw new GitError("head_moved", "The selected PR head moved before pushing");
       if (JSON.stringify(selected?.pushUrls) !== JSON.stringify(expected.pushUrls))
         throw new GitError("invalid_argument", "The selected remote changed before pushing");
     }
+    const ref = `refs/heads/${destination}`;
     options.beforePush?.();
-    await repository.cli.push(
-      root,
-      ["push", "--set-upstream", "--", remote, `HEAD:refs/heads/${info.branch}`],
-      {
-        write: true,
-        timeoutMs: 600_000,
-        captureBytes: 65536,
-        env: {
-          GIT_TRACE2_EVENT: "1",
-          GCM_INTERACTIVE: "never",
-          GIT_SSH_COMMAND: "ssh -o BatchMode=yes",
+    try {
+      await repository.cli.push(
+        root,
+        [
+          "push",
+          "--set-upstream",
+          // Pinned to the revision the person saw, never to a freshly fetched one.
+          ...(lease ? [`--force-with-lease=${ref}:${lease}`] : []),
+          "--",
+          remote,
+          `HEAD:${ref}`,
+        ],
+        {
+          write: true,
+          timeoutMs: 600_000,
+          captureBytes: 65536,
+          env: { GIT_TRACE2_EVENT: "1", GCM_INTERACTIVE: "never" },
         },
-      },
-    );
+      );
+    } catch (error) {
+      if (!(error instanceof GitError)) throw error;
+      const stderr = typeof error.details.stderr === "string" ? error.details.stderr : "";
+      // Git's diagnostics name a rejection, protection, hooks, credentials and the network. A
+      // refused lease is reported only as its ref's "stale info".
+      if (lease && error.code === "git_failed" && /\[rejected\][^\n]*\(stale info\)/.test(stderr))
+        throw new GitError("push_lease_stale", failureMessage("push_lease_stale"), error.details);
+      if (error.code !== "push_rejected") throw error;
+      const tracked = await read(() =>
+        repository.cli.call(
+          root,
+          ["rev-parse", "--verify", "--quiet", `refs/remotes/${remote}/${destination}^{commit}`],
+          { allowFailure: true },
+        ),
+      );
+      const remoteHead = head.safeParse(tracked.stdout.toString("utf8").trim());
+      throw new GitError(error.code, error.message, {
+        ...error.details,
+        ...(remoteHead.success ? { remoteHead: remoteHead.data } : {}),
+      });
+    }
   });
 }
+
+/**
+ * Whether Git can read `remote` the way a push from this checkout would reach it: the same
+ * protocols, credential helpers and SSH command, never prompting. Fails with Git's category.
+ */
+export async function probeRemote(
+  repository: Repository,
+  options: { worktree: string; remote: string; signal?: AbortSignal | undefined },
+): Promise<void> {
+  const remote = remoteName.parse(options.remote);
+  const root = await repository.root(options.worktree);
+  await repository.cli.lsRemote(root, ["ls-remote", "--heads", "--", remote], {
+    timeoutMs: 30_000,
+    captureBytes: 1_048_576,
+    env: { GCM_INTERACTIVE: "never" },
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
+}
+
 export async function switchBranch(
   repository: Repository,
   options: { worktree: string; branch: string; allowUncommitted: boolean },

@@ -22,7 +22,7 @@ export function createWritingCli(options: WritingCliOptions) {
     signal: AbortSignal,
   ) => {
     const input = SourceControlDraftInput.parse(unparsed);
-    signal.throwIfAborted();
+    if (signal.aborted) throw new Error("draft_cancelled");
     let reply: string;
     try {
       reply = await options.generate(
@@ -39,7 +39,7 @@ export function createWritingCli(options: WritingCliOptions) {
       // oxlint-disable-next-line eslint/preserve-caught-error -- External diagnostics may contain credentials.
       throw new Error(code ?? "draft_provider_failed");
     }
-    signal.throwIfAborted();
+    if (signal.aborted) throw new Error("draft_cancelled");
     return parseWritingDraft(reply);
   };
 }

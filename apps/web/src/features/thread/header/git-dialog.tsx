@@ -1,7 +1,7 @@
 import { gitFailureText } from "../lib/git-failure.ts";
 import { DraftWriter } from "./draft-writer.tsx";
 import type { SourceControlSelection } from "@ace/protocol";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
 import {
@@ -18,7 +18,8 @@ import { ReviewerField } from "./reviewer-field.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { parseReviewers, type Checkout } from "@ace/ui-core";
 import { InlineMarkdown } from "@/components/inline-markdown.tsx";
-import { useChangedFiles, type GitChange } from "../lib/use-git.ts";
+import { useChangedFiles, type GitChange, type GitResult } from "../lib/use-git.ts";
+import { forceLeaseOf } from "../lib/push-rejection.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { ChangedFiles, pathsOf, pickedByDefault } from "./changed-files.tsx";
 
@@ -40,7 +41,7 @@ export function GitDialog(props: {
   thread: ThreadRef;
   checkout: Checkout;
   pending: boolean;
-  onSubmit(change: GitChange): Promise<unknown>;
+  onSubmit(change: GitChange): Promise<GitResult>;
   onClose(): void;
   /** Close the form and show the uncommitted changes (Changes). */
   onViewDiff(): void;
@@ -52,6 +53,11 @@ export function GitDialog(props: {
   const [draftSource, setDraftSource] = useState<{ fingerprint: string; selection: string }>();
   const [reviewerText, setReviewerText] = useState("");
   const [error, setError] = useState<string>();
+  // The commit went in but its push didn't: the form now offers only the push, so a retry
+  // can never make a second commit.
+  const [committed, setCommitted] = useState<{ commit: string; error: unknown }>();
+  // Set synchronously: a second Enter before the pending state renders must not submit twice.
+  const sending = useRef(false);
   const { kind, checkout } = props;
   const commit = kind === "commit" || kind === "commit-push";
   // The split button's menu presets these; the dialog lets the person change them either way.
@@ -89,9 +95,31 @@ export function GitDialog(props: {
         submit: draft ? "Create draft PR" : "Create PR",
       };
   const reviewers = parseReviewers(reviewerText);
+  const send = (change: GitChange) => {
+    sending.current = true;
+    props
+      .onSubmit(change)
+      .then(
+        (result) => {
+          if (result.partial?.step === "push" && result.commit)
+            return setCommitted({ commit: result.commit, error: result.partial.error });
+          props.onClose();
+        },
+        (failure: unknown) =>
+          committed
+            ? setCommitted({ ...committed, error: failure })
+            : setError(gitFailureText(failure)),
+      )
+      .finally(() => {
+        sending.current = false;
+      });
+  };
+  const lease = committed && forceLeaseOf(committed.error);
   const submit = () => {
+    if (sending.current || props.pending) return;
+    if (committed) return send(lease ? { kind: "push", force: { lease } } : { kind: "push" });
     const title = subject.trim();
-    if (!title || staleDraft || props.pending || nothing || (commit && !files)) return;
+    if (!title || staleDraft || nothing || (commit && !files)) return;
     if ("error" in reviewers) return setError(reviewers.error);
     setError(undefined);
     const message = body.trim() ? `${title}\n\n${body.trim()}` : title;
@@ -112,9 +140,7 @@ export function GitDialog(props: {
           draftFingerprint: draftSource?.fingerprint,
           ...reviewers,
         };
-    props
-      .onSubmit(change)
-      .then(props.onClose, (failure: unknown) => setError(gitFailureText(failure)));
+    send(change);
   };
   return (
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
@@ -127,7 +153,9 @@ export function GitDialog(props: {
           }}
         >
           <DialogHeader>
-            <DialogTitle>{text.title}</DialogTitle>
+            <DialogTitle>
+              {committed ? `Push ${checkout.branch ?? "the branch"}` : text.title}
+            </DialogTitle>
             <DialogDescription>
               {!commit && (
                 <>
@@ -140,103 +168,125 @@ export function GitDialog(props: {
               )}
             </DialogDescription>
           </DialogHeader>
-          <DialogBody>
-            {commit && (
-              <ChangedFiles
-                files={files}
-                truncated={status.data?.truncated ?? false}
-                failed={status.isError}
-                picked={chosen}
-                onPick={setPicked}
-                onRetry={() => void status.refetch()}
-                onViewDiff={props.onViewDiff}
+          {committed ? (
+            <DialogBody>
+              <p role="alert" className="text-sm text-status-failed">
+                Committed <span className="font-mono">{committed.commit.slice(0, 7)}</span>; push
+                failed: <InlineMarkdown text={gitFailureText(committed.error)} />
+              </p>
+              {lease && (
+                <p className="text-sm text-muted-foreground">
+                  Force pushing overwrites the remote's commits at{" "}
+                  <span className="font-mono">{lease.slice(0, 7)}</span>. Git refuses if anyone
+                  pushed since.
+                </p>
+              )}
+            </DialogBody>
+          ) : (
+            <DialogBody>
+              {status.data?.hooks === "skipped" && (
+                <p className="text-sm text-muted-foreground">
+                  Git hooks won't run for this commit: this pull request worktree holds someone
+                  else's code.
+                </p>
+              )}
+              {commit && (
+                <ChangedFiles
+                  files={files}
+                  truncated={status.data?.truncated ?? false}
+                  failed={status.isError}
+                  picked={chosen}
+                  onPick={setPicked}
+                  onRetry={() => void status.refetch()}
+                  onViewDiff={props.onViewDiff}
+                />
+              )}
+              <Input
+                aria-label={commit ? "Commit message" : "Pull request title"}
+                value={subject}
+                maxLength={commit ? 200 : 256}
+                autoFocus
+                onChange={(event) => {
+                  setSubject(event.target.value);
+                  setTextRevision((value) => value + 1);
+                  setEdited(true);
+                }}
               />
-            )}
-            <Input
-              aria-label={commit ? "Commit message" : "Pull request title"}
-              value={subject}
-              maxLength={commit ? 200 : 256}
-              autoFocus
-              onChange={(event) => {
-                setSubject(event.target.value);
-                setTextRevision((value) => value + 1);
-                setEdited(true);
-              }}
-            />
-            <Textarea
-              aria-label={commit ? "Commit details" : "Pull request description"}
-              placeholder={commit ? "Details (optional)" : "What changed and why (optional)"}
-              value={body}
-              maxLength={8000}
-              onChange={(event) => {
-                setBody(event.target.value);
-                setTextRevision((value) => value + 1);
-                setEdited(true);
-              }}
-            />
-            <DraftWriter
-              thread={props.thread}
-              selection={selection}
-              textRevision={textRevision}
-              disabled={props.pending}
-              auto={commit}
-              edited={edited}
-              onApply={(generated, context) => {
-                setSubject(generated.subject);
-                setBody(generated.body);
-                setTextRevision((value) => value + 1);
-                setDraftSource({ fingerprint: context.fingerprint, selection: selectionKey });
-              }}
-            />
-            {draftSource && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <span>
-                  {staleDraft
-                    ? "The draft's selected files changed. Generate again or discard the draft."
-                    : "Draft applied. Review and edit before submitting."}
-                </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setDraftSource(undefined);
-                  }}
+              <Textarea
+                aria-label={commit ? "Commit details" : "Pull request description"}
+                placeholder={commit ? "Details (optional)" : "What changed and why (optional)"}
+                value={body}
+                maxLength={8000}
+                onChange={(event) => {
+                  setBody(event.target.value);
+                  setTextRevision((value) => value + 1);
+                  setEdited(true);
+                }}
+              />
+              <DraftWriter
+                thread={props.thread}
+                selection={selection}
+                textRevision={textRevision}
+                disabled={props.pending}
+                auto={commit}
+                edited={edited}
+                onApply={(generated, context) => {
+                  setSubject(generated.subject);
+                  setBody(generated.body);
+                  setTextRevision((value) => value + 1);
+                  setDraftSource({ fingerprint: context.fingerprint, selection: selectionKey });
+                }}
+              />
+              {draftSource && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <span>
+                    {staleDraft
+                      ? "The draft's selected files changed. Generate again or discard the draft."
+                      : "Draft applied. Review and edit before submitting."}
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setDraftSource(undefined);
+                    }}
+                  >
+                    Discard draft tracking
+                  </Button>
+                </div>
+              )}
+              {!commit && <ReviewerField onChange={setReviewerText} />}
+              {/* In a form, a one-off option is a checkbox; switches are for settings. */}
+              {commit ? (
+                <label
+                  htmlFor={pushId}
+                  className="flex items-center gap-2 text-sm text-muted-foreground"
                 >
-                  Discard draft tracking
-                </Button>
-              </div>
-            )}
-            {!commit && <ReviewerField onChange={setReviewerText} />}
-            {/* In a form, a one-off option is a checkbox; switches are for settings. */}
-            {commit ? (
-              <label
-                htmlFor={pushId}
-                className="flex items-center gap-2 text-sm text-muted-foreground"
-              >
-                <Checkbox
-                  id={pushId}
-                  checked={push}
-                  disabled={!checkout.branch}
-                  onCheckedChange={(checked) => setPush(checked)}
-                />
-                Push after committing
-              </label>
-            ) : (
-              <label
-                htmlFor={draftId}
-                className="flex items-center gap-2 text-sm text-muted-foreground"
-              >
-                <Checkbox
-                  id={draftId}
-                  checked={draft}
-                  onCheckedChange={(checked) => setDraft(checked)}
-                />
-                Draft
-              </label>
-            )}
-          </DialogBody>
-          {error && (
+                  <Checkbox
+                    id={pushId}
+                    checked={push}
+                    disabled={!checkout.branch}
+                    onCheckedChange={(checked) => setPush(checked)}
+                  />
+                  Push after committing
+                </label>
+              ) : (
+                <label
+                  htmlFor={draftId}
+                  className="flex items-center gap-2 text-sm text-muted-foreground"
+                >
+                  <Checkbox
+                    id={draftId}
+                    checked={draft}
+                    onCheckedChange={(checked) => setDraft(checked)}
+                  />
+                  Draft
+                </label>
+              )}
+            </DialogBody>
+          )}
+          {error && !committed && (
             <p role="alert" className="text-sm text-status-failed">
               <InlineMarkdown text={error} />
             </p>
@@ -249,11 +299,13 @@ export function GitDialog(props: {
               type="submit"
               variant="primary"
               disabled={
-                !subject.trim() || staleDraft || props.pending || nothing || (commit && !files)
+                committed
+                  ? props.pending
+                  : !subject.trim() || staleDraft || props.pending || nothing || (commit && !files)
               }
             >
               {props.pending && <Spinner />}
-              {text.submit}
+              {committed ? (lease ? "Force push (with lease)" : "Push") : text.submit}
             </Button>
           </DialogFooter>
         </form>

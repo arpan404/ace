@@ -50,6 +50,7 @@ if (${JSON.stringify(behavior)} === 'move') fs.writeFileSync(${JSON.stringify(jo
 if (${JSON.stringify(behavior)} === 'fail') { console.error('Authorization: Bearer private-diagnostic'); process.exit(1); }
 const draft = JSON.stringify({subject:'fix: update selected behavior',body:'Explain the selected change.'});
 if (${JSON.stringify(behavior)} === 'invalid') console.log(JSON.stringify({result:'not valid JSON'}));
+else if (${JSON.stringify(behavior)} === 'prose') console.log(JSON.stringify({result:'Here is the draft {as asked}:\\n\`\`\`json\\n'+draft+'\\n\`\`\`\\nLet me know.'}));
 else if (${JSON.stringify(provider)} === 'claude') console.log(JSON.stringify({result:draft}));
 else { console.log(JSON.stringify({type:'unknown.future',item:'future-shape',other:{retained:true}})); console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:draft}})); console.log(JSON.stringify({type:'turn.completed'})); }
 `,

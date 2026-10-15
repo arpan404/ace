@@ -218,6 +218,7 @@ export class FakeWorkspaceWire {
                     files: this.gitStatus(op.threadId).slice(0, gitStatusLimit),
                     truncated: this.gitStatus(op.threadId).length > gitStatusLimit,
                     head: this.head(op.threadId),
+                    hooks: this.git.hooks(op.threadId),
                   }
                 : op.op === "thread.details"
                   ? {
@@ -389,6 +390,8 @@ export class FakeWorkspaceWire {
       return { ok: true, commit };
     }
     if (payload.type === "git.push") {
+      const refused = this.git.pushRefusal(payload.threadId, payload.force);
+      if (refused) return refused;
       this.context.update(payload.threadId, {
         type: "thread.client.updated",
         changes: { details: { ...thread?.details, ahead: 0 } },

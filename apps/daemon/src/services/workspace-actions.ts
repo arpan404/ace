@@ -256,7 +256,11 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
         send({
           type: "workspace.result",
           requestId: message.requestId,
-          result: { kind: "error", code: "draft_busy" },
+          // New work is paused: the same code commands get while maintenance holds them.
+          result: {
+            kind: "error",
+            code: generations.has(op.input.generationId) ? "draft_busy" : "maintenance",
+          },
         });
         return true;
       }

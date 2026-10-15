@@ -1,12 +1,21 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { ClientApi } from "@ace/client";
+import { ClientProvider, useNotifyBatch } from "@ace/client-react";
+import { actionErrorText } from "@ace/ui-core";
 import {
   RepositoryListInput,
   type HostedRepository,
   type SourceControlReadiness,
 } from "@ace/protocol";
 import type { Machine } from "@/lib/machines.ts";
+import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import {
+  readFailureCode,
+  readReadiness,
+  refreshSourceControl,
+  SourceControlReadError,
+} from "@/lib/source-control-cache.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
@@ -16,13 +25,17 @@ export function HostedRepositoriesTab(props: {
   machine: Machine;
   onSelect(repository: HostedRepository): void;
 }) {
+  const batch = useNotifyBatch();
+  // Reads go to the chosen machine and wait for its own connection.
   return props.machine.client ? (
-    <RepositoryBrowser
-      key={props.machine.id}
-      client={props.machine.client}
-      machineId={props.machine.id}
-      onSelect={props.onSelect}
-    />
+    <ClientProvider client={props.machine.client} batch={batch}>
+      <RepositoryBrowser
+        key={props.machine.id}
+        client={props.machine.client}
+        machineId={props.machine.id}
+        onSelect={props.onSelect}
+      />
+    </ClientProvider>
   ) : null;
 }
 function RepositoryBrowser(props: {
@@ -36,21 +49,14 @@ function RepositoryBrowser(props: {
   const [visibility, setVisibility] = useState<RepositoryListInput["visibility"]>("all");
   const [archived, setArchived] = useState<RepositoryListInput["archived"]>("no");
   const [fork, setFork] = useState<RepositoryListInput["fork"]>("all");
-  const [revision, setRevision] = useState(0);
-  const status = useQuery({
-    meta: { daemonClient: props.client },
-    queryKey: ["projects", "github-readiness", props.machineId, revision],
-    queryFn: async ({ signal }) => {
-      const reply = await props.client.request(
-        { type: "source-control.request", operation: { op: "readiness" } },
-        { signal },
-      );
-      if (reply.result.kind !== "readiness") throw new Error("unavailable");
-      return reply.result.readiness;
-    },
+  const queries = useQueryClient();
+  const status = useDaemonQuery({
+    queryKey: ["projects", "github-readiness", props.machineId],
+    read: (client, signal) => readReadiness(client, undefined, signal),
     retry: false,
     gcTime: 0,
     staleTime: 0,
+    refetchOnReconnect: "always",
   });
   const readiness: SourceControlReadiness | undefined = status.data;
   const host = selection?.host ?? readiness?.preferences.host ?? "";
@@ -64,13 +70,11 @@ function RepositoryBrowser(props: {
     archived,
     fork,
   });
-  const repositories = useQuery({
-    meta: { daemonClient: props.client },
+  const repositories = useDaemonQuery({
     queryKey: [
       "projects",
       "github-repositories",
       props.machineId,
-      revision,
       host,
       account,
       owner,
@@ -79,15 +83,18 @@ function RepositoryBrowser(props: {
       archived,
       fork,
     ],
-    queryFn: async ({ signal }) => {
-      if (!input.success) throw new Error("invalid_filters");
-      const reply = await props.client.request(
+    read: async (client, signal) => {
+      if (!input.success) throw new SourceControlReadError("git_invalid_argument");
+      const reply = await client.request(
         { type: "repositories.request", operation: { op: "list", input: input.data } },
         { signal },
       );
-      if (reply.result.kind !== "repositories") throw new Error("unavailable");
+      if (reply.result.kind === "error") throw new SourceControlReadError(reply.result.code);
+      if (reply.result.kind !== "repositories")
+        throw new SourceControlReadError("forge_invalid_data");
       return reply.result.repositories;
     },
+    refetchOnReconnect: "always",
     enabled: readiness?.api === "ready" && input.success,
     retry: false,
     gcTime: 0,
@@ -95,9 +102,9 @@ function RepositoryBrowser(props: {
   });
   const rows = repositories.data;
   const error = status.error
-    ? "Couldn't inspect GitHub CLI readiness. Rescan to retry."
+    ? `Couldn't read GitHub CLI readiness. ${actionErrorText(readFailureCode(status.error))}`
     : repositories.error
-      ? "Repository access failed. Check the selected host/account in Source control settings, organization access and network, then Rescan."
+      ? `Couldn't list repositories. ${actionErrorText(readFailureCode(repositories.error))}`
       : undefined;
   return (
     <div className="grid gap-3">
@@ -171,7 +178,12 @@ function RepositoryBrowser(props: {
           ]}
           onValueChange={setFork}
         />
-        <Button onClick={() => setRevision((value) => value + 1)}>Rescan</Button>
+        <Button
+          disabled={status.isFetching || repositories.isFetching}
+          onClick={() => void refreshSourceControl(queries, props.client)}
+        >
+          Rescan
+        </Button>
       </div>
       {readiness?.api !== "ready" && readiness && (
         <Problem>
@@ -182,6 +194,7 @@ function RepositoryBrowser(props: {
       {readiness?.api === "ready" && !input.success && (
         <Problem>Enter a valid host, CLI account and optional repository owner.</Problem>
       )}
+      {status.isPending && !status.isError && <p role="status">Checking GitHub CLI…</p>}
       {!rows && input.success && readiness?.api === "ready" && !error && (
         <p role="status">Loading repositories…</p>
       )}

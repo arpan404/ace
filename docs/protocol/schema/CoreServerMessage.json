@@ -379,11 +379,18 @@
         "pr": {
           "$ref": "https://ace.local/protocol/v1/ForgePrRef.json"
         },
+        "prExisting": {
+          "type": "boolean"
+        },
         "prStatus": {
           "$ref": "https://ace.local/protocol/v1/ForgePrStatus.json"
         },
         "publication": {
           "$ref": "https://ace.local/protocol/v1/RepositoryPublication.json"
+        },
+        "remoteHead": {
+          "pattern": "^[a-f0-9]{40,64}$",
+          "type": "string"
         },
         "review": {
           "$ref": "https://ace.local/protocol/v1/ReviewData.json"
