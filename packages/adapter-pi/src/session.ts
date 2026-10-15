@@ -79,6 +79,8 @@ export async function openPiSession(
     fileURLToPath(new URL("./extension.ts", import.meta.url)),
     ...(ctx.model ? ["--model", ctx.model] : []),
     ...piLaunchArgs(ctx.permissionMode, ctx.options?.["effort"]),
+    // ace's shipped skills, beside the person's own (Pi lists every skill directory it gets).
+    ...(ctx.builtinSkills?.directories ?? []).flatMap((directory) => ["--skill", directory]),
   ];
   let configuration: ReturnType<typeof privateMcpConfig>;
   try {

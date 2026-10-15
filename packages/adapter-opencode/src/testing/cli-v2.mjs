@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Local boundary double. It never executes model prompts or provider tools.
 import { createServer } from "node:http";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { openApiDocument, requiredRoutes } from "../contract.ts";
 const args = process.argv.slice(2);
 const freeModels =
@@ -50,6 +52,20 @@ try {
   configuration = parse(process.env.OPENCODE_CONFIG_CONTENT ?? "{}");
 }
 
+/** Like OpenCode 2, every `skills` path's `<name>/SKILL.md` joins the discovered skills. */
+function configuredSkills() {
+  const roots = Array.isArray(configuration?.skills) ? configuration.skills : [];
+  return roots.flatMap((root) =>
+    readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+      if (!entry.isDirectory()) return [];
+      const path = join(root, entry.name, "SKILL.md");
+      const text = readFileSync(path, "utf8");
+      const name = /^name:\s*(\S+)/m.exec(text)?.[1];
+      const description = /^description:\s*(.+)$/m.exec(text)?.[1] ?? "";
+      return name ? [{ id: `skill-${name}`, name, path, description }] : [];
+    }),
+  );
+}
 let catalogServers = [];
 let catalogSkills = [
   {
@@ -359,7 +375,7 @@ const server = createServer(async (req, res) => {
       location: { directory: "/one" },
       data:
         path === "/api/skill"
-          ? catalogSkills
+          ? [...catalogSkills, ...configuredSkills()]
           : path === "/api/agent"
             ? [{ id: "agent-one", name: "auditor", description: "Audit changes" }]
             : [],

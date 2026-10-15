@@ -80,7 +80,7 @@ it("agents discover ace through initialize, resources and status even when compu
       capabilities: {},
     });
     expect(initialized.instructions).toEqual(expect.stringContaining("ace_"));
-    expect(initialized.instructions).toEqual(expect.stringContaining("Call ace_status"));
+    expect(initialized.instructions).toEqual(expect.stringContaining("ace_guide"));
     expect(initialized.capabilities).toMatchObject({ resources: {}, tools: {} });
     expect((await request("resources/list")).resources).toEqual(
       expect.arrayContaining([

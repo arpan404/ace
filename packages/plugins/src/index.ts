@@ -32,4 +32,9 @@ export {
   type AcpExecutableResolver,
 } from "./acp-session.ts";
 
-export { builtinSkills, builtinGuides, prepareBuiltinSkills } from "./builtins.ts";
+export {
+  builtinSkills,
+  builtinSkillsDirectory,
+  builtinGuides,
+  prepareBuiltinSkills,
+} from "./builtins.ts";

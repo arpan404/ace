@@ -5,7 +5,7 @@ import {
   builtinSkillRootUnused,
   type BuiltinSkillProcessLease,
 } from "../builtin-skill-processes.ts";
-import { prepareBuiltinSkills } from "@ace/plugins";
+import { builtinSkillsDirectory, prepareBuiltinSkills } from "@ace/plugins";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import type { ProviderAdapter } from "@ace/engine-api";
 import { bindMcpSession } from "./mcp-session.ts";
@@ -18,7 +18,8 @@ export function withDaemonMcp(
     Partial<Pick<ServiceContext, "config" | "resources">>,
   adapter: ProviderAdapter,
 ): ProviderAdapter {
-  if (adapter.backend === "cursor-sdk") return adapter;
+  // Cursor's SDK owns its own scoped lease; it still receives ace's shipped skills.
+  if (adapter.backend === "cursor-sdk") return withShippedSkills(adapter);
   // A provider that exits on its own starts skill cleanup outside any close call.
   // Daemon shutdown waits for those removals instead of leaving them running.
   const cleanups = new Set<Promise<void>>();
@@ -48,6 +49,9 @@ export function withDaemonMcp(
         const projection = await shared.acquire();
         skills = { ...projection, close: projection.release };
         lease = { ...projection.lease, close: () => {} };
+      } else if (readsSkillsDirectory.has(adapter.provider)) {
+        // Read in place from the shipped bundle: nothing to project, lease or remove.
+        skills = { args: [], directories: [builtinSkillsDirectory()], close: async () => {} };
       } else if (context.config && adapter.provider === "claude") {
         root = await createBuiltinSkillRoot(context.config.dataDir);
         try {
@@ -115,6 +119,24 @@ export function withDaemonMcp(
         throw error;
       }
     },
+  };
+}
+
+/** CLI providers that discover skills from a plain `<name>/SKILL.md` directory (Cursor: below). */
+const readsSkillsDirectory = new Set(["opencode", "pi"]);
+
+/** ace's shipped skills for an adapter that ace gives no MCP wrapper (Cursor's SDK). */
+export function withShippedSkills(adapter: ProviderAdapter): ProviderAdapter {
+  return {
+    ...adapter,
+    openSession: (session) =>
+      adapter.openSession({
+        ...session,
+        builtinSkills: session.builtinSkills ?? {
+          args: [],
+          directories: [builtinSkillsDirectory()],
+        },
+      }),
   };
 }
 

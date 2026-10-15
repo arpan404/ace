@@ -9,7 +9,7 @@ import { CursorTranslator } from "./translator.ts";
 import type { readCursorSnapshot } from "./history.ts";
 import { CursorHostSlots } from "./slots.ts";
 import { Limits } from "./contracts.ts";
-import { mirrorCursorUserConfig } from "./user-settings.ts";
+import { addShippedSkills, mirrorCursorUserConfig } from "./user-settings.ts";
 
 export interface CursorAdapterOptions extends Omit<HostOptions, "env"> {
   instance?: CursorInstance;
@@ -44,8 +44,12 @@ export function createCursorAdapter(
   const fenced = new Set<string>();
   // One copy at a time: concurrent opens would otherwise swap the same entries under each other.
   let mirroring: Promise<unknown> = Promise.resolve();
-  const mirror = (home: string) => {
-    const next = mirroring.then(() => mirrorCursorUserConfig(options.userHome ?? homedir(), home));
+  const mirror = (home: string, skills: readonly string[]) => {
+    const next = mirroring.then(async () => {
+      await mirrorCursorUserConfig(options.userHome ?? homedir(), home);
+      // ace's shipped skills join the person's own, which win on a shared name.
+      await addShippedSkills(home, skills);
+    });
     mirroring = next.catch(() => {});
     return next;
   };
@@ -90,7 +94,7 @@ export function createCursorAdapter(
         // An accounts-composed environment must already carry the private SDK default home.
         if (env.HOME !== join(selected.homeDir, "user"))
           throw new Error("Cursor SDK host home must match the selected instance");
-        await mirror(join(selected.homeDir, "user"));
+        await mirror(join(selected.homeDir, "user"), context.builtinSkills?.directories ?? []);
         lease = await options.mcp?.({ ...context, instanceId: selected.id });
         let session: ProviderSession | undefined;
         let exitedDuringAdmission = false;

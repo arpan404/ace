@@ -77,8 +77,12 @@ The same guidance is delivered once through its native instruction field.
 The always-on guidance stays under about 300 tokens: when to look for ace tools,
 that the agent's own shell, file and web tools are unaffected, and which guide
 covers each task. The detail lives in the shipped skills
-(`packages/plugins/builtin-skills`): Claude Code and Codex receive them as native
-skills, and every provider can read the same text with `ace_guide { topic }`.
+(`packages/plugins/builtin-skills`). Every provider with a native skill mechanism
+lists them beside the person's own skills: Claude Code and Codex through a projected
+plugin, OpenCode through its `skills` config paths, Pi through `--skill`, and Cursor
+as copies in its private home's `.cursor/skills` (a skill the person has under the
+same name wins). Every provider, ACP included, can read the same text with
+`ace_guide { topic }`.
 Claude Code and Codex defer MCP tools behind tool search; only `ace_browser_open`
 and `ace_html_render` ask to load upfront. OpenCode, Cursor, Pi and ACP load every
 listed tool upfront, so their injections send `X-Ace-Tools: core` and list only the

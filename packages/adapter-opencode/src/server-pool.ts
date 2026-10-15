@@ -48,6 +48,10 @@ export class ServerPool {
       this.anonymous.set(ctx.env, key);
     }
     if (ctx.executable) key += `:binary:${ctx.executable}`;
+    // Skills are process-wide config: a process started without them never serves a session
+    // that has them.
+    const skillDirectories = ctx.builtinSkills?.directories ?? [];
+    if (skillDirectories.length) key += `:skills:${JSON.stringify(skillDirectories)}`;
     // Native MCP config is process-wide. Never share its bearer between sessions.
     if (connection) key = `mcp:${++this.serial}`;
     const accountKey = key;
@@ -78,6 +82,7 @@ export class ServerPool {
           ? { overrides: { ...this.options.discovery?.overrides, opencode: ctx.executable } }
           : {}),
       },
+      ...(skillDirectories.length ? { skillDirectories } : {}),
       ...(connection
         ? {
             mcpReadyPlugin: mcpReadyPluginDirectory(),

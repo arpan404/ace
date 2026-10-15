@@ -10,10 +10,19 @@ import type { PluginSnapshot } from "./types.ts";
 import { projectPlugins } from "./project.ts";
 import { materializeProjection, removeProjection } from "./materialize.ts";
 
+const shippedRoot = fileURLToPath(new URL("../builtin-skills", import.meta.url));
+
+/**
+ * The shipped skills as a plain skills directory (`<name>/SKILL.md` per skill), read in place.
+ * OpenCode (`skills` config), Pi (`--skill`) and Cursor (copied into its private home) discover
+ * skills from such a directory; Claude Code and Codex get a projected plugin instead.
+ */
+export function builtinSkillsDirectory(root = shippedRoot): string {
+  return join(root, "skills");
+}
+
 /** Shipped, data-only skills. Provider config is projected into an exclusive session root. */
-export async function builtinSkills(
-  root = fileURLToPath(new URL("../builtin-skills", import.meta.url)),
-): Promise<PluginSnapshot[]> {
+export async function builtinSkills(root = shippedRoot): Promise<PluginSnapshot[]> {
   const manifest = PluginManifest.parse(
     parseJson(await readFile(join(root, "ace-plugin.json"), "utf8")),
   );
