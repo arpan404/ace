@@ -78,9 +78,11 @@ export class Repository {
   async worktrees(repo: string, signal?: AbortSignal): Promise<Worktree[]> {
     return parseWorktrees(
       (
-        await this.cli.call(repo, ["worktree", "list", "--porcelain", "-z"], {
-          ...(signal ? { signal } : {}),
-        })
+        await this.cli.call(
+          repo,
+          ["worktree", "list", "--porcelain", "-z"],
+          signal ? { signal } : {},
+        )
       ).stdout,
     );
   }
