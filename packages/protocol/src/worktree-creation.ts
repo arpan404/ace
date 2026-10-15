@@ -23,17 +23,30 @@ export const WorktreeCreationProgress = z.object({
   /** Redacted whole lines only; oldest lines are evicted. Oversized lines are omitted. */
   details: z.array(z.string().max(1024)).max(200),
   message: z.string().max(256).optional(),
+  /**
+   * The specific failure: `git_quarantined`, `not_a_repo`, `no_commits`, `invalid_ref`,
+   * `branch_exists`, `ref_conflict`, `workspace_preparation_collision`, `setup_failed`,
+   * `preparation_timeout`, `worktree_base_not_found`, ... Absent while running or on success.
+   */
+  error: z.string().max(128).optional(),
+  /** With `git_quarantined`: the repository whose stale Git lock blocks creation. */
+  lockPath: z.string().max(4096).optional(),
   /** False when uncertain writers or changed resources prevent safe cleanup. */
   cleanupComplete: z.boolean(),
-  actions: z.array(z.enum(["cancel", "local", "retry"])).max(3),
+  /** `continue` admits the thread in a worktree whose setup script failed, without setup. */
+  actions: z.array(z.enum(["cancel", "local", "retry", "continue"])).max(4),
 });
 export type WorktreeCreationProgress = z.infer<typeof WorktreeCreationProgress>;
 export const WorktreeCreationRequest = z.object({
   type: z.literal("worktree.creation.request"),
   requestId: z.string().min(1).max(256),
   commandId: CommandId,
-  /** `get` restores progress after reconnect; other actions require operate scope. */
-  action: z.enum(["get", "cancel", "local", "retry"]),
+  /**
+   * `get` restores progress after reconnect; other actions require operate scope. `dismiss`
+   * forgets a settled failed or cancelled start (its kept worktree included) once the person
+   * returns to New thread.
+   */
+  action: z.enum(["get", "cancel", "local", "retry", "continue", "dismiss"]),
 });
 export const WorktreeCreationEvent = WorktreeCreationProgress.extend({
   type: z.literal("worktree.creation.progress"),

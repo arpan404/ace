@@ -718,6 +718,22 @@
     },
     {
       "properties": {
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.workspace.clear",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "scriptId": {
           "maxLength": 128,
           "minLength": 1,
@@ -1112,6 +1128,22 @@
         "type",
         "workspaceId",
         "name"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "workspace.git.lock.clear",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId"
       ],
       "type": "object"
     },

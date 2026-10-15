@@ -7,7 +7,9 @@
         "get",
         "cancel",
         "local",
-        "retry"
+        "retry",
+        "continue",
+        "dismiss"
       ],
       "type": "string"
     },

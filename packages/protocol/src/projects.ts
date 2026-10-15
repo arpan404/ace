@@ -184,6 +184,12 @@ export const ProjectCommands = [
     notes: z.array(ProjectNoteEdit).max(maxProjectNotes).optional(),
   }),
   z.object({ type: z.literal("workspace.rename"), workspaceId: WorkspaceId, name: ProjectName }),
+  /**
+   * "Clear stale lock" from New thread, after the person confirms: retire Git mutation leases
+   * fencing the project's repository whose owning daemon is definitively gone, then retry the
+   * cleanup of failed worktree starts. Fails with `git_quarantined` while an owner may be alive.
+   */
+  z.object({ type: z.literal("workspace.git.lock.clear"), workspaceId: WorkspaceId }),
   z.object({
     type: z.literal("workspace.remove"),
     workspaceId: WorkspaceId,

@@ -149,6 +149,17 @@
               "maxItems": 500,
               "type": "array"
             },
+            "head": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-f0-9]{40,64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "kind": {
               "const": "gitStatus",
               "type": "string"

@@ -7,11 +7,12 @@
         "enum": [
           "cancel",
           "local",
-          "retry"
+          "retry",
+          "continue"
         ],
         "type": "string"
       },
-      "maxItems": 3,
+      "maxItems": 4,
       "type": "array"
     },
     "attempt": {
@@ -37,6 +38,14 @@
       "maximum": 9007199254740991,
       "minimum": 0,
       "type": "integer"
+    },
+    "error": {
+      "maxLength": 128,
+      "type": "string"
+    },
+    "lockPath": {
+      "maxLength": 4096,
+      "type": "string"
     },
     "message": {
       "maxLength": 256,

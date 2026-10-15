@@ -649,7 +649,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     const reopened =
       input.type === "worktree.creation.request" &&
       "action" in input &&
-      (input.action === "retry" || input.action === "local") &&
+      (input.action === "retry" || input.action === "local" || input.action === "continue") &&
       "commandId" in input
         ? this.#intents.reopen(input.commandId)
         : undefined;
