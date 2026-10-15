@@ -9,6 +9,7 @@ import { SettingsService } from "@ace/settings";
 import { createCommandRunner } from "@ace/forge";
 import { Thread } from "@ace/protocol";
 import { Store } from "./store.ts";
+import { migrateEngine } from "./engine/migrations.ts";
 import { SourceControl } from "./source-control.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
 
@@ -131,6 +132,8 @@ export async function forgeIdentityFixture(
   await settings.set("sourceControl.preferences", preferences, { kind: "global" });
   const sourceControl = new SourceControl(settings, runner, root);
   const store = new Store(join(root, "events.sqlite"));
+  // The engine owns session rows; a runtime without it still needs the schema.
+  store.atomic((db) => migrateEngine(db));
   const workspaceId = store.createWorkspace(root, "Project");
   const thread = Thread.parse({
     id: "identity-thread",

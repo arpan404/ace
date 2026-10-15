@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { Command, Thread } from "@ace/protocol";
 import { Store } from "./store.ts";
+import { migrateEngine } from "./engine/migrations.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
 const execute = promisify(execFile);
 
@@ -101,6 +102,8 @@ test("a thread's details name the forge repository behind its origin remote", as
   await execute("git", ["init", "-q", "-b", "main", root]);
   await execute("git", ["-C", root, "remote", "add", "origin", "git@github.com:test/project.git"]);
   const store = new Store(join(root, "events.sqlite"));
+  // The engine owns session rows; a runtime without it still needs the schema.
+  store.atomic((db) => migrateEngine(db));
   const workspaceId = store.createWorkspace(root, "Project");
   const thread = Thread.parse({
     id: "details-thread",
