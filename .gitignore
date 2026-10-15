@@ -33,3 +33,6 @@ native/screen-helper-windows/target/
 
 # Local MCP eval reports (bun run eval:mcp); committed reports live in docs/evals/.
 /output/evals/
+
+# Local Claude Code state, including agent worktrees under .claude/worktrees/.
+/.claude/
