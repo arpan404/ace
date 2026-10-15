@@ -16702,6 +16702,7 @@ Example:
 | favourites | no | array | {"maxItems":512,"items":{"type":"string","minLength":1,"maxLength":256,"pattern":"^[^\\s\\x00-\\x1f\\x7f]+$"},"uniqueItems":true,"x-ace-constraint":"IDs must be unique."} |
 | showOnlyFavourites | no | boolean |  |
 | hideDeprecated | no | boolean |  |
+| maxCheckpointMb | no | integer | {"minimum":1,"maximum":256} |
 
 Example:
 
@@ -16747,8 +16748,7 @@ Example:
 ```json
 {
   "code": "example",
-  "detail": "example",
-  "provider": "acp",
+  "provider": "codex",
   "title": "example"
 }
 ```
@@ -16769,10 +16769,9 @@ Example:
   "progress": {
     "acpAgentId": "official:boy8",
     "action": "install",
-    "agent": "codex-acp",
     "lines": [],
     "method": "brew",
-    "provider": "antigravity",
+    "provider": "codex",
     "sequence": 7,
     "session": "example",
     "state": "failed",

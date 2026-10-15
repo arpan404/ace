@@ -97,6 +97,11 @@
       "pattern": "^[^\\s\\x00-\\x1f\\x7f]+$",
       "type": "string"
     },
+    "maxCheckpointMb": {
+      "maximum": 256,
+      "minimum": 1,
+      "type": "integer"
+    },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     },

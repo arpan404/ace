@@ -9,7 +9,7 @@ import { discoverCursorSdk, type HostOptions } from "./host.ts";
 import { CursorTranslator } from "./translator.ts";
 import type { readCursorSnapshot } from "./history.ts";
 import { CursorHostSlots } from "./slots.ts";
-import { Limits } from "./contracts.ts";
+import { Limits, type CursorLimits } from "./contracts.ts";
 import { addShippedSkills, mirrorCursorUserConfig } from "./user-settings.ts";
 
 export interface CursorAdapterOptions extends Omit<HostOptions, "env"> {
@@ -19,6 +19,12 @@ export interface CursorAdapterOptions extends Omit<HostOptions, "env"> {
   operationId?: () => string;
   policy?: "restricted" | "full-access";
   autoReviewAvailable?: boolean;
+  /**
+   * Per-session limit overrides, read live on every open (e.g. from provider
+   * settings). Wins over `limits` when both set the same key; the translator
+   * and host slots keep the adapter-wide `limits`.
+   */
+  limitsForSession?: (instanceId?: string) => Partial<CursorLimits> | undefined;
   /**
    * The person's real home, whose user-level `~/.cursor` config (never its credentials) is
    * copied into the private instance home before each session. Defaults to the daemon's home.
@@ -98,14 +104,26 @@ export function createCursorAdapter(
         lease = await options.mcp?.({ ...context, instanceId: selected.id });
         let session: ProviderSession | undefined;
         let exitedDuringAdmission = false;
-        const { mcp: _mcpFactory, userHome: _userHome, ...hostOptions } = options;
+        const {
+          mcp: _mcpFactory,
+          userHome: _userHome,
+          limits: _baseLimits,
+          limitsForSession: _limitsForSession,
+          ...hostOptions
+        } = options;
+        // Session limits are resolved live so a settings change applies to the
+        // next thread open without a daemon restart.
+        const sessionLimits = Limits.parse({
+          ...options.limits,
+          ...options.limitsForSession?.(context.instanceId),
+        });
         let recoverySnapshot: Awaited<ReturnType<typeof readCursorSnapshot>> | undefined;
         if (context.resume) {
           // Canonical ace history already owns content. Validate a bounded snapshot
           // without appending positional SDK messages as new live transcript entries.
           const { readCursorSnapshot } = await import("./history.ts");
           recoverySnapshot = await readCursorSnapshot(
-            { ...hostOptions, slots, env, instanceId: selected.id },
+            { ...hostOptions, slots, env, instanceId: selected.id, limits: sessionLimits },
             {
               threadId: context.threadId,
               agentId: context.resume.nativeSessionId,
@@ -133,7 +151,7 @@ export function createCursorAdapter(
             slots,
             env,
             instanceId: selected.id,
-            limits,
+            limits: sessionLimits,
             ...(recoverySnapshot ? { recoverySnapshot } : {}),
             ...(lease ? { mcp: lease.connection } : {}),
           },
