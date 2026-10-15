@@ -16,7 +16,7 @@ import SQLite3
             #expect((response as? HTTPURLResponse)?.statusCode == 200)
         }
         defer { Task { try? await stage("accept"); await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
-        model.connect(target: try target(), directory: root)
+        await model.connect(target: try target(), directory: root)
         try await until { model.connection == "ready" }
         try await stage("create")
         model.open("ios-retry")
@@ -49,7 +49,7 @@ import SQLite3
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let model = ClientModel(now: { 0 })
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
-        model.connect(target: try target(), directory: root)
+        await model.connect(target: try target(), directory: root)
         try await until { model.connection == "ready" }
         model.open("ios-stream")
         try await until { model.thread?.loaded == true }
@@ -76,7 +76,7 @@ import SQLite3
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let model = ClientModel(now: { 0 })
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
-        model.connect(target: try target(), directory: root)
+        await model.connect(target: try target(), directory: root)
         try await until { model.connection == "ready" }
         func stage(_ value: String) async throws {
             var request = URLRequest(url: try #require(URL(string: "http://127.0.0.1:9841/review/oversized")))
@@ -108,7 +108,7 @@ import SQLite3
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let model = ClientModel(now: { 0 })
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
-        model.connect(target: try target(), directory: root, itemLimit: 2200)
+        await model.connect(target: try target(), directory: root, itemLimit: 2200)
         try await until { model.connection == "ready" && model.inbox["ios-tree"] != nil }
         #expect(model.inbox["ios-tree"]?.state == "working")
         model.open("ios-stream")
@@ -122,7 +122,7 @@ import SQLite3
     @Test func offlineInputSurvivesRuntimeDestructionAndIsAdmittedOnce() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let original = ClientModel(now: { 0 })
-        original.connect(target: try target(), directory: root, itemLimit: 2200)
+        await original.connect(target: try target(), directory: root, itemLimit: 2200)
         try await until { original.connection == "ready" }
         original.open("ios-stream")
         try await until { original.thread?.loaded == true }
@@ -134,7 +134,7 @@ import SQLite3
         await original.disconnectAndWait()
         let restored = ClientModel(now: { 0 })
         defer { Task { await restored.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
-        restored.connect(target: try target(), directory: root, itemLimit: 2200)
+        await restored.connect(target: try target(), directory: root, itemLimit: 2200)
         restored.open("ios-stream")
         try await until { restored.connection == "ready" && restored.thread?.loaded == true && restored.thread?.items.values.contains { $0.row.text == text } == true }
         #expect(restored.thread?.items.values.filter { $0.row.text == text }.count == 1)
@@ -146,7 +146,7 @@ import SQLite3
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let model = ClientModel(now: { 0 })
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
-        model.connect(target: try target(), directory: root)
+        await model.connect(target: try target(), directory: root)
         try await until { model.connection == "ready" }
         model.open("ios-approval")
         try await until { model.thread?.approvals.isEmpty == false }

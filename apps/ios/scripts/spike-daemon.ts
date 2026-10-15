@@ -5,6 +5,7 @@ import { z } from "zod";
 import { ThreadId } from "@ace/protocol";
 import { oversizedScenario, approvalRetryScenario } from "./review-scenarios.ts";
 import { manyActions, snapshotFrames } from "./many-actions.ts";
+import { LostReceipt } from "./lost-receipt.ts";
 
 const daemon = new FakeDaemon({
   clock: Date.now,
@@ -138,11 +139,20 @@ let snapshots = 0;
 let replays = 0;
 let fragmentParts = 0;
 const Control = z.object({ online: z.boolean() });
+const lostReceipt = new LostReceipt();
 const server = Bun.serve<undefined>({
   hostname: "127.0.0.1",
   port: 9841,
   async fetch(request, listener) {
     const path = new URL(request.url).pathname;
+    if (path === "/review/receipt") {
+      if (request.method === "POST") {
+        lostReceipt.arm(
+          z.object({ text: z.string().min(1).max(1024) }).parse(await request.json()).text,
+        );
+      }
+      return Response.json(lostReceipt.state());
+    }
     if (path === "/review/many" && request.method === "POST") {
       const input = z
         .object({
@@ -196,6 +206,11 @@ const server = Bun.serve<undefined>({
         socket,
         daemon.connect({
           send: (text) => {
+            if (lostReceipt.drop(text)) {
+              online = false;
+              for (const peer of connections.keys()) peer.close(1001);
+              return;
+            }
             if (text.includes('"type":"snapshot"')) snapshots++;
             if (text.includes('"type":"events"')) replays++;
             for (const frame of snapshotFrames(text)) {
@@ -210,6 +225,7 @@ const server = Bun.serve<undefined>({
     message(socket, data) {
       if (typeof data === "string") {
         if (data.includes('"type":"command"')) commands++;
+        lostReceipt.observe(data);
         connections.get(socket)?.receive(data);
       }
     },
