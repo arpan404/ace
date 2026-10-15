@@ -1,7 +1,7 @@
 import { ChatsIcon, NotePencilIcon } from "@phosphor-icons/react";
 import { useSidebar, useSidebarLoaded } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
-import { Suspense } from "react";
+import { memo, Suspense } from "react";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -20,6 +20,27 @@ import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 const StartedTitlePublisher = deferredComponent(() =>
   import("./started-rows.tsx").then((module) => module.StartedTitlePublisher),
 );
+
+/**
+ * The New thread button, stable across the thread list's live updates. The sidebar re-renders
+ * on every subagent event (this branch shows live activity under each row); re-creating the
+ * router Link (with its preload, intent and tooltip handlers) on each push risks dropping a
+ * click that lands mid-render, so the button only re-renders when its visibility changes.
+ */
+const NewThreadButton = memo(function NewThreadButton(props: { hidden: boolean }) {
+  if (props.hidden) return null;
+  return (
+    <Tip label="New thread" shortcut="newThread">
+      <Link
+        to="/new"
+        aria-label="New thread"
+        className="relative grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground"
+      >
+        <Icon icon={NotePencilIcon} />
+      </Link>
+    </Tip>
+  );
+});
 
 /**
  * Home's list in the sidebar: one list of tasks across projects, pinned first, then in the order
@@ -42,17 +63,7 @@ export function HomeSidebar() {
     <>
       <div className="flex h-9 shrink-0 items-center justify-between gap-2 px-2">
         <ThreadsActions />
-        {!noProjects && (
-          <Tip label="New thread" shortcut="newThread">
-            <Link
-              to="/new"
-              aria-label="New thread"
-              className="relative grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground"
-            >
-              <Icon icon={NotePencilIcon} />
-            </Link>
-          </Tip>
-        )}
+        <NewThreadButton hidden={noProjects} />
       </div>
       <nav aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
         {loaded && (
