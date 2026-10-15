@@ -33,6 +33,8 @@ test("all projects share one Home order and keyboard navigation crosses project 
   ]);
   const first = links[0];
   if (!first) throw new Error("Missing first row");
+  expect(within(first).getByText("ace")).toBeTruthy();
+  expect(within(first).getByText("Working", { exact: true })).toBeTruthy();
   first.focus();
   await userEvent.keyboard("{ArrowDown}");
   expect(document.activeElement).toBe(links[1]);
@@ -40,8 +42,9 @@ test("all projects share one Home order and keyboard navigation crosses project 
   expect(document.activeElement).toBe(links[2]);
   await userEvent.keyboard("k{ArrowUp}");
   expect(document.activeElement).toBe(first);
+  // Keyboard focus puts the row's actions where its status was; the project stays.
   expect(within(first).getByText("ace")).toBeTruthy();
-  expect(within(first).getByText("Working", { exact: true })).toBeTruthy();
+  expect(within(first).queryByText("Working", { exact: true })).toBeNull();
 });
 
 test("the project filter narrows the flat list while keeping project identity on each task", async () => {

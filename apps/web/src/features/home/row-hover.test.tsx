@@ -49,6 +49,57 @@ test("Settle and Unsettle on a row's hover actions move it between the list and 
   expect(threadOf(app, "thread-bump-codex")?.settledAt).toBeDefined();
 });
 
+/** The row's first line as read, and the controls its box offers. */
+const firstLine = (title: RegExp) => card(title).firstElementChild?.firstElementChild?.textContent;
+const controls = (title: RegExp) =>
+  within(card(title).parentElement ?? document.body)
+    .getAllByRole("button")
+    .map((button) => button.getAttribute("aria-label"));
+
+test("hovering an active row shows only snooze, settle and more actions, not the status", async () => {
+  await openHome();
+  const title = "Bump Codex app-server to 0.48";
+  await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
+  await userEvent.click(screen.getByRole("button", { name: `Unsettle ${title}` }));
+  const row = new RegExp(`^${title}`);
+  await waitFor(() => expect(card(row)).toBeTruthy());
+  const resting = firstLine(row);
+
+  await userEvent.hover(card(row));
+  expect(firstLine(row)).not.toBe(resting);
+  expect(resting?.startsWith(firstLine(row) ?? "?")).toBe(true);
+  expect(controls(row)).toEqual([`Snooze ${title}`, `Settle ${title}`, `Actions for ${title}`]);
+
+  await userEvent.unhover(card(row));
+  expect(firstLine(row)).toBe(resting);
+});
+
+test("a waiting row's status steps aside for its actions under the pointer or focus", async () => {
+  await openHome();
+  const row = /^Partial refunds double-count tax/;
+  expect(firstLine(row)).toContain("Approve");
+
+  await userEvent.hover(card(row));
+  expect(firstLine(row)).not.toContain("Approve");
+  await userEvent.unhover(card(row));
+  expect(firstLine(row)).toContain("Approve");
+
+  card(row).focus();
+  await waitFor(() => expect(firstLine(row)).not.toContain("Approve"));
+  card(row).blur();
+  await waitFor(() => expect(firstLine(row)).toContain("Approve"));
+});
+
+test("a clicked row shows its status again once the pointer moves off it", async () => {
+  await openHome();
+  const row = /^Partial refunds double-count tax/;
+  await userEvent.click(card(row));
+  expect(document.activeElement).toBe(card(row));
+  expect(firstLine(row)).not.toContain("Approve");
+  await userEvent.unhover(card(row));
+  expect(firstLine(row)).toContain("Approve");
+});
+
 test("work still running offers Snooze on hover but no Settle", async () => {
   await openHome();
   const title = "Dedupe thread events after reconnect";
