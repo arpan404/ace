@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ProviderPayloadSchema } from "@ace/provider-kit/payload";
-import { AccountQuota, type QuotaWindow } from "@ace/protocol/accounts";
+import { AccountQuota, QuotaResetCredits, type QuotaWindow } from "@ace/protocol/accounts";
 import { object, number, decodeResetCredits, decodeWindows } from "./quota-decode.ts";
 import { parseLimitReset } from "./reset-time.ts";
 import { reportedBilling } from "./billing.ts";
@@ -54,7 +54,12 @@ export function ingestQuota(
   const body = object(frame["params"] ?? frame);
   const decoded = decodeWindows(fact.provider, body);
   const billing = reportedBilling(body);
-  const resetCredits = fact.provider === "codex" ? decodeResetCredits(body) : undefined;
+  const resetCredits =
+    fact.provider === "codex"
+      ? decodeResetCredits(body)
+      : fact.provider === "claude"
+        ? QuotaResetCredits.safeParse(body["resetCredits"]).data
+        : undefined;
   const blockers = { ...state.blockers };
   // Only the provider's own usage-limit code holds the account; its words only say when it
   // resets. Free text that mentions a limit (a retried 429, an echoed message) is no signal.

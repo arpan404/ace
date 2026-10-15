@@ -57,6 +57,7 @@ export function seedBuildServerUsage(server: FakeDaemon, now: number): void {
 export function seedLimitReadings(daemon: FakeDaemon, now: number): void {
   const accounts = daemon.services.accounts;
   const personal = accounts.find((account) => account.id === "claude-personal");
+  if (personal) personal.quota.resetCredits = { available: 2, nextExpiresAt: now + 12 * 24 * hour };
   if (personal)
     personal.quota.windows["seven_day_overage_included"] = {
       usedPercent: 27,

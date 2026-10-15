@@ -32,6 +32,8 @@ import { ProviderPayload } from "@ace/provider-kit/payload";
 import { defaultProviderExecutable, type DiscoveryOptions } from "@ace/provider-kit/discovery";
 import { createManagedHome, deleteManagedHome, registerImplicitAccounts } from "./account-homes.ts";
 import { refreshCliLimits, type CliUsageProvider, type ReadCliUsage } from "./account-limits.ts";
+import { consumeAccountReset, type ConsumeReset } from "./account-reset.ts";
+import type { AccountResetOutcome } from "@ace/protocol/accounts";
 import { defaultUsagePorts, refreshDeclaredLimits } from "./declared-limits.ts";
 import type { ModelCatalog } from "@ace/models";
 
@@ -83,6 +85,7 @@ export interface AccountManagementOptions {
   terminal?: TerminalManagerOptions | undefined;
   /** Reads a Codex account's limits without a turn; tests stand in for the CLI. */
   readCodexUsage?: ReadCliUsage | undefined;
+  consumeCodexReset?: ConsumeReset | undefined;
   /** Reads a Claude account's limits without a session; tests stand in for the CLI. */
   readClaudeUsage?: ReadCliUsage | undefined;
   /** The I/O behind declared usage sources; tests stand in for the CLI and the network. */
@@ -97,6 +100,7 @@ export class AccountManagement {
   private manager: TerminalManager;
   private terminals = new Map<string, AuthTerminal>();
   private closed = false;
+  private resetting = new Set<string>();
   private restorations = new Set<Promise<void>>();
   constructor(options: AccountManagementOptions) {
     this.options = options;
@@ -159,6 +163,28 @@ export class AccountManagement {
       this.refreshCli("claude", this.options.readClaudeUsage),
       this.refreshDeclared(),
     ]);
+  }
+  async consumeReset(instanceId: string, idempotencyKey: string): Promise<AccountResetOutcome> {
+    if (this.closed || this.resetting.has(instanceId)) throw new Error("Account reset busy");
+    this.resetting.add(instanceId);
+    try {
+      return await consumeAccountReset({
+        registry: this.options.registry,
+        instanceId,
+        idempotencyKey,
+        env: this.options.env,
+        cwd: this.options.dataDir,
+        signal: this.options.signal ?? new AbortController().signal,
+        discovery: this.options.discovery,
+        configuration: this.options.configuration?.("codex", instanceId),
+        consume: this.options.consumeCodexReset,
+      });
+    } finally {
+      // Even a lost consume reply may have spent the credit. Ask for fresh facts;
+      // never clear quota blockers or decrement the balance optimistically.
+      await this.refreshCli("codex", this.options.readCodexUsage);
+      this.resetting.delete(instanceId);
+    }
   }
   /** Accounts whose provider or ACP agent declares a usage source (Cursor, Gemini, ...). */
   private refreshDeclared(): Promise<void> {

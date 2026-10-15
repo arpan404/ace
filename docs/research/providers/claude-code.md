@@ -388,3 +388,19 @@ Always keep the raw `name`, `input`, `tool_use_id`, `tool_use_result` and `paren
 
 The Agent SDK `mcpServers` HTTP shape and read-only discovery contract is recorded
 in [ace MCP injection contracts](ace-mcp-injection.md#claude).
+
+### Saved reset grants (2026-10-15)
+
+Inspected the user's installed Claude Code 2.1.301 and Agent SDK 0.3.288. The SDK's
+`usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({skipBehaviors: true})`
+returns the CLI's `get_usage` reply. Its `rate_limits` includes additional server usage
+fields beyond the SDK's declared window types. Claude Code reads `cedar_ember.grants`
+with `resets_left` and optional ISO `ends_at` per grant. `usable_now` may be false
+while a saved reset remains available for a future limit. An explicit empty grant
+list reports zero; absent or malformed grants do not establish a balance.
+
+ace displays the saved balance and earliest unspent expiry. Redemption opens
+`https://claude.ai/settings/usage`: no supported SDK reset control operation was
+found. ace does not use the CLI's private HTTP mutation endpoint or read credentials
+for redemption. The weekly `juniper_tide` offer is separate from saved grants and
+is not counted as a banked reset.

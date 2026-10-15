@@ -73,3 +73,39 @@ test("an API-key login, a failed read or an SDK without the method reports no li
   readClaudeUsage({ query: {}, emit: (data) => emitted.push(data), isClosed: () => false });
   expect(emitted).toEqual([]);
 });
+
+test("saved Claude grants survive without measured windows and report their earliest unspent expiry", async () => {
+  const frames = await read(async () => ({
+    rate_limits: {
+      cedar_ember: {
+        eligible: true,
+        grants: [
+          { resets_left: 0, ends_at: "2026-10-16T00:00:00Z" },
+          { resets_left: 2, ends_at: "2026-11-01T00:00:00Z", usable_now: false },
+          { resets_left: 1, ends_at: null },
+        ],
+      },
+    },
+  }));
+  expect(frames[0]?.["resetCredits"]).toEqual({
+    available: 3,
+    nextExpiresAt: Date.parse("2026-11-01T00:00:00Z"),
+  });
+});
+
+test("an empty Claude grant list clears the balance while malformed or missing grants say nothing", async () => {
+  const frames = await read(async () => ({
+    ...maxLogin,
+    rate_limits: { ...maxLogin.rate_limits, cedar_ember: { eligible: true, grants: [] } },
+  }));
+  expect(frames[0]?.["resetCredits"]).toEqual({ available: 0, nextExpiresAt: null });
+  const malformed = await read(async () => ({
+    ...maxLogin,
+    rate_limits: {
+      ...maxLogin.rate_limits,
+      cedar_ember: { eligible: true, grants: [{ resets_left: -1 }] },
+    },
+  }));
+  expect(malformed[0]?.["resetCredits"]).toBeUndefined();
+  expect((await read(async () => maxLogin))[0]?.["resetCredits"]).toBeUndefined();
+});

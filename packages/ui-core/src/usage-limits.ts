@@ -11,6 +11,7 @@ import { formatCountdown } from "./time.ts";
 export interface UsageAccount {
   account: AccountView;
   environment: string;
+  environmentId?: string | undefined;
 }
 
 /** How a window's use compares with the time it has run. */
@@ -34,6 +35,7 @@ export interface AccountLimits {
   key: string;
   account: AccountView;
   environment: string;
+  environmentId?: string | undefined;
   /** Banked resets the provider reports; undefined when it doesn't report them. */
   bankedResets: number | undefined;
   bankedExpiresAt: number | null;
@@ -107,11 +109,11 @@ const sessionProviders = new Set(["codex", "claude"]);
 export function usageLimits(accounts: readonly UsageAccount[], now: number): UsageLimits {
   const groups = new Map<string, ProviderLimits>();
   const silent = new Map<string, string>();
-  for (const { account, environment } of accounts) {
+  for (const { account, environment, environmentId } of accounts) {
     const key = `${account.provider}:${account.acpAgentId ?? ""}`;
     const windows = account.windows;
     // An account whose login lapsed is listed with what to do, never with a guess at its limits.
-    if (!windows.length && !account.usageSignIn) {
+    if (!windows.length && !account.usageSignIn && !account.resetCredits?.available) {
       if (!groups.has(key)) silent.set(key, account.providerLabel);
       continue;
     }
@@ -128,7 +130,8 @@ export function usageLimits(accounts: readonly UsageAccount[], now: number): Usa
       groups.set(key, group);
     }
     group.accounts.push({
-      key: `${environment}\0${account.id}`,
+      key: `${environmentId ?? environment}\0${account.id}`,
+      environmentId,
       account,
       environment,
       bankedResets: account.resetCredits?.available,

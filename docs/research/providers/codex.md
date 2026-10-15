@@ -387,3 +387,15 @@ Server requests (`common.rs:1779-1850`), each answered with a JSON-RPC response:
 
 The exact argv, environment and read-only discovery contract is recorded in
 [ace MCP injection contracts](ace-mcp-injection.md#codex).
+
+### Redeeming banked resets (2026-10-15)
+
+Confirmed with schemas generated from the installed official ChatGPT app's
+`codex-cli 0.162.0-alpha.17.2` (`app-server generate-ts --experimental`):
+`account/rateLimitResetCredit/consume` accepts `idempotencyKey` and optional
+`creditId`. Omitting the credit ID lets the provider choose an available credit.
+Its response outcome is `reset`, `alreadyRedeemed`, `noCredit`, or `nothingToReset`.
+Only `reset` establishes a new redemption; retries of an uncertain attempt reuse
+its original key. ace calls this through a short-lived app-server in the selected
+account's own CLI environment after the person confirms in Usage, then rereads
+limits. It never guesses the new balance or clears blockers optimistically.

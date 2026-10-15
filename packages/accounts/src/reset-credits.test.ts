@@ -68,7 +68,7 @@ test("a model-specific Codex limit keeps the provider's name for it", () => {
   expect(state.windows["codex:secondary"]?.limitName).toBeUndefined();
 });
 
-test("Claude reports no banked resets, so none are recorded", () => {
+test("Claude rate-limit events never interpret Codex reset-credit fields", () => {
   const state = ingest(
     login,
     {
@@ -84,4 +84,24 @@ test("Claude reports no banked resets, so none are recorded", () => {
   );
   expect(state.resetCredits).toBeUndefined();
   expect(state.windows["five_hour"]?.usedPercent).toBe(20);
+});
+
+test("Claude keeps saved grants through sparse limit events until a complete read reports zero", () => {
+  const saved = ingest(
+    login,
+    { event: "claude-usage", resetCredits: { available: 2, nextExpiresAt: null } },
+    "claude",
+  );
+  const sparse = ingest(
+    saved,
+    { rate_limit_info: { status: "allowed", rateLimitType: "five_hour", utilization: 0.2 } },
+    "claude",
+  );
+  expect(sparse.resetCredits?.available).toBe(2);
+  const spent = ingest(
+    sparse,
+    { event: "claude-usage", resetCredits: { available: 0, nextExpiresAt: null } },
+    "claude",
+  );
+  expect(spent.resetCredits?.available).toBe(0);
 });

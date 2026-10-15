@@ -173,6 +173,43 @@ export function createAccountsSession(context: SocketContext): SocketService {
         }
         return true;
       }
+      if (message.type === "accounts.consumeReset") {
+        if (!context.authorize("operate")) {
+          context.fail("forbidden", "operate scope required", false, {
+            requestId: message.requestId,
+          });
+          return true;
+        }
+        if (pending >= 8 || !context.options.accountManagement) {
+          context.fail("accounts_busy", "Account reset unavailable", false, {
+            requestId: message.requestId,
+          });
+          return true;
+        }
+        pending++;
+        const task = context.options.accountManagement
+          .consumeReset(message.instanceId, message.idempotencyKey)
+          .then((outcome) => {
+            if (context.connected() && context.authorize("operate"))
+              context.send({
+                type: "accounts.consumeReset",
+                requestId: message.requestId,
+                outcome,
+              });
+          })
+          .catch(() => {
+            if (context.connected() && context.authorize("operate"))
+              context.fail("accounts_failed", "Couldn't confirm the account reset", false, {
+                requestId: message.requestId,
+              });
+          })
+          .finally(() => {
+            pending--;
+            context.tasks.delete(task);
+          });
+        context.tasks.add(task);
+        return true;
+      }
       if (message.type === "accounts.refreshLimits") {
         if (!context.authorize("read")) {
           context.fail("forbidden", "read scope required", false, {

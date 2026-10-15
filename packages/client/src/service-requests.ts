@@ -232,6 +232,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "accounts.logout": ["accounts.auth"],
   "accounts.list": ["accounts.list"],
   "accounts.refreshLimits": ["accounts.list"],
+  "accounts.consumeReset": ["accounts.consumeReset"],
   "accounts.status": ["accounts.status"],
   "accounts.migrate": ["accounts.migrate"],
   "files.pull": ["files.data", "files.error"],

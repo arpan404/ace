@@ -86,6 +86,7 @@ export function UsagePage() {
       .map((account) => ({
         account,
         environment: entry.environment.name,
+        environmentId: entry.environment.id,
       })),
   );
   const providerOptions = [
@@ -171,7 +172,23 @@ export function UsagePage() {
                   }
                 />
               ) : (
-                <LimitsView limits={usageLimits(listed, now)} now={now} />
+                <LimitsView
+                  limits={usageLimits(listed, now)}
+                  now={now}
+                  redeem={async (entry, idempotencyKey) => {
+                    const machine = environments.find(
+                      (candidate) => candidate.id === entry.environmentId,
+                    );
+                    if (!machine?.client) throw new Error("Environment is offline");
+                    const reply = await machine.client.request({
+                      type: "accounts.consumeReset",
+                      instanceId: entry.account.id,
+                      idempotencyKey,
+                    });
+                    await refresh();
+                    return reply.outcome;
+                  }}
+                />
               )
             ) : usage.error ? (
               <Failed error={usage.error} retry={usage.retry} />

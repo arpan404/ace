@@ -378,3 +378,56 @@ test("a usage read that couldn't be made shows nothing for the account", async (
   expect(screen.queryByRole("article", { name: / · Google · / })).toBeNull();
   expect(document.body.textContent).not.toContain("couldn't be reached");
 });
+
+test("using a banked reset requires confirmation and refreshes the account's balance and limits", async () => {
+  const app = harness();
+  report(app.daemon, "codex-personal", { "codex:primary": [100, hour, 300] }, 2);
+  await app.open("/usage");
+  const account = await accountBlock("Codex", "Personal");
+  await userEvent.click(within(account).getByRole("button", { name: "Use reset" }));
+  const dialog = await screen.findByRole("dialog", { name: "Use one banked reset?" });
+  expect(within(account).getByText("2 banked resets")).toBeTruthy();
+  await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  expect(within(account).getByText("2 banked resets")).toBeTruthy();
+  await userEvent.click(within(account).getByRole("button", { name: "Use reset" }));
+  await userEvent.click(
+    within(await screen.findByRole("dialog")).getByRole("button", { name: "Use reset" }),
+  );
+  await waitFor(() => expect(within(account).getByText("1 banked reset")).toBeTruthy());
+  expect(
+    within(account).getByRole("meter", { name: "Session (5h)" }).getAttribute("aria-valuenow"),
+  ).toBe("100");
+});
+
+test("Claude's saved resets are visible with a route to its usage settings even without windows", async () => {
+  const app = harness();
+  report(app.daemon, "claude-personal", {}, 2);
+  await app.open("/usage");
+  const account = await accountBlock("Claude Code", "Personal");
+  expect(within(account).getByText("2 banked resets")).toBeTruthy();
+  expect(
+    within(account).getByRole("link", { name: "Use reset in Claude" }).getAttribute("href"),
+  ).toBe("https://claude.ai/settings/usage");
+});
+
+test("redeeming a remote account's reset spends only that environment's balance", async () => {
+  const app = harness({ machines: [{ hostId: "build", name: "Build server" }] });
+  const remote = app.machines.get("build");
+  if (!remote) throw new Error("missing build server");
+  report(app.daemon, "codex-personal", { "codex:primary": [100, hour, 300] }, 2);
+  report(remote, "codex-personal", { "codex:primary": [100, hour, 300] }, 5);
+  await app.open("/usage");
+  const remoteBlock = await screen.findByRole("article", {
+    name: "Codex · Personal · Build server",
+  });
+  await userEvent.click(within(remoteBlock).getByRole("button", { name: "Use reset" }));
+  await userEvent.click(
+    within(await screen.findByRole("dialog")).getByRole("button", { name: "Use reset" }),
+  );
+  await waitFor(() => expect(within(remoteBlock).getByText("4 banked resets")).toBeTruthy());
+  expect(
+    within(screen.getByRole("article", { name: "Codex · Personal · This Mac" })).getByText(
+      "2 banked resets",
+    ),
+  ).toBeTruthy();
+});

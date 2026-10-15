@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { claudeResetCredits } from "./reset-credits.ts";
 import { askClaude, type MetadataQueryInput } from "./metadata-query.ts";
 
 /*
@@ -79,10 +80,12 @@ export function usageReading(result: unknown): Record<string, unknown> | undefin
       advisory: true,
     };
   }
-  if (!Object.keys(usageWindows).length) return undefined;
+  const resetCredits = claudeResetCredits(parsed.rate_limits["cedar_ember"]);
+  if (!Object.keys(usageWindows).length && !resetCredits) return undefined;
   return {
     event: "claude-usage",
     usageWindows,
+    ...(resetCredits ? { resetCredits } : {}),
     ...(parsed.subscription_type ? { planType: parsed.subscription_type } : {}),
   };
 }

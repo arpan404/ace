@@ -4,6 +4,27 @@
   "oneOf": [
     {
       "properties": {
+        "outcome": {
+          "$ref": "https://ace.local/protocol/v1/AccountResetOutcome.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "accounts.consumeReset",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "account": {
           "anyOf": [
             {
