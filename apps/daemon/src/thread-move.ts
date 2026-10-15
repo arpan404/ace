@@ -3,7 +3,7 @@ import { ProjectStorage } from "./project-storage.ts";
 import { ProjectError } from "./project-policy.ts";
 import { threadHasPendingWork } from "./thread-organization.ts";
 import { threadMoveError, movedThreadDetails, threadMoveEvents } from "@ace/projection";
-import type { Command, CommandResult, ThreadId } from "@ace/protocol";
+import type { Command, CommandResult, Thread, ThreadId } from "@ace/protocol";
 import type { Store } from "./store.ts";
 import type { WorkspaceRuntimeOptions } from "./workspace-runtime.ts";
 
@@ -22,7 +22,7 @@ export async function moveThread(
   try {
     const thread = store.getThread(p.threadId);
     if (!thread) return { ok: false, error: "thread_not_found" };
-    const error = threadMoveError(thread);
+    const error = movable(store, thread);
     if (error) return { ok: false, error };
     if (threadHasPendingWork(store, thread.id, ownsWork))
       return { ok: false, error: "thread_busy" };
@@ -67,7 +67,7 @@ export async function moveThread(
         const current = store.getThread(thread.id);
         if (!current || current.workspaceId !== thread.workspaceId)
           throw new ProjectError("workspace_changed");
-        const changed = threadMoveError(current);
+        const changed = movable(store, current);
         if (changed || threadHasPendingWork(store, thread.id, ownsWork))
           throw new ProjectError(changed ?? "thread_busy");
         store.workspaceReservations.assertAvailable(source.path);
@@ -79,4 +79,26 @@ export async function moveThread(
   } catch (error) {
     return { ok: false, error: error instanceof ProjectError ? error.code : "thread_move_failed" };
   }
+}
+
+/**
+ * A thread whose provider died with work in flight waits on a paused recovery hold: nothing
+ * runs until the person presses Continue. That hold is not live work, so the thread may move
+ * (as it may be deleted); the held continuation resumes in the destination.
+ */
+function movable(store: Store, thread: Thread): string | undefined {
+  const error = threadMoveError(thread);
+  if (error !== "thread_busy") return error;
+  const held =
+    thread.status.state === "waiting" &&
+    thread.status.on === "queue" &&
+    store.atomic((db) =>
+      Boolean(
+        db
+          .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='engine_queue'")
+          .get() &&
+        db.prepare("SELECT 1 FROM engine_queue WHERE thread_id=? AND paused=1").get(thread.id),
+      ),
+    );
+  return held ? undefined : error;
 }

@@ -320,6 +320,8 @@ test("a move reconciles a dead provider and exited terminal before testing live 
     ).toMatchObject({ ok: true });
     expect(f.store.getThread(f.id)?.workspaceId).toBe(f.target);
     expect(f.runtime.listTerminals(f.id)).toEqual([]);
+    // The interrupted turn still waits for the person's Continue, now in the destination.
+    expect(f.store.getThread(f.id)?.status).toMatchObject({ state: "waiting", on: "queue" });
   } finally {
     await f.close();
   }
