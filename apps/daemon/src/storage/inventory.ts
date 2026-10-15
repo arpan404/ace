@@ -157,17 +157,7 @@ export class StorageInventory {
     const reservation = store
       .statement("SELECT 1 FROM workspace_root_reservations WHERE root=? AND command_id<>?")
       .get(path, `storage:${this.owner.cleanupPlanId ?? ""}`);
-    const repository = store.workspaceReservations.repository(path);
-    if (
-      reservation ||
-      (repository &&
-        store.workspaceReservations.repositoryReserved(repository) &&
-        !store.workspaceReservations.ownsRepositoryReservation(
-          repository,
-          `storage:${this.owner.cleanupPlanId ?? ""}`,
-        ))
-    )
-      protections.push("cleanup_in_progress");
+    if (reservation) protections.push("cleanup_in_progress");
     return { ids, protections, threads };
   }
   async inspect(

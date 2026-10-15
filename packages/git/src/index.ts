@@ -65,7 +65,6 @@ export { publicationRemote } from "./publication-remote.ts";
 export type { CloneOptions, ProjectGitPolicy } from "./projects.ts";
 export { GitError, gitFailureCodes, isMutationUnavailable } from "./types.ts";
 export { spawnGitProcess } from "./process-runtime.ts";
-export { repositoryScope } from "./mutation-leases.ts";
 export type * from "./types.ts";
 export type { MutationState } from "./mutation-state.ts";
 export type {
@@ -185,9 +184,7 @@ export class GitService {
     return attachPublicationOrigin(this.repository, input);
   }
   pushPublication(input: PublicationGitInput & { url: string }, policy?: ProjectGitPolicy) {
-    return this.repository.cli.withAuthorizedTransfer(input.worktree, () =>
-      pushPublication(this.repository, input, policy),
-    );
+    return pushPublication(this.repository, input, policy);
   }
   resourceUsage(): { checkpointCounters: number; activeCalls: number } {
     return {
@@ -253,15 +250,11 @@ export class GitService {
     return changeSummary(this.repository, worktree);
   }
   push(options: PushOptions): Promise<void> {
-    return this.repository.cli.withAuthorizedTransfer(options.worktree, () =>
-      pushBranch(this.repository, options),
-    );
+    return pushBranch(this.repository, options);
   }
   /** Move several branches in one atomic push, each leased to a caller-reviewed revision. */
   pushLeased(options: LeasedPushOptions) {
-    return this.repository.cli.withAuthorizedTransfer(options.worktree, () =>
-      pushLeasedRefs(this.repository, options),
-    );
+    return pushLeasedRefs(this.repository, options);
   }
   /** Replay collaborator commits onto locally rebased stack layers (see `stack-sync.ts`). */
   replayStackLayers(options: StackReplayOptions) {
@@ -307,9 +300,7 @@ export class GitService {
   }
   /** Fetch one branch into its remote-tracking ref only, bounded by `timeoutMs`. */
   fetchBranch(options: FetchBranchOptions): Promise<void> {
-    return this.repository.cli.withAuthorizedTransfer(options.repo, () =>
-      fetchBranch(this.repository, options),
-    );
+    return fetchBranch(this.repository, options);
   }
   /** The branch the remote's `HEAD` names, read locally or by one bounded `ls-remote`. */
   remoteDefaultBranch(options: RemoteDefaultBranchOptions): Promise<string | undefined> {

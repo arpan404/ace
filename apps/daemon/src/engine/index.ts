@@ -5,7 +5,6 @@ import {
 import { liveAceCall } from "./ace-approvals.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
 import { ThreadLiveness, type LiveWork } from "./thread-liveness.ts";
-import { RepositoryTransfers } from "./repository-transfers.ts";
 import { EngineModels } from "./models.ts";
 import { personCommand } from "./person-command.ts";
 import { cancelDelegatedInputs } from "./stop-intents.ts";
@@ -127,7 +126,6 @@ export class Engine {
   private actors = new Map<ThreadId, ThreadActor>();
   private stopReleaseWatch: () => void;
   private workspaceChanges = new Map<ThreadId, Promise<void>>();
-  private readonly repositoryTransfers: RepositoryTransfers;
   private sends: IntentWorkers;
   private controls: IntentWorkers;
   private steering: IntentWorkers;
@@ -165,25 +163,6 @@ export class Engine {
       () => this.clock.now(),
     );
     if (options.onNamingPrompt) this.repo.onNamingPrompt = options.onNamingPrompt;
-    this.repositoryTransfers = new RepositoryTransfers(
-      this.repo,
-      () => this.actors.keys(),
-      (id) => {
-        const work = this.liveWork(id);
-        return (
-          work.agentsRunning > 0 ||
-          work.operationsRunning > 0 ||
-          this.sends.isActive(id) ||
-          this.steering.isActive(id) ||
-          this.controls.isActive(id)
-        );
-      },
-      async (id) => {
-        await this.actors.get(id)?.flush();
-      },
-      this.clock,
-      (id) => this.wake(id),
-    );
     const models = (this.models = new EngineModels(
       this.repo,
       () => this.clock.now(),
@@ -213,10 +192,9 @@ export class Engine {
       ...(options.onSessionOpenFailure ? { openFailed: options.onSessionOpenFailure } : {}),
       ...(options.permissionSettings ? { permissionSettings: options.permissionSettings } : {}),
       ...(options.prepareWorkspace ? { prepareWorkspace: options.prepareWorkspace } : {}),
-      assertWorkspaceAvailable: async (cwd) => {
-        await this.repositoryTransfers.assertAvailable(cwd);
-        await options.assertWorkspaceAvailable?.(cwd);
-      },
+      ...(options.assertWorkspaceAvailable
+        ? { assertWorkspaceAvailable: options.assertWorkspaceAvailable }
+        : {}),
       registry: this.registry,
       clock: this.clock,
       closing: () => this.closing,
@@ -976,11 +954,6 @@ export class Engine {
   }
   liveWork(id: ThreadId): LiveWork {
     return this.liveness.live(id);
-  }
-  async withRepositoryTransfer<T>(repository: string, operation: () => Promise<T>): Promise<T> {
-    await this.readyPromise;
-    if (this.closing) throw new Error("engine_unavailable");
-    return this.repositoryTransfers.run(repository, operation);
   }
   /** Called after the durable cleanup fence has denied all new execution. */
   stopForDeletion(id: ThreadId): Promise<void> {
