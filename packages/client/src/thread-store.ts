@@ -3,7 +3,12 @@ import { clipItem } from "./item-window.ts";
 import { pageWindow } from "./page-window.ts";
 import { MessageDeltas } from "./message-deltas.ts";
 import { PageJournal } from "./page-journal.ts";
-import { applyDelivery, usageSnapshotKey, rebuildAgentChildren } from "@ace/projection";
+import {
+  applyDelivery,
+  usageSnapshotKey,
+  rebuildAgentChildren,
+  chronologicalItemOrder,
+} from "@ace/projection";
 import type { ThreadView, EventBatch, Progress, Item, ItemsPage } from "@ace/protocol";
 import type { Mirrorable, ThreadExport, ThreadSource } from "./api.ts";
 import type { ThreadKey, ThreadReader } from "./readers.ts";
@@ -192,6 +197,11 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       usageSnapshots: view.usageSnapshots,
     }))
       counts.set(name, Object.keys(record).length);
+    view.itemOrder = chronologicalItemOrder(
+      view.itemOrder,
+      (id) => this.#own(view.items, id),
+      (id) => view.itemSeqs?.[id],
+    );
     this.#view = view;
     this.#failure = undefined;
     this.#journal.reset(view.seq);
@@ -306,7 +316,7 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
         case "item.updated":
           this.#deleted.delete(p.item.id);
           if (p.type === "item.updated" && !this.item(p.item.id)) break;
-          if (!this.item(p.item.id)) {
+          if (!this.item(p.item.id) || this.item(p.item.id)?.createdAt !== p.item.createdAt) {
             view.itemOrder = [...view.itemOrder];
             keys.add("order");
           }

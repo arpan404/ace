@@ -8,6 +8,7 @@ import { DevicesService, DevicePlatform, agentOwner } from "@ace/devices";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { Command, Capabilities, McpScope } from "@ace/protocol";
 import { DeviceOperation } from "@ace/protocol/devices";
+import { prepareDaemonHome } from "@ace/service";
 import { startDaemon, readConfig, AdapterRegistry } from "./index.ts";
 import { invoke } from "./browser-mcp-test-support.ts";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
@@ -31,6 +32,7 @@ const data = (result: z.infer<typeof Reply>["result"]) =>
 
 it("screen and device agents edit, submit, resume expired leases and respect takeover, disconnect and revocation through daemon MCP", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-computer-journey-"));
+  prepareDaemonHome(home);
   onTestFinished(() => rm(home, { recursive: true, force: true }));
   for (const path of ["platform-tools/adb", "emulator/emulator"]) {
     await mkdir(join(home, path, ".."), { recursive: true });

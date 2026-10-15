@@ -1,3 +1,4 @@
+import { chronologicalItemOrder } from "./item-order.ts";
 import type { Item, ItemsPage, ThreadView } from "@ace/protocol";
 
 /** A detail view seeds the item it tracks, so later updates/deltas keep applying. */
@@ -21,7 +22,11 @@ export function applyItemsPage(view: ThreadView, page: ItemsPage): void {
       ordered.add(item.id);
     }
   }
-  view.itemOrder = [...older, ...view.itemOrder];
+  view.itemOrder = chronologicalItemOrder(
+    [...older, ...view.itemOrder],
+    (id) => view.items[id],
+    (id) => page.itemSeqs?.[id] ?? view.itemSeqs?.[id],
+  );
   // Exclusive creation cursors only move backward; reaching the start is final.
   if (view.itemsBefore !== null)
     view.itemsBefore =

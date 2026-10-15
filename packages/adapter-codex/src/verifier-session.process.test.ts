@@ -26,9 +26,16 @@ test("truncated child recovery retries a failed read even after ancestry becomes
     expect(h.replay.state.status.state).not.toBe("done");
     const beforeRetry = h.frames.at(-1)?.seq ?? 0;
     h.runTimers();
-    // A subsequent offline provider command/list response is an I/O barrier, even if no retry ran.
+    await h.wait(
+      (f) =>
+        f.seq > beforeRetry &&
+        note("thread-discovered")(f) &&
+        obj(obj(f.data)["thread"])["id"] === "overflow-child",
+    );
+    const recoveredBarrier = h.frames.at(-1)?.seq ?? 0;
+    // The root's next response must follow the recovered child's history.
     await h.session.send(text("finish"), "steer");
-    await h.wait((f) => f.seq > beforeRetry && note("discovery-finished")(f));
+    await h.wait((f) => f.seq > recoveredBarrier && note("discovery-finished")(f));
     expect(h.replay.state.status.state).toBe("done");
   } finally {
     await h.dispose();

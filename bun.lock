@@ -940,6 +940,7 @@
         "@ace/html": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "@ace/service": "workspace:*",
         "@ace/ui-core": "workspace:*",
         "@playwright/test": "1.63.0",
         "zod": "^4.6.5",

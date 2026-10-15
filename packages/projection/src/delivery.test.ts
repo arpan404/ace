@@ -174,3 +174,31 @@ it("restores sibling trees and keeps subsequent reparenting consistent", () => {
   expect(view.agentChildren.new).toEqual(["child-19999"]);
   expect(view.agentChildren.__proto__).toHaveLength(19_999);
 });
+
+it("delivers late-created items chronologically and keeps equal timestamps in creation order", () => {
+  const view = createThreadView(thread);
+  const events = [30, 10, 20, 20].map((createdAt, index) =>
+    Event.parse({
+      id: `item-${index}`,
+      seq: index + 1,
+      at: index + 1,
+      threadId: thread.id,
+      payload: {
+        type: "item.created",
+        item: {
+          id: `item-${index}`,
+          agentId: "root",
+          type: "message",
+          role: "user",
+          createdAt,
+          complete: true,
+          parts: [{ type: "text", text: `ask-${index}` }],
+        },
+      },
+    }),
+  );
+  expect(applyDelivery(view, batch(0, 4, events)).kind).toBe("applied");
+  expect(view.itemOrder).toEqual(["item-1", "item-2", "item-3", "item-0"]);
+  expect(applyDelivery(view, batch(0, 4, events)).kind).toBe("ignored");
+  expect(view.itemOrder).toEqual(["item-1", "item-2", "item-3", "item-0"]);
+});

@@ -1,4 +1,4 @@
-import { visibleHistoryOrder } from "@ace/projection";
+import { chronologicalItemOrder, visibleHistoryOrder } from "@ace/projection";
 import { executionOrder } from "./execution-order.ts";
 import type { BackgroundTask, Item, Run } from "@ace/protocol";
 import {
@@ -132,6 +132,7 @@ export type RunFacts = Pick<Run, "state" | "trigger" | "endedAt"> & {
 export interface BlockSource {
   order: readonly string[];
   item(id: string): Item | undefined;
+  creationSeq?(id: string): number | undefined;
   /** Tool call id → background task id, for calls that outlived their turn. */
   background: ReadonlyMap<string, string>;
   /** Interactions that render inline (questions), oldest first. */
@@ -321,7 +322,11 @@ function lastWorkOf(
  * questions, injected messages and other events show inline without ending it. A turn's files
  * card and ending wait until its whole tree has settled (ADR 0062).
  */
-export function buildBlocks(source: BlockSource): Block[] {
+export function buildBlocks(input: BlockSource): Block[] {
+  const source = {
+    ...input,
+    order: chronologicalItemOrder(input.order, input.item, input.creationSeq),
+  };
   const blocks: Block[] = [];
   const workAt = new Map<WorkBlock, number>();
   const anchors = anchorQuestions(source);
