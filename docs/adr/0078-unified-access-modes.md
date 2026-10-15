@@ -35,7 +35,7 @@ thread doesn't start until the person picks.
 | Read-only   | `plan`              | `:read-only`, approval `never`                     | Plan agent, no ace rules                                              | —                           | `--tools read,grep,find,ls` | `plan`                          | `plan`              | `read-only`         |
 | Ask         | `default`           | `:read-only`, `on-request`, reviewer `user`        | Build agent + session rules: `*` ask, reads allowed, `.env` reads ask | —                           | —                           | `default`                       | `default`           | —                   |
 | Auto review | `auto`              | `:workspace`, `on-request`, reviewer `auto_review` | — (no reviewer)                                                       | sandbox on, autoReview on   | —                           | — (`auto_edit` has no reviewer) | `auto`              | `agent`             |
-| Full access | `bypassPermissions` | `:danger-full-access`, approval `never`            | Build agent + session rule `*` allow                                  | sandbox off, autoReview off | default tools               | `yolo`                          | `bypassPermissions` | `agent-full-access` |
+| Full access | `bypassPermissions` | `:danger-full-access`, approval `never`            | Build agent + session rules `*` allow, desktop `browser` off          | sandbox off, autoReview off | default tools               | `yolo`                          | `bypassPermissions` | `agent-full-access` |
 
 Unprofiled ACP agents offer no ace mode; they run their own default. Codex offers a mode only
 when `permissionProfile/list` allows the built-in profile it runs on.
@@ -106,12 +106,25 @@ Per provider, at session start:
   through Code Mode's `execute`, whose `search()` never lists them (2.0.29). An OpenCode thread
   on 2026-10-14 searched only the Code Mode catalog, found no shell or file tools there and
   told the person it had none, although Build with `*` allow offered them.
+  Ask and Full access end with `browser` `deny`: see the next amendment.
 - **Cursor SDK**: `local.settingSources: ["all"]`. The SDK loads no ambient layer when this is
   omitted: no project or user rules, skills, hooks, plugins or MCP servers, not even ace's own
-  always-applied rule in `dirs`. ADR 0043's private per-instance `HOME` still keeps the person's
-  real `~/.cursor` user layer out of reach; bringing it in without exposing credentials is
-  open.
+  always-applied rule in `dirs`. The person's user layer reaches the SDK's private per-instance
+  `HOME` as read-only copies of their non-secret `~/.cursor` config (ADR 0043, amendment of
+  2026-10-14).
 - **Pi**: Read-only is Pi's own `--tools` allowlist; other modes pass no tool flag, and ace's
   extension keeps Pi's active native tools when it adds its own.
 - **ACP**: the agent's own file and terminal tools (ace offers no client `fs`/`terminal`), with
   ace's server appended to the person's.
+
+## Amendment: tools that cannot work under ace stay off (owner, 2026-10-14)
+
+OpenCode Desktop's `browser.*` tools (45 in 2.0.29, in Code Mode) drive the desktop app's own
+browser pane. ace runs its own `opencode serve`, which no desktop app attaches to, so those tools
+can never work in an ace session. OpenCode's Build agent turns them off by default
+(`browser` `deny`); ace's `*` catch-all turned them back on, and an agent then read them as its
+only tools. Ask and Full access therefore end with `{ action: "browser", resource: "*", effect:
+"deny" }`. That is tool availability, not gating: Full access still allows every other tool
+without asking, Ask still asks, and ace's own `ace_browser_*` tools are unaffected. Read-only
+(Plan) writes no rules and keeps OpenCode's own default, which is the same. A tool group is left
+out only when it is provably non-functional in an ace session, never to restrict an agent.

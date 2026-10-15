@@ -9,6 +9,7 @@ import { CursorTranslator } from "./translator.ts";
 import type { readCursorSnapshot } from "./history.ts";
 import { CursorHostSlots } from "./slots.ts";
 import { Limits } from "./contracts.ts";
+import { mirrorCursorUserConfig } from "./user-settings.ts";
 
 export interface CursorAdapterOptions extends Omit<HostOptions, "env"> {
   instance?: CursorInstance;
@@ -17,6 +18,11 @@ export interface CursorAdapterOptions extends Omit<HostOptions, "env"> {
   operationId?: () => string;
   policy?: "restricted" | "full-access";
   autoReviewAvailable?: boolean;
+  /**
+   * The person's real home, whose user-level `~/.cursor` config (never its credentials) is
+   * copied into the private instance home before each session. Defaults to the daemon's home.
+   */
+  userHome?: string;
   /** The owner issues a thread/instance-scoped lease; no shared static token. */
   mcp?: (
     context: SessionContext & { instanceId: string },
@@ -36,6 +42,13 @@ export function createCursorAdapter(
   const admissions = new Map<Promise<void>, string>();
   let closed = false;
   const fenced = new Set<string>();
+  // One copy at a time: concurrent opens would otherwise swap the same entries under each other.
+  let mirroring: Promise<unknown> = Promise.resolve();
+  const mirror = (home: string) => {
+    const next = mirroring.then(() => mirrorCursorUserConfig(options.userHome ?? homedir(), home));
+    mirroring = next.catch(() => {});
+    return next;
+  };
   return {
     provider: "cursor",
     backend: "cursor-sdk",
@@ -77,10 +90,11 @@ export function createCursorAdapter(
         // An accounts-composed environment must already carry the private SDK default home.
         if (env.HOME !== join(selected.homeDir, "user"))
           throw new Error("Cursor SDK host home must match the selected instance");
+        await mirror(join(selected.homeDir, "user"));
         lease = await options.mcp?.({ ...context, instanceId: selected.id });
         let session: ProviderSession | undefined;
         let exitedDuringAdmission = false;
-        const { mcp: _mcpFactory, ...hostOptions } = options;
+        const { mcp: _mcpFactory, userHome: _userHome, ...hostOptions } = options;
         let recoverySnapshot: Awaited<ReturnType<typeof readCursorSnapshot>> | undefined;
         if (context.resume) {
           // Canonical ace history already owns content. Validate a bounded snapshot

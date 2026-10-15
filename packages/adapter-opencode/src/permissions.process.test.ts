@@ -89,9 +89,16 @@ test("Ask and Full access write OpenCode rules on the session, never into the pr
           { action: "lsp", resource: "*", effect: "allow" },
           { action: "read", resource: "*.env", effect: "ask" },
           { action: "read", resource: "*.env.*", effect: "ask" },
+          { action: "browser", resource: "*", effect: "deny" },
         ],
       ],
-      [opencodeNative.fullAccess, [{ action: "*", resource: "*", effect: "allow" }]],
+      [
+        opencodeNative.fullAccess,
+        [
+          { action: "*", resource: "*", effect: "allow" },
+          { action: "browser", resource: "*", effect: "deny" },
+        ],
+      ],
     ] as const) {
       const session = await h.open(project, undefined, mode);
       const transport = h.transport();

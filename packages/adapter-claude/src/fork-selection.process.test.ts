@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { expect, test } from "vitest";
 import { harness, subtype } from "./session.test-helper.ts";
+import { developerInstructions } from "@ace/mcp-server";
 import { object } from "./native.ts";
 
 test("Claude forks at the exact native message with a distinct session identity", async () => {
@@ -142,12 +143,9 @@ test("Claude preserves selected fork permissions, project MCP and scoped ace ins
         headers: { Authorization: "Bearer <ACE_MCP_CREDENTIAL>" },
       },
     });
-    expect(object(data["request"])["appendSystemPrompt"]).toContain("mcp__ace__*");
+    // ace's Claude guidance is appended once, as the MCP server package renders it.
     expect(object(data["request"])["appendSystemPrompt"]).toContain(
-      "Never drive Safari/Chrome/Arc/Firefox with screen_*",
-    );
-    expect(object(data["request"])["appendSystemPrompt"]).not.toContain(
-      "appear only when authorized",
+      developerInstructions("claude"),
     );
     expect(JSON.stringify(h.frames)).not.toContain(bearer);
   } finally {
