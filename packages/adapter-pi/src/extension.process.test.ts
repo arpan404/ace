@@ -292,3 +292,20 @@ test("Pi still starts with ace's commands when ace's tool server is unreachable,
   });
   expect(host.sent).toMatchObject([{ customType: "ace.delegation.settled", content: "settled" }]);
 });
+
+test("Pi's extension reload after switch_session or fork finds ace's session while the path stays out of the shell environment", async () => {
+  const config = privateMcpConfig(JSON.stringify({ controlSecret: "a".repeat(64) }));
+  onTestFinished(config.remove);
+  const env: NodeJS.ProcessEnv = { ACE_PI_SESSION_FILE: config.path };
+  const holder = {};
+  const first = createPiExtensionHost();
+  await first.start((pi) => registerAcePiExtension(pi, env, holder));
+  expect(env.ACE_PI_SESSION_FILE).toBeUndefined();
+  for (const replacement of ["switch_session", "fork"]) {
+    // Pi shuts the old runtime down and runs every extension factory again in a new one.
+    const next = createPiExtensionHost();
+    await next.start((pi) => registerAcePiExtension(pi, env, holder));
+    expect([...next.commands.keys()], replacement).toEqual(["ace-rollback", "ace-context"]);
+  }
+  expect(env.ACE_PI_SESSION_FILE).toBeUndefined();
+});

@@ -1262,6 +1262,8 @@ export class Engine {
       return;
     }
     const recovery = this.repo.pending.recovery(actor.id);
+    // Every queue change wakes the thread; keep core's view of a held queue current with it.
+    this.syncQueue(actor);
     const queue = this.repo.queue.get(actor.id);
     // Releasing a restart hold does not consume native history. Keep the fork or
     // patch guard until its owning transition executes after this explicit resume.

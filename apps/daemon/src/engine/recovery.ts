@@ -130,9 +130,8 @@ export class Recovery {
         ],
         this.clock.now(),
       );
-    const count = this.repo.queuedCount(id);
-    if (this.repo.requireState(id).queueSources.engine !== count)
-      this.repo.apply(id, [{ type: "queue.changed", source: "engine", count }], this.clock.now());
+    const fact = this.repo.engineQueueFact(id);
+    if (fact) this.repo.apply(id, [fact], this.clock.now());
   }
   /** Permanent host subtree stop discards continuation and fences pending resumes.
    * Ordinary interruption/pause retains these records. */

@@ -99,7 +99,7 @@ const allowed: Record<Fact["type"], string[]> = {
   signal: ["agent"],
   "process.exited": ["deliberate", "message"],
   "process.started": [],
-  "queue.changed": ["count", "source"],
+  "queue.changed": ["count", "source", "held"],
   tick: [],
 };
 
@@ -327,7 +327,9 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
         typeof fact.count === "number" &&
         Number.isSafeInteger(fact.count) &&
         fact.count >= 0 &&
-        (fact.source === undefined || oneOf(fact.source, ["engine", "provider"]))
+        (fact.source === undefined || oneOf(fact.source, ["engine", "provider"])) &&
+        optionalBoolean(fact.held) &&
+        (fact.held === undefined || fact.source !== "provider")
       );
     case "agent.disconnected":
     case "agent.reconnected":

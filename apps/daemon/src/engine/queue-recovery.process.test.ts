@@ -380,7 +380,7 @@ test.each(["model_unavailable", "Cannot open directory"])(
       messages: [{ input: text("first") }],
     });
     expect(sends(replacement)).toEqual([]);
-    expect(h.store.snapshotThread(id).thread.status).toEqual({ state: "waiting", on: "queue" });
+    expect(h.store.snapshotThread(id).thread.status).toEqual({ state: "failed" });
   },
 );
 

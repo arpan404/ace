@@ -2,6 +2,7 @@ import { GitError } from "@ace/git";
 import type { ProviderErrorDetails } from "@ace/protocol";
 import { expect, test } from "vitest";
 import type { SessionContext } from "@ace/engine-api";
+import { ProviderPayload } from "@ace/provider-kit/payload";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
 
 for (const exit of [false, true])
@@ -96,6 +97,53 @@ test("structured open failures reach diagnostics and stored notices with the sam
       }),
     );
     expect(JSON.stringify({ warnings, items })).not.toContain("private-open-secret");
+  } finally {
+    await h.close();
+  }
+});
+
+test("why a CLI couldn't start, from its stderr, reaches the failed send's detail, redacted", async () => {
+  const warnings: ProviderErrorDetails[] = [];
+  const h = await harness([], scriptFrames(), {
+    onSessionOpenFailure: (_id, details) => warnings.push(details),
+  });
+  try {
+    h.registry.register(
+      {
+        ...h.adapter,
+        async openSession(ctx) {
+          let seq = 0;
+          for (const line of [
+            'Error: Failed to load extension "ace": Extension runtime not initialized',
+            'Hint: Start without extensions using "pi -ne". api_key=private-stderr-secret',
+          ]) {
+            const payload = new ProviderPayload(JSON.stringify(line));
+            ctx.onFrame({
+              seq: ++seq,
+              t: seq,
+              dir: "stderr",
+              channel: "stdio",
+              data: line,
+              payload,
+            });
+          }
+          throw new Error("Pi RPC closed");
+        },
+      },
+      { installed: true, auth: "logged_in", loginHint: "unused" },
+    );
+    const id = await h.create();
+    expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "not_sent" });
+    expect(warnings[0]?.detail).toContain("Pi RPC closed");
+    expect(warnings[0]?.detail).toContain("Failed to load extension");
+    expect(warnings[0]?.detail).toContain('Start without extensions using "pi -ne"');
+    const notices = Object.values(h.store.snapshotThread(id).items).filter(
+      (item) => item.type === "notice",
+    );
+    expect(notices).toContainEqual(
+      expect.objectContaining({ detail: expect.stringContaining("Failed to load extension") }),
+    );
+    expect(JSON.stringify({ warnings, notices })).not.toContain("private-stderr-secret");
   } finally {
     await h.close();
   }
@@ -263,7 +311,7 @@ test("an unavailable model holds the original input until a model switch sends i
       reason: "model_unavailable",
       messages: [{ state: "queued" }],
     });
-    expect(h.store.snapshotThread(id).thread.status).toEqual({ state: "waiting", on: "queue" });
+    expect(h.store.snapshotThread(id).thread.status).toEqual({ state: "failed" });
     expect(
       Object.values(h.store.snapshotThread(id).items).filter(
         (item) => item.type === "notice" && item.level === "error",

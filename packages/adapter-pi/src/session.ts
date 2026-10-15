@@ -6,6 +6,7 @@ import {
 } from "./session-references.ts";
 import { privateMcpConfig, AceMcpConnectionSchema } from "@ace/mcp-server";
 import { fileURLToPath } from "node:url";
+import { finished } from "node:stream/promises";
 import { piLaunchArgs } from "./launch-args.ts";
 import type { ProviderSession, SessionContext, Frame } from "@ace/engine-api";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
@@ -230,6 +231,21 @@ export async function openPiSession(
     fatal,
     ctx.outputFlow,
   );
+  const stderrEnded = finished(proc.stderr, { writable: false }).catch(() => {});
+  /**
+   * Once Pi exits, what it printed last (often why it stopped) is still in the pipe: read it to
+   * its end, or for at most a second when something else holds the pipe open.
+   */
+  const drained = proc.exited.then(
+    (exit) =>
+      new Promise<typeof exit>((resolve) => {
+        const cancel = io.schedule(() => resolve(exit), 1000);
+        void stderrEnded.then(() => {
+          cancel();
+          resolve(exit);
+        });
+      }),
+  );
   function close(_reason: "idle" | "user" | "shutdown", expected = true): Promise<void> {
     if (closePromise) return closePromise;
     deliberate = expected;
@@ -244,10 +260,12 @@ export async function openPiSession(
     void close("shutdown");
   }
   ctx.signal.addEventListener("abort", abort, { once: true });
-  void proc.exited.then((exit) => {
+  void proc.exited.then(() => {
     closed = true;
     release();
     rpc.close();
+  });
+  void drained.then((exit) => {
     detachStderr();
     ctx.onExit({ deliberate, message: `Pi process ${exit.reason}, code ${exit.code}` });
   });
@@ -294,6 +312,13 @@ export async function openPiSession(
     });
     ctx.signal.throwIfAborted();
   } catch (error) {
+    // Pi says why it couldn't start on stderr as it exits. Read that to its end before
+    // detaching, so the open failure's Details carry it.
+    if (!closePromise) {
+      deliberate = false;
+      await proc.stop({ graceMs: 1000 });
+      await drained;
+    }
     await close("shutdown", false);
     throw error;
   }

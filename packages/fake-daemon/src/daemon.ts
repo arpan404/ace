@@ -593,6 +593,20 @@ export class FakeDaemon implements Host {
    */
   private afterChange(host: ThreadHost, now: number): void {
     holdOnLimit(host);
+    // As the daemon: core learns when the queue is held on input that failed to send.
+    const held =
+      host.queue.paused &&
+      (host.queue.reason === "not_sent" || host.queue.reason === "model_unavailable") &&
+      host.queued.length > 0;
+    if ((host.state.queueHeld ?? false) !== held)
+      this.append(
+        host,
+        host.fold(
+          { type: "queue.changed", source: "engine", count: host.queued.length, held },
+          now,
+        ),
+        now,
+      );
     const follow: EventPayload[] = [...switchEvents(host, now)];
     if (host.queueDirty) {
       host.queueDirty = false;

@@ -418,16 +418,9 @@ export class ThreadActor {
       ),
     );
   }
-  private queueFact(): Extract<Fact, { type: "queue.changed" }> {
-    return {
-      type: "queue.changed",
-      source: "engine",
-      count: this.repo.queuedCount(this.id),
-    };
-  }
   syncQueue(): void {
-    const fact = this.queueFact();
-    if (this.repo.state(this.id)?.queueSources.engine !== fact.count) this.apply([fact]);
+    const fact = this.repo.engineQueueFact(this.id);
+    if (fact) this.apply([fact]);
   }
   apply(facts: Fact[]): void {
     this.repo.apply(this.id, facts, this.clock.now(), this.generation);
