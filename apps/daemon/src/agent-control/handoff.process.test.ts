@@ -75,6 +75,7 @@ test("lease revocation while Git is pending cleans resources without accepting c
         removeWorktree: git.removeWorktree.bind(git),
         deleteBranch: git.deleteBranch.bind(git),
         resolveCommit: git.resolveCommit.bind(git),
+        worktreeMetadata: git.worktreeMetadata.bind(git),
         close: git.close.bind(git),
         async createWorktree(options) {
           const result = await git.createWorktree(options);
@@ -229,6 +230,7 @@ for (const resumeRoot of [false, true])
             removeWorktree: git.removeWorktree.bind(git),
             deleteBranch: git.deleteBranch.bind(git),
             resolveCommit: git.resolveCommit.bind(git),
+            worktreeMetadata: git.worktreeMetadata.bind(git),
             close: git.close.bind(git),
             async createWorktree(options) {
               const tree = await git.createWorktree(options);
@@ -304,6 +306,7 @@ test("revoked handoff cleanup preserves a user commit made in its pending worktr
         removeWorktree: git.removeWorktree.bind(git),
         deleteBranch: git.deleteBranch.bind(git),
         resolveCommit: git.resolveCommit.bind(git),
+        worktreeMetadata: git.worktreeMetadata.bind(git),
         close: git.close.bind(git),
         async createWorktree(options) {
           const result = await git.createWorktree(options);

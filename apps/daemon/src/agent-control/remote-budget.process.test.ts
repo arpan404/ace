@@ -38,7 +38,7 @@ test("an incoming task cannot reset source child/depth authority through any loc
       f.target.controls.port.execute(f.caller, operation, new AbortController().signal),
     ).rejects.toMatchObject({ code: "delegation_denied" });
   expect(f.target.daemon.store.listThreads()).toHaveLength(before);
-  const directory = join(f.target.h.home, "daemon", "agent-worktrees");
+  const directory = join(f.target.h.home, "daemon", "worktrees");
   expect(await readdir(directory).catch(() => [])).toEqual([]);
   const recovered = new DelegationService({
     store: f.target.daemon.store,
