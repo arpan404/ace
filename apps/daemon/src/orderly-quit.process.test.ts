@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { Worker } from "node:worker_threads";
 import { launchDaemon } from "./process-test-support.ts";
+import { daemonLogRecords } from "./daemon-log-test-support.ts";
 import { startDaemon, readConfig } from "./index.ts";
 
 test("orderly CLI quit leaves no notification failure in stderr or durable logs", async ({
@@ -36,6 +37,41 @@ test("orderly CLI quit leaves no notification failure in stderr or durable logs"
   expect(stderr + logs).not.toMatch(
     /Notification worker aborted|Notification service failure|warmup failed/,
   );
+});
+
+test("the stop reason is persisted: SIGTERM is logged as Daemon stopping, then Daemon stopped", async ({
+  onTestFinished,
+}) => {
+  const home = await mkdtemp(join(tmpdir(), "ace-stop-reason-"));
+  const cleanups: (() => Promise<void> | void)[] = [
+    () => rm(home, { recursive: true, force: true }),
+  ];
+  onTestFinished(async () => {
+    for (const close of cleanups.toReversed()) await close();
+  });
+  const { child, exited, ready } = launchDaemon(
+    { ...process.env, ACE_HOME: home, ACE_PORT: "0", ACE_LISTEN: "local", PATH: "" },
+    /Token file:/,
+    cleanups,
+  );
+  await ready;
+  child.kill("SIGTERM");
+  expect((await exited)[0]).toBe(0);
+  const records = await daemonLogRecords(home);
+  const listening = records.find((record) => record.message === "Daemon listening");
+  expect(listening?.data).toMatchObject({ pid: child.pid, version: expect.any(String) });
+  const stopping = records.findIndex((record) => record.message === "Daemon stopping");
+  expect(records[stopping]?.data).toMatchObject({
+    source: "signal",
+    signal: "SIGTERM",
+    pid: child.pid,
+  });
+  const stopped = records.findIndex((record) => record.message === "Daemon stopped");
+  expect(stopped).toBeGreaterThan(stopping);
+  expect(records[stopped]?.data).toMatchObject({
+    source: "signal",
+    durationMs: expect.any(Number),
+  });
 });
 
 test("a real notification worker failure remains visible in the durable daemon log", async ({

@@ -286,6 +286,12 @@ it("a daemon whose engine cannot start fails with a logged error and never liste
   const records = await daemonLogRecords(home);
   const messages = records.map((record) => record.message);
   expect(messages).not.toContain("Daemon listening");
+  expect(records.find((record) => record.message === "Daemon startup failed")?.data).toMatchObject({
+    error: { message: expect.stringContaining("Daemon cannot start: Service engine") },
+  });
+  expect(records.find((record) => record.message === "Daemon stopping")?.data).toMatchObject({
+    source: "startup-failure",
+  });
 });
 
 it("SIGTERM after endpoint discovery cleans up while optional initialization is still held", async () => {
