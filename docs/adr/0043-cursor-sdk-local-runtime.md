@@ -247,3 +247,29 @@ reads). The SDK then loads them through `settingSources: ["all"]` (ADR 0078).
   out rather than copied in part.
 - `sdk/`, `cli-config.json` and any other entry never cross. The redirected-home and private
   credential checks above are unchanged.
+
+## Amendment: leaving a Cursor thread from the composer
+
+Accepted 2026-10-14 after the owner reported that picking another provider in an
+existing Cursor thread failed with internal wording. The refusal above stands: a
+pinned SDK checkpoint lives in a per-thread, per-account directory, so the thread
+never moves to another provider or Cursor account in place. What changes is who
+does the continuation and when.
+
+- One pure rule, `switchRoute` in `@ace/core` (re-exported by `@ace/ui-core` as
+  `threadSwitchRoute`), names each change `in_place`, `new_thread` or
+  `unsupported`. The daemon and every client read the same rule.
+- `thread.switch` admission refuses a `new_thread` change synchronously with the
+  stable code `switch_requires_new_thread`. Nothing is queued, so no later
+  failure notice reaches the transcript. A switch queued before an upgrade that
+  still reaches execution fails with plain copy, never protocol names.
+- The web composer holds a `new_thread` pick after a confirmation dialog. The
+  person's next message becomes one durable `thread.fork` from the newest finished
+  turn, of any outcome, on the picked selection. The client then opens the new
+  thread. The source thread and its checkpoint stay untouched.
+- A portable fork may name another account of the same provider. Only native
+  forks need the source account's session, so cross-account forks are always
+  portable. This is how a Cursor account change continues.
+- An ACP agent needs the registered identity a thread is created with. The model
+  picker marks ACP models unavailable in existing threads of other providers
+  before anything is sent.

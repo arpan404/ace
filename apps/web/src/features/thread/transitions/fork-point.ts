@@ -29,3 +29,21 @@ export function latestForkPoint(
   }
   return undefined;
 }
+
+/**
+ * The newest finished turn of the main agent, whatever its outcome: where a thread continued in
+ * another one starts, so a failed or stopped last turn carries over too.
+ */
+export function latestFinishedTurn(
+  reader: Reader,
+  rootAgentId: string | undefined,
+): ForkPoint | undefined {
+  for (let at = reader.order.length - 1; at >= 0; at--) {
+    const item = reader.item(reader.order[at] ?? "");
+    if (!item || item.agentId !== rootAgentId || item.runId === undefined) continue;
+    const run = reader.run(item.runId);
+    if (run && run.state !== "active" && run.endedAt !== undefined)
+      return { type: "turn", runId: run.id };
+  }
+  return undefined;
+}

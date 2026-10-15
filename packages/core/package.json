@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./human": "./src/human.ts"
+    "./human": "./src/human.ts",
+    "./switch-route": "./src/switch-route.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

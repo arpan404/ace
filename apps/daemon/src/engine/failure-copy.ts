@@ -16,6 +16,10 @@ const titles: Record<string, string> = {
   "background_task.stop": "Couldn't stop the background task",
 };
 
+/** Why a Cursor thread can't move to another provider or account in place (ADR 0043). */
+export const switchNeedsNewThread =
+  "Cursor keeps this conversation on its own account. Send your next message to continue in a new thread with this context.";
+
 /** The failed request named by what the person asked for. */
 export function failedActionTitle(kind: string): string {
   return titles[kind] ?? "Couldn't finish that";

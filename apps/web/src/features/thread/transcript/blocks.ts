@@ -231,6 +231,20 @@ interface TurnMark {
 
 type WorkBlock = Extract<Block, { kind: "work" }>;
 
+/**
+ * A request the person made that failed by itself (switching the model, Stop, an answer): its
+ * own row, never how the turn before it ended. A message that wasn't sent still can be.
+ */
+function actionFailure(item: Extract<Item, { type: "notice" }>): boolean {
+  return item.raw.some((raw) => {
+    if (raw.type !== "delivery_error") return false;
+    const data: unknown = "data" in raw ? raw.data : undefined;
+    const operation =
+      typeof data === "object" && data !== null && "operation" in data ? data.operation : undefined;
+    return operation !== "thread.send" && operation !== "thread.create";
+  });
+}
+
 /** The person's own words: not a message ace or the provider wrote for them. */
 const isPerson = (item: Item) => item.type === "message" && item.role === "user" && !item.synthetic;
 const isLaunch = (item: Item) =>
@@ -574,7 +588,13 @@ export function buildBlocks(source: BlockSource): Block[] {
           else {
             push({ kind: "item", key: id, itemId: id }, false);
             // A refused agent tool is the agent's to handle, not why its turn failed.
-            if (mark && item.level === "error" && !isBareErrorCode(item.text) && !toolRefusal(item))
+            if (
+              mark &&
+              item.level === "error" &&
+              !isBareErrorCode(item.text) &&
+              !toolRefusal(item) &&
+              !actionFailure(item)
+            )
               mark.failure = { index: blocks.length - 1, itemId: id };
           }
           break;

@@ -317,9 +317,10 @@ rate-limit scenario is proposed.
   deletes only the selected SDK credential store and does not revoke a key or
   remove the environment override. No native ACP-to-SDK checkpoint conversion
   or cross-account checkpoint copying; bounded context handoff preserves source.
-  In-place `thread.switch` into/out of SDK or across SDK accounts is refused
-  before disposal/migration. Use a fresh portable fork or `thread.create` with
-  `handoffFrom` and the destination `instanceId`. Same-account model switches
+  In-place `thread.switch` out of SDK or across SDK accounts is refused at
+  admission (`switch_requires_new_thread`) before disposal/migration. The
+  composer continues in a fresh portable fork (ADR 0043 amendment), or use
+  `thread.create` with `handoffFrom` and the destination `instanceId`. Same-account model switches
   keep the native checkpoint and backend. The merged main's `@ace/handoff`
   owns portable budgets/citations and frozen source-history grants.
 

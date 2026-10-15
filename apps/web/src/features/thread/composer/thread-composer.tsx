@@ -36,6 +36,14 @@ import { DeferredComposerStrip } from "./deferred-cards.ts";
 import { UsageNotice } from "./usage-notice.tsx";
 import { runsOn, changedTurnOptions, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { clearStop, recordStop, useStopFence, useStopping } from "./stop-state.ts";
+import { useNavigate } from "@tanstack/react-router";
+import { failureMessage } from "@/lib/daemon-command.ts";
+import { useThreadSources } from "../sources/index.ts";
+import {
+  ContinuationRefused,
+  continueInNewThread,
+  type Continuation,
+} from "./continue-in-thread.ts";
 
 /** The send pipeline's code: fetched when a composer mounts, so the first Enter never waits on it. */
 let sender: Promise<typeof import("./send-message.ts")> | undefined;
@@ -139,7 +147,41 @@ export function ThreadComposer({
   });
   const selectionWaiting = busy && (!!followUpOptions || meta?.switch?.state === "queued");
 
+  // A model this thread continues on in a new thread: the next message starts it there.
+  const sources = useThreadSources();
+  const navigate = useNavigate();
+  const [continuation, setContinuation] = useState<Continuation>();
+  const continuing = continuation?.threadId === props.thread.id ? continuation : undefined;
+  const continued = {
+    choice: continuing?.choice,
+    onChange: (choice: Continuation["choice"] | undefined) =>
+      setContinuation(choice && { threadId: props.thread.id, choice }),
+  };
+  const continueThread = async (draft: Draft, target: Continuation) => {
+    try {
+      const opened = await continueInNewThread({
+        client,
+        actions: sources.actions,
+        thread: props.thread,
+        choice: target.choice,
+        draft,
+        busy,
+      });
+      setContinuation(undefined);
+      toast.add({ title: `Continues on ${target.choice.model} in a new thread` });
+      void navigate({ to: "/t/$threadId", params: { threadId: opened } });
+      return true;
+    } catch (error) {
+      toast.error({
+        title: "Message not sent",
+        description: error instanceof ContinuationRefused ? error.message : failureMessage(error),
+      });
+      return false;
+    }
+  };
+
   const submit = async (draft: Draft) => {
+    if (continuing) return continueThread(draft, continuing);
     // Never send options picked for another selection; the controls are re-checking them.
     const commandId = crypto.randomUUID();
     // While the agent works the delivery is said outright, so this window knows at once
@@ -325,6 +367,7 @@ export function ThreadComposer({
               thread={props.thread}
               busy={busy}
               next={next}
+              continued={continued}
               pickerRequest={pickerRequest}
               tuneRequest={tuneRequest}
             />
