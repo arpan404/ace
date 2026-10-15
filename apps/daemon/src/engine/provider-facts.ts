@@ -7,6 +7,7 @@ import type { Snapshot } from "./persistence.ts";
 import type { TransitionReadiness } from "./transition-readiness.ts";
 import { coalesceFacts } from "./delta-batch.ts";
 import { capFact } from "./raw.ts";
+import { retireEndedTurnInputs } from "./stale-inputs.ts";
 import { shapeProviderError, structuredError } from "./provider-errors.ts";
 export interface FactPorts {
   ids: IdSource;
@@ -299,6 +300,13 @@ export function foldProviderFacts(
         now,
       );
   }
+  // A finished root turn settles the inputs its session never confirmed: no later run can.
+  if (
+    generation !== undefined &&
+    !ports.opening &&
+    events.some((event) => event.type === "run.ended" && state.runs[event.runId]?.agentId === root)
+  )
+    retireEndedTurnInputs(repo, id, generation, now);
   ports.snapshot?.updateDeadlines(facts, events, now);
   repo.save(state, events, now);
   repo.observe?.(state, facts, events, now);

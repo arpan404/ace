@@ -90,7 +90,6 @@ export class Recovery {
   admit(command: Command, id: ThreadId): Command | undefined {
     if (!isSend(command.payload)) return command;
     if (
-      this.repo.queue.count(id) >= maxMessages ||
       !this.repo.inputCapacity(id, maxMessages) ||
       Buffer.byteLength(JSON.stringify(command)) > maxMessageBytes
     )

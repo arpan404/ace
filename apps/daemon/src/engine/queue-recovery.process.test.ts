@@ -297,7 +297,7 @@ test("native restart settles lost shells monitors and subagents and sends one co
   expect(continuation).toMatchObject({ input: [{ type: "text", text: "continue" }] });
 });
 
-test("an unacknowledged send is never replayed automatically and must be removed before resuming", async () => {
+test("an unacknowledged send is never replayed: Resume refuses it and the next message goes ahead without it", async () => {
   const frames = scriptFrames();
   const h = await fixture([{ on: "send" }], frames);
   const id = await h.create();
@@ -322,36 +322,9 @@ test("an unacknowledged send is never replayed automatically and must be removed
       "following",
     ).ok,
   ).toBe(true);
-  expect(
-    dispatch(
-      recovered.store,
-      recovered.engine,
-      {
-        type: "queue.move",
-        threadId: id,
-        expectedRevision: recovered.engine.queue(id).revision,
-        messageId: CommandId.parse("following"),
-        after: null,
-      },
-      "move-following",
-    ).error,
-  ).toBe("uncertain_delivery");
-  const message = recovered.engine.queue(id).messages[0];
-  if (!message) throw new Error("Missing uncertain send");
-  expect(
-    dispatch(
-      recovered.store,
-      recovered.engine,
-      {
-        type: "queue.remove",
-        threadId: id,
-        expectedRevision: recovered.engine.queue(id).revision,
-        messageId: message.id,
-      },
-      "remove",
-    ).ok,
-  ).toBe(true);
-  expect(recovered.engine.queue(id).messages.map((queued) => queued.id)).toEqual(["following"]);
+  await recovered.engine.flush();
+  expect(sends(replacement).map((command) => command.input)).toEqual([text("following")]);
+  expect(recovered.engine.queue(id)).toMatchObject({ paused: false, messages: [] });
 });
 
 test.each(["model_unavailable", "Cannot open directory"])(
