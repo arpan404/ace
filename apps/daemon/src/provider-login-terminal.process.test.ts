@@ -7,6 +7,9 @@ import { harness } from "./account-management-test-support.ts";
 import { fixture, type Client } from "./socket-test-support.ts";
 import { accessRequest } from "./client-access.ts";
 import { manualLogin } from "./provider-login-driver.ts";
+import { spawnSupervised } from "@ace/provider-kit/process";
+import type { SessionContext } from "@ace/engine-api";
+import { ThreadId } from "@ace/protocol";
 
 async function next(
   client: Client,
@@ -146,7 +149,7 @@ test("Cursor browser sign-in cannot create a native CLI fallback or reserve its 
     });
     if (added.type !== "accounts.changed" || !added.account) throw new Error("Missing SDK account");
     const instanceId = added.account.id;
-    expect(() => f.management.openProviderTerminal("phone", instanceId, "login")).toThrow(
+    await expect(f.management.openProviderTerminal("phone", instanceId, "login")).rejects.toThrow(
       "Unsupported auth terminal",
     );
     const release = f.accounts.reserveAccountChange(added.account.id);
@@ -360,6 +363,93 @@ test("an agent-owned sign-in terminal belongs to its paired device and never exp
     ).toMatchObject({ ok: false, error: "forbidden" });
   } finally {
     await server.close();
+    await f.close();
+  }
+});
+
+/** Codex threads holding the default CLI profile, each a real provider process. */
+function codexThreads(f: Awaited<ReturnType<typeof harness>>, stuck = false) {
+  const exits: boolean[] = [];
+  const processes: ReturnType<typeof spawnSupervised>[] = [];
+  const bound = f.accounts.bindAdapter({
+    provider: "codex",
+    capabilities: () => {
+      throw new Error("unused");
+    },
+    createTranslator: () => {
+      throw new Error("unused");
+    },
+    create: (env) => ({
+      openSession: async (context: SessionContext) => {
+        const proc = spawnSupervised({
+          command: process.execPath,
+          args: ["-e", "process.stdin.resume()"],
+          env,
+          name: "codex-thread",
+        });
+        processes.push(proc);
+        void proc.exited.then((exit) => context.onExit({ deliberate: exit.reason === "stopped" }));
+        return {
+          nativeSessionId: `native-${context.threadId}`,
+          send: async () => {},
+          interrupt: async () => {},
+          resolve: async () => {},
+          stopTask: async () => {},
+          close: async () => {
+            if (stuck) throw new Error("provider did not exit");
+            await proc.stop({ graceMs: 0 });
+          },
+        };
+      },
+    }),
+  });
+  return {
+    exits,
+    open: (thread: string) =>
+      bound.openSession({
+        instanceId: "codex-cli-default",
+        threadId: ThreadId.parse(thread),
+        cwd: f.dataDir,
+        signal: new AbortController().signal,
+        onFrame: () => {},
+        onExit: (exit) => exits.push(exit.deliberate),
+      }),
+    close: () => Promise.all(processes.map((proc) => proc.stop({ graceMs: 0 }))),
+  };
+}
+
+test("the terminal sign-in fallback stops an open thread first and lets threads start again when it ends", async () => {
+  const f = await harness();
+  const threads = codexThreads(f);
+  try {
+    await threads.open("open-thread");
+    const terminalId = await f.management.openProviderTerminal(
+      "phone",
+      "codex-cli-default",
+      "login",
+    );
+    expect(threads.exits).toEqual([true]);
+    // While the terminal changes the CLI login, no thread starts on the old one.
+    await expect(threads.open("during")).rejects.toThrow("migrating");
+    await f.management.stop(terminalId, "phone");
+    await threads.open("after");
+  } finally {
+    await threads.close();
+    await f.close();
+  }
+});
+
+test("a terminal sign-in fallback whose thread won't stop says why and leaves the account usable", async () => {
+  const f = await harness();
+  const threads = codexThreads(f, true);
+  try {
+    await threads.open("stuck-thread");
+    await expect(
+      f.management.openProviderTerminal("phone", "codex-cli-default", "login"),
+    ).rejects.toThrow(/didn't stop, so ace left the sign-in unchanged/);
+    expect(f.accounts.isChangingAccount("codex-cli-default")).toBe(false);
+  } finally {
+    await threads.close();
     await f.close();
   }
 });

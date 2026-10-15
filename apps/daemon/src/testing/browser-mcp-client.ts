@@ -39,12 +39,16 @@ export async function browserProof(raw: unknown, kind: "http" | "stdio") {
   const client = new Client({ name: "ace-fake-provider", version: "1" });
   try {
     await client.connect(wire);
-    const tools = (await client.listTools()).tools.map((tool) => tool.name);
+    const listed = (await client.listTools()).tools.map((tool) => tool.name);
+    if (!listed.includes("ace_browser_open")) throw new Error("Browser entry point is not listed");
     const result = await client.callTool({
       name: "ace_browser_open",
       arguments: { url: process.env.ACE_TEST_BROWSER_URL },
     });
     if (result.isError) throw new Error("Injected browser tool failed");
+    // Providers with a deferred catalogue list a family once its entry point is used, as a
+    // client does after the server announces the list change.
+    const tools = (await client.listTools()).tools.map((tool) => tool.name);
     return { tools, opened: result };
   } finally {
     await client.close();

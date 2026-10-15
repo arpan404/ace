@@ -174,7 +174,8 @@ if (mode === "opencode") {
         request.method === "PUT"
       ) {
         const entry = z.object({ value: z.string() }).parse(body);
-        if (!entry.value.includes("ace_browser_") || !entry.value.includes("screen_"))
+        // OpenCode reads ace's guidance from MCP instructions; this entry teaches its tool names.
+        if (!entry.value.includes("ace_ace_guide"))
           throw new Error("Native tool guidance is missing");
         response.writeHead(204).end();
       } else if (path === "/api/session/native/prompt") {
@@ -270,6 +271,11 @@ if (mode === "opencode") {
           shellExposesBearer: shellExposesBearer(connection.headers.Authorization),
         };
         result = { thread: { id: "native", turns: [], mcpProof } };
+      } else if (message.method === "thread/read") {
+        // Resume reads the thread's metadata; this synthetic thread has no history.
+        result = { thread: { id: z.string().parse(message.params.threadId), turns: [] } };
+      } else if (message.method === "thread/turns/list") {
+        result = { data: [], nextCursor: null };
       } else if (message.method === "session/new" || message.method === "session/load") {
         result = { sessionId: "native", mcpProof: await acpProof(message.params) };
       }

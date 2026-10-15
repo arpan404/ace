@@ -132,11 +132,11 @@ export function createProviderLoginSession(context: SocketContext): SocketServic
               } else {
                 const terminalId =
                   manualTerminals.get(progress.session) ??
-                  context.options.accountManagement.openProviderTerminal(
+                  (await context.options.accountManagement.openProviderTerminal(
                     context.sessionId,
                     progress.instance ?? `${progress.provider}-cli-default`,
                     progress.action,
-                  );
+                  ));
                 if (!manualTerminals.has(progress.session) && manualTerminals.size >= 32) {
                   const oldest = manualTerminals.keys().next().value;
                   if (oldest) manualTerminals.delete(oldest);

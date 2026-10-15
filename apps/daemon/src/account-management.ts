@@ -308,8 +308,15 @@ export class AccountManagement {
       release();
     }
   }
-  /** The provider-login fallback may use the normal CLI profile under operate authority. */
-  openProviderTerminal(owner: string, instanceId: string, action: "login" | "logout"): string {
+  /**
+   * The provider-login fallback may use the normal CLI profile under operate authority. Like any
+   * sign-in change it stops the account's open threads first, and releases them if it can't open.
+   */
+  async openProviderTerminal(
+    owner: string,
+    instanceId: string,
+    action: "login" | "logout",
+  ): Promise<string> {
     if (this.closed || this.terminals.size >= 8) throw new Error("Auth terminal unavailable");
     const instance = this.account(instanceId);
     if (
@@ -318,7 +325,12 @@ export class AccountManagement {
       (!instance.implicit && !instance.managed)
     )
       throw new Error("Unsupported auth terminal");
-    const release = this.options.accounts.reserveAccountChange(instance.id);
+    const release = await this.options.accounts.reserveAuthChange(instance.id);
+    // Stopping threads took time; the manager may have closed or filled up meanwhile.
+    if (this.closed || this.terminals.size >= 8) {
+      release();
+      throw new Error("Auth terminal unavailable");
+    }
     const terminalId = this.options.id();
     this.terminals.set(terminalId, {
       owner,
