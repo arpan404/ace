@@ -29,6 +29,7 @@ import { defaultPressure, Outbox } from "./outbox.ts";
 import { SocketInput } from "./socket-input.ts";
 import { CommandLanes, commandLane, settledWithin } from "./command-lanes.ts";
 import { isPing, closeRecord } from "./socket-liveness.ts";
+import { commandState } from "./command-status.ts";
 import { subscribe, pageSubscription } from "./subscription.ts";
 import { WireEncoder } from "./wire-encoder.ts";
 import { bindListener as bind, closeListener } from "./listener.ts";
@@ -471,6 +472,24 @@ export async function startServer(options: ServerOptions): Promise<{
               requestId: message.requestId,
             });
           }
+          break;
+        }
+        case "command.status": {
+          // Queued in order, so a command sent before this request is already on its lane.
+          // Only the asking device's own commands are looked up.
+          const actor = device;
+          const commands = message.commandIds.map((commandId) => {
+            const known = commandState(
+              commandId,
+              options.store.commandReceipt(commandId, actor),
+              lanes.running(actor, commandId) ||
+                options.workspaceActions?.creationDrafts.get(commandId, actor)?.operation
+                  ?.active === true,
+            );
+            if (known.result) send({ type: "commandResult", ...known.result });
+            return { commandId, state: known.state };
+          });
+          send({ type: "command.status", requestId: message.requestId, commands });
           break;
         }
         case "unsubscribe":
