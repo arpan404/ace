@@ -54,6 +54,8 @@ function ProviderSection(props: { group: ProviderLimits; now: number }) {
   );
 }
 
+/** The provider's plan name as it reads beside the environment: "plus" → "Plus". */
+const planLabel = (plan: string) => plan.charAt(0).toUpperCase() + plan.slice(1);
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 const expiry = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 
@@ -67,7 +69,9 @@ function Account(props: { entry: AccountLimits; provider: string; now: number })
     >
       <div className="min-w-0">
         <h3 className="text-sm font-semibold break-words">{entry.account.label}</h3>
-        <p className="text-ui text-subtle-foreground">{entry.environment}</p>
+        <p className="text-ui text-subtle-foreground">
+          {entry.plan ? `${planLabel(entry.plan)} · ${entry.environment}` : entry.environment}
+        </p>
         {banked !== undefined && banked > 0 && (
           <Tip
             label={`${plural(banked, "banked reset")}: each one resets this account's limits once, when you redeem it in ${props.provider}.${
@@ -91,6 +95,7 @@ function Account(props: { entry: AccountLimits; provider: string; now: number })
             <WindowLine key={window.id} window={window} now={props.now} />
           ))}
         </ul>
+        {entry.signIn && <p className="text-ui text-muted-foreground">{entry.signIn}</p>}
         {entry.noSessionWindow && (
           <p className="text-xs text-subtle-foreground">
             No 5-hour limit reported for this account

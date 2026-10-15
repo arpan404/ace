@@ -286,3 +286,48 @@ test("the environment filter shows every connected environment, or just the one 
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "All environments" }));
   await waitFor(() => expect(stat("Processed tokens")).toBe("1.4M"));
 });
+
+test("an account shows the plan its provider reports beside its environment", async () => {
+  const app = harness();
+  report(app.daemon, "codex-personal", { five_hour: [40, hour] });
+  report(app.daemon, "codex-team", { five_hour: [40, hour] });
+  const account = app.daemon.services.accounts.find((entry) => entry.id === "codex-personal");
+  if (!account) throw new Error("no account");
+  account.quota.plan = "plus";
+  await app.open("/usage");
+  expect((await accountBlock("Codex", "Personal")).textContent).toMatch(/Plus · /);
+  expect((await accountBlock("Codex", "Team")).textContent).not.toContain("Plus");
+});
+
+test("an account whose login lapsed says to sign in again and shows no figure", async () => {
+  const app = harness();
+  const account = app.daemon.services.accounts.find((entry) => entry.id === "gemini-google");
+  if (!account) throw new Error("no account");
+  account.quota.windows = {};
+  account.quota.usageNotice = {
+    reason: "signed_out",
+    message: "Sign in again in Gemini CLI",
+    observedAt: now,
+  };
+  await app.open("/usage");
+  const google = await screen.findByRole("article", { name: / · Google · / });
+  expect(google.textContent).toContain("Sign in again in Gemini CLI");
+  expect(within(google).queryAllByRole("meter")).toEqual([]);
+});
+
+test("a usage read that couldn't be made shows nothing for the account", async () => {
+  const app = harness();
+  report(app.daemon, "codex-personal", { five_hour: [40, hour] });
+  const account = app.daemon.services.accounts.find((entry) => entry.id === "gemini-google");
+  if (!account) throw new Error("no account");
+  account.quota.windows = {};
+  account.quota.usageNotice = {
+    reason: "unavailable",
+    message: "Gemini CLI usage couldn't be reached",
+    observedAt: now,
+  };
+  await app.open("/usage");
+  await accountBlock("Codex", "Personal");
+  expect(screen.queryByRole("article", { name: / · Google · / })).toBeNull();
+  expect(document.body.textContent).not.toContain("couldn't be reached");
+});
