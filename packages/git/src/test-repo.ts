@@ -65,12 +65,9 @@ export async function git(repo: string, ...args: string[]): Promise<Buffer> {
  * Git stays alive as the parent of the alias it runs.
  */
 export async function holdGit(cwd: string) {
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
-  );
   const child = spawn("git", ["-c", "alias.hold=!sleep 300", "hold"], {
-    cwd,
-    env,
+    cwd: assertTestGitDirectory(cwd, temporaryRoot),
+    env: testGitEnvironment(),
     detached: true,
     stdio: "ignore",
   });
