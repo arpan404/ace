@@ -1,10 +1,12 @@
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { once } from "node:events";
 import { access, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { GitError, GitService, spawnGitProcess, type RetiredLease } from "./index.ts";
-import { git, repository, scalar, scratch } from "./test-repo.ts";
+import { git, holdGit, repository, scalar, scratch } from "./test-repo.ts";
 
 /** A local port nothing listens on: the endpoint of a daemon that has stopped. */
 async function stoppedDaemonPort(): Promise<number> {
@@ -58,7 +60,8 @@ const exists = (path: string) =>
   );
 
 function service(retired: RetiredLease[] = []) {
-  return new GitService({ onLeaseRetired: (event) => retired.push(event) });
+  // No waiting: these tests look at what a lease fences at the moment they ask.
+  return new GitService({ onLeaseRetired: (event) => retired.push(event), leaseWaitMs: 0 });
 }
 const checkpoint = (owner: GitService, worktree: string) =>
   owner.createCheckpoint({ worktree, threadId: "stale", label: "after" });
@@ -88,35 +91,68 @@ test.each(["removed", "pruned"] as const)(
   },
 );
 
-test("a lease for one worktree doesn't block a sibling worktree, but fences its own", async () => {
+test("a lease for one worktree doesn't block a sibling worktree, but fences its own while Git still runs there", async () => {
   const { main, x, y, journal } = await worktrees();
   const lease = await leftLease(journal, x);
+  const holder = await holdGit(x);
   const git2 = service();
   try {
     await expect(checkpoint(git2, y)).resolves.toMatchObject({ label: "after" });
     await expect(checkpoint(git2, main)).resolves.toMatchObject({ label: "after" });
     await expect(checkpoint(git2, x)).rejects.toMatchObject({ code: "git_quarantined" });
     expect(await exists(lease)).toBe(true);
+    await holder.stop();
+    await expect(checkpoint(git2, x)).resolves.toMatchObject({ label: "after" });
+    expect(await exists(lease)).toBe(false);
   } finally {
     await git2.close();
   }
 });
 
-test("a stale lease on the main checkout fences every worktree of the repository", async () => {
+test("a stale lease inside a nested linked worktree does not block sends or git in the main checkout", async () => {
+  const main = await realpath(await scratch());
+  await git(main, "init", "--initial-branch=main");
+  await git(main, "config", "user.name", "Fixture");
+  await git(main, "config", "user.email", "fixture@example.invalid");
+  // Agent worktrees live in an ignored directory, so the main checkout's snapshots skip them.
+  await writeFile(join(main, ".gitignore"), ".claude/\n");
+  await git(main, "add", ".gitignore");
+  await git(main, "commit", "-m", "Initial");
+  const nested = join(main, ".claude", "worktrees", "agent-x");
+  await git(main, "worktree", "add", "-b", "agent-x", nested);
+  const lease = await leftLease(join(main, ".git", "ace-mutation-leases"), nested);
+  // Git still runs in the nested worktree, so its lease can't be retired yet.
+  const holder = await holdGit(nested);
+  const git2 = service();
+  try {
+    await expect(git2.assertMutationAvailable(main)).resolves.toBeUndefined();
+    await expect(checkpoint(git2, main)).resolves.toMatchObject({ label: "after" });
+    await expect(checkpoint(git2, nested)).rejects.toMatchObject({ code: "git_quarantined" });
+    expect(await exists(lease)).toBe(true);
+  } finally {
+    await holder.stop();
+    await git2.close();
+  }
+});
+
+test("a stale lease on the main checkout fences every worktree of the repository while Git still runs there", async () => {
   const { main, y, journal } = await worktrees();
   await leftLease(journal, main);
+  const holder = await holdGit(main);
   const git2 = service();
   try {
     await expect(checkpoint(git2, y)).rejects.toMatchObject({ code: "git_quarantined" });
     await expect(checkpoint(git2, main)).rejects.toMatchObject({ code: "git_quarantined" });
   } finally {
+    await holder.stop();
     await git2.close();
   }
 });
 
-test("a stopped daemon's half-finished mutation in a worktree that still exists stays quarantined and says so", async () => {
+test("a stopped daemon's lease on a checkout where Git still runs names the process that holds it", async () => {
   const { main, x, journal } = await worktrees();
   const lease = await leftLease(journal, x);
+  const holder = await holdGit(x);
   const git2 = service();
   try {
     const failure = await git2.assertMutationAvailable(x).catch((error: unknown) => error);
@@ -125,35 +161,38 @@ test("a stopped daemon's half-finished mutation in a worktree that still exists 
     expect(failure.code).toBe("git_quarantined");
     expect(failure.message).toContain(`Git changes in ${main} are blocked`);
     expect(failure.message).toContain(`a Git operation in ${x}`);
-    expect(failure.message).toContain("ace daemon running it stopped");
-    expect(failure.message).toContain("Clear stale lock");
+    expect(failure.message).toContain(`pid ${holder.pid}`);
     expect(await exists(lease)).toBe(true);
   } finally {
+    await holder.stop();
     await git2.close();
   }
 });
 
-test("Clear stale lock retires a stopped daemon's lease after verifying its owner is gone", async () => {
+test("a stopped daemon's lease on a checkout that still exists retires once no Git process runs there", async () => {
   const { main, x, journal } = await worktrees();
   const lease = await leftLease(journal, x);
   const retired: RetiredLease[] = [];
   const git2 = service(retired);
   try {
-    const cleared = await git2.clearStaleLeases(x);
-    expect(cleared).toMatchObject({ state: { status: "available" }, retired: [{ root: x }] });
-    expect(await exists(lease)).toBe(false);
-    expect(retired).toMatchObject([{ repository: main, reason: "confirmed_stale" }]);
     await expect(checkpoint(git2, x)).resolves.toMatchObject({ label: "after" });
+    expect(await exists(lease)).toBe(false);
+    expect(retired).toMatchObject([
+      { repository: main, reason: "owner_gone_processes_gone", lease: { root: x } },
+    ]);
   } finally {
     await git2.close();
   }
 });
 
-test("a lease whose daemon is still alive keeps blocking, and Clear stale lock leaves it", async () => {
+test("a lease whose git process is still alive is never retired", async () => {
   const { x } = await worktrees();
-  // This daemon's own Git process fails mid-checkpoint with no proof its writers stopped.
+  let writer: ChildProcessWithoutNullStreams | undefined;
+  // This daemon's own Git process fails mid-checkpoint, and the kill request never reaches it.
   const owner = new GitService({
+    leaseWaitMs: 0,
     processRuntime: {
+      signalGroup: () => {},
       spawn: (binary, args, options) => {
         if (!args.includes("read-tree")) return spawnGitProcess(binary, args, options);
         const child = spawnGitProcess(
@@ -161,6 +200,7 @@ test("a lease whose daemon is still alive keeps blocking, and Clear stale lock l
           ["-e", "setInterval(()=>{},1000)"],
           options,
         );
+        writer = child;
         child.once("spawn", () =>
           child.stdout.destroy(Object.assign(new Error("Fixture EIO"), { code: "EIO" })),
         );
@@ -177,7 +217,17 @@ test("a lease whose daemon is still alive keeps blocking, and Clear stale lock l
     const cleared = await other.clearStaleLeases(x);
     expect(cleared).toMatchObject({ retired: [], state: { status: "quarantined" } });
     await expect(checkpoint(other, x)).rejects.toMatchObject({ code: "git_quarantined" });
+    // Once the process is really gone, the same lease retires without anyone asking.
+    if (!writer) throw new Error("Missing fixture writer");
+    const exited = once(writer, "exit");
+    writer.kill("SIGKILL");
+    await exited;
+    await expect
+      .poll(() => other.mutationState(x), { timeout: 10_000 })
+      .toMatchObject({ status: "available" });
+    await expect(checkpoint(other, x)).resolves.toMatchObject({ label: "after" });
   } finally {
+    writer?.kill("SIGKILL");
     await owner.close();
     await other.close();
   }

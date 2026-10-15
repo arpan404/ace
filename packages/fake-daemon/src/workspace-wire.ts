@@ -234,8 +234,7 @@ export class FakeWorkspaceWire {
     if (payload.type === "workspace.git.lock.clear") {
       if (!this.projects.get(payload.workspaceId))
         return { ok: false, error: "workspace_not_found" };
-      this.git.clearLock(payload.workspaceId);
-      return { ok: true };
+      return { ok: true, locksCleared: this.git.clearLock(payload.workspaceId) ? 1 : 0 };
     }
     const project = this.projects.command(payload);
     if (project) return project;
@@ -398,7 +397,7 @@ export class FakeWorkspaceWire {
     }
     // The fixture has no stopped daemons' locks; clearing one finds its owner gone.
     if (payload.type === "git.lock.clear")
-      return thread ? { ok: true } : { ok: false, error: "thread_not_found" };
+      return thread ? { ok: true, locksCleared: 1 } : { ok: false, error: "thread_not_found" };
     return undefined;
   }
   descriptor(id: string, threadId: ThreadId) {

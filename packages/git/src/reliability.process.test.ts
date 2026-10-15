@@ -14,7 +14,7 @@ function own(options: ConstructorParameters<typeof GitService>[0] = {}) {
   return service;
 }
 
-test("cancelling a clone fences its partial checkout while sibling projects remain usable", async () => {
+test("a cancelled clone's lease retires once the killed clone is gone, and sibling projects remain usable", async () => {
   const parent = await scratch();
   const destination = join(parent, "partial");
   const sibling = join(parent, "sibling");
@@ -45,9 +45,10 @@ test("cancelling a clone fences its partial checkout while sibling projects rema
   ).rejects.toMatchObject({ code: "git_cancelled" });
   await expect(service.assertMutationAvailable(sibling)).resolves.toBeUndefined();
   await expect(service.assertMutationAvailable(parent)).resolves.toBeUndefined();
-  await expect(service.mutationState(destination)).resolves.toMatchObject({
-    status: "quarantined",
-  });
+  // The killed clone's process group ends, and its lease retires without anyone asking.
+  await expect
+    .poll(() => service.mutationState(destination), { timeout: 10_000 })
+    .toMatchObject({ status: "available" });
 });
 
 test("worktree setup uses its longer deadline and a noninteractive push reaches its remote", async () => {

@@ -130,6 +130,13 @@ export class GitService {
   clearStaleLeases(worktree: string) {
     return this.repository.cli.clearStaleLeases(worktree);
   }
+  /**
+   * Self-healing, for startup and periodic sweeps: retire every lease whose work provably ended
+   * and remove Git lock files that no live Git process holds. Returns the removed lock files.
+   */
+  heal(worktree: string) {
+    return this.repository.cli.heal(worktree);
+  }
 
   async clone(input: CloneOptions, policy: ProjectGitPolicy = {}): Promise<void> {
     if (input.directoryFd === undefined) await mkdir(input.path);

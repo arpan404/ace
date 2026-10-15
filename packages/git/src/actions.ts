@@ -1,3 +1,4 @@
+import { longWriteTimeoutMs } from "./deadlines.ts";
 import { writingContext } from "./writing-context.ts";
 import { z } from "zod";
 import type { Repository } from "./repository.ts";
@@ -65,6 +66,7 @@ export async function commitChanges(
     if (staging.length)
       await repository.cli.call(root, ["add", "--all", "--", ...staging], {
         write: true,
+        timeoutMs: longWriteTimeoutMs,
         captureBytes: 65536,
         env: literal,
       });
@@ -73,6 +75,7 @@ export async function commitChanges(
       ["commit", "--file=-", ...(paths ? ["--only", "--", ...named] : [])],
       {
         write: true,
+        timeoutMs: longWriteTimeoutMs,
         input: message,
         captureBytes: 65536,
         env: { GIT_TRACE2_EVENT: "1", ...literal },
@@ -151,6 +154,7 @@ export async function switchBranch(
       throw new GitError("dirty_worktree", "Commit or explicitly allow uncommitted changes");
     await repository.cli.call(root, ["switch", "--no-guess", "--", options.branch], {
       write: true,
+      timeoutMs: longWriteTimeoutMs,
       env: { GIT_TRACE2_EVENT: "1" },
     });
   });

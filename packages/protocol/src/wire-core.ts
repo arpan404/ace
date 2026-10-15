@@ -165,6 +165,8 @@ export const CommandResult = z.object({
   stackOperation: ForgeStackOperation.optional(),
   editor: EditorLaunch.optional(),
   terminalId: z.string().min(1).max(128).optional(),
+  /** "Clear stale lock": how many stale Git locks it actually retired. */
+  locksCleared: z.number().int().nonnegative().optional(),
   commit: z
     .string()
     .regex(/^[a-f0-9]{40,64}$/)

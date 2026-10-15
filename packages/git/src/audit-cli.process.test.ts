@@ -36,22 +36,8 @@ test.each(["stdout", "stderr"] as const)(
     if (!(failure instanceof GitError) || !failure.cleanup)
       throw new Error("Missing cleanup receipt");
     expect(await failure.cleanup.settled).toMatchObject({ status: "unconfirmed" });
-    await expect(service.status(repo)).rejects.toMatchObject({ code: "git_quarantined" });
-    const recovery = new GitService({
-      processRuntime: {
-        cleanupSupervisor: {
-          stop: () => {
-            throw new Error("Recovery must not spawn a command");
-          },
-          recover: async () => ({
-            status: "confirmed",
-            evidence: "Exclusive fixture: hook-free status exited, with no descendants",
-          }),
-        },
-      },
-    });
+    // ace killed the failed status's process group; once it is gone, nobody has to recover.
     await exited.promise;
-    await recovery.recoverCleanup(repo);
     expect(await service.status(repo)).toMatchObject({
       staged: [],
       unstaged: [],

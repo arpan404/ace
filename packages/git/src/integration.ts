@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { longWriteTimeoutMs } from "./deadlines.ts";
 import type { Repository } from "./repository.ts";
 import { GitError } from "./types.ts";
 import { textOutput } from "./cli.ts";
@@ -53,7 +54,7 @@ export async function integrateRevision(
           "--no-edit",
           revision,
         ],
-        { write: true, allowFailure: true },
+        { write: true, allowFailure: true, timeoutMs: longWriteTimeoutMs },
       );
       if (merged.exitCode !== 0) {
         const conflict = (merged.stderr || textOutput(merged) || "Integration failed").slice(

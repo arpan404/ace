@@ -1400,6 +1400,11 @@
         "issueAction": {
           "$ref": "https://ace.local/protocol/v1/ForgeIssueAction.json"
         },
+        "locksCleared": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
         "ok": {
           "type": "boolean"
         },

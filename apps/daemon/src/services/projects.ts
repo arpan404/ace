@@ -20,7 +20,8 @@ export function startProjects({ store, services, options, now, resources }: Serv
       }),
     hasOwnedWork: (id) => services.workspaceActions?.hasOwnedWork(id) ?? false,
     clearLock: (path) =>
-      services.workspaceActions?.clearProjectLock(path) ?? Promise.resolve(false),
+      services.workspaceActions?.clearProjectLock(path) ??
+      Promise.resolve({ ok: false, error: "git_quarantined" }),
     saveRoots:
       options.projects?.saveRoots ??
       (async (roots) => {

@@ -76,16 +76,20 @@ Cancellation returns a bounded failure separately from supervised cleanup.
 `GitError.cleanup.settled` yields a shared `CleanupResult` from
 `@ace/provider-kit/cleanup`. Default POSIX group kills and Windows `taskkill /T`
 produce `unconfirmed` receipts because detached writers can escape them.
-Worktree mutation scopes remain durably quarantined, including captured children
-and worktrees sharing Git metadata. Queued calls reject with `git_quarantined`.
-`close()` is bounded and preserves uncertain leases.
+Worktree mutation scopes stay quarantined, including captured children and
+worktrees sharing Git metadata, while a killed process may still run.
 
-Use `mutationState(path)` to inspect quarantine without launching Git. Restart
-preserves the fence. `recoverCleanup(path)` uses the host-injected
-`processRuntime.cleanupSupervisor` to reconcile every recorded root/descendant
-identity. All proofs must confirm cleanup before any intent retires. The default
-runtime preserves quarantine when it cannot supply proof. A supervisor must cover
-escaped writers; process exit, PID absence and pipe closure are insufficient.
+Without a supervisor the service heals itself. A lease whose killed process group is
+gone retires on its own, and so does a stopped daemon's lease once no Git process
+works in its checkouts. Git lock files no live Git process holds are removed. Admission
+waits up to `leaseWaitMs` (default 60 s) for a lease that clears on its own, then
+rejects with `git_quarantined`, naming what holds it. `heal(path)` runs the same
+checks for startup and periodic sweeps. `close()` retires what it can.
+
+Use `mutationState(path)` to inspect quarantine without launching Git. With a
+host-injected `processRuntime.cleanupSupervisor`, only its proofs retire intents:
+`recoverCleanup(path)` reconciles every recorded root/descendant identity, and all
+proofs must confirm cleanup first.
 IDs can be injected through `leaseId`, and POSIX signaling through
 `processRuntime.signalGroup`. See [ADR 0068](../../docs/adr/0068-git-mutation-cleanup.md)
 for persistence, platform policy and host recovery requirements.

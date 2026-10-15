@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { processGroupAlive, scanGitProcesses } from "./git-processes.ts";
 import type { GitProcessRuntime } from "./types.ts";
 
 export function processRuntime(overrides: Partial<GitProcessRuntime> = {}): GitProcessRuntime {
@@ -12,6 +13,8 @@ export function processRuntime(overrides: Partial<GitProcessRuntime> = {}): GitP
     signalGroup: (pid, signal) => {
       process.kill(-pid, signal);
     },
+    groupAlive: processGroupAlive,
+    gitProcesses: scanGitProcesses(overrides.platform ?? process.platform),
     ...overrides,
   };
 }

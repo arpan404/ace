@@ -5,13 +5,17 @@ import {
   recoverMutationLeases,
   mutationState,
   clearStaleLeases,
+  healRepository,
+  settleOwnLeases,
   type LeaseProbe,
   repositoryScope,
 } from "./mutation-leases.ts";
+import { clearLeftoverLocks, lockGraceMs } from "./git-locks.ts";
+import { runningChildren } from "./git-processes.ts";
 import type { CleanupResult } from "@ace/provider-kit/cleanup";
 import { z } from "zod";
 import { isUtf8 } from "node:buffer";
-import { dirname, join, resolve as resolvePath } from "node:path";
+import { basename, dirname, join, resolve as resolvePath } from "node:path";
 import { homedir } from "node:os";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { executionKeyQuery, nonExecutingEnv, nonExecutingTransportEnv } from "./non-executing.ts";
@@ -23,7 +27,7 @@ import {
 import { Readable, type Writable } from "node:stream";
 import { drainProcessExit, killTree, processRuntime } from "./process-runtime.ts";
 import { StringDecoder } from "node:string_decoder";
-import { stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { GitDiagnostics } from "./diagnostics.ts";
 import { failureMessage, StderrTail } from "./failure-text.ts";
 import { spawnPinned } from "./pinned-process.ts";
@@ -75,6 +79,7 @@ export class GitCli {
   };
   readonly leaseId: () => string;
   readonly leaseProbe: LeaseProbe;
+  private readonly now: () => Date | Promise<Date>;
   readonly binary: string;
   readonly timeoutMs: number;
   private ready: Promise<void> | undefined;
@@ -82,6 +87,8 @@ export class GitCli {
   private readonly calls = new Set<Promise<Output>>();
   private readonly cancellations = new Set<() => void>();
   private readonly drains = new Set<Promise<void>>();
+  /** Leases of processes this service killed, retired once their process groups are gone. */
+  private readonly killed = new Set<string>();
   private closed = false;
   private closing: Promise<void> | undefined;
 
@@ -110,7 +117,20 @@ export class GitCli {
     };
     this.runtime = processRuntime(options.processRuntime);
     this.leaseId = options.leaseId ?? mutationLeaseId;
-    this.leaseProbe = { schedule: this.runtime.scheduleTimeout, retired: options.onLeaseRetired };
+    this.now = options.now ?? (() => new Date());
+    this.leaseProbe = {
+      schedule: this.runtime.scheduleTimeout,
+      retired: options.onLeaseRetired,
+      // A cleanup supervisor owns the proof that killed writers stopped; never second-guess it.
+      evidence: this.runtime.cleanupSupervisor
+        ? undefined
+        : {
+            processes: this.runtime.gitProcesses,
+            groupAlive: this.runtime.groupAlive,
+            now: this.now,
+          },
+      waitMs: options.leaseWaitMs ?? 60_000,
+    };
     this.binary = options.gitBinary ?? "git";
     if (!this.binary || this.binary.includes("\0")) {
       throw new GitError("invalid_argument", "gitBinary must name an executable");
@@ -136,6 +156,10 @@ export class GitCli {
   }
   clearStaleLeases(path: string) {
     return clearStaleLeases(path, this.leaseProbe);
+  }
+  /** Retire stale leases and remove Git lock files no live Git process holds. */
+  heal(path: string) {
+    return healRepository(path, this.leaseProbe);
   }
   recoverCleanup(path: string) {
     return recoverMutationLeases(
@@ -180,7 +204,13 @@ export class GitCli {
     for (const cancel of this.cancellations) cancel();
     this.closing = Promise.allSettled(this.calls)
       .then(() => Promise.allSettled(this.drains))
-      .then(() => {});
+      // Killed processes' leaders have exited: retire the leases whose groups are gone now,
+      // so shutdown leaves nothing behind that it could have settled.
+      .then(() => settleOwnLeases([...this.killed], this.leaseProbe, 1))
+      .then(
+        () => {},
+        () => {},
+      );
     return this.closing;
   }
   call(cwd: string, args: string[], options: CallOptions = {}): Promise<Output> {
@@ -256,7 +286,24 @@ export class GitCli {
     await this.ready;
     options.signal?.throwIfAborted();
     await assertAvailable(cwd, this.leaseProbe);
-    return this.execute(cwd, args, options);
+    try {
+      return await this.execute(cwd, args, options);
+    } catch (error) {
+      // A lock file left by a killed or crashed Git process: remove it once no Git process can
+      // hold it and it predates this call, then retry once.
+      const lock = error instanceof GitError ? error.details.lock : undefined;
+      const evidence = this.leaseProbe.evidence;
+      if (!options.write || typeof lock !== "string" || !evidence) throw error;
+      const target = join(await realpath(dirname(lock)).catch(() => dirname(lock)), basename(lock));
+      // Only a lock older than the grace period: a Git command starting now keeps its own.
+      const before = new Date((await this.now()).getTime() - lockGraceMs);
+      const removed = await clearLeftoverLocks(cwd, evidence.processes, before).catch(
+        (): string[] => [],
+      );
+      if (!removed.includes(target)) throw error;
+      options.signal?.throwIfAborted();
+      return this.execute(cwd, args, options);
+    }
   }
 
   private async verify(cwd: string, directoryFd?: number, signal?: AbortSignal): Promise<void> {
@@ -403,6 +450,11 @@ export class GitCli {
               spawnOptions,
               options.directoryFd,
             );
+      const pid = child.pid;
+      if (pid) runningChildren.add(pid);
+      child.once("exit", () => {
+        if (pid) runningChildren.delete(pid);
+      });
       const chunks: Buffer[] = [];
       const errors: Buffer[] = [];
       const limit = options.captureBytes ?? 64 * 1024 * 1024;
@@ -419,6 +471,8 @@ export class GitCli {
       const kill = () => {
         if (stopped) return;
         stopped = true;
+        // From here this process is evidence that a writer may survive, not our running work.
+        if (child.pid) runningChildren.delete(child.pid);
         const drain = drainProcessExit(child, this.runtime.scheduleTimeout);
         this.drains.add(drain);
         void drain.then(
@@ -428,13 +482,26 @@ export class GitCli {
         const leases = ownership.leases;
         let cleanup: Promise<CleanupResult>;
         try {
-          const receipt = this.runtime.cleanupSupervisor?.stop(child, leases) ?? {
+          const supervised = this.runtime.cleanupSupervisor?.stop(child, leases);
+          // Without a supervisor ace killed the whole process group itself, and the lease
+          // retires as soon as that group is gone.
+          const group =
+            !supervised && this.runtime.platform !== "win32" && child.pid ? child.pid : undefined;
+          const receipt = supervised ?? {
             settled: killTree(this.runtime, child).then(() => ({
               status: "unconfirmed" as const,
               reason: `No escaped-descendant containment on ${this.runtime.platform}`,
             })),
           };
-          cleanup = ownership.quarantine(receipt);
+          cleanup = ownership.quarantine(receipt, group);
+          if (group !== undefined && leases.length) {
+            const ids = leases.map(({ id }) => id);
+            for (const id of ids) this.killed.add(id);
+            void settleOwnLeases(ids, this.leaseProbe).then(
+              () => ids.forEach((id) => this.killed.delete(id)),
+              ignoreError,
+            );
+          }
         } catch {
           void killTree(this.runtime, child).catch(ignoreError);
           cleanup = ownership.quarantine({
@@ -563,7 +630,11 @@ export class GitCli {
             (this.executionDisabledAt(cwd) && category === "objects_not_available")
           )
             return reject(
-              new GitError(category, failureMessage(category), { code, stderr: tail.text() }),
+              new GitError(category, failureMessage(category), {
+                code,
+                stderr: tail.text(),
+                ...(diagnostics.lockFile ? { lock: diagnostics.lockFile } : {}),
+              }),
             );
         }
         resolve({ stdout: Buffer.concat(chunks), stderr, exitCode: code ?? -1, truncated });

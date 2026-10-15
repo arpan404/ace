@@ -12,7 +12,7 @@ import { stubHandler } from "./commands.ts";
 import { token } from "./socket-test-support.ts";
 import { connect, command } from "./thread-creation-test-support.ts";
 
-test("quarantine blocks workspace preparation and provider input until cleanup recovers", async () => {
+test("quarantine blocks workspace preparation and provider input while a killed Git process survives, and lifts once it ends", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-git-quarantine-"));
   const root = join(home, "repo");
   await mkdir(root);
@@ -34,8 +34,12 @@ test("quarantine blocks workspace preparation and provider input until cleanup r
   store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
   const exited = Promise.withResolvers<void>();
   let inject = true;
+  let writer: { kill(signal: NodeJS.Signals): boolean } | undefined;
   const service = new GitService({
+    leaseWaitMs: 0,
     processRuntime: {
+      // The kill request never reaches the fixture process: it survives, as an escaped writer.
+      signalGroup: () => {},
       spawn: (binary, args, options) => {
         if (!inject || !args.includes("read-tree")) return spawnGitProcess(binary, args, options);
         inject = false;
@@ -46,6 +50,7 @@ test("quarantine blocks workspace preparation and provider input until cleanup r
           options,
         );
         child.once("exit", () => exited.resolve());
+        writer = child;
         child.once("spawn", () =>
           child.stdout.destroy(Object.assign(new Error("Fixture EIO"), { code: "EIO" })),
         );
@@ -87,20 +92,9 @@ test("quarantine blocks workspace preparation and provider input until cleanup r
       await client.close();
       await server.close();
     }
+    // Once the process is gone, its lease retires on its own: nobody recovers anything.
+    writer?.kill("SIGKILL");
     await exited.promise;
-    await new GitService({
-      processRuntime: {
-        cleanupSupervisor: {
-          stop: () => {
-            throw new Error("Recovery does not spawn");
-          },
-          recover: async () => ({
-            status: "confirmed",
-            evidence: "Exclusive fixture process without descendants exited",
-          }),
-        },
-      },
-    }).recoverCleanup(root);
     expect(await runtime.prepare(thread.id)).toBe(root);
     await expect(
       runtime.checkpoints.beforeSend(thread.id, CommandId.parse("recovered")),
@@ -109,6 +103,7 @@ test("quarantine blocks workspace preparation and provider input until cleanup r
       { label: "Before recovered" },
     ]);
   } finally {
+    writer?.kill("SIGKILL");
     await runtime.close();
     store.close();
     await rm(home, { recursive: true, force: true });

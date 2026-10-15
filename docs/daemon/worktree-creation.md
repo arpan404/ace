@@ -29,8 +29,9 @@ omitted whole. Git and setup output reaches clients only in this log. A failure 
 `branch_exists`, `ref_conflict`, `workspace_preparation_collision`, `setup_failed`,
 `preparation_timeout`, `worktree_base_not_found`, ...) and a readable `message`; the failed
 `commandResult` carries the same code with a `title` and `detail`. The daemon logs the cause.
-"Clear stale lock" for a quarantined project is `workspace.git.lock.clear`, which also retries
-the cleanups the lock held back.
+"Clear stale lock" for a quarantined project is `workspace.git.lock.clear`. It shares `git.lock.clear`'s path:
+it reports `locksCleared` and, while something still holds the lock, `detail`; once the lock is
+gone it retries the cleanups the lock held back.
 
 Clients send `worktree.creation.request` with `requestId`, `commandId`, and one action:
 

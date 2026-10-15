@@ -1,4 +1,5 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { once } from "node:events";
 import { chmod, cp, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -58,6 +59,35 @@ export async function git(repo: string, ...args: string[]): Promise<Buffer> {
   });
   return output.stdout;
 }
+
+/**
+ * A real Git process working in `cwd` until stopped, like a person's own long-running `git`:
+ * Git stays alive as the parent of the alias it runs.
+ */
+export async function holdGit(cwd: string) {
+  const child = spawn("git", ["-c", "alias.hold=!sleep 300", "hold"], {
+    cwd: assertTestGitDirectory(cwd, temporaryRoot),
+    env: testGitEnvironment(),
+    detached: true,
+    stdio: "ignore",
+  });
+  await once(child, "spawn");
+  const pid = child.pid;
+  if (!pid) throw new Error("Holder Git did not start");
+  const exited = once(child, "exit");
+  let stopped = false;
+  const stop = async () => {
+    if (!stopped) process.kill(-pid, "SIGKILL");
+    stopped = true;
+    await exited;
+  };
+  holders.push(stop);
+  return { pid, stop };
+}
+const holders: (() => Promise<void>)[] = [];
+afterEach(async () => {
+  await Promise.all(holders.splice(0).map((stop) => stop()));
+});
 
 export async function scalar(repo: string, ...args: string[]): Promise<string> {
   return (await git(repo, ...args)).toString().replace(/\n$/, "");
