@@ -44,7 +44,7 @@ export interface BaseRefs {
   state: "loading" | "ready" | "failed";
   /**
    * Why the project can't have worktrees, once the branches are read: its folder isn't a Git
-   * repository, or the repository has no commit to start from (no branch at all yet).
+   * repository, or its HEAD has no commit yet to start from.
    */
   noWorktree: "not_a_repo" | "no_commits" | undefined;
 }
@@ -74,11 +74,10 @@ export function useBaseRefs(project: string | undefined): BaseRefs {
         return { refs: noRefs, defaultBranch: undefined, repository: "not_a_repo" as const };
       if (result.kind !== "branches") throw new Error("ace didn't list the branches.");
       const refs: readonly BranchRef[] = result.refs ?? result.branches.map((name) => ({ name }));
-      const empty = !result.branches.length && !refs.some((ref) => !ref.remote);
       return {
         refs,
         defaultBranch: result.defaultBranch,
-        repository: empty ? ("no_commits" as const) : undefined,
+        repository: result.unbornHead ? ("no_commits" as const) : undefined,
       };
     },
   });

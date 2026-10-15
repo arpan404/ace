@@ -68,6 +68,17 @@ test("a repository with no commits says so on the disabled Worktree box", async 
   expect(box.getAttribute("aria-checked")).toBe("false");
 }, 60_000);
 
+test("a detached HEAD with no branches still has commits, so its Worktree box stays usable", async () => {
+  const made = app();
+  made.daemon.services.settings.seed({ "threads.useWorktree": true });
+  made.daemon.workspace.git.setRepository("relay", "detached");
+  await made.open("/new?project=relay");
+  const box = await worktreeBox();
+  await waitFor(() => expect(box.getAttribute("aria-checked")).toBe("true"));
+  expect(box.getAttribute("aria-description")).not.toBe("No commits yet");
+  expect(box.getAttribute("aria-disabled")).not.toBe("true");
+}, 60_000);
+
 test("a worktree start waits for the branches, then sends a remote base as the remote's", async () => {
   const made = app();
   const handle = made.daemon.services.handle.bind(made.daemon.services);

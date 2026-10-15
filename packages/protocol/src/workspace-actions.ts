@@ -108,6 +108,11 @@ export const WorkspaceActionResult = z.object({
       refs: z.array(BranchRef).max(1000).optional(),
       /** The repository's default branch (the origin's `HEAD`, else `main` or `master`). */
       defaultBranch: z.string().max(1024).optional(),
+      /**
+       * HEAD names a branch with no commit yet: there is nothing to start a worktree from. A
+       * detached HEAD, or a repository with no branches but a commit, is not unborn.
+       */
+      unbornHead: z.boolean().optional(),
     }),
     z.object({ kind: z.literal("details"), details: ThreadDetails }),
     z.object({ kind: z.literal("pr"), status: ForgePrStatus.nullable() }),

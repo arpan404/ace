@@ -18,7 +18,7 @@ import { moveThread } from "./thread-move.ts";
 import { WorkspaceRoots, type WorkspaceGit } from "./workspace-roots.ts";
 import { hostname, homedir } from "node:os";
 import { join } from "node:path";
-import { GitService, type GitOptions } from "@ace/git";
+import { GitError, GitService, type GitOptions } from "@ace/git";
 import { TerminalManager, type Terminal, type TerminalManagerOptions } from "@ace/terminal";
 import {
   gitStatusLimit,
@@ -385,15 +385,23 @@ export class WorkspaceRuntime {
     if (op.op === "branches.list") {
       const root = this.store.getWorkspacePath(op.workspaceId);
       if (!root) throw new Error("workspace_not_found");
-      const [listed, refs] = await Promise.all([
+      const [listed, refs, unbornHead] = await Promise.all([
         this.git.branches(root),
         this.git.branchRefs(root),
+        this.git.resolveCommit({ worktree: root, ref: "HEAD" }).then(
+          () => false,
+          (error: unknown) => {
+            if (error instanceof GitError && error.code === "unborn_head") return true;
+            throw error;
+          },
+        ),
       ]);
       return wrap({
         kind: "branches",
         ...listed,
         refs: refs.refs,
         defaultBranch: refs.defaultBranch,
+        unbornHead,
       });
     }
     if (op.op === "scripts.list")
