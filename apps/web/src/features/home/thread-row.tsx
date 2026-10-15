@@ -17,10 +17,10 @@ import { ThreadMenu } from "./thread-menu.tsx";
 import { useStartedTitle } from "./started-titles.ts";
 import { useThreadCard } from "./use-thread-card.ts";
 
-// Rows are apart by the list's spacing, not rules: hover fills a rounded box, and the open
-// thread is a raised card.
+// Rows are apart by space, not rules: the list sits inset from the sidebar's edges, and hover and
+// the open thread fill a soft rounded box.
 const row =
-  "flex w-full items-center rounded-md px-2.5 text-left text-ui outline-none transition-colors duration-(--motion-fast)";
+  "relative flex w-full items-center rounded-md px-3 text-left text-ui outline-none transition-colors duration-(--motion-fast)";
 
 /** Every task shows project and status/time, title, then branch, environment and provider. */
 export function ThreadRow(props: {
@@ -57,10 +57,11 @@ export function ThreadRow(props: {
     (entry.switch?.state === "queued" ? entry.switch.selection.instanceId : undefined) ??
     entry.live?.account ??
     entry.execution?.instanceId;
-  const height = "h-20 py-3";
+  // Three lines of 16, 20 and 16px, 4px between each, 10px above and below.
+  const height = "h-[80px] py-2.5";
   const title = (
-    <div className="flex min-w-0 items-center gap-1.5">
-      <div className={cn("min-w-0 flex-1 truncate leading-5", "text-base", titleTone(attention))}>
+    <div className="mt-1 flex min-w-0 items-center gap-1.5">
+      <div className={cn("min-w-0 flex-1 truncate text-md leading-5", titleTone(attention))}>
         {renaming ? (
           <RenameField
             entry={entry}
@@ -74,27 +75,24 @@ export function ThreadRow(props: {
     </div>
   );
   const body = (
-    <div className="flex min-w-0 w-full flex-col gap-0.5">
+    <div className="flex min-w-0 w-full flex-col">
       <div
         className={cn(
-          "flex min-w-0 items-center gap-1.5 text-xs leading-4 text-muted-foreground",
-          // Under the pointer or focus the row's actions take the status's place (RowActions).
-          !renaming && "group-hover/row:pr-28 group-focus-within/row:pr-28",
+          "flex min-w-0 items-center gap-1.5 text-meta leading-4 text-muted-foreground",
+          // Under the pointer or focus the row's actions sit beside the status, which stays.
+          !renaming && "group-hover/row:pr-24 group-focus-within/row:pr-24",
         )}
       >
         <ProjectMark id={entry.workspaceId} badge={card.badge} />
         <span className="min-w-0 flex-1 truncate">{card.project}</span>
-        <span
-          className={cn(
-            "flex shrink-0",
-            !renaming && "group-hover/row:hidden group-focus-within/row:hidden",
-          )}
-        >
+        <span className="flex shrink-0">
           <RowStatus card={card} attention={attention} />
         </span>
       </div>
       {title}
-      <RowContext card={card} />
+      <div className="mt-1">
+        <RowContext card={card} />
+      </div>
     </div>
   );
   return (
@@ -134,7 +132,7 @@ export function ThreadRow(props: {
                   "group/link focus-ring-inset focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                   // The open thread takes the fill every list shares for its current row (Settings,
                   // Skills, Automations); a picked one keeps its fill under the pointer.
-                  current ? "bg-foreground/8" : selected ? "bg-sidebar-accent" : "hover:bg-accent",
+                  current ? "bg-active" : selected ? "bg-sidebar-accent" : "hover:bg-hover",
                   handle && "pointer-coarse:pr-11",
                 )}
               >

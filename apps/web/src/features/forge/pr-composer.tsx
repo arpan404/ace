@@ -96,7 +96,7 @@ export function PrComposer(props: {
                   }
                 }}
               >
-                <TabsList aria-label="Comment or review" className="rounded-card bg-muted p-0.5">
+                <TabsList aria-label="Comment or review" className="rounded-md bg-muted p-0.5">
                   {props.extensions?.comment && <TabsTab value="comment">Comment</TabsTab>}
                   {props.extensions?.review && <TabsTab value="review">Review</TabsTab>}
                 </TabsList>
@@ -119,7 +119,7 @@ export function PrComposer(props: {
                   setClosing(false);
                 }}
                 maxLength={65_536}
-                className="min-h-24 w-full resize-y rounded-card border border-border bg-input p-2 text-ui focus-ring"
+                className="min-h-24 w-full resize-y rounded-md border border-border bg-input p-2 text-ui focus-ring"
               />
               {closing && (
                 <p role="status" className="text-sm">

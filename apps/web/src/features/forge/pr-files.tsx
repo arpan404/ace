@@ -195,7 +195,7 @@ function PrFilePage(
             pressed={whitespace}
             onClick={() => setWhitespace(!whitespace)}
           />
-          <div role="group" aria-label="Diff layout" className="flex rounded-card bg-muted">
+          <div role="group" aria-label="Diff layout" className="flex rounded-md bg-muted">
             <IconButton
               icon={RowsIcon}
               label="Unified diff"

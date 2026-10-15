@@ -14,11 +14,11 @@ test("mode and theme restyle the app at once and survive a reload", async ({ pag
   await expect(page.locator("html")).toHaveAttribute("data-scheme", "dark");
   await expect.poll(() => background(page)).not.toBe(light);
 
-  await page.getByRole("radio", { name: "Folio", exact: true }).click();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "folio");
+  await page.getByRole("radio", { name: "Paper", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "paper");
   await page.reload();
   // index.html replays the choice before the app's script runs.
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "folio");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "paper");
   await expect(page.locator("html")).toHaveAttribute("data-scheme", "dark");
-  await expect(page.getByRole("radio", { name: "Folio", exact: true })).toBeChecked();
+  await expect(page.getByRole("radio", { name: "Paper", exact: true })).toBeChecked();
 });

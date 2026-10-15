@@ -97,7 +97,7 @@ export function FindBar(props: {
     <div
       role="search"
       aria-label="Find in output"
-      className="absolute top-2 right-3 z-10 flex h-8 items-center gap-0.5 rounded-lg border bg-popover pr-1 pl-2 shadow-[var(--glass-shadow)]"
+      className="absolute top-2 right-3 z-10 flex h-8 items-center gap-0.5 rounded-md border bg-popover pr-1 pl-2 shadow-[var(--glass-shadow)]"
     >
       <MagnifyingGlassIcon aria-hidden size={14} className="shrink-0 text-subtle-foreground" />
       <input

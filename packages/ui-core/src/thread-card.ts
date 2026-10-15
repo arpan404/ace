@@ -156,6 +156,8 @@ export interface ThreadCard {
   provider: ProviderKind;
   /** The ACP registry agent behind an `acp` thread, which picks its mark and name. */
   acpAgentId: string | undefined;
+  /** The provider account the thread runs on, where known. */
+  account: string | undefined;
   /** Subagents working beside the root agent right now. */
   subagents: number;
   /** "Codex · 2 subagents running". */
@@ -329,6 +331,7 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
     provider: entry.provider,
     subagents,
     acpAgentId: entry.acpAgentId,
+    account: entry.execution?.instanceId ?? entry.live?.account,
     providerLabel: providerLabel(providerDisplayName(entry.provider, entry.acpAgentId), subagents),
   };
 }

@@ -40,7 +40,7 @@ export default function ComputerUseIndicator() {
       <Tip label={label} side="top">
         <PopoverTrigger
           aria-label={label}
-          className="relative grid size-8 place-items-center rounded-lg text-link transition-colors duration-(--motion-fast) focus-ring hover:bg-sidebar-accent aria-expanded:bg-sidebar-accent pointer-coarse:size-11"
+          className="relative grid size-8 place-items-center rounded-md text-link transition-colors duration-(--motion-fast) focus-ring hover:bg-sidebar-accent aria-expanded:bg-sidebar-accent pointer-coarse:size-11"
         >
           <Icon icon={CursorClickIcon} size={18} active />
           {capturing && (

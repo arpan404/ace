@@ -33,7 +33,7 @@ export function themeDeclarations(
   return {
     "color-scheme": scheme,
     ...tokens,
-    // The theme's type: Folio sets transcript prose in a serif, Tty sets everything in mono.
+    // Themes are colour only; every theme carries the same type.
     "--font-sans": fonts.ui,
     "--font-prose": fonts.prose,
     "--font-mono": fonts.mono,

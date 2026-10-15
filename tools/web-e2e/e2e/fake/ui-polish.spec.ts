@@ -12,14 +12,15 @@ for (const mode of ["light", "dark"])
       const themes = page.getByRole("radiogroup", { name: "Theme", exact: true });
       const ace = themes.getByRole("radio", { name: "ace", exact: true });
       await expect(ace).toBeChecked();
-      // Each swatch previews its theme with that theme's own tokens, in both schemes.
-      const folio = themes.getByRole("radio", { name: "Folio", exact: true });
-      const halves = folio.locator('[data-theme="folio"]');
-      await expect(halves).toHaveCount(2);
-      const [lightHalf, darkHalf] = await halves.evaluateAll((nodes) =>
-        nodes.map((node) => getComputedStyle(node).backgroundColor),
-      );
-      expect(lightHalf).not.toBe(darkHalf);
+      // Each swatch previews its theme with that theme's own tokens, in the scheme on screen.
+      const paper = themes.getByRole("radio", { name: "Paper", exact: true });
+      const preview = paper.locator('[data-theme="paper"]');
+      await expect(preview).toHaveCount(1);
+      await expect(preview).toHaveAttribute("data-scheme", mode);
+      const backgrounds = await themes
+        .locator("[data-theme]")
+        .evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).backgroundColor));
+      expect(new Set(backgrounds).size).toBeGreaterThan(1);
       const row = page.locator("#appearance\\.density");
       const comfortable = await row.boundingBox();
       await page.getByRole("button", { name: "Compact", exact: true }).click();
@@ -32,8 +33,8 @@ for (const mode of ["light", "dark"])
         .toBe(comfortable?.height ?? 0);
       await ace.focus();
       await page.keyboard.press("ArrowRight");
-      await expect(folio).toBeFocused();
-      await expect(folio).toBeChecked();
+      await expect(paper).toBeFocused();
+      await expect(paper).toBeChecked();
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
         width,
       );

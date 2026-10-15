@@ -52,7 +52,7 @@ function IconButton({
         reason === undefined && "data-disabled:pointer-events-none",
         size === "sm" && "size-6 rounded-sm touch-hit-lg",
         size === "default" && "size-[30px] rounded-md",
-        size === "lg" && "size-[34px] rounded-card",
+        size === "lg" && "size-[34px] rounded-md",
         className,
       )}
       {...props}

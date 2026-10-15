@@ -34,7 +34,7 @@ function SplitButton(props: {
       data-slot="split-button"
       className={cn(
         "inline-flex h-[30px] shrink-0 items-stretch overflow-hidden rounded-md text-sm font-medium whitespace-nowrap text-foreground",
-        outline && "shadow-[inset_0_0_0_1px_var(--border)]",
+        outline && "shadow-[inset_0_0_0_1px_var(--border),var(--depth-raise)]",
         props.className,
       )}
     >

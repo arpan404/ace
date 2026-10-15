@@ -18,7 +18,7 @@ export function FindBar(props: {
   useEffect(() => input.current?.focus(), []);
   const canStep = props.status === "ready" && props.count > 0;
   return (
-    <search className="absolute top-2 right-3 z-10 flex h-9 items-center gap-1 rounded-lg border bg-popover pr-1 pl-2.5 shadow-[var(--glass-shadow)]">
+    <search className="absolute top-2 right-3 z-10 flex h-9 items-center gap-1 rounded-md border bg-popover pr-1 pl-2.5 shadow-[var(--glass-shadow)]">
       <input
         ref={input}
         aria-label="Find in file"

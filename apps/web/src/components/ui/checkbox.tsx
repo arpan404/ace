@@ -4,7 +4,7 @@ import { cn } from "@/lib/cn.ts";
 
 /**
  * 14px square check ("Always allow" on approval cards). A hairline box at rest, ink fill
- * when checked; the focus ring is the accent. Pair it with a <label> for its name.
+ * with the filled buttons' highlight when checked; the focus ring is the accent. Pair it with a <label> for its name.
  */
 function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
   return (
@@ -13,7 +13,7 @@ function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
       className={cn(
         "grid size-3.5 shrink-0 place-items-center rounded-xs shadow-[inset_0_0_0_1px_var(--input)] outline-none transition-[background-color,box-shadow] duration-(--motion-fast)",
         "relative touch-hit touch-hit-xl focus-visible:shadow-[inset_0_0_0_1px_var(--input),0_0_0_2px_var(--background),0_0_0_4px_var(--focus,var(--ring))]",
-        "data-checked:bg-tint data-checked:shadow-none disabled:opacity-50",
+        "data-checked:bg-tint data-checked:shadow-[var(--depth-fill)] disabled:opacity-50",
         className,
       )}
       {...props}

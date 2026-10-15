@@ -3,7 +3,7 @@ import { accentIds, type AccentChoice } from "./accent.ts";
 import { statusDistance } from "./accent-fit.ts";
 import { contrastRatio, deltaE, parseOpaqueColor } from "./colour.ts";
 import { themeDeclarations } from "./css.ts";
-import { themeIds, type Scheme, type ThemeId } from "./palettes.ts";
+import { themeIds, type Scheme } from "./palettes.ts";
 
 /*
  * The theme proposal's contrast tables, checked on what the page actually receives: every theme
@@ -56,12 +56,10 @@ test("every text level reads at AA on every surface of every theme, light and da
   for (const id of themeIds)
     for (const scheme of schemes) {
       const tokens = themeDeclarations(id, scheme);
-      // Signal holds status words to AAA.
-      const words = id === "signal" ? 7 : 4.5;
       expect([
         id,
         scheme,
-        [...below(tokens, text, surfaces, 4.5), ...below(tokens, statusWords, surfaces, words)],
+        [...below(tokens, text, surfaces, 4.5), ...below(tokens, statusWords, surfaces, 4.5)],
       ]).toEqual([id, scheme, []]);
     }
 });
@@ -126,15 +124,6 @@ test("code and diff text read at AA on the code background and on added and remo
     }
 });
 
-test("Signal draws every boundary at 3:1 against the surfaces it separates", () => {
-  for (const scheme of schemes) {
-    const tokens = themeDeclarations("signal", scheme);
-    expect(
-      below(tokens, ["--border"], ["--background", "--sidebar", "--surface-1", "--surface-2"], 3),
-    ).toEqual([]);
-  }
-});
-
 const accentChoices: AccentChoice[] = [
   ...accentIds.map((accent) => ({ accent, customAccent: "#3E8E7E" })),
   ...["#FFFFFF", "#000000", "#FFFF00", "#2A55B0", "#2F906E", "#0E7A6C", "#C93838"].map(
@@ -153,20 +142,4 @@ test("working, needs-you, done and failed never look like the accent, whatever a
         );
         expect([id, scheme, choice, near]).toEqual([id, scheme, choice, []]);
       }
-});
-
-/** A theme's interface, transcript and code font stacks, as the page receives them. */
-const fonts = (id: ThemeId) => {
-  const tokens = themeDeclarations(id, "light");
-  return [tokens["--font-sans"], tokens["--font-prose"], tokens["--font-mono"]];
-};
-
-test("Folio sets the transcript in a serif and Tty sets everything in monospace", () => {
-  const [aceUi, aceProse, mono] = fonts("ace");
-  expect(aceProse).toBe(aceUi);
-  const [folioUi, folioProse] = fonts("folio");
-  expect(folioUi).toBe(aceUi);
-  expect(folioProse).toContain("ui-serif");
-  expect(aceUi).not.toContain("ui-serif");
-  expect(fonts("tty")).toEqual([mono, mono, mono]);
 });

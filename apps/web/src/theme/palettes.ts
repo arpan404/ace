@@ -1,11 +1,11 @@
 import { deriveAccent } from "./accent-fit.ts";
 import { oklchToHex, parseOpaqueColor, readableAcross, rgbToOklch } from "./colour.ts";
 import { ace } from "./sources/ace.ts";
-import { folio } from "./sources/folio.ts";
+import { dusk } from "./sources/dusk.ts";
+import { grove } from "./sources/grove.ts";
 import { harbor } from "./sources/harbor.ts";
-import { signal } from "./sources/signal.ts";
-import { tty } from "./sources/tty.ts";
-import { umbra } from "./sources/umbra.ts";
+import { midnight } from "./sources/midnight.ts";
+import { paper } from "./sources/paper.ts";
 import { glassTintAlpha } from "./glass-floor.ts";
 import { paletteSurfaces } from "./surfaces.ts";
 import type {
@@ -131,15 +131,15 @@ function theme(source: ThemeSource): ThemeDefinition {
 }
 
 /** In the order Settings shows them, the default first. */
-export const themeIds = ["ace", "folio", "umbra", "signal", "tty", "harbor"] as const;
+export const themeIds = ["ace", "paper", "midnight", "grove", "harbor", "dusk"] as const;
 export type ThemeId = (typeof themeIds)[number];
 export const defaultThemeId: ThemeId = "ace";
 
 export const themes: Record<ThemeId, ThemeDefinition> = {
   ace: theme(ace),
-  folio: theme(folio),
-  umbra: theme(umbra),
-  signal: theme(signal),
-  tty: theme(tty),
+  paper: theme(paper),
+  midnight: theme(midnight),
+  grove: theme(grove),
   harbor: theme(harbor),
+  dusk: theme(dusk),
 };

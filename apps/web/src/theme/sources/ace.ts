@@ -1,36 +1,35 @@
-import { sansFonts, glassy } from "./shared.ts";
+import { themeMaterial, sansFonts } from "./shared.ts";
 import type { ThemeSource } from "../types.ts";
 
 /*
- * Round 2 "ace Mono": a zero-chroma ramp, Send, focus ring and caret in the text colour, the
- * selected task a brighter fill, and softened status hues spread in lightness so they separate
- * for colour-blind people. No milled edge, grain or other material effect.
- * Values are the prototype's final token tables (docs/design/visual-language.md, "Themes").
+ * "ace": neutral graphite; the ink is the accent and status is the only colour. Themes are colour only: every
+ * theme shares the fonts and the glass, and status colours are the same in all of them. The ramp
+ * follows one lightness curve for every theme (2026-10-14 redesign), so hierarchy and contrast
+ * hold whichever theme is chosen; a theme only sets the hue and how much of it the greys carry.
  */
 export const ace: ThemeSource = {
   name: "ace",
-  character: "Neutral greys with the ink as the accent; status is the only colour",
+  character: "Neutral graphite; the ink is the accent and status is the only colour",
   fonts: sansFonts,
-  // Neutral glass: the glass stays as grey as the rest of ace; the boost is on what is behind it.
-  material: glassy({ blur: 24, saturate: 180 }, { blur: 28, saturate: 165 }),
+  material: themeMaterial,
   light: {
     canvas: "#FFFFFF",
-    sidebar: "#F7F7F7",
-    surface: "#F2F2F2",
+    sidebar: "#F9F9F9",
+    surface: "#F5F5F5",
     raised: "#FFFFFF",
-    hover: "#EFEFEF",
+    hover: "#F1F1F1",
     active: "#E9E9E9",
-    border: "#E6E6E6",
-    borderStrong: "#CCCCCC",
-    faint: "#A8A8A8",
-    subtle: "#646464",
-    muted: "#454545",
-    text: "#111111",
+    border: "#E2E2E2",
+    borderStrong: "#CFCFCF",
+    faint: "#8D8D8D",
+    subtle: "#676767",
+    muted: "#545454",
+    text: "#171717",
     code: "#F7F7F7",
-    accent: "#111111",
-    accentHover: "#080808",
+    accent: "#171717",
+    accentHover: "#0A0A0A",
     accentFg: "#FFFFFF",
-    accentText: "#111111",
+    accentText: "#171717",
     working: "#2A55B0",
     workingText: "#2A55B0",
     needs: "#B97811",
@@ -39,9 +38,9 @@ export const ace: ThemeSource = {
     doneText: "#007856",
     failed: "#A3233A",
     failedText: "#A3233A",
-    diffAdd: "#DFEBE7",
+    diffAdd: "#E3F1EA",
     diffAddFg: "#007755",
-    diffDel: "#EDDEE0",
+    diffDel: "#F5E3E5",
     diffDelFg: "#A3233A",
     syntax: {
       kw: "#4A4A4A",
@@ -49,28 +48,28 @@ export const ace: ThemeSource = {
       str: "#6B5B3E",
       num: "#7A4B2A",
       type: "#3D5560",
-      com: "#646464",
-      punc: "#646464",
+      com: "#676767",
+      punc: "#676767",
     },
   },
   dark: {
-    canvas: "#0D0D0D",
-    sidebar: "#080808",
-    surface: "#151515",
+    canvas: "#101010",
+    sidebar: "#0C0C0C",
+    surface: "#171717",
     raised: "#1A1A1A",
     hover: "#171717",
-    active: "#242424",
-    border: "#212121",
-    borderStrong: "#323232",
-    faint: "#565656",
-    subtle: "#919191",
-    muted: "#B2B2B2",
-    text: "#F0F0F0",
-    code: "#121212",
+    active: "#212121",
+    border: "#222222",
+    borderStrong: "#303030",
+    faint: "#636363",
+    subtle: "#898989",
+    muted: "#A9A9A9",
+    text: "#EBEBEB",
+    code: "#141414",
     accent: "#F2F2F2",
     accentHover: "#FFFFFF",
     accentFg: "#111111",
-    accentText: "#F0F0F0",
+    accentText: "#EBEBEB",
     working: "#6A8FD8",
     workingText: "#6B90D9",
     needs: "#EDC070",
@@ -89,8 +88,8 @@ export const ace: ThemeSource = {
       str: "#CDBB98",
       num: "#D8AE8E",
       type: "#A9C0CA",
-      com: "#949494",
-      punc: "#9A9A9A",
+      com: "#898989",
+      punc: "#898989",
     },
   },
 };

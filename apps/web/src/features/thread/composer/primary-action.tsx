@@ -71,7 +71,7 @@ export function PrimaryAction(props: {
           onClick={props.onStop}
           className={cn(
             iconControl,
-            "rounded-full bg-tint text-tint-foreground hover:bg-tint/85 hover:text-tint-foreground",
+            "rounded-full bg-tint text-tint-foreground shadow-[var(--depth-fill),var(--depth-raise)] hover:bg-tint/85 hover:text-tint-foreground active:shadow-none",
           )}
         >
           <StopIcon aria-hidden size={12} weight="fill" />
@@ -98,7 +98,7 @@ export function PrimaryAction(props: {
           iconControl,
           blocked
             ? "cursor-default bg-foreground/10 text-subtle-foreground hover:bg-foreground/10 hover:text-subtle-foreground active:scale-100"
-            : "bg-tint text-tint-foreground hover:bg-tint/85 hover:text-tint-foreground",
+            : "bg-tint text-tint-foreground shadow-[var(--depth-fill),var(--depth-raise)] hover:bg-tint/85 hover:text-tint-foreground active:shadow-none",
           props.off && "opacity-40",
         )}
       >

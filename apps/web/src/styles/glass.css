@@ -40,6 +40,18 @@
   }
 
   /*
+   * Depth (2026-10-14): the composer is the one surface floating over the transcript, so it is
+   * lit from above and lifts on a soft shadow; the strip tucked under it keeps the same light
+   * with a smaller shadow, so the two read as one piece with a fold. Same recipe in every theme.
+   */
+  .ace-glass-dock:not(.ace-glass-attached) {
+    box-shadow: var(--depth-highlight), var(--depth-dock);
+  }
+  .ace-glass-dock.ace-glass-attached {
+    box-shadow: var(--depth-highlight), var(--depth-strip);
+  }
+
+  /*
    * The frost every glass surface shares: the backdrop blurred, its colour boosted and its range
    * pulled toward the glass (the luminosity scrim), then the tint. Text on glass takes its
    * stronger colours (`--glass-foreground` and the rest), so the tint can stay thin.

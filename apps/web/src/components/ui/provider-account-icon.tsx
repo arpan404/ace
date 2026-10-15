@@ -18,7 +18,10 @@ export const accountColors: Record<AccountBadgeColor, string> = {
   violet: "var(--project-10)",
 };
 
-/** Provider glyph and readable account mark, when accounts need distinguishing. */
+/**
+ * Provider glyph and, when accounts need distinguishing, the account's mark as a bubble on the
+ * glyph's corner, cut out of the surface beneath.
+ */
 export function ProviderAccountIcon(
   props: ProviderIconProps & {
     instance?: string | undefined;
@@ -40,32 +43,50 @@ export function ProviderAccountIcon(
   );
   const multiple = siblings !== undefined && siblings.length > 1;
   const size = props.size ?? 16;
+  const bubble = multiple && account && props.accountLabel !== false;
   const name = [providerNames[props.provider], account?.label].filter(Boolean).join(" · ");
   return (
     <span
-      className={cn("inline-flex shrink-0 items-center justify-center gap-1", props.className)}
+      className={cn(
+        "relative inline-flex shrink-0 items-center justify-center",
+        // The bubble hangs past the glyph's corner; keep it clear of whatever follows.
+        bubble && "me-1",
+        props.className,
+      )}
 
       title={hoverTitle(props.tooltip, name, account?.shortLabel)}
       {...(props.decorative ? { "aria-hidden": true } : { role: "img", "aria-label": name })}
     >
-      <ProviderIcon
-        {...props}
-        size={size}
-        acpAgentId={props.acpAgentId ?? account?.acpAgentId}
-        className={undefined}
-        decorative
-      />
-      {multiple && account && props.accountLabel !== false && (
+      <span className="inline-flex" style={bubble ? bubbleCut : undefined}>
+        <ProviderIcon
+          {...props}
+          size={size}
+          acpAgentId={props.acpAgentId ?? account?.acpAgentId}
+          className={undefined}
+          decorative
+        />
+      </span>
+      {bubble && account && (
         <AccountBadge
           account={account}
           tooltip={props.tooltip}
-          className="h-2.5 w-auto min-w-2.5 px-0.5 leading-none"
+          className="absolute -right-1 -bottom-[3px] size-[11px] bg-foreground text-[7px] leading-none font-semibold tracking-tight text-background"
           decorative
         />
       )}
     </span>
   );
 }
+
+/**
+ * The bubble's outline, cut out of the glyph rather than drawn in a surface colour, so it reads
+ * the same on any background: plain, hovered or selected rows, glass. Centred on the 11px
+ * bubble that sits 4px right of and 3px below the glyph, with 1.5px to spare.
+ */
+const bubbleCut = {
+  maskImage:
+    "radial-gradient(circle at calc(100% + 1.5px) calc(100% + 2.5px), transparent 7px, #000 7.5px)",
+};
 
 function hoverTitle(
   enabled: boolean | undefined,

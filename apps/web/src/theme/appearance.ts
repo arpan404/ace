@@ -13,6 +13,9 @@ export const ReduceMotion = z.enum(["system", "on", "off"]);
 export type ReduceMotion = z.infer<typeof ReduceMotion>;
 export const Density = z.enum(["comfortable", "compact"]);
 export type Density = z.infer<typeof Density>;
+/** How round corners are, from controls to the composer (`tokens.css`). */
+export const Corners = z.enum(["sharp", "default", "round"]);
+export type Corners = z.infer<typeof Corners>;
 export const TranscriptSize = z.enum(["small", "default", "large"]);
 export type TranscriptSize = z.infer<typeof TranscriptSize>;
 
@@ -27,6 +30,7 @@ export const Appearance = z.object({
   translucency: z.catch(z.int().check(z.gte(0), z.lte(translucencyMax)), defaultTranslucency),
   reduceMotion: z.catch(ReduceMotion, "system"),
   density: z.catch(Density, "comfortable"),
+  corners: z.catch(Corners, "default"),
   transcriptSize: z.catch(TranscriptSize, "default"),
 });
 export type Appearance = z.infer<typeof Appearance>;
@@ -39,12 +43,13 @@ export const defaultAppearance: Appearance = {
   translucency: defaultTranslucency,
   reduceMotion: "system",
   density: "comfortable",
+  corners: "default",
   transcriptSize: "default",
 };
 
 export const transcriptSizes: Record<TranscriptSize, { px: number; label: string }> = {
-  small: { px: 13, label: "Small" },
-  default: { px: 14, label: "Default" },
+  small: { px: 14, label: "Small" },
+  default: { px: 15, label: "Default" },
   large: { px: 17, label: "Large" },
 };
 
@@ -80,7 +85,7 @@ export interface ResolvedAppearance {
   scheme: Scheme;
   /**
    * Solid at translucency 0, while the OS reduces transparency, and in a theme whose layers are
-   * always solid (Signal); translucent otherwise.
+   * always solid (one without glass); translucent otherwise.
    */
   surface: SurfaceSetting;
   /** The translucency on screen: the setting, or 0 wherever the layers are solid. */
@@ -88,7 +93,7 @@ export interface ResolvedAppearance {
   reduceMotion: boolean;
 }
 
-/** Whether a theme's floating layers can be glass at all in `scheme`; Signal's never are. */
+/** Whether a theme's floating layers can be glass at all in `scheme`. */
 export function themeHasGlass(theme: ThemeId, scheme: Scheme): boolean {
   return themes[theme][scheme].material.glass !== null;
 }
@@ -125,6 +130,7 @@ export interface BootAppearance {
   translucency: number;
   reduceMotion: ReduceMotion;
   density: Density;
+  corners: Corners;
   transcriptPx: number;
   css: string;
 }

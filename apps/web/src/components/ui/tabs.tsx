@@ -14,7 +14,7 @@ function TabsList({ className, ...props }: TabsPrimitive.List.Props) {
 }
 
 /**
- * Panel tab (Changes, Preview, Agents, Terminal, Logs): 12.5/500, 8% ink when active. Hover is
+ * Panel tab (Changes, Preview, Agents, Terminal, Logs): 12.5/500, 8% ink and a slight lift when active. Hover is
  * mostly a text change, so a hovered tab never reads as a second selected one.
  */
 function TabsTab({ className, ...props }: TabsPrimitive.Tab.Props) {
@@ -23,7 +23,7 @@ function TabsTab({ className, ...props }: TabsPrimitive.Tab.Props) {
       data-slot="tabs-tab"
       className={cn(
         "relative inline-flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-[color,background-color,box-shadow] duration-(--motion-fast) focus-ring touch-hit focus-visible:text-foreground",
-        "hover:text-foreground hover:not-data-active:bg-foreground/3 data-active:bg-foreground/8 data-active:text-foreground",
+        "hover:text-foreground hover:not-data-active:bg-foreground/3 data-active:bg-foreground/8 data-active:text-foreground data-active:shadow-[var(--depth-highlight),var(--depth-raise)]",
         className,
       )}
       {...props}

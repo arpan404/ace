@@ -75,7 +75,7 @@ export function SettingRow(props: {
                 id={titleId}
                 tabIndex={0}
                 aria-describedby={hintId}
-                className="block rounded-sm text-ui focus-ring"
+                className="block rounded-sm text-md font-medium focus-ring"
               >
                 {props.title}
               </Title>
@@ -85,7 +85,7 @@ export function SettingRow(props: {
               {...(props.htmlFor ? { htmlFor: props.htmlFor } : {})}
               id={titleId}
               tabIndex={!props.htmlFor && compact && props.description ? 0 : undefined}
-              className="block rounded-sm text-ui focus-ring"
+              className="block rounded-sm text-md font-medium focus-ring"
             >
               {props.title}
             </Title>

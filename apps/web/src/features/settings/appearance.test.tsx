@@ -51,20 +51,20 @@ test("picking a theme applies it at once and the next load replays it before fir
   expect(root.getAttribute("data-theme")).toBe("ace");
   await settled();
 
-  await userEvent.click(screen.getByRole("radio", { name: "Umbra" }));
-  expect(root.getAttribute("data-theme")).toBe("umbra");
-  expect(screen.getByRole("radio", { name: "Umbra" }).getAttribute("aria-checked")).toBe("true");
+  await userEvent.click(screen.getByRole("radio", { name: "Midnight" }));
+  expect(root.getAttribute("data-theme")).toBe("midnight");
+  expect(screen.getByRole("radio", { name: "Midnight" }).getAttribute("aria-checked")).toBe("true");
   // index.html replays this record before the app's script runs.
   await waitFor(() => {
     const boot = JSON.parse(storage.getItem("ace.boot-appearance") ?? "{}");
-    expect(boot).toMatchObject({ theme: "umbra", mode: "system" });
-    expect(boot.css).toContain('[data-theme="umbra"][data-scheme="dark"]');
+    expect(boot).toMatchObject({ theme: "midnight", mode: "system" });
+    expect(boot.css).toContain('[data-theme="midnight"][data-scheme="dark"]');
   });
 
   first.unmount();
   root.removeAttribute("data-theme");
   await harness({ storage }).open("/settings/appearance");
-  await waitFor(() => expect(root.getAttribute("data-theme")).toBe("umbra"));
+  await waitFor(() => expect(root.getAttribute("data-theme")).toBe("midnight"));
 });
 
 test("mode is separate from theme: System follows the OS and Dark keeps the theme", async () => {
@@ -75,10 +75,10 @@ test("mode is separate from theme: System follows the OS and Dark keeps the them
     themes.ace.light.s0,
   );
   await settled();
-  await userEvent.click(screen.getByRole("radio", { name: "Folio" }));
+  await userEvent.click(screen.getByRole("radio", { name: "Paper" }));
   await userEvent.click(screen.getByRole("radio", { name: "Dark" }));
   expect(root.getAttribute("data-scheme")).toBe("dark");
-  expect(root.getAttribute("data-theme")).toBe("folio");
+  expect(root.getAttribute("data-theme")).toBe("paper");
 });
 
 test("the mode cards set the mode, the chosen one is the checked radio, and System follows the OS", async () => {
@@ -127,9 +127,9 @@ test("only the active theme is a checked radio, and choosing another moves it", 
       .filter((radio) => radio.getAttribute("aria-checked") === "true")
       .map((radio) => radio.getAttribute("aria-label"));
   expect(checked()).toEqual(["ace"]);
-  await userEvent.click(within(group).getByRole("radio", { name: "Umbra" }));
-  expect(checked()).toEqual(["Umbra"]);
-  expect(within(group).getByRole("radio", { name: "Umbra" }).getAttribute("tabindex")).toBe("0");
+  await userEvent.click(within(group).getByRole("radio", { name: "Midnight" }));
+  expect(checked()).toEqual(["Midnight"]);
+  expect(within(group).getByRole("radio", { name: "Midnight" }).getAttribute("tabindex")).toBe("0");
 });
 
 test("the theme swatches can be changed by keyboard", async () => {
@@ -139,8 +139,8 @@ test("the theme swatches can be changed by keyboard", async () => {
   await settled();
   ace.focus();
   await userEvent.keyboard("{ArrowRight}");
-  expect(root.getAttribute("data-theme")).toBe("folio");
-  expect(document.activeElement).toBe(screen.getByRole("radio", { name: "Folio" }));
+  expect(root.getAttribute("data-theme")).toBe("paper");
+  expect(document.activeElement).toBe(screen.getByRole("radio", { name: "Paper" }));
 });
 
 test("ace is the default theme, and its accent is the ink: Send and focus take the text colour", async () => {
@@ -160,26 +160,26 @@ test("Settings offers the six themes with ace first, each previewed in its own t
   const radios = within(group).getAllByRole("radio");
   expect(radios.map((radio) => radio.getAttribute("aria-label"))).toEqual([
     "ace",
-    "Folio",
-    "Umbra",
-    "Signal",
-    "Tty",
+    "Paper",
+    "Midnight",
+    "Grove",
     "Harbor",
+    "Dusk",
   ]);
-  // Each card shows its light and dark schemes as a specimen in its own tokens, whatever
-  // theme the app is in, with the rules the app itself uses: the specimen's canvas is the theme's.
-  const folio = within(group).getByRole("radio", { name: "Folio" });
-  const previews = [...folio.querySelectorAll("[data-scheme]")].map(
+  // Each card previews the app in its own tokens, whatever theme the app is in, with the rules the
+  // app itself uses: the preview's canvas is the theme's.
+  const paper = within(group).getByRole("radio", { name: "Paper" });
+  const previews = [...paper.querySelectorAll("[data-scheme]")].map(
     (node) => `${node.getAttribute("data-theme")} ${node.getAttribute("data-scheme")}`,
   );
-  expect(previews).toEqual(["folio light", "folio dark"]);
+  expect(previews).toEqual(["paper light"]);
   const sheet = document.getElementById("ace-themes")?.textContent ?? "";
-  const selector = `[data-theme="folio"][data-scheme="light"]{`;
+  const selector = `[data-theme="paper"][data-scheme="light"]{`;
   const body = sheet.slice(sheet.indexOf(selector) + selector.length).split("}")[0] ?? "";
-  expect(body).toContain(`--background:${themes.folio.light.s0}`);
+  expect(body).toContain(`--background:${themes.paper.light.s0}`);
 });
 
-test("each theme card specimens both schemes whatever the mode on screen", async () => {
+test("theme cards preview the scheme on screen and redraw when the mode changes", async () => {
   await harness({ matchMedia: system({}) }).open("/settings/appearance");
   await settled();
   const group = screen.getByRole("radiogroup", { name: "Theme" });
@@ -191,10 +191,9 @@ test("each theme card specimens both schemes whatever the mode on screen", async
           (node) => `${node.getAttribute("data-theme")} ${node.getAttribute("data-scheme")}`,
         ),
       );
-  const expected = themeIds.map((id) => [`${id} light`, `${id} dark`]);
-  expect(drawn()).toEqual(expected);
+  expect(drawn()).toEqual(themeIds.map((id) => [`${id} light`]));
   await userEvent.click(screen.getByRole("radio", { name: "Dark" }));
-  expect(drawn()).toEqual(expected);
+  expect(drawn()).toEqual(themeIds.map((id) => [`${id} dark`]));
 });
 
 /** The value the page's stylesheet gives `name` for the theme and scheme on <html>. */
@@ -222,22 +221,22 @@ test("an accent applies over any theme, survives a theme switch and replays on t
   await userEvent.click(within(accent).getByRole("radio", { name: "Violet" }));
   const violet = token("--ring");
   expect(violet).not.toBe(themeOwn);
-  await userEvent.click(screen.getByRole("radio", { name: "Folio" }));
+  await userEvent.click(screen.getByRole("radio", { name: "Paper" }));
   expect(within(accent).getByRole("radio", { name: "Violet" }).getAttribute("aria-checked")).toBe(
     "true",
   );
-  expect(token("--ring")).not.toBe(themes.folio.light.accent);
+  expect(token("--ring")).not.toBe(themes.paper.light.accent);
 
   // Ink is the theme's own text colour.
   await userEvent.click(within(accent).getByRole("radio", { name: "Ink" }));
-  expect(token("--ring")).toBe(themes.folio.light.t1);
+  expect(token("--ring")).toBe(themes.paper.light.t1);
   await waitFor(() => {
     const boot = JSON.parse(storage.getItem("ace.boot-appearance") ?? "{}");
-    expect(boot.css).toContain(`--ring:${themes.folio.light.t1}`);
+    expect(boot.css).toContain(`--ring:${themes.paper.light.t1}`);
   });
   first.unmount();
   await harness({ storage, matchMedia: system({}) }).open("/settings/appearance");
-  await waitFor(() => expect(token("--ring")).toBe(themes.folio.light.t1));
+  await waitFor(() => expect(token("--ring")).toBe(themes.paper.light.t1));
 });
 
 test("a custom accent takes a typed hex, and one on top of a status colour is moved clear", async () => {
@@ -320,20 +319,6 @@ test("arrow keys move the slider and the floating layers follow live, and it's k
   });
 });
 
-test("Signal is always solid: the slider is disabled at Solid and says why", async () => {
-  await harness({ matchMedia: system({}) }).open("/settings/appearance");
-  await settled();
-  await userEvent.click(screen.getByRole("radio", { name: "Signal" }));
-  expect(root.getAttribute("data-surface")).toBe("solid");
-  expect(slider().disabled).toBe(true);
-  expect(slider().getAttribute("aria-valuetext")).toBe("Solid");
-  expect(screen.getByText("Signal is always solid")).toBeTruthy();
-  // The person's own setting is kept for the next theme with glass.
-  await userEvent.click(screen.getByRole("radio", { name: "Harbor" }));
-  expect(slider().disabled).toBe(false);
-  expect(slider().getAttribute("aria-valuetext")).toBe("100%");
-});
-
 test("the OS reducing transparency forces Solid, and the slider shows it", async () => {
   await harness({ matchMedia: system({ reducedTransparency: true }) }).open("/settings/appearance");
   expect(root.getAttribute("data-surface")).toBe("solid");
@@ -344,7 +329,7 @@ test("the OS reducing transparency forces Solid, and the slider shows it", async
 
 test("someone who chose Solid surfaces before the slider opens at Solid", async () => {
   const storage = memoryKeyValue();
-  storage.setItem("ace.appearance", JSON.stringify({ theme: "umbra", surface: "solid" }));
+  storage.setItem("ace.appearance", JSON.stringify({ theme: "midnight", surface: "solid" }));
   await harness({ storage, matchMedia: system({}) }).open("/settings/appearance");
   expect(root.getAttribute("data-surface")).toBe("solid");
   await screen.findByRole("slider", { name: "Translucency" });

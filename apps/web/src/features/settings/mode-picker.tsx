@@ -10,7 +10,7 @@ const modes: { value: Mode; label: string }[] = [
   { value: "dark", label: "Dark" },
 ];
 
-/** System, Light and Dark as cards, each previewing the current theme as it will look. */
+/** System, Light and Dark, each previewing the current theme as it will look. */
 export function ModePicker() {
   const { appearance, update, resolved } = useTheme();
   return (
@@ -26,12 +26,11 @@ export function ModePicker() {
           label={label}
           checked={appearance.mode === value}
           onChoose={() => update({ mode: value })}
-          centerLabel
           preview={
             <AppPreview
               theme={resolved.theme}
               scheme={value === "system" ? "split" : value}
-              className="aspect-[16/10]"
+              className="aspect-[16/9]"
             />
           }
         />

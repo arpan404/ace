@@ -234,7 +234,7 @@ function Stage(props: { image: ShownImage; shown: ImageState }) {
         />
       ) : shown.state === "loading" ? (
         <Skeleton
-          className="h-auto rounded-[10px]"
+          className="h-auto rounded-md"
           style={{ margin: "auto", aspectRatio: "4 / 3", width: "min(640px, 80%)" }}
         />
       ) : (
