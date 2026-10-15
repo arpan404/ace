@@ -21,6 +21,12 @@ const message = (id: string, size: number) => ({
   type: "agentMessage",
   text: "readable ".repeat(size),
 });
+/** Huge-output modes: [strings, bytes per string]. */
+const hugeOutput: Record<string, [number, number]> = {
+  "drop-64mib": [64, 1024 * 1024], // 64 MiB: over the 16 MiB line limit.
+  "drop-between": [1, 8 * 1024], // Over a test's small line limit.
+  "drop-frame": [2, 1024 * 1024], // 2 MiB: under the line limit, over the 1 MiB frame bound.
+};
 let count = 0;
 let turnCount = 0;
 let holdPageFor = "";
@@ -106,6 +112,27 @@ for await (const line of createInterface({ input: process.stdin })) {
       });
       turn.status = "completed";
       notify("turn/completed", { threadId: thread, turn: { id: turn.id, status: turn.status } });
+    } else if (text in hugeOutput) {
+      // Readable command output in one line, as strings each below the elision threshold, so
+      // the line reaches ace's limits at its full size. Normal lines follow it.
+      const [strings, bytes] = hugeOutput[text] ?? [0, 0];
+      const item = {
+        id: `${turn.id}-huge`,
+        type: "commandExecution",
+        status: "completed",
+        command: "cat big.log",
+        cwd: "/tmp",
+        aggregatedOutput: Array.from({ length: strings }, () =>
+          "readable ".repeat(Math.ceil(bytes / 9)),
+        ),
+      };
+      turn.items.push(item);
+      notify("item/completed", { threadId: thread, turnId: turn.id, item });
+      const after = message(`${turn.id}-after`, 1);
+      turn.items.push(after);
+      notify("item/completed", { threadId: thread, turnId: turn.id, item: after });
+      turn.status = "completed";
+      notify("turn/completed", { threadId: thread, turn: { id: turn.id, status: turn.status } });
     } else if (text === "drop-completion" || text === "unattributed") {
       turn.status = "completed";
       const params = {
@@ -139,7 +166,8 @@ for await (const line of createInterface({ input: process.stdin })) {
       },
     });
   } else if (method === "thread/turns/list") {
-    const history = threads.get(thread) ?? [];
+    const stored = threads.get(thread) ?? [];
+    const history = p["sortDirection"] === "desc" ? stored.toReversed() : stored;
     const start = Number(str(p["cursor"], "0"));
     const limit = typeof p["limit"] === "number" ? p["limit"] : 4;
     const data = history.slice(start, start + limit).map((turn) => {

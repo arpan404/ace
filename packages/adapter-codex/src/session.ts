@@ -115,6 +115,25 @@ export async function openCodexSession(
     try {
       payload = new ProviderPayload(encoded);
     } catch (error) {
+      if (!optionalMethod && dir === "recv" && error instanceof RangeError && omittable(data)) {
+        // On a shared app-server a notification or reply over the frame bound is left out like
+        // a dropped line: this thread records its size and recovers its state from fresh reads.
+        const m = obj(data);
+        const threadId = str(obj(m["params"])["threadId"]);
+        emit("note", {
+          event: "output-line-dropped",
+          phase: "complete",
+          bytes: Buffer.byteLength(encoded),
+          reason: "frame-bound",
+          attributed: {
+            response: m["method"] === undefined,
+            ...(m["id"] !== undefined ? { id: m["id"] } : {}),
+            ...(threadId ? { threadId } : {}),
+          },
+        });
+        invalidateOutput();
+        return;
+      }
       if (!optionalMethod || !(error instanceof RangeError)) {
         // A rejected incoming execution frame makes the peer detach. Its process is ours.
         if (dir === "recv") void lifetime.failTransport();
@@ -136,6 +155,14 @@ export async function openCodexSession(
       data: payload.data,
       payload,
     });
+  };
+  /**
+   * A received frame that can be left out without losing a question: shared hosts only, and never
+   * a server request, whose interaction would otherwise wait unseen.
+   */
+  const omittable = (data: unknown) => {
+    const m = obj(data);
+    return link?.shared === true && !(typeof m["method"] === "string" && m["id"] !== undefined);
   };
   const diagnostic = (error: unknown) =>
     emit("stderr", error instanceof Error ? error.message : String(error));

@@ -47,7 +47,7 @@ test("fatal Codex admission expires pending permission and holds the interrupted
       type: "thread.create",
       workspaceId: h.workspace,
       provider: "codex",
-      input: [{ type: "text", text: "oversized-execution" }],
+      input: [{ type: "text", text: "oversized-approval" }],
     });
     if (!receipt.ok || !receipt.threadId) throw new Error("Thread creation failed");
     const id = receipt.threadId;

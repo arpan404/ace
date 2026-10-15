@@ -53,6 +53,8 @@ const active = new Map<string, string>();
 const terminals = new Map<string, { itemId: string; processId: string }[]>();
 let delegationTurn = 0;
 let pendingKind = "";
+/** Threads whose work the fake has finished; a read reports them idle. */
+const settled = new Set<string>();
 const mcpServers = new Map<string, string>([["docs", "failed"]]);
 const mcpWrites = new Map<string, unknown>();
 let nativePermissions = ":danger-full-access";
@@ -390,7 +392,7 @@ for await (const line of createInterface({ input: process.stdin })) {
       notify("test/helper", { pid: helper.pid });
       process.exit(0);
     }
-    if (text === "oversized-execution") {
+    if (text === "oversized-execution" || text === "oversized-approval") {
       respond({ turn: { id: "turn" } });
       notify("turn/started", { threadId: "native", turn: { id: "turn" } });
       item(
@@ -410,14 +412,32 @@ for await (const line of createInterface({ input: process.stdin })) {
           availableDecisions: ["accept", "decline"],
         },
       });
-      item("native", "turn", {
+      if (text === "oversized-approval") {
+        // A second question too large to admit; ace cannot leave a question out.
+        write({
+          id: 101,
+          method: "item/commandExecution/requestApproval",
+          params: {
+            threadId: "native",
+            turnId: "turn",
+            itemId: "large-shell",
+            command: "x ".repeat(550_000),
+            availableDecisions: ["accept", "decline"],
+          },
+        });
+        continue;
+      }
+      const large = {
         type: "commandExecution",
         id: "large-shell",
         command: "offline",
         status: "completed",
         aggregatedOutput: "x ".repeat(550_000),
-      });
+      };
+      item("native", "turn", large);
       end();
+      stored.append("native", { id: "turn", status: "completed", items: [large] });
+      settled.add("native");
       continue;
     }
     if (text === "native-permissions-proof") {
@@ -966,8 +986,11 @@ for await (const line of createInterface({ input: process.stdin })) {
               ? null
               : "native",
         cwd: process.cwd(),
-        status: { type: "active" },
-        turns: [{ id: active.get(str(p["threadId"])), status: "inProgress" }],
+        // Settled threads read as idle, as Codex reports them; the rest keep their old answer.
+        status: { type: settled.has(str(p["threadId"])) ? "idle" : "active" },
+        turns: settled.has(str(p["threadId"]))
+          ? []
+          : [{ id: active.get(str(p["threadId"])), status: "inProgress" }],
       },
     });
   } else if (

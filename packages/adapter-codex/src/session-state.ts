@@ -1,7 +1,14 @@
 import { list, obj, str, type Obj } from "./native.ts";
 export type ReadObservation = { started?: string; completed: Set<string> };
 
-/** Item changes do not prove that a snapshot's active turn has settled or been superseded. */
+/**
+ * Item changes do not prove that a snapshot's active turn has settled or been superseded.
+ *
+ * Status and turns come from separate requests (metadata, then history pages), so an `active`
+ * status can predate a completion that the later page already shows. A completion seen live
+ * during the read explains that status: Codex runs one turn at a time, and no newer turn
+ * started (`observed.started` would be set).
+ */
 export function recoveryUncertain(
   thread: Obj,
   revision: { read: number; current: number },
@@ -13,7 +20,9 @@ export function recoveryUncertain(
     .filter((turn) => turn["status"] === "inProgress");
   return (
     active.some((turn) => !observed.completed.has(str(turn["id"]))) ||
-    (obj(thread["status"])["type"] === "active" && active.length === 0)
+    (obj(thread["status"])["type"] === "active" &&
+      active.length === 0 &&
+      observed.completed.size === 0)
   );
 }
 /** Parse native thread ancestry once, for control and discovery decisions. */

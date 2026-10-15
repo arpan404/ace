@@ -421,7 +421,11 @@ export class CodexHost {
       this.#last = undefined;
       if (this.#router.opening === 0) this.#settleWaiting();
     }
-    for (const tenant of this.#tenants) {
+    // A line about a thread with a known owner can only have changed that tenant's state. One
+    // with no owner yet, or no readable thread, could belong to anyone.
+    const owner = attributed.threadId ? this.#router.owner(attributed.threadId) : undefined;
+    const affected = owner && !owner.closed ? [owner] : [...this.#tenants];
+    for (const tenant of affected) {
       if (tenant.closed) continue;
       try {
         if (line.phase !== "end" && !rejected) tenant.handlers.outputUncertain();

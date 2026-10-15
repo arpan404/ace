@@ -133,8 +133,10 @@ test("admission schedules evicted child recovery despite saturated timers before
     await h.session.send(text("evicted-child-live"), "steer");
     await h.wait((f) => JSON.stringify(f.data).includes("spawn-lost"));
     h.runTimers();
-    await h.session.send(text("barrier"), "steer");
-    await h.wait((f) => JSON.stringify(f.data).includes("steered: barrier"));
+    // Recovery reads metadata, then a history page: wait for the read itself, not one round trip.
+    await h.wait(
+      (f) => note("thread-discovered")(f) && obj(obj(f.data)["thread"])["id"] === "lost-child",
+    );
     expect(
       Object.values(h.replay.state.items).some(
         (i) =>
