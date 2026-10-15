@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { expect, it } from "vitest";
+import { openApiDocument } from "@ace/adapter-opencode/contract";
 import { createOpenCodeRecorder } from "./providers/opencode.ts";
 import { Recording } from "./recording.ts";
 import { settleWatcher } from "./settle.ts";
@@ -27,28 +28,6 @@ it("records v2 model admission, keyed answers, owned children and paginated hist
     answers: unknown[] = [],
     permissions: unknown[] = [];
   const history: string[] = [];
-  const operations = [
-    "server.info",
-    "event.subscribe",
-    "session.create",
-    "session.get",
-    "session.switchModel",
-    "session.list",
-    "session.active",
-    "session.prompt",
-    "session.interrupt",
-    "session.message.list",
-    "session.permission.list",
-    "session.permission.reply",
-    "session.form.list",
-    "session.form.reply",
-    "session.form.cancel",
-    "session.inbox.list",
-    "shell.list",
-    "shell.get",
-    "shell.remove",
-    "model.list",
-  ];
   const emit = (type: string, data: unknown) =>
     stream?.write(
       `data: ${JSON.stringify({ id: `e${++serial}`, type, data, location: { directory: workspace } })}\n\n`,
@@ -62,13 +41,8 @@ it("records v2 model admission, keyed answers, owned children and paginated hist
     for await (const chunk of request) source += chunk;
     const body: unknown = source ? JSON.parse(source) : undefined;
     if (url.pathname === "/api/info") return void json({ version: "2.0.22", pid: process.pid });
-    if (url.pathname === "/openapi.json")
-      return void json({
-        openapi: "3.1.0",
-        paths: Object.fromEntries(
-          operations.map((operationId, i) => [`/api/${i}`, { get: { operationId } }]),
-        ),
-      });
+    // The 2.0.22 API OpenCode publishes, as the startup contract probe reads it.
+    if (url.pathname === "/openapi.json") return void json(openApiDocument());
     if (url.pathname === "/api/event") {
       stream = response;
       response.writeHead(200, { "content-type": "text/event-stream" });

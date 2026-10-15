@@ -43,8 +43,9 @@ test.each([false, true])(
           for (let step = 0; step < 8; step++) await scrollTranscript(page, 900, 120);
           for (let step = 0; step < 4; step++) await scrollTranscript(page, -700, 120);
           const mod = process.platform === "darwin" ? "Meta" : "Control";
-          await stepTurn(page, `Alt+${mod}+ArrowDown`);
-          await stepTurn(page, `Alt+${mod}+ArrowUp`);
+          // Next and previous turn (keymap nextTurn, previousTurn); Alt+mod+arrows move threads.
+          await stepTurn(page, `Shift+Alt+${mod}+ArrowDown`);
+          await stepTurn(page, `Shift+Alt+${mod}+ArrowUp`);
         }
         // Search this thread lives in the header's ⋯ menu (⌘F also opens it).
         await page.getByRole("banner").getByRole("button", { name: "More actions" }).click();

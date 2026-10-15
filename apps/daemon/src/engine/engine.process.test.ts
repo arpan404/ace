@@ -183,7 +183,8 @@ test("the next core deadline ticks both translator and core without early expiry
   const frames = scriptFrames();
   const h = track(
     await harness([{ on: "send", frames: [frames.frame(start)] }], frames, {
-      tick: () => [{ type: "queue.changed", count: 1 }],
+      // A translator reports the provider's own queue; the engine owns the engine source.
+      tick: () => [{ type: "queue.changed", source: "provider", count: 1 }],
     }),
   );
   const id = await h.create();

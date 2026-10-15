@@ -41,7 +41,20 @@ describe("exported protocol", () => {
       const values = arbitrary(entry.schema).filter(
         (value) => entry.schema.safeParse(value).success,
       );
-      const witnesses: unknown[] = [null, true, false, 42, 0.125, "", [], {}];
+      // A source-owned x-ace-constraint is a rule about which fields combine (one task or a
+      // tasks batch), stated in prose because a tool's object root can't carry it; Zod still
+      // enforces it, so only an object witness may pass the exported shape.
+      const combination = typeof entry.schema.meta()?.["x-ace-constraint"] === "string";
+      const witnesses: unknown[] = [
+        null,
+        true,
+        false,
+        42,
+        0.125,
+        "",
+        [],
+        ...(combination ? [] : [{}]),
+      ];
       for (const witness of witnesses)
         if (!entry.schema.safeParse(witness).success)
           expect(validate(witness), `${entry.name} rejects ${JSON.stringify(witness)}`).toBe(false);

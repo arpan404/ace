@@ -5,7 +5,7 @@ import { Worker } from "node:worker_threads";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { openHistory } from "./index.ts";
-import { cwd, environment } from "./test-support.ts";
+import { cwd, environment, roomySnapshots } from "./test-support.ts";
 
 test.each(["append", "checkpoint"])(
   "a WAL %s during snapshot copying publishes a consistent inventory without writing provider files",
@@ -37,6 +37,7 @@ test.each(["append", "checkpoint"])(
       {
         indexPath: join(env.root, "ace/index.sqlite"),
         instances: [{ id: "oc", provider: "opencode", homeDir: home }],
+        snapshot: roomySnapshots,
       },
       (url, options) => {
         const worker = new Worker(url, {

@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { openHistory, type HistoryOptions } from "./index.ts";
-import { cwd, environment, init, memorySink, text } from "./test-support.ts";
+import { cwd, environment, init, memorySink, roomySnapshots, text } from "./test-support.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -44,6 +44,7 @@ async function liveOpenCode() {
   const options: HistoryOptions = {
     indexPath: join(env.root, "ace/index.sqlite"),
     instances: [{ id: "oc", provider: "opencode", homeDir: home }],
+    snapshot: roomySnapshots,
   };
   const stages = async () =>
     (await readdir(join(env.root, "ace"))).filter((name) => name.startsWith("sqlite-read-"));

@@ -14,7 +14,9 @@ test("retry replaces a fatal shared client while another window remains attached
   const second = tab();
   await Promise.all([first.start(), second.start()]);
   await vi.waitFor(() => expect(first.state).toBe("ready"));
-  faults.incoming = (_message, _text, deliver) => deliver("invalid JSON");
+  // A credential refusal stays fatal (an unreadable frame reconnects instead).
+  faults.incoming = (_message, _text, deliver) =>
+    deliver(JSON.stringify({ type: "error", code: "unauthorized", message: "Credential revoked" }));
   void first
     .command({
       type: "thread.rename",

@@ -348,5 +348,7 @@ test("an imported thread refuses a rebound history home after restart", async ()
   const effects = (await readFile(f.receipt, "utf8")).trim().split("\n");
   expect(effects).toHaveLength(1);
   expect(daemon.engine?.commandExecution(command.id)).toBe("queued");
-  expect(daemon.store.getThread(id)?.status.state).toBe("waiting");
+  // The refused send stays held for the person; the thread reads failed, never done.
+  expect(daemon.engine?.queue(id)).toMatchObject({ paused: true, reason: "not_sent" });
+  expect(daemon.store.getThread(id)?.status.state).toBe("failed");
 });

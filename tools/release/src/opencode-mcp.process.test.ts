@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { expect, onTestFinished, test } from "vitest";
 import { bundleDaemon } from "@ace/release";
 
@@ -18,9 +18,13 @@ test("packaged OpenCode sessions wait for described native ace tools without a s
     new URL("../../../packages/adapter-opencode/src/testing/cli-v2.mjs", import.meta.url),
   );
   const binary = join(root, "opencode");
+  // The fake CLI lives outside the source tree here, so its own contract import must point back.
+  const contract = new URL("../contract.ts", pathToFileURL(fixture)).href;
   await writeFile(
     binary,
-    (await readFile(fixture, "utf8")).replace(/^#!.*\n/, `#!${process.execPath}\n`),
+    (await readFile(fixture, "utf8"))
+      .replace(/^#!.*\n/, `#!${process.execPath}\n`)
+      .replace('from "../contract.ts"', `from ${JSON.stringify(contract)}`),
     { mode: 0o700 },
   );
   const entry = join(root, "fixture.ts");

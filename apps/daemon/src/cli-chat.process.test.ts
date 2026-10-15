@@ -145,7 +145,7 @@ test("chat shows descendant human attention and resolves its approval inline wit
   }
 });
 
-test("chat stop and resume use the shared queue and model selection rather than a private session", async () => {
+test("chat stop and the next message use the shared queue and model selection rather than a private session", async () => {
   const f = await daemonFixture();
   const session = chat(join(f.h.home, "daemon"), [
     "--project",
@@ -165,10 +165,10 @@ test("chat stop and resume use the shared queue and model selection rather than 
     session.child.stdin.write("/stop\n");
     await expect.poll(() => f.daemon.engine?.queue(threadId).reason).toBe("stopped");
     await session.next((entry) => entry.type === "status" && entry.status === "needs-human");
-    session.child.stdin.write("Held chat input\n");
-    await expect.poll(() => f.daemon.engine?.queue(threadId).pendingCount).toBe(1);
-    session.child.stdin.write("/resume\n");
-    await expect.poll(() => f.h.inputs.get(threadId)?.includes("Held chat input")).toBe(true);
+    // The person's next message is their go-ahead: it releases the stop and is delivered.
+    session.child.stdin.write("Next chat input\n");
+    await expect.poll(() => f.h.inputs.get(threadId)?.includes("Next chat input")).toBe(true);
+    expect(f.daemon.engine?.queue(threadId)).toMatchObject({ paused: false, pendingCount: 0 });
     const receipts = () => session.records.filter((entry) => entry.type === "receipt").length;
     const before = receipts();
     session.child.stdin.write("/model chosen-model\n");

@@ -321,7 +321,8 @@ test("PR creation holds the checkout mutation lease until publication settles", 
       "-e",
       `
 import {GitService} from ${JSON.stringify(import.meta.resolve("@ace/git"))};
-const git = new GitService();
+// No wait: the probe asks whether the lease is held now, not whether it clears later.
+const git = new GitService({leaseWaitMs:0});
 try { await git.commit({worktree:${JSON.stringify(f.repo)},message:'Unreviewed writer',paths:['file.txt'],expectedHead:${JSON.stringify(f.context.head)}}); console.log(JSON.stringify({code:'committed'})); }
 catch(error) { console.log(JSON.stringify({code:error.code})); }
 finally { await git.close(); }
