@@ -8,7 +8,6 @@ import {
   healRepository,
   settleOwnLeases,
   type LeaseProbe,
-  repositoryScope,
 } from "./mutation-leases.ts";
 import { clearLeftoverLocks, lockGraceMs } from "./git-locks.ts";
 import { runningChildren } from "./git-processes.ts";
@@ -76,7 +75,6 @@ export class GitCli {
   >();
   private readonly transportProtocols: readonly string[];
   private readonly credentialHelperLookup: GitCredentialHelperLookup | undefined;
-  private readonly withRepositoryTransfer: GitOptions["withRepositoryTransfer"];
   private readonly credentialConfigPaths: {
     system: string | undefined;
     xdg: string;
@@ -100,7 +98,6 @@ export class GitCli {
   constructor(options: GitOptions) {
     this.transportProtocols = options.transportProtocols ?? ["http", "https", "ssh"];
     this.credentialHelperLookup = options.credentialHelperLookup;
-    this.withRepositoryTransfer = options.withRepositoryTransfer;
     const home = process.env.HOME || homedir();
     const paths = {
       system: options.credentialConfigPaths?.system,
@@ -273,10 +270,8 @@ export class GitCli {
   fetch(cwd: string, args: string[], options: CallOptions): Promise<Output> {
     if (args[0] !== "fetch")
       return Promise.reject(new GitError("invalid_argument", "Explicit fetch requires fetch"));
-    return this.withAuthorizedTransfer(cwd, () =>
-      this.executionPolicy.run({ protocols: this.transportProtocols }, () =>
-        this.call(cwd, args, options),
-      ),
+    return this.executionPolicy.run({ protocols: this.transportProtocols }, () =>
+      this.call(cwd, args, options),
     );
   }
   /** Publishing has its own admission path; local plumbing never inherits transport permission. */
@@ -291,25 +286,17 @@ export class GitCli {
     // A person's push runs their pre-push hook and push signing. Submodules are never pushed
     // along: they go to other remotes ace has not checked.
     const guards = this.personScope() ? [] : ["--no-verify", "--signed=false"];
-    return this.withAuthorizedTransfer(cwd, () =>
-      this.executionPolicy.run({ protocols }, () =>
-        this.call(cwd, ["push", ...guards, "--recurse-submodules=no", ...args.slice(1)], options),
-      ),
+    return this.executionPolicy.run({ protocols }, () =>
+      this.call(cwd, ["push", ...guards, "--recurse-submodules=no", ...args.slice(1)], options),
     );
   }
   /** Read a remote's branches through exactly the transport a push from `cwd` would use. */
   lsRemote(cwd: string, args: string[], options: CallOptions): Promise<Output> {
     if (args[0] !== "ls-remote")
       return Promise.reject(new GitError("invalid_argument", "Remote probe requires ls-remote"));
-    return this.withAuthorizedTransfer(cwd, () =>
-      this.executionPolicy.run({ protocols: this.transportProtocols }, () =>
-        this.call(cwd, args, options),
-      ),
+    return this.executionPolicy.run({ protocols: this.transportProtocols }, () =>
+      this.call(cwd, args, options),
     );
-  }
-  async withAuthorizedTransfer<T>(cwd: string, operation: () => Promise<T>): Promise<T> {
-    if (!this.withRepositoryTransfer) return operation();
-    return this.withRepositoryTransfer(await repositoryScope(cwd), operation);
   }
   /** Cancellable I/O-bound retry pause, using the same injected clock as calls. */
   pause(milliseconds: number): Promise<void> {
