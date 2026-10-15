@@ -391,6 +391,22 @@ export class AccountRegistry {
       }
     }
   }
+  /** Why a usage read found nothing to report (fixed words), or undefined once it reads again. */
+  recordUsageNotice(id: string, notice: AccountQuota["usageNotice"]): void {
+    const account = this.get(id);
+    if (!account) throw new Error("Unknown instance");
+    const before = account.quota.usageNotice;
+    if (before?.message === notice?.message && before?.reason === notice?.reason) return;
+    const quota = AccountQuota.parse({ ...account.quota, usageNotice: notice });
+    this.updateQuota.run(JSON.stringify(quota), id);
+    for (const listener of this.quotaListeners) {
+      try {
+        listener(id);
+      } catch {
+        /* Reader owns delivery. */
+      }
+    }
+  }
   recordAuth(id: string, method: "browser" | "api_key" | "unknown", signedInAs?: string): void {
     const account = this.get(id);
     if (!account) throw new Error("Unknown instance");

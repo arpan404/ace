@@ -36,6 +36,7 @@ const neutralWindow = z.object({
   resetsAt: number.nullable().optional(),
   windowDurationMins: number.positive().optional(),
   limitName: codexLimitName.optional(),
+  advisory: z.literal(true).optional(),
 });
 export function reset(value: unknown): number | null {
   if (typeof value === "string") {
@@ -112,6 +113,7 @@ export function decodeWindows(provider: string, body: Record<string, unknown>) {
       put(name, w.usedPercent, w.resetsAt ?? null, {
         ...(w.windowDurationMins === undefined ? {} : { windowDurationMins: w.windowDurationMins }),
         ...(w.limitName === undefined ? {} : { limitName: w.limitName }),
+        ...(w.advisory ? { advisory: true } : {}),
       });
     });
   if (provider === "codex") {

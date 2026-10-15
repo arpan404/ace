@@ -156,6 +156,11 @@ export const QuotaWindow = z.object({
    * reading that hasn't been refreshed can say how old it is.
    */
   observedAt: z.number().finite().nonnegative().optional(),
+  /**
+   * A meter the provider shows that doesn't stop work when full (Cursor's included usage, one
+   * Gemini model's bucket, OpenCode Go beside OpenCode's other providers): shown, never a limit.
+   */
+  advisory: z.literal(true).optional(),
 });
 /**
  * Banked rate-limit resets the provider says the account has earned (Codex
@@ -179,6 +184,17 @@ export const AccountQuota = z.object({
   plan: z.string().min(1).max(128).optional(),
   /** Absent until the provider reports it; Claude's CLI never does. */
   resetCredits: QuotaResetCredits.optional(),
+  /**
+   * Why the account's usage couldn't be read, in fixed words ("Sign in again in Gemini CLI"):
+   * set when its stored login has lapsed, cleared by the next reading. Never a limit.
+   */
+  usageNotice: z
+    .object({
+      reason: z.enum(["signed_out", "unavailable"]),
+      message: z.string().min(1).max(256),
+      observedAt: z.number().finite().nonnegative(),
+    })
+    .optional(),
   windows: z
     .record(z.string().max(128), QuotaWindow)
     .refine((w) => Object.keys(w).length <= 32)

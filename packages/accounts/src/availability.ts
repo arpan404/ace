@@ -33,10 +33,15 @@ export function freshReading(
   return now - (window.observedAt ?? state.observedAt) <= staleReadingMs;
 }
 
+/** The windows that say whether the account can work: a meter the provider shows never does. */
+function limiting(state: AccountQuota): QuotaWindow[] {
+  return Object.values(state.windows).filter((window) => !window.advisory);
+}
+
 /** What the provider definitely said holds the account at `now`: full, live and fresh. */
 function holding(state: AccountQuota, now: number): QuotaWindow[] {
   return [
-    ...Object.values(state.windows),
+    ...limiting(state),
     ...(state.blockers.limitError ? [state.blockers.limitError] : []),
   ].filter(
     (window) =>
@@ -54,7 +59,7 @@ export function availability(state: AccountQuota, now: number): Availability {
   if (state.auth === "logged_out") return "logged_out";
   if (state.auth !== "logged_in") return "unknown";
   if (holding(state, now).length) return "exhausted";
-  for (const window of Object.values(state.windows))
+  for (const window of limiting(state))
     if (
       window.usedPercent >= nearLimitPercent &&
       liveWindow(window, now) &&
@@ -73,9 +78,7 @@ export function freshlyBelowLimit(state: AccountQuota, now: number): boolean {
   const level = availability(state, now);
   return (
     (level === "available" || level === "near_limit") &&
-    Object.values(state.windows).some(
-      (window) => liveWindow(window, now) && freshReading(window, state, now),
-    )
+    limiting(state).some((window) => liveWindow(window, now) && freshReading(window, state, now))
   );
 }
 

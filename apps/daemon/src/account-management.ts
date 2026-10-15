@@ -172,6 +172,7 @@ export class AccountManagement {
               defaultProviderExecutable(instance.provider));
       },
       env: this.options.env,
+      userHome: this.options.env.HOME ?? this.options.env.USERPROFILE ?? "",
       ports: this.options.usagePorts ?? defaultUsagePorts(this.options.now),
       now: this.options.now,
       signal: this.options.signal ?? new AbortController().signal,

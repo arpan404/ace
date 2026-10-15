@@ -1443,10 +1443,14 @@ Example:
     "provider": "codex",
     "quota": {
       "auth": "logged_out",
-      "blockers": {},
       "observedAt": 3,
       "usage": {
         "outputTokens": 1
+      },
+      "usageNotice": {
+        "message": "example",
+        "observedAt": 5,
+        "reason": "unavailable"
       },
       "windows": {}
     },

@@ -116,3 +116,42 @@ credential-shaped output is discarded. Live auth terminals have no history or
 replay. Installation does not prove authentication. Confirmed ACP auth stores only
 an account readiness fact, never credentials. Actual vendor sign-in and account
 eligibility still require validation outside fake tests.
+
+## Amendment: reading a stored token for usage only
+
+Date: 2026-10-15. Approved by the owner. A narrow exception for usage reads, where the
+provider's own CLI or SDK offers no usage read of its own:
+
+- ace reads the CLI's existing stored token from that account's own CLI home (ace's private
+  per-account home where it has one, else the CLI's standard location), in memory, at the
+  moment of one usage read.
+- It is sent only to that provider's official, read-only usage endpoint over HTTPS, on the
+  same host the CLI itself uses. Redirects are refused, never followed.
+- It is never stored, cached, logged, put in errors, events or telemetry, or sent to a client,
+  another host or the relay. Results and failures are built from fixed words only.
+- It is never refreshed or rotated, and ace never writes the CLI's credential files. An
+  expired token (by its stored expiry) is never sent; it, or a 401 from the endpoint, reports
+  "Sign in again in <CLI>" instead. No stored token at all reads nothing and reports nothing.
+- A store every home shares (the macOS keychain) is read only for the account that is that
+  login: the CLI's own `about` must name the account's known sign-in, or, when ace doesn't
+  know it, the account must be its provider's only one. Never another account's limits.
+- No account mutation of any kind.
+
+Sources are declared as data in `@ace/accounts` (`usage-sources/builtin.ts`) and ship with
+ace only: a remote registry entry cannot declare one. A CLI command or SDK call that reads
+usage with its own credential is always preferred to a token source. Any provider or ACP agent
+gets usage by adding an entry there, with no adapter code.
+
+A declared meter is advisory unless its declaration says a full window refuses all work
+(`holds`): it is shown on the Usage page but never holds queued messages or picks a migration
+target (ADR 0053's definite-signal rule). The shipped sources are all advisory:
+
+| Source                             | Endpoint                                                                                                                        | Confirmed against                                                                           |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Cursor                             | `api2.cursor.sh` `DashboardService/GetCurrentPeriodUsage` with the keychain token; plan from `cursor-agent about --format json` | cursor-agent 2026.10.01 bundle (`src/usage-data.ts`), a read-only call with a signed-in CLI |
+| Gemini CLI (ACP `official:gemini`) | `cloudcode-pa.googleapis.com` `v1internal:loadCodeAssist` then `v1internal:retrieveUserQuota` with `~/.gemini/oauth_creds.json` | Gemini CLI 0.43 bundle (`CodeAssistServer`, `refreshUserQuota`)                             |
+| OpenCode                           | `opencode.ai/zen/go/v1/usage` with the `opencode-go` key from `opencode.db` or `auth.json`                                      | a read-only call with a signed-in OpenCode 2.0.29                                           |
+
+Antigravity is not shipped: `agy -p /usage --output-format json` could not be confirmed
+against an installed `agy`, nor where its login is kept. Its entry is one declaration once the
+command's answer has been checked.

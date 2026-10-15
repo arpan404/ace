@@ -72,6 +72,32 @@
       },
       "type": "object"
     },
+    "usageNotice": {
+      "properties": {
+        "message": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "observedAt": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "reason": {
+          "enum": [
+            "signed_out",
+            "unavailable"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "message",
+        "observedAt"
+      ],
+      "type": "object"
+    },
     "windows": {
       "additionalProperties": {
         "$ref": "https://ace.local/protocol/v1/QuotaWindow.json"

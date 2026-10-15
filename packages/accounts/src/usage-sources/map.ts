@@ -11,6 +11,8 @@ type Neutral = {
   usedPercent: number;
   resetsAt: number | null;
   windowDurationMins?: number;
+  /** Shown, but never holds the account at its limit (`UsageMapping.holds`). */
+  advisory?: true;
 };
 
 const container = z.custom<Record<string, unknown>>(
@@ -46,7 +48,8 @@ function select(root: unknown, path: JsonPath): { key: string | undefined; value
   }
   return current;
 }
-const first = (root: unknown, path: JsonPath | undefined) =>
+/** The first value at `path`, if any. */
+export const first = (root: unknown, path: JsonPath | undefined) =>
   path ? select(root, path)[0]?.value : undefined;
 const finite = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value)
@@ -67,7 +70,7 @@ export function instant(value: unknown, unit: "s" | "ms" | "iso"): number | unde
   return unit === "s" ? n * 1000 : n;
 }
 
-function window(entry: unknown, mapping: WindowMapping): Neutral | undefined {
+function window(entry: unknown, root: unknown, mapping: WindowMapping): Neutral | undefined {
   const raw = finite(first(entry, mapping.amount.path));
   if (raw === undefined || raw < 0) return undefined;
   const percent =
@@ -79,38 +82,43 @@ function window(entry: unknown, mapping: WindowMapping): Neutral | undefined {
           ? 100 - raw
           : 100 - raw * 100;
   if (percent < 0 || percent > 100.5) return undefined;
-  const resetsAt = mapping.resetsAt
-    ? (instant(first(entry, mapping.resetsAt.path), mapping.resetsAt.unit) ?? null)
+  const resets = mapping.resetsAt;
+  const resetsAt = resets
+    ? (instant(first(resets.fromRoot ? root : entry, resets.path), resets.unit) ?? null)
     : null;
-  const duration = finite(first(entry, mapping.windowDurationMins));
+  const duration = finite(first(entry, mapping.windowDurationMins)) ?? mapping.durationMins;
   return {
-    usedPercent: Math.min(100, percent),
+    usedPercent: Math.min(100, Math.max(0, percent)),
     resetsAt,
     ...(duration !== undefined && duration > 0 ? { windowDurationMins: duration } : {}),
   };
 }
 
-/** The reading, or undefined when the answer has no window the declaration recognises. */
-export function mapUsage(
-  answer: unknown,
-  mapping: UsageMapping,
-): { usageWindows: Record<string, Neutral>; planType?: string } | undefined {
+/** A plan name the answer gives, or "" when it gives none that reads as one. */
+export function planName(value: unknown): string {
+  return typeof value === "string" && value.trim() && value.length <= 128 ? value.trim() : "";
+}
+
+export type UsageReading = { usageWindows?: Record<string, Neutral>; planType?: string };
+
+/** The reading, or undefined when the answer has neither a window nor a plan it recognises. */
+export function mapUsage(answer: unknown, mapping: UsageMapping): UsageReading | undefined {
+  if (mapping.expect.some(({ path, equals }) => first(answer, path) !== equals)) return undefined;
   const usageWindows: Record<string, Neutral> = {};
   for (const declared of mapping.windows)
     for (const { key, value } of select(answer, declared.each)) {
       const named = first(value, declared.name);
-      const name = typeof named === "string" && named.trim() ? named.trim() : key;
-      const reading = window(value, declared);
+      const name =
+        declared.label ?? (typeof named === "string" && named.trim() ? named.trim() : key);
+      const reading = window(value, answer, declared);
       if (!name || !reading || name.length > 128) continue;
       if (Object.keys(usageWindows).length >= 32) break;
-      usageWindows[name] = reading;
+      usageWindows[name] = mapping.holds ? reading : { ...reading, advisory: true };
     }
-  if (!Object.keys(usageWindows).length) return undefined;
-  const plan = first(answer, mapping.plan);
+  const planType = planName(first(answer, mapping.plan));
+  if (!Object.keys(usageWindows).length && !planType) return undefined;
   return {
-    usageWindows,
-    ...(typeof plan === "string" && plan.trim() && plan.length <= 128
-      ? { planType: plan.trim() }
-      : {}),
+    ...(Object.keys(usageWindows).length ? { usageWindows } : {}),
+    ...(planType ? { planType } : {}),
   };
 }
