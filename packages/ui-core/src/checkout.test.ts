@@ -15,6 +15,17 @@ const details = (patch: Partial<ThreadDetails> = {}): ThreadDetails => ({
   diff: { files: 0, additions: 0, deletions: 0 },
   ...patch,
 });
+const link = (number: number, state: "open" | "draft" | "merged" | "closed" = "open") => ({
+  linkedPrs: [
+    {
+      number,
+      state,
+      repo: repository,
+      url: `https://github.com/acme/relay/pull/${number}`,
+      updatedAt: 1,
+    },
+  ],
+});
 const step = (patch: Partial<ThreadDetails>, status?: ForgePrStatus | null) => {
   const checkout = checkoutOf(details(patch), status);
   if (!checkout) throw new Error("expected a checkout");
@@ -42,13 +53,13 @@ test("uncommitted changes come first, even with an open PR", () => {
     step({
       diff: { files: 3, additions: 20, deletions: 4 },
       ahead: 2,
-      linkedPr: { number: 9, state: "open" },
+      ...link(9),
     }),
   ).toEqual({ kind: "commit" });
 });
 
 test("committed work the remote lacks is pushed next", () => {
-  expect(step({ ahead: 1, linkedPr: { number: 9, state: "open" } })).toEqual({ kind: "push" });
+  expect(step({ ahead: 1, ...link(9) })).toEqual({ kind: "push" });
 });
 
 test("a clean, pushed branch opens a PR", () => {
@@ -56,9 +67,9 @@ test("a clean, pushed branch opens a PR", () => {
 });
 
 test("an open PR is followed, with the forge's draft state and CI when it answered", () => {
-  expect(step({ linkedPr: { number: 9, state: "open", url: "https://x/9" } })).toEqual({
+  expect(step(link(9))).toMatchObject({
     kind: "pr",
-    pr: { number: 9, state: "open", url: "https://x/9" },
+    pr: { number: 9, state: "open", url: "https://github.com/acme/relay/pull/9" },
   });
   const status = {
     ref: { repository, number: 9 },
@@ -73,14 +84,14 @@ test("an open PR is followed, with the forge's draft state and CI when it answer
     reviewThreads: [],
     raw: {},
   } satisfies ForgePrStatus;
-  expect(step({ linkedPr: { number: 9, state: "open" } }, status)).toMatchObject({
+  expect(step(link(9), status)).toMatchObject({
     kind: "pr",
     pr: { number: 9, state: "draft", ci: "pending", title: "Fix replay cursor" },
   });
 });
 
 test("a merged PR starts the walk again", () => {
-  expect(step({ linkedPr: { number: 9, state: "merged" } })).toEqual({
+  expect(step(link(9, "merged"))).toEqual({
     kind: "create-pr",
     blocked: undefined,
   });
@@ -95,15 +106,11 @@ test("a PR can't be opened from the base branch or without a forge remote", () =
   expect(step({ branch: null })).toMatchObject({ kind: "create-pr", blocked: /detached/ });
 });
 
-test("a linked PR without an address opens on its repository's forge", () => {
+test("only the thread's links name its PR, never the legacy single link", () => {
   expect(step({ linkedPr: { number: 188, state: "open" } })).toEqual({
-    kind: "pr",
-    pr: { number: 188, state: "open", url: "https://github.com/acme/relay/pull/188" },
+    kind: "create-pr",
+    blocked: undefined,
   });
-  const gitlab = { ...repository, forge: "gitlab", host: "gitlab.com" } as const;
-  expect(
-    checkoutOf(details({ repository: gitlab, linkedPr: { number: 4, state: "open" } }))?.pr?.url,
-  ).toBe("https://gitlab.com/acme/relay/-/merge_requests/4");
 });
 
 test("GitLab checkouts explain the unsupported forge before creating a PR", () => {

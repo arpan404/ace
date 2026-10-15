@@ -2,7 +2,7 @@
  * The daemon's git, forge, checkout and review refusal codes in words: what went wrong, then
  * after a colon what fixes it ("Sign in to GitHub: run `gh auth login`, then retry."). Commands
  * are in backticks for `InlineMarkdown`. A code without its own sentence gets a general one, never
- * the raw code. Pure.
+ * the raw code. This is the one table: web, desktop and the PR panel all read it. Pure.
  */
 
 const copy: Record<string, string> = {
@@ -22,7 +22,8 @@ const copy: Record<string, string> = {
     "Scripts can't run on this daemon's platform yet: run it in a terminal.",
   editor_not_found: "That editor is no longer installed: pick another one.",
   engine_unavailable: "This daemon can't move a thread's checkout: update the daemon.",
-  repository_mismatch: "The checkout's remote changed: refresh, then retry.",
+  repository_mismatch:
+    "The project's remote doesn't match this repository: pick the matching project, or refresh.",
   action_failed: "The daemon couldn't do that: check its logs, then retry.",
   action_busy: "Too many actions are running: wait for one to finish, then retry.",
   action_outcome_uncertain:
@@ -86,14 +87,21 @@ const copy: Record<string, string> = {
   git_identity_missing:
     "Git doesn't know who you are: set user.name and user.email, then commit again.",
   git_nothing_to_commit: "There's nothing to commit: every change is already committed.",
+  // Pushing and the pull request's branch.
   git_push_rejected:
-    "The remote has commits this branch doesn't: pull or rebase onto them, then push again.",
+    "The remote has commits this branch doesn't: pull them, or force push with lease to overwrite.",
+  git_push_lease_stale:
+    "The remote branch moved since you looked: fetch and review it before force pushing.",
   git_protected_branch: "The remote protects that branch: push to a new branch and open a PR.",
-  // The forge (GitHub through `gh`).
-  forge_auth: "Sign in to GitHub: run `gh auth login`, then retry.",
-  forge_cli: "The GitHub CLI failed: install `gh` and run `gh auth login`, then retry.",
+  git_pr_head_unavailable:
+    "The pull request's branch can't be pushed from here: add a remote for its repository, or its fork was deleted.",
+  // The forge (GitHub through `gh`). Reads and writes share the transport codes; a write the
+  // host refuses gets its own code so the fix names what changed.
+  forge_cli:
+    "Sign in to GitHub: run `gh auth login` (install `gh` first if it's missing), then retry.",
+  forge_no_remote: "This checkout has no GitHub remote: add an origin on GitHub, then retry.",
   forge_not_found:
-    "GitHub couldn't find the pull request: check its number and your access to the repository.",
+    "GitHub couldn't find that repository, issue or pull request: check its number and your access to the repository.",
   forge_outcome_uncertain:
     "GitHub may have completed this action before the account changed. Check the remote result and restore the intended account. A reply retry verifies the saved comment before another write.",
   forge_preferences_changed:
@@ -101,12 +109,43 @@ const copy: Record<string, string> = {
   forge_forbidden:
     "GitHub denied access: check your permissions on the repository, or run `gh auth login`.",
   forge_rate_limit: "GitHub's rate limit was reached: wait a few minutes, then retry.",
-  forge_unsupported: "This forge isn't supported yet: open the pull request on its website.",
-  forge_conflict:
-    "GitHub refused: the PR changed, has conflicts or failing checks. Refresh, then retry.",
+  forge_unsupported:
+    "This forge or GitHub feature isn't supported here: open the pull request on its website.",
+  forge_conflict: "This changed on GitHub since ace last read it. Refresh, then retry.",
+  forge_write_refused: "GitHub refused the change: refresh the pull request, then retry.",
+  forge_validation_failed:
+    "GitHub rejected the request as invalid: check what you entered, then retry.",
+  forge_head_moved:
+    "The pull request's branch moved since you looked: refresh and review its new commits, then retry.",
+  forge_version_mismatch:
+    "Someone changed this on GitHub since you started editing: refresh, then apply your edit again.",
   forge_invalid_data: "GitHub's reply couldn't be read: update `gh`, then refresh.",
-  forge_limit: "The pull request is too large to read here: open it on GitHub.",
+  forge_limit: "GitHub returned more than ace can show here: open it on GitHub.",
   forge_cancelled: "The GitHub request was cancelled: try again.",
+  forge_status_unavailable:
+    "GitHub accepted the action, but its new state couldn't be read: refresh to load it.",
+  forge_action_reconciled:
+    "The earlier action is reconciled: review the pull request before changing it again.",
+  forge_write_pending: "An earlier action is still running on GitHub: wait, then refresh.",
+  forge_write_uncertain:
+    "GitHub may have accepted the earlier action: refresh to check its result before changing anything else.",
+  forge_receipt_limit: "Too many GitHub replies are waiting to be confirmed: refresh, then retry.",
+  action_not_dispatched: "The action wasn't sent: reconnect, then retry.",
+  issue_reconciliation_required:
+    "An earlier write to this issue is uncertain: refresh to check it, then retry.",
+  workspace_cleanup_required:
+    "The PR worktree needs cleanup: finish or discard it in the task, then retry.",
+  pr_checkout_changed: "The task's checkout moved: refresh, or pick another task.",
+  pr_requires_worktree:
+    "Working on a pull request needs its own worktree: start it in a new worktree.",
+  pr_unavailable:
+    "This checkout can't open a pull request: check out a branch other than its base.",
+  pr_not_linked: "No pull request is linked to this thread: link one first.",
+  pr_unreadable: "ace couldn't read the pull request from GitHub: refresh, then retry.",
+  // The connection to the daemon.
+  offline: "You're offline: reconnect to the daemon, then retry.",
+  timeout: "The daemon didn't answer in time: check the checkout or GitHub before retrying.",
+  maintenance: "The daemon is in maintenance: wait for it to finish, then retry.",
   // Review mode.
   review_not_found: "The daemon no longer has this review: comment again to start a new one.",
   not_found: "The daemon no longer has this review: comment again to start a new one.",
@@ -131,6 +170,25 @@ const copy: Record<string, string> = {
   review_limit: "This review is full: resolve or discard some comments first.",
   unsupported_by_fake_daemon: "This daemon can't do that yet: update the daemon.",
 };
+
+/*
+ * Codes after which the change may have been applied even though no receipt arrived: the
+ * daemon or GitHub lost track, or the connection dropped after the command was sent. Controls
+ * stay fenced until a fresh read settles it. Every other refusal is definite.
+ */
+const uncertain = new Set([
+  "action_outcome_uncertain",
+  "forge_write_uncertain",
+  "forge_outcome_uncertain",
+  "uncertain_delivery",
+  "offline",
+  "timeout",
+]);
+
+/** Whether a failed write may still have happened; unknown failures count as uncertain. */
+export function outcomeUncertain(code: string | undefined): boolean {
+  return code === undefined || uncertain.has(code);
+}
 
 /** The sentence for a refusal code; the general one for a code without its own. */
 export function actionErrorText(code: string | undefined): string {
