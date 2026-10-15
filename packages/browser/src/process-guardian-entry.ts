@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import { isAbsolute } from "node:path";
 import { z } from "zod";
 import { chromiumProcessKiller } from "./chromium-process.ts";
+import { reapProfileGroups } from "./guardian-cleanup.ts";
 
 const [profile] = z.tuple([z.string().min(1)]).parse(process.argv.slice(2));
 if (!isAbsolute(profile)) throw new Error("Chromium profile must be absolute");
@@ -32,43 +33,14 @@ async function processes() {
     });
 }
 
-// Chromium launches detached. A helper can survive pipe EOF after its browser
-// parent dies. Match the exclusive profile again before signaling its live group;
-// the remaining helper reserves that group id and prevents PID reuse mistakes.
-async function ownedGroups() {
-  const groups = new Set<number>();
-  for (const entry of await processes()) {
-    if (
-      entry.state.startsWith("Z") ||
-      !(entry.command + " ").includes(` --user-data-dir=${profile} `)
-    )
-      continue;
-    if (entry.group === process.pid) throw new Error("Chromium guardian cannot own itself");
-    groups.add(entry.group);
-    if (groups.size > 16) throw new Error("Chromium process group limit");
-  }
-  return groups;
-}
 process.once("disconnect", () => {
   void (async () => {
-    const selected = await ownedGroups();
-    const confirmed = await ownedGroups();
-    const killed = new Set<number>();
-    const kill = chromiumProcessKiller(process.platform);
-    for (const group of selected) {
-      if (!confirmed.has(group)) continue;
-      await kill(group);
-      killed.add(group);
-    }
-    // Wait for kernel exit before releasing the profile to removal or reopening.
-    // Each inventory is an I/O boundary; zombies have already stopped writing.
-    for (let attempt = 0; killed.size && attempt < 64; attempt++) {
-      const live = (await processes()).some(
-        (entry) => killed.has(entry.group) && !entry.state.startsWith("Z"),
-      );
-      if (!live) return;
-    }
-    if (killed.size) throw new Error("Chromium process group did not exit");
+    await reapProfileGroups({
+      profile,
+      self: process.pid,
+      processes,
+      kill: chromiumProcessKiller(process.platform),
+    });
   })().catch(() => {
     process.exitCode = 1;
   });
