@@ -104,7 +104,7 @@ test("production cloning rejects file ext and credential URLs before creating th
   }
 });
 
-test("clone cancellation returns separately from termination and quarantines its partial directory", async () => {
+test("clone cancellation returns separately from termination and never leaves its partial directory fenced", async () => {
   const closed = Promise.withResolvers<void>();
   const started = Promise.withResolvers<void>();
   const f = await projectFixture({
@@ -155,10 +155,12 @@ test("clone cancellation returns separately from termination and quarantines its
       (await f.read({ op: "workspace.clone.cancel", commandId: CommandId.parse("cancel-me") }))
         .result,
     ).toMatchObject({ kind: "cancelled" });
-    expect(await new GitService().mutationState(join(f.root, "cancelled"))).toMatchObject({
-      status: "quarantined",
-    });
     await closed.promise;
+    // Once the killed clone is gone its quarantined lease retires itself: the partial folder
+    // is not fenced until a restart.
+    await expect
+      .poll(async () => (await new GitService().mutationState(join(f.root, "cancelled"))).status)
+      .toBe("available");
     expect(await clone).toMatchObject({ ok: false, error: "clone_cancelled" });
     expect(progress.at(-1)).toMatchObject({ phase: "cancelled" });
     expect(f.projects.catalog.recent(100)).toEqual([]);

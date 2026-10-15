@@ -331,28 +331,31 @@ export class FakeServicesWire {
                 requestId: message.requestId,
                 result: cancellationError
                   ? { kind: "error", code: cancellationError }
-                  : !permitted || (input && input.account !== "ada")
+                  : !permitted
                     ? { kind: "error", code: "forbidden" }
-                    : input
-                      ? {
-                          kind: "repositories",
-                          repositories: all,
-                          account: input.account,
-                          host: input.host,
-                        }
-                      : {
-                          kind: "publication",
-                          ...(operation.op !== "list"
-                            ? this.workspace.projects.publicationActivity(
-                                operation.workspaceId,
-                                device,
-                              )
-                            : { running: false, canStop: false }),
-                          publication:
-                            operation.op !== "list"
-                              ? this.workspace.projects.publication(operation.workspaceId)
-                              : null,
-                        },
+                    : // Like the daemon: an account the CLI isn't signed in as is GitHub's refusal.
+                      input && input.account !== "ada"
+                      ? { kind: "error", code: "forge_forbidden" }
+                      : input
+                        ? {
+                            kind: "repositories",
+                            repositories: all,
+                            account: input.account,
+                            host: input.host,
+                          }
+                        : {
+                            kind: "publication",
+                            ...(operation.op !== "list"
+                              ? this.workspace.projects.publicationActivity(
+                                  operation.workspaceId,
+                                  device,
+                                )
+                              : { running: false, canStop: false }),
+                            publication:
+                              operation.op !== "list"
+                                ? this.workspace.projects.publication(operation.workspaceId)
+                                : null,
+                          },
               }),
             );
             return;

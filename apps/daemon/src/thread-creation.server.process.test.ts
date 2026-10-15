@@ -197,8 +197,10 @@ test("an accepted first message survives late preparation failure and restart an
       subscriptionId: "recoverable",
       scope: { kind: "thread", threadId },
     });
+    // The held first message was never sent: the thread reads failed, never done, until the
+    // person edits and delivers it.
     expect(await until(client, (message) => message.type === "snapshot")).toMatchObject({
-      view: { thread: { status: { state: "waiting", on: "queue" } } },
+      view: { thread: { status: { state: "failed" } } },
     });
     const beforeReopen = await queue(client, threadId);
     expect(

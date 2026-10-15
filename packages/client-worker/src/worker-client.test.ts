@@ -1282,7 +1282,8 @@ test("a worker refuses malformed file replies at the canonical boundary and neve
       operation: { op: "download", path: "bounded", offset: 0 },
     }),
   ).rejects.toMatchObject({ code: "offline" });
-  await vi.waitFor(() => expect(remote.error?.code).toBe("protocol"));
+  // A reply the client's schema rejects drops the connection, which says the builds differ.
+  await vi.waitFor(() => expect(remote.error?.code).toBe("version_mismatch"));
 });
 
 test("a hidden tab sees attention statuses without receiving transcript deltas", async () => {

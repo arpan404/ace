@@ -73,7 +73,6 @@ export function applicationMenu(options: {
       label: "View",
       submenu: [
         item("palette"),
-        item("search"),
         item("findInThread"),
         { type: "separator" },
         item("toggleSidebar"),

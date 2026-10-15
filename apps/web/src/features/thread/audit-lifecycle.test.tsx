@@ -250,16 +250,30 @@ test("a transient draft scope refusal retries before showing slash commands", as
   expect(await screen.findByRole("listbox", { name: "Commands" }, { timeout: 5000 })).toBeTruthy();
 });
 
-test("the branch fallback uses Current branch while branch discovery is unavailable", async () => {
+test("the branch fallback uses Current branch once branch discovery fails", async () => {
   const made = app();
   const handle = made.daemon.services.handle.bind(made.daemon.services);
+  let failing = false;
+  let fail: (() => void) | undefined;
   made.daemon.services.handle = (message, push, device) => {
-    if (message.type === "workspace.request" && message.operation.op === "branches.list")
-      return true;
-    return handle(message, push, device);
+    if (message.type !== "workspace.request" || message.operation.op !== "branches.list")
+      return handle(message, push, device);
+    const { requestId } = message;
+    fail = () =>
+      push({ type: "workspace.result", requestId, result: { kind: "error", code: "git_failed" } });
+    if (failing) fail();
+    return true;
   };
   await made.open("/new?project=relay");
-  expect(await screen.findByRole("button", { name: "Start from: Current branch" })).toBeTruthy();
+  // Unanswered, the base reads as pending rather than claiming the current branch.
+  expect(await screen.findByRole("button", { name: "Start from: Reading branches…" })).toBeTruthy();
+  act(() => {
+    failing = true;
+    fail?.();
+  });
+  expect(
+    await screen.findByRole("button", { name: "Start from: Current branch" }, { timeout: 5_000 }),
+  ).toBeTruthy();
 });
 
 test("changing the draft project drops the previous project's file references", async () => {

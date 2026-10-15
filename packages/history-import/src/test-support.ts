@@ -82,6 +82,13 @@ export function init(sourceId: string, id = "imported-thread") {
     at: 123456,
   };
 }
+/**
+ * Snapshot bounds with no free-space margin: the default margin is a share of the host volume,
+ * so on a nearly full disk every provider database would be skipped. Tests that guard the
+ * margin set their own bounds.
+ */
+export const roomySnapshots = { minFreeBytes: 0, minFreeRatio: 0 };
+
 export async function environment(instances: HistoryOptions["instances"] = []): Promise<{
   root: string;
   start: (homes?: HistoryOptions["instances"], runtime?: HistoryRuntime) => Promise<HistoryService>;
@@ -96,6 +103,7 @@ export async function environment(instances: HistoryOptions["instances"] = []): 
         {
           indexPath: join(root, "ace/index.sqlite"),
           instances: homes,
+          snapshot: roomySnapshots,
         },
         undefined,
         runtime,

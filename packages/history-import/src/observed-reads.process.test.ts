@@ -4,7 +4,15 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { openHistory } from "./index.ts";
-import { environment, claudeRecords, jsonl, cwd, nativeId, init } from "./test-support.ts";
+import {
+  environment,
+  claudeRecords,
+  jsonl,
+  cwd,
+  nativeId,
+  init,
+  roomySnapshots,
+} from "./test-support.ts";
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0)) await close();
@@ -19,6 +27,7 @@ test("warm cached scans perform no actual FileHandle transcript reads even acros
   const options = {
     indexPath: join(env.root, "ace/index.sqlite"),
     instances: [{ id: "account", provider: "claude" as const, homeDir: home }],
+    snapshot: roomySnapshots,
   };
   const spawn = (url: URL, workerOptions: import("node:worker_threads").WorkerOptions) =>
     new Worker(url, {

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { openHistory } from "./index.ts";
+import { roomySnapshots } from "./test-support.ts";
 import { databaseFixture } from "../bench/database-fixture.ts";
 import { scaleFixture } from "../bench/scale-fixture.ts";
 
@@ -15,6 +16,7 @@ test("six thousand OpenCode sessions and gigabyte transcripts stay pageable unde
     service = await openHistory({
       indexPath: join(root, "ace/index.sqlite"),
       instances: fixture.instances,
+      snapshot: roomySnapshots,
     });
     const scanning = service.scan();
     const early = await service.list({ type: "history.list", cwd: fixture.cwd });

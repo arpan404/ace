@@ -262,7 +262,12 @@ test("native session MCP leases delegate across providers and deny a child's att
         threadId: f.caller.threadId,
         requestId: "forbidden",
       }),
-    ).toEqual({ ok: false, code: "forbidden" });
+    ).toEqual({
+      ok: false,
+      code: "forbidden",
+      // Through MCP, a refusal tells the agent its next step.
+      hint: expect.stringContaining("ace_threads_list"),
+    });
     expect(
       (
         await mcpCall(parentConnection, "ace_thread_interrupt", {

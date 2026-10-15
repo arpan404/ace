@@ -68,17 +68,9 @@ test("a reopened subtree receives a fresh cascading interruption while unrelated
   expect(wakes(h.events, a.childId)).toHaveLength(0);
   expect(h.service.message(parent, "resume-a", a.childId, "again", "queue").ok).toBe(true);
   expect(h.service.message(parent, "resume-b", b.childId, "again", "queue").ok).toBe(true);
+  // A message after a Stop is the go-ahead: the reopened subtree starts at once, no held queue.
   await h.engine.flush();
-  expect(h.store.getThread(b.childId)?.status).toEqual({ state: "waiting", on: "queue" });
-  for (const threadId of [a.childId, b.childId])
-    expect(
-      h.service.command(`release-${threadId}`, {
-        type: "queue.resume",
-        threadId,
-        expectedRevision: h.engine.queue(threadId).revision,
-      }).ok,
-    ).toBe(true);
-  await h.engine.flush();
+  expect(h.engine.queue(b.childId)).toMatchObject({ paused: false });
   expect(h.store.getThread(b.childId)?.status.state).toBe("working");
   expect(interrupt("first").ok).toBe(true);
   await h.engine.flush();
@@ -151,17 +143,8 @@ test("resuming a stopped root keeps cancelled child results readable without wak
     }).ok,
   ).toBe(true);
   await h.engine.flush();
-  // Stop holds the queue, including the cascade's subtree cancellation; the new input
-  // waits for an explicit resume.
-  expect(h.engine.queue(parent.threadId)).toMatchObject({ paused: true, reason: "stopped" });
-  expect(
-    h.service.command("resume-root-queue", {
-      type: "queue.resume",
-      threadId: parent.threadId,
-      expectedRevision: h.engine.queue(parent.threadId).revision,
-    }).ok,
-  ).toBe(true);
-  await h.engine.flush();
+  // The person's message after Stop is their go-ahead: it releases the stop's hold and runs.
+  expect(h.engine.queue(parent.threadId)).toMatchObject({ paused: false, reason: null });
   h.clock.advance(1050);
   await h.engine.flush();
   expect(wakes(h.events, parent.threadId)).toHaveLength(0);

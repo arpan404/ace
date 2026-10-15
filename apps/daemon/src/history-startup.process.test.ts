@@ -279,20 +279,22 @@ it("a daemon serves history, models, notifications and usage requests while thou
       1000,
     ),
   ).toEqual({ type: "pong" });
-  // Observe the durable effect of these authenticated requests, not a schema file.
-  const database = new DatabaseSync(join(history.root, "ace/notifications.sqlite"), {
-    readOnly: true,
-  });
-  try {
-    const row = database.prepare("SELECT body FROM devices WHERE id=?").get("history-startup");
-    const body = z.string().parse(row?.body);
-    expect(JSON.parse(body)).toMatchObject({
-      id: "history-startup",
-      preferences: { includePreview: true },
+  // Observe the durable effect of these authenticated requests, not a schema file. Pings are
+  // answered out of band, so the pong above doesn't wait for the notification worker's write.
+  const saved = () => {
+    const database = new DatabaseSync(join(history.root, "ace/notifications.sqlite"), {
+      readOnly: true,
     });
-  } finally {
-    database.close();
-  }
+    try {
+      const row = database.prepare("SELECT body FROM devices WHERE id=?").get("history-startup");
+      return JSON.parse(z.string().parse(row?.body)) as unknown;
+    } finally {
+      database.close();
+    }
+  };
+  await expect
+    .poll(saved, { timeout: 5000 })
+    .toMatchObject({ id: "history-startup", preferences: { includePreview: true } });
   await stop(daemon);
 }, 30_000);
 

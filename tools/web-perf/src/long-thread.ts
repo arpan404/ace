@@ -83,8 +83,8 @@ async function measureLongThread(): Promise<void> {
       for (let step = 0; step < 4; step++) {
         await scrollTranscript(page, -700, 120);
       }
-      await stepTurn(page, `Alt+${mod}+ArrowDown`);
-      await stepTurn(page, `Alt+${mod}+ArrowUp`);
+      await stepTurn(page, `Shift+Alt+${mod}+ArrowDown`);
+      await stepTurn(page, `Shift+Alt+${mod}+ArrowUp`);
       await sampleDOM();
       // Search the thread and step through what it finds.
       await page.keyboard.press(`${mod}+f`);
