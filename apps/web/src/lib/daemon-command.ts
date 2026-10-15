@@ -75,6 +75,8 @@ const refusals: Record<string, string> = {
   model_unavailable: "That model isn't available. Pick another model and try again.",
   not_implemented: "ace on this machine can't do that yet.",
   forbidden: "This device isn't allowed to do that.",
+  // The client asked after a command with no receipt and the daemon had no record of it.
+  command_lost: "ace has no record of this action, maybe because it restarted. Try again.",
 };
 
 /** Whether a refusal found work still running, so Stop and delete has something to stop. */
@@ -107,14 +109,15 @@ export function refusalMessage(code: string): string {
  *   in the client's outbox before anything is sent, resent on reconnect, idempotent on the
  *   daemon by command id. Offline or slow is never a failure: the UI applies the change at once
  *   and says "Will apply when reconnected", or "Still waiting for the daemon…" after five
- *   seconds, until the receipt. Only a definite refusal rolls anything back.
+ *   seconds, until the receipt. Only a definite refusal rolls anything back, including the
+ *   daemon saying it has no record of the command (`command_lost`).
  * - One-shot (reads, previews): `client.request`, never saved and never resent.
  */
 
 /**
  * Send a durable command and wait for the daemon's receipt (`Client.command`). It is saved
  * before it is sent, survives a reload and goes out when the connection returns, so the wait
- * has no deadline. Rejects with `CommandRefused` when the daemon says no, or with a
+ * has no deadline; a daemon with no record of it settles it as `command_lost`. Rejects with `CommandRefused` when the daemon says no, or with a
  * `ClientError` only when this device couldn't save it at all. Pass `id` to retry the same
  * command: the daemon applies a command id once.
  */

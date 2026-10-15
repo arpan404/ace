@@ -1,13 +1,16 @@
 import type { DaemonOptions } from "./services/options.ts";
+import { DaemonStop } from "./stop-reason.ts";
 
 type Daemon = Awaited<ReturnType<typeof import("./index.ts").startDaemon>>;
+type Signal = "SIGINT" | "SIGTERM";
+const SHUTDOWN_LIMIT_MS = 7_500;
 /** Install the process lifetime before startup can advertise an endpoint. */
 export async function runDaemonProcess(
   start: (options: DaemonOptions) => Promise<Daemon>,
   options: DaemonOptions,
   signals: {
-    once(signal: "SIGINT" | "SIGTERM", listener: () => void): unknown;
-    removeListener(signal: "SIGINT" | "SIGTERM", listener: () => void): unknown;
+    once(signal: Signal, listener: () => void): unknown;
+    removeListener(signal: Signal, listener: () => void): unknown;
   } = process,
   shutdown: {
     after(run: () => void, milliseconds: number): () => void;
@@ -25,18 +28,24 @@ export async function runDaemonProcess(
   let daemon: Daemon | undefined;
   let cancelExit: (() => void) | undefined;
   const remove = () => {
-    signals.removeListener("SIGINT", stop);
-    signals.removeListener("SIGTERM", stop);
+    signals.removeListener("SIGINT", interrupt);
+    signals.removeListener("SIGTERM", terminate);
   };
-  const stop = () => {
+  const stop = (signal: Signal) => {
     cancelExit ??= shutdown.after(() => {
-      console.error("Daemon shutdown exceeded 7500ms; pending resources did not exit");
+      const message = `Daemon shutdown exceeded ${SHUTDOWN_LIMIT_MS}ms; pending resources did not exit`;
+      console.error(message);
+      // The file log outlives the console of an app-launched daemon.
+      daemon?.log.log("error", message);
+      daemon?.log.flushSync();
       shutdown.exit(1);
-    }, 7_500);
-    lifetime.abort();
+    }, SHUTDOWN_LIMIT_MS);
+    const reason = { source: "signal", signal } as const;
+    // The daemon logs the reason once: an abort during startup and a close after it share it.
+    lifetime.abort(new DaemonStop(reason));
     if (daemon)
       void daemon
-        .close()
+        .close(reason)
         .catch((error: unknown) => {
           console.error(error);
           process.exitCode = 1;
@@ -45,8 +54,10 @@ export async function runDaemonProcess(
           remove();
         });
   };
-  signals.once("SIGINT", stop);
-  signals.once("SIGTERM", stop);
+  const interrupt = () => stop("SIGINT");
+  const terminate = () => stop("SIGTERM");
+  signals.once("SIGINT", interrupt);
+  signals.once("SIGTERM", terminate);
   try {
     daemon = await start({
       ...options,

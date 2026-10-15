@@ -8,6 +8,8 @@ import { shutdownControl } from "./shutdown-receipt.ts";
 import { connectedDoctorReport } from "./diagnostics-report.ts";
 import { detectToolchains } from "@ace/diagnostics";
 export { runDaemonProcess } from "./process-daemon.ts";
+export { NewerDataError, DATA_GENERATION } from "./data-generation.ts";
+export type { StopReason } from "./stop-reason.ts";
 export { createDaemonCommandLibrary } from "./command-library.ts";
 export { connectDaemonCommandEvents, type CommandEventSource } from "./command-events.ts";
 export type { DaemonCommandIntegration } from "./services/commands.ts";
@@ -19,15 +21,18 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { createDaemonLogger } from "./diagnostic-log.ts";
-import {
-  DEFAULT_LOG_MAX_BYTES,
-  logError,
-  logFields,
-  createFileSink,
-  createHealthMonitor,
-} from "@ace/diagnostics";
+import { logError, logFields, createHealthMonitor } from "@ace/diagnostics";
 import { installFatalLogFlush } from "./fatal-log.ts";
+import { buildFields, daemonLogDirectory, logStartupRefusal, openDaemonLog } from "./daemon-log.ts";
+import {
+  DATA_GENERATION,
+  NewerDataError,
+  assertDataGeneration,
+  recordDataGeneration,
+} from "./data-generation.ts";
+import { sqliteFailureDetails, systemDiskSpace } from "./sqlite-failure.ts";
+import { createLoopMonitor, systemLoopClock } from "./loop-monitor.ts";
+import { DaemonStop, type StopReason } from "./stop-reason.ts";
 import { readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 
@@ -100,13 +105,83 @@ export async function startDaemon(options: DaemonOptions = {}) {
       assertTestHomeIsolation(instance.homeDir);
     assertModelTestIsolation(options.modelInstances ?? []);
   }
+  const context = { home, env: process.env };
+  const build = buildFields(process.env, process.pid, DATA_GENERATION);
+  const refuse = (error: unknown) =>
+    logStartupRefusal(
+      config,
+      context,
+      now,
+      error instanceof Error ? error.message : "Cannot read the data generation",
+      [
+        ...(error instanceof NewerDataError ? [["storedGeneration", error.stored] as const] : []),
+        ...build,
+      ],
+    ).catch(() => {});
+  // Data written by a newer build is refused before any database opens, the lock's included.
+  try {
+    assertDataGeneration(config.dataDir);
+  } catch (error) {
+    await refuse(error);
+    throw error;
+  }
   const unlock = acquireLock(config.dataDir);
+  try {
+    recordDataGeneration(config.dataDir);
+  } catch (error) {
+    unlock();
+    await refuse(error);
+    throw error;
+  }
+  const diskSpace = options.diskSpace ?? systemDiskSpace;
+  let log: Awaited<ReturnType<typeof openDaemonLog>>;
+  try {
+    log = await openDaemonLog(config, context, now);
+  } catch (error) {
+    unlock();
+    throw error;
+  }
   const resources = new Resources();
+  resources.own(() => log.close());
+  resources.own(
+    installFatalLogFlush(process, log, (error) =>
+      sqliteFailureDetails(error, config.dataDir, diskSpace),
+    ),
+  );
+  let stopping: { reason: StopReason; at: number } | undefined;
+  // Disposers run in reverse: this record is the last line before the log closes.
+  resources.own(() => {
+    if (stopping)
+      log.log(
+        "info",
+        "Daemon stopped",
+        logFields([
+          ["source", stopping.reason.source],
+          ["durationMs", Math.max(0, Math.round(now() - stopping.at))],
+          ["pid", process.pid],
+        ]),
+      );
+  });
+  const loop = createLoopMonitor({
+    clock: options.loopClock ?? systemLoopClock,
+    onStall: ({ delayMs, suppressed }) =>
+      log.log(
+        "warn",
+        "Event loop stalled",
+        logFields([
+          ["delayMs", delayMs],
+          ["suppressed", suppressed],
+        ]),
+      ),
+  });
+  resources.own(() => loop.close());
   const inventory = new ProcessInventory(join(config.dataDir, "processes.sqlite"));
   try {
     inventory.recover();
   } catch (error) {
     inventory.close();
+    loop.close();
+    await log.close();
     unlock();
     throw error;
   }
@@ -118,9 +193,13 @@ export async function startDaemon(options: DaemonOptions = {}) {
   const lifetime = new AbortController();
   resources.onShutdown(() => lifetime.abort());
   let initialized = false;
+  const abortReason = (): StopReason => {
+    const reason: unknown = options.signal?.reason;
+    return reason instanceof DaemonStop ? reason.reason : { source: "abort" };
+  };
   const abort = () => {
     resources.beginShutdown();
-    if (initialized) void closeResources().catch(() => {});
+    if (initialized) void closeResources(abortReason()).catch(() => {});
   };
   options.signal?.addEventListener("abort", abort, { once: true });
   resources.own(() => options.signal?.removeEventListener("abort", abort));
@@ -133,7 +212,23 @@ export async function startDaemon(options: DaemonOptions = {}) {
     if (endpointPath) unlinkSync(endpointPath);
   };
   let closing: Promise<void> | undefined;
-  const closeResources = () => {
+  const closeResources = (reason: StopReason = { source: "close" }) => {
+    if (!stopping) {
+      stopping = { reason, at: now() };
+      log.log(
+        "info",
+        "Daemon stopping",
+        logFields([
+          ["source", reason.source],
+          ...(reason.signal ? [["signal", reason.signal] as const] : []),
+          // A string: the log redactor masks booleans that equal an environment value.
+          ...(server
+            ? [["admission", server.maintenance.status().draining ? "draining" : "open"] as const]
+            : []),
+          ...build,
+        ]),
+      );
+    }
     closing ??= disposeResources();
     return closing;
   };
@@ -179,29 +274,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     }
   };
   try {
-    const context = { home, env: process.env };
-    const logDirectory = join(config.dataDir, "logs");
-    // Starts at the environment or default cap; the settings service applies the saved cap.
-    const sink = await createFileSink({
-      directory: logDirectory,
-      totalBytes: config.settingsOverrides?.["logs.maxBytes"] ?? DEFAULT_LOG_MAX_BYTES,
-      context,
-    }).catch(() => ({
-      async write() {
-        throw new Error("File logging unavailable");
-      },
-      async close() {},
-    }));
-    const log = createDaemonLogger(
-      {
-        sink,
-        now,
-        level: config.logLevel,
-      },
-      context,
-    );
-    resources.own(() => log.close());
-    resources.own(installFatalLogFlush(process, log));
+    const logDirectory = daemonLogDirectory(config);
     lifetime.signal.throwIfAborted();
     const serviceContext: ServiceContext = {
       signal: lifetime.signal,
@@ -254,7 +327,11 @@ export async function startDaemon(options: DaemonOptions = {}) {
     const socketReady = Promise.withResolvers<void>();
     resources.onShutdown(() => socketReady.resolve());
     const serverOptions: ServerOptions = {
-      shutdown: shutdownControl(config.dataDir, { id: randomUUID, now, close: closeResources }),
+      shutdown: shutdownControl(config.dataDir, {
+        id: randomUUID,
+        now,
+        close: () => closeResources({ source: "stop-request" }),
+      }),
       ...services,
       get promptFiles() {
         return services.promptFiles;
@@ -264,6 +341,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       },
       handler,
       serviceStatus: startup.status,
+      eventLoop: loop.status,
       ready: socketReady.promise,
       remoteConfig: config,
       webRoot: existsSync(resolve(import.meta.dirname, "web/index.html"))
@@ -346,7 +424,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     lifetime.signal.throwIfAborted();
     server = await startServer(serverOptions);
     lifetime.signal.throwIfAborted();
-    log.log("info", "Daemon listening", logFields([["url", server.url]]));
+    log.log("info", "Daemon listening", logFields([["url", server.url], ...build]));
     const path = join(config.dataDir, "daemon-endpoint");
     writeFileSync(path, server.httpUrl, { mode: 0o600 });
     endpointPath = path;
@@ -365,6 +443,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
         : {}),
       ...(services.files ? { files: services.files } : {}),
       serviceStatus: startup.status,
+      eventLoop: loop.status,
       maintenance: server.maintenance,
       url: server.url,
       tokenPath,
@@ -422,10 +501,15 @@ export async function startDaemon(options: DaemonOptions = {}) {
       get mcp() {
         return requireService(services.mcp, "mcp");
       },
-      close: closeResources,
+      log,
+      close: (reason?: StopReason) => closeResources(reason),
     };
   } catch (error) {
-    await closeResources().catch(() => {});
+    if (!lifetime.signal.aborted)
+      log.log("error", "Daemon startup failed", logFields([["error", logError(error)], ...build]));
+    await closeResources(
+      lifetime.signal.aborted ? abortReason() : { source: "startup-failure" },
+    ).catch(() => {});
     throw error;
   }
 }

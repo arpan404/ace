@@ -109,8 +109,10 @@ export const serviceFactories: readonly ServiceDefinition[] = [
   { name: "pi", phase: "core", requires: [], after: ["mcp"], start: startPi },
   { name: "agentRegistry", phase: "core", requires: [], after: [], start: startAgentRegistry },
   {
+    // Without the engine every command fails with engine_unavailable: refuse to start instead.
     name: "engine",
     phase: "core",
+    essential: true,
     requires: ["accounts"],
     after: [
       "accounts",

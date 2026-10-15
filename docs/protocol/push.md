@@ -3060,6 +3060,24 @@ Example:
 }
 ```
 
+### command.status
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"command.status"` |  |
+| requestId | yes | string |  |
+| commands | yes | array | {"items":{"type":"object","properties":{"commandId":{"$ref":"https://ace.local/protocol/v1/CommandId.json"},"state":{"$ref":"https://ace.local/protocol/v1/CommandStatusState.json"}},"required":["commandId","state"]}} |
+
+Example:
+
+```json
+{
+  "commands": [],
+  "requestId": "example",
+  "type": "command.status"
+}
+```
+
 ### pong
 
 | Field | Required | Type | Constraints |

@@ -7,6 +7,7 @@ import type { WireCodec } from "./wire-codec.ts";
 import {
   ClientError,
   type ClientOptions,
+  type ConnectionClose,
   type ConnectionInfo,
   type ConnectionState,
   type Limits,
@@ -20,9 +21,33 @@ export function sameConnectionInfo(a: ConnectionInfo, b: ConnectionInfo): boolea
     a.attempt === b.attempt &&
     a.nextRetryAt === b.nextRetryAt &&
     a.since === b.since &&
-    a.lastReadyAt === b.lastReadyAt
+    a.lastReadyAt === b.lastReadyAt &&
+    a.lastClose === b.lastClose
   );
 }
+
+/** Whether reassembled fragments are the message their parts announced. */
+function matchesFragments(
+  part: Extract<Message, { type: "snapshot.part" | "entities.page.part" }>,
+  complete: Message,
+): boolean {
+  if (part.type === "snapshot.part")
+    return (
+      complete.type === "snapshot" &&
+      complete.subscriptionId === part.subscriptionId &&
+      complete.seq === part.seq
+    );
+  return (
+    complete.type === "entities.page" &&
+    complete.requestId === part.requestId &&
+    complete.page.threadId === part.threadId &&
+    complete.page.seq === part.seq
+  );
+}
+
+/** A server frame this build's schemas reject: the daemon is another version. */
+const versionMismatch = () =>
+  new ClientError("version_mismatch", "The daemon sent a message this app can't read");
 
 export class Connection {
   state: ConnectionState = "offline";
@@ -42,6 +67,7 @@ export class Connection {
   #retry: { at: number | undefined } | undefined;
   #since: number | undefined;
   #lastReadyAt: number | undefined;
+  #lastClose: ConnectionClose | undefined;
   #heartbeat: (() => void) | undefined;
   #healthy: (() => void) | undefined;
   #awaitingPong = false;
@@ -109,6 +135,7 @@ export class Connection {
       ...(this.#retry?.at !== undefined ? { nextRetryAt: this.#retry.at } : {}),
       ...(this.#since !== undefined ? { since: this.#since } : {}),
       ...(this.#lastReadyAt !== undefined ? { lastReadyAt: this.#lastReadyAt } : {}),
+      ...(this.#lastClose ? { lastClose: this.#lastClose } : {}),
     };
   }
 
@@ -145,16 +172,23 @@ export class Connection {
     this.#setState("fatal");
     this.#disconnected();
   }
-  #lost(code: number): void {
+  /**
+   * The connection ended: keep why, then reconnect with backoff unless another attempt can't
+   * help. `error` is what the person should know while it retries (a version mismatch).
+   */
+  #lost(code: number, reason: string, error?: ClientError): void {
+    const at = this.#options.now?.();
+    this.#lastClose = { code, reason, ...(at === undefined ? {} : { at }) };
     const decision = disconnectDecision(this.#active, this.#online, code);
     if (decision === "fatal") {
-      this.fail(new ClientError(code === 4002 ? "protocol" : code === 1009 ? "limit" : "auth"));
+      this.fail(new ClientError(code === 4002 ? "protocol" : "auth"));
       return;
     }
     this.error =
-      code === 4013
+      error ??
+      (code === 4013
         ? new ClientError("limit", "Device state subscriber capacity reached; retrying")
-        : undefined;
+        : undefined);
     this.#cleanup();
     this.#disconnected();
     if (decision === "offline") {
@@ -173,6 +207,9 @@ export class Connection {
       this.fail(new ClientError("protocol"));
       return;
     }
+    // A frame the client couldn't read (a server frame of another version) and 1009 come back
+    // the same way on the next socket; backoff grows with every such failure until a
+    // connection stays healthy, so they can't turn into a retry storm.
     const wait = code === 4013 ? Math.max(5000, delay) : delay;
     this.#cancel = this.#options.scheduler.set(wait, () => this.#connect());
     const now = this.#options.now?.();
@@ -187,7 +224,9 @@ export class Connection {
     }
     this.#setState(this.#attempt ? "reconnecting" : "connecting");
     const epoch = this.#epoch;
-    this.#cancel = this.#options.scheduler.set(this.#limits.handshakeMs, () => this.#lost(1006));
+    this.#cancel = this.#options.scheduler.set(this.#limits.handshakeMs, () =>
+      this.#lost(1006, "Handshake timed out"),
+    );
     try {
       const transport = this.#options.transport();
       this.#transport = transport;
@@ -207,40 +246,56 @@ export class Connection {
             })
             .catch((error: unknown) => {
               if (epoch !== this.#epoch) return;
-              if (error instanceof ClientError && error.code === "offline") this.#lost(1006);
+              if (error instanceof ClientError && error.code === "offline")
+                this.#lost(1006, "Credential unavailable offline");
               else this.fail(new ClientError("auth"));
             });
         },
-        close: (code) => {
-          if (epoch === this.#epoch) this.#lost(code);
+        close: (code, reason) => {
+          if (epoch === this.#epoch) this.#lost(code, reason ?? "");
         },
         message: (text) => this.#receiveFrame(text, epoch),
         binary: (bytes) => this.#receiveFrame(bytes, epoch),
       });
     } catch {
-      this.#lost(1006);
+      this.#lost(1006, "Transport failed to open");
     }
+  }
+  /** A server frame that breaks the protocol: drop this socket and reconnect with backoff. */
+  #broken(reason: string, error = new ClientError("protocol", reason)): void {
+    this.#lost(1002, reason, error);
   }
   #receiveFrame(frame: string | Uint8Array, epoch: number): void {
     if (epoch !== this.#epoch) return;
     if (frame instanceof Uint8Array && (frame.length <= 16 || frame.length > 65536 + 16)) {
-      this.fail(new ClientError("protocol"));
+      this.#broken("Binary frame out of bounds");
       return;
     }
     if (this.#held) {
       this.#heldBytes += typeof frame === "string" ? frame.length * 2 : frame.byteLength;
-      if (this.#heldBytes > this.#limits.frameBytes * 4) this.#lost(4009);
+      if (this.#heldBytes > this.#limits.frameBytes * 4)
+        this.#lost(4009, "Held frames over budget");
       else this.#held.push(frame);
       return;
     }
     if (typeof frame === "string") this.#receive(frame, epoch);
+    else if (this.state !== "ready" || !this.#binary) this.#broken("Unexpected binary frame");
     else {
       try {
-        if (this.state !== "ready" || !this.#binary) throw new ClientError("protocol");
         this.#binary(frame);
       } catch (error) {
-        this.fail(error instanceof ClientError ? error : new ClientError("protocol"));
+        if (error instanceof ClientError && error.code !== "protocol") this.fail(error);
+        else this.#broken("Unreadable binary frame");
       }
+    }
+  }
+  /** A server frame's JSON, decoded; `null` once an unreadable one has dropped the socket. */
+  #decode(text: string): Message | undefined | null {
+    try {
+      return this.#codec.decode(JSON.parse(text));
+    } catch {
+      this.#broken("Undecodable server message", versionMismatch());
+      return null;
     }
   }
   /** Hold `text` and every frame after it until the service schemas load, then go on in order. */
@@ -263,13 +318,17 @@ export class Connection {
     );
   }
   #receive(text: string, epoch: number): void {
+    if (!fitsUtf8(text, this.#limits.frameBytes)) {
+      this.fail(new ClientError("limit"));
+      return;
+    }
+    const message = this.#decode(text);
+    if (message === null) return;
+    if (!message) {
+      this.#hold(text, epoch);
+      return;
+    }
     try {
-      if (!fitsUtf8(text, this.#limits.frameBytes)) throw new ClientError("limit");
-      const message = this.#codec.decode(JSON.parse(text));
-      if (!message) {
-        this.#hold(text, epoch);
-        return;
-      }
       if (message.type === "error" && message.code === "unauthorized") {
         this.fail(new ClientError("auth"));
         return;
@@ -285,7 +344,10 @@ export class Connection {
           this.#setState("starting");
           return;
         }
-        if (message.type !== "welcome") throw new ClientError("protocol");
+        if (message.type !== "welcome") {
+          this.#broken(`Unexpected ${message.type} before welcome`);
+          return;
+        }
         this.#cancel?.();
         this.#cancel = undefined;
         // Backoff starts over only once this connection has stayed up for a while.
@@ -302,7 +364,10 @@ export class Connection {
         this.#received(message);
         this.#changed();
         return;
-      } else if (message.type === "welcome") throw new ClientError("protocol");
+      } else if (message.type === "welcome") {
+        this.#broken("Second welcome");
+        return;
+      }
       if (message.type === "snapshot.part" || message.type === "entities.page.part") {
         this.#receiveFragment(message, epoch);
         return;
@@ -325,46 +390,31 @@ export class Connection {
     try {
       data = this.#fragments.add(key, message.seq, message.index, message.data, message.done);
     } catch (error) {
-      if (error instanceof ClientError && error.code === "limit") {
-        this.#lost(4009);
-        return;
-      }
-      throw error;
+      if (error instanceof ClientError && error.code === "limit")
+        this.#lost(4009, "Fragments over budget");
+      else this.#broken("Fragment out of sequence");
+      return;
     }
     if (message.index === 0)
       this.#fragmentTimers.set(
         key,
         this.#options.scheduler.set(this.#limits.fragmentMs, () => {
-          if (epoch === this.#epoch) this.#lost(4009);
+          if (epoch === this.#epoch) this.#lost(4009, "Fragments timed out");
         }),
       );
     if (data === undefined) return;
     this.#fragmentTimers.get(key)?.();
     this.#fragmentTimers.delete(key);
-    const complete = this.#codec.decode(JSON.parse(data));
-    if (message.type === "snapshot.part") {
-      if (
-        !complete ||
-        complete.type !== "snapshot" ||
-        complete.subscriptionId !== message.subscriptionId ||
-        complete.seq !== message.seq
-      )
-        throw new ClientError("protocol");
-    } else if (
-      !complete ||
-      complete.type !== "entities.page" ||
-      complete.requestId !== message.requestId ||
-      complete.page.threadId !== message.threadId ||
-      complete.page.seq !== message.seq
-    )
-      throw new ClientError("protocol");
-    this.#received(complete);
+    const complete = this.#decode(data);
+    if (complete === null) return;
+    if (complete && matchesFragments(message, complete)) this.#received(complete);
+    else this.#broken("Fragments don't match their message");
   }
   #tick(): void {
     if (this.state !== "ready") return;
     this.#heartbeat = this.#options.scheduler.set(this.#limits.heartbeatMs, () => {
       if (this.#awaitingPong) {
-        this.#lost(1006);
+        this.#lost(1006, "Heartbeat missed");
         return;
       }
       this.#awaitingPong = true;
@@ -384,7 +434,7 @@ export class Connection {
       return true;
     } catch (error) {
       if (error instanceof ClientError) this.fail(error);
-      else this.#lost(1006);
+      else this.#lost(1006, "Send failed");
       return false;
     }
   }

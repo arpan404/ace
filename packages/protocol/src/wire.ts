@@ -102,6 +102,7 @@ export {
   ThreadListCursor,
   ThreadListWindow,
   CommandResult,
+  CommandStatusState,
   CoreClientMessage,
   CoreServerMessage,
   coreClientTypes,

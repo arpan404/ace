@@ -302,6 +302,21 @@ export class Intents {
       this.#pump();
     });
   }
+  /**
+   * Sent on the current connection and still waiting for its receipt: not delivered to a
+   * transcript, not being acknowledged, and not held back for a retry after a refusal.
+   */
+  awaitingReceipt(id: string): boolean {
+    const intent = this.#records.get(id);
+    return (
+      this.#connected &&
+      intent?.state === "pending" &&
+      !intent.delivered &&
+      this.#inFlight.has(id) &&
+      !this.#acknowledging.has(id) &&
+      !this.#retries.get(id)?.cancel
+    );
+  }
   waiting(id: string): void {
     const previous = this.#records.get(id);
     if (previous?.state !== "pending" || previous.waiting) return;

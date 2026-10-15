@@ -131,6 +131,7 @@ export function renderChat(state: ChatRenderState, record: ChatRecord): string {
               timeout: "Observation timed out",
               refused: "Operation refused",
               "address-in-use": "Another process is using the daemon's port",
+              "newer-data": "A newer ace already uses this data",
             }[record.status];
       break;
     case "interaction": {

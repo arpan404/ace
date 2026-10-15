@@ -19,6 +19,7 @@ export class DataRetention {
   private service: StorageService;
   private schedule: StorageSchedule;
   private timing: RetentionTiming;
+  private failed: (error: unknown) => void;
   private days: number | undefined;
   private cancel: (() => void) | undefined;
   private release: (() => void) | undefined;
@@ -30,11 +31,13 @@ export class DataRetention {
     service: StorageService,
     schedule: StorageSchedule,
     timing: RetentionTiming = retentionTiming,
+    failed: (error: unknown) => void = () => {},
   ) {
     this.owner = owner;
     this.service = service;
     this.schedule = schedule;
     this.timing = timing;
+    this.failed = failed;
   }
   async start(): Promise<void> {
     const settings = this.owner.services.settings;
@@ -82,7 +85,8 @@ export class DataRetention {
       const result = await this.service.retain(days, allowed);
       if (result.removed > 0 && allowed()) await this.service.compact(RETENTION_REVIEWER, allowed);
       next = delayAfterPass(result, this.timing);
-    } catch {
+    } catch (error) {
+      this.failed(error);
       next = delayAfterPass("failed", this.timing);
     }
     if (this.closed) return;

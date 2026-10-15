@@ -5,11 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
-import { Command, DeviceId } from "@ace/protocol";
+import { DeviceId } from "@ace/protocol";
 import { z } from "zod";
 import { accessRequest } from "./client-access.ts";
 import { Client } from "./socket-test-support.ts";
 import { startDaemon, readConfig } from "./index.ts";
+import { daemonLogRecords } from "./daemon-log-test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -222,9 +223,14 @@ it("a notification worker that never replies is named as degraded while the daem
   expect((await daemon.exited)[0]).toBe(0);
 });
 
-it("a stalled engine start leaves the daemon readable and rejects commands without claiming success", async () => {
+it("a daemon whose engine cannot start fails with a logged error and never listens or reports ready", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-startup-engine-"));
+  cleanups.push(() => rm(home, { recursive: true, force: true }));
+  const entry = join(home, "daemon-entry.mjs");
   const index = new URL("./index.ts", import.meta.url).href;
-  const source = `
+  await writeFile(
+    entry,
+    `
     import { startDaemon } from ${JSON.stringify(index)};
     const daemon = await startDaemon({
       engine: { adapterDiscovery: () => new Promise(() => {}) },
@@ -236,35 +242,56 @@ it("a stalled engine start leaves the daemon readable and rejects commands witho
       },
     });
     process.stdout.write("ace daemon: " + daemon.url + "\\n");
-    process.once("SIGTERM", () => { void daemon.close().catch(() => { process.exitCode = 1; }); });
-  `;
-  const daemon = await launch(source);
-  expect(daemon.status.services.find((service) => service.name === "engine")).toMatchObject({
-    state: "degraded",
-    error: expect.stringContaining("engine startup exceeded"),
+  `,
+  );
+  const child = spawn(process.execPath, [entry], {
+    env: {
+      ...process.env,
+      ACE_HOME: home,
+      ACE_PORT: "0",
+      ACE_LISTEN: "local",
+      ACE_MAINTENANCE: "0",
+      ACE_ACCOUNTS_DB: join(home, "accounts.sqlite"),
+      ACE_DEV: "0",
+      ACE_HISTORY_INSTANCES: "[]",
+      ACE_MODEL_INSTANCES: "[]",
+      ACE_APNS_KEY_FILE: "",
+      ACE_VAPID_KEY_FILE: "",
+      ACE_WORKSPACE_ROOT: "",
+      ACE_RELAY_URL: undefined,
+      ACE_SCREEN_HELPER: undefined,
+      PATH: "",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
   });
-  daemon.client.send({
-    type: "command",
-    command: Command.parse({
-      id: "unavailable-engine",
-      deviceId: "startup-test",
-      payload: {
-        type: "thread.create",
-        workspaceId: "workspace",
-        provider: "codex",
-        input: [{ type: "text", text: "Reject without invoking a provider" }],
-      },
-    }),
+  const exited = once(child, "close");
+  cleanups.push(async () => {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await exited;
   });
-  expect(await daemon.client.next()).toMatchObject({
-    type: "commandResult",
-    commandId: "unavailable-engine",
-    ok: false,
-    error: "engine_unavailable",
+  let output = "",
+    errors = "";
+  child.stdout?.on("data", (chunk: Buffer) => {
+    output += chunk.toString();
   });
-  await daemon.client.close();
-  daemon.child.kill("SIGTERM");
-  expect((await daemon.exited)[0]).toBe(0);
+  child.stderr?.on("data", (chunk: Buffer) => {
+    errors += chunk.toString();
+  });
+  const [code] = (await exited) as [number | null];
+  expect(code).not.toBe(0);
+  expect(output).not.toContain("ace daemon:");
+  expect(errors).toContain("Daemon cannot start: Service engine: Service engine startup exceeded");
+  // No endpoint was ever published, so no client can find a daemon without an engine.
+  await expect(readFile(join(home, "daemon-endpoint"))).rejects.toMatchObject({ code: "ENOENT" });
+  const records = await daemonLogRecords(home);
+  const messages = records.map((record) => record.message);
+  expect(messages).not.toContain("Daemon listening");
+  expect(records.find((record) => record.message === "Daemon startup failed")?.data).toMatchObject({
+    error: { message: expect.stringContaining("Daemon cannot start: Service engine") },
+  });
+  expect(records.find((record) => record.message === "Daemon stopping")?.data).toMatchObject({
+    source: "startup-failure",
+  });
 });
 
 it("SIGTERM after endpoint discovery cleans up while optional initialization is still held", async () => {

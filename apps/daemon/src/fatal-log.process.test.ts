@@ -5,25 +5,39 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 
-test("a crashing daemon still writes the log lines it had buffered and the fatal error", async () => {
+async function crash(failure: "plain" | "disk-full") {
   const directory = await mkdtemp(join(tmpdir(), "ace-fatal-log-"));
   try {
     await expect(
       promisify(execFile)(process.execPath, [
         join(import.meta.dirname, "testing", "fatal-log-child.ts"),
         directory,
+        failure,
       ]),
     ).rejects.toMatchObject({ code: 1 });
-    const records = (await readFile(join(directory, "ace.jsonl"), "utf8"))
+    return (await readFile(join(directory, "ace.jsonl"), "utf8"))
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
-    expect(records.map((record) => record.message)).toEqual([
-      "buffered before crash",
-      "Fatal error",
-    ]);
-    expect(records[1].data.message).toBe("simulated daemon crash");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+}
+
+test("a crashing daemon still writes the log lines it had buffered and the fatal error", async () => {
+  const records = await crash("plain");
+  expect(records.map((record) => record.message)).toEqual(["buffered before crash", "Fatal error"]);
+  expect(records[1].data.message).toBe("simulated daemon crash");
+});
+
+test("a daemon killed by a full disk records the SQLite code and the free space left", async () => {
+  const records = await crash("disk-full");
+  expect(records[1]).toMatchObject({
+    message: "Fatal error",
+    data: {
+      error: { message: "database or disk is full" },
+      sqlite: "SQLITE_FULL",
+      freeBytes: expect.any(Number),
+    },
+  });
 });

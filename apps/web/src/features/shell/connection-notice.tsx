@@ -1,6 +1,6 @@
 import { ArrowClockwiseIcon } from "@phosphor-icons/react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { useDaemonConnection } from "@/boot/connection.tsx";
+import { useDaemonConnection, versionMismatchWords } from "@/boot/connection.tsx";
 import { useClient, useConnectionState } from "@ace/client-react";
 import type { ClientError } from "@ace/client";
 import { Suspense, useEffect, useState } from "react";
@@ -77,7 +77,11 @@ export function ConnectionNotice() {
       {state === "reconnecting" && (
         <>
           <Spinner />
-          {late ? "Offline" : "Reconnecting"}
+          {client.error?.code === "version_mismatch"
+            ? versionMismatchWords
+            : late
+              ? "Offline"
+              : "Reconnecting"}
           <IconButton
             icon={ArrowClockwiseIcon}
             label="Retry now"

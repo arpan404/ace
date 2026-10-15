@@ -1,9 +1,9 @@
 import { startSupportFiles } from "./support-files.ts";
 import { fileExportSource } from "../file-export-source.ts";
 import type { ThreadId } from "@ace/protocol";
-import { logError } from "@ace/diagnostics";
 import { FilesWorkspaces } from "../files-workspaces.ts";
 import { warmup } from "./warmup.ts";
+import { backgroundFailure } from "./background.ts";
 import {
   FileError,
   FilesService,
@@ -94,7 +94,7 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
       await scoped.sweep(owner.signal);
       await services.supportFiles?.sweep(owner.signal);
     })()
-      .catch((error: unknown) => log.log("error", "File retention failed", logError(error)))
+      .catch(backgroundFailure(owner, "File retention failed"))
       .finally(() => {
         sweeping = undefined;
       });

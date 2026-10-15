@@ -5,7 +5,8 @@ export interface TransportEvents {
   open(): void;
   message(text: string): void;
   binary?(bytes: Uint8Array): void;
-  close(code: number): void;
+  /** The socket closed, with its close code and the peer's reason when it gave one. */
+  close(code: number, reason?: string): void;
 }
 export interface Transport {
   readonly supportsBinary?: boolean;
@@ -46,6 +47,18 @@ export interface ConnectionInfo {
   since?: number;
   /** When the connection last became ready. */
   lastReadyAt?: number;
+  /** Why the last connection ended, for diagnostics; absent until one has. */
+  lastClose?: ConnectionClose;
+}
+/**
+ * How a connection ended: the socket's close code and reason, or the client's own (1006 for a
+ * missed heartbeat or handshake, 1002 for a server frame it couldn't read).
+ */
+export interface ConnectionClose {
+  code: number;
+  reason: string;
+  /** When it closed; absent without `now`. */
+  at?: number;
 }
 export interface ClientOptions {
   deviceId: DeviceId;
@@ -95,6 +108,11 @@ export interface Limits {
    * accepts and then drops at once keeps backing off instead of being retried at the base delay.
    */
   healthyMs: number;
+  /**
+   * How long a durable command sent on a live connection may go without a receipt before the
+   * client asks the daemon whether it still has it (`command.status`), and again while it runs.
+   */
+  commandStatusMs: number;
 }
 export const defaultLimits: Limits = {
   intents: 256,
@@ -115,6 +133,7 @@ export const defaultLimits: Limits = {
   retryBaseMs: 250,
   retryCapMs: 30000,
   healthyMs: 30000,
+  commandStatusMs: 60_000,
 };
 export { ClientError } from "./errors.ts";
 export interface RequestOptions {

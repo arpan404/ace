@@ -21,7 +21,7 @@ export async function runtimeCommand(args: Args, config: Config) {
   }
   validateArgs(args, [], 0, 1);
   const development = process.env.ACE_DEV === "1";
-  const { startDaemon, runDaemonProcess } = await import("../index.ts");
+  const { startDaemon, runDaemonProcess, NewerDataError } = await import("../index.ts");
   // A daemon that cannot start (for example, another one holds the lock) failed; the
   // request itself was valid, so it is not a refusal.
   const daemon = await runDaemonProcess(startDaemon, {
@@ -38,8 +38,16 @@ export async function runtimeCommand(args: Args, config: Config) {
     history: { instances: readHistoryInstances() },
   }).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : "Daemon start failed";
-    // Its own exit code, so whatever started the daemon can name the port conflict.
-    throw new CliFailure(addressInUse(error) ? "address-in-use" : "failed", message);
+    // Their own exit codes, so whatever started the daemon can name the port conflict
+    // or tell the person a newer ace already uses this data.
+    throw new CliFailure(
+      error instanceof NewerDataError
+        ? "newer-data"
+        : addressInUse(error)
+          ? "address-in-use"
+          : "failed",
+      message,
+    );
   });
   if (!daemon) return;
   try {

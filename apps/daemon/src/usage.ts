@@ -63,28 +63,71 @@ export async function loadUsageSettings(dataDir: string): Promise<UsageSettings>
     await file.close();
   }
 }
+/** What one failed background replay reports; each backoff step reports once. */
+export interface UsageReplayFailure {
+  attempt: number;
+  /** When the next attempt runs, or null once replay waits for new usage data. */
+  retryInMs: number | null;
+}
+/** Failed background replay retries 1 s, 2 s, 4 s ... capped, then waits for new data. */
+export const usageReplayBackoff = { baseMs: 1000, capMs: 300_000, attempts: 12 };
+const defaultReplayTimer = {
+  delay(run: () => void, milliseconds: number): () => void {
+    const timer = setTimeout(run, milliseconds);
+    timer.unref();
+    return () => clearTimeout(timer);
+  },
+};
 export function createDaemonUsage(
   dataDir: string,
   store: Pick<Store, "subscribeUsage" | "readUsagePage">,
   settings: UsageSettings,
-  onError: (error: unknown) => void,
+  onError: (error: unknown, failure?: UsageReplayFailure) => void,
   accounts?: QuotaReader,
   now: () => number = Date.now,
   providerAccounts?: Pick<import("@ace/accounts").AccountService, "handle" | "subscribeQuota">,
   runtime?: IdleWorkerRuntime,
+  replayTimer: { delay(run: () => void, milliseconds: number): () => void } = defaultReplayTimer,
 ) {
   const worker = new UsageWorker(join(dataDir, "usage.sqlite"), settings, runtime);
   let stopped = false;
-  let replayFailed = false;
+  let failures = 0;
+  let retry: (() => void) | undefined;
   let running: Promise<void> | undefined;
-  let timer: NodeJS.Timeout | undefined;
   let scheduled: NodeJS.Immediate | undefined;
+  let counted: unknown;
+  const replay = () => {
+    void catchUp().catch((error: unknown) => {
+      // Wakeups that joined one failed pass share its error: it is one backoff step.
+      if (stopped || error === counted) return;
+      counted = error;
+      failures++;
+      const { baseMs, capMs, attempts } = usageReplayBackoff;
+      const wait = failures > attempts ? null : Math.min(capMs, baseMs * 2 ** (failures - 1));
+      onError(error, { attempt: failures, retryInMs: wait });
+      if (wait !== null) arm(wait);
+    });
+  };
+  const arm = (milliseconds: number) => {
+    retry?.();
+    retry = replayTimer.delay(() => {
+      retry = undefined;
+      replay();
+    }, milliseconds);
+  };
+  /** New usage data wakes replay at once, unless a failing replay is backing off. */
   const schedule = () => {
-    if (!stopped && !scheduled)
-      scheduled = setImmediate(() => {
-        scheduled = undefined;
-        void catchUp().catch(onError);
-      });
+    if (stopped || scheduled || retry) return;
+    if (failures > usageReplayBackoff.attempts) {
+      // Replay gave up on its bound: new data earns one more attempt per cap window.
+      arm(usageReplayBackoff.capMs);
+      return;
+    }
+    if (failures > 0) return;
+    scheduled = setImmediate(() => {
+      scheduled = undefined;
+      replay();
+    });
   };
   const catchUp = (): Promise<void> => {
     if (stopped) return Promise.reject(new Error("Usage service closed"));
@@ -95,15 +138,11 @@ export function createDaemonUsage(
         await new Promise<void>((resolve) => setImmediate(resolve));
       }
     })()
-      .then(
-        () => {
-          replayFailed = false;
-        },
-        (error: unknown) => {
-          replayFailed = true;
-          throw error;
-        },
-      )
+      .then(() => {
+        failures = 0;
+        retry?.();
+        retry = undefined;
+      })
       .finally(() => {
         running = undefined;
       });
@@ -146,17 +185,14 @@ export function createDaemonUsage(
     catchUp,
     async start() {
       await worker.cursor();
+      // The append subscription wakes new data; only a failed replay keeps a retry timer.
       schedule();
-      // The append subscription wakes new data immediately; polling only recovers failed replay.
-      timer = setInterval(() => {
-        if (replayFailed) schedule();
-      }, 1000);
-      timer.unref();
     },
     async close() {
       stopped = true;
       unsubscribe();
-      if (timer) clearInterval(timer);
+      retry?.();
+      retry = undefined;
       if (scheduled) clearImmediate(scheduled);
       try {
         await running;

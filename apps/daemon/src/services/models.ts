@@ -13,6 +13,7 @@ import {
   registerConfiguredModelInstances,
 } from "../models.ts";
 import type { ServiceContext } from "./types.ts";
+import { backgroundFailure } from "./background.ts";
 export async function startModels(context: ServiceContext): Promise<void> {
   const { config, options, resources, services } = context;
 
@@ -114,9 +115,15 @@ export async function startModels(context: ServiceContext): Promise<void> {
   services.models = models;
   resources.own(models.listen(() => services.providerStatuses?.publish()));
   // These CLIs own connect/disconnect outside ace. Metadata-only reconciliation is bounded.
+  const reconcileFailed = backgroundFailure(context, "Model connection check failed");
   const connectionsTimer = setInterval(() => {
-    models.revalidate();
-    void models.reconcileConnections();
+    // A failed pass is retried on the next tick; it must never escape the timer.
+    try {
+      models.revalidate();
+      models.reconcileConnections().catch(reconcileFailed);
+    } catch (error) {
+      reconcileFailed(error);
+    }
   }, 60_000);
   connectionsTimer.unref();
   resources.own(() => clearInterval(connectionsTimer));

@@ -113,6 +113,7 @@ export function ComposerStrip(props: {
       ) : slot.shown === "connection" ? (
         <ConnectionStrip
           offline={offline}
+          mismatch={client.error?.code === "version_mismatch"}
           onRetry={() => (offline ? daemon.retry() : client.reconnectNow())}
           indicators={indicators}
         />

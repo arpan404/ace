@@ -17,6 +17,7 @@ import { useId, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { versionMismatchWords } from "@/boot/connection.tsx";
 import { OfflineWaiting } from "@/features/shell/index.ts";
 import { cn } from "@/lib/cn.ts";
 import type { StripKind } from "./strip-slot.ts";
@@ -103,6 +104,8 @@ function Indicator(props: { kind: StripKind; counts: StripCounts; onPick(kind: S
  */
 export function ConnectionStrip(props: {
   offline: boolean;
+  /** Reconnecting because the daemon is another version than this app. */
+  mismatch?: boolean;
   onRetry(): void;
   indicators: ReactNode;
 }) {
@@ -126,6 +129,10 @@ export function ConnectionStrip(props: {
               </>
             }
           />
+        ) : props.mismatch ? (
+          <span className="text-foreground" title={versionMismatchWords}>
+            {versionMismatchWords}
+          </span>
         ) : (
           <span className="text-foreground">Reconnecting…</span>
         )}

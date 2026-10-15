@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { ContextService, summarizeThreadReference } from "@ace/context";
 import { ThreadId, WorkspaceId } from "@ace/protocol";
 import type { ServiceContext } from "./types.ts";
+import { backgroundFailure } from "./background.ts";
 export async function startContext(runtime: ServiceContext): Promise<void> {
   const { config, store, now, id, resources, services, log, onListen } = runtime;
 
@@ -113,10 +114,10 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
   let timer: ReturnType<typeof setInterval> | undefined;
   const maintain = () => {
     if (pending) return;
-    pending = context.uploads
-      .expire()
+    pending = Promise.resolve()
+      .then(() => context.uploads.expire())
       .then(() => {})
-      .catch((error: unknown) => log.log("error", "Attachment maintenance failed", logError(error)))
+      .catch(backgroundFailure(runtime, "Attachment maintenance failed"))
       .finally(() => {
         pending = undefined;
       });

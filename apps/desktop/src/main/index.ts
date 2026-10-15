@@ -18,6 +18,8 @@ import { Background } from "./background.ts";
 import { daemonLogsPath } from "./daemon/logs.ts";
 import { DaemonRuntime, desktopTarget } from "./daemon/runtime.ts";
 import type { DaemonTarget } from "./daemon/target.ts";
+import { createDesktopLog, type Log } from "./log/desktop-log.ts";
+import { createFileLog } from "./log/file-log.ts";
 import { linksFromArgv, parseDeepLink, protocolScheme } from "./deep-link.ts";
 import { appearance, createHandlers } from "./handlers.ts";
 import { emit, registerHandlers } from "./ipc.ts";
@@ -84,10 +86,6 @@ if (unsafe) {
     );
 }
 
-function log(level: "info" | "warn" | "error", message: string): void {
-  (level === "error" ? console.error : console.log)(`[${level}] ${message}`);
-}
-
 const timers = {
   set(delayMs: number, callback: () => void) {
     const timer = setTimeout(callback, delayMs);
@@ -103,7 +101,32 @@ function isDirectory(path: string): boolean {
   }
 }
 
+/**
+ * The main process's records and the daemon child's output, kept in the app's logs folder
+ * (macOS `~/Library/Logs/ace/desktop.jsonl`) as well as on the console: a Finder launch has no
+ * console, and the supervisor's reasons for restarting the daemon must survive it. Opened
+ * after the app's data folder is set, since other platforms keep logs inside it.
+ */
+function openLogs(): (component: string) => Log {
+  const file = createFileLog({
+    directory: app.getPath("logs"),
+    name: "desktop",
+    maxBytes: 1024 * 1024,
+    rotations: 3,
+    schedule: (callback, delayMs) => setTimeout(callback, delayMs).unref(),
+  });
+  process.on("exit", () => file.flushSync());
+  return createDesktopLog({
+    file,
+    now: Date.now,
+    console: (level, text) => (level === "error" ? console.error : console.log)(text),
+  });
+}
+
 function main(target: DaemonTarget): void {
+  const logger = openLogs();
+  const log = logger("desktop");
+  const daemonLog = logger("daemon");
   const info: AppInfo = {
     version: app.isPackaged ? app.getVersion() : ACE_APP_VERSION,
     platform:
@@ -125,7 +148,9 @@ function main(target: DaemonTarget): void {
       packaged: app.isPackaged,
     },
     env: process.env,
-    log,
+    log: logger("supervisor"),
+    daemonOutput: (line, stream) =>
+      daemonLog(stream === "stderr" ? "warn" : "info", line, { stream }),
   });
   const settings = new SettingsStore(join(app.getPath("userData"), "desktop-settings.json"));
   const backgrounds = new WindowBackgroundStore(

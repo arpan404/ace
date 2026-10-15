@@ -66,3 +66,16 @@ the Claude web agent.
 
 Timing, browser-memory and behavioral confirmation of the review corrections need run at merge.
 The owner forbids executing tests and benchmarks during this implementation run.
+
+## Amendment 2026-10-14: asking after a missing receipt
+
+A daemon that restarts without a command's receipt may never send one, so "no failure deadline"
+left spinners waiting forever. A durable command sent on the live connection that goes
+`Limits.commandStatusMs` (60 s) without a receipt is now asked after with the core
+`command.status` message, batched up to 64 ids. The daemon answers in socket order: `settled`
+after resending the receipt, `running` while it still executes, `unknown` when it has no record
+and isn't running it. `unknown` fails the intent as `command_lost` and settles its waiter;
+`running` keeps the waiting hint and asks again after another bound. Commands already delivered
+to a transcript, or waiting on a retry after a transient refusal, are never asked after. A
+daemon that answers with an error or not in time isn't asked again on that connection, and
+nothing fails because of it.
