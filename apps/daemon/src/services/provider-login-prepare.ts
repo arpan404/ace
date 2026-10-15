@@ -180,7 +180,7 @@ export async function prepareProviderLogin(
     (!instance.implicit && !instance.managed)
   )
     throw new Error("Instance unavailable");
-  const release = services.accounts.reserveAccountChange(instanceId);
+  const release = await services.accounts.reserveAuthChange(instanceId);
   const guard = nativeLoginGuard(
     instance,
     registry,

@@ -9,6 +9,7 @@ import { Children } from "./children.ts";
 import { Transcript } from "./transcript.ts";
 import { ToolEvents } from "./tool-events.ts";
 import { translateDelta } from "./delta-events.ts";
+import { cursorFailure } from "./failure-kind.ts";
 
 export interface CursorTranslatorOptions {
   threadId: ThreadId;
@@ -300,10 +301,10 @@ export class CursorTranslator implements Translator {
             outcome,
             ...(outcome === "failed"
               ? {
-                  error: {
-                    kind: failureKind(object(body.error).code),
-                    message: string(object(body.error).message) ?? "Cursor SDK run failed",
-                  },
+                  error: failedRun(
+                    object(body.error).code,
+                    string(object(body.error).message) ?? "Cursor SDK run failed",
+                  ),
                 }
               : {}),
           });
@@ -322,14 +323,16 @@ export class CursorTranslator implements Translator {
               cwd: this.cwd,
             });
           }
+          const text = string(body.message) ?? "SDK failure; delivery or execution is uncertain";
+          const failure = cursorFailure(body.code, text);
           facts.push(
             ...this.tools.preserve(),
             ...this.children.preserve(),
             this.notice(
-              string(body.message) ?? "SDK failure; delivery or execution is uncertain",
+              text,
               event,
               "error",
-              "cursor.run-failed",
+              failure.kind === "quota" ? (failure.code ?? "quota") : "cursor.run-failed",
             ),
           );
           if (this.active && !this.replacement && body.settled === true) {
@@ -339,10 +342,7 @@ export class CursorTranslator implements Translator {
               agent: this.root,
               nativeTurnId: `sdk:${event.operationId}`,
               outcome: "failed",
-              error: {
-                kind: failureKind(body.code),
-                message: string(body.message) ?? "SDK run failed",
-              },
+              error: failedRun(body.code, string(body.message) ?? "SDK run failed"),
             });
           }
           return facts;
@@ -420,9 +420,6 @@ export class CursorTranslator implements Translator {
   }
 }
 
-function failureKind(code: unknown): "auth" | "quota" | "network" | "provider" {
-  if (code === "auth") return "auth";
-  if (code === "rate_limit") return "quota";
-  if (code === "network") return "network";
-  return "provider";
+function failedRun(code: unknown, message: string) {
+  return { ...cursorFailure(code, message), message };
 }

@@ -59,7 +59,7 @@ export async function prepareAgentLogin(
   signal.throwIfAborted();
   const release =
     target.provider === "acp" && target.instance
-      ? services.accounts.reserveAccountChange(target.instance)
+      ? await services.accounts.reserveAuthChange(target.instance)
       : () => {};
   const management = services.accountManagement;
   const driver = acpLoginDriver({

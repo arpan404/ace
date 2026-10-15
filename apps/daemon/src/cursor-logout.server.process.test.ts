@@ -225,3 +225,19 @@ it("a Cursor sign-out the SDK refuses says so and leaves the account signed in f
     expect(await cursor.opens()).toBe("xx");
   });
 });
+
+it("a Cursor sign-out the SDK refuses through cursor.auth keeps the account usable for new threads", async () => {
+  await withCursorDaemon({ refuseLogout: true }, async ({ daemon, store, ...cursor }) => {
+    await cursor.startThread("first");
+    expect(
+      await daemon.cursorAuth?.handle("device", {
+        type: "cursor.auth.logout",
+        requestId: "logout",
+        instanceId: "cursor-sdk-default",
+      }),
+    ).toMatchObject({ type: "cursor.auth.error", code: "auth_failed" });
+    await access(store);
+    await cursor.startThread("second");
+    expect(await cursor.opens()).toBe("xx");
+  });
+});

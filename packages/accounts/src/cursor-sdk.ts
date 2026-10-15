@@ -69,12 +69,10 @@ export function bindCursorSdk(service: AccountService, options: CursorAdapterOpt
         );
       }
       try {
-        return service.reserveAccountChange(id);
-      } catch {
+        return await service.reserveAuthChange(id);
+      } catch (error) {
         await rebindInstance(id);
-        throw new ProviderLoginFailure(
-          "Another change to this Cursor account is still running. Try again when it finishes.",
-        );
+        throw error;
       }
     },
     async close() {

@@ -129,7 +129,7 @@ export function limitReset(text: string): string | undefined {
 
 /** A usage, session or rate limit: it lifts on its own, so it reads as a pause, not an alarm. */
 export function isLimitError(view: Pick<ErrorView, "code">): boolean {
-  return view.code === "quota" || view.code === "rate_limit";
+  return view.code === "quota" || view.code === "model_quota" || view.code === "rate_limit";
 }
 
 /** A failure as one readable row: title, the fixing action and the raw text behind "Details". */
@@ -181,6 +181,15 @@ export function describeProviderError(input: ErrorInput): ErrorView {
         title: "Usage limit reached",
         message: (plain && limitReset(plain)) ?? message(plain),
         action: "switch_account",
+        raw,
+        code,
+      };
+    case "model_quota":
+      // Out of usage for this model only: the provider says another model would still run.
+      return {
+        title: "Usage limit reached",
+        message: (plain && limitReset(plain)) ?? message(plain),
+        action: "change_model",
         raw,
         code,
       };

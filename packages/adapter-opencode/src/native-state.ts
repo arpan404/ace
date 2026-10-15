@@ -1,7 +1,7 @@
 import type { RunTrigger, InteractionResolution } from "@ace/protocol";
 import type { Fact, Key } from "@ace/core";
 import type { Data } from "./data.ts";
-import { object, string, number } from "./data.ts";
+import { failureKind, object, string, number } from "./data.ts";
 import { RecentMap, RecentSet } from "./cache.ts";
 import { qualifiedModel } from "./usage.ts";
 export type Tool = {
@@ -222,6 +222,7 @@ export class NativeState {
     if (!turn) return [];
     this.active.delete(id);
     this.ended.add(turn);
+    const message = string(object(error).message, "OpenCode execution failed");
     return [
       ...this.toolTails(id),
       { type: "retry.cleared", agent: this.key(id) },
@@ -230,14 +231,7 @@ export class NativeState {
         agent: this.key(id),
         nativeTurnId: turn,
         outcome,
-        ...(outcome === "failed"
-          ? {
-              error: {
-                kind: "provider" as const,
-                message: string(object(error).message, "OpenCode execution failed"),
-              },
-            }
-          : {}),
+        ...(outcome === "failed" ? { error: { kind: failureKind(message), message } } : {}),
       },
     ];
   }

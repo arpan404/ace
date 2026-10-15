@@ -335,6 +335,10 @@ export class ProviderLoginSessions {
       return;
     }
     this.active.delete(job.key);
+    // A success message is only ever something the person still needs to know.
+    const message = success
+      ? outcome
+      : (failure ?? outcome ?? "Provider authentication could not be completed.");
     this.emit(
       job,
       signal.aborted
@@ -346,9 +350,7 @@ export class ProviderLoginSessions {
         : {
             state: success ? "succeeded" : "failed",
             ...(!success && manual ? { manual, hint: manual.instruction } : {}),
-            message: success
-              ? (outcome ?? "Provider authentication updated.")
-              : (failure ?? outcome ?? "Provider authentication could not be completed."),
+            ...(message ? { message } : {}),
           },
     );
   }

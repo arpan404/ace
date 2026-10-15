@@ -14,6 +14,7 @@ import { instanceEnv } from "./instances.ts";
 import { pickInstance } from "./scheduler.ts";
 import { migrateSession, type MigrationSafety } from "./migration.ts";
 import { accountFrame } from "./frames.ts";
+import { ProviderLoginFailure } from "./login-failure.ts";
 export type AccountAdapterFactory = Pick<
   ProviderAdapter,
   "provider" | "capabilities" | "createTranslator" | "backend"
@@ -62,6 +63,8 @@ export class AccountService {
   private resolveAcpLogin: AcpLoginResolver | undefined;
   private writers = new Map<string, number>();
   private migrating = new Set<string>();
+  /** Open sessions per account, so an auth change can stop them before the credential changes. */
+  private closers = new Map<string, Set<() => Promise<void>>>();
   constructor(options: {
     registry: AccountRegistry;
     now: () => number;
@@ -86,6 +89,37 @@ export class AccountService {
     if (this.writers.has(id) || this.migrating.has(id)) throw new Error("Instance is busy");
     this.migrating.add(id);
     return () => this.migrating.delete(id);
+  }
+  /**
+   * Sign-in and sign-out change the credential under every open session of this account. Fence
+   * new sessions, stop the open ones (each reports a deliberate exit to its thread), then hold the
+   * reservation. Releasing it, including after a failed change, lets threads reopen.
+   */
+  async reserveAuthChange(id: string): Promise<() => void> {
+    if (this.migrating.has(id))
+      throw new ProviderLoginFailure(
+        "Another sign-in or account change for this account is still running. Try again when it finishes.",
+      );
+    this.migrating.add(id);
+    const release = () => {
+      this.migrating.delete(id);
+    };
+    const results = await Promise.allSettled(
+      [...(this.closers.get(id) ?? [])].map((close) => close()),
+    );
+    if (results.some((result) => result.status === "rejected")) {
+      release();
+      throw new ProviderLoginFailure(
+        "A thread using this account didn't stop, so ace left the sign-in unchanged. Try again.",
+      );
+    }
+    if (this.writers.has(id)) {
+      release();
+      throw new ProviderLoginFailure(
+        "A thread using this account is still starting. Try again in a moment.",
+      );
+    }
+    return release;
   }
   /** Local interactive terminal API, deliberately absent from remote accounts messages. */
   async loginAcp(instanceId: string, signal?: AbortSignal) {
@@ -266,9 +300,12 @@ export class AccountService {
     context.signal.addEventListener("abort", abort, { once: true });
     if (context.signal.aborted) abort();
     let released = false;
+    let closer: (() => Promise<void>) | undefined;
     const release = () => {
       if (released) return;
       released = true;
+      if (closer) this.closers.get(chosen.id)?.delete(closer);
+      if (this.closers.get(chosen.id)?.size === 0) this.closers.delete(chosen.id);
       context.signal.removeEventListener("abort", abort);
       lifetime.abort();
       const count = (this.writers.get(chosen.id) ?? 1) - 1;
@@ -347,6 +384,15 @@ export class AccountService {
         stopInvalidFrame();
         await stopping;
         throw new Error("Provider frame has no valid bounded payload");
+      }
+      if (!released) {
+        closer = async () => {
+          await session.close("user");
+          release();
+        };
+        const open = this.closers.get(chosen.id) ?? new Set();
+        open.add(closer);
+        this.closers.set(chosen.id, open);
       }
       return {
         instanceId: chosen.id,

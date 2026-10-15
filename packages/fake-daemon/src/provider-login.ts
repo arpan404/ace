@@ -24,6 +24,8 @@ export class FakeProviderLogin {
   scenarios: Partial<Record<ProviderKind, Scenario>> = {};
   /** Providers whose sign-in the daemon can't run, and the reason it gives. */
   refusals: Partial<Record<ProviderKind, ProviderLoginUnavailableReason>> = {};
+  /** What a successful sign-in or sign-out still tells the person, per provider. */
+  successNotes: Partial<Record<ProviderKind, string>> = {};
   private jobs = new Map<string, Job>();
   private subscribers = new Map<(message: ServerMessage) => void, string>();
   private dismissed = new Set<string>();
@@ -108,11 +110,13 @@ export class FakeProviderLogin {
         job.progress.instance,
         job.progress.method,
       );
+    // Like the daemon, a success carries a message only when the person still needs to know it.
+    const message = success
+      ? this.successNotes[job.progress.provider]
+      : "The provider declined sign-in. Try again.";
     this.update(job, {
       state: success ? "succeeded" : "failed",
-      message: success
-        ? "CLI authentication updated."
-        : "The provider declined sign-in. Try again.",
+      ...(message ? { message } : {}),
     });
   }
   private update(job: Job, update: Partial<ProviderLoginProgress>): void {
