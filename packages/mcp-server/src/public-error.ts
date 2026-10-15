@@ -69,6 +69,7 @@ export const PublicToolCode = z.enum([
   "machine_unavailable",
   "machine_forbidden",
   "machine_disconnected",
+  "tool_unavailable",
 ]);
 export type PublicToolCode = z.infer<typeof PublicToolCode>;
 const candidateIds = z
@@ -302,6 +303,10 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   sdk_missing: {
     message: "Device SDK is unavailable",
     hint: "Ask the user to install and configure Xcode or Android SDK on the daemon host.",
+  },
+  tool_unavailable: {
+    message: "This ace tool is not available to this thread",
+    hint: "Its ace group is off here or the name is wrong. ace_status lists the groups that are on and ace_guide the tools for each task; if the group is off, tell the person. Your own tools are unaffected.",
   },
   tool_missing: {
     message: "Required device tool is unavailable",

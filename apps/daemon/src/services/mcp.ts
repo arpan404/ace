@@ -8,8 +8,10 @@ import {
   type CallObserver,
   agentControlToolkit,
   knowledgeToolkit,
+  guideToolkit,
   PublicToolError,
 } from "@ace/mcp-server";
+import { builtinGuides } from "@ace/plugins";
 import { devicesToolkit } from "@ace/devices";
 import { browserToolkit } from "../browser-toolkit.ts";
 import { screenToolkit } from "@ace/screen";
@@ -89,6 +91,8 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         redactTitle: createTextRedactor({ env: process.env }),
       }),
       handoffToolkit(store),
+      // The shipped skills, on demand, for every provider (Claude and Codex also get them natively).
+      guideToolkit(await builtinGuides()),
       knowledgeToolkit(
         knowledgePort({
           store,

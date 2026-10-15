@@ -370,7 +370,7 @@ test("ACP receives ace routing context on native prompts after opening and resum
         expect.arrayContaining([
           {
             type: "text",
-            text: expect.stringContaining("Never drive Safari/Chrome/Arc/Firefox with screen_*"),
+            text: expect.stringContaining("ace tools come from the ace MCP server."),
           },
           { type: "text", text: "Inspect localhost" },
         ]),

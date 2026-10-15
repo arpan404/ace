@@ -39,7 +39,7 @@ export function browserToolkit(
       registry.registerContent({
         name: "ace_browser_open",
         description:
-          "Use for every website or web app, including localhost, instead of Safari or Chrome via screen_*. Open this thread's ace browser. Optional url must be HTTP(S) without credentials. Then call ace_browser_snapshot for element refs. Do not use cua_repl or another provider's browser for this thread.",
+          "Open this thread's ace browser, which the person can watch and take over in ace, at an optional HTTP(S) url (localhost included). The best pick when the person should see the page, or you need console and network evidence (ace_browser_logs). Then ace_browser_snapshot for element refs. More: ace_guide ace-browser.",
         input: z.strictObject({
           url: z.string().max(8192).optional(),
           newTab: z.boolean().default(false),

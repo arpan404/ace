@@ -32,13 +32,38 @@ it("serves current discovery and structured tools through a real MCP client", as
   expect(listed.tools.filter((tool) => tool.name === "ace_echo")).toMatchObject([
     {
       name: "ace_echo",
-      inputSchema: { type: "object", additionalProperties: false },
+      inputSchema: { type: "object", properties: { value: { type: "string" } } },
       outputSchema: { type: "object" },
     },
   ]);
   expect(await client.callTool({ name: "ace_echo", arguments: { value: "hello" } })).toMatchObject({
     structuredContent: { value: "hello" },
   });
+});
+
+it("advertises a lean input schema yet still refuses what the full schema forbids", async () => {
+  const h = await harness(cleanups);
+  h.registry.register({
+    name: "ace_echo",
+    description: "Echo",
+    input,
+    output,
+    capability: null,
+    timeoutMs: 1000,
+    async run(value) {
+      return value;
+    },
+  });
+  const { client } = await h.connect();
+  const tool = (await client.listTools()).tools.find((entry) => entry.name === "ace_echo");
+  const advertised = JSON.stringify(tool?.inputSchema);
+  for (const bound of ["$schema", "maxLength", "additionalProperties"])
+    expect(advertised).not.toContain(bound);
+  for (const sent of [{ value: "x".repeat(101) }, { value: "ok", extra: true }]) {
+    const result = await client.callTool({ name: "ace_echo", arguments: sent });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toContain("invalid_arguments");
+  }
 });
 
 it("negotiates the legacy handshake with the monolithic SDK client", async () => {

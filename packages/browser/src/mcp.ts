@@ -157,7 +157,7 @@ export const browserMachineInput = {
     .string()
     .regex(/^[a-zA-Z0-9_.-]{1,64}$/)
     .optional()
-    .describe("Run in the browser of another paired machine from ace_machines."),
+    .describe("Another paired machine's browser (ace_machines); omit for this machine."),
 };
 
 /** Agents act in the thread's browser; a person's takeover still pauses them until handback. */
@@ -175,7 +175,8 @@ export function browserToolkit(
         const name = `ace_browser_${action}`;
         registry.registerContent({
           name,
-          description: `In this thread's ace browser: ${actions[action].description}`,
+          // The ace_browser_ name already says which browser; the action says what it does.
+          description: actions[action].description,
           riskClass: actions[action].riskClass,
           input: z.strictObject<Record<string, z.ZodType>>({
             ...Object.fromEntries(

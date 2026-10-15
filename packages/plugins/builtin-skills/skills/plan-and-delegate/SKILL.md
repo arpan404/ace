@@ -1,6 +1,6 @@
 ---
 name: plan-and-delegate
-description: Split a larger task into independent parts, run them in parallel child threads on any provider, then check and combine the results. Use when work has parts that don't depend on each other, or the person asks to parallelize or delegate.
+description: Split a larger task into independent parts, run them in parallel child threads on any provider, then check and combine the results. Use when the person asks to parallelize or delegate, or parts don't depend on each other.
 ---
 
 # Plan, then delegate

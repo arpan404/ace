@@ -2,7 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProviderKind } from "@ace/protocol";
-import { aceInstructions, developerInstructions } from "@ace/mcp-server";
+import { PublicToolCode, aceInstructions, developerInstructions } from "@ace/mcp-server";
+import { builtinGuides } from "@ace/plugins";
 import { afterEach, expect, it } from "vitest";
 import { computerUseTools } from "@ace/screen";
 import { readConfig, startDaemon } from "./index.ts";
@@ -20,10 +21,11 @@ function namedTools(text: string): string[] {
         ([name]) => name,
       ),
     ),
-  ].filter((name) => !name.endsWith("_"));
+    // Error codes such as screen_disabled read like tool names; guides may quote them.
+  ].filter((name) => !name.endsWith("_") && !PublicToolCode.safeParse(name).success);
 }
 
-it("ace's guidance names only tools the daemon registers", async () => {
+it("ace's guidance and shipped guides name only tools the daemon registers", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-guidance-"));
   cleanup.push(() => rm(home, { recursive: true, force: true }));
   const daemon = await startDaemon({
@@ -36,10 +38,14 @@ it("ace's guidance names only tools the daemon registers", async () => {
     ...daemon.mcp.toolNames(),
     ...computerUseTools.map((tool) => tool.name),
   ]);
-  const texts = [aceInstructions, ...ProviderKind.options.map((p) => developerInstructions(p))];
+  const texts = [
+    aceInstructions,
+    ...ProviderKind.options.map((p) => developerInstructions(p)),
+    ...(await builtinGuides()).map((guide) => guide.body),
+  ];
   const named = new Set(texts.flatMap(namedTools));
   // OpenCode's own prefix example is not an ace tool name.
-  named.delete("ace_ace_status");
+  named.delete("ace_ace_guide");
   named.delete("ace_delegate_task");
   expect(named.size).toBeGreaterThan(10);
   // Simulator tools (device_*) register only when the devices service runs.

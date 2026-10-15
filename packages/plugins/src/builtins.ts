@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
+import { z } from "zod";
 import { PluginInstall } from "@ace/protocol/plugins";
 import { PluginManifest, parseJson } from "./manifest.ts";
 import type { PluginSnapshot } from "./types.ts";
@@ -65,3 +67,31 @@ export async function prepareBuiltinSkills(provider: "claude" | "codex", root: s
   }
   return { args: projection.args, directories, close: () => removeProjection(root) };
 }
+
+/**
+ * The shipped skills as guides for providers without native skills: name, the frontmatter's
+ * one-line description and the body. Same files as the native projection, so one source.
+ * Frontmatter is parsed as the YAML that provider skill loaders read, so a broken one fails here.
+ */
+export async function builtinGuides(
+  root?: string,
+): Promise<{ name: string; description: string; body: string }[]> {
+  const [bundle] = await builtinSkills(root);
+  if (!bundle) return [];
+  return bundle.manifest.skills.map((skill) => {
+    const text = bundle.text[`${skill.path}/SKILL.md`] ?? "";
+    const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
+    const meta = SkillFrontmatter.safeParse(parseYaml(match?.[1] ?? ""));
+    if (!match || !meta.success || meta.data.name !== skill.name)
+      throw new Error(`Built-in skill ${skill.name} has invalid frontmatter`);
+    return {
+      name: skill.name,
+      description: meta.data.description,
+      body: text.slice(match[0].length).trim(),
+    };
+  });
+}
+const SkillFrontmatter = z.object({
+  name: z.string().min(1).max(64),
+  description: z.string().min(1).max(1024),
+});

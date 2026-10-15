@@ -3,10 +3,28 @@ import { expect, test, onTestFinished } from "vitest";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { AgentId, ThreadId } from "@ace/protocol";
-import { CredentialRegistry, ToolRegistry, nodeScheduler, startMcpServer } from "@ace/mcp-server";
+import {
+  CredentialRegistry,
+  ToolRegistry,
+  guideToolkit,
+  nodeScheduler,
+  startMcpServer,
+} from "@ace/mcp-server";
 import { registerAcePiExtension } from "./index.ts";
 import { obj } from "./native.ts";
 import { createPiExtensionHost } from "./testing/extension-host.ts";
+
+type PiTools = ReturnType<typeof createPiExtensionHost>["tools"];
+/** Pi lists ace's core tools; reading a guide opens its family, which Pi registers on refresh. */
+async function openFamilies(tools: PiTools, topics: string[], expected: string[]) {
+  const guide = tools.get("ace_guide");
+  if (!guide) throw new Error("Missing ace_guide");
+  for (const topic of topics) await guide.execute(`guide-${topic}`, { topic }, undefined);
+  for (let attempt = 0; attempt < 500 && !expected.every((name) => tools.has(name)); attempt++)
+    await new Promise((resolve) => setTimeout(resolve, 10));
+}
+const guides = (...topics: string[]) =>
+  guideToolkit(topics.map((name) => ({ name, description: name, body: `How to ${name}.` })));
 test("Pi forwards scoped tools with long install deadlines, structured results and MCP errors across real HTTP", async () => {
   const registry = new ToolRegistry({ scheduler: nodeScheduler });
   const credentials = new CredentialRegistry(() => randomBytes(32).toString("hex"));
@@ -34,6 +52,7 @@ test("Pi forwards scoped tools with long install deadlines, structured results a
       throw new Error("synthetic failure");
     },
   });
+  guides("ace-threads").register(registry);
   const server = await startMcpServer({ registry, credentials });
   const lease = credentials.issue(
     {
@@ -67,8 +86,11 @@ test("Pi forwards scoped tools with long install deadlines, structured results a
       ),
     });
     expect(instructions).toMatchObject({
-      systemPrompt: expect.stringContaining("Never drive Safari/Chrome/Arc/Firefox with screen_*"),
+      systemPrompt: expect.stringContaining("plus the rest of its tools: ace_guide"),
     });
+    // ace_echo and ace_failure belong to the threads family, outside Pi's core list.
+    expect(tools.has("ace_echo")).toBe(false);
+    await openFamilies(tools, ["ace-threads"], ["ace_echo", "ace_failure"]);
     const echo = tools.get("ace_echo"),
       failure = tools.get("ace_failure");
     if (!echo || !failure) throw new Error("Missing MCP tools");
@@ -115,6 +137,7 @@ test("Pi executes authorized browser, screen and device tools and projects their
         throw new Error("native operation rejected");
       },
     });
+  guides("ace-browser", "ace-computer-use").register(registry);
   const server = await startMcpServer({ registry, credentials });
   const lease = credentials.issue(
     {
@@ -138,6 +161,11 @@ test("Pi executes authorized browser, screen and device tools and projects their
     await host.start((pi) =>
       registerAcePiExtension(pi, { ACE_PI_SESSION_FILE: configuration.path }),
     );
+    await openFamilies(
+      tools,
+      ["ace-browser", "ace-computer-use"],
+      ["ace_browser_click", "screen_ui_act", "device_tap"],
+    );
     for (const name of ["ace_browser_click", "screen_ui_act", "device_tap"]) {
       const tool = tools.get(name);
       if (!tool) throw new Error(`Missing authorized feature tool: ${name}`);
@@ -159,7 +187,7 @@ test("Pi executes authorized browser, screen and device tools and projects their
   }
 });
 
-test("Pi adds screen tools when computer use turns on and withdraws them when it turns off, without hiding native tools", async () => {
+test("Pi adds computer use when it turns on, its other tools once used, and withdraws them when it turns off, without hiding native tools", async () => {
   let enabled = false;
   const registry = new ToolRegistry({ scheduler: nodeScheduler });
   for (const name of ["screen_open_app", "screen_type"])
@@ -220,8 +248,16 @@ test("Pi adds screen tools when computer use turns on and withdraws them when it
   await refresh(() => {
     enabled = true;
   });
+  // Only the entry point is listed upfront; opening an app brings the rest of computer use.
+  expect(host.active()).toEqual(["read", "bash", "ace_status", "screen_open_app"]);
+  const open = host.tools.get("screen_open_app");
+  if (!open) throw new Error("Missing screen_open_app");
+  const opened = Promise.withResolvers<void>();
+  changed = opened.resolve;
+  await open.execute("open", {}, undefined);
+  await opened.promise;
+  changed = undefined;
   expect(host.active()).toEqual(["read", "bash", "ace_status", "screen_open_app", "screen_type"]);
-  expect(host.tools.has("screen_open_app")).toBe(true);
   await refresh(() => {
     enabled = false;
   });

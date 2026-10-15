@@ -13,7 +13,7 @@ const childId = (text: string) =>
     .object({ data: z.object({ threadId: z.string() }) })
     .parse(JSON.parse(text.split("\n")[0] ?? "")).data.threadId as ThreadId;
 
-it("a new session already knows its project, branch, access and title state", async () => {
+it("a new session already knows its project, branch and access", async () => {
   world = await evalWorld({ browser: false });
   const { agent } = await world.agent({});
   expect(agent.instructions).toContain('Project "shop"');
@@ -21,7 +21,6 @@ it("a new session already knows its project, branch, access and title state", as
   expect(agent.instructions).toContain(
     "Full access: your provider runs tools without asking; ace adds no approvals",
   );
-  expect(agent.instructions).toContain("Title is provisional");
   expect(agent.instructions).toMatch(/Delegate with delegate_task to: .*claude/);
 });
 

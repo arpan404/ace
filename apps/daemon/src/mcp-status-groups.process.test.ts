@@ -115,16 +115,14 @@ it("a new thread's ace_status lists only groups ace serves, with every served gr
   expect(reported.access).toBe(thread?.permission?.effective ?? null);
 });
 
-it("ace's guidance tells agents to edit files and run shell commands with their own tools", async () => {
+it("ace's guidance keeps agents on their own shell, file and web tools", async () => {
   const { client } = await threadConnection();
-  expect(client.getInstructions()).toContain(
-    "Read, create and edit files and run shell commands with your own workspace tools",
-  );
+  expect(client.getInstructions()).toContain("your shell, file, web and other tools work as usual");
   const statusTool = (await client.listTools()).tools.find((tool) => tool.name === "ace_status");
   expect(statusTool?.description).toContain("use your own workspace tools for files and shell");
   // Providers that opt out of server instructions get the same text in their own channel.
   for (const provider of ["codex", "cursor", "pi"] as const)
-    expect(developerInstructions(provider)).toContain("with your own workspace tools");
+    expect(developerInstructions(provider)).toContain("your shell, file, web and other tools");
   for (const provider of ProviderKind.options)
     expect(developerInstructions(provider)).not.toMatch(/terminal tools/i);
 });

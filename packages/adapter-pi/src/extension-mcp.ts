@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { developerInstructions, maxToolTimeoutMs, type AceMcpConnection } from "@ace/mcp-server";
+import {
+  coreToolsHeader,
+  developerInstructions,
+  maxToolTimeoutMs,
+  type AceMcpConnection,
+} from "@ace/mcp-server";
 import { obj, str } from "./native.ts";
 import type { PiExtensionApi } from "./extension-api.ts";
 
@@ -124,7 +129,13 @@ export function registerAceMcpTools(pi: PiExtensionApi, connection: AceMcpConnec
     try {
       await mcp.connect(
         new StreamableHTTPClientTransport(new URL(connection.url), {
-          requestInit: { headers: { Authorization: `Bearer ${connection.bearer}` } },
+          // Pi registers every listed tool upfront: ace lists its core tools and opens the rest.
+          requestInit: {
+            headers: {
+              Authorization: `Bearer ${connection.bearer}`,
+              [coreToolsHeader.name]: coreToolsHeader.value,
+            },
+          },
           fetch: boundedFetch,
         }),
       );

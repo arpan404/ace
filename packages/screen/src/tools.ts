@@ -56,39 +56,6 @@ export const computerUseSchemas = {
   }),
   screen_request_foreground: z.strictObject(SessionSelection),
 };
-// Read enum descriptions from the shared action schema when the expanded helper contract lands.
-const enumNames = (schema: z.ZodType, fallback: readonly string[]) => {
-  const result = z.object({ enum: z.array(z.string()) }).safeParse(z.toJSONSchema(schema));
-  return (result.success ? result.data.enum : fallback).join(", ");
-};
-const namedKeys = enumNames(PointKey.shape.key, [
-  "a–z",
-  "0–9",
-  "enter",
-  "return",
-  "tab",
-  "space",
-  "backspace",
-  "escape",
-  "delete",
-  "home",
-  "end",
-  "pageup",
-  "pagedown",
-  "left",
-  "right",
-  "up",
-  "down",
-]);
-const keyEnum = z
-  .object({ enum: z.array(z.string()) })
-  .safeParse(z.toJSONSchema(PointKey.shape.key));
-const namedModifiers = keyEnum.success
-  ? z
-      .object({ items: z.object({ enum: z.array(z.string()) }) })
-      .parse(z.toJSONSchema(PointKey.shape.modifiers))
-      .items.enum.join(", ")
-  : "command, shift, option, control";
 export const computerUseTools = [
   {
     name: "screen_list_windows",
@@ -204,7 +171,9 @@ export const computerUseTools = [
   },
   {
     name: "screen_key",
-    description: `Press a key in the native app. Named keys: ${namedKeys}. Modifiers: ${namedModifiers}. Example: {"key":"l","modifiers":["command"]}. Legacy sessions accept macOS keyCode.`,
+    // The key and modifier enums are in the schema; listing them here too doubled the cost.
+    description:
+      'Press a key in the native app, with optional modifiers; the schema lists the named keys. Example: {"key":"l","modifiers":["command"]}. Legacy sessions accept macOS keyCode.',
     get inputSchema() {
       return z.toJSONSchema(computerUseSchemas.screen_key);
     },

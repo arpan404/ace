@@ -51,6 +51,8 @@ export class EvalAgent {
     bearer: string;
     nativeInstructions: string;
     serverInstructions: boolean;
+    /** Extra request headers a provider's injection adds, such as core-tools mode. */
+    headers?: Readonly<Record<string, string>>;
   }): Promise<EvalAgent> {
     const client = new Client(
       { name: "ace-eval", version: "1" },
@@ -62,6 +64,7 @@ export class EvalAgent {
           headers: {
             Authorization: `Bearer ${input.bearer}`,
             ...(input.serverInstructions ? {} : { "X-Ace-Instructions": "native" }),
+            ...input.headers,
           },
         },
       }),

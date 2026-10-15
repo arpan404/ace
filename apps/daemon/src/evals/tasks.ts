@@ -29,7 +29,7 @@ export const record = (value: unknown) =>
 
 const whereAmI: EvalTask = {
   id: "where-am-i",
-  title: "Find where I am: project, branch, access mode, title state, live siblings",
+  title: "Find where I am: project, branch, access mode, live siblings",
   gate: false,
   async run(world) {
     await world.liveThread("Refactor the cart");
@@ -39,7 +39,6 @@ const whereAmI: EvalTask = {
       project: "shop",
       branch: world.branch,
       access: thread?.permission?.effective ?? null,
-      provisional: thread?.titleSource === "provisional",
       liveSiblings: liveOthers(world, threadId),
     };
     const seen: Record<string, unknown> = {};
@@ -63,7 +62,6 @@ const whereAmI: EvalTask = {
       ]);
       seen["access"] = record(status.data)?.["access"] ?? null;
       const own = record(record(info.data)?.["thread"]);
-      seen["provisional"] = own?.["titleSource"] === "provisional";
       const details = record(own?.["details"]);
       seen["project"] = record(details?.["workspace"])?.["name"];
       seen["branch"] = details?.["branch"] ?? null;
@@ -365,7 +363,6 @@ export function readBrief(instructions: string) {
     project: project ?? null,
     branch: pick(/(?:branch|worktree) "([^"]*)"/) ?? null,
     access: accessLabels[pick(/Access: (Read-only|Ask|Auto review|Full access)/) ?? ""] ?? null,
-    provisional: /Title is provisional/.test(instructions),
     liveSiblings: Number(pick(/Live: (\d+) other thread/) ?? Number.NaN),
     delegates: (pick(/Delegate with delegate_task to: ([^\n]*)/) ?? "")
       .split(";")

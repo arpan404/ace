@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { aceInstructions } from "./status.ts";
+import { aceGuidance } from "./status.ts";
+import { coreToolsHeader } from "./toolsets.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
 import { destructiveAceTools } from "./agent-control.ts";
 import type { ProviderKind } from "@ace/protocol";
@@ -32,51 +33,30 @@ export interface SessionGuidance {
   groups?: readonly string[] | undefined;
 }
 const prefix: Record<ProviderKind, string> = {
-  codex: "Use the ace MCP server's ace_* tools.",
+  codex:
+    "ace tools come from the ace MCP server and may be deferred: search for ace when a task matches. The ace guides are also installed as skills of the same names.",
   claude:
-    "ace tools are named mcp__ace__<tool>, for example mcp__ace__delegate_task; they may be deferred, so search for ace when a task matches.",
+    "ace tools are named mcp__ace__<tool>, for example mcp__ace__delegate_task, and may be deferred: search for ace when a task matches. The ace guides are also installed as skills of the same names.",
   opencode:
-    "OpenCode prefixes every ace MCP tool with ace_: ace_status is ace_ace_status, and delegate_task is ace_delegate_task.",
-  cursor: "Use the ace MCP server for ace operations.",
-  antigravity: "Use the ace MCP server for ace operations.",
-  acp: "Use the ace MCP server for ace operations.",
-  pi: "Use ace_*, screen_* and device_* extension tools for ace operations.",
+    "OpenCode prefixes every ace MCP tool with ace_: ace_guide is ace_ace_guide, and delegate_task is ace_delegate_task.",
+  cursor: "ace tools come from the ace MCP server.",
+  antigravity: "ace tools come from the ace MCP server.",
+  acp: "ace tools come from the ace MCP server.",
+  pi: "ace tools are the ace_*, screen_* and device_* extension tools.",
 };
-const title =
-  "New conversation with a provisional title (the session facts say so): during your first turn, set a concise title from the person's request with ace_thread_rename and onlyIfProvisional: true, without another model request. Keep titles a person or agent chose.";
-const visualize =
-  "For charts, diagrams, comparisons or mockups that explain more than prose, use the bundled visualize skill and ace_html_render.";
-const screen =
-  "Never drive Safari/Chrome/Arc/Firefox with screen_*; websites use ace_browser_*. Use screen_* only when the person asks you to operate a specific native app or nothing else can: call screen_open_app, then screen_ui_tree or screen_ui_find before coordinates.";
-const devices =
-  "Simulators and devices: device_list, then device_start to take one for this thread, then device_find before coordinate input.";
-const delegation =
-  "delegate_task returns child thread ids at once. To use their results this turn, call ace_wait with the ids and timeoutSeconds (or give delegate_task several tasks with await: all); on timeout, wait again; on needs_you, tell the person what each child asks. ace_agents_status shows the whole tree compactly. Never poll. If you end your turn instead, settled results arrive as a new turn.";
-const machines =
-  "To work on another of the person's machines, call ace_machines, then pass its machine name to delegate_task (with project) or to ace_browser_* tools; that machine's own access and consent apply.";
-const remote =
-  "Paired machines: ace_device_list, then ace_device_delegate with an explicit hostId and workspaceId sends independent work; ace_device_task_status, ace_device_task_wait and ace_device_task_cancel control it. On a remote task, call ace_device_task_publish once before finishing to return files. Workspaces are never overwritten or merged.";
 
 /**
  * Guidance for the provider's own system/developer channel. Each provider receives ace's
- * guidance once: the shared part goes through MCP server instructions where the CLI shows them,
- * and through this channel otherwise. Group-specific lines appear only for enabled groups.
+ * always-on guidance once: through MCP server instructions where the CLI shows them, and
+ * through this channel otherwise. Everything task-specific is in the guides it points to.
  */
 export function developerInstructions(
   provider: ProviderKind,
   session: SessionGuidance = {},
 ): string {
-  const has = (group: string) => !session.groups || session.groups.includes(group);
   return [
-    readsServerInstructions.has(provider) ? undefined : aceInstructions,
+    readsServerInstructions.has(provider) ? undefined : aceGuidance(session.groups),
     prefix[provider],
-    title,
-    visualize,
-    has("screen") ? screen : undefined,
-    has("devices") ? devices : undefined,
-    has("agents") ? delegation : undefined,
-    has("agents") ? machines : undefined,
-    has("agents") ? remote : undefined,
     session.brief,
   ]
     .filter(Boolean)
@@ -132,7 +112,12 @@ export function openCodeInjection(input: Injected) {
     oauth: false as const,
     protocol: "2026-07-28" as const,
     timeout: { execution: maxToolTimeoutMs },
-    headers: { Authorization: `Bearer ${bearer}`, "X-Ace-Notifications": "stream" },
+    // OpenCode lists every MCP tool upfront: ace offers its core tools and opens the rest on use.
+    headers: {
+      Authorization: `Bearer ${bearer}`,
+      "X-Ace-Notifications": "stream",
+      [coreToolsHeader.name]: coreToolsHeader.value,
+    },
   };
   return {
     server,
@@ -150,6 +135,7 @@ export function acpInjection(input: Injected, provider: "cursor" | "antigravity"
         headers: [
           { name: "Authorization", value: `Bearer ${bearer}` },
           { name: "X-Ace-Notifications", value: "stream" },
+          coreToolsHeader,
         ],
       },
     ],
@@ -170,6 +156,7 @@ export function cursorSdkInjection(input: Injected) {
           Authorization: `Bearer ${bearer}`,
           "X-Ace-Instructions": "native",
           "X-Ace-Notifications": "stream",
+          [coreToolsHeader.name]: coreToolsHeader.value,
         },
       },
     },

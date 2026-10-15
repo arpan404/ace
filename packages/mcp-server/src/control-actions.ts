@@ -18,7 +18,7 @@ export const controlActions: Record<AgentControlOperation["op"], Action> = {
   },
   "thread.start": {
     description:
-      "Start an ordinary top-level conversation (a new thread in the person's sidebar) with explicit project/new-worktree/existing-worktree selection. `text` is sent as its first message and the new agent answers it at once, so write it as the opening request. It retains caller ownership and a permission ceiling, but has no child attachment or result wakeup. Use a stable requestId. Use delegate_task for child work. The person sees the new thread as a card with Open in this thread: relay the result's `summary` in a sentence and never list its ids.",
+      "Start a top-level thread in the person's sidebar with its own project or worktree; text is its first message, which its agent answers at once. For child work whose result you need, use delegate_task. Use a stable requestId. The person sees the new thread as a card: relay the result's summary in a sentence, without its ids.",
     riskClass: "agent-execution",
   },
   "thread.configure": {
@@ -110,7 +110,7 @@ export const controlActions: Record<AgentControlOperation["op"], Action> = {
   },
   wait: {
     description:
-      "Block until threads settle or need the person, up to timeoutSeconds (default 120, at most 600). Works for children you delegated and any other thread you can read. mode all (default) returns when every thread is done, failed or cancelled; any returns on the first. Either mode returns early with status needs_you, naming each request; a thread waiting on the person is never reported done. Settled threads include their result excerpt; others their current step and last output line. On status timeout the threads keep working: call again to keep waiting. status interrupted means ace restarted; wait again. Results read here are not delivered again as a wake. Never poll in a loop.",
+      "Wait up to timeoutSeconds (default 120, max 600) for threads to settle, mode all (default) or any. Returns early with needs_you, naming each request, when a thread waits on the person: tell the person, and never report it done. On timeout the threads keep working: call again. interrupted means ace restarted: wait again. Never poll in a loop.",
     riskClass: "read-only",
   },
   "thread.read": {

@@ -8,6 +8,7 @@ import {
 import { SessionAwareness, type AwarenessPort } from "./awareness.ts";
 import { withChanges } from "./changes.ts";
 import { knowledgeResources } from "./knowledge-tools.ts";
+import { OpenToolsets, coreToolsHeader } from "./toolsets.ts";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import { CredentialRegistry, type Principal } from "./credentials.ts";
@@ -161,12 +162,16 @@ async function createHandler(
   const { localhostHostValidation, localhostOriginValidation, toNodeHandler } =
     await import("@modelcontextprotocol/node");
   const calls = new WeakMap<Principal, Map<string | number, AbortController>>();
+  const toolsets = new OpenToolsets();
+  // Set once the handlers exist: a call that opens a toolset re-announces the tool list.
+  let announce: () => void = noop;
   const factory: import("@modelcontextprotocol/server").McpServerFactory = ({ requestInfo }) => {
     const principal = credentials.authenticate(
       bearer(requestInfo?.headers.get("authorization") ?? undefined),
     );
     if (!principal) throw new Error("Unauthorized");
     const caller = principal;
+    const core = requestInfo?.headers.get(coreToolsHeader.name) === coreToolsHeader.value;
     // The HTTP SDK validates mirrored parameters only for McpServer products. Reuse
     // our prepared schema by name instead of registering/scanning every tool per call.
     class RegistryServer extends McpServer {
@@ -260,7 +265,9 @@ async function createHandler(
       };
     });
     server.setRequestHandler("tools/list", async () => ({
-      tools: [...status.list(principal), ...options.registry.list(principal)],
+      tools: [...status.list(principal), ...options.registry.list(principal)].filter(
+        (tool) => !core || toolsets.lists(principal, tool.name),
+      ),
     }));
     server.setRequestHandler("tools/call", async (request, context) => {
       let pending = calls.get(principal);
@@ -284,6 +291,11 @@ async function createHandler(
           principal,
           AbortSignal.any([context.mcpReq.signal, controller.signal]),
         );
+        if (
+          !result.isError &&
+          toolsets.opened(principal, request.params.name, request.params.arguments)
+        )
+          announce();
         return awareness ? withChanges(awareness, principal, request.params.name, result) : result;
       } finally {
         pending.delete(id);
@@ -320,7 +332,12 @@ async function createHandler(
       maxRequestBodySize: options.maxBodyBytes ?? 64 * 1024,
     },
   );
+  announce = () => {
+    handler.notify.toolsChanged();
+    legacy.toolsChanged();
+  };
   const validateHost = localhostHostValidation();
   const validateOrigin = localhostOriginValidation();
   return { handler, legacy, nodeHandler, validateHost, validateOrigin };
 }
+function noop(): void {}

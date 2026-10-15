@@ -24,7 +24,6 @@ export interface SessionFacts {
   readonly groups: readonly string[];
   /** Providers this thread may delegate to, with the native modes allowed under its ceiling. */
   readonly delegates: readonly { provider: string; modes: readonly string[] }[];
-  readonly titleProvisional: boolean;
   /** Other threads in this project that are working or waiting. */
   readonly liveSiblings: number;
   readonly children: readonly { id: string; label: string; state: ChildState }[];
@@ -64,7 +63,8 @@ export function renderBrief(facts: SessionFacts): string {
       .filter(Boolean)
       .join(", "),
     `Access: ${facts.access ? accessText[facts.access] : "unknown"}.`,
-    `ace groups on: ${facts.groups.join(", ") || "thread only"}.`,
+    // Groups gate ace's own tools only; an agent must never read them as its whole toolset.
+    `ace tool groups on: ${facts.groups.join(", ") || "none beyond threads"}; your own tools are separate.`,
   ];
   if (facts.delegates.length)
     lines.push(
@@ -76,8 +76,6 @@ export function renderBrief(facts: SessionFacts): string {
         )
         .join("; ")}.`,
     );
-  if (facts.titleProvisional)
-    lines.push("Title is provisional: name it with ace_thread_rename, onlyIfProvisional: true.");
   const live = facts.children.filter((child) => !settled(child.state));
   const waiting = live.filter((child) => child.state === "waiting_on_human").length;
   lines.push(
@@ -117,7 +115,7 @@ export function renderDigest(before: SessionFacts, after: SessionFacts): string 
   if (after.pendingRequests > before.pendingRequests)
     notes.push(`${after.pendingRequests} request(s) here wait on the person`);
   if (before.groups.join() !== after.groups.join())
-    notes.push(`ace groups on: ${after.groups.join(", ") || "thread only"}`);
+    notes.push(`ace tool groups on: ${after.groups.join(", ") || "none beyond threads"}`);
   if (before.notes.join("\n") !== after.notes.join("\n"))
     notes.push("project notes changed (ace_context topic notes)");
   if (after.liveSiblings !== before.liveSiblings)

@@ -17,7 +17,6 @@ const facts: SessionFacts = {
   access: "full-access",
   groups: ["browser", "agents"],
   delegates: [{ provider: "claude", modes: ["bypassPermissions"] }],
-  titleProvisional: true,
   liveSiblings: 1,
   children: [],
   pendingRequests: 0,
@@ -33,7 +32,6 @@ test("the brief states where the agent is and what its access allows", () => {
     "Full access: your provider runs tools without asking; ace adds no approvals",
   );
   expect(brief).toContain("claude (bypassPermissions)");
-  expect(brief).toContain("Title is provisional");
 });
 
 test("the brief stays within its caps however much there is to say", () => {

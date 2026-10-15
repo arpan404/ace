@@ -1,0 +1,194 @@
+{
+  "label": "latest",
+  "tasks": [
+    {
+      "id": "where-am-i",
+      "title": "Find where I am: project, branch, access mode, live siblings",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 0,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 1,
+        "contextBytes": 57750,
+        "tokens": 14438
+      },
+      "note": "all facts from the brief"
+    },
+    {
+      "id": "delegate-two",
+      "title": "Delegate two tasks and collect both results",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 1,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 2,
+        "contextBytes": 58600,
+        "tokens": 14650
+      },
+      "note": "both results collected"
+    },
+    {
+      "id": "browser-check",
+      "title": "Open the dev server in the browser and report console and network errors",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 3,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 4,
+        "contextBytes": 59173,
+        "tokens": 14794
+      },
+      "note": "console error found, 500 found"
+    },
+    {
+      "id": "recent-work",
+      "title": "Read the project's recent work and its outcome",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 1,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 2,
+        "contextBytes": 58008,
+        "tokens": 14502
+      },
+      "note": "outcome found"
+    },
+    {
+      "id": "visualize",
+      "title": "Render a small comparison as HTML",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 1,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 2,
+        "contextBytes": 58024,
+        "tokens": 14506
+      },
+      "note": "rendered"
+    },
+    {
+      "id": "recover-bad-argument",
+      "title": "Recover from a wrong argument using only the error",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 12,
+        "ownToolCalls": 0,
+        "failedCalls": 6,
+        "identicalRetries": 0,
+        "turns": 13,
+        "contextBytes": 62057,
+        "tokens": 15515
+      },
+      "note": "6/6 recovered on the second call"
+    },
+    {
+      "id": "child-waits-on-human",
+      "title": "A child waiting on the person is never reported done",
+      "gate": true,
+      "metrics": {
+        "success": true,
+        "aceCalls": 3,
+        "ownToolCalls": 0,
+        "failedCalls": 1,
+        "identicalRetries": 0,
+        "turns": 4,
+        "contextBytes": 58914,
+        "tokens": 14729
+      },
+      "note": "wait needs_you, child needs_you"
+    },
+    {
+      "id": "pr-and-changes",
+      "title": "Is there already a PR for this work, and what is uncommitted?",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 1,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 2,
+        "contextBytes": 58088,
+        "tokens": 14522
+      },
+      "note": "PR #42 and login.ts found"
+    },
+    {
+      "id": "notes-respected",
+      "title": "A lesson from one thread reaches the next thread on another provider",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 0,
+        "ownToolCalls": 1,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 2,
+        "contextBytes": 57935,
+        "tokens": 14484
+      },
+      "note": "0 wrong test invocation(s)"
+    },
+    {
+      "id": "ask-waits-on-person",
+      "title": "A child's question waits on the person and its answer comes back",
+      "gate": false,
+      "metrics": {
+        "success": true,
+        "aceCalls": 1,
+        "ownToolCalls": 0,
+        "failedCalls": 0,
+        "identicalRetries": 0,
+        "turns": 2,
+        "contextBytes": 58581,
+        "tokens": 14646
+      },
+      "note": "while asking: needs_you; answer [\"GitHub\"]"
+    }
+  ],
+  "catalogue": {
+    "tools": 99,
+    "toolsListBytes": 105464,
+    "descriptorBytes": 56201,
+    "outputSchemaBytes": 31712,
+    "largestOutputSchemas": [
+      {
+        "name": "ace_list_agents",
+        "bytes": 4634
+      },
+      {
+        "name": "ace_context",
+        "bytes": 2366
+      },
+      {
+        "name": "delegate_task",
+        "bytes": 2045
+      }
+    ],
+    "readOnlyWithoutHint": [],
+    "instructionBytes": {
+      "claude": 1549,
+      "codex": 1512,
+      "opencode": 1470,
+      "cursor": 1393,
+      "pi": 931,
+      "acp": 908
+    }
+  }
+}

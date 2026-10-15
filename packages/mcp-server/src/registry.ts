@@ -1,4 +1,5 @@
 import { parseToolArguments, toolFailure } from "./tool-failure.ts";
+import { PublicToolError } from "./public-error.ts";
 import { maxStructuredResultBytes } from "./result-budgets.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
 import { describeAceAction } from "./actions.ts";
@@ -7,6 +8,7 @@ import { executeContent, type ContentToolDefinition } from "./content-tools.ts";
 import type { McpAttribution, McpCapability } from "@ace/protocol";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/server";
 import { withinJsonBudget, ResultBudgetExceeded } from "./json-budget.ts";
+import { advertisedInputSchema } from "./advertised-schema.ts";
 import type { Principal } from "./credentials.ts";
 
 export interface ToolContext {
@@ -51,10 +53,12 @@ export const nodeScheduler: Scheduler = {
 };
 const JsonObjectSchema = z.object({ type: z.literal("object") }).passthrough();
 /**
- * Claude Code defers MCP tools behind tool search; these few stay loaded because they are the
- * entry points for ace's outcome-level work. Other clients ignore the key.
+ * Claude Code defers MCP tools behind tool search; these two stay loaded because they are the
+ * entry points a person sees at once (a page in ace's browser, a visual inline), and their
+ * schemas are small. Every upfront tool costs context on every request, so keep this short.
+ * Other clients ignore the key.
  */
-const alwaysLoad = new Set(["delegate_task", "ace_browser_open", "ace_html_render"]);
+const alwaysLoadedTools: ReadonlySet<string> = new Set(["ace_browser_open", "ace_html_render"]);
 function noop(): void {}
 interface Entry {
   /** Built on first list or schema read: JSON Schema per tool would otherwise sit idle in heap. */
@@ -194,10 +198,9 @@ export class ToolRegistry {
     destructive?: boolean,
   ): Tool {
     const risk = riskClass ?? "external-effect";
-    const inputSchema = JsonObjectSchema.parse({
-      ...z.toJSONSchema(input, { io: "input" }),
-      type: "object",
-    });
+    const inputSchema = JsonObjectSchema.parse(
+      advertisedInputSchema({ ...z.toJSONSchema(input, { io: "input" }), type: "object" }),
+    );
     const properties = z.record(z.string(), z.unknown()).safeParse(inputSchema["properties"]).data;
     return {
       name,
@@ -215,7 +218,7 @@ export class ToolRegistry {
       _meta: {
         "ace/timeoutMs": timeoutMs,
         "ace/riskClass": risk,
-        ...(alwaysLoad.has(name) ? { "anthropic/alwaysLoad": true } : {}),
+        ...(alwaysLoadedTools.has(name) ? { "anthropic/alwaysLoad": true } : {}),
       },
       inputSchema,
       ...(output
@@ -296,7 +299,7 @@ export class ToolRegistry {
     };
     const entry = this.entries.get(name);
     if (!entry || !this.allowed(name, entry, principal))
-      return finish(failure("Tool unavailable or capability denied"));
+      return finish(toolFailure(new PublicToolError("tool_unavailable")));
     if (
       this.active >= this.maxCalls ||
       (this.activeThreads.get(threadId) ?? 0) >= this.maxCallsPerThread

@@ -84,7 +84,7 @@ export {
   type SessionFacts,
 } from "./brief.ts";
 export { SessionAwareness, type AwarenessPort } from "./awareness.ts";
-export { aceInstructions } from "./status.ts";
+export { aceInstructions, guideTopics } from "./status.ts";
 export type { SessionGuidance } from "./injection.ts";
 export {
   knowledgeToolkit,
@@ -96,3 +96,5 @@ export {
   AskResult,
   type KnowledgePort,
 } from "./knowledge-tools.ts";
+export { guideToolkit, type AceGuide } from "./guide-tools.ts";
+export { coreTools, coreToolsHeader, toolsetOf } from "./toolsets.ts";
