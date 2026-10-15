@@ -77,7 +77,7 @@ function trackCounts(track: string): { ahead?: number; behind?: number } {
   return { ahead: Number(ahead ?? 0), behind: Number(behind ?? 0) };
 }
 
-async function remoteNames(repository: Repository, root: string): Promise<string[]> {
+export async function remoteNames(repository: Repository, root: string): Promise<string[]> {
   const result = await repository.cli.call(root, ["remote"], { captureBytes: 1_048_576 });
   return result.stdout.toString("utf8").split("\n").filter(Boolean);
 }

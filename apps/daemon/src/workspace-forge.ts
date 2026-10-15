@@ -7,262 +7,149 @@ import { ForgeResourceOwner } from "./forge-resource-owner.ts";
 import { WorkspaceForgeLifecycle } from "./workspace-forge-lifecycle.ts";
 import { WorkspaceForgeReviews } from "./workspace-forge-reviews.ts";
 import { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
-import { workspaceRepository } from "./workspace-repository.ts";
-import { remotePushesTo } from "./workspace-push.ts";
-import { forgeBranchName, prCreateTarget, recordedPrBase } from "./pr-create-target.ts";
-import {
-  GitHubForge,
-  ForgeError,
-  repositoryKey,
-  prFromUrl,
-  prUrl,
-  prRepository,
-  type CommandRunner,
-} from "@ace/forge";
+import { ForgeError, repositoryKey, type GitHubForge, type CommandRunner } from "@ace/forge";
 import {
   ForgeCommand,
-  ForgePrRef,
+  type ForgePrRef,
   type ForgePrStatus,
   type CommandResult,
   ThreadId,
-  ForgeCreatePrInput,
+  type ForgeCreatePrInput,
   type ForgeRepository,
   type AgentControlResult,
 } from "@ace/protocol";
-import type { GitService } from "@ace/git";
 import type { Store } from "./store.ts";
 import { WorkspaceForgeStacks } from "./workspace-forge-stacks.ts";
 import type { StackSyncGit } from "./forge-stack-sync.ts";
 import { WorkspacePrLinks } from "./workspace-pr-links.ts";
 import { WorkspaceForgeActions } from "./workspace-forge-actions.ts";
 import type { PrOwnerOperation } from "./agent-control/tools.ts";
+import { ForgeBackends } from "./forge-backends.ts";
+import { WorkspaceForgeBrowse } from "./workspace-forge-browse.ts";
+import { WorkspacePrAssociations } from "./workspace-pr-associations.ts";
+import { WorkspacePrCreation } from "./workspace-pr-creation.ts";
+import type { WorkspaceForgeContext, WorkspaceForgeGit } from "./workspace-forge-context.ts";
 
+/** The daemon's forge surface: routes commands and reads to the parts that own them. */
 export class WorkspaceForge {
-  private owner = new ForgeResourceOwner();
   private store: Store;
+  private owner = new ForgeResourceOwner();
   private lifecycle: WorkspaceForgeLifecycle;
-  private replyReceipts: ForgeReplyReceipts;
-  private git: Pick<GitService, "repositoryInfo"> &
-    Partial<Pick<GitService, "withWritingGuard" | "pushLeased">> &
-    Partial<StackSyncGit>;
   private issueLinks: WorkspaceIssueLinks;
   private issueActions: IssueActions;
   private reviews: WorkspaceForgeReviews;
   private now: () => number;
-  private runner: (cwd: string) => CommandRunner;
   private projection: WorkspacePrLinks;
   private links: WorkspacePrLinks["links"];
   private actions: WorkspaceForgeActions;
   private stacks: WorkspaceForgeStacks;
-  private backends = new Map<string, GitHubForge>();
+  private backends: ForgeBackends;
+  private browser: WorkspaceForgeBrowse;
+  private associations: WorkspacePrAssociations;
+  private creation: WorkspacePrCreation;
   private lifetime = new AbortController();
   private stopPreferences: (() => void) | undefined;
   private sourceControl: import("./source-control.ts").SourceControl | undefined;
   constructor(
     store: Store,
-    git: Pick<GitService, "repositoryInfo"> &
-      Partial<Pick<GitService, "withWritingGuard" | "pushLeased">> &
-      Partial<StackSyncGit>,
+    git: WorkspaceForgeGit,
     now: () => number,
     runner: (cwd: string) => CommandRunner,
     sourceControl?: import("./source-control.ts").SourceControl,
   ) {
+    const owner = this.owner;
     this.store = store;
-    this.lifecycle = new WorkspaceForgeLifecycle(store, this.owner);
+    this.now = now;
+    this.sourceControl = sourceControl;
+    this.lifecycle = new WorkspaceForgeLifecycle(store, owner);
     this.issueLinks = new WorkspaceIssueLinks(store);
     this.issueActions = new IssueActions(store, now);
     this.stacks = new WorkspaceForgeStacks(store, now, stackSyncGit(git));
-    this.reviews = new WorkspaceForgeReviews(store, this.owner);
-    this.replyReceipts = new ForgeReplyReceipts(store);
-    this.git = git;
-    this.now = now;
-    this.runner = runner;
-    this.sourceControl = sourceControl;
-    this.stopPreferences = sourceControl?.listen(() => this.backends.clear());
+    this.reviews = new WorkspaceForgeReviews(store, owner);
     this.projection = new WorkspacePrLinks(store, now);
     this.links = this.projection.links;
-    this.actions = new WorkspaceForgeActions(store, this.owner, now);
-  }
-  async repository(cwd: string): Promise<ForgeRepository> {
-    return (await this.checkoutRepository(cwd)).repository;
-  }
-  /** The selected remote's repository, with SSH host aliases resolved, and the remote names. */
-  private async checkoutRepository(cwd: string) {
-    const info = await this.git.repositoryInfo(cwd);
-    const preferences = await this.sourceControl?.preferences();
-    const aliases = await this.hostAliases(info.remotes);
-    const repository = workspaceRepository(info.remotes, preferences, aliases);
-    if (!repository) throw new ForgeError("unsupported");
-    return { repository, remotes: info.remotes.map((remote) => remote.name) };
-  }
-  private async hostAliases(remotes: readonly { fetchUrls: readonly string[] }[]) {
-    return (
-      (await this.sourceControl?.hostAliases(
-        remotes.flatMap((remote) => remote.fetchUrls),
-        this.lifetime.signal,
-      )) ?? {}
-    );
-  }
-  /** Every repository a PR created from this checkout may land in: origin, and its parent. */
-  async prRepositories(cwd: string): Promise<ForgeRepository[]> {
-    const pushed = await this.repository(cwd);
-    try {
-      const metadata = await (
-        await this.backend(cwd, pushed)
-      ).repositoryMetadata(this.lifetime.signal);
-      return metadata.parent ? [pushed, metadata.parent.repository] : [pushed];
-    } catch {
-      this.lifetime.signal.throwIfAborted();
-      return [pushed];
-    }
-  }
-
-  private async backend(cwd: string, repository: ForgeRepository): Promise<GitHubForge> {
-    const identity = await this.sourceControl?.identity(cwd, repository.host, this.lifetime.signal);
-    const key = JSON.stringify({
-      repository: repositoryKey(repository),
-      cwd,
-      account: identity?.account,
-      revision: identity?.revision,
+    this.actions = new WorkspaceForgeActions(store, owner, now);
+    this.backends = new ForgeBackends({
+      git,
+      now,
+      runner,
+      sourceControl,
+      replyReceipts: new ForgeReplyReceipts(store),
+      signal: this.lifetime.signal,
     });
-    let backend = this.backends.get(key);
-    const pushLeased = this.git.pushLeased?.bind(this.git);
-    if (!backend)
-      backend = new GitHubForge({
-        repository,
-        runner: identity?.runner ?? this.runner(cwd),
-        ...(pushLeased
-          ? {
-              publishStack: async (request) => {
-                const info = await this.git.repositoryInfo(cwd);
-                const remote = info.remotes.find((entry) => entry.name === request.remote);
-                const preferences = await this.sourceControl?.preferences();
-                const aliases = await this.hostAliases(
-                  remote ? [{ fetchUrls: remote.pushUrls }] : [],
-                );
-                if (!remotePushesTo(remote, repository, preferences, aliases))
-                  throw new ForgeError("conflict");
-                return pushLeased({ ...request, worktree: cwd });
-              },
-            }
-          : {}),
-        now: this.now,
-        replyReceipts: this.replyReceipts.scope(cwd, repository, identity?.account ?? ""),
-      });
-    this.backends.delete(key);
-    this.backends.set(key, backend);
-    if (this.backends.size > 32) {
-      const first = this.backends.keys().next().value;
-      if (first !== undefined) this.backends.delete(first);
-    }
-    return backend;
+    this.stopPreferences = sourceControl?.listen(() => this.backends.clear());
+    const context: WorkspaceForgeContext = {
+      store,
+      owner,
+      now,
+      signal: this.lifetime.signal,
+      git,
+      sourceControl,
+      backends: this.backends,
+      projection: this.projection,
+      links: this.links,
+    };
+    this.browser = new WorkspaceForgeBrowse(context, {
+      actions: this.actions,
+      issueActions: this.issueActions,
+      issueLinks: this.issueLinks,
+      lifecycle: this.lifecycle,
+      reviews: this.reviews,
+      stacks: this.stacks,
+    });
+    this.associations = new WorkspacePrAssociations(context);
+    this.creation = new WorkspacePrCreation(context);
   }
-  async browse(
+  repository(cwd: string): Promise<ForgeRepository> {
+    return this.backends.repository(cwd);
+  }
+  prRepositories(cwd: string): Promise<ForgeRepository[]> {
+    return this.creation.prRepositories(cwd);
+  }
+  defaultBranch(cwd: string): Promise<string | undefined> {
+    return this.creation.defaultBranch(cwd);
+  }
+  browse(
     cwd: string,
     operation: import("@ace/protocol").ForgeBrowserOperation,
     signal: AbortSignal,
   ): Promise<import("@ace/protocol").ForgeBrowserResult> {
-    const repository = operation.repository ?? (await this.repository(cwd));
-    signal.throwIfAborted();
-    const backend = await this.backend(cwd, repository);
-    if (operation.op === "forge.pr.lifecycle") {
-      const ref = { repository, number: operation.number };
-      const revision = this.owner.capture(ref);
-      const value = await this.lifecycle.state(
-        { repository, number: operation.number },
-        backend,
-        signal,
-      );
-      if (this.owner.current(ref, revision)) this.publishLifecycle(value.snapshot);
-      return { resource: "prLifecycle", value };
-    }
-    if (operation.op === "forge.issue.list")
-      return { resource: "issueList", value: await backend.listIssues(operation.query, signal) };
-    if (operation.op === "forge.issue.timeline")
-      return {
-        resource: "issueTimeline",
-        ...(await backend.issueTimeline(operation.number, operation.page, signal)),
-      };
-    if (operation.op === "forge.issue.actions")
-      return {
-        resource: "issueActions",
-        actions: this.issueActions.list(repository, operation.number),
-      };
-    if (operation.op === "forge.issue.detail") {
-      const value = await backend.issueDetail(operation.number, signal);
-      return {
-        resource: "issueDetail",
-        value: { ...value, ...this.issueLinks.related(value.ref) },
-      };
-    }
-    if (operation.op === "forge.pr.merge-state") {
-      const { value, writeState } = await this.actions.readMergeState(
-        { repository, number: operation.number },
-        () => backend.prMergeState(operation.number, signal),
-      );
-      return { resource: "prMergeState", value: { ...value, writeState } };
-    }
-    if (operation.op === "forge.pr.stack")
-      return {
-        resource: "prStack",
-        value: await this.stacks.read(cwd, backend, operation.number, signal),
-      };
-    if (operation.op === "forge.pr.stack-memberships")
-      return {
-        resource: "prStackMemberships",
-        value: await backend.stackMemberships(operation.numbers, signal),
-      };
-    if (operation.op === "forge.pr.review-state")
-      return {
-        resource: "prReviewState",
-        value: await this.reviews.state({ repository, number: operation.number }, backend, signal),
-      };
-    if (operation.op === "forge.pr.activity")
-      return {
-        resource: "prActivity",
-        ...(await backend.prActivity(operation.number, operation.page, signal)),
-      };
-    if (operation.op === "forge.pr.list")
-      return { resource: "prList", value: await backend.listPrs(operation.query, signal) };
-    if (operation.op === "forge.pr.commits")
-      return {
-        resource: "prCommits",
-        ...(await backend.prCommits(operation.number, operation.page, operation.headSha, signal)),
-      };
-    if (operation.op === "forge.pr.files")
-      return { resource: "prFiles", value: await backend.prFiles(operation, signal) };
-    const ref = { repository, number: operation.number };
-    const revision = this.owner.capture(ref);
-    const { value, writeState } = await this.actions.readDetail(
-      { repository, number: operation.number },
-      () => backend.prDetail(operation.number, signal),
-    );
-    if (this.owner.current(ref, revision)) this.publishStatus(value.status);
-    const threads = this.store
-      .atomic((db) =>
-        db
-          .prepare(
-            "SELECT threads.id FROM forge_links JOIN threads ON threads.id=forge_links.thread_id WHERE repo=? AND number=? AND json_extract(client,'$.deletedAt') IS NULL ORDER BY threads.updated_at DESC LIMIT 101",
-          )
-          .all(repositoryKey(value.status.ref.repository), value.status.ref.number),
-      )
-      .flatMap((row) => {
-        const thread = this.store.getThread(ThreadId.parse(row.id));
-        return thread ? [thread] : [];
-      });
-    return {
-      resource: "prDetail",
-      value: {
-        ...value,
-        writeState,
-        relatedThreads: threads.slice(0, 100).map((thread) => ({
-          id: thread.id,
-          title: thread.title,
-          archived: thread.archivedAt !== undefined,
-        })),
-        relatedThreadsTruncated: threads.length > 100,
-      },
-    };
+    return this.browser.browse(cwd, operation, signal);
+  }
+  link(
+    id: ThreadId,
+    cwd: string,
+    input: ForgePrRef,
+    permitted: () => boolean = () => true,
+    signal: AbortSignal = this.lifetime.signal,
+  ): Promise<ForgePrStatus> {
+    return this.associations.link(id, cwd, input, permitted, signal);
+  }
+  unlink(id: ThreadId, pr?: ForgePrRef): void {
+    this.associations.unlink(id, pr);
+  }
+  agent(
+    id: ThreadId,
+    cwd: string,
+    operation: PrOwnerOperation,
+    signal: AbortSignal,
+  ): Promise<AgentControlResult> {
+    return this.associations.agent(id, cwd, operation, signal);
+  }
+  status(id: ThreadId, cwd: string): Promise<ForgePrStatus | null> {
+    return this.associations.status(id, cwd);
+  }
+  refresh(threads: readonly { id: ThreadId; cwd: string }[]): Promise<void> {
+    return this.associations.refresh(threads);
+  }
+  ensurePr(
+    id: ThreadId,
+    cwd: string,
+    input: ForgeCreatePrInput,
+    permitted: () => boolean,
+    guard?: { fingerprint: string; baseRef?: string | undefined },
+  ): Promise<{ status: ForgePrStatus; existing: boolean }> {
+    return this.creation.ensurePr(id, cwd, input, permitted, guard);
   }
   async checkoutDetail(
     cwd: string,
@@ -270,7 +157,7 @@ export class WorkspaceForge {
     signal: AbortSignal,
   ) {
     const detail = await (
-      await this.backend(cwd, selection.ref.repository)
+      await this.backends.backend(cwd, selection.ref.repository)
     ).prDetail(selection.ref.number, signal);
     // GitHub keeps a PR whose fork was deleted, but its head can no longer be fetched.
     if (!detail.headRepository) throw new ForgeError("fork_deleted");
@@ -283,7 +170,7 @@ export class WorkspaceForge {
     signal: AbortSignal,
   ) {
     const value = await (
-      await this.backend(cwd, selection.ref.repository)
+      await this.backends.backend(cwd, selection.ref.repository)
     ).prCheckout(selection.ref.number, signal);
     if (!value.headRepository) throw new ForgeError("fork_deleted");
     if (value.headSha !== selection.headSha) throw new ForgeError("head_moved");
@@ -300,7 +187,7 @@ export class WorkspaceForge {
     const p = command.payload;
     if (p.type === "forge.issue.link") {
       await (
-        await this.backend(cwd, p.issue.repository)
+        await this.backends.backend(cwd, p.issue.repository)
       ).issueDetail(p.issue.number, this.lifetime.signal);
       if (!allowed()) throw new Error("forbidden");
       this.issueLinks.link(p.threadId, p.issue, this.now());
@@ -310,347 +197,13 @@ export class WorkspaceForge {
       throw new Error("invalid_command");
     let backend: GitHubForge;
     try {
-      backend = await this.backend(cwd, p.repository);
+      backend = await this.backends.backend(cwd, p.repository);
     } catch (error) {
       return commandNotDispatched(command, actionErrorCode(error));
     }
     return this.issueActions.execute(command, backend, allowed, this.lifetime.signal);
   }
 
-  async link(
-    id: ThreadId,
-    cwd: string,
-    input: ForgePrRef,
-    permitted: () => boolean = () => true,
-    signal: AbortSignal = this.lifetime.signal,
-  ): Promise<ForgePrStatus> {
-    const check = await this.sourceControl?.guard();
-    const allowed = () => {
-      check?.();
-      return permitted();
-    };
-    const pr = ForgePrRef.parse(input);
-    signal.throwIfAborted();
-    if (!allowed()) throw new Error("forbidden");
-    const revision = this.owner.capture(pr);
-    const existing = this.links.getLinkState(id, pr);
-    if (existing) {
-      try {
-        const status = await (await this.backend(cwd, pr.repository)).status(pr.number, signal);
-        signal.throwIfAborted();
-        if (!allowed()) throw new Error("forbidden");
-        if (this.owner.current(pr, revision))
-          this.projection.update(id, status, existing.generation);
-        return status;
-      } catch (error) {
-        signal.throwIfAborted();
-        if (!allowed()) throw new Error("forbidden", { cause: error });
-        if (
-          error instanceof ForgeError &&
-          error.kind === "not_found" &&
-          this.owner.current(pr, revision)
-        )
-          this.projection.deleted(id, pr, existing.generation);
-        else if (
-          error instanceof ForgeError &&
-          !["cli", "offline", "forbidden", "rate_limit"].includes(error.kind)
-        )
-          throw error;
-        return this.projection.fallback(
-          pr,
-          this.links
-            .summaries(id)
-            .find(
-              (item) =>
-                item.number === pr.number &&
-                repositoryKey(item.repo) === repositoryKey(pr.repository),
-            ),
-        );
-      }
-    }
-    let status: ForgePrStatus;
-    try {
-      status = await (await this.backend(cwd, pr.repository)).status(pr.number, signal);
-    } catch (error) {
-      signal.throwIfAborted();
-      if (
-        error instanceof ForgeError &&
-        !["cli", "offline", "forbidden", "rate_limit"].includes(error.kind)
-      )
-        throw error;
-      status = this.projection.fallback(pr);
-    }
-    signal.throwIfAborted();
-    if (!allowed()) throw new Error("forbidden");
-    const thread = this.store.getThread(id);
-    if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
-    this.store.atomic(() => {
-      // Another caller may have linked it while validation was in flight.
-      if (this.links.getLinkState(id, pr)) return;
-      this.links.link({ threadId: id, pr });
-      const generation = this.links.getLinkState(id, pr)?.generation;
-      if (status.state === "unknown" && generation !== undefined)
-        this.links.update(
-          id,
-          {
-            number: pr.number,
-            repo: pr.repository,
-            url: prUrl(pr),
-            state: "open",
-            updatedAt: this.now(),
-            unverified: true,
-          },
-          generation,
-        );
-      else if (this.owner.current(pr, revision)) this.projection.update(id, status, generation);
-      this.projection.publish(id);
-    });
-    return status;
-  }
-  unlink(id: ThreadId, pr?: ForgePrRef): void {
-    this.store.atomic(() => {
-      this.links.unlink(id, pr);
-      this.projection.publish(id);
-    });
-  }
-  async agent(
-    id: ThreadId,
-    cwd: string,
-    operation: PrOwnerOperation,
-    signal: AbortSignal,
-  ): Promise<AgentControlResult> {
-    if (operation.op === "thread.list_prs")
-      return { ok: true, data: { linkedPrs: this.links.summaries(id) } };
-    if (operation.op === "thread.unlink_pr" && operation.all) {
-      signal.throwIfAborted();
-      this.unlink(id);
-      return { ok: true, data: { all: true, linkedPrs: [] } };
-    }
-    try {
-      // A bare `owner/name` lives on this checkout's host (an Enterprise host, say), never
-      // an assumed github.com.
-      const origin = operation.url
-        ? undefined
-        : "repo" in operation && operation.repo
-          ? prRepository(operation.repo, await this.defaultRepositoryHost(cwd))
-          : await this.repository(cwd);
-      const pr = operation.url
-        ? prFromUrl(
-            operation.url,
-            (await this.sourceControl?.preferences())?.hosts.map((entry) => entry.host),
-          )
-        : ForgePrRef.parse({
-            number: operation.number,
-            repository:
-              origin && "repo" in operation && operation.repo
-                ? prRepository(operation.repo, origin)
-                : origin,
-          });
-      if (operation.op === "thread.link_pr") {
-        if (!this.links.getLinkState(id, pr))
-          await this.link(id, cwd, pr, () => !signal.aborted, signal);
-      } else {
-        signal.throwIfAborted();
-        this.unlink(id, pr);
-      }
-      return { ok: true, data: { number: pr.number, linkedPrs: this.links.summaries(id) } };
-    } catch (error) {
-      signal.throwIfAborted();
-      return {
-        ok: false,
-        code: error instanceof ForgeError && error.kind === "not_found" ? "not_found" : "invalid",
-      };
-    }
-  }
-  /** The checkout's repository, else the configured host, as a fallback for `owner/name`. */
-  private async defaultRepositoryHost(cwd: string): Promise<ForgeRepository> {
-    try {
-      return await this.repository(cwd);
-    } catch {
-      const host = (await this.sourceControl?.preferences())?.host ?? "github.com";
-      return { forge: "github", host, owner: "unused", name: "unused" };
-    }
-  }
-  async status(id: ThreadId, cwd: string): Promise<ForgePrStatus | null> {
-    const check = await this.sourceControl?.guard();
-    const state = this.links.getLinkState(id);
-    if (!state) return null;
-    const { link, generation } = state;
-    const revision = this.owner.capture(link.pr);
-    try {
-      const status = await (
-        await this.backend(cwd, link.pr.repository)
-      ).status(link.pr.number, this.lifetime.signal);
-      await this.store.write(() => {
-        check?.();
-        if (this.owner.current(link.pr, revision)) this.projection.update(id, status, generation);
-      });
-      return status;
-    } catch (error) {
-      check?.();
-      if (error instanceof ForgeError && error.kind === "not_found") {
-        await this.store.write(() => {
-          check?.();
-          if (this.owner.current(link.pr, revision))
-            this.projection.deleted(id, link.pr, generation);
-        });
-        return this.projection.fallback(
-          link.pr,
-          this.links.summaries(id).find((pr) => pr.number === link.pr.number),
-        );
-      }
-      throw error;
-    }
-  }
-  /** Each sweep batches lightweight state reads per repository, at most 100 refs per request. */
-  async refresh(threads: readonly { id: ThreadId; cwd: string }[]): Promise<void> {
-    const groups = new Map<
-      string,
-      {
-        cwd: string;
-        repo: ForgeRepository;
-        entries: { id: ThreadId; pr: ForgePrRef; generation: number }[];
-      }
-    >();
-    for (const thread of threads)
-      for (const { link, generation } of this.links.getLinks(thread.id)) {
-        const key = repositoryKey(link.pr.repository);
-        let group = groups.get(key);
-        if (!group) {
-          group = { cwd: thread.cwd, repo: link.pr.repository, entries: [] };
-          groups.set(key, group);
-        }
-        group.entries.push({ id: thread.id, pr: link.pr, generation });
-      }
-    let failure: unknown;
-    for (const group of groups.values()) {
-      try {
-        const check = await this.sourceControl?.guard();
-        const backend = await this.backend(group.cwd, group.repo);
-        const numbers = [...new Set(group.entries.map((entry) => entry.pr.number))];
-        if (!backend.states) continue;
-        for (let offset = 0; offset < numbers.length; offset += 100) {
-          const batch = numbers.slice(offset, offset + 100);
-          const revisions = new Map(
-            batch.map((number) => [number, this.owner.capture({ repository: group.repo, number })]),
-          );
-          const summaries = await backend.states(batch, this.lifetime.signal);
-          // Ownership and generation checks run inside the same commit as the projection.
-          await this.store.write(() => {
-            check?.();
-            for (const entry of group.entries) {
-              const revision = revisions.get(entry.pr.number);
-              if (!revision || !this.owner.current(entry.pr, revision)) continue;
-              const summary = summaries.get(entry.pr.number);
-              if (summary === null) this.projection.deleted(entry.id, entry.pr, entry.generation);
-              else if (
-                summary &&
-                this.links.getLinkState(entry.id, entry.pr)?.generation === entry.generation
-              ) {
-                this.links.update(entry.id, summary, entry.generation);
-                this.projection.publish(entry.id);
-              }
-            }
-          });
-        }
-      } catch (error) {
-        failure ??= error;
-      }
-    }
-    if (failure) throw failure;
-  }
-  /** Host-owned unique branches make remote lookup a durable create receipt. */
-  async ensurePr(
-    id: ThreadId,
-    cwd: string,
-    input: ForgeCreatePrInput,
-    permitted: () => boolean,
-    guard?: { fingerprint: string; baseRef?: string | undefined },
-  ): Promise<{ status: ForgePrStatus; existing: boolean }> {
-    const check = await this.sourceControl?.guard();
-    const allowed = () => {
-      check?.();
-      return permitted();
-    };
-    const parsed = ForgeCreatePrInput.parse(input);
-    const checkout = await this.checkoutRepository(cwd);
-    const pushed = await this.backend(cwd, checkout.repository);
-    if (!allowed()) throw new Error("forbidden");
-    // The daemon owns the base: a reviewed draft's base, else the thread's recorded base, else
-    // the forge's default branch. A fork's PR opens on its parent, from `fork-owner:branch`.
-    const reviewed =
-      guard && parsed.base ? forgeBranchName(parsed.base, checkout.remotes) : undefined;
-    const target = prCreateTarget(
-      checkout.repository,
-      await pushed.repositoryMetadata(this.lifetime.signal),
-      {
-        reviewed,
-        recorded: recordedPrBase(
-          this.store.getThread(id)?.details,
-          parsed.branch,
-          checkout.remotes,
-        ),
-      },
-    );
-    const value = { ...parsed, base: target.base };
-    const backend =
-      repositoryKey(target.repository) === repositoryKey(checkout.repository)
-        ? pushed
-        : await this.backend(cwd, target.repository);
-    if (!allowed()) throw new Error("forbidden");
-    const verifyHead = async () => {
-      if (value.expectedHead === undefined) return;
-      const info = await this.git.repositoryInfo(cwd);
-      if (!allowed()) throw new Error("forbidden");
-      if (info.branch !== value.branch || info.head !== value.expectedHead)
-        throw new Error("git_head_moved");
-    };
-    await verifyHead();
-    const found = await backend.findPr(
-      value.branch,
-      value.base,
-      this.lifetime.signal,
-      target.headOwner,
-    );
-    await verifyHead();
-    if (!allowed()) throw new Error("forbidden");
-    const publish = async () => {
-      this.lifetime.signal.throwIfAborted();
-      if (!allowed()) throw new Error("forbidden");
-      return backend.createPr(id, value, this.lifetime.signal, target.headOwner);
-    };
-    let pr = found;
-    if (!pr) {
-      if (guard) {
-        if (!this.git.withWritingGuard) throw new Error("draft_guard_unavailable");
-        pr = await this.git.withWritingGuard(
-          cwd,
-          {
-            kind: "pr",
-            branch: value.branch,
-            base: value.base,
-            ...(guard.baseRef ? { baseRef: guard.baseRef } : {}),
-          },
-          guard.fingerprint,
-          publish,
-        );
-      } else pr = await publish();
-    }
-    // Persist the receipt even if the subsequent status read fails.
-    const generation = await this.store.write(() => {
-      if (!allowed()) throw new Error("forbidden");
-      this.links.link({ threadId: id, pr });
-      this.projection.publish(id);
-      return this.links.getLinkState(id, pr)?.generation;
-    });
-    const status = await backend.status(pr.number, this.lifetime.signal);
-    await this.store.write(() => {
-      if (!allowed()) throw new Error("forbidden");
-      this.projection.update(id, status, generation);
-    });
-    // `existing`: the branch already had this pull request, which is linked, not opened.
-    return { status, existing: !!found };
-  }
   async execute(
     input: unknown,
     cwd: string,
@@ -676,7 +229,7 @@ export class WorkspaceForge {
     if (p.type === "forge.pr.create") {
       if (repositoryKey(p.repository) !== repositoryKey(await this.repository(cwd)))
         throw new Error("repository_mismatch");
-      const { status, existing } = await this.ensurePr(
+      const { status, existing } = await this.creation.ensurePr(
         id,
         cwd,
         p.input,
@@ -693,13 +246,13 @@ export class WorkspaceForge {
       };
     }
     if (p.type === "forge.pr.link") {
-      const status = await this.link(id, cwd, p.link.pr, allowed);
+      const status = await this.associations.link(id, cwd, p.link.pr, allowed);
       return { ok: true, pr: p.link.pr, prStatus: status };
     }
     this.lifetime.signal.throwIfAborted();
     if (!allowed()) throw new Error("forbidden");
     const generation = this.links.getLinkState(id, p.link.pr)?.generation;
-    const backend = await this.backend(cwd, p.link.pr.repository);
+    const backend = await this.backends.backend(cwd, p.link.pr.repository);
     if (
       (p.type === "forge.pr.merge-state.change" || p.type === "forge.pr.auto-merge") &&
       generation === undefined
@@ -755,39 +308,13 @@ export class WorkspaceForge {
     await this.reviews.execute(
       p,
       input.id,
-      await this.backend(cwd, p.pr.repository),
+      await this.backends.backend(cwd, p.pr.repository),
       this.lifetime.signal,
       allowed,
     );
     return { ok: true };
   }
 
-  private publishStatus(status: ForgePrStatus): void {
-    const ids = this.store.atomic((db) =>
-      db
-        .prepare("SELECT thread_id FROM forge_links WHERE repo=? AND number=?")
-        .all(repositoryKey(status.ref.repository), status.ref.number),
-    );
-    for (const row of ids) {
-      const id = ThreadId.parse(row.thread_id);
-      this.projection.update(id, status, this.links.getLinkState(id, status.ref)?.generation);
-    }
-  }
-  private publishLifecycle(snapshot: import("@ace/protocol").ForgeLifecycleSnapshot): void {
-    this.publishStatus({
-      ref: snapshot.pr,
-      title: snapshot.metadata.title,
-      url: prUrl(snapshot.pr),
-      state: snapshot.state,
-      headSha: snapshot.headSha,
-      mergeability: "unknown",
-      ci: "unknown",
-      checks: [],
-      comments: [],
-      reviewThreads: [],
-      raw: {},
-    });
-  }
   async hostedLifecycle(
     command: import("@ace/protocol").Command & {
       payload: import("zod").z.infer<typeof import("@ace/protocol").ForgeHostedLifecycleCommand>;
@@ -796,7 +323,7 @@ export class WorkspaceForge {
     allowed: () => boolean,
   ) {
     const p = command.payload;
-    const backend = await this.backend(cwd, p.pr.repository);
+    const backend = await this.backends.backend(cwd, p.pr.repository);
     const receipt = await this.lifecycle.execute(
       p,
       command.id,
@@ -807,7 +334,7 @@ export class WorkspaceForge {
     const revision = this.owner.capture(p.pr);
     try {
       const snapshot = await backend.lifecycle.snapshot(p.pr.number, this.lifetime.signal);
-      if (this.owner.current(p.pr, revision)) this.publishLifecycle(snapshot);
+      if (this.owner.current(p.pr, revision)) this.browser.publishLifecycle(snapshot);
     } catch {
       /* The write receipt is durable even when the follow-up projection read is unavailable. */
     }

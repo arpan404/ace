@@ -1,4 +1,5 @@
 import { commandNotDispatched } from "./command-not-dispatched.ts";
+import { DefaultBranches } from "./default-branch.ts";
 import type { createWritingCli } from "./source-control-cli.ts";
 import {
   SourceControlContext,
@@ -76,6 +77,7 @@ export class WorkspaceRuntime {
   readonly creationDrafts: CreationDrafts;
   readonly git: WorkspaceGit;
   readonly forge: WorkspaceForge;
+  private defaultBranches: DefaultBranches;
   readonly commands: AsyncCommands;
   readonly checkpoints: RunCheckpoints;
   readonly machine: { host: string; name: string };
@@ -103,6 +105,7 @@ export class WorkspaceRuntime {
     this.terminalId = options.terminalId ?? systemCredentials.id;
     this.machine = options.machine ?? { host: hostname(), name: hostname() };
     this.git = options.gitService ?? new GitService(options.git);
+    this.defaultBranches = new DefaultBranches(now);
     this.forge = new WorkspaceForge(
       store,
       this.git,
@@ -140,6 +143,15 @@ export class WorkspaceRuntime {
     this.commands = new AsyncCommands(store);
     this.checkpoints = new RunCheckpoints(store, this.git, (id) => this.root(id), now);
     this.manager = new TerminalManager({ scrollbackBytes: 262144, ...options.terminal });
+  }
+  /** The selected remote's HEAD, else the forge's default branch, else Git's local guess. */
+  private async defaultBranch(root: string, guess: string): Promise<string> {
+    const remote = (await this.options.sourceControl?.preferences())?.remote ?? "origin";
+    return this.defaultBranches.resolve(JSON.stringify([root, remote]), {
+      remote: () => this.git.remoteDefaultBranch({ repo: root, remote, timeoutMs: 5_000 }),
+      forge: () => this.forge.defaultBranch(root),
+      local: async () => guess,
+    });
   }
   root(id: ThreadId): string {
     return this.roots.root(id);
@@ -441,7 +453,7 @@ export class WorkspaceRuntime {
         kind: "branches",
         ...listed,
         refs: refs.refs,
-        defaultBranch: refs.defaultBranch,
+        defaultBranch: await this.defaultBranch(root, refs.defaultBranch),
         unbornHead,
       });
     }
