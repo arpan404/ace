@@ -3,6 +3,8 @@ import { writingContext } from "./writing-context.ts";
 import { z } from "zod";
 import type { Repository } from "./repository.ts";
 import { GitError, type PushOptions } from "./types.ts";
+import { GitDiagnostics } from "./diagnostics.ts";
+import { parsePushPorcelain } from "./leased-push.ts";
 const head = z.string().regex(/^[a-f0-9]{40,64}$/);
 /** Pathspec bytes one commit may name: well inside every platform's argument limit. */
 const maxPathBytes = 256 * 1024;
@@ -40,20 +42,22 @@ export async function commitChanges(
   const paths = options.paths === undefined ? undefined : commitPaths.safeParse(options.paths);
   if (paths && !paths.success)
     throw new GitError("invalid_argument", "Name between 1 and 1000 paths to commit");
-  const root = await repository.root(options.worktree);
+  // ace's own reads keep the checkout's protections; `add` and `commit` are the person's.
+  const read = <T>(operation: () => Promise<T>) => repository.cli.bookkeeping(operation);
+  const root = await read(() => repository.root(options.worktree));
   return repository.serial(root, async () => {
-    const info = await repository.info(root);
+    const info = await read(() => repository.info(root));
     if (info.head !== expected)
       throw new GitError("head_moved", "HEAD changed; refresh before committing");
     if (options.draftFingerprint) {
       if (
         !paths ||
-        (await writingContext(repository, root, { kind: "commit", paths: paths.data }))
+        (await read(() => writingContext(repository, root, { kind: "commit", paths: paths.data })))
           .fingerprint !== options.draftFingerprint
       )
         throw new GitError("head_moved", "Draft changes moved; regenerate or discard the draft");
     }
-    const status = await repository.status(root);
+    const status = await read(() => repository.status(root));
     if (status.conflicted.length)
       throw new GitError("conflicts", "Resolve conflicts before committing");
     // Literal pathspecs: a file named "*.ts" or ":(glob)x" means that file.
@@ -81,17 +85,17 @@ export async function commitChanges(
         env: { GIT_TRACE2_EVENT: "1", ...literal },
       },
     );
-    return head.parse(await repository.commit(root, "HEAD"));
+    return head.parse(await read(() => repository.commit(root, "HEAD")));
   });
 }
+const remoteName = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[\w./-]+$/)
+  .refine((value) => !value.startsWith("-"));
 export async function pushBranch(repository: Repository, options: PushOptions): Promise<void> {
-  const remote = z
-    .string()
-    .min(1)
-    .max(128)
-    .regex(/^[\w./-]+$/)
-    .refine((value) => !value.startsWith("-"))
-    .parse(options.remote);
+  const remote = remoteName.parse(options.remote);
   const expected =
     options.expected === undefined
       ? undefined
@@ -102,34 +106,117 @@ export async function pushBranch(repository: Repository, options: PushOptions): 
             pushUrls: z.array(z.string().min(1).max(4096)).min(1).max(100),
           })
           .parse(options.expected);
-  const root = await repository.root(options.worktree);
+  const lease = options.force === undefined ? undefined : head.parse(options.force.lease);
+  // ace's own reads keep the checkout's protections; only `push` is the person's.
+  const read = <T>(operation: () => Promise<T>) => repository.cli.bookkeeping(operation);
+  const root = await read(() => repository.root(options.worktree));
   await repository.serial(root, async () => {
-    const info = await repository.info(root);
+    const info = await read(() => repository.info(root));
     if (!info.branch || !info.remotes.some((entry) => entry.name === remote))
       throw new GitError("invalid_argument", "Select a branch and an existing remote");
     const selected = info.remotes.find((entry) => entry.name === remote);
+    const destination = options.destination ?? info.branch;
+    if (
+      destination.startsWith("-") ||
+      (
+        await read(() =>
+          repository.cli.call(root, ["check-ref-format", `refs/heads/${destination}`], {
+            allowFailure: true,
+          }),
+        )
+      ).exitCode !== 0
+    )
+      throw new GitError("invalid_ref", "Invalid destination branch");
     if (expected) {
       if (info.branch !== expected.branch || info.head !== expected.head)
         throw new GitError("head_moved", "The selected PR head moved before pushing");
       if (JSON.stringify(selected?.pushUrls) !== JSON.stringify(expected.pushUrls))
         throw new GitError("invalid_argument", "The selected remote changed before pushing");
     }
+    const ref = `refs/heads/${destination}`;
     options.beforePush?.();
-    await repository.cli.push(
+    const diagnostics = new GitDiagnostics();
+    const output = await repository.cli.push(
       root,
-      ["push", "--set-upstream", "--", remote, `HEAD:refs/heads/${info.branch}`],
+      [
+        "push",
+        "--porcelain",
+        "--set-upstream",
+        // Pinned to the revision the person saw, never to a freshly fetched one.
+        ...(lease ? [`--force-with-lease=${ref}:${lease}`] : []),
+        "--",
+        remote,
+        `HEAD:${ref}`,
+      ],
       {
         write: true,
+        allowFailure: true,
         timeoutMs: 600_000,
         captureBytes: 65536,
-        env: {
-          GIT_TRACE2_EVENT: "1",
-          GCM_INTERACTIVE: "never",
-          GIT_SSH_COMMAND: "ssh -o BatchMode=yes",
-        },
+        stderr: (chunk) => diagnostics.accept(chunk),
+        env: { GIT_TRACE2_EVENT: "1", GCM_INTERACTIVE: "never" },
       },
     );
+    const refused = parsePushPorcelain(output.stdout.toString("utf8")).find(
+      (entry) => entry.ref === ref && entry.status === "rejected",
+    );
+    if (output.exitCode === 0 && !refused) return;
+    const code = diagnostics.finish();
+    // Git's own diagnostics name hooks, credentials and the network; the ref report the rest.
+    if (code !== "git_failed" && code !== "hook_failed")
+      throw new GitError(code, "Git command failed", { code: output.exitCode });
+    const rejection = refusalCode(refused?.reason ?? null, output.stderr);
+    if (!rejection) throw new GitError(code, "Git command failed", { code: output.exitCode });
+    const tracked =
+      rejection === "push_rejected"
+        ? await read(() =>
+            repository.cli.call(
+              root,
+              [
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                `refs/remotes/${remote}/${destination}^{commit}`,
+              ],
+              { allowFailure: true },
+            ),
+          )
+        : undefined;
+    const remoteHead = head.safeParse(tracked?.stdout.toString("utf8").trim());
+    throw new GitError(rejection, "The remote refused the push", {
+      code: output.exitCode,
+      ...(remoteHead.success ? { remoteHead: remoteHead.data } : {}),
+    });
   });
+}
+
+/**
+ * Whether Git can read `remote` the way a push from this checkout would reach it: the same
+ * protocols, credential helpers and SSH command, never prompting. Fails with Git's category.
+ */
+export async function probeRemote(
+  repository: Repository,
+  options: { worktree: string; remote: string; signal?: AbortSignal | undefined },
+): Promise<void> {
+  const remote = remoteName.parse(options.remote);
+  const root = await repository.root(options.worktree);
+  await repository.cli.lsRemote(root, ["ls-remote", "--heads", "--", remote], {
+    timeoutMs: 30_000,
+    captureBytes: 1_048_576,
+    env: { GCM_INTERACTIVE: "never" },
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
+}
+
+/** Classify a refused ref from Git's porcelain reason and the remote's own message. */
+function refusalCode(
+  reason: string | null,
+  stderr: string,
+): "push_rejected" | "push_lease_stale" | "push_protected" | undefined {
+  if (reason === "stale info") return "push_lease_stale";
+  if (/protected branch|GH006/i.test(`${reason ?? ""}\n${stderr}`)) return "push_protected";
+  if (reason === "non-fast-forward" || reason === "fetch first") return "push_rejected";
+  return undefined;
 }
 export async function switchBranch(
   repository: Repository,

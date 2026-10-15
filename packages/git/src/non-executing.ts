@@ -33,8 +33,12 @@ const hookEvents = [
   "post-index-change",
 ];
 /** Command-scope configuration wins over repository, worktree, global and system files. */
-const fixed: readonly (readonly [string, string])[] = [
+const hookSwitches: readonly (readonly [string, string])[] = [
   ["core.hooksPath", "/dev/null"],
+  ...hookEvents.map((event): readonly [string, string] => [`hook.${event}.enabled`, "false"]),
+];
+const fixed: readonly (readonly [string, string])[] = [
+  ...hookSwitches,
   ["core.fsmonitor", "false"],
   ["core.untrackedCache", "false"],
   ["core.attributesFile", "/dev/null"],
@@ -42,7 +46,6 @@ const fixed: readonly (readonly [string, string])[] = [
   ["maintenance.auto", "false"],
   ["commit.gpgSign", "false"],
   ["tag.gpgSign", "false"],
-  ...hookEvents.map((event): readonly [string, string] => [`hook.${event}.enabled`, "false"]),
 ];
 const FilterKey = z.string().regex(/^filter\.[^\0\n]+\.(?:clean|smudge|process|required)$/);
 const HookKey = z.string().regex(/^hook\.[^\0\n]+\.[^\0\n.]+$/);
@@ -56,8 +59,8 @@ export const executionKeyQuery = [
   "^(filter\\..*\\.(clean|smudge|process|required)|hook\\..*\\.[^.]+)$",
 ];
 
-/** Config inspection is read-only. It receives the same fixed execution guards. */
-export function nonExecutingEnv(keys: string = ""): Record<string, string> {
+/** File-backed filter driver and named hook prefixes from an `executionKeyQuery` result. */
+function configuredExtensions(keys: string): { drivers: Set<string>; hooks: Set<string> } {
   if (keys && !keys.endsWith("\0"))
     throw new GitError("malformed_output", "Invalid Git execution configuration");
   const records = keys ? keys.slice(0, -1).split("\0") : [];
@@ -93,28 +96,45 @@ export function nonExecutingEnv(keys: string = ""): Record<string, string> {
   }
   if (drivers.size > 512 || hooks.size > 512)
     throw new GitError("unsupported_repository", "Too many execution extensions");
-  const pairs = [
-    ...fixed,
-    ...[...drivers].flatMap((name) => [
-      [`${name}.clean`, ""],
-      [`${name}.smudge`, ""],
-      [`${name}.process`, ""],
-      [`${name}.required`, "false"],
+  return { drivers, hooks };
+}
+
+// Named hooks are collected separately from core.hooksPath on newer Git. Empty events
+// reset the accumulated multi-valued list; enabled=false also covers event switches.
+const namedHookSwitches = (hooks: Set<string>) =>
+  [...hooks].flatMap((name) => [
+    [`${name}.event`, ""],
+    [`${name}.enabled`, "false"],
+  ]);
+
+/** Config inspection is read-only. It receives the same fixed execution guards. */
+export function nonExecutingEnv(keys: string = ""): Record<string, string> {
+  const { drivers, hooks } = configuredExtensions(keys);
+  return {
+    ...commandConfig([
+      ...fixed,
+      ...[...drivers].flatMap((name) => [
+        [`${name}.clean`, ""],
+        [`${name}.smudge`, ""],
+        [`${name}.process`, ""],
+        [`${name}.required`, "false"],
+      ]),
+      ...namedHookSwitches(hooks),
     ]),
-    // Named hooks are collected separately from core.hooksPath on newer Git. Empty events
-    // reset the accumulated multi-valued list; enabled=false also covers event switches.
-    ...[...hooks].flatMap((name) => [
-      [`${name}.event`, ""],
-      [`${name}.enabled`, "false"],
-    ]),
-  ];
-  const env: Record<string, string> = {
-    GIT_CONFIG_COUNT: String(pairs.length),
     GIT_ATTR_NOSYSTEM: "1",
     GIT_NO_LAZY_FETCH: "1",
     GIT_ALLOW_PROTOCOL: "",
     GIT_OPTIONAL_LOCKS: "0",
   };
+}
+
+/** Only hooks are switched off: every other program the person configured runs as usual. */
+export function hooklessEnv(keys: string): Record<string, string> {
+  return commandConfig([...hookSwitches, ...namedHookSwitches(configuredExtensions(keys).hooks)]);
+}
+
+function commandConfig(pairs: readonly (readonly string[])[]): Record<string, string> {
+  const env: Record<string, string> = { GIT_CONFIG_COUNT: String(pairs.length) };
   for (const [index, pair] of pairs.entries()) {
     const [key, value] = pair;
     if (key === undefined || value === undefined)
@@ -129,15 +149,31 @@ export function nonExecutingEnv(keys: string = ""): Record<string, string> {
 export function nonExecutingTransportEnv(
   keys: string,
   protocols: readonly string[] = ["http", "https", "ssh"],
+  sshCommand?: string,
+): Record<string, string> {
+  return { ...nonExecutingEnv(keys), ...transportEnv(protocols, sshCommand) };
+}
+
+/**
+ * Transport limits for every admitted transfer, executing or not: allowed protocols, no
+ * prompts, and the person's own SSH command (their `core.sshCommand`, else `ssh`) in batch mode.
+ */
+export function transportEnv(
+  protocols: readonly string[],
+  sshCommand: string = "ssh",
 ): Record<string, string> {
   const allowed = z
     .array(z.enum(["http", "https", "ssh", "file"]))
     .max(4)
     .parse(protocols);
+  const command = z
+    .string()
+    .max(16_384)
+    .refine((value) => !value.includes("\0") && !value.includes("\n"))
+    .parse(sshCommand.trim() || "ssh");
   return {
-    ...nonExecutingEnv(keys),
     GIT_ALLOW_PROTOCOL: allowed.join(":"),
-    GIT_SSH_COMMAND: "ssh -o BatchMode=yes",
+    GIT_SSH_COMMAND: `${command} -o BatchMode=yes`,
     GIT_ASKPASS: "",
     GIT_TERMINAL_PROMPT: "0",
   };
