@@ -4,7 +4,7 @@ import { GitService } from "@ace/git";
 import { writeFile, readFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { Command, ThreadId } from "@ace/protocol";
+import { Command, CommandId, ThreadId } from "@ace/protocol";
 import { transitionHarness } from "./engine/transition-test-support.ts";
 import { startServer } from "./server.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
@@ -170,7 +170,7 @@ test("invalid worktree creates leave no Git branches or worktrees and a correcte
   }
 });
 
-test("a socket disconnected before acceptance releases its worktree, branch and capacity", async () => {
+test("a socket disconnected before acceptance keeps its start, and the replay gets its receipt", async () => {
   const h = transitionHarness({ maxActiveThreads: 1 });
   await repository(h.home);
   const gitService = new GatedGit();
@@ -207,12 +207,6 @@ test("a socket disconnected before acceptance releases its worktree, branch and 
     await gitService.entered.promise;
     await client.close();
     gitService.proceed.resolve();
-    await gitService.cleaned.promise;
-    expect(await gitService.listWorktrees(h.home)).toHaveLength(1);
-    expect(
-      (await git("git", ["-C", h.home, "for-each-ref", "refs/heads", "--format=%(refname)"]))
-        .stdout,
-    ).toBe(before);
     const retry = await connect(server.url);
     expect(
       await command(retry, "disconnect", {
@@ -223,9 +217,15 @@ test("a socket disconnected before acceptance releases its worktree, branch and 
         mode: "worktree",
         input: [{ type: "text", text: "Draft remains local" }],
       }),
-    ).toMatchObject({ ok: true });
+    ).toMatchObject({ ok: true, threadId: "disconnected" });
     await h.engine.flush();
     expect(h.inputs.map((entry) => entry.text)).toEqual(["Draft remains local"]);
+    // The one worktree the dropped socket started is the thread's; nothing was made twice.
+    expect(await gitService.listWorktrees(h.home)).toHaveLength(2);
+    expect(
+      (await git("git", ["-C", h.home, "for-each-ref", "refs/heads", "--format=%(refname)"]))
+        .stdout,
+    ).not.toBe(before);
     await retry.close();
   } finally {
     gitService.proceed.resolve();
@@ -375,7 +375,12 @@ test("cleanup preserves a user commit made in an unaccepted worktree", async () 
       "User work",
     ]);
     const head = (await git("git", ["-C", tree.path, "rev-parse", "HEAD"])).stdout;
-    await client.close();
+    client.send({
+      type: "worktree.creation.request",
+      requestId: "cancel",
+      commandId: CommandId.parse("user-commit"),
+      action: "cancel",
+    });
     gitService.proceed.resolve();
     expect(await failure.promise).toMatchObject({ message: "Worktree cleanup identity changed" });
     expect(await readFile(join(tree.path, "file.txt"), "utf8")).toBe("User commit\n");

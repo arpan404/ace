@@ -32,6 +32,12 @@ export class CreationWorkspaceJournal {
     store.atomic((db) =>
       db.exec("CREATE TABLE IF NOT EXISTS workspace_non_executing_roots(path TEXT PRIMARY KEY)"),
     );
+    // A worktree whose setup script failed is kept, on purpose, until Retry, Continue or discard.
+    store.atomic((db) =>
+      db.exec(
+        "CREATE TABLE IF NOT EXISTS workspace_creation_held(id TEXT PRIMARY KEY, at INTEGER NOT NULL)",
+      ),
+    );
     const columns = store.atomic((db) =>
       db.prepare("PRAGMA table_info(workspace_creation_resources)").all(),
     );
@@ -69,18 +75,77 @@ export class CreationWorkspaceJournal {
       db.prepare("UPDATE workspace_creation_resources SET ran_setup=1 WHERE id=?").run(id),
     );
   }
+  /** Every recorded resource, held ones included, for startup protection backfill. */
   list(): CreationResource[] {
     return this.store
-      .atomic((db) => db.prepare("SELECT * FROM workspace_creation_resources LIMIT 17").all())
+      .atomic((db) => db.prepare("SELECT * FROM workspace_creation_resources LIMIT 1024").all())
       .map((row) => Resource.parse(row));
+  }
+  /** Resources still owing cleanup, in pages; kept (held) worktrees are not among them. */
+  unsettled(after = "", limit = 64): CreationResource[] {
+    return this.store
+      .atomic((db) =>
+        db
+          .prepare(
+            "SELECT * FROM workspace_creation_resources WHERE id>? AND id NOT IN (SELECT id FROM workspace_creation_held) ORDER BY id LIMIT ?",
+          )
+          .all(after, limit),
+      )
+      .map((row) => Resource.parse(row));
+  }
+  owes(id: ThreadId): boolean {
+    return Boolean(
+      this.store.atomic((db) =>
+        db
+          .prepare(
+            "SELECT 1 FROM workspace_creation_resources WHERE id=? AND id NOT IN (SELECT id FROM workspace_creation_held)",
+          )
+          .get(id),
+      ),
+    );
+  }
+  /** The kept worktree of a start whose setup failed, with when it was kept. */
+  held(id: ThreadId): { resource: CreationResource; at: number } | undefined {
+    const row = this.store.atomic((db) =>
+      db
+        .prepare(
+          "SELECT r.*,h.at AS held_at FROM workspace_creation_resources r JOIN workspace_creation_held h ON h.id=r.id WHERE r.id=?",
+        )
+        .get(id),
+    );
+    return row ? { resource: Resource.parse(row), at: Number(row.held_at) } : undefined;
+  }
+  heldBefore(at: number): CreationResource[] {
+    return this.store
+      .atomic((db) =>
+        db
+          .prepare(
+            "SELECT r.* FROM workspace_creation_resources r JOIN workspace_creation_held h ON h.id=r.id WHERE h.at<? LIMIT 64",
+          )
+          .all(at),
+      )
+      .map((row) => Resource.parse(row));
+  }
+  hold(id: ThreadId, at: number): void {
+    this.store.atomic((db) =>
+      db.prepare("INSERT OR REPLACE INTO workspace_creation_held VALUES (?,?)").run(id, at),
+    );
+  }
+  unhold(id: ThreadId): void {
+    this.store.atomic((db) => db.prepare("DELETE FROM workspace_creation_held WHERE id=?").run(id));
   }
   acquire(value: CreationResource): void {
     const row = Resource.parse(value);
     this.store.atomic((db) => {
+      // Leftovers awaiting cleanup are bounded generously; live creation is bounded in memory.
       const count = Number(
-        db.prepare("SELECT COUNT(*) AS count FROM workspace_creation_resources").get()?.count,
+        db
+          .prepare(
+            "SELECT COUNT(*) AS count FROM workspace_creation_resources WHERE id NOT IN (SELECT id FROM workspace_creation_held)",
+          )
+          .get()?.count,
       );
-      if (count >= 16) throw new Error("workspace_busy");
+      if (count >= 64) throw new Error("workspace_busy");
       db.prepare(
         "INSERT INTO workspace_creation_resources (id,repo,path,branch,base_head,cleanup_head,uncertain,ran_setup,owner_id,non_executing) VALUES (?,?,?,?,?,?,?,?,?,?)",
       ).run(
@@ -115,6 +180,7 @@ export class CreationWorkspaceJournal {
   release(id: ThreadId, removedPath?: string): void {
     this.store.atomic((db) => {
       db.prepare("DELETE FROM workspace_creation_resources WHERE id=?").run(id);
+      db.prepare("DELETE FROM workspace_creation_held WHERE id=?").run(id);
       if (removedPath)
         db.prepare("DELETE FROM workspace_non_executing_roots WHERE path=?").run(removedPath);
     });

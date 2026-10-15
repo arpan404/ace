@@ -35,6 +35,7 @@ export async function startWorkspaceActions({
     (path, error) => log.log("warn", `Retained former Offshift worktree: ${path}`, logError(error)),
   );
   const workspace = new WorkspaceRuntime(store, config.dataDir, now, {
+    log: (message, error) => log.log("warn", message, logError(error)),
     ...options.workspaceActions,
     git: {
       ...options.workspaceActions?.git,

@@ -19,6 +19,8 @@ export function startProjects({ store, services, options, now, resources }: Serv
         return (await services.settings.get("projects.roots")).value;
       }),
     hasOwnedWork: (id) => services.workspaceActions?.hasOwnedWork(id) ?? false,
+    clearLock: (path) =>
+      services.workspaceActions?.clearProjectLock(path) ?? Promise.resolve(false),
     saveRoots:
       options.projects?.saveRoots ??
       (async (roots) => {
@@ -54,7 +56,8 @@ export function createProjectsSession(context: SocketContext): SocketService {
     },
     command: {
       types: ProjectCommands.map((schema) => schema.shape.type.value),
-      scope: () => "projects",
+      scope: (command) =>
+        command.payload.type === "workspace.git.lock.clear" ? "operate" : "projects",
       // Not awaited: a clone runs for minutes, and the socket's next messages (its cancel, the
       // client's reads) must not queue behind it. The receipt goes out when it ends.
       accept(command) {

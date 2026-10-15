@@ -3,21 +3,24 @@ import { StringDecoder } from "node:string_decoder";
 import { homedir } from "node:os";
 import { createRedactor } from "@ace/redaction";
 import {
-  Command,
   ThreadId,
-  WorktreeCreationProgress,
-  DeviceId,
-  type ServerMessage,
+  type Command,
+  type CommandResult,
+  type WorktreeCreationProgress,
 } from "@ace/protocol";
-import type { Store } from "./store.ts";
+import type { CreationFailure } from "./creation-failure.ts";
 
 type Progress = WorktreeCreationProgress;
-type Send = (message: ServerMessage) => void;
 /** Bounded line framing precedes redaction, including secrets split across process chunks. */
 export class CreationProgress {
   readonly controller = new AbortController();
   action: "cancel" | "local" | undefined;
   active = true;
+  /** Continue after a failed setup script: admit the kept worktree without running setup. */
+  skipSetup = false;
+  /** The start's receipt, for a replay of the same command that attaches after a reconnect. */
+  readonly settled: Promise<CommandResult>;
+  private resolveSettled: (result: CommandResult) => void = () => {};
   private prOnly: boolean;
   private existingPr: boolean;
   private decoder = new StringDecoder("utf8");
@@ -36,6 +39,9 @@ export class CreationProgress {
   ) {
     this.now = now;
     this.publish = publish;
+    this.settled = new Promise((resolve) => {
+      this.resolveSettled = resolve;
+    });
     this.redact = createRedactor({ home: homedir(), env: process.env });
     const p = command.payload;
     this.existingPr = p.type === "forge.pr.worktree";
@@ -108,23 +114,36 @@ export class CreationProgress {
     this.emit();
     this.controller.abort();
   }
-  finish(state: Progress["state"], cleanupComplete: boolean): void {
+  settle(result: CommandResult): void {
+    this.resolveSettled(result);
+  }
+  finish(state: Progress["state"], cleanupComplete: boolean, failure?: CreationFailure): void {
     this.active = false;
     this.flush();
     this.progress.state = state;
     this.progress.cleanupComplete = cleanupComplete;
+    delete this.progress.error;
+    delete this.progress.lockPath;
+    const setupFailed = state === "failed" && failure?.error === "setup_failed";
     this.progress.actions =
       cleanupComplete && (state === "failed" || state === "cancelled")
         ? this.existingPr
           ? []
           : this.prOnly
             ? ["retry"]
-            : ["retry", "local"]
+            : setupFailed
+              ? ["retry", "continue", "local"]
+              : ["retry", "local"]
         : [];
     if (state === "failed")
       this.progress.message = this.prOnly
         ? "Could not prepare the selected PR head. Refresh the PR and try Work on PR again."
-        : "We couldn't create the worktree. Try again or use the local checkout.";
+        : (failure?.detail.slice(0, 256) ??
+          "We couldn't create the worktree. Try again or use the local checkout.");
+    if (state === "failed" && failure) {
+      this.progress.error = failure.error;
+      if (failure.lockPath) this.progress.lockPath = failure.lockPath;
+    }
     if (state === "cancelled")
       this.progress.message = this.existingPr
         ? "PR preparation cancelled. The previous checkout is retained."
@@ -139,178 +158,5 @@ export class CreationProgress {
     const current = this.progress.steps.at(-1);
     if (current) current.elapsedMs = Math.max(0, time - current.startedAt);
     this.publish(this.progress);
-  }
-}
-
-/** Drafts survive reconnects/restarts; only their authenticated device can read or control them. */
-export class CreationDrafts {
-  private live = new Map<string, CreationProgress>();
-  constructor(
-    privateStore: Store,
-    privateNow: () => number,
-    readonlyRecovery: { ready(): Promise<void>; cleanupComplete(command: Command): boolean },
-  ) {
-    this.store = privateStore;
-    this.now = privateNow;
-    this.recovery = readonlyRecovery;
-    this.store.atomic((db) =>
-      db.exec(`CREATE TABLE IF NOT EXISTS worktree_creation_drafts (
-      id TEXT PRIMARY KEY, device TEXT NOT NULL, command TEXT NOT NULL, progress TEXT NOT NULL
-    )`),
-    );
-  }
-  private recovery: { ready(): Promise<void>; cleanupComplete(command: Command): boolean };
-  private store: Store;
-  private now: () => number;
-  get(
-    id: string,
-    device: DeviceId,
-  ): { command: Command; progress: Progress; operation?: CreationProgress } | undefined {
-    const row = this.store.atomic((db) =>
-      db
-        .prepare("SELECT command,progress FROM worktree_creation_drafts WHERE id=? AND device=?")
-        .get(id, device),
-    );
-    if (!row || typeof row.command !== "string" || typeof row.progress !== "string") return;
-    const command = Command.parse(JSON.parse(row.command));
-    const p = command.payload;
-    const prOnly =
-      p.type === "forge.pr.worktree" ||
-      ((p.type === "thread.create" || p.type === "thread.prepare") && Boolean(p.pullRequest));
-    const progress = WorktreeCreationProgress.parse(JSON.parse(row.progress));
-    const operation = this.live.get(id);
-    if (
-      !operation &&
-      (["running", "cancelling"].includes(progress.state) ||
-        (progress.state === "failed" &&
-          !progress.cleanupComplete &&
-          this.recovery.cleanupComplete(command)))
-    ) {
-      progress.state = "failed";
-      progress.message = prOnly
-        ? "PR preparation was interrupted. Refresh the PR and try Work on PR again."
-        : "Worktree creation was interrupted. Try again or use the local checkout.";
-      progress.cleanupComplete = this.recovery.cleanupComplete(command);
-      progress.actions =
-        !progress.cleanupComplete || p.type === "forge.pr.worktree"
-          ? []
-          : prOnly
-            ? ["retry"]
-            : ["retry", "local"];
-      if (!progress.cleanupComplete)
-        progress.message = "Worktree cleanup needs attention before this checkout can be used.";
-      this.store.atomic((db) =>
-        db
-          .prepare("UPDATE worktree_creation_drafts SET progress=? WHERE id=? AND device=?")
-          .run(JSON.stringify(progress), id, device),
-      );
-      if (p.type === "forge.pr.worktree") {
-        const thread = this.store.getThread(p.threadId);
-        if (thread?.details?.worktreeCreation?.commandId === command.id)
-          this.store.appendEvents(
-            p.threadId,
-            [
-              {
-                type: "thread.client.updated",
-                changes: { details: { ...thread.details, worktreeCreation: progress } },
-              },
-            ],
-            this.now(),
-          );
-      }
-    }
-    return {
-      command,
-      progress,
-      ...(operation ? { operation } : {}),
-    };
-  }
-  async begin(command: Command, device: DeviceId, send: Send): Promise<CreationProgress> {
-    // The physical journal settles first. Missing cleanup evidence never becomes a free slot.
-    await this.recovery.ready();
-    if (this.live.has(command.id)) throw new Error("thread_creation_in_progress");
-    const previous = this.get(command.id, device);
-    const rows = this.store.atomic((db) =>
-      db.prepare("SELECT id,device FROM worktree_creation_drafts").all(),
-    );
-    let blockedTarget = false;
-    for (const row of rows) {
-      if (
-        typeof row.id !== "string" ||
-        typeof row.device !== "string" ||
-        row.id === command.id ||
-        this.live.has(row.id)
-      )
-        continue;
-      const id = row.id;
-      const old = this.get(id, DeviceId.parse(row.device));
-      if (!old || old.command.payload.type !== "forge.pr.worktree") continue;
-      if (old.progress.cleanupComplete && ["failed", "cancelled"].includes(old.progress.state))
-        this.store.atomic((db) =>
-          db.prepare("DELETE FROM worktree_creation_drafts WHERE id=?").run(id),
-        );
-      else if (
-        !old.progress.cleanupComplete &&
-        command.payload.type === "forge.pr.worktree" &&
-        old.command.payload.threadId === command.payload.threadId
-      )
-        blockedTarget = true;
-    }
-    if (blockedTarget) throw new Error("workspace_cleanup_required");
-    this.store.atomic((db) => {
-      const owner = db
-        .prepare("SELECT device FROM worktree_creation_drafts WHERE id=?")
-        .get(command.id);
-      if (owner && owner.device !== device) throw new Error("forbidden");
-      if (
-        !previous &&
-        Number(db.prepare("SELECT COUNT(*) AS count FROM worktree_creation_drafts").get()?.count) >=
-          16
-      )
-        throw new Error("workspace_busy");
-    });
-    const operation = new CreationProgress(
-      command,
-      (previous?.progress.attempt ?? 0) + 1,
-      this.now,
-      (progress) => {
-        this.store.atomic((db) =>
-          db
-            .prepare("INSERT OR REPLACE INTO worktree_creation_drafts VALUES (?,?,?,?)")
-            .run(command.id, device, JSON.stringify(command), JSON.stringify(progress)),
-        );
-        if (
-          (command.payload.type === "forge.pr.worktree" ||
-            progress.state === "done" ||
-            progress.state === "local") &&
-          progress.threadId
-        ) {
-          const thread = this.store.getThread(progress.threadId);
-          if (thread)
-            this.store.appendEvents(
-              progress.threadId,
-              [
-                {
-                  type: "thread.client.updated",
-                  changes: {
-                    details: { ...thread.details, worktreeCreation: progress },
-                  },
-                },
-              ],
-              this.now(),
-            );
-        }
-        send({ type: "worktree.creation.progress", ...progress });
-      },
-    );
-    this.live.set(command.id, operation);
-    return operation;
-  }
-  release(id: string, settled: boolean): void {
-    this.live.delete(id);
-    if (settled)
-      this.store.atomic((db) =>
-        db.prepare("DELETE FROM worktree_creation_drafts WHERE id=?").run(id),
-      );
   }
 }
