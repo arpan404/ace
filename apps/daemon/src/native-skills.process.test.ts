@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { AgentId } from "@ace/protocol";
+import { AgentId, ThreadId } from "@ace/protocol";
 import { builtinGuides } from "@ace/plugins";
 import { guideTopics } from "@ace/mcp-server";
 import type { ProviderAdapter, ProviderSession, SessionContext } from "@ace/engine-api";
@@ -81,4 +81,23 @@ it("OpenCode, Pi and Cursor sessions start with ace's skills in a directory they
         provider,
       ).toContain(topic);
   }
+});
+
+it("a Pi session opened without any ace MCP scope still starts with ace's skills", async () => {
+  const f = await setup("codex");
+  const pi = recording("pi");
+  // No daemon MCP service and no lease: Pi's `--skill` skills don't depend on ace's MCP.
+  const adapter = withDaemonMcp({ store: f.store, services: {}, id: () => "no-mcp" }, pi.adapter);
+  const session = await adapter.openSession({
+    threadId: ThreadId.parse("pi-without-mcp"),
+    cwd: f.home,
+    signal: new AbortController().signal,
+    onFrame() {},
+    onExit() {},
+  });
+  cleanups.push(() => session.close("shutdown"));
+  const [directory] = pi.opened[0]?.builtinSkills?.directories ?? [];
+  if (!directory) throw new Error("Pi received no skills directory");
+  for (const topic of guideTopics)
+    expect(await readFile(join(directory, topic, "SKILL.md"), "utf8")).toContain(`name: ${topic}`);
 });
