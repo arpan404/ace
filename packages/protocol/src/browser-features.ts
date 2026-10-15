@@ -15,6 +15,10 @@ export const BrowserTab = z.object({
   pending_dialog: BrowserDialog.optional(),
 });
 export type BrowserTab = z.infer<typeof BrowserTab>;
+/** Wire bound on one browser's tab list: far above what a person keeps open, still bounded. */
+export const browserTabLimit = 512;
+export const BrowserTabList = z.array(BrowserTab).max(browserTabLimit);
+export type BrowserTabList = z.infer<typeof BrowserTabList>;
 export const BrowserDownload = z.object({
   downloadId: id,
   tabId: id,
@@ -28,7 +32,7 @@ export const BrowserDownload = z.object({
 export type BrowserDownload = z.infer<typeof BrowserDownload>;
 /** Tab mutations can surface a renderer dialog instead of changing selection. */
 export const BrowserTabsResult = z.union([
-  z.object({ activeTabId: id, tabs: z.array(BrowserTab).max(8) }),
+  z.object({ activeTabId: id, tabs: BrowserTabList }),
   z.object({ pending_dialog: BrowserDialog }),
 ]);
 export type BrowserTabsResult = z.infer<typeof BrowserTabsResult>;

@@ -1,12 +1,14 @@
 import { z } from "zod";
-import { BrowserTab, BrowserDownload, BrowserDialog } from "./browser-features.ts";
+import { BrowserTabList, BrowserDownload, BrowserDialog } from "./browser-features.ts";
 import { BrowserInteractionAction, BrowserMeasurementOptions } from "./interaction-measurement.ts";
 import { ThreadId, WorkspaceId } from "./ids.ts";
 
 const short = z.string().min(1).max(256);
 const dimension = z.number().int().min(100).max(4096);
 const coordinate = z.number().finite().min(-100_000).max(100_000);
-const timeout = z.number().int().min(1).max(30_000).default(10_000);
+/** Longest a navigate or wait_for may run; slow dev servers and cold builds need minutes. */
+export const browserWaitLimitMs = 120_000;
+const timeout = z.number().int().min(1).max(browserWaitLimitMs).default(10_000);
 export const BrowserOpen = z.object({
   threadId: ThreadId,
   workspaceId: WorkspaceId,
@@ -186,7 +188,7 @@ export const BrowserState = z.object({
     .optional(),
   blocked: BrowserOriginBlock.optional(),
   activeTabId: short.optional(),
-  tabs: z.array(BrowserTab).max(8).optional(),
+  tabs: BrowserTabList.optional(),
   downloads: z.array(BrowserDownload).max(128).optional(),
   pending_dialog: BrowserDialog.optional(),
   takeoverMode: z.enum(["shared", "private"]).optional(),

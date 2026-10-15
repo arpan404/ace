@@ -316,7 +316,7 @@ test("Stop during async context preparation prevents durable admission", async (
   expect(f.remote.journal.count()).toBe(0);
 });
 
-test("offline deadlines cancel unclaimed work and fence dispatched work until remote acknowledgement", async () => {
+test("stopping the parent while offline cancels unclaimed work and fences dispatched work until remote acknowledgement", async () => {
   const f = await world();
   const first = await f.delegate();
   const second = RemoteTask.parse(
@@ -332,7 +332,9 @@ test("offline deadlines cancel unclaimed work and fence dispatched work until re
   second.dispatched = true;
   f.remote.journal.save(second);
   f.remote.disconnect("window");
-  f.clock.advance(f.clock.now() + f.service.policy.durationMs + 1000);
+  f.service.cancelDescendants(f.caller.threadId);
+  f.clock.advance(f.clock.now() + 1000);
+  f.remote.drain();
   expect(f.remote.journal.get(first.id)).toMatchObject({ phase: "cancelled", delivered: true });
   expect(f.remote.journal.get(second.id)).toMatchObject({ phase: "cancelling", delivered: false });
   expect(f.store.getThread(f.caller.threadId)?.status.state).not.toBe("done");
@@ -600,7 +602,7 @@ test.each([
   expect(f.remote.journal.get(task.id)).toBeUndefined();
 });
 
-test.each(["stop", "duration", "permission"])(
+test.each(["stop", "permission"])(
   "delivered cancellation stays failed through repeated polls after %s",
   async (cause) => {
     const f = await world();
@@ -614,7 +616,7 @@ test.each(["stop", "duration", "permission"])(
           cascade: true,
         }).ok,
       ).toBe(true);
-    else if (cause === "permission")
+    else
       expect(
         f.service.command("change-policy", {
           type: "thread.permission.set",
@@ -622,7 +624,6 @@ test.each(["stop", "duration", "permission"])(
           access: "read-only",
         }).ok,
       ).toBe(true);
-    else f.clock.advance(f.clock.now() + f.service.policy.durationMs);
     f.remote.drain();
     f.clock.advance(f.clock.now() + 30000);
     f.remote.drain();

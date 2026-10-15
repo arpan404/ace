@@ -10,11 +10,7 @@
           "type": "string"
         },
         "tabs": {
-          "items": {
-            "$ref": "https://ace.local/protocol/v1/BrowserTab.json"
-          },
-          "maxItems": 8,
-          "type": "array"
+          "$ref": "https://ace.local/protocol/v1/BrowserTabList.json"
         }
       },
       "required": [

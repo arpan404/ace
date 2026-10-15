@@ -1,7 +1,6 @@
 import { commandNotDispatched } from "../command-not-dispatched.ts";
 import { createWritingCli } from "../source-control-cli.ts";
 import type { CreationProgress } from "../creation-progress.ts";
-import { repositoryTransferGuard } from "./repository-transfers.ts";
 import { loadHostId } from "../local-files.ts";
 import { computerName } from "../computer-name.ts";
 import { actionErrorCode } from "../action-errors.ts";
@@ -32,7 +31,6 @@ export async function startWorkspaceActions({
     ...options.workspaceActions,
     git: {
       ...options.workspaceActions?.git,
-      withRepositoryTransfer: repositoryTransferGuard({ services }),
       onLeaseRetired: ({ lease, repository, reason }) =>
         log.log(
           "warn",

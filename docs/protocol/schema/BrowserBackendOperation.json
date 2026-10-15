@@ -79,7 +79,7 @@
           "type": "string"
         },
         "timeout": {
-          "maximum": 30000,
+          "maximum": 120000,
           "minimum": 1,
           "type": "integer"
         },

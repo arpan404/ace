@@ -52,7 +52,7 @@ export const controlActions: Record<AgentControlOperation["op"], Action> = {
   },
   "agent.message": {
     description:
-      "Send follow-up work to the same owned child, retaining its permissions and delegation budget. Use a stable requestId.",
+      "Send follow-up work to the same owned child, retaining its permissions. Use a stable requestId.",
     riskClass: "agent-execution",
   },
   "agent.cancel": {
@@ -91,7 +91,7 @@ export const controlActions: Record<AgentControlOperation["op"], Action> = {
   },
   delegate_task: {
     description:
-      "Delegate a task to a local child agent that inherits the parent's permission ceiling and delegation budget.",
+      "Delegate a task to a local child agent that inherits the parent's permission ceiling.",
     riskClass: "agent-execution",
   },
   "thread.create": {

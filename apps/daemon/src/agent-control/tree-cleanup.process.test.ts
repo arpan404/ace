@@ -6,17 +6,9 @@ import { setup } from "./test-support.ts";
 test.each([64, 2])(
   "a full accepted delegation history remains traversable and deletable with %i active slots",
   async (maxActiveThreads) => {
-    const f = setup(
-      { durationMs: 86400000 },
-      undefined,
-      false,
-      undefined,
-      false,
-      undefined,
-      undefined,
-      undefined,
-      { maxActiveThreads },
-    );
+    const f = setup({}, undefined, false, undefined, false, undefined, undefined, undefined, {
+      maxActiveThreads,
+    });
     const parent = await f.parent();
     const ids = [parent.threadId];
     for (let child = 0; child < 64; child++) {
@@ -57,7 +49,7 @@ test.each([64, 2])(
 );
 
 test("forced deletion owns the full nested history and stops a resumed last child", async () => {
-  const f = setup({ durationMs: 86400000 });
+  const f = setup();
   const parent = await f.parent();
   const branch = f.delegate(parent, "branch", true);
   await f.engine.flush();

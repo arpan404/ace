@@ -37,7 +37,7 @@ retains its existing capabilities. Explicit `headless` remains available.
 Agents do not depend on a desktop connection or visible browser window.
 
 A headless context owns at most eight pages. A service-wide admission counter
-limits pages to 32, independently of the existing eight-session limit. Page
+limits pages to 256, independently of the 32-session limit. Page
 reservations include tabs being initialized and release exactly once on failure,
 page close, or context shutdown. Explicit creation, window.open and target=_blank
 share this admission path. A popup's initial request passes the origin guard

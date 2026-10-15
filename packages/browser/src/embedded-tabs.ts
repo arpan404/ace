@@ -3,23 +3,12 @@ import { pageFrames } from "./page-frames.ts";
 import { EmbeddedDownloads } from "./embedded-downloads.ts";
 import { EventEmitter } from "node:events";
 import { z } from "zod";
-import { BrowserDialog, BrowserTab } from "@ace/protocol";
+import { BrowserDialog, type BrowserTab } from "@ace/protocol";
+import { decodeNativeTabs, type NativeTabsState } from "./native-tabs.ts";
 import type { BackendOpen, BrowserCdp } from "./backend.ts";
 import { installOriginGuard } from "./origin-guard.ts";
 import { BrowserInspection } from "./inspection.ts";
 
-export const NativeTabs = z.object({
-  activeTabId: z.string(),
-  tabs: z
-    .array(
-      BrowserTab.extend({
-        viewport: z
-          .object({ width: z.number().positive(), height: z.number().positive() })
-          .optional(),
-      }),
-    )
-    .max(8),
-});
 const TabEvent = z.object({ tabId: z.string(), method: z.string(), params: z.unknown() });
 type Guard = Awaited<ReturnType<typeof installOriginGuard>>;
 interface Tab {
@@ -127,10 +116,29 @@ export class EmbeddedTabs {
     tab.events.emit(method, params);
   };
   private change = (raw: unknown) => {
-    const parsed = NativeTabs.safeParse(raw);
-    if (parsed.success)
-      void this.update(parsed.data).catch((error) => this.request.lost(String(error)));
+    const decoded = this.decode(raw);
+    if (decoded) void this.update(decoded).catch((error) => this.request.lost(String(error)));
   };
+  /** Keeps every usable tab and reports the rest, so ace's list never silently drifts. */
+  private decode(raw: unknown): NativeTabsState | undefined {
+    const decoded = decodeNativeTabs(raw);
+    if (!decoded) {
+      this.request.log({
+        kind: "console",
+        type: "ace.tabs",
+        text: "The desktop browser sent an unreadable tab list; the tab list may be stale.",
+      });
+      return undefined;
+    }
+    for (const text of decoded.problems)
+      this.request.log({ kind: "console", type: "ace.tabs", text });
+    return decoded.state;
+  }
+  private async read(raw: unknown): Promise<void> {
+    const state = this.decode(raw);
+    if (!state) throw new Error("The desktop browser returned an unreadable tab list");
+    await this.update(state);
+  }
   private frame = (raw: unknown) => {
     const target = z.object({ aceTabId: z.string().optional() }).safeParse(raw);
     if (target.success && (!target.data.aceTabId || target.data.aceTabId === this.activeId))
@@ -161,7 +169,7 @@ export class EmbeddedTabs {
       })
       .catch(() => {});
   };
-  private async update(state: z.infer<typeof NativeTabs>): Promise<void> {
+  private async update(state: NativeTabsState): Promise<void> {
     if (this.stopped) return;
     for (const [id, tab] of this.entries)
       if (!state.tabs.some((entry) => entry.tabId === id)) {
@@ -217,13 +225,13 @@ export class EmbeddedTabs {
     if (changed) this.request.navigation();
     this.request.changed?.();
   }
-  async start(state: z.infer<typeof NativeTabs>) {
+  async start(raw: unknown) {
     this.root.on("ace.tabs.event", this.emit);
     this.root.on("ace.tabs.changed", this.change);
     this.root.on("Page.screencastFrame", this.frame);
     this.root.on("ace.popupRequested", this.popup);
     this.root.on("ace.permissionDenied", this.permission);
-    await this.update(state);
+    await this.read(raw);
   }
   current(): Tab {
     const tab = this.entries.get(this.activeId);
@@ -250,16 +258,26 @@ export class EmbeddedTabs {
       this.reservations.delete(first);
       return first;
     }
-    return this.request.reserveTab?.() ?? (() => {});
+    try {
+      return this.request.reserveTab?.() ?? (() => {});
+    } catch {
+      // The desktop already opened this tab; refusing to track it would only desync ace.
+      this.request.log({
+        kind: "console",
+        type: "ace.tabs",
+        text: "The daemon's browser tab budget is full; this desktop tab is tracked over budget.",
+      });
+      return () => {};
+    }
   }
   async open() {
     return this.activeId;
   }
   async switch(tabId: string) {
-    await this.update(NativeTabs.parse(await this.root.send("ace.tabs.switch", { tabId })));
+    await this.read(await this.root.send("ace.tabs.switch", { tabId }));
   }
   async close(tabId: string) {
-    await this.update(NativeTabs.parse(await this.root.send("ace.tabs.close", { tabId })));
+    await this.read(await this.root.send("ace.tabs.close", { tabId }));
   }
   dialog() {
     return [...this.entries.values()].find((tab) => tab.dialog)?.dialog;
