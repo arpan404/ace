@@ -266,7 +266,13 @@ does the continuation and when.
 - The web composer holds a `new_thread` pick after a confirmation dialog. The
   person's next message becomes one durable `thread.fork` from the newest finished
   turn, of any outcome, on the picked selection. The client then opens the new
-  thread. The source thread and its checkpoint stay untouched.
+  thread. The source thread and its checkpoint stay untouched. The fork's
+  `context` carries the message's files, mentions and thread references as a send
+  does. Before delivery the context service gives the fork its own reference to
+  each file the source holds (`inheritAttachments`), and the source keeps its own.
+  The only files a model can refuse are images, when its catalog entry lists no
+  image input. The confirmation dialog and the send both say so before anything
+  goes out.
 - A portable fork may name another account of the same provider. Only native
   forks need the source account's session, so cross-account forks are always
   portable. This is how a Cursor account change continues.

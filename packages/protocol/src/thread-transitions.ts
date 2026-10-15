@@ -2,6 +2,7 @@ import { NativeSessionId } from "./ids.ts";
 import { z } from "zod";
 import { AgentId, ItemId, RunId, ThreadId, Timestamp } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
+import { MessageContext } from "./context.ts";
 
 export const ForkPoint = z.discriminatedUnion("type", [
   z.object({ type: z.literal("turn"), runId: RunId }),
@@ -86,6 +87,11 @@ export const TransitionCommands = [
     title: z.string().max(256).optional(),
     selection: ExecutionSelection.optional(),
     input: z.string().min(1).max(16384),
+    /**
+     * What goes with the first message, as `thread.send` carries it. Attachments name files the
+     * source thread holds; the fork gets its own reference to them before delivery.
+     */
+    context: MessageContext.optional(),
     budgetBytes: z.number().int().min(2048).max(65536).default(16384),
   }),
   z.object({

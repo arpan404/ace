@@ -364,6 +364,9 @@
           "minimum": 2048,
           "type": "integer"
         },
+        "context": {
+          "$ref": "https://ace.local/protocol/v1/MessageContext.json"
+        },
         "input": {
           "maxLength": 16384,
           "minLength": 1,

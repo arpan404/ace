@@ -1206,6 +1206,11 @@ export class FakeDaemon implements Host {
           return { commandId, ok: false, error: "thread_not_found" };
         const refused = forkPointError(source, payload.point);
         if (refused) return { commandId, ok: false, error: refused };
+        // The first message carries files the source holds, as the daemon gives the fork its own.
+        const attachments = this.servicesWire.context.messageAttachments(
+          payload.threadId,
+          payload.context?.attachments.map((a) => a.sha256) ?? [],
+        );
         const id = `${payload.threadId}-fork-${commandId}`;
         if (this.threads.has(id)) return { commandId, ok: true, forkThreadId: ThreadId.parse(id) };
         const from = source.view.thread;
@@ -1230,6 +1235,20 @@ export class FakeDaemon implements Host {
             lossy: provider !== from.provider,
           },
         });
+        if (attachments.length)
+          this.servicesWire.context.inherit(
+            payload.threadId,
+            id,
+            attachments.map((attachment) => attachment.sha256),
+          );
+        for (const fact of started.facts)
+          if (
+            fact.type === "item.upsert" &&
+            fact.draft.type === "message" &&
+            fact.draft.role === "user" &&
+            attachments.length
+          )
+            fact.draft.attachments = attachments;
         this.apply(id, started.facts);
         return { commandId, ok: true, forkThreadId: ThreadId.parse(id) };
       }

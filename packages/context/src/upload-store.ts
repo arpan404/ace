@@ -181,6 +181,60 @@ export class UploadStore {
     });
   }
   /** An adopted scope may be replayed by its owning thread, but cannot resume composition. */
+  /**
+   * Give `thread` its own reference to files `source` holds, for a thread continued from it (a
+   * fork's first message). The source keeps its references; repeating it changes nothing.
+   */
+  async inherit(
+    device: string,
+    source: string,
+    thread: string,
+    hashes: readonly string[],
+  ): Promise<void> {
+    return this.serialize(async () => {
+      await this.authorized(device, source);
+      await this.authorized(device, thread);
+      if (this.options.threadWorkspace)
+        requireContext(
+          (await this.options.threadWorkspace(source)) ===
+            (await this.options.threadWorkspace(thread)),
+          "forbidden",
+          "Attachments belong to another workspace",
+        );
+      const missing = hashes.filter(
+        (hash) =>
+          !this.metadata.get("SELECT 1 FROM refs WHERE thread=? AND sha256=?", thread, hash),
+      );
+      const held = missing.map((hash) => {
+        const row = this.metadata.get(
+          "SELECT name FROM refs WHERE thread=? AND sha256=?",
+          source,
+          hash,
+        );
+        const blob = this.metadata.blob(hash);
+        requireContext(
+          row !== undefined && blob !== undefined,
+          "not_found",
+          "Attachment unavailable",
+        );
+        return { hash, name: z.string().parse(row.name), bytes: blob.bytes };
+      });
+      const target = this.metadata.usage(thread);
+      requireContext(
+        target.bytes + held.reduce((total, file) => total + file.bytes, 0) <=
+          this.limits.threadBytes && target.count + held.length <= this.limits.threadEntries,
+        "quota",
+        "Thread quota exceeded",
+      );
+      this.metadata.transaction(() => {
+        for (const file of held) {
+          this.metadata.run("INSERT INTO refs VALUES(?,?,?)", thread, file.hash, file.name);
+          this.metadata.run("UPDATE blobs SET refs=refs+1 WHERE sha256=?", file.hash);
+          this.metadata.adjust(thread, file.bytes, 1);
+        }
+      });
+    });
+  }
   async resumableDraftWorkspace(device: string, draftId: string): Promise<string> {
     const workspace = await this.draftWorkspace(device, draftId);
     requireContext(

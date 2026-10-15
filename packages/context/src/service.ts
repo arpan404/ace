@@ -70,6 +70,15 @@ export class ContextService {
   draftWorkspace(device: string, draftId: string): Promise<string> {
     return this.uploads.draftWorkspace(device, draftId);
   }
+  /** Engine hook: a continued thread's first message may carry files its source holds. */
+  inheritAttachments(
+    device: string,
+    source: string,
+    thread: string,
+    hashes: readonly string[],
+  ): Promise<void> {
+    return this.uploads.inherit(device, source, thread, hashes);
+  }
   async handle(
     device: string,
     value: unknown,

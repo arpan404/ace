@@ -62,25 +62,29 @@ export async function executeIntent(
     if (!session) throw new Error("Provider session exited before send");
     const state = repo.requireState(actor.id);
     const generation = actor.generation;
+    // A fork's first message carries its context the way a send does, with files its source holds.
+    const message =
+      p.type === "thread.fork"
+        ? { input: [{ type: "text" as const, text: p.input }], context: p.context }
+        : { input: p.input, context: p.context };
     const prepared =
-      "input" in p &&
-      Array.isArray(p.input) &&
-      (p.input.some((part) => part.type === "mention") || ("context" in p && p.context))
+      message.input.some((part) => part.type === "mention") || message.context
         ? await prepare?.(
-            p.type === "thread.create"
-              ? Command.parse({
+            p.type === "thread.send"
+              ? intent.command
+              : Command.parse({
                   ...intent.command,
                   payload: {
                     type: "thread.send",
                     threadId: actor.id,
-                    input: p.input,
-                    context: p.context,
+                    input: message.input,
+                    context: message.context,
                     delivery: "queue",
                   },
-                })
-              : intent.command,
+                }),
             state.config.provider,
             capabilities,
+            p.type === "thread.fork" ? { inheritFrom: p.threadId } : undefined,
           )
         : undefined;
     await repo.store.writable();

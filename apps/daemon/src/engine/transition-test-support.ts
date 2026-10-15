@@ -28,6 +28,7 @@ export function transitionHarness(
     io?: TransitionIO;
     recovery?: EngineOptions["recovery"];
     preferences?: EngineOptions["preferences"];
+    prepareInput?: EngineOptions["prepareInput"];
     onProviderDiagnostic?: EngineOptions["onProviderDiagnostic"];
     configure?: boolean;
     closeFails?: boolean;
@@ -232,6 +233,7 @@ export function transitionHarness(
       : {}),
     ...(options.recovery ? { recovery: options.recovery } : {}),
     ...(options.preferences ? { preferences: options.preferences } : {}),
+    ...(options.prepareInput ? { prepareInput: options.prepareInput } : {}),
   };
   let engine = new Engine(store, engineOptions);
   function command(payload: CommandPayload, commandId = `command-${++serial}`) {
