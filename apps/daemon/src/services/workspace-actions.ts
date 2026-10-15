@@ -4,7 +4,6 @@ import type { CreationProgress } from "../creation-progress.ts";
 import { repositoryTransferGuard } from "./repository-transfers.ts";
 import { loadHostId } from "../local-files.ts";
 import { computerName } from "../computer-name.ts";
-import { cleanRetiredWorktrees } from "../retired-worktrees.ts";
 import { actionErrorCode } from "../action-errors.ts";
 import { logError } from "@ace/diagnostics";
 import { WorkspaceRefresh } from "../workspace-refresh.ts";
@@ -28,12 +27,6 @@ export async function startWorkspaceActions({
   options,
   log,
 }: ServiceContext): Promise<void> {
-  await cleanRetiredWorktrees(
-    store,
-    config.dataDir,
-    options.workspaceActions?.git ?? {},
-    (path, error) => log.log("warn", `Retained former Offshift worktree: ${path}`, logError(error)),
-  );
   const workspace = new WorkspaceRuntime(store, config.dataDir, now, {
     log: (message, error) => log.log("warn", message, logError(error)),
     ...options.workspaceActions,

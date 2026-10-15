@@ -375,7 +375,7 @@ export class Sessions {
                 : []),
               { type: "queue.changed", source: "provider", count: 0 },
             ]);
-            // The interrupted turn waits for the person; the queue behind it is not sent.
+            // The interrupted turn waits for the next message; the queue behind it is not sent.
             if (lost) this.dependencies.interrupted(actor.id);
             if (!actor.poisoned) this.dependencies.released(actor.id);
             this.dependencies.wake(actor.id);

@@ -44,7 +44,6 @@ import { readRevisionLines, type RevisionLineOptions } from "./revision-lines.ts
 import { Repository } from "./repository.ts";
 import { restoreCheckpoint } from "./restore.ts";
 import { createWorktree, removeWorktree, type CreateWorktreeOptions } from "./worktrees.ts";
-import { ignoredPaths } from "./nested.ts";
 import { GitError } from "./types.ts";
 import {
   branchHead,
@@ -376,14 +375,6 @@ export class GitService {
 
   removeWorktree(options: { repo: string; path: string; force?: boolean }) {
     return removeWorktree(this.repository, options);
-  }
-
-  /**
-   * The ignored files and folders in a checkout (`.env`, dependencies, build output), which a
-   * plain worktree removal deletes with it. Reads only; runs no repository-configured programs.
-   */
-  ignoredFiles(path: string): Promise<string[]> {
-    return this.repository.cli.nonExecuting(() => ignoredPaths(this.repository, path));
   }
 
   /** Remove only an unchanged branch created by a host-owned worktree operation. */

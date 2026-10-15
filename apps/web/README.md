@@ -92,9 +92,6 @@ As in desktop chat apps: one sidebar (composed in `app/app-shell.tsx`), no rail.
   and Skills, app navigation, the header menu, global Search, sidebar title and profile are hidden.
   Back to app sits above the section's list and opens New thread. The task list has no Threads heading.
   Its project filter is always visible; with no projects, Add project takes its place.
-- Old addresses still land (route redirects and `lib/legacy-paths.ts`): `/deck…`, `/offsets…` and `/offshifts…` → Home, `/more` and
-  `/more/accounts` → `/accounts`, `/more/files` → Home (Files is a pinned tab of each thread's
-  side panel), `/more/search?q=` → the search dialog over Home.
 - **Home's list** (`features/home`): one flat list of tasks across projects, pinned first, then
   Home order (needs you, work in motion, trouble, the rest, most recent first), then the
   collapsible Settled section. `homeOrder`, `homeRows` and `homeRowKey` in `@ace/ui-core` build
