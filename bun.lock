@@ -692,6 +692,7 @@
       "dependencies": {
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "yaml": "^2.8.1",
         "zod": "^4.6.5",
       },
     },

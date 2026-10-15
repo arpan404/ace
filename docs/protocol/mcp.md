@@ -8,7 +8,7 @@ Built-in definitions come from `@ace/mcp-server`. The local /mcp endpoint uses s
 
 ## ace_html_render
 
-Publish a self-contained HTML page inline in your reply, at full message width. Choose mode per page: "interactive" for something the user manipulates (sliders, step-throughs, quizzes, simulations); its inline scripts run in a sandbox with no network or app access. "static" for read-only explanations, charts and diagrams; scripts are stripped, it is lighter, and it loses nothing when scrolled away. Omitted: static when the page has no script, otherwise interactive. Inline CSS/JS/SVG and data: images only; use the theme CSS variables. The page is validated first: external resources, frames, forms and links are refused with an invalid_html error listing each problem, and nothing is published. Optional max height is 80–2000 CSS pixels. Maximum 256 KiB UTF-8.
+Show a self-contained HTML page (inline CSS, JS, SVG and data: images; no network) inline in your reply. mode "interactive" runs its scripts in a sandbox; "static" strips them and suits charts and diagrams. An invalid page returns invalid_html listing every problem and publishes nothing. Design and sandbox rules: ace_guide visualize.
 
 Required capability: none beyond session authentication. Timeout: 30000 ms.
 
@@ -451,7 +451,7 @@ Example:
 
 ## ace_thread_start
 
-Start an ordinary top-level conversation (a new thread in the person's sidebar) with explicit project/new-worktree/existing-worktree selection. `text` is sent as its first message and the new agent answers it at once, so write it as the opening request. It retains caller ownership and a permission ceiling, but has no child attachment or result wakeup. Use a stable requestId. Use delegate_task for child work. The person sees the new thread as a card with Open in this thread: relay the result's `summary` in a sentence and never list its ids.
+Start a top-level thread in the person's sidebar with its own project or worktree; text is its first message, which its agent answers at once. For child work whose result you need, use delegate_task. Use a stable requestId. The person sees the new thread as a card: relay the result's summary in a sentence, without its ids.
 
 Required capability: thread_control. Timeout: 300000 ms.
 
@@ -864,7 +864,7 @@ Example:
 
 ## delegate_task
 
-The one way to start child work. Delegate one task, or several at once with tasks: [...], under your permission ceiling and delegation budget, choosing provider, model, account and optional workspace per task. Returns the child thread ids at once; settled results wake you as a new turn if you end yours. A batch may set await: any or all with timeoutSeconds (default 120, at most 600) and returns the same result as ace_wait. Otherwise call ace_wait with the ids and a timeout, then use the results; never poll. For one task, wait or waitMs (at most 240000) bounds observation without cancelling the child. Per task, access (read-only, ask, auto-review, full-access) defaults to inherit and can't exceed yours; effort takes a level or native id the model lists and inherits by default. To run a task on another paired machine, pass machine (from ace_machines) and project; that machine applies its own access mode and consent, and ace_wait and ace_agents_status cover the child there too. Stable per-task requestIds make retries safe: a retried batch creates no new threads. Discover selections with ace_agents_catalog.
+Start child threads on any provider: one task, or several with tasks: [...]. Returns their ids at once. To use results this turn, set await (any or all) with timeoutSeconds, or call ace_wait with the ids; never poll. If you end your turn instead, settled results arrive as a new turn. Stable requestIds make retries create nothing new. Fields, machines and access: ace_guide ace-agents.
 
 Required capability: agents. Timeout: 630000 ms.
 
@@ -980,7 +980,7 @@ Example:
 
 ## ace_wait
 
-Block until threads settle or need the person, up to timeoutSeconds (default 120, at most 600). Works for children you delegated and any other thread you can read. mode all (default) returns when every thread is done, failed or cancelled; any returns on the first. Either mode returns early with status needs_you, naming each request; a thread waiting on the person is never reported done. Settled threads include their result excerpt; others their current step and last output line. On status timeout the threads keep working: call again to keep waiting. status interrupted means ace restarted; wait again. Results read here are not delivered again as a wake. Never poll in a loop.
+Wait up to timeoutSeconds (default 120, max 600) for threads to settle, mode all (default) or any. Returns early with needs_you, naming each request, when a thread waits on the person: tell the person, and never report it done. On timeout the threads keep working: call again. interrupted means ace restarted: wait again. Never poll in a loop.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -2232,7 +2232,7 @@ Example:
 
 ## ace_context
 
-What this project already knows, in one read: recent threads with their outcomes and PRs, this worktree's changes versus upstream, linked PRs with CI state, project notes, and this session's diagnostics (failed ace calls, what blocks settlement). Use before git/gh calls or re-reading transcripts. Also readable as ace://project/recent, ace://worktree/changes, ace://project/prs, ace://project/notes and ace://thread/self/diagnostics.
+What this project already knows, in one read: recent threads with their outcomes and PRs, this worktree's changes versus upstream, linked PRs with CI state, project notes, and this session's diagnostics (failed ace calls, what blocks settlement). Cheaper than re-reading transcripts; each topic is also an ace:// resource.
 
 Required capability: none beyond session authentication. Timeout: 30000 ms.
 

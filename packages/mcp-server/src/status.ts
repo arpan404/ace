@@ -2,6 +2,15 @@ import { McpCapability, type McpAttribution, type McpStatus } from "@ace/protoco
 import { statusToolCatalog } from "./catalog.ts";
 import { ToolRegistry, nodeScheduler } from "./registry.ts";
 
+/** The guides the always-on guidance points to; each is a shipped skill and an ace_guide topic. */
+export const guideTopics = [
+  "ace-agents",
+  "ace-browser",
+  "visualize",
+  "ace-threads",
+  "ace-computer-use",
+] as const;
+
 export type StatusReader = (caller: McpAttribution) => {
   access: McpStatus["access"];
   /** False hides ace_ask: the provider has its own ask tool and this is not a child thread. */
@@ -10,21 +19,34 @@ export type StatusReader = (caller: McpAttribution) => {
 };
 
 /**
- * MCP server instructions. Claude Code reads only the first 2,048 characters and defers ace tools
- * behind tool search, so this says first when to look for ace tools and by which names.
+ * MCP server instructions: the always-on part of ace's guidance, kept under about 300 tokens.
+ * Claude Code and Codex defer ace tools behind tool search, so this says first when to look for
+ * them; the detail lives in the guides (`ace_guide`, and native skills where ace ships them).
+ * ace adds to the agent's own tools and never stands in for them.
  */
-export const aceInstructions = [
-  "ace is the app running this session. Its tools act on ace itself, beside your own tools. Search for ace tools (names start with ace_, screen_ or device_, plus delegate_task) when you need to:",
-  "- hand work to another agent or provider and collect the results: delegate_task, then ace_wait;",
-  "- open, test or debug any website or localhost page in ace's browser: ace_browser_open, ace_browser_snapshot, ace_browser_logs;",
-  "- show a chart, diagram, comparison or mockup inline: ace_html_render;",
-  "- read or retitle this thread, or find other threads in this project: ace_thread_read, ace_thread_rename, ace_threads_list;",
-  "- link a pull request you opened or found for this work: ace_thread_link_pr;",
-  "- see what this project already knows (recent threads and outcomes, uncommitted changes, PRs and CI, notes, failed ace calls) before git or gh: ace_context; save a lasting project fact for every future thread: ace_note_add;",
-  "- operate a native desktop app the person named: screen_* (computer use).",
-  "ace has no file or shell tools. Read, create and edit files and run shell commands with your own workspace tools: no ace tool group, enabled or not, limits them.",
-  "If an ace tool reports disabled, denied, read-only or human control, stop that ace action and tell the person; don't work around it with other ace tools. Agents never resolve approvals. ace_status lists the enabled ace groups.",
-].join("\n");
+export function aceGuidance(groups?: readonly string[]): string {
+  const has = (...names: string[]) => !groups || names.some((name) => groups.includes(name));
+  return [
+    "ace is the app running this session. Its tools add ace features beside your own; your shell, file, web and other tools work as usual. Look for ace tools (ace_*, screen_*, device_*, delegate_task) when a task needs:",
+    has("agents")
+      ? "- other agents or providers working in parallel: delegate_task, then ace_wait;"
+      : "",
+    has("browser")
+      ? "- a page the person can watch in ace's browser, localhost included: ace_browser_open;"
+      : "",
+    "- a chart, diagram or mockup shown inline: ace_html_render;",
+    "- this project's recent work, changes, PRs and notes: ace_context; link a PR you opened: ace_thread_link_pr;",
+    has("screen", "devices")
+      ? "- a native app or simulator the person names: screen_open_app, or ace_guide ace-computer-use."
+      : "",
+    `How-to for each, plus the rest of its tools: ace_guide with topic ${guideTopics.join(", ")}.`,
+    "If an ace tool reports disabled or denied, tell the person. Agents never resolve approvals.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+/** The server's copy, for clients that read MCP server instructions: every group. */
+export const aceInstructions = aceGuidance();
 
 export function createStatusRegistry(
   registry: ToolRegistry,

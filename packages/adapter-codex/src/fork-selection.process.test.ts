@@ -150,7 +150,7 @@ test("Codex starts with a lifetime-scoped ace lease and redacts the native conne
       (frame) => frame.dir === "send" && obj(frame.data)["method"] === "thread/start",
     );
     expect(obj(obj(started?.data)["params"])["developerInstructions"]).toContain(
-      "Never drive Safari/Chrome/Arc/Firefox with screen_*",
+      "plus the rest of its tools: ace_guide",
     );
     expect(
       obj(obj(obj(obj(started?.data)["params"])["config"])["mcp_servers.ace"])["http_headers"],

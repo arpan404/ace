@@ -37,7 +37,6 @@ export function mcpAwareness(deps: {
         worktree: thread.details?.mode === "worktree",
         machine: thread.details?.machine?.name || deps.machine,
         access: mode,
-        titleProvisional: thread.titleSource === "provisional",
         liveSiblings: liveSiblings(deps.store, thread),
         children: children(deps.store, deps.delegations(), thread.id),
         pendingRequests: thread.status.state === "needs_you" ? thread.status.interactions : 0,

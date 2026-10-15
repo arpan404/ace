@@ -5,6 +5,7 @@ import { outputGate, RpcWriter, SseParser } from "@ace/provider-kit/streams";
 import { nodeScheduler, type Scheduler } from "./registry.ts";
 import { AceMcpConnectionSchema, type AceMcpConnection } from "./injection.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
+import { coreToolsHeader } from "./toolsets.ts";
 import { maxBridgeResponseBytes, maxBridgeQueuedBytes } from "./result-budgets.ts";
 const Message = z
   .object({
@@ -58,7 +59,13 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
     (listening ??= (async () => {
       await notifications.connect(
         new StreamableHTTPClientTransport(new URL(connection.url), {
-          requestInit: { headers: { Authorization: `Bearer ${connection.bearer}` } },
+          // Only ACP agents use this bridge, and they list every tool upfront.
+          requestInit: {
+            headers: {
+              Authorization: `Bearer ${connection.bearer}`,
+              [coreToolsHeader.name]: coreToolsHeader.value,
+            },
+          },
           ...(options.fetch ? { fetch: options.fetch } : {}),
         }),
       );
@@ -103,6 +110,7 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
           "Content-Type": "application/json",
           Accept: "application/json, text/event-stream",
           Authorization: `Bearer ${connection.bearer}`,
+          [coreToolsHeader.name]: coreToolsHeader.value,
           "MCP-Protocol-Version": "2025-11-25",
         },
         body: line,

@@ -73,8 +73,23 @@ Cursor's private rule carries no credentials and is removed when its SDK host cl
 Codex sends `X-Ace-Instructions: native` to omit MCP server instructions from
 discovery. Its CLI otherwise copies server instructions into every description.
 The same guidance is delivered once through its native instruction field.
-Browser tools operate this thread's ace browser, including localhost. Computer
-use requires an explicit native app task. A refused tool is a stopping condition.
+
+The always-on guidance stays under about 300 tokens: when to look for ace tools,
+that the agent's own shell, file and web tools are unaffected, and which guide
+covers each task. The detail lives in the shipped skills
+(`packages/plugins/builtin-skills`): Claude Code and Codex receive them as native
+skills, and every provider can read the same text with `ace_guide { topic }`.
+Claude Code and Codex defer MCP tools behind tool search; only `ace_browser_open`
+and `ace_html_render` ask to load upfront. OpenCode, Cursor, Pi and ACP load every
+listed tool upfront, so their injections send `X-Ace-Tools: core` and list only the
+entry points in `src/toolsets.ts` (about a dozen). Reading a guide, or using a
+family's entry point (`delegate_task`, `ace_browser_open`, `screen_open_app`), adds
+that family's tools for the session and announces a tool-list change. Unlisted
+tools stay callable, so no capability is lost. OpenCode's own tools are named in
+its session guidance (`packages/adapter-opencode/src/native-tools.ts`). Advertised input schemas omit bounds a
+model never approaches (`$schema`, string lengths, safe-integer limits,
+`additionalProperties: false`); calls are still validated against the full Zod
+schema. `apps/daemon/src/mcp-agent-budget.process.test.ts` guards these budgets.
 
 Disabled groups are absent from discovery and denied on direct calls. A group that is on
 offers every tool at once, in every access mode: the provider's own permission mode, read-only

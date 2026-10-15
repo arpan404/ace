@@ -293,7 +293,8 @@ it("a default lease stays usable beyond one hour and is revoked only when its pr
     expect(lease.principal.signal.aborted).toBe(false);
     expect(server.credentials.authenticate(lease.bearer)?.scope.agentId).toBe("root");
     expect(await registry.call("missing", {}, lease.principal, lifetime.signal)).toMatchObject({
-      content: [{ text: "Tool unavailable or capability denied" }],
+      isError: true,
+      content: [{ text: expect.stringContaining('"code":"tool_unavailable"') }],
     });
     lifetime.abort();
     expect(server.credentials.authenticate(lease.bearer)).toBeUndefined();

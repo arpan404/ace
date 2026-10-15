@@ -51,10 +51,10 @@ for (const provider of ["cursor", "antigravity", "acp"] as const) {
         headers: [
           { name: "Authorization", value: `Bearer ${connection.bearer}` },
           { name: "X-Ace-Notifications", value: "stream" },
+          { name: "X-Ace-Tools", value: "core" },
         ],
       },
     ]);
-    expect(result.developerInstructions).toContain("ace_wait");
   });
 }
 it("refuses to inject ace credentials into remote or decorated URLs", () => {
@@ -83,6 +83,7 @@ it("injects Cursor HTTP lease credentials through the SDK MCP policy path", () =
         Authorization: `Bearer ${connection.bearer}`,
         "X-Ace-Instructions": "native",
         "X-Ace-Notifications": "stream",
+        "X-Ace-Tools": "core",
       },
     },
   });
@@ -90,7 +91,7 @@ it("injects Cursor HTTP lease credentials through the SDK MCP policy path", () =
 });
 
 it("each provider receives ace's shared guidance exactly once", () => {
-  const shared = "ace has no file or shell tools";
+  const shared = "ace is the app running this session";
   for (const provider of ["claude", "opencode", "acp", "antigravity"] as const)
     expect(developerInstructions(provider)).not.toContain(shared);
   for (const provider of ["codex", "cursor", "pi"] as const)
@@ -112,4 +113,22 @@ it("the session brief and enabled groups shape the injected guidance", () => {
   expect(injected.developerInstructions).toContain('Project "shop"');
   expect(injected.developerInstructions).not.toContain("screen_open_app");
   expect(injected.developerInstructions).not.toContain("ace_device_delegate");
+});
+
+it("providers that load every tool upfront ask ace for its core tools; deferring ones get all", () => {
+  const core = ["X-Ace-Tools", "core"];
+  expect(Object.entries(openCodeInjection(connection).server.headers)).toContainEqual(core);
+  expect(Object.entries(cursorSdkInjection(connection).mcpServers.ace.headers)).toContainEqual(
+    core,
+  );
+  for (const provider of ["cursor", "antigravity", "acp"] as const)
+    expect(acpInjection(connection, provider).mcpServers[0]?.headers).toContainEqual({
+      name: core[0],
+      value: core[1],
+    });
+  // Claude Code and Codex defer MCP tools behind their own tool search.
+  expect(claudeInjection(connection).mcpServers.ace.headers).not.toHaveProperty("X-Ace-Tools");
+  expect(codexInjection(connection).config["mcp_servers.ace"].http_headers).not.toHaveProperty(
+    "X-Ace-Tools",
+  );
 });

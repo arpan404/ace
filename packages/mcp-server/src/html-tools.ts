@@ -15,7 +15,7 @@ export const htmlToolCatalog = [
   {
     name: "ace_html_render",
     description:
-      'Publish a self-contained HTML page inline in your reply, at full message width. Choose mode per page: "interactive" for something the user manipulates (sliders, step-throughs, quizzes, simulations); its inline scripts run in a sandbox with no network or app access. "static" for read-only explanations, charts and diagrams; scripts are stripped, it is lighter, and it loses nothing when scrolled away. Omitted: static when the page has no script, otherwise interactive. Inline CSS/JS/SVG and data: images only; use the theme CSS variables. The page is validated first: external resources, frames, forms and links are refused with an invalid_html error listing each problem, and nothing is published. Optional max height is 80–2000 CSS pixels. Maximum 256 KiB UTF-8.',
+      'Show a self-contained HTML page (inline CSS, JS, SVG and data: images; no network) inline in your reply. mode "interactive" runs its scripts in a sandbox; "static" strips them and suits charts and diagrams. An invalid page returns invalid_html listing every problem and publishes nothing. Design and sandbox rules: ace_guide visualize.',
     input: HtmlRenderInput,
     output: z.object({ itemId: ItemId }),
     capability: null,

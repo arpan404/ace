@@ -62,9 +62,7 @@ test("OpenCode v2 native processes preserve user MCP servers and isolate thread 
       expect(response).toMatchObject({
         data: {
           instructions: {
-            "ace.tool-guidance": expect.stringContaining(
-              "Never drive Safari/Chrome/Arc/Firefox with screen_*",
-            ),
+            "ace.tool-guidance": expect.stringContaining("OpenCode prefixes every ace MCP tool"),
           },
         },
       });

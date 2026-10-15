@@ -192,7 +192,7 @@ it("screen and device agents edit, submit, resume expired leases and respect tak
   }
 
   expect((await call("screen_ui_tree", {}, true)).content).toMatchObject([
-    { text: "Tool unavailable or capability denied" },
+    { text: expect.stringContaining('"code":"tool_unavailable"') },
   ]);
   await screen.enable(true);
   const session = await screen.start({ kind: "window", windowId: 1, bundleId: "dev.ace.journey" });

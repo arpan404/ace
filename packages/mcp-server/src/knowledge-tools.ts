@@ -84,7 +84,7 @@ export const knowledgeToolCatalog = [
     name: "ace_context",
     riskClass: "read-only",
     description:
-      "What this project already knows, in one read: recent threads with their outcomes and PRs, this worktree's changes versus upstream, linked PRs with CI state, project notes, and this session's diagnostics (failed ace calls, what blocks settlement). Use before git/gh calls or re-reading transcripts. Also readable as ace://project/recent, ace://worktree/changes, ace://project/prs, ace://project/notes and ace://thread/self/diagnostics.",
+      "What this project already knows, in one read: recent threads with their outcomes and PRs, this worktree's changes versus upstream, linked PRs with CI state, project notes, and this session's diagnostics (failed ace calls, what blocks settlement). Cheaper than re-reading transcripts; each topic is also an ace:// resource.",
     input: z.strictObject({
       topics: z.array(ContextTopic).min(1).max(5).default(["recent", "changes", "prs", "notes"]),
     }),
