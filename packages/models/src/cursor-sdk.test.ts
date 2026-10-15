@@ -234,3 +234,47 @@ it.each(["effort", "reasoning", "reasoning_effort"])(
     expect(() => cursorModelParams(row, { effort: "max" })).toThrow("does not support");
   },
 );
+
+const params = (context: string, reasoning: string, fast: string) => [
+  { id: "context", value: context },
+  { id: "reasoning", value: reasoning },
+  { id: "fast", value: fast },
+];
+
+it("only sends Cursor parameter combinations the SDK lists, at standard context", () => {
+  const instance = ModelInstance.parse({
+    id: "sdk-a",
+    provider: "cursor",
+    backend: "cursor-sdk",
+    homeDir: "/instances/a",
+    cwd: "/workspace",
+    loginRevision: "login-1",
+  });
+  // GPT-5.5's real listing: fast exists only at 272k, and the default variant is 1m.
+  const [row] = normalizeCursorSdk(
+    [
+      {
+        id: "gpt-5.5",
+        parameters: [
+          { id: "context", values: [{ value: "272k" }, { value: "1m" }] },
+          { id: "reasoning", values: [{ value: "medium" }, { value: "high" }] },
+          { id: "fast", values: [{ value: "false" }, { value: "true" }] },
+        ],
+        variants: [
+          { displayName: "GPT-5.5", params: params("272k", "medium", "false") },
+          { displayName: "GPT-5.5 Fast", params: params("272k", "medium", "true") },
+          { displayName: "GPT-5.5 High", params: params("272k", "high", "false") },
+          { displayName: "GPT-5.5 High Fast", params: params("272k", "high", "true") },
+          { displayName: "GPT-5.5 1M", isDefault: true, params: params("1m", "medium", "false") },
+          { displayName: "GPT-5.5 1M High", params: params("1m", "high", "false") },
+        ],
+      },
+    ],
+    instance,
+  );
+  if (!row) throw new Error("Missing normalized model");
+  expect(cursorModelParams(row, {})).toEqual(params("272k", "medium", "false"));
+  expect(cursorModelParams(row, { effort: "high", serviceTier: "fast" })).toEqual(
+    params("272k", "high", "true"),
+  );
+});
