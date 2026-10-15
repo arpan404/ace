@@ -275,6 +275,7 @@ export class GitService {
     repo: string;
     branch: string;
     remote?: string | undefined;
+    signal?: AbortSignal | undefined;
   }): Promise<string | undefined> {
     return branchHead(this.repository, options);
   }
@@ -325,9 +326,11 @@ export class GitService {
     return createWorktree(this.repository, options);
   }
 
-  async listWorktrees(repo: string) {
-    const root = await this.repository.root(repo);
-    return this.repository.serial(root, () => this.repository.worktrees(root));
+  /** `signal` stops a stalled or queued read; the listing writes nothing. */
+  async listWorktrees(repo: string, options: { signal?: AbortSignal | undefined } = {}) {
+    const { signal } = options;
+    const root = await this.repository.root(repo, signal);
+    return this.repository.serial(root, () => this.repository.worktrees(root, signal), signal);
   }
 
   worktreeMetadata(repo: string, path: string) {
@@ -400,9 +403,19 @@ export class GitService {
     return this.repository.serial(root, () => readRevisionLines(this.repository, root, options));
   }
 
-  async resolveCommit(options: { worktree: string; ref: string }): Promise<string> {
-    const root = await this.repository.root(options.worktree);
-    return this.repository.serial(root, () => this.repository.commit(root, options.ref));
+  /** `signal` stops a stalled or queued read; resolving writes nothing. */
+  async resolveCommit(options: {
+    worktree: string;
+    ref: string;
+    signal?: AbortSignal | undefined;
+  }): Promise<string> {
+    const { signal } = options;
+    const root = await this.repository.root(options.worktree, signal);
+    return this.repository.serial(
+      root,
+      () => this.repository.commit(root, options.ref, signal),
+      signal,
+    );
   }
 
   async applyPatch(options: { worktree: string; patch: string }): Promise<void> {

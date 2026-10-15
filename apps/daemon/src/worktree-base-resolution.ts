@@ -45,26 +45,35 @@ export async function resolveWorktreeBase(
   project: string,
   requested: Exclude<RequestedBase, { kind: "pull-request" }>,
   fetchTimeoutMs: number,
-  io: { signal?: AbortSignal; stderr?: (chunk: Buffer) => void } = {},
+  io: { signal?: AbortSignal; stderr?: (chunk: Buffer) => void; reads?: AbortSignal } = {},
 ): Promise<{ head: string; record?: WorktreeBaseRecord }> {
+  const { reads, ...fetchIo } = io;
   if (requested.kind === "revision")
-    return { head: await git.resolveCommit({ worktree: project, ref: requested.revision }) };
+    return {
+      head: await git.resolveCommit({ worktree: project, ref: requested.revision, signal: reads }),
+    };
   const { ref, remote } = requested;
   if (remote === undefined) {
-    const head = await branchHead(git, project, ref);
+    const head = await branchHead(git, project, ref, undefined, reads);
     if (!head) throw notFound(requested);
     return { head, record: { ref, head } };
   }
   let fetch: "fetched" | "unreachable" = "fetched";
   try {
-    await git.fetchBranch({ repo: project, remote, branch: ref, timeoutMs: fetchTimeoutMs, ...io });
+    await git.fetchBranch({
+      repo: project,
+      remote,
+      branch: ref,
+      timeoutMs: fetchTimeoutMs,
+      ...fetchIo,
+    });
   } catch (error) {
     if (!(error instanceof GitError)) throw error;
     if (missing.has(error.code)) throw notFound(requested);
     if (!unreachable.has(error.code)) throw error;
     fetch = "unreachable";
   }
-  const head = await branchHead(git, project, ref, remote);
+  const head = await branchHead(git, project, ref, remote, reads);
   if (head) return { head, record: { ref, remote, head, fetch } };
   if (fetch === "fetched") throw notFound(requested);
   throw new WorktreeBaseError(
@@ -79,11 +88,14 @@ export async function resolveAgentWorktreeBase(
   git: LocalBaseGit,
   project: string,
   requested: Exclude<RequestedBase, { kind: "pull-request" }>,
+  signal?: AbortSignal,
 ): Promise<{ head: string; record?: WorktreeBaseRecord }> {
   if (requested.kind === "revision")
-    return { head: await git.resolveCommit({ worktree: project, ref: requested.revision }) };
+    return {
+      head: await git.resolveCommit({ worktree: project, ref: requested.revision, signal }),
+    };
   const { ref, remote } = requested;
-  const head = await branchHead(git, project, ref, remote);
+  const head = await branchHead(git, project, ref, remote, signal);
   if (!head) {
     if (!remote) throw notFound(requested);
     throw new WorktreeBaseError(
@@ -99,10 +111,11 @@ async function branchHead(
   git: LocalBaseGit,
   project: string,
   branch: string,
-  remote?: string,
+  remote: string | undefined,
+  signal: AbortSignal | undefined,
 ): Promise<string | undefined> {
   try {
-    return await git.branchHead({ repo: project, branch, remote });
+    return await git.branchHead({ repo: project, branch, remote, signal });
   } catch (error) {
     if (error instanceof GitError && missing.has(error.code)) return undefined;
     throw error;

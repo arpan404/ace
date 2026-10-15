@@ -51,15 +51,9 @@ export interface PrInput {
   draftBaseRef?: string | undefined;
 }
 
-/** Checkout refusals the shared action copy doesn't word yet. */
-const moveRefusals: Record<string, string> = {
-  branch_checked_out:
-    "That branch is checked out in another folder: move to a worktree of its own instead.",
-};
-
 /** A workspace refusal code in words, for a toast or the Work card. */
 export function workspaceErrorText(code: string): string {
-  return moveRefusals[code] ?? actionErrorText(code);
+  return actionErrorText(code);
 }
 
 export class WorkspaceError extends Error {
@@ -158,6 +152,11 @@ export interface WorkspaceSource {
   setCheckout(thread: ThreadRef, change: CheckoutChange): Promise<void>;
   /** Release a failed or uncertain checkout move, once the person confirmed. */
   clearCheckoutMove(thread: ThreadRef): Promise<void>;
+  /**
+   * After a late worktree's setup script failed: run it again or start without it, then let
+   * the held first message go.
+   */
+  resolveSetup(thread: ThreadRef, action: "retry" | "continue"): Promise<void>;
 }
 
 export interface CheckoutChange {
@@ -342,6 +341,12 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
     },
     async clearCheckoutMove(thread) {
       await run({ type: "thread.workspace.clear", threadId: id(thread) });
+    },
+    async resolveSetup(thread, action) {
+      const threadId = id(thread);
+      await run({ type: "thread.workspace.setup", threadId, action });
+      const { queue } = await client.request({ type: "queue.get", threadId, limit: 1 });
+      await run({ type: "queue.resume", threadId, expectedRevision: queue.revision });
     },
   };
 }

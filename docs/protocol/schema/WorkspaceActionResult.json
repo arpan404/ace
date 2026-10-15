@@ -92,6 +92,9 @@
             },
             "truncated": {
               "type": "boolean"
+            },
+            "unbornHead": {
+              "type": "boolean"
             }
           },
           "required": [

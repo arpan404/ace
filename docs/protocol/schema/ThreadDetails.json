@@ -251,6 +251,38 @@
     },
     "worktreeMissing": {
       "type": "boolean"
+    },
+    "worktreeSetup": {
+      "properties": {
+        "at": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "details": {
+          "items": {
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "reason": {
+          "const": "read_only",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "failed",
+            "skipped"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "details",
+        "at"
+      ],
+      "type": "object"
     }
   },
   "type": "object"

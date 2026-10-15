@@ -36,7 +36,7 @@ export function transitionHarness(
     maxActiveThreads?: number;
     beforeFork?(context: SessionContext): Promise<void>;
     providerEnabled?: EngineOptions["providerEnabled"];
-    prepareWorkspace?(id: ThreadId): Promise<string>;
+    prepareWorkspace?(id: ThreadId, options: { runCommands: boolean }): Promise<string>;
     assertWorkspaceAvailable?: EngineOptions["assertWorkspaceAvailable"];
   } = {},
 ) {

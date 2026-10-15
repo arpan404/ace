@@ -28,17 +28,17 @@ export class Repository {
     this.tempDirectory = tempDirectory;
   }
 
-  async serial<T>(root: string, operation: () => Promise<T>): Promise<T> {
+  async serial<T>(root: string, operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     let canonical: string;
     try {
       canonical = await realpath(root);
     } catch {
       throw new GitError("not_a_repo", `Repository path does not exist: ${root}`);
     }
-    return serial(canonical, operation, this.cli.leaseId, this.cli.leaseProbe);
+    return serial(canonical, operation, this.cli.leaseId, this.cli.leaseProbe, signal);
   }
 
-  async root(repo: string): Promise<string> {
+  async root(repo: string, signal?: AbortSignal): Promise<string> {
     let cwd: string;
     try {
       cwd = await realpath(repo);
@@ -47,6 +47,7 @@ export class Repository {
     }
     const inside = await this.cli.call(cwd, ["rev-parse", "--is-inside-work-tree"], {
       allowFailure: true,
+      ...(signal ? { signal } : {}),
     });
     if (
       inside.exitCode !== 0 ||
@@ -55,7 +56,7 @@ export class Repository {
       throw new GitError("not_a_repo", `Not a Git working tree: ${repo}`);
     }
     // rev-parse has no NUL path mode. Worktree porcelain does, including for the main tree.
-    const trees = await this.worktrees(cwd);
+    const trees = await this.worktrees(cwd, signal);
     const roots = await Promise.all(
       trees
         .filter((tree) => !tree.bare)
@@ -74,9 +75,15 @@ export class Repository {
     return root;
   }
 
-  async worktrees(repo: string): Promise<Worktree[]> {
+  async worktrees(repo: string, signal?: AbortSignal): Promise<Worktree[]> {
     return parseWorktrees(
-      (await this.cli.call(repo, ["worktree", "list", "--porcelain", "-z"])).stdout,
+      (
+        await this.cli.call(
+          repo,
+          ["worktree", "list", "--porcelain", "-z"],
+          signal ? { signal } : {},
+        )
+      ).stdout,
     );
   }
 
@@ -119,12 +126,12 @@ export class Repository {
     return { root, ...branch, remotes: parseRemotes(remotes.stdout) };
   }
 
-  async commit(root: string, ref: string): Promise<string> {
+  async commit(root: string, ref: string, signal?: AbortSignal): Promise<string> {
     if (!ref || ref.includes("\0")) throw new GitError("invalid_ref", "A commit ref is required");
     const result = await this.cli.call(
       root,
       ["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`],
-      { allowFailure: true },
+      { allowFailure: true, ...(signal ? { signal } : {}) },
     );
     if (result.exitCode !== 0) {
       // HEAD naming a branch that has no commit yet is a new repository, not a bad ref.

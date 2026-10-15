@@ -24,7 +24,6 @@ export function actionErrorCode(error: unknown): string {
       "workspace_busy",
       "thread_creation_in_progress",
       "workspace_preparation_collision",
-      "branch_checked_out_elsewhere",
       "workspace_change_refused",
       "repository_mismatch",
       "pr_checkout_changed",

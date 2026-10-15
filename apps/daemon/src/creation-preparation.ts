@@ -43,9 +43,14 @@ export function preparationSignal(signal: AbortSignal | undefined, timeoutMs: nu
 }
 
 type BranchGit = Pick<GitService, "resolveCommit">;
-async function branchExists(git: BranchGit, repo: string, branch: string): Promise<boolean> {
+async function branchExists(
+  git: BranchGit,
+  repo: string,
+  branch: string,
+  signal: AbortSignal | undefined,
+): Promise<boolean> {
   try {
-    await git.resolveCommit({ worktree: repo, ref: `refs/heads/${branch}` });
+    await git.resolveCommit({ worktree: repo, ref: `refs/heads/${branch}`, signal });
     return true;
   } catch (error) {
     if (error instanceof GitError && error.code === "invalid_ref") return false;
@@ -65,7 +70,7 @@ export async function freeBranch(
 ): Promise<string> {
   for (let attempt = 1; attempt <= 8; attempt++) {
     const candidate = attempt === 1 ? branch : `${branch}-${attempt}`;
-    if (!(await abortable(branchExists(git, repo, candidate), signal))) return candidate;
+    if (!(await abortable(branchExists(git, repo, candidate, signal), signal))) return candidate;
   }
   throw new Error("workspace_preparation_collision");
 }

@@ -1,6 +1,6 @@
 import { workbench } from "@ace/fake-daemon";
-import { WorkspaceId } from "@ace/protocol";
-import { configure, act, screen, waitFor, within } from "@testing-library/react";
+import { CommandId, WorkspaceId } from "@ace/protocol";
+import { configure, act, cleanup, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -162,6 +162,37 @@ test("once made, the card folds to one line that opens on its steps and log", as
   expect(screen.getByRole("combobox", { name: "Message" }).getAttribute("aria-disabled")).not.toBe(
     "true",
   );
+}, 30_000);
+
+test("a cancelled start the person walks away from is forgotten by the daemon, its message kept here", async () => {
+  const made = app();
+  const card = await startWorktree(made, "Leave this one behind");
+  await made.stepUntil(() => checkout() !== null);
+  await userEvent.click(within(card).getByRole("button", { name: "Cancel" }));
+  await screen.findByRole("region", { name: "Worktree cancelled" });
+  const send = made.client
+    .pendingSends()
+    .getSnapshot()
+    .find((entry) => entry.payload.type === "thread.create");
+  if (!send) throw new Error("Missing the cancelled start");
+  const ask = () =>
+    made.client.request({
+      type: "worktree.creation.request",
+      commandId: CommandId.parse(send.commandId),
+      action: "get",
+    });
+  expect(await ask()).toMatchObject({ ok: true, progress: { state: "cancelled" } });
+
+  // Leaving the thread's view: here, closing it.
+  cleanup();
+  await waitFor(async () => expect(await ask()).toMatchObject({ ok: false, error: "not_found" }));
+  // The message is still on this device, ready to retry or edit.
+  expect(
+    made.client
+      .pendingSends()
+      .getSnapshot()
+      .some((entry) => entry.commandId === send.commandId),
+  ).toBe(true);
 }, 30_000);
 
 test("Cancel stops the worktree, keeps the message unsent and offers Retry or the local checkout", async () => {

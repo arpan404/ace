@@ -38,6 +38,7 @@ import { useCheckoutMoves } from "./work-card-branches.tsx";
 import { RowButton, RowCaret, RowLabel, Section, rowIcon } from "./work-card-parts.tsx";
 import { ScriptConfigurationItems } from "./work-card-scripts.tsx";
 import { CheckoutProblem } from "./work-card-checkout-problem.tsx";
+import { WorktreeSetupRow } from "./work-card-setup.tsx";
 
 const glyph = (Glyph: typeof CopyIcon) => <Glyph aria-hidden size={16} />;
 
@@ -55,6 +56,7 @@ export function EnvironmentGroup(props: {
     <Section label="Environment">
       <MachineRow {...props} />
       <CheckoutProblem thread={props.thread} move={props.move} />
+      <WorktreeSetupRow thread={props.thread} />
       <OpenInRow thread={props.thread} />
       <AddScriptRow {...props} />
     </Section>

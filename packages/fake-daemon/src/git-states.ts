@@ -21,12 +21,15 @@ type Branches = WorkspaceActionResult["result"];
  * fails. Each fact is set by a test and read by `branches.list` and worktree starts.
  */
 export class FakeGitStates {
-  private kinds = new Map<string, "none" | "empty">();
+  private kinds = new Map<string, "none" | "empty" | "detached">();
   private locks = new Map<string, string>();
   private setups = new Map<string, readonly string[]>();
 
-  /** The project's folder isn't a Git repository (`none`), or has no commits yet (`empty`). */
-  setRepository(workspaceId: string, kind: "repo" | "none" | "empty"): void {
+  /**
+   * The project's folder isn't a Git repository (`none`), has no commits yet (`empty`), or sits
+   * on a detached HEAD with commits but no branches (`detached`).
+   */
+  setRepository(workspaceId: string, kind: "repo" | "none" | "empty" | "detached"): void {
     if (kind === "repo") this.kinds.delete(workspaceId);
     else this.kinds.set(workspaceId, kind);
   }
@@ -49,7 +52,16 @@ export class FakeGitStates {
     const kind = this.kinds.get(workspaceId);
     if (kind === "none") return { kind: "error", code: "git_not_a_repo" };
     if (kind === "empty")
-      return { kind: "branches", branches: [], truncated: false, refs: [], defaultBranch: "main" };
+      return {
+        kind: "branches",
+        branches: [],
+        truncated: false,
+        refs: [],
+        defaultBranch: "main",
+        unbornHead: true,
+      };
+    if (kind === "detached")
+      return { kind: "branches", branches: [], truncated: false, refs: [], unbornHead: false };
     return {
       kind: "branches",
       branches: ["main", "develop"],

@@ -254,8 +254,8 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           : undefined),
     ...(services.workspaceActions
       ? {
-          prepareWorkspace: (id) =>
-            services.workspaceActions?.prepare(id) ??
+          prepareWorkspace: (id, policy) =>
+            services.workspaceActions?.prepare(id, policy) ??
             Promise.reject(new Error("Workspace unavailable")),
           assertWorkspaceAvailable: async (cwd) => {
             await engineOptions.assertWorkspaceAvailable?.(cwd);

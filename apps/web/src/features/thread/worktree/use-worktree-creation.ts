@@ -5,7 +5,8 @@ import {
   type WorktreeCreationState,
 } from "@ace/client/worktree-creations";
 import { useClient } from "@ace/client-react";
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import type { WorktreeCreationProgress } from "@ace/protocol";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
 export type { WorktreeAction, WorktreeCreationState } from "@ace/client/worktree-creations";
 
@@ -26,6 +27,29 @@ function storeFor(client: ClientApi): WorktreeCreations {
  */
 export function dismissWorktreeStart(client: ClientApi, commandId: string): void {
   void storeFor(client).act(commandId, "dismiss");
+}
+
+/**
+ * A cancelled start the person leaves is forgotten on the daemon, as one returned to New
+ * thread is. Its message stays on this device as a failed send with Retry and Edit.
+ */
+export function useDismissCancelledOnLeave(
+  commandId: string | undefined,
+  progress: WorktreeCreationProgress | undefined,
+): void {
+  const client = useClient();
+  const latest = useRef(progress);
+  useEffect(() => {
+    latest.current = progress;
+  }, [progress]);
+  useEffect(
+    () => () => {
+      const last = latest.current;
+      if (commandId && last?.state === "cancelled" && last.cleanupComplete)
+        dismissWorktreeStart(client, commandId);
+    },
+    [client, commandId],
+  );
 }
 
 const idle = { getSnapshot: () => undefined, subscribe: () => () => {} };

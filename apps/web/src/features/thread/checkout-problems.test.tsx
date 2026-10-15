@@ -47,6 +47,31 @@ async function open() {
   return { app, details };
 }
 
+test("a late worktree's failed setup shows its output, and Continue lets the thread start", async () => {
+  const { app, details } = await open();
+  app.daemon.workspace.setDetails(id, {
+    worktreeSetup: { state: "failed", details: ["npm ERR! setup broke"], at: 1 },
+  });
+  const card = await openWorkCard();
+  await within(card).findByText("Setup script failed");
+  expect(within(card).getByRole("log", { name: "Setup output" }).textContent).toContain(
+    "npm ERR! setup broke",
+  );
+  await userEvent.click(within(card).getByRole("button", { name: "Continue without setup" }));
+  await waitFor(() => expect(details()?.worktreeSetup).toBeUndefined());
+  expect(within(card).queryByText("Setup script failed")).toBeNull();
+}, 30_000);
+
+test("a Read-only thread's skipped setup says so in the Work card", async () => {
+  const { app } = await open();
+  app.daemon.workspace.setDetails(id, {
+    worktreeSetup: { state: "skipped", reason: "read_only", details: [], at: 1 },
+  });
+  const card = await openWorkCard();
+  expect(await within(card).findByText("Setup skipped: Read-only")).toBeTruthy();
+  expect(within(card).queryByRole("button", { name: "Retry" })).toBeNull();
+}, 30_000);
+
 async function moveToWorktree() {
   const card = await openWorkCard();
   await userEvent.click(within(card).getByRole("button", { name: machineRow }));

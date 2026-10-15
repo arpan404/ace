@@ -188,7 +188,7 @@ export class WorkspaceCreations {
     const path = join(await realpath(parent), key);
     // Reads before `git worktree add` are bounded: a stalled Git never pins Cancel or Use local.
     const bounded = preparationSignal(signal, this.preparationTimeoutMs);
-    const trees = await abortable(this.git.listWorktrees(project), bounded);
+    const trees = await abortable(this.git.listWorktrees(project, { signal: bounded }), bounded);
     const kept = this.journal.held(id);
     if (
       kept &&
@@ -219,12 +219,13 @@ export class WorkspaceCreations {
     const { head, record } =
       requested.kind === "pull-request"
         ? { head: preparedPr?.head ?? "", record: undefined }
-        : await abortable(this.resolveBase(project, requested, io, context.host), bounded).catch(
-            async (error: unknown) => {
-              if (await noCommits(this.git, project, error)) throw new CreationError("no_commits");
-              throw error;
-            },
-          );
+        : await abortable(
+            this.resolveBase(project, requested, { ...io, reads: bounded }, context.host),
+            bounded,
+          ).catch(async (error: unknown) => {
+            if (await noCommits(this.git, project, error)) throw new CreationError("no_commits");
+            throw error;
+          });
     const resource: CreationResource = {
       id,
       owner_id: ownerId,
@@ -295,12 +296,12 @@ export class WorkspaceCreations {
   private resolveBase(
     project: string,
     requested: Exclude<RequestedBase, { kind: "pull-request" }>,
-    io: { signal?: AbortSignal; stderr?: (chunk: Buffer) => void },
+    io: { signal?: AbortSignal; stderr?: (chunk: Buffer) => void; reads: AbortSignal },
     host: boolean | undefined,
   ) {
     return host
       ? resolveWorktreeBase(this.git, project, requested, this.fetchTimeoutMs, io)
-      : resolveAgentWorktreeBase(this.git, project, requested);
+      : resolveAgentWorktreeBase(this.git, project, requested, io.reads);
   }
   /** Retry or Continue after a failed setup script: the kept worktree is used as it is. */
   private resume(

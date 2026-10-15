@@ -77,6 +77,18 @@ const copy: Record<string, string> = {
   git_checkpoint_not_found: "That checkpoint is gone: pick a later one.",
   git_restore_collision: "Restoring would overwrite newer edits: commit or move them first.",
   git_unsupported_repository: "This repository's layout isn't supported yet: use a terminal.",
+  git_branch_checked_out:
+    "That branch is checked out in another folder: move to a worktree of its own instead.",
+  git_path_exists: "Something already exists where the worktree goes: move it away, then retry.",
+  git_ref_conflict:
+    "A branch name collides with another, such as `ace` and `ace/…`: rename one, then retry.",
+  git_unborn_head: "The repository has no commits yet: make a first commit, then retry.",
+  git_identity_missing:
+    "Git doesn't know who you are: set user.name and user.email, then commit again.",
+  git_nothing_to_commit: "There's nothing to commit: every change is already committed.",
+  git_push_rejected:
+    "The remote has commits this branch doesn't: pull or rebase onto them, then push again.",
+  git_protected_branch: "The remote protects that branch: push to a new branch and open a PR.",
   // The forge (GitHub through `gh`).
   forge_auth: "Sign in to GitHub: run `gh auth login`, then retry.",
   forge_cli: "The GitHub CLI failed: install `gh` and run `gh auth login`, then retry.",

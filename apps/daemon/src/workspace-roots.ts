@@ -4,6 +4,7 @@ import { WorkspaceCreations, type CreationOptions } from "./creation-workspace.t
 import { realpath } from "node:fs/promises";
 import type { GitService } from "@ace/git";
 import { checkoutCwd } from "./creation-preparation.ts";
+import { LateSetup } from "./late-setup.ts";
 import {
   ensureThreadWorktree,
   exists,
@@ -23,6 +24,7 @@ export class WorkspaceRoots {
   private preparations = new Map<ThreadId, Promise<string>>();
   private closing = false;
   private creations: WorkspaceCreations;
+  private setup: LateSetup;
   private store: Store;
   private git: WorkspaceGit;
   private directory: string;
@@ -53,6 +55,7 @@ export class WorkspaceRoots {
     );
     this.store = store;
     this.git = git;
+    this.setup = new LateSetup(store, git, now);
     this.directory = directory;
     this.now = now;
     this.machine = machine;
@@ -90,20 +93,28 @@ export class WorkspaceRoots {
     if (!binding.ready) throw new Error("workspace_preparing");
     return binding.path;
   }
-  prepare(id: ThreadId): Promise<string> {
+  /** Retry or Continue after a late worktree's failed setup script. */
+  chooseSetup(id: ThreadId, choice: "retry" | "continue"): "settled" | undefined {
+    return this.setup.choose(id, choice);
+  }
+  prepare(id: ThreadId, policy: { runCommands: boolean }): Promise<string> {
     if (this.closing) return Promise.reject(new Error("workspace_closed"));
     const binding = this.store.executionWorkspace(id);
     if (binding.ready) return Promise.resolve(binding.path);
     const existing = this.preparations.get(id);
     if (existing) return existing;
     if (this.preparations.size >= 16) return Promise.reject(new Error("workspace_busy"));
-    const preparation = this.preparePending(id, binding.path).finally(() =>
+    const preparation = this.preparePending(id, binding.path, policy).finally(() =>
       this.preparations.delete(id),
     );
     this.preparations.set(id, preparation);
     return preparation;
   }
-  private async preparePending(id: ThreadId, expectedRoot: string): Promise<string> {
+  private async preparePending(
+    id: ThreadId,
+    expectedRoot: string,
+    policy: { runCommands: boolean },
+  ): Promise<string> {
     const thread = this.store.getThread(id);
     if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
     const project = this.store.getWorkspacePath(thread.workspaceId);
@@ -114,6 +125,8 @@ export class WorkspaceRoots {
       baseRef: recordedBaseRef(thread.details),
     });
     const { branch } = made;
+    // Before the binding is ready: a failed setup leaves it pending, so Retry runs it again.
+    await this.setup.run(id, made.path, made.created, policy);
     const path = await checkoutCwd(
       await this.git.listWorktrees(project),
       await realpath(project),

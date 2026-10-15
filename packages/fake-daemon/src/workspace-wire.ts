@@ -302,6 +302,17 @@ export class FakeWorkspaceWire {
         });
       return { ok: true, threadId: payload.threadId };
     }
+    if (payload.type === "thread.workspace.setup") {
+      const details = thread?.details;
+      if (details?.worktreeSetup?.state !== "failed") return { ok: false, error: "settled" };
+      // The fake's setup passes on Retry; Continue skips it. Either way the failure is gone.
+      const { worktreeSetup: _resolved, ...rest } = details;
+      this.context.update(payload.threadId, {
+        type: "thread.client.updated",
+        changes: { details: rest },
+      });
+      return { ok: true, threadId: payload.threadId };
+    }
     if (payload.type === "thread.workspace.clear") {
       const details = thread?.details;
       if (!thread || !details) return { ok: false, error: "thread_not_found" };
