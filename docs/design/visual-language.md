@@ -32,25 +32,26 @@ Mode and theme are separate settings.
 
 - **Mode:** Light, Dark or System. System follows `prefers-color-scheme`, and a change
   cross-fades the window.
-- **Theme:** ace (the default), Folio, Umbra, Signal, Tty or Harbor.
+- **Theme:** ace (the default), Paper, Midnight, Grove, Harbor or Dusk.
 - **Accent:** the theme's own, Blue, Violet, Teal, Green, Amber, Rose, Ink (the text colour) or
   a custom colour. It applies over any theme.
 
-A theme is a material, not an accent. Each owns its neutral ramp, contrast, status hues, code
-colours, fonts and glass per scheme. The values come from the approved theme proposal's final
-token tables, one file per theme in `src/theme/sources/`. Nothing is generated except the
-pressed accent and the shadow tint.
+A theme is colour only. Each owns its neutral ramp (one shared lightness curve, its own hue and
+tint strength), accent and code colours per scheme; fonts, glass material, spacing and corners are
+the same in every theme (`sources/shared.ts`), and status colours are the same in every theme.
+One file per theme in `src/theme/sources/`. Nothing is generated except the pressed accent and
+the shadow tint.
 
-| Theme  | Character                                                                                                                                                                                             |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ace    | Zero-chroma greys. The accent is the ink, so Send, focus and caret take the text colour, the selected task is a brighter fill and status is the only colour. No milled edge, grain or material effect |
-| Folio  | Warm paper and umber ink, with a mulberry accent. Transcript prose is serif; the UI stays sans                                                                                                        |
-| Umbra  | The darkest canvas, on one plane, with text held back from white and a verdigris accent                                                                                                               |
-| Signal | Black on white, 3:1 borders, AAA status words, ink accent, solid layers, full focus rings                                                                                                             |
-| Tty    | All monospace, with a chartreuse cursor accent and a teal "done"                                                                                                                                      |
-| Harbor | Cool slate at mid contrast, with a petrol accent                                                                                                                                                      |
+| Theme    | Character                                                                                                             |
+| -------- | --------------------------------------------------------------------------------------------------------------------- |
+| ace      | Neutral graphite; the ink is the accent, so Send, focus and caret take the text colour, and status is the only colour |
+| Paper    | Warm cream by day, warm charcoal by night, with a terracotta accent                                                   |
+| Midnight | Blue-black nights and cool daylight, with a periwinkle accent                                                         |
+| Grove    | Quiet green-grey neutrals with a moss accent                                                                          |
+| Harbor   | Cool slate with a petrol accent                                                                                       |
+| Dusk     | Soft plum neutrals with an orchid accent                                                                              |
 
-The sources clear AA on the proposal's surfaces: page, sidebar, cards, floating, hover, active
+The sources clear AA on every surface: page, sidebar, cards, floating, hover, active
 and code. The app also draws text on glass and on selected-row washes, and its faint icons need
 3:1. `palettes.ts` steps any role that falls short there toward black (light) or white (dark)
 just far enough. Every other value is used exactly as given.
@@ -146,13 +147,17 @@ To port prototype CSS, translate its names as follows:
 
 Static tokens (`tokens.css`):
 
-- **Type:** defaults for `--font-sans`, `--font-prose` and `--font-mono`; each theme sets its own.
+- **Type:** `--font-sans`, `--font-prose` and `--font-mono`, the same in every theme.
 - **Layout:** `--header-h`, `--column` and `--composer-control`.
-- **Radii:**
-  - `--radius-sm` is 8 px, for controls, rows and code.
-  - `--radius` is 10 px.
-  - `--radius-lg` is 14 px, for bubbles and floating layers.
-  - `--radius-xl` is 22 px, for the composer.
+- **Radii** (Default; `[data-corners]` rescales them, see DESIGN.md §2 Radius):
+  - `--radius-xs` is 4 px, for tags and inline code.
+  - `--radius-sm` is 6 px, for small controls and tooltips.
+  - `--radius` is 8 px, for buttons, inputs and rows.
+  - `--radius-lg` is 12 px, for cards, bubbles and floating layers.
+  - `--radius-xl` is 18 px, for the composer.
+  - Sharp is 2/3/4/6/10 and Round 6/9/12/16/24.
+- **Depth:** `--depth-highlight`, `--depth-dock`, `--depth-strip`, `--depth-raise`, `--depth-fill`
+  and `--depth-well`, per scheme in `theme/tokens.ts`.
 - **Density:** `[data-density="compact"]`.
 
 ## Surfaces
@@ -168,7 +173,7 @@ the `--glass-*` variables on `<html>`; liquid glass filters are kept.
 all) in any of these cases:
 
 - the slider is at Solid;
-- the theme has no glass (Signal). The slider is disabled and says so;
+- the theme has no glass (none of the current themes). The slider is disabled and says so;
 - the OS reports `prefers-reduced-transparency: reduce`. The slider is disabled at Solid and
   says why.
 
@@ -205,7 +210,7 @@ DOM is solid by CSS. `popupFrame` in `components/ui/menu-styles.ts` is a popup's
 its material.
 
 `data-surface` is "solid" under the Solid setting, while the OS reduces transparency, and in a
-theme with no glass (Signal). Nothing the stylesheet ships has a backdrop filter then
+theme with no glass. Nothing the stylesheet ships has a backdrop filter then
 (`apps/web/motion-css.test.ts` checks the built CSS).
 
 The material, in order:
@@ -243,7 +248,7 @@ Every iOS browser counts as WebKit.
 The command palette (`.ace-modal`) sits over `.ace-backdrop`, which blurs the page once, so the
 panel has the tint and rim with no blur of its own.
 
-Corners are concentric: rows inside a 14px popup with 4px padding are 10px (`rounded-md`).
+Corners are concentric: rows inside a 12px popup with 4px padding are 8px (`rounded-md`).
 
 Keep glass cheap:
 
