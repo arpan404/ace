@@ -116,7 +116,7 @@
             ],
             "type": "object"
           },
-          "maxItems": 16,
+          "maxItems": 64,
           "type": "array"
         }
       },

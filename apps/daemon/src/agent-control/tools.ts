@@ -222,7 +222,7 @@ export function createAgentControlPort(
                 {
                   threadIds: [child.childId],
                   mode: "all",
-                  timeoutSeconds: Math.ceil((operation.waitMs ?? 240000) / 1000),
+                  timeoutSeconds: Math.ceil((operation.waitMs ?? 600000) / 1000),
                 },
                 signal,
               );
@@ -234,7 +234,7 @@ export function createAgentControlPort(
                     caller,
                     child.childId,
                     signal,
-                    operation.waitMs ?? 240000,
+                    operation.waitMs ?? 600000,
                   )
                 : undefined;
             return {

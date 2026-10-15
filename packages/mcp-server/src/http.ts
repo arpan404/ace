@@ -57,7 +57,7 @@ export async function startMcpServer(options: McpServerOptions) {
   const http = createServer(
     { maxHeaderSize: 8192, requestTimeout: 30_000, headersTimeout: 10_000 },
     (request, response) => {
-      if (closing || active >= (options.maxRequests ?? 128)) {
+      if (closing || active >= (options.maxRequests ?? 2048)) {
         response.writeHead(503).end();
         return;
       }

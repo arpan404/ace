@@ -25,6 +25,7 @@ import {
   lastLine,
   requestPrompt,
   settledStates,
+  shareResults,
   waitOutcome,
   watchedState,
 } from "./watch-view.ts";
@@ -50,13 +51,9 @@ export interface RemoteChildren {
 interface PendingWait {
   ids: readonly ThreadId[];
   mode: WaitMode;
-  caller: McpAttribution;
   scheduled: boolean;
   finish(status: WaitStatus): void;
 }
-const maxWaits = 64;
-const maxWaitsPerCaller = 16;
-
 /**
  * Bounded waits and compact snapshots over the canonical thread status and delegation journal.
  * Waits observe store changes for the watched threads only; ending a wait never cancels work.
@@ -103,9 +100,6 @@ export class AgentMonitor {
       input.mode,
     );
     if (immediate) return { ok: true, data: this.respond(caller, ids, input.mode, immediate) };
-    const mine = [...this.waits].filter((wait) => wait.caller.threadId === caller.threadId).length;
-    if (this.waits.size >= maxWaits || mine >= maxWaitsPerCaller)
-      return { ok: false, code: "limit" };
     const status = await new Promise<WaitStatus | WaitResult>((resolve, reject) => {
       const cancelTimer = this.deps.clock.setTimer(
         () => wait.finish("timeout"),
@@ -123,7 +117,6 @@ export class AgentMonitor {
       const wait: PendingWait = {
         ids,
         mode: input.mode,
-        caller,
         scheduled: false,
         finish: (value) => {
           cleanup();
@@ -243,13 +236,13 @@ export class AgentMonitor {
           this.remote.delivered(entry.outcome.threadId);
         else this.deps.delivered(caller, entry.outcome);
       }
-    return { status, mode, threads: read.map((entry) => entry.view) };
+    return { status, mode, threads: shareResults(read.map((entry) => entry.view)) };
   }
   /** Never fails: a restart answers with whatever is still readable. */
   private interrupted(ids: readonly ThreadId[], mode: WaitMode): WaitResult {
     let threads: WatchedThread[];
     try {
-      threads = ids.map((id) => this.watched(id).view);
+      threads = shareResults(ids.map((id) => this.watched(id).view));
     } catch {
       threads = ids.map((id) => ({ threadId: id, state: "working", title: "", elapsedSeconds: 0 }));
     }

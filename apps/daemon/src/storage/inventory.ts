@@ -39,10 +39,13 @@ export class StorageInventory {
       label: thread.title,
       bytes,
       // Last activity anywhere in the delegation tree, so a busy child keeps its parent.
+      // A deleted sibling is gone: none of its timestamps are activity, or removing one
+      // member would mark the rest recently modified and protect them from later rounds.
       modifiedAt: Math.max(
         ...members.map((member) => {
           const t = member === id ? thread : store.getThread(member);
-          return t ? Math.max(t.activityAt ?? t.updatedAt, t.archivedAt ?? 0, t.deletedAt ?? 0) : 0;
+          if (!t || (member !== id && t.deletedAt !== undefined)) return 0;
+          return Math.max(t.activityAt ?? t.updatedAt, t.archivedAt ?? 0, t.deletedAt ?? 0);
         }),
       ),
       threadIds: members,

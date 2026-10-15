@@ -6,6 +6,7 @@ import type {
   WaitMode,
   WaitStatus,
   WatchedState,
+  WatchedThread,
 } from "@ace/protocol";
 import { agentTaskView } from "./task-view.ts";
 
@@ -106,4 +107,28 @@ export function lastLine(text: string, max: number): string | undefined {
 
 export function elapsedSeconds(from: number, to: number): number {
   return Math.max(0, Math.floor((to - from) / 1000));
+}
+
+/** Result excerpt characters one wait answer carries across all of its threads. */
+const sharedResultChars = 128 * 1024;
+const fullResultChars = 4096;
+/**
+ * A wait on many children splits one excerpt budget between them, so the answer stays inside
+ * the tool result budget however many threads it watches. A shortened excerpt is marked
+ * truncated; the full result stays readable with ace_agent_result or ace_thread_read.
+ */
+export function shareResults(threads: readonly WatchedThread[]): WatchedThread[] {
+  const share = Math.min(
+    fullResultChars,
+    Math.floor(sharedResultChars / Math.max(1, threads.length)),
+  );
+  return threads.map((thread) => {
+    if (thread.result === undefined || thread.result.length <= share) return thread;
+    let units = 0;
+    for (const point of thread.result) {
+      if (units + point.length > share) break;
+      units += point.length;
+    }
+    return { ...thread, result: thread.result.slice(0, units), truncated: true };
+  });
 }

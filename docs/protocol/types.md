@@ -1649,12 +1649,12 @@ Semantic rule: Either one task (requestId, task, role, provider) or tasks: [{ re
 | task | no | [MessageText.json](schema/MessageText.json) |  |
 | role | no | [DelegationRole.json](schema/DelegationRole.json) |  |
 | wait | no | boolean |  |
-| waitMs | no | integer | {"minimum":1,"maximum":240000} |
+| waitMs | no | integer | {"minimum":1,"maximum":600000} |
 | workspace | no | [AgentWorkspace.json](schema/AgentWorkspace.json) |  |
 | estimatedLoad | no | number | {"minimum":0,"maximum":100} |
 | machine | no | [MachineName.json](schema/MachineName.json) |  |
 | project | no | string | {"minLength":1,"maxLength":256} |
-| tasks | no | array | {"minItems":1,"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/DelegationTask.json"}} |
+| tasks | no | array | {"minItems":1,"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/DelegationTask.json"}} |
 | await | no | ["none","any","all"] |  |
 | timeoutSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) |  |
 
@@ -1752,7 +1752,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | op | yes | `"wait"` |  |
-| threadIds | yes | array | {"minItems":1,"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}} |
+| threadIds | yes | array | {"minItems":1,"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}} |
 | mode | no | [WaitMode.json](schema/WaitMode.json) | {"default":"all"} |
 | timeoutSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) | {"default":120} |
 
@@ -7594,12 +7594,12 @@ Semantic rule: Either one task (requestId, task, role, provider) or tasks: [{ re
 | task | no | [MessageText.json](schema/MessageText.json) |  |
 | role | no | [DelegationRole.json](schema/DelegationRole.json) |  |
 | wait | no | boolean |  |
-| waitMs | no | integer | {"minimum":1,"maximum":240000} |
+| waitMs | no | integer | {"minimum":1,"maximum":600000} |
 | workspace | no | [AgentWorkspace.json](schema/AgentWorkspace.json) |  |
 | estimatedLoad | no | number | {"minimum":0,"maximum":100} |
 | machine | no | [MachineName.json](schema/MachineName.json) |  |
 | project | no | string | {"minLength":1,"maxLength":256} |
-| tasks | no | array | {"minItems":1,"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/DelegationTask.json"}} |
+| tasks | no | array | {"minItems":1,"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/DelegationTask.json"}} |
 | await | no | ["none","any","all"] |  |
 | timeoutSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) |  |
 
@@ -7650,7 +7650,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | maxConcurrent | no | integer | {"default":4,"minimum":1,"maximum":64} |
-| maxDepth | no | integer | {"default":4,"minimum":1,"maximum":8} |
+| maxDepth | no | integer | {"default":8,"minimum":1,"maximum":8} |
 | coalesceMs | no | integer | {"default":50,"minimum":0,"maximum":1000} |
 
 Example:
@@ -7741,7 +7741,7 @@ Example:
 | effort | no | union | {"anyOf":[{"type":"string","const":"inherit"},{"$ref":"https://ace.local/protocol/v1/AgentEffort.json"}]} |
 | options | no | [AgentServiceOptions.json](schema/AgentServiceOptions.json) |  |
 | wait | no | boolean | {"default":false} |
-| waitMs | no | integer | {"minimum":1,"maximum":240000} |
+| waitMs | no | integer | {"minimum":1,"maximum":600000} |
 | workspace | no | [AgentWorkspace.json](schema/AgentWorkspace.json) |  |
 | estimatedLoad | no | number | {"default":0,"minimum":0,"maximum":100} |
 | machine | no | [MachineName.json](schema/MachineName.json) |  |
@@ -24634,7 +24634,7 @@ Example:
 | label | yes | string | {"maxLength":4096} |
 | bytes | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | modifiedAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| threadIds | yes | array | {"maxItems":256,"items":{"type":"string","maxLength":128}} |
+| threadIds | yes | array | {"items":{"type":"string","maxLength":128}} |
 | disposition | yes | ["remove","protect"] |  |
 | reasons | yes | array | {"minItems":1,"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/StorageReason.json"}} |
 | forced | yes | boolean |  |
@@ -27562,7 +27562,7 @@ Example:
 | --- | --- | --- | --- |
 | status | yes | [WaitStatus.json](schema/WaitStatus.json) |  |
 | mode | yes | [WaitMode.json](schema/WaitMode.json) |  |
-| threads | yes | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/WatchedThread.json"}} |
+| threads | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/WatchedThread.json"}} |
 
 Example:
 
