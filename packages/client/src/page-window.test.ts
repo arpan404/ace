@@ -1,6 +1,7 @@
-import { Item } from "@ace/protocol";
+import { Item, Thread } from "@ace/protocol";
+import { createThreadView } from "@ace/projection";
 import { expect, test } from "vitest";
-import { pageWindow } from "./page-window.ts";
+import { defaultLimits, ThreadStore } from "./index.ts";
 
 const message = (id: string) =>
   Item.parse({
@@ -13,37 +14,49 @@ const message = (id: string) =>
     parts: [{ type: "text", text: id }],
   });
 
-test("loading older history keeps the live tail newest", () => {
-  const current = ["newer-a", "newer-b"];
-  const creation = new Map([
-    ["newer-a", 3],
-    ["newer-b", 4],
-  ]);
-  const page = {
+test("history pages stay bounded and preserve the cursor at the retained older edge", () => {
+  const store = new ThreadStore({ ...defaultLimits, items: 2 });
+  const thread = Thread.parse({
+    id: "thread",
+    workspaceId: "workspace",
+    provider: "codex",
+    title: "History",
+    status: { state: "done" },
+    createdAt: 0,
+    updatedAt: 0,
+  });
+  const view = createThreadView(thread, 10);
+  view.items = { c: message("c"), d: message("d") };
+  view.itemOrder = ["c", "d"];
+  view.itemSeqs = { c: 3, d: 4 };
+  view.itemsBefore = 3;
+  store.snapshot(view);
+  store.page({
     seq: 10,
-    threadId: "thread",
-    items: [message("older-a"), message("older-b")],
-    itemSeqs: { "older-a": 1, "older-b": 2 },
-    itemsBefore: null,
-  };
-  const window = pageWindow(current, creation, page, 2);
-  expect(window.order).toEqual(["older-a", "older-b", "newer-a", "newer-b"]);
-  expect(window.before).toBeNull();
-});
-
-test("loading older at capacity still shows both ends", () => {
-  const current = ["b", "c"];
-  const creation = new Map([
-    ["b", 2],
-    ["c", 3],
-  ]);
-  const page = {
+    threadId: thread.id,
+    items: [message("b")],
+    itemSeqs: { b: 2 },
+    itemsBefore: 2,
+  });
+  expect(store.order).toEqual(["b", "c"]);
+  expect(store.item("d")).toBeUndefined();
+  store.page({
     seq: 10,
-    threadId: "thread",
+    threadId: thread.id,
     items: [message("a")],
     itemSeqs: { a: 1 },
     itemsBefore: null,
-  };
-  const window = pageWindow(current, creation, page, 2);
-  expect(window.order).toEqual(["a", "b", "c"]);
+  });
+  expect(store.order).toEqual(["a", "b"]);
+  expect(store.itemsBefore).toBeNull();
+  // An out-of-order duplicate does not move the retained edge forward again.
+  store.page({
+    seq: 10,
+    threadId: thread.id,
+    items: [message("b")],
+    itemSeqs: { b: 2 },
+    itemsBefore: 2,
+  });
+  expect(store.order).toEqual(["a", "b"]);
+  expect(store.itemsBefore).toBeNull();
 });

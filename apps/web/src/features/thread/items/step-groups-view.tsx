@@ -33,8 +33,7 @@ import { useAceLog } from "./ace-steps.tsx";
 import { useStepItem, useStepItemsSelect } from "./step-items.ts";
 import { ToolStep } from "./work-log-steps.tsx";
 import { RailMark, StepRail } from "./step-rail.tsx";
-import { StepGlyph } from "./step-glyph.tsx";
-import { useStepDisplay } from "./use-step-display.ts";
+import { LiveGroupTitle } from "./live-group-title.tsx";
 
 /*
  * A work log as one quiet flow: consecutive calls by one agent read as one sentence row with a
@@ -261,6 +260,7 @@ const GroupView = memo(function GroupView(props: {
   if (group.single && group.icon === "think")
     return <ThoughtRow threadId={props.threadId} itemId={group.key} />;
   if (group.single) return step(group.key);
+  const active = group.active ?? group.newest;
   const runningLive = props.live && group.running;
   return (
     <li className="relative">
@@ -278,11 +278,11 @@ const GroupView = memo(function GroupView(props: {
             "text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground",
           )}
         >
-          <LiveTitle
+          <LiveGroupTitle
             threadId={props.threadId}
-            itemId={group.newest}
-            ace={props.contexts[group.newest]}
-            surface={props.surfaces?.get(group.newest) ?? props.carried.get(group.newest)}
+            itemId={active}
+            ace={props.contexts[active]}
+            surface={props.surfaces?.get(active) ?? props.carried.get(active)}
             count={group.ids.length}
           />
         </button>
@@ -309,16 +309,7 @@ const GroupView = memo(function GroupView(props: {
       )}
       {open && (
         <StepRail id={panel} label={group.summary}>
-          {group.ids.map((id) => (
-            <GroupStep
-              key={id}
-              threadId={props.threadId}
-              itemId={id}
-              ace={props.contexts[id]}
-              retried={props.retried.has(id)}
-              surface={props.surfaces?.get(id) ?? props.carried.get(id)}
-            />
-          ))}
+          {group.ids.map(step)}
         </StepRail>
       )}
     </li>
@@ -336,41 +327,4 @@ function GroupStep(props: {
   if (item?.type === "reasoning")
     return <ThoughtRow threadId={props.threadId} itemId={props.itemId} />;
   return <ToolStep {...props} />;
-}
-
-function LiveTitle(props: {
-  threadId: string;
-  itemId: string;
-  ace?: AceToolContext | undefined;
-  surface?: ToolSurface | undefined;
-  count: number;
-}) {
-  const data = useStepDisplay(props.threadId, props.itemId, props.ace);
-  if (!data || data.awaiting)
-    return (
-      <>
-        <Icon icon={HammerIcon} size={16} className="text-subtle-foreground" />
-        <span className="step-shimmer min-w-0 truncate">Working</span>
-      </>
-    );
-  const { item, step } = data;
-  return (
-    <>
-      <StepGlyph
-        threadId={props.threadId}
-        item={item}
-        surface={props.surface}
-        mark={step.ace?.mark}
-        running={!step.settled}
-        failed={step.failed}
-      />
-      <span className="min-w-0 truncate">
-        <span className={cn(!step.settled && "step-shimmer")}>
-          {step.verb}
-          {step.target ? ` ${step.target}` : ""}
-        </span>
-        {props.count > 1 && <span className="text-subtle-foreground"> · {props.count} steps</span>}
-      </span>
-    </>
-  );
 }

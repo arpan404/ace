@@ -43,3 +43,12 @@ The thread screen keeps its leased live tail and at most one jumped window. A wi
 A window's items may outlive the client's runs, so their turns come from the turn index (the latest turn that started at or before each item's sequence). Turn pages are read in fixed blocks of 50 ordinals and dropped soon after nothing shows them; the newest turn the live tail shows keys the index's head read, so the client never polls it. Every turn shows whole, live and in a window; the transcript never folds turns into digest rows (owner decision, 2026-10-14). The turn rail and ⌥⌘↑/↓ move between turns, and the turns panel lists each turn with its digest.
 
 The read cursor advances only while the reader follows the live end of a visible page. Opening a thread reads the cursor once; if the thread moved on, the catch-up digest from that cursor is shown. Summarise sends one ordinary `thread.send`. The million-item performance run serves `multiDayThread` on demand (`LongThreadSoak`: each turn owns a fixed block of creation sequences and is regenerated when a request needs it) and its budgets are in ADR 0056.
+
+## PR 856 review: scrolling from the live tail
+
+Loading earlier messages now opens the existing bounded history window beside the live
+subscription, just as jumping does. Pages do not enlarge the live store. Older slides
+recompute whether the window still meets the tail; once separated, the gap is visible again.
+Proximity prefetch reads the virtualizer's visible range, excluding a retained offscreen
+jump target, and consumes one upward scroll intent per read. A reply, a failed read or a
+short window cannot page itself repeatedly. Newer slides retain their travel threshold.

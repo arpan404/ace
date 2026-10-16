@@ -58,6 +58,8 @@ export interface StepGroup {
   icon: GroupIcon;
   /** The newest step, which stays in view while the group is folded. */
   newest: string;
+  /** Newest unfinished step; a later completed parallel step must not hide it. */
+  active: string | undefined;
 }
 
 const exploring = new Set<StepKind>(["read", "list", "search"]);
@@ -277,6 +279,7 @@ function makeGroup(facts: readonly StepFact[]): StepGroup {
     explore: exploreOnly(facts),
     icon: groupIcon(facts),
     newest: last.id,
+    active: facts.findLast((fact) => fact.running)?.id,
   };
 }
 
@@ -361,6 +364,7 @@ function sameGroup(a: StepGroup, b: StepGroup): boolean {
     a.running === b.running &&
     a.failed === b.failed &&
     a.newest === b.newest &&
+    a.active === b.active &&
     a.ids.length === b.ids.length &&
     a.ids.every((id, index) => id === b.ids[index])
   );

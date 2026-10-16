@@ -79,7 +79,7 @@ export class Jump {
     return this.run((controller) => controller.toItem(itemId));
   }
   older(): Promise<void> {
-    return this.controller?.older() ?? Promise.resolve();
+    return this.run((controller) => controller.older());
   }
   newer(): Promise<void> {
     return this.controller?.newer() ?? Promise.resolve();
