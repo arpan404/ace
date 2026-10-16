@@ -106,32 +106,48 @@ test("in the desktop app a browser sign-in opens its page by itself, once", asyn
   await waitFor(() => expect(opened).toHaveLength(2));
 }, 30_000);
 
-test("connecting OpenCode lists its services with what each means; a choice then Continue leads to its code", async () => {
-  const app = harness();
-  stage(app, "opencode", { auth: "logged_out" });
-  disconnect(app, "opencode");
-  const list = await providersList(app);
-  await userEvent.click(await within(list).findByRole("button", { name: "Sign in" }));
-  const dialog = await screen.findByRole("dialog", { name: "Sign in to OpenCode" });
-  const choices = await within(dialog).findByRole("group", {
-    name: "Which service do you want to connect?",
-  });
-  expect(
-    within(choices)
-      .getAllByRole("button")
-      .map((button) => button.getAttribute("aria-label")),
-  ).toEqual(["GitHub Copilot", "OpenAI", "Anthropic", "OpenCode Go", "OpenCode Zen"]);
-  expect(within(choices).getByRole("img", { name: "GitHub Copilot" })).toBeTruthy();
-  await userEvent.click(within(choices).getByRole("button", { name: "GitHub Copilot" }));
-  expect(await within(dialog).findByText("Press Enter to continue.")).toBeTruthy();
-  await userEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
-  expect((await within(dialog).findByLabelText("Sign-in code")).textContent).toBe("ACEF-2048");
-  expect(
-    within(dialog)
-      .getByRole("link", { name: /open sign-in page/i })
-      .getAttribute("href"),
-  ).toBe("https://github.com/login/device");
-}, 30_000);
+test.each([
+  ["GitHub Copilot", "github-copilot"],
+  ["OpenCode Go", "opencode-go"],
+])(
+  "connecting %s through OpenCode opens v2 sign-in here without another terminal choice",
+  async (label, upstream) => {
+    const app = harness();
+    stage(app, "opencode", { auth: "logged_out" });
+    disconnect(app, "opencode");
+    const list = await providersList(app);
+    await userEvent.click(await within(list).findByRole("button", { name: "Sign in" }));
+    const dialog = await screen.findByRole("dialog", { name: "Sign in to OpenCode" });
+    const choices = await within(dialog).findByRole("group", {
+      name: "Which service do you want to connect?",
+    });
+    expect(within(choices).getByRole("button", { name: "Other provider" })).toBeTruthy();
+    await userEvent.click(within(choices).getByRole("button", { name: label }));
+    expect(await within(dialog).findByText("Sign in to OpenCode here")).toBeTruthy();
+    expect(within(dialog).getByText(`opencode auth login --standalone ${upstream}`)).toBeTruthy();
+    expect(within(dialog).getByText(/Use the terminal below/)).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: "Open terminal" })).toBeNull();
+    expect(within(dialog).queryByText("Finish in a terminal")).toBeNull();
+    expect(
+      await within(dialog).findByText("Complete the provider's own sign-in flow."),
+    ).toBeTruthy();
+    const client = app.client;
+    {
+      const result = await client.request({ type: "provider.login.poll", session: session(1) });
+      const id = result.result.ok && result.result.progress.manual?.terminalId;
+      if (!id) throw new Error("Sign-in terminal missing");
+      await client.request({
+        type: "terminal.request",
+        operation: { op: "write", terminalId: id, data: "completed\r" },
+      });
+      await screen.findByText("Signed in to OpenCode");
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog", { name: "Sign in to OpenCode" })).toBeNull(),
+      );
+    }
+  },
+  30_000,
+);
 
 test("Cancel ends the login on the daemon, so trying again starts a fresh one", async () => {
   const app = harness();
@@ -170,35 +186,6 @@ test("a failed sign-in says why, and Try again starts over", async () => {
     expect(screen.queryByRole("dialog", { name: "Sign in to Claude Code" })).toBeNull(),
   );
   expect(await screen.findByText("Signed in to Claude Code")).toBeTruthy();
-}, 30_000);
-
-test("a sign-in that needs a key typed runs the CLI in an ace terminal, in three plain steps", async () => {
-  const app = harness();
-  stage(app, "opencode", { auth: "logged_out" });
-  disconnect(app, "opencode");
-  const list = await providersList(app);
-  await userEvent.click(await within(list).findByRole("button", { name: "Sign in" }));
-  const dialog = await screen.findByRole("dialog", { name: "Sign in to OpenCode" });
-  await userEvent.click(await within(dialog).findByRole("button", { name: "OpenCode Go" }));
-
-  expect(await within(dialog).findByText("Finish in a terminal")).toBeTruthy();
-  const steps = within(dialog).getAllByRole("list")[0];
-  if (!steps) throw new Error("No steps");
-  expect(within(steps).getAllByRole("listitem")).toHaveLength(3);
-  expect(within(steps).getByText("opencode auth login")).toBeTruthy();
-  await userEvent.click(within(dialog).getByRole("button", { name: "Open terminal" }));
-
-  // The CLI's own prompt, in a terminal in the dialog; ace never reads what is typed there.
-  expect(
-    await within(dialog).findByText(
-      "Complete the provider's own sign-in flow.",
-      {},
-      { timeout: 5_000 },
-    ),
-  ).toBeTruthy();
-  expect(await within(dialog).findByText("Signed in to OpenCode")).toBeTruthy();
-  await userEvent.click(within(dialog).getByRole("button", { name: "Done" }));
-  await waitFor(() => expect(within(list).queryByRole("button", { name: "Sign in" })).toBeNull());
 }, 30_000);
 
 test("signing out of the default profile keeps a provider usable through its other accounts", async () => {

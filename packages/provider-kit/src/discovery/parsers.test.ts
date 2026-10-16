@@ -7,21 +7,13 @@ describe("CLI auth parsing", () => {
     const expected = {
       claude: { version: "2.1.286", auth: { auth: "logged_in", authDetail: "claude.ai" } },
       codex: { version: "0.159.1", auth: { auth: "logged_in", authDetail: "ChatGPT" } },
-      opencode: {
-        version: "1.18.33",
-        auth: {
-          auth: "unknown",
-          authDetail: "GitHub Copilot, OpenCode Go, LMStudio",
-          authEvidence: "credentials_configured",
-        },
-      },
     };
     const parsers = {
       claude: parseClaudeAuth,
       codex: parseCodexAuth,
       opencode: parseOpenCodeAuth,
     };
-    for (const provider of ["claude", "codex", "opencode"] as const) {
+    for (const provider of ["claude", "codex"] as const) {
       const captured = await fixture(provider);
       expect(parseVersion(provider, captured.version.stdout)).toBe(expected[provider].version);
       expect(parsers[provider](captured.auth.stdout || captured.auth.stderr)).toEqual(
@@ -32,7 +24,7 @@ describe("CLI auth parsing", () => {
   it("recognizes logged out outputs and treats unreadable status as unknown", () => {
     expect(parseClaudeAuth('{"loggedIn":false}')).toEqual({ auth: "logged_out" });
     expect(parseCodexAuth("Not logged in")).toEqual({ auth: "logged_out" });
-    expect(parseOpenCodeAuth("└  0 credentials")).toEqual({
+    expect(parseOpenCodeAuth("[]")).toEqual({
       auth: "logged_out",
     });
     for (const parse of [parseClaudeAuth, parseCodexAuth, parseOpenCodeAuth]) {
@@ -57,21 +49,11 @@ describe("CLI auth parsing", () => {
         '{"loggedIn":true,"authMethod":"sk-synthetic-secret","email":"private@example.test","orgName":"private"}',
       ),
     ).toEqual({ auth: "logged_in", accountLabel: "private@example.test" });
-    expect(parseOpenCodeAuth("●  private@example.test api\n└  1 credential")).toEqual({
-      auth: "unknown",
-      authDetail: "1 service configured",
-      authEvidence: "credentials_configured",
-    });
   });
   it("parses auth and versions when ANSI sequences interrupt meaningful words", () => {
     expect(parseCodexAuth("Logged \u001b[32min using ChatGPT\u001b[0m")).toEqual({
       auth: "logged_in",
       authDetail: "ChatGPT",
-    });
-    expect(parseOpenCodeAuth("●  GitHub \u001b[32mCopilot\u001b[0m api\n└  1 credential")).toEqual({
-      auth: "unknown",
-      authDetail: "GitHub Copilot",
-      authEvidence: "credentials_configured",
     });
     expect(parseVersion("codex", "\u001b[32mcodex-cli 0.159.1\u001b[0m")).toBe("0.159.1");
   });
@@ -95,7 +77,7 @@ it("OpenCode v2 version prefixes and connection counts remain non-secret evidenc
   ).toEqual({
     auth: "unknown",
     authEvidence: "credentials_configured",
-    authDetail: "2 services configured",
+    authDetail: "1 service configured",
   });
   expect(parseOpenCodeAuth("[]")).toEqual({ auth: "logged_out" });
   expect(

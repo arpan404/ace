@@ -148,6 +148,7 @@ export function LoginBody(props: {
           <AgentLoginTerminal
             id={progress.manual.terminalId}
             name={name}
+            command={progress.manual.command}
             instruction={progress.manual.instruction}
             cancel={() => login.cancel()}
           />

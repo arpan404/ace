@@ -35,7 +35,7 @@ fs.appendFileSync(process.env.ACE_FIXTURE_INVOCATIONS, JSON.stringify({provider,
 const marker = path.join(home, 'fixture-signed-in');
 
 if (args[0] === '--version') {
-  console.log(provider === 'codex' ? 'codex-cli 0.150.0' : provider === 'agent' ? '2026.09.26-dd393fe' : '2.1.4');
+  console.log(provider === 'codex' ? 'codex-cli 0.150.0' : provider === 'agent' ? '2026.09.26-dd393fe' : provider === 'opencode' ? 'opencode v2.0.30' : '2.1.4');
 } else if (args.includes('--help')) {
   console.log('Usage: codex login --device-auth --with-api-key');
 } else if (args.join(' ') === 'login status' || args.join(' ') === 'auth status' || args[0] === 'status' || args[1] === 'list') {
@@ -45,7 +45,7 @@ if (args[0] === '--version') {
     return;
   }
   const signedIn = fs.existsSync(marker);
-  console.log(provider === 'claude' ? JSON.stringify({loggedIn:signedIn}) : provider === 'opencode' ? (signedIn ? '1 credential' : 'No authenticated integrations') : (signedIn ? 'Logged in using ChatGPT' : 'Not logged in'));
+  console.log(provider === 'claude' ? JSON.stringify({loggedIn:signedIn}) : provider === 'opencode' ? JSON.stringify(signedIn ? [{id:'openai',connections:[{type:'credential'}]}] : []) : (signedIn ? 'Logged in using ChatGPT' : 'Not logged in'));
 } else if (args[0] === 'app-server') {
   const lines = readline.createInterface({input:process.stdin});
   lines.on('line', (line) => {

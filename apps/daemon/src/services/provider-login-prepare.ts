@@ -1,3 +1,5 @@
+import { parseOpenCodeAuthConnections } from "@ace/provider-kit/discovery";
+import { openCodeIntegrationConnected } from "@ace/accounts";
 import { configuredProviderDiscovery } from "../provider-discovery.ts";
 import { nativeLoginGuard } from "./native-login-guard.ts";
 import { prepareAgentLogin } from "./provider-login-agent.ts";
@@ -247,7 +249,7 @@ export async function prepareProviderLogin(
                     "--with-api-key",
                     "--claudeai",
                     "--no-browser",
-                    "--provider",
+                    "--standalone",
                     "--method",
                   ]
                     .filter((hint) => result.stdout.includes(hint))
@@ -263,30 +265,21 @@ export async function prepareProviderLogin(
     const supportedKey = apiKeySupport(target.provider, status.version, help);
     if (target.method === "api_key" && !supportedKey.supported)
       throw new Error("API key unsupported");
-    if (target.method === "api_key" && provider === "opencode" && !target.upstream)
-      throw new Error("Choose an upstream");
+    let openCodeIntegration: string | undefined;
     const driver =
       target.method === "api_key" && action === "login"
         ? apiKeyLoginDriver({
             command: executable,
-            args:
-              provider === "codex"
-                ? ["login", "--with-api-key"]
-                : [
-                    "auth",
-                    "login",
-                    "--provider",
-                    target.upstream ?? "openai",
-                    "--method",
-                    "Manually enter API Key",
-                  ],
+            args: ["login", "--with-api-key"],
             cwd: instance.implicit ? config.dataDir : instance.homeDir,
             env,
             assertCurrent,
-            ...(provider === "opencode" ? { prompt: true } : {}),
           })
         : cliLoginDriver({
             provider: target.provider,
+            onIntegration: (integration) => {
+              openCodeIntegration = integration;
+            },
             action,
             ...(target.instance ? { instance: target.instance } : {}),
             command: executable,
@@ -356,10 +349,29 @@ export async function prepareProviderLogin(
         changeSignal.throwIfAborted();
         if (!instance.implicit) await assertManagedHome(config.dataDir, instance);
         assertCurrent();
-        if (action === "logout" && provider !== "pi" && after.auth !== "logged_out")
-          throw new Error("CLI logout unconfirmed");
-        if (action === "login" && after.auth === "logged_out")
-          throw new Error("CLI is still signed out");
+        if (provider === "opencode") {
+          const probe = await metadataProbe(
+            executable,
+            ["auth", "list", "--standalone", "--format", "json"],
+            {
+              env,
+              signal: changeSignal,
+              timeoutMs: 4000,
+            },
+          );
+          assertCurrent();
+          const connections =
+            probe.code === 0 ? parseOpenCodeAuthConnections(probe.stdout) : undefined;
+          if (!connections) throw new Error("OpenCode account verification unavailable");
+          const connected = openCodeIntegrationConnected(connections, openCodeIntegration);
+          if ((action === "login" && !connected) || (action === "logout" && connected))
+            throw new Error("OpenCode account change unconfirmed");
+        } else {
+          if (action === "logout" && provider !== "pi" && after.auth !== "logged_out")
+            throw new Error("CLI logout unconfirmed");
+          if (action === "login" && after.auth === "logged_out")
+            throw new Error("CLI is still signed out");
+        }
         registry.recordAuth(
           instanceId,
           action === "logout" ? "unknown" : target.method === "api_key" ? "api_key" : "browser",

@@ -68,10 +68,9 @@ test.each(providers)(
     const dialog = await screen.findByRole("dialog", { name: `Sign in to ${name}` });
     if (provider === "opencode" || provider === "pi") {
       await userEvent.click(await within(dialog).findByRole("button", { name: "GitHub Copilot" }));
-      if (provider === "opencode")
-        await userEvent.click(await within(dialog).findByRole("button", { name: "Continue" }));
     }
-    if (provider === "codex" || provider === "opencode" || provider === "pi")
+    if (provider === "opencode") await within(dialog).findByText("Sign in to OpenCode here");
+    else if (provider === "codex" || provider === "pi")
       await within(dialog).findByLabelText("Sign-in code");
     else await within(dialog).findByRole("link", { name: "Open sign-in page" });
     app.daemon.services.providerLogin.complete("fake-login-1");

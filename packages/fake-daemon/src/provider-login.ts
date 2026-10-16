@@ -1,3 +1,4 @@
+import { openCodeAuthSteps, openCodeLoginChoices } from "@ace/accounts/opencode-auth";
 import { fakeApiKeySupport } from "./provider-auth-support.ts";
 import { ProviderLoginRequest, ProviderLoginProgress, OnboardingRequest } from "@ace/protocol";
 import { onboardingChecklist, providerReadiness } from "@ace/core";
@@ -77,7 +78,10 @@ export class FakeProviderLogin {
   finishTerminal(session: string): void {
     const job = this.jobs.get(session);
     if (!job?.progress.manual) return;
-    if (job.progress.provider === "pi" && job.progress.state === "awaiting_input") {
+    if (
+      ["pi", "opencode"].includes(job.progress.provider) &&
+      job.progress.state === "awaiting_input"
+    ) {
       this.complete(session);
       return;
     }
@@ -141,7 +145,7 @@ export class FakeProviderLogin {
     }
     if (
       job.scenario === "device_code" ||
-      ["codex", "opencode"].includes(job.progress.provider) ||
+      job.progress.provider === "codex" ||
       (job.progress.provider === "pi" && job.choice !== "anthropic")
     )
       this.update(job, {
@@ -296,19 +300,15 @@ export class FakeProviderLogin {
         this.update(job, {
           state: "awaiting_input",
           prompt: "Choose the account provider.",
-          choices: [
-            { id: "github-copilot", label: "GitHub Copilot" },
-            input.provider === "pi"
-              ? { id: "openai-codex", label: "ChatGPT / Codex" }
-              : { id: "openai", label: "OpenAI / ChatGPT" },
-            { id: "anthropic", label: "Claude" },
-            ...(input.provider === "opencode"
-              ? [
-                  { id: "opencode-go", label: "OpenCode Go" },
-                  { id: "opencode", label: "OpenCode Zen" },
-                ]
-              : [{ id: "other", label: "Other provider" }]),
-          ],
+          choices:
+            input.provider === "opencode"
+              ? openCodeLoginChoices
+              : [
+                  { id: "github-copilot", label: "GitHub Copilot" },
+                  { id: "openai-codex", label: "ChatGPT / Codex" },
+                  { id: "anthropic", label: "Claude" },
+                  { id: "other", label: "Other provider" },
+                ],
         });
       else this.challenge(job);
       return true;
@@ -390,17 +390,19 @@ export class FakeProviderLogin {
               },
             });
           } else this.challenge(job);
-        } else if (["opencode-go", "opencode", "anthropic"].includes(input.input.choice)) {
+        } else if (job.progress.provider === "opencode") {
+          const steps = openCodeAuthSteps(job.progress.action, choiceId);
           this.update(job, {
-            state: "failed",
-            manual: {
-              action: "open_terminal",
-              command: "opencode auth login",
-              instruction:
-                "Complete this provider's credential entry directly in the CLI terminal.",
-            },
+            state: "awaiting_input",
+            manual: { action: "open_terminal", ...steps },
           });
-        } else this.update(job, { state: "awaiting_input", prompt: "Press Enter to continue." });
+          const terminalId = this.openTerminal(job.progress, push);
+          job.terminalOwner = push;
+          this.update(job, {
+            state: "awaiting_input",
+            manual: { action: "open_terminal", ...steps, terminalId },
+          });
+        }
       } else this.challenge(job);
     }
     reply(job);
