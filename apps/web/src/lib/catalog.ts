@@ -5,6 +5,58 @@ import type { z } from "zod";
 
 type Target = Pick<z.input<typeof CatalogList>, "threadId" | "draft" | "workspace">;
 
+interface CatalogSnapshot {
+  entries: readonly CatalogEntry[];
+  stale: boolean;
+}
+
+/**
+ * The last settled snapshot per discovery target, per environment (client). Reopening the slash
+ * menu resubscribes even when its target is unchanged, so without this the menu flashes back to
+ * loading on every `/`. Replaying the cached snapshot keeps the ready list on screen while the
+ * fresh read arrives. The key carries the workspace, provider and instance identity (threads
+ * carry their own session), so one provider's skills never leak into another's menu.
+ */
+const catalogSnapshots = new WeakMap<ClientApi, Map<string, CatalogSnapshot>>();
+const maxCatalogSnapshots = 32;
+
+export function catalogTargetKey(target: Target): string {
+  if (target.threadId !== undefined) return `thread:${target.threadId}`;
+  if (target.draft !== undefined)
+    return `draft:${target.draft.draftId}\0${target.draft.workspaceId}\0${target.draft.provider}\0${target.draft.instanceId ?? ""}`;
+  if (target.workspace !== undefined)
+    return `workspace:${target.workspace.workspaceId}\0${target.workspace.provider}\0${target.workspace.instanceId ?? ""}`;
+  return "";
+}
+
+function snapshotsFor(client: ClientApi): Map<string, CatalogSnapshot> {
+  let snapshots = catalogSnapshots.get(client);
+  if (!snapshots) {
+    snapshots = new Map();
+    catalogSnapshots.set(client, snapshots);
+  }
+  return snapshots;
+}
+
+function rememberSnapshot(
+  client: ClientApi,
+  target: Target,
+  entries: readonly CatalogEntry[],
+  stale: boolean,
+): void {
+  // A transient empty read while discovery runs must not evict a good snapshot.
+  if (stale && entries.length === 0) return;
+  const key = catalogTargetKey(target);
+  if (!key) return;
+  const snapshots = snapshotsFor(client);
+  snapshots.delete(key);
+  snapshots.set(key, { entries, stale });
+  if (snapshots.size > maxCatalogSnapshots) {
+    const oldest = snapshots.keys().next().value;
+    if (oldest !== undefined) snapshots.delete(oldest);
+  }
+}
+
 /** One bounded discovery subscription, shared by the composer and Skills. */
 export function watchCatalog(
   client: ClientApi,
@@ -17,6 +69,11 @@ export function watchCatalog(
   let receivedPush = false;
   let unavailable = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const cached = snapshotsFor(client).get(catalogTargetKey(target));
+  if (cached) {
+    // Serve the last snapshot instantly; the live read below refreshes it in place.
+    receive(cached.entries, cached.stale);
+  }
   const fail = () => {
     if (timer) clearTimeout(timer);
     timer = undefined;
@@ -33,6 +90,7 @@ export function watchCatalog(
       clearTimeout(timer);
       timer = undefined;
     }
+    rememberSnapshot(client, target, entries, stale);
     receive(entries, stale);
   };
   timer = setTimeout(fail, 10_000);
