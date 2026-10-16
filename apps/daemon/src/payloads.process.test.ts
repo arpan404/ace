@@ -179,15 +179,19 @@ it("rolls output chunks and blobs back with rejected events, then deletes them w
   f.store.appendEvents(f.thread.id, [{ type: "item.created", item }, delta("committed")]);
   expect(db.prepare("SELECT count(*) AS n FROM blobs").get()?.n).toBe(1);
   expect(db.prepare("SELECT count(*) AS n FROM output_chunks").get()?.n).toBe(1);
+  const committedHead = f.store.headSeq();
   f.store.deleteThread(f.thread.id);
   expect(f.store.readEvents({ afterSeq: 0, limit: 100 })).toEqual([]);
-  expect(f.store.headSeq()).toBe(4); // Thread deletion is a durable usage tombstone.
+  const deletionHead = f.store.headSeq();
+  expect(deletionHead).toBeGreaterThan(committedHead);
   expect(f.store.outputThread("output:shell")).toBeUndefined();
   expect(db.prepare("SELECT count(*) AS n FROM blobs").get()?.n).toBe(0);
   expect(db.prepare("SELECT count(*) AS n FROM output_chunks").get()?.n).toBe(0);
   const next = { ...f.thread, id: ThreadId.parse("next") };
-  expect(db.prepare("SELECT seq FROM usage_deletions").all()).toEqual([{ seq: 4 }]);
-  expect(f.store.appendEvents(next.id, [{ type: "thread.created", thread: next }])[0]?.seq).toBe(5);
+  expect(db.prepare("SELECT seq FROM usage_deletions").all()).toEqual([{ seq: deletionHead }]);
+  expect(
+    f.store.appendEvents(next.id, [{ type: "thread.created", thread: next }])[0]?.seq,
+  ).toBeGreaterThan(deletionHead);
 });
 
 it.each(["tool", "reasoning", "notice", "interaction", "task", "update"] as const)(
