@@ -15,9 +15,10 @@
 export const forwardedToolEnvKeys = [
   "GH_TOKEN",
   "GITHUB_TOKEN",
+  // Host selector, not a credential: gh needs it to aim a token at GHES.
   "GH_HOST",
+  // Agent socket path, not key material: signing without copying private keys.
   "SSH_AUTH_SOCK",
-  "NPM_TOKEN",
 ] as const;
 
 /** Maximum accepted value length; tokens and socket paths are far smaller. */

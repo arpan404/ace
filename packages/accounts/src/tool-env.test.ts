@@ -1,9 +1,5 @@
 import { expect, test } from "vitest";
-import {
-  filterSessionToolEnv,
-  forwardedToolEnvKeys,
-  maxForwardedToolEnvLength,
-} from "./tool-env.ts";
+import { filterSessionToolEnv, maxForwardedToolEnvLength } from "./tool-env.ts";
 
 test("allowlisted tool credentials survive filtering", () => {
   expect(
@@ -12,14 +8,12 @@ test("allowlisted tool credentials survive filtering", () => {
       GITHUB_TOKEN: "github_session",
       GH_HOST: "ghe.example.com",
       SSH_AUTH_SOCK: "/tmp/agent.sock",
-      NPM_TOKEN: "npm_session",
     }),
   ).toEqual({
     GH_TOKEN: "gho_session",
     GITHUB_TOKEN: "github_session",
     GH_HOST: "ghe.example.com",
     SSH_AUTH_SOCK: "/tmp/agent.sock",
-    NPM_TOKEN: "npm_session",
   });
 });
 
@@ -32,6 +26,7 @@ test("non-allowlisted variables never reach provider processes", () => {
       CODEX_HOME: "/evil",
       OPENAI_API_KEY: "ambient",
       ACE_MCP_BEARER_TOKEN: "bearer",
+      NPM_TOKEN: "unlisted",
     }),
   ).toEqual({});
 });
@@ -41,20 +36,16 @@ test("non-string, empty and oversized values are dropped", () => {
     filterSessionToolEnv({
       GH_TOKEN: "",
       GITHUB_TOKEN: 42,
-      NPM_TOKEN: "x".repeat(maxForwardedToolEnvLength + 1),
-      __proto__: "polluted",
+      GH_HOST: "x".repeat(maxForwardedToolEnvLength + 1),
     }),
   ).toEqual({});
   expect(filterSessionToolEnv(undefined)).toEqual({});
   expect(filterSessionToolEnv("GH_TOKEN=abc")).toEqual({});
 });
 
-test("the allowlist stays small and intentional", () => {
-  expect(forwardedToolEnvKeys).toEqual([
-    "GH_TOKEN",
-    "GITHUB_TOKEN",
-    "GH_HOST",
-    "SSH_AUTH_SOCK",
-    "NPM_TOKEN",
-  ]);
+test("an own __proto__ property cannot smuggle a value through", () => {
+  const input = JSON.parse('{"__proto__":"polluted","GH_TOKEN":"gho_session"}');
+  expect(Object.entries(input)).toContainEqual(["__proto__", "polluted"]);
+  expect(filterSessionToolEnv(input)).toEqual({ GH_TOKEN: "gho_session" });
+  expect(({} as Record<string, unknown>)["polluted"]).toBeUndefined();
 });

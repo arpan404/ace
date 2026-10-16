@@ -12,6 +12,16 @@ import { loginAcpAccount, type AcpLoginResolver } from "./acp-login.ts";
 import { AcpIdentity } from "@ace/protocol";
 import { instanceEnv } from "./instances.ts";
 import { filterSessionToolEnv } from "./tool-env.ts";
+
+/**
+ * Replace raw session tool credentials with the allowlisted subset before any
+ * adapter or factory sees the context. Adapters receive the filtered copy in
+ * both `toolEnv` and the merged launch `env`; denied values never travel
+ * downstream, so they cannot be persisted or logged there.
+ */
+function withFilteredToolEnv(context: SessionContext): SessionContext {
+  return { ...context, toolEnv: filterSessionToolEnv(context.toolEnv) };
+}
 import { pickInstance } from "./scheduler.ts";
 import { migrateSession, type MigrationSafety } from "./migration.ts";
 import { accountFrame } from "./frames.ts";
@@ -187,12 +197,15 @@ export class AccountService {
       capabilities: (cli) => factory.capabilities(cli),
       createTranslator: (init) => factory.createTranslator(init),
       openSession: async (context) =>
-        (await factory.create(context.env ?? {}, context)).openSession(context),
+        (await factory.create(context.env ?? {}, withFilteredToolEnv(context))).openSession(
+          withFilteredToolEnv(context),
+        ),
     };
     return {
       ...adapter,
       openSession: async (context) =>
-        (await this.openSession(adapter, context, assignmentFor(context))).session,
+        (await this.openSession(adapter, withFilteredToolEnv(context), assignmentFor(context)))
+          .session,
     };
   }
   async handle(input: unknown): Promise<AccountsResponse> {
@@ -338,7 +351,7 @@ export class AccountService {
       await this.registry.validateHome(chosen);
       lifetime.signal.throwIfAborted();
       const session = await adapter.openSession({
-        ...context,
+        ...withFilteredToolEnv(context),
         instanceId: chosen.id,
         instanceHomeDir: chosen.homeDir,
         signal: lifetime.signal,

@@ -2,7 +2,7 @@ import { lstat, mkdir, realpath } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { AccountEnvKey, ProviderInstance } from "@ace/protocol/accounts";
 import { canonicalHome } from "./paths.ts";
-import { createInstance, instanceEnv } from "./instances.ts";
+import { createInstance, instanceEnv, managedHomeLayout } from "./instances.ts";
 
 /** Validate directory identities without inspecting any provider credential files. */
 async function assertHomeIdentity(input: ProviderInstance): Promise<void> {
@@ -91,19 +91,34 @@ export async function restoreCursorHome(
 }
 
 /**
- * Create the tool-facing skeleton inside a managed home: per-instance HOME
- * (`user/`) config ground plus the XDG roots `instanceEnv` points at. No
- * credentials are ever written here; without these directories every XDG-aware
- * tool fails before per-session env forwarding can help it.
+ * Create the tool-facing skeleton inside a managed home from the same layout
+ * `instanceEnv` points HOME/XDG roots at. No credentials are ever written
+ * here; without these directories every XDG-aware tool fails before
+ * per-session env forwarding can help it. A symlinked skeleton path is
+ * refused outright: it could expose the real home into the isolated account.
  */
 export async function ensureManagedHomeSkeleton(homeDir: string): Promise<void> {
+  if (resolve(homeDir) !== homeDir) throw new Error("Managed home refused");
+  const layout = managedHomeLayout(homeDir);
   for (const dir of [
-    join(homeDir, "user", ".config"),
-    join(homeDir, "user", ".ssh"),
-    join(homeDir, "config"),
-    join(homeDir, "data"),
-    join(homeDir, "state"),
-    join(homeDir, "cache"),
+    layout.user,
+    join(layout.user, ".config"),
+    join(layout.user, ".ssh"),
+    layout.appdata,
+    layout.config,
+    layout.data,
+    layout.state,
+    layout.cache,
   ])
+    await ensureDir(dir);
+}
+
+async function ensureDir(dir: string): Promise<void> {
+  try {
+    const stat = await lstat(dir);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error("Managed home refused");
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
     await mkdir(dir, { recursive: true, mode: 0o700 });
+  }
 }

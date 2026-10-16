@@ -10,6 +10,29 @@ import { ProviderInstance, type NativeAccountProvider } from "@ace/protocol/acco
 import type { z } from "zod";
 
 type Provider = z.infer<typeof NativeAccountProvider>;
+
+/**
+ * The directory layout every managed home shares. `instanceEnv` points
+ * HOME/XDG roots at these directories; `ensureManagedHomeSkeleton` creates
+ * them. One layout, two uses: a mapping change needs one edit.
+ */
+export function managedHomeLayout(homeDir: string): {
+  user: string;
+  appdata: string;
+  data: string;
+  config: string;
+  state: string;
+  cache: string;
+} {
+  return {
+    user: join(homeDir, "user"),
+    appdata: join(homeDir, "appdata"),
+    data: join(homeDir, "data"),
+    config: join(homeDir, "config"),
+    state: join(homeDir, "state"),
+    cache: join(homeDir, "cache"),
+  };
+}
 export function createInstance(input: {
   id: string;
   provider: ProviderInstance["provider"];
@@ -83,14 +106,15 @@ export function instanceEnv(
     throw new Error("OpenCode requires data and config roots");
   const env = { ...base };
   if (parsed.managed) {
+    const layout = managedHomeLayout(parsed.homeDir);
     Object.assign(env, {
-      HOME: join(parsed.homeDir, "user"),
-      USERPROFILE: join(parsed.homeDir, "user"),
-      APPDATA: join(parsed.homeDir, "appdata"),
-      XDG_DATA_HOME: join(parsed.homeDir, "data"),
-      XDG_CONFIG_HOME: join(parsed.homeDir, "config"),
-      XDG_STATE_HOME: join(parsed.homeDir, "state"),
-      XDG_CACHE_HOME: join(parsed.homeDir, "cache"),
+      HOME: layout.user,
+      USERPROFILE: layout.user,
+      APPDATA: layout.appdata,
+      XDG_DATA_HOME: layout.data,
+      XDG_CONFIG_HOME: layout.config,
+      XDG_STATE_HOME: layout.state,
+      XDG_CACHE_HOME: layout.cache,
       TMPDIR: parsed.homeDir,
       TMP: parsed.homeDir,
       TEMP: parsed.homeDir,

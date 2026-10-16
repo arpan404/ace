@@ -25,6 +25,7 @@ test("per-session tool credentials reach the provider without widening its envir
     env: { GH_TOKEN: "ambient-token" },
   });
   const { promise: ready, resolve: report } = Promise.withResolvers<string>();
+  let seenToolEnv: SessionContext["toolEnv"];
   const adapter: ProviderAdapter = {
     provider: "codex",
     capabilities: () => {
@@ -34,6 +35,7 @@ test("per-session tool credentials reach the provider without widening its envir
       throw new Error("unused");
     },
     openSession: async (ctx) => {
+      seenToolEnv = ctx.toolEnv;
       const proc = spawnSupervised({
         command: process.execPath,
         args: [
@@ -79,6 +81,7 @@ test("per-session tool credentials reach the provider without widening its envir
         ...context,
         toolEnv: {
           GH_TOKEN: "session-token",
+          GH_HOST: "ghe.example.com",
           LD_PRELOAD: "/evil.so",
           CODEX_HOME: "/evil",
         },
@@ -87,6 +90,7 @@ test("per-session tool credentials reach the provider without widening its envir
     );
     try {
       expect(await ready).toBe(`session-token||${request.from.homeDir}`);
+      expect(seenToolEnv).toEqual({ GH_TOKEN: "session-token", GH_HOST: "ghe.example.com" });
       expect(opened.session.nativeSessionId).toBe(request.nativeSessionId);
     } finally {
       await opened.session.close("shutdown");

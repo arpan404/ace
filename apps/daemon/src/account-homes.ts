@@ -1,6 +1,11 @@
 import { mkdir, lstat, realpath, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { assertManagedHome, createInstance, type AccountRegistry } from "@ace/accounts";
+import {
+  assertManagedHome,
+  createInstance,
+  ensureManagedHomeSkeleton,
+  type AccountRegistry,
+} from "@ace/accounts";
 import { AccountId, NativeAccountProvider, ProviderInstance } from "@ace/protocol/accounts";
 
 /** Account metadata points to the normal CLI home; admission never creates that home. */
@@ -54,6 +59,7 @@ export async function createManagedHome(
   await mkdir(homeDir, { mode: 0o700 });
   // Restrict even incidental CLI writes such as caches and browser helpers to this home.
   await mkdir(join(homeDir, "user"), { mode: 0o700 });
+  await ensureManagedHomeSkeleton(homeDir);
   return { ...createInstance({ id, provider, label, homeDir }), managed: true };
 }
 
