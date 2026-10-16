@@ -57,20 +57,36 @@ TypeScript passed. Dependency-cruiser emits its existing TypeScript 7 compatibil
 
 The full `bun run check` attempt hit UI failures and was stopped; a lower-concurrency
 restart was also stopped after confirming a baseline blocker. The dialog Escape regression
-in `apps/web/src/components/ui/overlay-behavior.test.tsx` fails on both the corrected branch
-and the original PR head `9b5cf9fbb`: the Rename dialog remains open after Escape. That
-isolated baseline run used the original source and the same installed dependency versions.
-The dialog code is outside this change. This PR does **not** have a green repository gate.
+in `apps/web/src/components/ui/overlay-behavior.test.tsx` (the Rename dialog stayed open
+after Escape) is fixed by letting a tooltip's Escape propagate to the dialog containing
+its trigger (`apps/web/src/components/ui/tooltip.tsx`); the suite passes (5 tests).
+`bun run lint`, `bun run typecheck` and `bun run fmt:check` pass. This PR does **not**
+have a green repository gate (bundle budgets below remain red).
 
 The forge stack and hosted-repository suites passed on rerun. Creation recovery, fork
 lineage and handoff refusal passed with one worker and a 60-second test deadline, without
 changing their assertions. These reruns do not replace a passing full check. Issue 849's
 body-height reservation work remains separate.
 
-`bun run check:perf` stops in the daemon idle-import guard because `imports.log` is
-missing (`ENOENT`). Running `node apps/daemon/bench/idle-imports.ts` on the original PR
-head reproduces that error too. The separate web static-performance check also fails its
-bundle budgets: initial JS is 319.20 KB (limit 270), CSS 25.10 KB (21), the largest first
-screen 621.60 KB (405), and the thread route 235.47 KB (138). The client and machine workers
-also exceed their budgets. Bundle sizes here describe the corrected branch; no baseline
-bundle comparison or passing soak/timing qualification is claimed.
+`bun run check:perf` stopped in the daemon idle-import guard because `imports.log` was
+missing (`ENOENT`): the daemon can rename an unversioned data home on startup, moving the
+guard's output out from under its reader. Fixed in `apps/daemon/bench/idle-imports.ts` by
+keeping the guard output outside that home; `node apps/daemon/bench/idle-imports.ts` now
+passes ("Idle import guard passed in the main isolate and startup workers"). The web
+static-performance check still fails its bundle budgets, but a build of the merge-base
+`38ee7436a` (same installed dependencies, no PR changes) fails identically, so the overage
+is pre-existing on main and not caused by this PR:
+
+| Budget | This branch | Merge-base `38ee7436a` | Limit |
+| --- | --- | --- | --- |
+| initial JS | 319.22 KB | 319.20 KB | 270 |
+| CSS | 25.10 KB | 25.10 KB | 21 |
+| first screen (shell + `_home.new.tsx`) | 621.62 KB | 621.35 KB | 405 |
+| route `_home.new.tsx` | 302.40 KB | 302.15 KB | 138 |
+| route `_home.t.$threadId.tsx` | 235.48 KB | 235.16 KB | 138 |
+| route agents `$agentId` | 188.52 KB | 188.28 KB | 138 |
+| worker client-worker (+lazy) | 65.14 (82.81) KB | 65.14 (82.81) KB | 60 (73) |
+| worker machine-worker (+lazy) | 65.07 (82.74) KB | 65.07 (82.74) KB | 60 (73) |
+
+No soak/timing qualification is claimed, and no budget number was changed (budgets change
+only with a reason in ADR 0056).
