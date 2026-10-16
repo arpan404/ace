@@ -227,13 +227,11 @@ function blocking(deps: KnowledgeDeps, thread: Thread): string[] {
     reasons.push(`background work still running: ${oneLine(watched.title, 120)}`);
   const delegations = deps.delegations();
   if (delegations) {
-    const root = delegations.journal.get(thread.id)?.rootId ?? thread.id;
-    for (const edge of delegations.journal.family(root))
-      if (edge.parentId === thread.id) {
-        const view = childTaskView(deps.store, delegations.journal, edge.childId)?.view;
-        if (view && ["working", "waiting_on_human", "waiting_on_children"].includes(view.state))
-          reasons.push(`child ${edge.childId.slice(0, 8)} is ${view.state.replaceAll("_", " ")}`);
-      }
+    for (const edge of delegations.journal.children(thread.id)) {
+      const view = childTaskView(deps.store, delegations.journal, edge.childId)?.view;
+      if (view && ["working", "waiting_on_human", "waiting_on_children"].includes(view.state))
+        reasons.push(`child ${edge.childId.slice(0, 8)} is ${view.state.replaceAll("_", " ")}`);
+    }
   }
   return reasons.slice(0, 16);
 }

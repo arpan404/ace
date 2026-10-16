@@ -25,6 +25,7 @@ import {
   lastLine,
   requestPrompt,
   settledStates,
+  shareResults,
   waitOutcome,
   watchedState,
 } from "./watch-view.ts";
@@ -50,13 +51,9 @@ export interface RemoteChildren {
 interface PendingWait {
   ids: readonly ThreadId[];
   mode: WaitMode;
-  caller: McpAttribution;
   scheduled: boolean;
   finish(status: WaitStatus): void;
 }
-const maxWaits = 64;
-const maxWaitsPerCaller = 16;
-
 /**
  * Bounded waits and compact snapshots over the canonical thread status and delegation journal.
  * Waits observe store changes for the watched threads only; ending a wait never cancels work.
@@ -103,9 +100,6 @@ export class AgentMonitor {
       input.mode,
     );
     if (immediate) return { ok: true, data: this.respond(caller, ids, input.mode, immediate) };
-    const mine = [...this.waits].filter((wait) => wait.caller.threadId === caller.threadId).length;
-    if (this.waits.size >= maxWaits || mine >= maxWaitsPerCaller)
-      return { ok: false, code: "limit" };
     const status = await new Promise<WaitStatus | WaitResult>((resolve, reject) => {
       const cancelTimer = this.deps.clock.setTimer(
         () => wait.finish("timeout"),
@@ -123,7 +117,6 @@ export class AgentMonitor {
       const wait: PendingWait = {
         ids,
         mode: input.mode,
-        caller,
         scheduled: false,
         finish: (value) => {
           cleanup();
@@ -142,7 +135,6 @@ export class AgentMonitor {
   }
   /** Every delegated descendant of the caller, a few short fields each. */
   snapshot(caller: McpAttribution): MonitorSnapshot {
-    const root = this.deps.journal.get(caller.threadId)?.rootId ?? caller.threadId;
     const now = this.deps.clock.now();
     const counts: Record<WatchedState, number> = {
       working: 0,
@@ -152,8 +144,7 @@ export class AgentMonitor {
       cancelled: 0,
     };
     const children: MonitoredChild[] = [];
-    for (const edge of this.deps.journal.family(root)) {
-      if (!this.deps.journal.isDescendant(edge.childId, caller.threadId)) continue;
+    for (const edge of this.deps.journal.descendants(caller.threadId)) {
       const thread = this.deps.store.getThread(edge.childId);
       if (!thread) continue;
       const state = this.state(thread.id);
@@ -190,6 +181,10 @@ export class AgentMonitor {
     this.stopRemote?.();
     for (const wait of this.waits) wait.finish("interrupted");
   }
+  /** A journal-only change (a child settled without ever running) that no event announces. */
+  changed(ids: readonly string[]) {
+    if (this.waits.size) this.recheck(new Set(ids));
+  }
   private observe(events: readonly Event[]) {
     if (!this.waits.size) return;
     const touched = new Set<string>();
@@ -218,13 +213,7 @@ export class AgentMonitor {
     const thread = this.deps.store.getThread(id);
     if (!thread || thread.deletedAt !== undefined) return "cancelled";
     const record = this.deps.journal.get(id);
-    const pending =
-      !!record &&
-      this.deps.journal
-        .family(record.rootId)
-        .some(
-          (edge) => edge.phase !== "settled" && this.deps.journal.isDescendant(edge.childId, id),
-        );
+    const pending = !!record && this.deps.journal.liveDescendants(id).length > 0;
     const root = thread.rootAgentId && this.deps.store.getMcpAgent(thread.id, thread.rootAgentId);
     return watchedState(
       thread,
@@ -247,13 +236,13 @@ export class AgentMonitor {
           this.remote.delivered(entry.outcome.threadId);
         else this.deps.delivered(caller, entry.outcome);
       }
-    return { status, mode, threads: read.map((entry) => entry.view) };
+    return { status, mode, threads: shareResults(read.map((entry) => entry.view)) };
   }
   /** Never fails: a restart answers with whatever is still readable. */
   private interrupted(ids: readonly ThreadId[], mode: WaitMode): WaitResult {
     let threads: WatchedThread[];
     try {
-      threads = ids.map((id) => this.watched(id).view);
+      threads = shareResults(ids.map((id) => this.watched(id).view));
     } catch {
       threads = ids.map((id) => ({ threadId: id, state: "working", title: "", elapsedSeconds: 0 }));
     }
@@ -303,10 +292,8 @@ export class AgentMonitor {
   /** Requests from the thread and its delegated descendants, oldest first, at most eight. */
   private needs(thread: Thread): WatchedRequest[] {
     const asking = [...(thread.live?.asking ?? [])];
-    const record = this.deps.journal.get(thread.id);
-    for (const edge of this.deps.journal.family(record?.rootId ?? thread.id)) {
+    for (const edge of this.deps.journal.liveDescendants(thread.id)) {
       if (asking.length >= 8) break;
-      if (!this.deps.journal.isDescendant(edge.childId, thread.id)) continue;
       asking.push(...(this.deps.store.getThread(edge.childId)?.live?.asking ?? []));
     }
     return asking.slice(0, 8).flatMap((entry) => {

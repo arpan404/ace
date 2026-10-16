@@ -30,10 +30,7 @@ export function cliControl(context: ServiceContext) {
     if (!owner) return { ok: false, code: "unsupported" };
     const journal = owner.delegations.journal;
     const record = journal.get(threadId);
-    const root = record?.rootId ?? journal.participant(threadId)?.root_id ?? threadId;
-    const descendants = journal
-      .family(root)
-      .filter((edge) => journal.isDescendant(edge.childId, threadId));
+    const descendants = journal.descendants(threadId);
     if (operation.op === "thread.tree") {
       if (!services.engine) return { ok: false, code: "unavailable" };
       const data = readThreadTree(context, threadId);

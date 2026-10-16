@@ -95,7 +95,7 @@
       "items": {
         "$ref": "https://ace.local/protocol/v1/DelegationTask.json"
       },
-      "maxItems": 8,
+      "maxItems": 64,
       "minItems": 1,
       "type": "array"
     },
@@ -106,7 +106,7 @@
       "type": "boolean"
     },
     "waitMs": {
-      "maximum": 240000,
+      "maximum": 600000,
       "minimum": 1,
       "type": "integer"
     },

@@ -42,10 +42,14 @@ export function createConversationStarts(
     )
       service.releaseReservation(reservation);
 
+  /**
+   * Creation runs to the end whatever happens to the tool call that asked for it: preparing a
+   * worktree in a large repository may outlast the call, and cutting it off would discard the
+   * work. Only cancelling the caller's tree or stopping the daemon ends it early.
+   */
   async function start(
     caller: McpAttribution,
     operation: ThreadStartOperation,
-    signal: AbortSignal,
   ): Promise<AgentControlResult> {
     const previous = journal.receipt(caller, operation.requestId);
     if (previous) {
@@ -69,10 +73,10 @@ export function createConversationStarts(
       estimatedLoad: 0,
     };
     const configured = await service.prepareModels(caller, request);
-    signal.throwIfAborted();
+    context.signal.throwIfAborted();
     const reservation = service.reserve(caller, request, "owner", configured);
     const watched = service.watchReservation(reservation);
-    const lifetime = AbortSignal.any([signal, watched.signal, context.signal]);
+    const lifetime = AbortSignal.any([watched.signal, context.signal]);
     let preparation: CreationWorkspace | undefined;
     try {
       const parent = context.store.getThread(caller.threadId);
@@ -136,15 +140,21 @@ export function createConversationStarts(
     const previous = pending.get(key);
     if (previous) {
       if (previous.identity !== identity) return { ok: false, code: "invalid" as const };
-      return previous.work;
+      return untilAborted(previous.work, signal);
     }
-    if (pending.size >= 4) return { ok: false, code: "limit" as const };
-    const work = start(caller, operation, signal);
+    // A retry with the same requestId joins this creation until it settles, then reads the receipt.
+    const work = start(caller, operation).finally(() => pending.delete(key));
     pending.set(key, { identity, work });
-    try {
-      return await work;
-    } finally {
-      pending.delete(key);
-    }
+    return untilAborted(work, signal);
   };
+}
+/** The caller stops waiting when its call ends; the work itself carries on. */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    // Attached first, so a creation that fails after its caller left is never unhandled.
+    void work.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+    if (signal.aborted) abort();
+    else signal.addEventListener("abort", abort, { once: true });
+  });
 }

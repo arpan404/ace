@@ -136,25 +136,22 @@ test("mailbox overload remains resumable when its durable notice encounters a wr
   }
 });
 
-test("actor capacity is receipt-bound and idle retirement frees a slot for another thread", async () => {
+test("a new thread reclaims an idle thread's slot instead of being refused", async () => {
   const frames = scriptFrames();
   const h = track(
     await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames, {
-      idleMs: 500,
+      idleMs: 60_000,
       limits: { maxActiveThreads: 1 },
     }),
   );
   await h.create();
+  await h.engine.flush();
   const create = {
     type: "thread.create" as const,
     workspaceId: h.workspace,
     provider: "codex" as const,
     input,
   };
-  expect(h.command(create).error).toBe("engine_capacity_exceeded");
-  expect(h.store.listThreads()).toHaveLength(1);
-  h.clock.advance(1500);
-  await h.engine.flush();
   expect(h.command(create).ok).toBe(true);
   await h.engine.flush();
   expect(h.store.listThreads()).toHaveLength(2);

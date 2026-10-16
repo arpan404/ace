@@ -27,7 +27,6 @@ test("ordinary engine sends reopen child accounting, wake again and participate 
       h.engine.handler.handle(command, commandContext(h.store)),
     );
   expect(send().ok).toBe(true);
-  expect(() => h.delegate(parent, "over-capacity")).toThrow(/concurrency/);
   await h.engine.flush();
   await h.complete(child.childId, "second");
   h.clock.advance(1100);
@@ -159,7 +158,7 @@ test("resuming a stopped root keeps cancelled child results readable without wak
   expect(h.store.getThread(fresh.childId)?.status.state).toBe("working");
 });
 
-test("automatic and rejected resume inputs cannot restore a stopped root's delegation authority", async () => {
+test("after Stop a root's automatic inputs stay held while it may still delegate", async () => {
   const h = setup();
   const parent = await h.parent();
   expect(
@@ -186,9 +185,10 @@ test("automatic and rejected resume inputs cannot restore a stopped root's deleg
       expectedRevision: h.engine.queue(parent.threadId).revision + 1,
     }).ok,
   ).toBe(false);
-  expect(() => h.delegate(parent, "still-stopped")).toThrow("cancelled");
+  // Stop ended the work in flight; it never fences the root's later delegation.
+  expect(h.delegate(parent, "after-stop").parentId).toBe(parent.threadId);
   h.restartOwner();
-  expect(() => h.delegate(parent, "stopped-after-restart")).toThrow("cancelled");
+  expect(h.delegate(parent, "after-restart").parentId).toBe(parent.threadId);
   expect(
     h.service.command("resume-root", {
       type: "queue.resume",
@@ -197,38 +197,4 @@ test("automatic and rejected resume inputs cannot restore a stopped root's deleg
     }).ok,
   ).toBe(true);
   expect(h.delegate(parent, "restored").parentId).toBe(parent.threadId);
-});
-
-test("upgrading a stopped tree preserves suppression of late cancelled results after root resume", async () => {
-  const h = setup();
-  const parent = await h.parent();
-  const child = h.delegate(parent, "old-child");
-  await h.engine.flush();
-  expect(
-    h.service.command("stop-root", {
-      type: "thread.interrupt",
-      threadId: parent.threadId,
-      cascade: true,
-    }).ok,
-  ).toBe(true);
-  // Replay the persisted journal layout from before the wake-suppression migration.
-  h.store.atomic((db) => db.exec("ALTER TABLE delegated_threads DROP COLUMN wake_suppressed"));
-  h.restartOwner();
-  expect(
-    h.service.command("resume-root", {
-      type: "thread.send",
-      threadId: parent.threadId,
-      input: [{ type: "text", text: "New work" }],
-    }).ok,
-  ).toBe(true);
-  await h.engine.flush();
-  h.clock.advance(1050);
-  await h.engine.flush();
-  expect(wakes(h.events, parent.threadId)).toHaveLength(0);
-  expect(await h.service.wait(parent, child.childId, new AbortController().signal)).toMatchObject({
-    outcome: "cancelled",
-  });
-  const fresh = h.delegate(parent, "fresh-child");
-  await h.engine.flush();
-  expect(h.store.getThread(fresh.childId)?.status.state).toBe("working");
 });

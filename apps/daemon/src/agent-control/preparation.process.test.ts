@@ -9,7 +9,7 @@ test.each([1, 2])(
   "a settled descendant %s levels below a stopped ancestor cannot prepare children through its surviving MCP scope",
   async (distance) => {
     const h = setup(
-      { maxConcurrent: 1, maxChildren: distance + 2 },
+      { maxConcurrent: 1 },
       undefined,
       false,
       undefined,
@@ -91,15 +91,7 @@ test.each([1, 2])(
 );
 
 test("a reservation made before ancestor interruption cannot commit a prepared child after the stop", async () => {
-  const h = setup(
-    { maxConcurrent: 1, maxChildren: 3 },
-    undefined,
-    false,
-    undefined,
-    false,
-    undefined,
-    3,
-  );
+  const h = setup({ maxConcurrent: 1 }, undefined, false, undefined, false, undefined, 3);
   const parent = await h.parent();
   const a = h.delegate(parent, "a");
   await h.engine.flush();

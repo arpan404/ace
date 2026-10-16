@@ -204,10 +204,10 @@ const agents: Record<string, Wording> = {
     title: "ace isn't taking new work right now",
     hint: "Try again once it has started.",
   }),
-  delegation_cancelled: () => ({ title: "The delegation was stopped" }),
+  delegation_cancelled: () => ({ title: "This agent was stopped" }),
   delegation_limit: () => ({
-    title: "Too many agents are already working",
-    hint: "Wait for some to finish.",
+    title: "The agent can't delegate any further",
+    hint: "Agents nest only a few levels deep, and ace runs a bounded number at once.",
   }),
   delegation_denied: () => ({ title: "The new agent would have more access than this thread" }),
   workspace_unavailable: () => ({ title: "The project isn't available" }),

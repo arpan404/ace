@@ -169,12 +169,12 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
     hint: "Wait for daemon startup or maintenance to finish before retrying.",
   },
   delegation_cancelled: {
-    message: "Delegation was stopped",
-    hint: "Send a new message or explicitly resume the stopped parent thread before delegating again.",
+    message: "This agent is being stopped",
+    hint: "Its parent or the person stopped it. Finish without starting new agents; a new message resumes it.",
   },
   delegation_limit: {
-    message: "Too many agents are already working",
-    hint: "Wait for active children to finish, then delegate again.",
+    message: "Delegation limit reached",
+    hint: "Agents nest only a few levels deep, and ace runs a bounded number of threads at once. Do this work in this thread, or retry once other threads finish.",
   },
   workspace_unavailable: {
     message: "Workspace is unavailable for agent creation",

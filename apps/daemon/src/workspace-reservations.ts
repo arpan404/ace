@@ -96,6 +96,7 @@ export class WorkspaceReservations {
         WHERE w.root=? ${sessionsExist ? "AND NOT EXISTS (SELECT 1 FROM engine_sessions s WHERE s.thread_id=t.id)" : ""}`).all(
           root,
         );
+      // Every owner: a delegated tree sharing one worktree may hold hundreds of sessions there.
       for (const row of [...sessions, ...local]) owners.add(ThreadId.parse(row.thread_id));
     }
     return [...owners];

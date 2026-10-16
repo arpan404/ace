@@ -181,9 +181,8 @@ export function createAgentControlPort(
         case "machines":
           return machines ? machines.list(caller) : { ok: false, code: "unsupported" };
         case "delegate_task": {
-          const delegateOne = async (
-            request: DelegationRequest,
-          ): Promise<{ childId: ThreadId }> => {
+          /** Every refusal a task can meet before anything is created, so a batch never half-starts. */
+          const check = async (request: DelegationRequest) => {
             if (request.project && !request.machine)
               throw new AgentControlError(
                 "invalid_arguments",
@@ -193,16 +192,27 @@ export function createAgentControlPort(
               );
             if (request.machine) {
               if (!machines) throw new AgentControlError("machine_unavailable", "no_machines");
-              return { childId: await machines.delegate(caller, request, signal) };
+              return undefined;
             }
-            if (request.workspace && extensions.delegateWorkspace)
-              return extensions.delegateWorkspace(caller, request, signal);
+            if (request.workspace && extensions.delegateWorkspace) return undefined;
             if (request.workspace?.kind && request.workspace.kind !== "project")
               throw new Error("Workspace owner unavailable");
             const configured = await service.prepareModels(caller, request);
             signal.throwIfAborted();
+            return configured;
+          };
+          const create = async (
+            request: DelegationRequest,
+            configured: string | undefined,
+          ): Promise<{ childId: ThreadId }> => {
+            if (request.machine && machines)
+              return { childId: await machines.delegate(caller, request, signal) };
+            if (request.workspace && extensions.delegateWorkspace)
+              return extensions.delegateWorkspace(caller, request, signal);
             return service.delegate(caller, request, configured);
           };
+          const delegateOne = async (request: DelegationRequest) =>
+            create(request, await check(request));
           const { op: _op, tasks, await: mode, timeoutSeconds, ...single } = operation;
           if (!tasks) {
             const child = await delegateOne(DelegationRequest.parse(single));
@@ -212,7 +222,7 @@ export function createAgentControlPort(
                 {
                   threadIds: [child.childId],
                   mode: "all",
-                  timeoutSeconds: Math.ceil((operation.waitMs ?? 240000) / 1000),
+                  timeoutSeconds: Math.ceil((operation.waitMs ?? 600000) / 1000),
                 },
                 signal,
               );
@@ -224,7 +234,7 @@ export function createAgentControlPort(
                     caller,
                     child.childId,
                     signal,
-                    operation.waitMs ?? 240000,
+                    operation.waitMs ?? 600000,
                   )
                 : undefined;
             return {
@@ -232,10 +242,14 @@ export function createAgentControlPort(
               data: { threadId: child.childId, ...(outcome ? { outcome } : {}) },
             };
           }
-          // Admitted in order; stable per-task requestIds make a retried batch create nothing new.
+          // Checked first, then admitted in order. Children past the parent's free slots queue.
+          // Stable per-task requestIds make a retried batch create nothing new.
+          const requests = tasks.map((task) => DelegationRequest.parse(task));
+          const configured: (string | undefined)[] = [];
+          for (const request of requests) configured.push(await check(request));
           const threadIds: ThreadId[] = [];
-          for (const task of tasks)
-            threadIds.push((await delegateOne(DelegationRequest.parse(task))).childId);
+          for (const [index, request] of requests.entries())
+            threadIds.push((await create(request, configured[index])).childId);
           if (!mode || mode === "none") return { ok: true, data: { threadIds } };
           const waited = await service.monitor.wait(
             caller,

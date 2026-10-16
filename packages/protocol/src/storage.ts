@@ -68,7 +68,8 @@ export const StorageItem = z.object({
   label: z.string().max(4096),
   bytes,
   modifiedAt: bytes,
-  threadIds: z.array(z.string().max(128)).max(256),
+  /** Every thread the item belongs to; a delegation tree has no fixed size. */
+  threadIds: z.array(z.string().max(128)),
   disposition: z.enum(["remove", "protect"]),
   reasons: z.array(StorageReason).min(1).max(16),
   forced: z.boolean(),

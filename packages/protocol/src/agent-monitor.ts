@@ -9,8 +9,10 @@ export const WaitMode = z.enum(["any", "all"]);
 export type WaitMode = z.infer<typeof WaitMode>;
 /** At most ten minutes, so a wait never holds a provider turn indefinitely. */
 export const WaitTimeoutSeconds = z.number().int().min(1).max(600);
+/** How many threads one wait may watch: every child of the largest batch. */
+export const maxWaitThreads = 64;
 export const WaitInput = {
-  threadIds: z.array(ThreadId).min(1).max(16),
+  threadIds: z.array(ThreadId).min(1).max(maxWaitThreads),
   mode: WaitMode.default("all"),
   timeoutSeconds: WaitTimeoutSeconds.default(120),
 };
@@ -55,7 +57,7 @@ export type WaitStatus = z.infer<typeof WaitStatus>;
 export const WaitResult = z.object({
   status: WaitStatus,
   mode: WaitMode,
-  threads: z.array(WatchedThread).max(16),
+  threads: z.array(WatchedThread).max(maxWaitThreads),
 });
 export type WaitResult = z.infer<typeof WaitResult>;
 /** One child in a compact tree snapshot. */

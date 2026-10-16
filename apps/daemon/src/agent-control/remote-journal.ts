@@ -35,9 +35,7 @@ export class RemoteTaskJournal {
   active(): RemoteTask[] {
     return this.store
       .atomic((db) =>
-        db
-          .prepare("SELECT record FROM remote_agent_tasks WHERE terminal=0 ORDER BY id LIMIT 64")
-          .all(),
+        db.prepare("SELECT record FROM remote_agent_tasks WHERE terminal=0 ORDER BY id").all(),
       )
       .map((row) => RemoteTask.parse(JSON.parse(z.string().parse(row.record))));
   }
@@ -115,15 +113,19 @@ export class RemoteTaskJournal {
         ),
     );
   }
-  root(root: string) {
-    const tasks = this.store
-      .atomic((db) =>
-        db
-          .prepare("SELECT record FROM remote_agent_tasks WHERE root_id=? ORDER BY id LIMIT 10000")
-          .all(root),
-      )
-      .map((row) => RemoteTask.parse(JSON.parse(z.string().parse(row.record))));
-    return { children: tasks.length };
+  /** Remote children of one parent that still hold its run slots. */
+  running(parent: string): number {
+    return Number(
+      this.store.atomic(
+        (db) =>
+          db
+            .prepare(
+              `SELECT COUNT(*) AS n FROM remote_agent_tasks WHERE terminal=0 AND parent_id=?
+              AND json_extract(record,'$.phase') NOT IN ('completed','failed','cancelled')`,
+            )
+            .get(parent)?.n,
+      ),
+    );
   }
   prune(now: number) {
     pruneRemoteRows(this.store, now);

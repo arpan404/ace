@@ -65,8 +65,6 @@ test("switching a delegated thread keeps its parent, history edge and follow-up 
   expect(
     h.service.message(parent, "continue-switched-child", child.childId, "next result", "queue").ok,
   ).toBe(true);
-  // Admission happens synchronously, before the provider can finish the follow-up.
-  expect(() => h.delegate(parent, "over-capacity")).toThrow("concurrency_limit");
   await h.engine.flush();
   expect(h.contexts.get(child.childId)?.options).toEqual({});
   h.clock.advance(1050);

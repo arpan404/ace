@@ -93,7 +93,7 @@ test("forced deletion owns the full nested history and stops a resumed last chil
   expect(f.store.getThread(last)?.status.state).toBe("done");
 });
 
-test("cyclic ownership is visited once and oversized malformed ownership fails with a bound", async () => {
+test("cyclic ownership is visited once and a tree wider than 64 children is cleaned up whole", async () => {
   const f = setup();
   const parent = await f.parent();
   const child = f.delegate(parent, "child", true);
@@ -117,5 +117,7 @@ test("cyclic ownership is visited once and oversized malformed ownership fails w
     if (!malformed) throw new Error("Missing malformed child");
     f.engine.attachChild(parent.threadId, parent.agentId, malformed, "malformed", false);
   }
-  expect(() => f.engine.cleanupThreads(parent.threadId)).toThrow("Thread tree exceeds capacity");
+  const cleaned = f.engine.cleanupThreads(parent.threadId);
+  expect(cleaned).toHaveLength(66);
+  expect(cleaned).toContain(ThreadId.parse("malformed-63"));
 });

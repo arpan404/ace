@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { setup, wakes } from "./test-support.ts";
 
-test("an unsolicited child run restores concurrency, survives owner restart, and returns its fresh result once", async () => {
+test("an unsolicited child run holds its slot, survives owner restart, and returns its fresh result once", async () => {
   const f = setup({ maxConcurrent: 1 });
   const parent = await f.parent();
   const child = f.delegate(parent, "child");
@@ -16,7 +16,10 @@ test("an unsolicited child run restores concurrency, survives owner restart, and
     nativeTurnId: "native-revival",
   });
   expect(f.store.getThread(parent.threadId)?.status.state).toBe("working");
-  expect(() => f.delegate(parent, "while-revived")).toThrow(/concurrency/);
+  // The revived child holds the only slot: a new child waits instead of being refused.
+  const waiting = f.delegate(parent, "while-revived");
+  await f.engine.flush();
+  expect(f.contexts.has(waiting.childId)).toBe(false);
   // Repeated provider observations and service recreation must not reserve another generation.
   await f.emit(child.childId, { type: "activity", agent: "root", activity: "thinking" });
   f.restartOwner();
@@ -27,6 +30,7 @@ test("an unsolicited child run restores concurrency, survives owner restart, and
     outcome: "completed",
     result: "Second answer",
   });
+  expect(f.store.getThread(waiting.childId)?.status.state).toBe("working");
   expect(wakes(f.events, parent.threadId)).toHaveLength(2);
   f.restartOwner();
   f.clock.advance(f.clock.now() + 100);

@@ -12,7 +12,7 @@
       "items": {
         "$ref": "https://ace.local/protocol/v1/WatchedThread.json"
       },
-      "maxItems": 16,
+      "maxItems": 64,
       "type": "array"
     }
   },

@@ -280,7 +280,7 @@ test("an unavailable model without a valid default reports an error before creat
       ),
     ).rejects.toThrow(/Cannot delegate to claude.*no valid configured default/);
     expect(f.store.listThreads()).toEqual(before);
-    expect(f.service.journal.activeCount()).toBe(0);
+    expect(f.service.journal.reservations()).toEqual([]);
   } finally {
     await f.close();
     await catalog.close();
