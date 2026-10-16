@@ -146,7 +146,7 @@ test("turn completion waits for a failed forced flush and resumes without aborti
   await h.append("accepted once");
   const retry = h.clock.waitForDelay(100);
   let completed = false;
-  const completion = h.context.onFrame(h.frames.frame(end)).then(() => {
+  const completion = Promise.resolve(h.context.onFrame(h.frames.frame(end))).then(() => {
     completed = true;
   });
   await retry;
