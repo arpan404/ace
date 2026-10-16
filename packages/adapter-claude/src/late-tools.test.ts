@@ -142,3 +142,47 @@ test("a child tool's result without a parent hint keeps its output on the owning
     call: { status: "succeeded", detail: { kind: "shell", output: { tail: "result output" } } },
   });
 });
+
+test("a result without a parent waits with its buffered child tool until registration", () => {
+  const h = harness();
+  h.init();
+  h.send({
+    type: "assistant",
+    parent_tool_use_id: "launch",
+    message: {
+      id: "early-shell",
+      content: [{ type: "tool_use", id: "early", name: "Bash", input: { command: "pwd" } }],
+    },
+  });
+  h.send({
+    type: "user",
+    parent_tool_use_id: null,
+    marker: "buffered-output",
+    message: { content: [{ type: "tool_result", tool_use_id: "early", content: "/child" }] },
+  });
+  expect(h.items().filter((item) => item.type === "tool_call")).toEqual([]);
+  h.result();
+  expect(h.state.status.state).not.toBe("done");
+  h.system("task_started", { task_id: "C", tool_use_id: "launch", task_type: "local_agent" });
+  const child = h.state.agents["claude:s:child:launch"]?.agent;
+  expect(child).toBeDefined();
+  expect(h.items().find((item) => item.type === "tool_call")).toMatchObject({
+    agentId: child?.id,
+    call: { status: "succeeded", detail: { kind: "shell", output: { tail: "/child" } } },
+  });
+  expect(rawCount(h, "buffered-output")).toBe(1);
+  h.system("task_updated", { task_id: "C", patch: { status: "completed" } });
+  expect(h.state.status.state).toBe("done");
+});
+
+test("a tool with a child permission keeps its owner when its assistant envelope lacks a parent", () => {
+  const h = harness();
+  register(h);
+  request(h);
+  h.tool("read", "Read", { file_path: "file" });
+  const child = h.state.agents["claude:s:child:launch"]?.agent;
+  expect(h.items().find((item) => item.type === "tool_call")).toMatchObject({
+    agentId: child?.id,
+    call: { kind: "file.read" },
+  });
+});

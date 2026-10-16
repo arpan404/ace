@@ -56,7 +56,7 @@ const request = (requestId: string, identity: typeof one) =>
     requestId,
     provider: "acp",
     ...identity,
-    role: "reader",
+    role: `read-policy-${requestId}`,
     task: "Inspect",
   });
 

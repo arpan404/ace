@@ -41,7 +41,7 @@ test("delegation resolves an approved ACP catalog by installation and account id
     ...identity,
     accountId: identity.instanceId,
     task: "work",
-    role: "worker",
+    role: "acp-run-task",
     wait: false,
     estimatedLoad: 0,
   };

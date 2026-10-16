@@ -73,7 +73,7 @@ it("diagnostics count identical failures and name a child that waits on the pers
       await agent.call("delegate_task", {
         requestId: "asks",
         task: "Ask first",
-        role: "implementer",
+        role: "ask-first-question",
         provider: "claude",
       })
     ).text,
@@ -98,7 +98,7 @@ it("a top-level thread keeps its provider's own ask tool; a delegated child gets
       await agent.call("delegate_task", {
         requestId: "c",
         task: "Do it",
-        role: "implementer",
+        role: "do-it-ace-ask",
         provider: "claude",
       })
     ).text,
@@ -114,7 +114,7 @@ it("an unanswered question returns pending, keeps the thread waiting, and the la
       await parent.call("delegate_task", {
         requestId: "late",
         task: "Ask late",
-        role: "implementer",
+        role: "ask-late-question",
         provider: "claude",
       })
     ).text,

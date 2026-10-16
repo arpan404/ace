@@ -68,7 +68,7 @@ test("restart during real Git preparation fences the obsolete child before its c
           op: "delegate_task",
           requestId: "obsolete-worktree",
           task: "Obsolete task",
-          role: "worker",
+          role: "clean-obsolete-worktree",
           provider: "claude",
           workspace: { kind: "new_worktree", base: { ref: "main" } },
         }),
@@ -122,7 +122,7 @@ test("an unwatched durable reservation cannot commit after restart even when the
     DelegationRequest.parse({
       requestId: "durable-obsolete",
       task: "Obsolete",
-      role: "worker",
+      role: "retry-durable-obsolete",
       provider: "claude",
     }),
   );

@@ -123,7 +123,7 @@ const delegateTwo: EvalTask = {
         tasks: tasks.map((task) => ({
           requestId: task.requestId,
           task: task.task,
-          role: "implementer",
+          role: `eval-${task.requestId}`,
           provider,
         })),
         await: "all",
@@ -270,7 +270,7 @@ const childWaitingOnHuman: EvalTask = {
       agent.call("delegate_task", {
         requestId: "asks",
         task: "Pick a login provider",
-        role: "implementer",
+        role: "pick-login-provider",
         provider: "claude",
       }),
     );

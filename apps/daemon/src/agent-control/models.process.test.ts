@@ -75,7 +75,7 @@ test("delegation carries the discovered OpenCode model to child launch without a
       DelegationRequest.parse({
         requestId: "opencode-child",
         task: "Synthetic task",
-        role: "helper",
+        role: "opencode-child-task",
         provider: "opencode",
         model: "opencode-go/muse-spark-1.3-contributor",
       }),
@@ -182,7 +182,7 @@ test.each(["opus", "claude-opus-5-5", "opus-5.5"])(
       const request = DelegationRequest.parse({
         requestId: "greeter",
         task: "Say hello",
-        role: "greeter",
+        role: "greet-user-choice",
         provider: "claude",
         model,
       });
@@ -206,7 +206,7 @@ test("a configured user choice wins over an invalid agent guess", async () => {
       DelegationRequest.parse({
         requestId: "configured",
         task: "Say hello",
-        role: "greeter",
+        role: "greet-configured-choice",
         provider: "claude",
         model: "opus-5.5",
       }),
@@ -233,7 +233,7 @@ test("delegation resolves against the chosen account even when another account k
         op: "delegate_task",
         requestId: "account-scoped",
         task: "Say hello",
-        role: "greeter",
+        role: "greet-account-scoped",
         provider: "claude",
         model: "claude-opus-5-5",
         accountId: "selected",
@@ -270,7 +270,7 @@ test("an unavailable model without a valid default reports an error before creat
           op: "delegate_task",
           requestId: "bad",
           task: "Say hello",
-          role: "greeter",
+          role: "greet-bad-model",
           provider: "claude",
           model: "opus-5.5",
           wait: false,
@@ -296,7 +296,7 @@ test("delegation without a model uses the synced provider default over a parent'
       DelegationRequest.parse({
         requestId: "default-picker",
         task: "Synthetic",
-        role: "worker",
+        role: "pick-default-model",
         provider: "claude",
       }),
     );
@@ -366,7 +366,7 @@ test("a signed-out OpenCode CLI can delegate an unauthenticated model but not an
       requestId: "public",
       provider: "opencode",
       task: "Inspect",
-      role: "reader",
+      role: "inspect-public-catalog",
       model: "public",
     });
     const child = h.service.delegate(parent, request);

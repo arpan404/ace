@@ -105,7 +105,7 @@ test("a reservation made before ancestor interruption cannot commit a prepared c
     requestId: "reserved",
     provider: "claude",
     task: "late work",
-    role: "worker",
+    role: "reserved-prep-task",
   });
   const reservation = h.service.reserve(caller, request);
   expect(

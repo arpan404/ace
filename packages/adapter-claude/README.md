@@ -174,8 +174,12 @@ one visible accounting-capacity warning and remain raw, rather than inflating
 totals after an eviction. Counts saturate at the safe-integer ceiling.
 Session control bookkeeping retains at most 512 live tasks plus needed ancestor
 records within that same cap, and 1,024 unsettled tool parents. Completed leaves
-and their unneeded ancestry retire incrementally. A 512-entry compact ancestry
-window correlates descendants whose metadata arrives after completion. If an
+and their unneeded ancestry retire incrementally. A separate 512-task terminal
+identity window makes a stop racing completion a no-op and preserves the original
+spawn identity when a recent child resumes. Resumed runs retain their current
+route too; terminal updates naming an older run cannot remove live control.
+A 512-entry compact ancestry window correlates descendants whose metadata arrives
+after completion, including descendants of resumed runs. If an
 explicit cascade reaches ancestry outside that window, it reports uncertainty
 while still stopping known descendants. Excess live admission ends
 the provider visibly; live control identity is never silently evicted.

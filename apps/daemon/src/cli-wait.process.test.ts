@@ -15,7 +15,7 @@ async function spawn(f: Fixture, name: string) {
     requestId: name,
     provider: "claude",
     task: `Do ${name}`,
-    role: "worker",
+    role: `do-${name}`,
     wait: false,
     estimatedLoad: 0,
   });

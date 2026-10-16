@@ -291,6 +291,10 @@ export class TurnTree {
     this.version++;
   }
 
+  latestRun(): string | undefined {
+    return this.stretches.latest();
+  }
+
   turnId(runId: string): string {
     return this.stretches.turnId(runId);
   }

@@ -63,12 +63,12 @@ test("a delegated task of 100 KB reaches the child's first message", async () =>
       requestId: "large-task",
       provider: "claude",
       task,
-      role: "reviewer",
+      role: "review-large-log",
     });
     expect(result.isError).not.toBe(true);
     const child = z.object({ threadId: ThreadId }).parse(result.structuredContent?.data).threadId;
     await f.daemon.engine?.flush();
-    expect(f.h.inputs.get(child)?.[0]).toBe(`Role: reviewer\n\nTask:\n${task}`);
+    expect(f.h.inputs.get(child)?.[0]).toBe(`Role: review-large-log\n\nTask:\n${task}`);
   } finally {
     await f.daemon.close();
   }
@@ -108,7 +108,7 @@ test("a task longer than a person's message is refused with the limit and starts
       requestId: "too-long",
       provider: "claude",
       task: "x".repeat(maxMessageBytes + 1),
-      role: "reviewer",
+      role: "review-too-long-task",
     });
     expect(result.isError).toBe(true);
     const failure = result.content.map((part) => part.text ?? "").join("");

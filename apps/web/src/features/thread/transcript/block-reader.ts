@@ -54,7 +54,9 @@ export function createBlockReader(
   let last: readonly Block[] = none;
   let lastWatch: readonly string[] = noKeys;
   let inputs: readonly unknown[] = [];
-  let ownOrder: { from: readonly string[]; order: readonly string[] } | undefined;
+  let ownOrder:
+    | { from: readonly string[]; owner: string | undefined; order: readonly string[] }
+    | undefined;
   // Turns seen held by a usage limit while this transcript was open.
   const paused = new Set<string>();
   return (reader) => {
@@ -80,12 +82,16 @@ export function createBlockReader(
     const newest = limited ? newestTurn(reader) : undefined;
     const heldTurn = newest ? tree.turnId(newest) : undefined;
     if (heldTurn) paused.add(heldTurn);
-    if (agentId !== undefined && ownOrder?.from !== reader.order)
+    if (ownOrder?.from !== reader.order || ownOrder?.owner !== ownerId)
       ownOrder = {
         from: reader.order,
-        order: reader.order.filter((id) => reader.item(id)?.agentId === agentId),
+        owner: ownerId,
+        order:
+          ownerId === undefined
+            ? reader.order
+            : reader.order.filter((id) => reader.item(id)?.agentId === ownerId),
       };
-    const order = agentId === undefined ? reader.order : (ownOrder?.order ?? noKeys);
+    const order = ownOrder?.order ?? noKeys;
     const fixed = [
       order,
       ownerId,
@@ -146,6 +152,8 @@ export function createBlockReader(
             }
           : undefined,
       order,
+      relatedOrder: agentId === undefined ? reader.order : undefined,
+      emptyTurn: agentId === undefined ? tree.latestRun() : undefined,
       item: (id) => reader.item(id),
       background: ledger.background,
       launchThread: (id) => ancestry.agent(id)?.childThreadId,

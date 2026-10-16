@@ -1,3 +1,4 @@
+import { useThreadMeta } from "@ace/client-react";
 import { ToolSurface, type Item, type TurnStep } from "@ace/protocol";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -16,11 +17,16 @@ import { StepsSkeleton } from "./work-log-view.tsx";
 
 type WorkBlock = Extract<Block, { kind: "work" }>;
 
-function fromDaemon(steps: readonly TurnStep[], answers: ReadonlySet<string>) {
+function fromDaemon(
+  steps: readonly TurnStep[],
+  answers: ReadonlySet<string>,
+  owner: string | undefined,
+) {
   const items = new Map<string, Item>();
   const surfaces = new Map<string, ToolSurface>();
   const ids: string[] = [];
   for (const step of steps) {
+    if (owner !== undefined && step.item.agentId !== owner) continue;
     items.set(step.item.id, step.item);
     // A surface this build doesn't know is just not drawn.
     const surface = ToolSurface.safeParse(step.surface);
@@ -60,6 +66,7 @@ export function TurnWork(props: {
   panel: string;
 }) {
   const { block } = props;
+  const owner = useThreadMeta(props.threadId)?.rootAgentId;
   const completed = block.outcome === "completed" && props.ordinal !== undefined;
   const { entry, retry, loadMore } = useTurnSteps(
     props.threadId,
@@ -70,8 +77,8 @@ export function TurnWork(props: {
   const answers = useMemo(() => new Set(block.answerIds), [block.answerIds]);
   const ready = entry && (entry.state === "ready" || entry.steps.length > 0);
   const fetched = useMemo(
-    () => (ready && entry ? fromDaemon(entry.steps, answers) : undefined),
-    [ready, entry, answers],
+    () => (ready && entry ? fromDaemon(entry.steps, answers, owner) : undefined),
+    [ready, entry, answers, owner],
   );
   const loaded = useMemo(() => loadedOrder(block), [block]);
   if (completed && entry?.state === "failed" && !entry.steps.length)
@@ -85,17 +92,19 @@ export function TurnWork(props: {
     );
   if (completed && !fetched) return <StepsSkeleton />;
   if (fetched) {
-    if (!fetched.ids.length)
-      return <p className="py-1 text-ui text-subtle-foreground">No steps recorded.</p>;
     return (
       <StepItems value={fetched.items}>
-        <GroupedSteps
-          threadId={props.threadId}
-          itemIds={fetched.ids}
-          surfaces={fetched.surfaces}
-          id={props.panel}
-          rail
-        />
+        {fetched.ids.length ? (
+          <GroupedSteps
+            threadId={props.threadId}
+            itemIds={fetched.ids}
+            surfaces={fetched.surfaces}
+            id={props.panel}
+            rail
+          />
+        ) : (
+          <p className="py-1 text-ui text-subtle-foreground">No steps recorded.</p>
+        )}
         {entry?.more && (
           <Button variant="ghost" size="sm" disabled={entry.state === "loading"} onClick={loadMore}>
             Load more steps

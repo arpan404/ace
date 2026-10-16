@@ -893,7 +893,7 @@ Example:
 
 ## delegate_task
 
-Start child threads on any provider: one task, or several with tasks: [...]. Returns their ids at once. To use results this turn, set await (any or all) with timeoutSeconds, or call ace_wait with the ids; never poll. If you end your turn instead, settled results arrive as a new turn. Stable requestIds make retries create nothing new. Fields, machines and access: ace_guide ace-agents.
+Start child threads on any provider: one task, or several with tasks: [...]. Returns their ids at once. Each role is the child's display name: it must be unique among this thread's live children and descriptive of the work (e.g. 'Fix-869-worked-for-toast', never 'Implementer'); generic or repeated roles are rejected. To use results this turn, set await (any or all) with timeoutSeconds, or call ace_wait with the ids; never poll. If you end your turn instead, settled results arrive as a new turn. Stable requestIds make retries create nothing new. Fields, machines and access: ace_guide ace-agents.
 
 Required capability: agents. Timeout: 630000 ms.
 
@@ -937,7 +937,7 @@ Example:
   "project": "relay",
   "provider": "claude",
   "requestId": "review-on-studio",
-  "role": "Reviewer",
+  "role": "Review-0.9-build",
   "task": "Review the 0.9 build and list failing benchmarks"
 }
 ```

@@ -2,6 +2,7 @@
 import { createInterface } from "node:readline";
 import { obj, str } from "../native.ts";
 import { historyStore } from "./history-store.ts";
+import { writerStore } from "./writer-store.ts";
 
 // Process-level `-c key=value` overrides (built-in skills) precede the subcommand.
 const argv = process.argv.slice(2);
@@ -14,6 +15,7 @@ if (args !== "app-server") process.exit(64);
 
 const write = (data: unknown) => process.stdout.write(`${JSON.stringify(data)}\n`);
 const stored = historyStore();
+const writers = writerStore(process.env.ACE_FAKE_CODEX_WRITER_ROOT);
 const notify = (method: string, params: unknown) => {
   stored.notified(method, params);
   write({ method, params });
@@ -64,6 +66,13 @@ for await (const line of createInterface({ input: process.stdin })) {
   else if (method === "thread/start" || method === "thread/resume") {
     const thread =
       method === "thread/resume" ? str(p["threadId"]) : `thread-${process.pid}-${++threads}`;
+    if (!loaded.has(thread) && !writers.acquire(thread)) {
+      write({
+        id,
+        error: { code: -32600, message: `thread ${thread} already has an active writer` },
+      });
+      continue;
+    }
     loaded.add(thread);
     const opened = () =>
       respond({ thread: { id: thread, cwd: p["cwd"], ...history(thread) }, model: "fake" });
@@ -118,8 +127,8 @@ for await (const line of createInterface({ input: process.stdin })) {
       },
     });
   } else if (method === "thread/unsubscribe") {
+    // Unsubscribing does not unload a writer immediately; Codex retains idle threads.
     respond({ status: "unsubscribed" });
-    notify("thread/closed", { threadId: str(p["threadId"]) });
   } else if (method === "thread/turns/list") respond(stored.page(p));
   else if (method === "thread/loaded/list") respond({ data: [...loaded] });
   else if (method === "thread/backgroundTerminals/list") respond({ data: [] });

@@ -16,6 +16,7 @@ export function tool(
 ): void {
   const id = string(block["id"]);
   if (!id) return;
+  agent = state.toolOwners.get(id) ?? agent;
   const settled = state.terminalChildren.has(agent);
   const item = state.key("tool", id);
   const name = string(block["name"], "Unknown tool");

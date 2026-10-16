@@ -2,6 +2,7 @@ import { delegationRequest } from "./cursor-request.ts";
 import { AgentControlError, ceilingRefusal, controlAdmissionError } from "./failure.ts";
 import { delegationSelection, validateDelegationSelection } from "./selection.ts";
 import { callerThread } from "./authorization.ts";
+import { duplicateRoleProblem, internalRole, normalizeRole, roleProblem } from "./role-names.ts";
 import { admitDelegation } from "@ace/orchestrator";
 import {
   Command,
@@ -36,6 +37,11 @@ export class DelegationAdmission {
   validate(caller: McpAttribution, input: DelegationRequest) {
     if (!this.admits()) throw new AgentControlError("admission_closed", "Admission closed");
     callerThread(this.deps.store, caller);
+    const problem = roleProblem(input.role);
+    if (problem)
+      throw new AgentControlError("invalid_arguments", "generic_role", undefined, problem);
+    if (!internalRole(input.role))
+      this.rejectDuplicateSibling(caller.threadId, input.requestId, input.role);
     // A missing or disabled provider is the actionable cause; its policy is not checkable.
     if (this.deps.providerEnabled?.(input.provider, input.accountId ?? input.instanceId) === false)
       throw new AgentControlError("provider_disabled", `Provider ${input.provider} is disabled`);
@@ -67,6 +73,25 @@ export class DelegationAdmission {
       )
     )
       throw controlAdmissionError("launch_options_unsupported");
+  }
+  /** One parent never shows two live children under the same display name. */
+  private rejectDuplicateSibling(parent: ThreadId, requestId: string, role: string): void {
+    const wanted = normalizeRole(role);
+    const live = this.journal
+      .children(parent)
+      .filter((edge) => edge.phase !== "settled" && edge.requestId !== requestId)
+      .some((edge) => normalizeRole(edge.request.role) === wanted);
+    const reserved = this.journal
+      .reservations()
+      .filter((entry) => entry.record.parentId === parent && entry.record.requestId !== requestId)
+      .some((entry) => normalizeRole(entry.record.request.role) === wanted);
+    if (live || reserved)
+      throw new AgentControlError(
+        "invalid_arguments",
+        "duplicate_role",
+        undefined,
+        duplicateRoleProblem(role),
+      );
   }
   reserve(
     caller: McpAttribution,

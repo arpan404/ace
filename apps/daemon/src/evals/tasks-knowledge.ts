@@ -89,7 +89,7 @@ const askWaitsOnPerson: EvalTask = {
       parent.call("delegate_task", {
         requestId: "asker",
         task: "Ask which login provider to use",
-        role: "implementer",
+        role: "ask-login-provider",
         provider: "claude",
       }),
     );

@@ -77,8 +77,11 @@ export class AccountService {
     this.registry = options.registry;
     this.now = options.now;
     this.timeZone = options.timeZone;
-    this.env = options.env;
-    this.cursorEnv = options.cursorEnv ?? options.env;
+    // Libraries can mutate process.env after startup (sharp adds VIPSHOME). A moving
+    // base would change shared-provider spawn keys and reopen a still-owned writer
+    // on a different process. Explicit session overrides are merged at launch below.
+    this.env = { ...options.env };
+    this.cursorEnv = { ...(options.cursorEnv ?? options.env) };
     this.resolveAcpLogin = options.resolveAcpLogin;
     this.safety = options.safety ?? { acquire: async () => undefined };
   }

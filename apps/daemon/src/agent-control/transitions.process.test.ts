@@ -79,7 +79,7 @@ test("switching a delegated thread keeps its parent, history edge and follow-up 
   const prepared = h.service.prepare(h.caller(child.childId), {
     requestId: "grandchild-after-switch",
     provider: "claude",
-    role: "reviewer",
+    role: "grandchild-review",
     task: "review",
     wait: false,
     estimatedLoad: 0,

@@ -158,6 +158,8 @@ test("OpenCode is told its own tools are direct tools beside ace's, outside Code
       expect(native).toContain(tool);
     expect(guidance).toContain("never through execute");
     expect(guidance).toContain("never replace them");
+    expect(guidance).toContain("Delegate parallel work with ace_delegate_task");
+    expect(guidance).toContain("Link any PR you open with ace_thread_link_pr");
   } finally {
     await close();
   }

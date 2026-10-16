@@ -1,7 +1,6 @@
 import type { ThreadReader } from "@ace/client";
 import { useAgent, useItem, useThread } from "@ace/client-react";
 import { formatClock } from "@ace/ui-core";
-import { cn } from "@/lib/cn.ts";
 import { GitForkIcon } from "@phosphor-icons/react";
 import { lazy, Suspense, useCallback } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -28,8 +27,8 @@ export function AssistantMessage(props: {
   threadId: string;
   itemId: string;
   between?: boolean;
-  /** Its turn's "Worked for" row already says when it ended. */
-  timed?: boolean | undefined;
+  /** The answer under its turn's "Worked for": its time hides with its hover actions. */
+  headed?: boolean | undefined;
 }) {
   const item = useItem(props.threadId, props.itemId);
   const agent = useAgent(props.threadId, item?.agentId ?? "");
@@ -76,8 +75,8 @@ export function AssistantMessage(props: {
         </div>
       )}
       {!props.between && (item.complete || (answer.truncated && !streaming)) && (
-        <div className={cn("flex min-h-6 items-center gap-2", props.timed !== false && "mt-1")}>
-          {props.timed !== false && (
+        <div className="mt-1 flex min-h-6 items-center gap-2">
+          {props.headed ? null : (
             <time
               dateTime={new Date(item.createdAt).toISOString()}
               className="text-xs text-subtle-foreground"
@@ -85,7 +84,15 @@ export function AssistantMessage(props: {
               {formatClock(item.createdAt)}
             </time>
           )}
-          <div className="flex opacity-0 transition-opacity duration-(--motion-fast) group-focus-within/answer:opacity-100 group-hover/answer:opacity-100">
+          <div className="flex items-center gap-2 opacity-0 transition-opacity duration-(--motion-fast) group-focus-within/answer:opacity-100 group-hover/answer:opacity-100">
+            {props.headed ? (
+              <time
+                dateTime={new Date(item.createdAt).toISOString()}
+                className="text-xs text-subtle-foreground"
+              >
+                {formatClock(item.createdAt)}
+              </time>
+            ) : null}
             <Suspense fallback={null}>
               <CopyAnswer
                 key={answer.partial ? "preview" : "answer"}

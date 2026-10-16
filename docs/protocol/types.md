@@ -1669,7 +1669,7 @@ Example:
   "project": "relay",
   "provider": "claude",
   "requestId": "review-on-studio",
-  "role": "Reviewer",
+  "role": "Review-0.9-build",
   "task": "Review the 0.9 build and list failing benchmarks"
 }
 ```
@@ -7614,7 +7614,7 @@ Example:
   "project": "relay",
   "provider": "claude",
   "requestId": "review-on-studio",
-  "role": "Reviewer",
+  "role": "Review-0.9-build",
   "task": "Review the 0.9 build and list failing benchmarks"
 }
 ```
