@@ -195,12 +195,15 @@ const groupIcons: Record<GroupIcon, PhosphorIcon> = {
 
 const row = "flex min-h-8 w-full min-w-0 items-center gap-2.5 text-left text-ui";
 
-/** The turn is working with no step in flight: the model is thinking. */
+/** The turn is working with no step in flight: the model is thinking, as a header like a running group. */
 export function ThinkingRow() {
   return (
-    <li role="status" className={cn(row, "text-muted-foreground")}>
-      <Icon icon={BrainIcon} size={16} className="text-subtle-foreground" />
-      <span className="step-shimmer">Thinking</span>
+    <li className="relative">
+      <RailMark state="running" />
+      <div role="status" data-step-group="" className={cn(row, "text-muted-foreground")}>
+        <Icon icon={BrainIcon} size={16} className="text-subtle-foreground" />
+        <span className="step-shimmer min-w-0 truncate">Thinking</span>
+      </div>
     </li>
   );
 }
@@ -211,26 +214,24 @@ function ThoughtRow(props: { threadId: string; itemId: string }) {
   const [open, setOpen] = useState(false);
   if (item?.type !== "reasoning") return null;
   const text = item.text.trim();
+  // Still thinking with no words yet: the same header as a thinking turn with no step in flight.
+  if (!item.complete && !text) return <ThinkingRow />;
   return (
     <li className="relative flex min-h-8 min-w-0 items-start gap-2.5 py-1.5 text-ui text-muted-foreground">
       <RailMark state={item.complete ? "done" : "running"} />
       <Icon icon={BrainIcon} size={16} className="mt-0.5 text-subtle-foreground" />
-      {!item.complete && !text ? (
-        <span className="step-shimmer">Thinking</span>
-      ) : (
-        <button
-          type="button"
-          aria-expanded={open}
-          onClick={() => setOpen(!open)}
-          className={cn(
-            "min-w-0 text-left leading-relaxed whitespace-pre-wrap",
-            !open && "line-clamp-3",
-            !item.complete && "step-shimmer",
-          )}
-        >
-          {text}
-        </button>
-      )}
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className={cn(
+          "min-w-0 text-left leading-relaxed whitespace-pre-wrap",
+          !open && "line-clamp-3",
+          !item.complete && "step-shimmer",
+        )}
+      >
+        {text}
+      </button>
     </li>
   );
 }

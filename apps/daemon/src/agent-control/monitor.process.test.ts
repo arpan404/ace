@@ -18,7 +18,7 @@ import { end, start } from "../engine/test-support.ts";
 type Fixture = Awaited<ReturnType<typeof daemonFixture>>;
 
 /** Scripted Claude children start a turn and keep working until the test settles them. */
-async function spawn(f: Fixture, name: string, role = "worker") {
+async function spawn(f: Fixture, name: string, role = `do-${name}`) {
   const result = await f.call({
     op: "delegate_task",
     requestId: name,
@@ -284,7 +284,7 @@ test("an agent can wait on all 64 children of one batch in a single call, inside
         tasks: Array.from({ length: 64 }, (_, index) => ({
           requestId: `batch-${index}`,
           provider: "claude",
-          role: "worker",
+          role: `batch-part-${index}`,
           task: `Part ${index}`,
         })),
       }),

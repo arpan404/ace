@@ -71,7 +71,7 @@ const delegateTo = (
 ) => ({
   requestId,
   task: "Take over the task",
-  role: "helper",
+  role: `take-over-${requestId}`,
   provider,
   model: "chosen-model",
   ...(access ? { access } : {}),

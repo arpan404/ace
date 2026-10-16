@@ -89,7 +89,7 @@ test("a prepared child cannot launch after admission closes or the service shuts
   const record = h.service.prepare(parent, {
     requestId: "prepared",
     provider: "claude",
-    role: "worker",
+    role: "prepared-lifecycle-task",
     task: "work",
     wait: false,
     estimatedLoad: 0,

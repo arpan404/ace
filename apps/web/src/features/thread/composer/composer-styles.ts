@@ -28,7 +28,7 @@ export const chipControl = `${control} min-w-(--composer-control) shrink px-2.5`
 /**
  * One material for the input and its attached panels (`.ace-glass-dock`, styles/glass.css):
  * glass over the scrolling transcript while Translucency is above Solid, solid at Solid. Its
- * edge is a border, lit from above with a soft lift (styles/glass.css, "Depth"). Popovers opened
+ * edge is a border with a soft lift shadow (styles/glass.css, "Depth"). Popovers opened
  * from it are solid.
  */
 export const composerSurface = "ace-glass-dock border border-sidebar-border outline-none";

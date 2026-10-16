@@ -248,7 +248,7 @@ test("native session MCP leases delegate across providers and deny a child's att
       provider: "claude",
       model: "chosen",
       task: "Implement",
-      role: "implementer",
+      role: "mcp-child-task",
       wait: false,
     });
     expect(accepted.ok).toBe(true);
@@ -409,7 +409,7 @@ test("a new person input after Stop restores MCP delegation on the root thread",
     expect(
       await mcpCall(connection, "delegate_task", {
         requestId: "after-stop",
-        role: "greeter",
+        role: "after-stop-greeting",
         task: "Hello",
         provider: "claude",
       }),

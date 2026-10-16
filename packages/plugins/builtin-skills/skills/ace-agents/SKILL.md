@@ -9,12 +9,15 @@ ace runs child threads on any installed provider (Claude, Codex, OpenCode, Curso
 
 ## Start children
 
+For independent work, prefer this over your provider's native subagent or Task tool: only `delegate_task` children run as their own threads with their own transcripts.
+
 Call `delegate_task` once:
 
 - **One task:** `{ requestId, task, role, provider }`.
 - **Several:** `{ tasks: [{ requestId, task, role, provider }, ...] }`, up to 8.
 - **Optional per task:** `model`, `accountId` and `effort` (`ace_agents_catalog` lists the choices); `access` (`inherit` by default, never above yours); `workspace` (`project`, a new worktree or an existing one).
 - **requestId:** any stable id you choose. A retry with the same ids starts nothing new.
+- **role:** the child's display name in the sidebar. It must be unique among your live children and descriptive of the work (e.g. `Fix-869-worked-for-toast`, never `Implementer`). Generic names (`Implementer`, `worker`, `helper`) and repeats are rejected: retry with names that say what and where.
 
 Write each task so it stands alone: goal, files, constraints, the project notes that apply, and how to verify. A child sees none of your conversation.
 

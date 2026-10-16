@@ -429,7 +429,7 @@ export function aceToolsDevices(): Scenario {
             {
               requestId: "review-1",
               task: "Review the Shop sign-in screen for accessibility labels",
-              role: "reviewer",
+              role: "review-signin-screen",
               provider: "claude",
             },
             json({ intentId: "delegation-1", accepted: true }),

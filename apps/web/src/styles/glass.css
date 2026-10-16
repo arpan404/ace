@@ -40,15 +40,15 @@
   }
 
   /*
-   * Depth (2026-10-14): the composer is the one surface floating over the transcript, so it is
-   * lit from above and lifts on a soft shadow; the strip tucked under it keeps the same light
-   * with a smaller shadow, so the two read as one piece with a fold. Same recipe in every theme.
+   * Depth (2026-10-14, flat 2026-10-16): the composer is the one surface floating over the
+   * transcript, so it lifts on a soft shadow; the strip tucked under it keeps a smaller
+   * shadow, so the two read as one piece with a fold. No lit top edge: flat, shadow only.
    */
   .ace-glass-dock:not(.ace-glass-attached) {
-    box-shadow: var(--depth-highlight), var(--depth-dock);
+    box-shadow: var(--depth-dock);
   }
   .ace-glass-dock.ace-glass-attached {
-    box-shadow: var(--depth-highlight), var(--depth-strip);
+    box-shadow: var(--depth-strip);
   }
 
   /*

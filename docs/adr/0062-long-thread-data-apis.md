@@ -51,4 +51,7 @@ subscription, just as jumping does. Pages do not enlarge the live store. Older s
 recompute whether the window still meets the tail; once separated, the gap is visible again.
 Proximity prefetch reads the virtualizer's visible range, excluding a retained offscreen
 jump target, and consumes one upward scroll intent per read. A reply, a failed read or a
-short window cannot page itself repeatedly. Newer slides retain their travel threshold.
+short window cannot page itself repeatedly. Newer slides mirror it: one request per
+downward scroll intent near the live end. The scroll handler only observes; scroll
+events with no gesture behind them (a jump landing, a keep-place restore) never page,
+so a settling page cannot chain into the next one.

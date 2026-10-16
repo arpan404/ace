@@ -141,7 +141,7 @@ test("a batch of eight tasks creates every child: four start and the rest wait t
         requestId: `batch-${index}`,
         provider: "claude",
         model: "chosen-model",
-        role: "worker",
+        role: `batch-task-${index}`,
         task: `Batch task ${index}`,
       })),
     }),

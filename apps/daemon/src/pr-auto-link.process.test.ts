@@ -170,6 +170,24 @@ test("only a finished create receipt for the workspace repo auto-links and repea
   }
 });
 
+test("a verify-push-create mega-command with pipes and a heredoc body still auto-links", async () => {
+  const f = await fixture();
+  try {
+    const id = f.thread("mega");
+    f.command(
+      id,
+      "mega-create",
+      'cd /tmp/w && bun run lint 2>&1 | tail -1; git push -q -u origin fix 2>&1 | grep -v "^remote:"; gh pr create --title "Fix" --body "$(cat <<\'EOF\'\nBody with pipes | tail and (parens); semicolons\nEOF\n)" 2>&1 | tail -5',
+      `ok\nhttps://github.com/test/project/pull/283\n`,
+    );
+    await f.auto.drained();
+    expect(f.store.getThread(id)?.details?.linkedPrs).toMatchObject([{ number: 283 }]);
+    expect(f.errors).toEqual([]);
+  } finally {
+    await f.close();
+  }
+});
+
 test("a created PR still links when a later attachment upload fails", async () => {
   const f = await fixture();
   try {

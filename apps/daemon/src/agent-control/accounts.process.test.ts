@@ -36,7 +36,7 @@ test("explicit exhausted or mismatched accounts are rejected without creating ch
       provider: "claude" as const,
       accountId: "claude-quota",
       task: "work",
-      role: "worker",
+      role: "quota-check-task",
       wait: false,
       estimatedLoad: 0,
     };
@@ -142,7 +142,7 @@ test("legacy Cursor delegation account references select the SDK catalog and rem
       provider: "cursor" as const,
       accountId: "cursor-cli-default",
       task: "work",
-      role: "worker",
+      role: "legacy-cursor-check",
       wait: false,
       estimatedLoad: 0,
     };
