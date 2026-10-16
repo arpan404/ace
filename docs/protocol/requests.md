@@ -1371,7 +1371,7 @@ Example:
 ```json
 {
   "keys": [
-    "sourceControl.preferences"
+    "providers.configuration"
   ],
   "requestId": "example",
   "scope": {

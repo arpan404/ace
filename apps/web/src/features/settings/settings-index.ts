@@ -86,6 +86,12 @@ const entries = [
     keywords: ["pull request", "merge"],
   },
   {
+    id: "threads.forkOnSwitch",
+    page: "/settings/general",
+    title: "Fork when switching providers",
+    keywords: ["provider", "account", "switch", "fork", "preserve", "history"],
+  },
+  {
     id: "threads.followUpBehavior",
     page: "/settings/general",
     title: "Messages sent while the agent works",
