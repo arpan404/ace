@@ -134,7 +134,16 @@ export function subscribe(
   };
   try {
     const initialHead = afterSeq === undefined ? undefined : store.headSeq();
-    const replaySafe = afterSeq === undefined || store.replaySafe?.(afterSeq) !== false;
+    let replaySafe = afterSeq === undefined;
+    if (afterSeq !== undefined) {
+      try {
+        replaySafe = store.replaySafe?.(afterSeq) !== false;
+      } catch {
+        // A cursor past even the reserved high-water mark cannot replay safely.
+        // Fall through to a fresh snapshot rather than surfacing a replay error.
+        replaySafe = false;
+      }
+    }
     if (
       afterSeq === undefined ||
       afterSeq > (initialHead ?? 0) ||

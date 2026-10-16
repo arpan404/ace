@@ -63,6 +63,11 @@
           "maximum": 9007199254740991,
           "minimum": 0,
           "type": "integer"
+        },
+        "staleServes": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [
@@ -71,7 +76,8 @@
         "hitBytes",
         "invalidations",
         "evictions",
-        "bytes"
+        "bytes",
+        "staleServes"
       ],
       "type": "object"
     },

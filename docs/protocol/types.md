@@ -25047,7 +25047,7 @@ Example:
 | bufferedBytes | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | walBytes | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | replayResyncs | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| reads | yes | object | {"properties":{"hits":{"type":"integer","minimum":0,"maximum":9007199254740991},"misses":{"type":"integer","minimum":0,"maximum":9007199254740991},"hitBytes":{"type":"integer","minimum":0,"maximum":9007199254740991},"invalidations":{"type":"integer","minimum":0,"maximum":9007199254740991},"evictions":{"type":"integer","minimum":0,"maximum":9007199254740991},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["hits","misses","hitBytes","invalidations","evictions","bytes"]} |
+| reads | yes | object | {"properties":{"hits":{"type":"integer","minimum":0,"maximum":9007199254740991},"misses":{"type":"integer","minimum":0,"maximum":9007199254740991},"hitBytes":{"type":"integer","minimum":0,"maximum":9007199254740991},"invalidations":{"type":"integer","minimum":0,"maximum":9007199254740991},"evictions":{"type":"integer","minimum":0,"maximum":9007199254740991},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991},"staleServes":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["hits","misses","hitBytes","invalidations","evictions","bytes","staleServes"]} |
 
 Example:
 
@@ -25065,7 +25065,8 @@ Example:
     "hitBytes": 3,
     "hits": 9,
     "invalidations": 9,
-    "misses": 8
+    "misses": 8,
+    "staleServes": 3
   },
   "replayResyncs": 5,
   "rows": 7,
@@ -25145,11 +25146,11 @@ Example:
 
 ```json
 {
-  "exited": true,
+  "exited": false,
   "id": "example",
   "name": "example",
-  "nextOffset": 2,
-  "oldestOffset": 9,
+  "nextOffset": 8,
+  "oldestOffset": 2,
   "pid": 5,
   "threadId": "example"
 }
@@ -25169,9 +25170,9 @@ Example:
 
 ```json
 {
-  "error": 2,
-  "id": 9,
-  "result": 0
+  "error": 8,
+  "id": 7,
+  "result": -1
 }
 ```
 
@@ -25193,11 +25194,12 @@ Example:
 
 ```json
 {
-  "cols": 1,
+  "args": [],
+  "cols": 6,
   "cwd": "example",
   "env": {},
   "name": "example",
-  "rows": 6
+  "rows": 9
 }
 ```
 
@@ -25216,12 +25218,9 @@ Example:
 ```json
 {
   "event": {
-    "nextOffset": 5,
-    "status": {
-      "code": 9,
-      "signal": null
-    },
-    "type": "exit"
+    "nextOffset": 8,
+    "oldestOffset": 9,
+    "type": "resync"
   },
   "subscriptionId": "example",
   "type": "terminal.output"

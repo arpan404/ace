@@ -348,9 +348,9 @@ export class Store {
   hasLiveWrite(id: ThreadId): boolean {
     return this.streaming.buffer.has(id);
   }
-  prepareLiveWrite(bytes: number): void {
+  prepareLiveWrite(bytes: number, events: number): void {
     this.streaming.prepare(bytes);
-    this.sequences.prepare(bytes + 4096);
+    this.sequences.prepare(events);
   }
   bufferLiveWrite(
     id: ThreadId,

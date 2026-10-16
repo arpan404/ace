@@ -19,6 +19,7 @@ export const StreamingStorageMetrics = z.object({
     invalidations: count,
     evictions: count,
     bytes: count,
+    staleServes: count,
   }),
 });
 export type StreamingStorageMetrics = z.infer<typeof StreamingStorageMetrics>;
