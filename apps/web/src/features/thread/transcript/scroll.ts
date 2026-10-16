@@ -93,22 +93,28 @@ export interface Anchor {
   key: string | number;
   index: number;
   offset: number;
+  /** The row's measured top when recorded; the keep-place shift is the move since. */
+  start: number;
   /** An item the row shows, to find it again if its row's key changes. */
   itemId?: string | undefined;
 }
 
 /**
  * Keep the anchored row where the reader saw it when rows change above it: older history
- * prepended, or a jumped window sliding newer (its oldest rows leave) or older. A row whose key
- * changed is found by an item it shows; a row that is gone (left the window) leaves the scroll
- * as it is.
+ * prepended, or a jumped window sliding newer (its oldest rows leave) or older. The view
+ * moves by exactly how far the anchor's measured top moved: no per-row sizes, no estimates,
+ * so forgotten measurements can't overshoot it. Row resizes are the virtualizer's own job
+ * (it compensates measurements above the fold itself); an absolute re-placement here would
+ * count the same growth twice and teleport a fast scroll backwards. A row that is gone
+ * (left the window) leaves the scroll as it is.
  */
 export function useKeepPlace(
   keys: readonly (string | number)[],
   anchorRef: RefObject<Anchor | undefined>,
   pinnedRef: RefObject<boolean>,
-  restore: (index: number, offset: number) => void,
+  shift: (delta: number) => void,
   rowOfItem: (itemId: string) => number,
+  startOf: (index: number) => number | undefined,
 ) {
   const previous = useRef(keys);
   useLayoutEffect(() => {
@@ -120,7 +126,10 @@ export function useKeepPlace(
     let index = keys.indexOf(at.key);
     if (index < 0 && at.itemId !== undefined) index = rowOfItem(at.itemId);
     if (index < 0) return;
-    anchorRef.current = { ...at, index, key: keys[index] ?? at.key };
-    restore(index, at.offset);
-  }, [keys, anchorRef, pinnedRef, restore, rowOfItem]);
+    const start = startOf(index);
+    if (start === undefined) return;
+    anchorRef.current = { ...at, index, key: keys[index] ?? at.key, start };
+    const delta = start - at.start;
+    if (delta !== 0) shift(delta);
+  }, [keys, anchorRef, pinnedRef, shift, rowOfItem, startOf]);
 }
