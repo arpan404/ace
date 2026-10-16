@@ -1,3 +1,4 @@
+import { prepareDaemonHome } from "@ace/service/home";
 import { fork } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -8,6 +9,8 @@ import { setTimeout as pause } from "node:timers/promises";
 /** Source entry keeps dependency names visible; bundled RSS is checked separately. */
 export async function checkIdleImports(): Promise<void> {
   const home = await mkdtemp(join(tmpdir(), "ace-idle-imports-"));
+  // Initialize the home before the probe file makes it look like an older data home.
+  prepareDaemonHome(home);
   const output = join(home, "imports.log");
   await writeFile(output, "");
   const child = fork(join(import.meta.dirname, "entry.ts"), [], {

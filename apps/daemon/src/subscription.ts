@@ -26,7 +26,8 @@ export type SubscriptionStore = Pick<
   | "listThreads"
   | "sidebarPage"
   | "readEvents"
->;
+> &
+  Partial<Pick<Store, "replaySafe">>;
 
 /**
  * Replay is split into frames of about this many event bytes, well below the client's 2 MiB
@@ -133,9 +134,13 @@ export function subscribe(
   };
   try {
     const initialHead = afterSeq === undefined ? undefined : store.headSeq();
-    if (afterSeq !== undefined && initialHead !== undefined && afterSeq > initialHead)
-      throw new Error("Cursor ahead of log");
-    if (afterSeq === undefined || (initialHead ?? 0) - afterSeq > replayLimit) {
+    const replaySafe = afterSeq === undefined || store.replaySafe?.(afterSeq) !== false;
+    if (
+      afterSeq === undefined ||
+      afterSeq > (initialHead ?? 0) ||
+      (initialHead ?? 0) - afterSeq > replayLimit ||
+      !replaySafe
+    ) {
       const view =
         scope.kind === "thread"
           ? store.acquireThread(scope.threadId)

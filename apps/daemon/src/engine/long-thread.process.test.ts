@@ -97,7 +97,7 @@ test("a transient SQLite writer lock retries before translation and commits each
   }
 });
 
-test("acknowledged coalesced appends survive SIGKILL without a final flush", async () => {
+test("explicitly flushed coalesced appends survive SIGKILL without graceful shutdown", async () => {
   const { fork } = await import("node:child_process");
   const { once } = await import("node:events");
   const { mkdtemp, rm } = await import("node:fs/promises");

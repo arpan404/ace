@@ -87,6 +87,19 @@ export class SearchIndex {
     }
     this.consume(contiguous, seq);
   }
+  /** The canonical writer attests that this batch covers the interval, including reserved or
+   * compacted sequence gaps. A lagging index still catches up from its durable replay source. */
+  appendCovered(events: readonly Event[], afterSeq: number): void {
+    const indexed = Math.min(
+      Number(this.writer.sql.get("SELECT seq FROM search_meta WHERE id=1").get()?.seq),
+      this.full.seq(),
+    );
+    if (indexed !== afterSeq) {
+      this.append(events);
+      return;
+    }
+    this.consume(events, events.at(-1)?.seq ?? afterSeq);
+  }
   private consume(events: readonly (Event | SearchReplayEvent)[], throughSeq: number): number {
     return this.atomic(() => {
       const existingSeq = Number(
@@ -143,15 +156,11 @@ export class SearchIndex {
     return this.atomic(() => queryThreadSearch(this.writer.sql, input, context));
   }
   /** Physical retention owns this missing canonical sequence, in its transaction. */
-  acknowledgeDeletion(seq: number): void {
+  acknowledgeDeletion(seq: number, afterSeq = seq - 1): void {
     const through = z.number().int().positive().max(Number.MAX_SAFE_INTEGER).parse(seq);
     this.atomic(() => {
-      this.writer.sql.run(
-        "UPDATE search_meta SET seq=? WHERE id=1 AND seq=?",
-        through,
-        through - 1,
-      );
-      if (this.full.seq() === through - 1) this.full.advance(through);
+      this.writer.sql.run("UPDATE search_meta SET seq=? WHERE id=1 AND seq=?", through, afterSeq);
+      if (this.full.seq() === afterSeq) this.full.advance(through);
     });
   }
   deleteThread(threadId: string): void {
