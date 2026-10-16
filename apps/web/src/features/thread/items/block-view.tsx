@@ -39,7 +39,7 @@ const BlockContent = memo(function BlockContent(props: {
         <AssistantMessage
           threadId={threadId}
           itemId={block.itemId}
-          timed={block.headed ? false : undefined}
+          headed={block.headed ? true : undefined}
         />
       );
     case "work":

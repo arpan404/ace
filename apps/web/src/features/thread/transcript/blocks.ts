@@ -34,7 +34,7 @@ export type Block =
       kind: "message";
       key: string;
       itemId: string;
-      /** The answer under a completed turn's head, which already shows when the turn ended. */
+      /** The answer under a completed turn's head, which carries the turn's time. */
       headed?: boolean | undefined;
     }
   /**
