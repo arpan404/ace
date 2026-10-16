@@ -316,7 +316,7 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
         case "item.updated":
           this.#deleted.delete(p.item.id);
           if (p.type === "item.updated" && !this.item(p.item.id)) break;
-          if (!this.item(p.item.id) || this.item(p.item.id)?.createdAt !== p.item.createdAt) {
+          if (!this.item(p.item.id)) {
             view.itemOrder = [...view.itemOrder];
             keys.add("order");
           }
