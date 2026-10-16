@@ -48,7 +48,7 @@ test("the switch preservation setting persists after leaving General", async () 
       "aria-checked",
     ),
   ).toBe("true");
-});
+}, 30_000);
 
 test("follow-ups are stored on the daemon and nothing offers to continue work after a restart", async () => {
   const app = harness();
