@@ -20,9 +20,11 @@ import { settledRetentionMs } from "./creation-drafts.ts";
 import {
   abortable,
   checkoutCwd,
+  defaultPreparationTimeoutMs,
   freeBranch,
   insideRoot,
   noCommits,
+  preparationSignal,
 } from "./creation-preparation.ts";
 
 type Prepared = NonNullable<CommandContext["preparedWorkspace"]>;
@@ -32,6 +34,12 @@ export interface CreationWorkspace {
   verify?(): Promise<void>;
 }
 export interface CreationOptions {
+  /**
+   * How long the read-only preparation before `git worktree add` may take.
+   * 10 minutes by default; `ACE_WORKTREE_PREPARATION_TIMEOUT_MS` overrides it
+   * when no explicit value is given.
+   */
+  preparationTimeoutMs?: number;
   log?: (message: string, error: unknown) => void;
 }
 const recoveryBatch = 8;
@@ -50,6 +58,7 @@ export class WorkspaceCreations {
   private fetchTimeoutMs: number;
   private now: () => number;
   private preparePr: PreparePrBase | undefined;
+  private preparationTimeoutMs: number;
   private log: (message: string, error: unknown) => void;
   constructor(
     store: Store,
@@ -66,6 +75,7 @@ export class WorkspaceCreations {
     this.git = git;
     this.directory = directory;
     this.fetchTimeoutMs = fetchTimeoutMs;
+    this.preparationTimeoutMs = options.preparationTimeoutMs ?? defaultPreparationTimeoutMs;
     this.log = options.log ?? (() => {});
     this.journal = new CreationWorkspaceJournal(store);
     // Backfill pre-policy leases and admitted PR bindings. Retained checkouts keep their
@@ -77,6 +87,10 @@ export class WorkspaceCreations {
         this.journal.remember(thread.details.worktree);
     for (const path of this.journal.protectedRoots()) this.git.protectWorktree(path);
     this.recovery = this.recover();
+  }
+  /** Live-update the preparation deadline from settings; the next start uses it. */
+  setPreparationTimeoutMs(timeoutMs: number): void {
+    if (Number.isInteger(timeoutMs) && timeoutMs > 0) this.preparationTimeoutMs = timeoutMs;
   }
   prepare(
     command: Command,
@@ -181,9 +195,10 @@ export class WorkspaceCreations {
     const parent = join(this.directory, "worktrees");
     await mkdir(parent, { recursive: true, mode: 0o700 });
     const path = join(await realpath(parent), key);
-    // Reads before `git worktree add` have no deadline: a large or slow repository takes the
-    // time it needs, and Cancel or Use local stops waiting at once.
-    const trees = await abortable(this.git.listWorktrees(project, { signal }), signal);
+    // Reads before `git worktree add` are bounded (10 minutes by default): a stalled Git
+    // never pins Cancel or Use local.
+    const bounded = preparationSignal(signal, this.preparationTimeoutMs);
+    const trees = await abortable(this.git.listWorktrees(project, { signal: bounded }), bounded);
     const kept = this.journal.held(id);
     if (
       kept &&
@@ -194,7 +209,7 @@ export class WorkspaceCreations {
     // A pre-existing checkout has another owner; never adopt or delete it.
     if (trees.some((tree) => tree.path === path))
       throw new Error("workspace_preparation_collision");
-    const branch = await freeBranch(this.git, project, `ace/${key.slice(0, 24)}`, signal);
+    const branch = await freeBranch(this.git, project, `ace/${key.slice(0, 24)}`, bounded);
     signal?.throwIfAborted();
     const io = {
       ...(signal ? { signal } : {}),
@@ -214,12 +229,13 @@ export class WorkspaceCreations {
     const { head, record } =
       requested.kind === "pull-request"
         ? { head: preparedPr?.head ?? "", record: undefined }
-        : await abortable(this.resolveBase(project, requested, io, context.host), signal).catch(
-            async (error: unknown) => {
-              if (await noCommits(this.git, project, error)) throw new CreationError("no_commits");
-              throw error;
-            },
-          );
+        : await abortable(
+            this.resolveBase(project, requested, { ...io, reads: bounded }, context.host),
+            bounded,
+          ).catch(async (error: unknown) => {
+            if (await noCommits(this.git, project, error)) throw new CreationError("no_commits");
+            throw error;
+          });
     const resource: CreationResource = {
       id,
       owner_id: ownerId,
@@ -290,15 +306,12 @@ export class WorkspaceCreations {
   private resolveBase(
     project: string,
     requested: Exclude<RequestedBase, { kind: "pull-request" }>,
-    io: { signal?: AbortSignal; stderr?: (chunk: Buffer) => void },
+    io: { signal?: AbortSignal; stderr?: (chunk: Buffer) => void; reads: AbortSignal },
     host: boolean | undefined,
   ) {
     return host
-      ? resolveWorktreeBase(this.git, project, requested, this.fetchTimeoutMs, {
-          ...io,
-          ...(io.signal ? { reads: io.signal } : {}),
-        })
-      : resolveAgentWorktreeBase(this.git, project, requested, io.signal);
+      ? resolveWorktreeBase(this.git, project, requested, this.fetchTimeoutMs, io)
+      : resolveAgentWorktreeBase(this.git, project, requested, io.reads);
   }
   /** Retry or Continue after a failed setup script: the kept worktree is used as it is. */
   private resume(

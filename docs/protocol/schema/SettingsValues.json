@@ -258,6 +258,11 @@
     },
     "threads.useWorktree": {
       "type": "boolean"
+    },
+    "worktree.preparationTimeoutMs": {
+      "maximum": 3600000,
+      "minimum": 60000,
+      "type": "integer"
     }
   },
   "required": [
@@ -291,6 +296,7 @@
     "access.defaultMode",
     "access.nativeModes",
     "threads.useWorktree",
+    "worktree.preparationTimeoutMs",
     "threads.autoSettleAfter",
     "threads.unresponsiveAfter",
     "threads.settleOnMerge",

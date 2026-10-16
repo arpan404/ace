@@ -51,6 +51,11 @@ export const SettingsValues = z.object({
   /** Advanced: a native mode a provider runs instead of ace's modes; its threads show Custom. */
   "access.nativeModes": z.partialRecord(ProviderKind, PermissionMode),
   "threads.useWorktree": z.boolean(),
+  /**
+   * How long read-only Git work before `git worktree add` may take, in milliseconds.
+   * 10 minutes by default; `ACE_WORKTREE_PREPARATION_TIMEOUT_MS` overrides it.
+   */
+  "worktree.preparationTimeoutMs": z.number().int().min(60_000).max(3_600_000),
   "threads.autoSettleAfter": z.enum(["1d", "2d", "1w", "never"]),
   "threads.unresponsiveAfter": z.enum(["2m", "5m", "15m"]),
   "threads.settleOnMerge": z.boolean(),

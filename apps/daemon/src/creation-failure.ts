@@ -2,7 +2,7 @@ import { GitError, isMutationUnavailable } from "@ace/git";
 import { actionErrorCode } from "./action-errors.ts";
 import { WorktreeBaseError } from "./worktree-base-resolution.ts";
 
-export type CreationErrorCode = "no_commits" | "setup_failed";
+export type CreationErrorCode = "no_commits" | "setup_failed" | "preparation_timeout";
 
 /** A creation failure the daemon itself names, with no Git error behind its code. */
 export class CreationError extends Error {
@@ -64,6 +64,10 @@ const texts: Record<string, { title: string; detail: string }> = {
     title: "Setup script failed",
     detail:
       "The worktree is ready but its setup script failed. Retry setup, continue without it, or use the local checkout.",
+  },
+  preparation_timeout: {
+    title: "Worktree preparation timed out",
+    detail: `Git didn't answer in time while preparing the worktree. ${local}`,
   },
   git_missing: { title: "Git not found", detail: "Install Git, or use the local checkout." },
   git_too_old: { title: "Git is too old", detail: "Update Git, or use the local checkout." },

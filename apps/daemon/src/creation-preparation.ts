@@ -1,6 +1,30 @@
 import { GitError, type GitService, type Worktree } from "@ace/git";
 import { lstat } from "node:fs/promises";
 import { join, relative, isAbsolute, sep } from "node:path";
+import { CreationError } from "./creation-failure.ts";
+
+/** How long read-only Git work before `git worktree add` may take; 10 minutes by default. */
+export const defaultPreparationTimeoutMs = 600_000;
+
+/** Environment variable overriding the worktree preparation deadline. */
+export const preparationTimeoutMsEnvVar = "ACE_WORKTREE_PREPARATION_TIMEOUT_MS";
+
+/**
+ * Which preparation deadline to use: an explicit per-environment setting wins, then
+ * `ACE_WORKTREE_PREPARATION_TIMEOUT_MS`, then 10 minutes. Invalid values fall through.
+ */
+export function resolvePreparationTimeoutMs(
+  explicit?: number | undefined,
+  env: NodeJS.ProcessEnv = {},
+): number {
+  if (explicit !== undefined && Number.isInteger(explicit) && explicit > 0) return explicit;
+  const raw = env[preparationTimeoutMsEnvVar];
+  if (raw !== undefined) {
+    const parsed = Number(raw);
+    if (Number.isInteger(parsed) && parsed > 0) return parsed;
+  }
+  return defaultPreparationTimeoutMs;
+}
 
 /**
  * Stop waiting for read-only Git work when `signal` aborts. The read itself may finish later;
@@ -10,10 +34,10 @@ export function abortable<T>(work: Promise<T>, signal: AbortSignal | undefined):
   if (!signal) return work;
   if (signal.aborted) {
     work.catch(() => {});
-    return Promise.reject(signal.reason);
+    return Promise.reject(abortReason(signal));
   }
   return new Promise<T>((resolve, reject) => {
-    const abort = () => reject(signal.reason);
+    const abort = () => reject(abortReason(signal));
     signal.addEventListener("abort", abort, { once: true });
     work.then(
       (value) => {
@@ -26,6 +50,19 @@ export function abortable<T>(work: Promise<T>, signal: AbortSignal | undefined):
       },
     );
   });
+}
+
+/** A timeout reads as `preparation_timeout`; a person's Cancel or Use local keeps its own reason. */
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason instanceof DOMException && signal.reason.name === "TimeoutError"
+    ? new CreationError("preparation_timeout", { cause: signal.reason })
+    : signal.reason;
+}
+
+/** The preparation phase's own deadline, ending early with the caller's signal. */
+export function preparationSignal(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const deadline = AbortSignal.timeout(timeoutMs);
+  return signal ? AbortSignal.any([signal, deadline]) : deadline;
 }
 
 type BranchGit = Pick<GitService, "resolveCommit">;

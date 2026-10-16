@@ -61,6 +61,10 @@ export class WorkspaceRoots {
     this.machine = machine;
     this.sourceControl = options.sourceControl;
   }
+  /** Live-update the preparation deadline from settings; the next start uses it. */
+  setPreparationTimeoutMs(timeoutMs: number): void {
+    this.creations.setPreparationTimeoutMs(timeoutMs);
+  }
   creationReady(): Promise<void> {
     return this.creations.ready();
   }
