@@ -56,17 +56,16 @@ test("the turn timeline lists every turn with its digest and jumps to one", asyn
   );
   await user.keyboard("{ArrowDown}{Enter}");
 
-  const jumped = await screen.findByRole("status", { name: "Jumped" });
-  expect(jumped.textContent).toContain("Jumped to turn 2");
-  expect(jumped.textContent).toContain("of 12");
   expect(await within(feed).findByText(ask(2))).toBeTruthy();
+  // No overlay bar at the top: history is one continuous list.
+  expect(screen.queryByRole("status", { name: "Jumped" })).toBeNull();
   // Only the window shows: the live end is not there, and the gap says what lies between.
   expect(within(feed).queryByText(answer(12))).toBeNull();
   const gap = screen.getByRole("group", { name: "Gap to live" });
   expect(gap.textContent).toMatch(/\d+ newer turns until live/);
 
   await user.click(within(gap).getByRole("button", { name: "Jump to live" }));
-  await waitFor(() => expect(screen.queryByRole("status", { name: "Jumped" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("group", { name: "Gap to live" })).toBeNull());
   expect(await within(feed).findByText(answer(12))).toBeTruthy();
   expect(within(feed).queryByText(ask(2))).toBeNull();
 });
@@ -111,7 +110,7 @@ test("Jump to live counts what reached the thread while the reader was in its hi
   const list = await openTurns(user);
   list.focus();
   await user.keyboard("{Home}{Enter}");
-  await screen.findByRole("status", { name: "Jumped" });
+  expect(await within(feed).findByText(ask(1))).toBeTruthy();
   // The window's end offers the live end, and so does the pill over the transcript.
   expect(screen.getAllByRole("button", { name: "Jump to live" })).toHaveLength(2);
 
@@ -147,5 +146,5 @@ test("Jump to live counts what reached the thread while the reader was in its hi
   expect(within(feed).queryByText("Late finding two.")).toBeNull();
   await user.click(pill);
   expect(await within(feed).findByText("Late finding two.")).toBeTruthy();
-  await waitFor(() => expect(screen.queryByRole("status", { name: "Jumped" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("group", { name: "Gap to live" })).toBeNull());
 });

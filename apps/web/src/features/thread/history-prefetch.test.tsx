@@ -16,7 +16,8 @@ test("one upward scroll prefetches one older page without the reply paging the r
   if (!viewport) throw new Error("No transcript viewport");
   fireEvent.wheel(viewport, { deltaY: -100 });
   await within(feed).findByText("Question 366: what does route 366 render?");
-  await screen.findByRole("status", { name: "Jumped" });
+  // Paging older history is seamless: no overlay bar appears at the top.
+  expect(screen.queryByRole("status", { name: "Jumped" })).toBeNull();
   // jsdom's tall viewport exposes the first row even after the page merges. Loading
   // itself must not keep chaining through all 400 turns while the reader is still.
   expect(within(feed).queryByText("Question 365: what does route 365 render?")).toBeNull();

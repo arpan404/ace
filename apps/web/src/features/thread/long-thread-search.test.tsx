@@ -39,11 +39,10 @@ test("⌘F finds words anywhere in the thread and Enter jumps to the hit", async
   expect(within(bar).getByText("1 result")).toBeTruthy();
 
   await user.keyboard("{Enter}");
-  const jumped = await screen.findByRole("status", { name: "Jumped" });
-  expect(jumped.textContent).toContain("Jumped to turn 7");
   expect(
     await within(feed).findByText("Migrate checkpoint 7, inspect files and report failures."),
   ).toBeTruthy();
+  expect(screen.queryByRole("status", { name: "Jumped" })).toBeNull();
   expect(within(bar).getByText("1 of 1 result")).toBeTruthy();
 });
 
