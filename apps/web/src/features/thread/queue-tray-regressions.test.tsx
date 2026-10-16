@@ -56,7 +56,7 @@ test("Steer follows live root ownership when a snapshot retains only child outpu
   ]);
   await app.open(`/t/${threadId}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  await within(feed).findByText("Only retained child output");
+  expect(within(feed).queryByText("Only retained child output")).toBeNull();
   await userEvent.type(
     await screen.findByRole("combobox", { name: "Message" }),
     "Follow the live turn{Enter}",

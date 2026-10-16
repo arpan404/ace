@@ -131,6 +131,10 @@ export type RunFacts = Pick<Run, "state" | "trigger" | "endedAt"> & {
 
 export interface BlockSource {
   order: readonly string[];
+  /** Related agents contribute file summaries, without adding transcript rows. */
+  relatedOrder?: readonly string[] | undefined;
+  /** Latest root run when this loaded window contains none of its output. */
+  emptyTurn?: string | undefined;
   item(id: string): Item | undefined;
   creationSeq?(id: string): number | undefined;
   /** Tool call id → background task id, for calls that outlived their turn. */
@@ -640,6 +644,18 @@ export function buildBlocks(input: BlockSource): Block[] {
       );
     }
   }
+  // Tree-wide file summaries are independent of the transcript's displayed owner.
+  const edits = new Set(ordered.flatMap((turn) => turn.edits));
+  for (const id of source.relatedOrder ?? []) {
+    if (edits.has(id)) continue;
+    const item = source.item(id);
+    if (item?.type !== "tool_call" || !editKinds.has(item.call.kind)) continue;
+    const turn = turns.get(source.turnOf?.(id) ?? "");
+    if (turn) {
+      turn.edits.push(id);
+      edits.add(id);
+    }
+  }
   if (turnId !== undefined) close(undefined);
   const newest = ordered.at(-1);
   const newestRun = ordered.findLast((turn) => source.run?.(turn.id) !== undefined);
@@ -786,6 +802,25 @@ export function buildBlocks(input: BlockSource): Block[] {
           ...(after.get(index) ?? []),
         ])
       : blocks;
+  if (!result.length && source.emptyTurn) {
+    const id = source.emptyTurn;
+    const ending = source.turnEnding?.(id) ?? source.run?.(id);
+    if (
+      ending &&
+      ending.state !== "active" &&
+      ending.endedAt !== undefined &&
+      source.turnSettled?.(id)
+    )
+      result.push({
+        kind: "work",
+        key: `work:turn:${id}`,
+        itemIds: [],
+        startedAt: source.turnStartedAt?.(id) ?? ending.startedAt,
+        until: source.turnEndedAt?.(id) ?? ending.endedAt,
+        idle: source.turnIdle?.(id),
+        outcome: ending.state,
+      });
+  }
   // A turn that stopped, failed or paused before any of its output (or its run) is known.
   const last = result.at(-1);
   if (source.stoppedTail && last?.kind === "user")

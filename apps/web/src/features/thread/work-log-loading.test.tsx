@@ -113,3 +113,57 @@ test("a turn longer than one read offers to load the rest of its steps", async (
   expect(await within(feed).findByText("Ran 1001 commands", {}, { timeout: 8000 })).toBeTruthy();
   expect(within(feed).queryByRole("button", { name: "Load more steps" })).toBeNull();
 }, 30_000);
+
+test("opening a parent's finished log keeps fetched child tools and messages on the child", async () => {
+  const app = harness();
+  app.daemon.createThread({
+    id: "separate",
+    workspaceId: "ace",
+    title: "Separate work",
+    provider: "claude",
+  });
+  app.daemon.apply("separate", [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Build while a child reads the policy"),
+    facts.tool("root", "spawn", {
+      kind: "agent.spawn",
+      title: "Check policy",
+      detail: { kind: "agent.spawn", childAgent: "child", description: "Check policy" },
+    }),
+    facts.subagent("claude", "child", "child", "spawn"),
+    facts.turn("child"),
+    facts.tool("child", "read", {
+      kind: "file.read",
+      title: "Read child-only.ts",
+      detail: { kind: "file.read", path: "child-only.ts" },
+    }),
+    facts.toolDone("child", "read"),
+    facts.message("child", "child-answer", "assistant", "Private child answer"),
+    facts.endTurn("child"),
+    facts.toolDone("root", "spawn"),
+    facts.tool("root", "build", {
+      kind: "shell",
+      title: "bun run build",
+      detail: { kind: "shell", command: "bun run build" },
+    }),
+    facts.toolDone("root", "build"),
+    facts.message("root", "answer", "assistant", "The build passes."),
+    facts.endTurn("root"),
+  ]);
+  await app.open("/t/separate");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  expect(within(feed).queryByText("Private child answer")).toBeNull();
+  await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
+  await userEvent.click(
+    await within(feed).findByRole("button", {
+      name: /^Ran 1 command and started 1 subagent$/,
+    }),
+  );
+  expect(await within(feed).findByRole("button", { name: /^Ran bun run build/ })).toBeTruthy();
+  expect(within(feed).queryByRole("button", { name: /^Read child-only.ts/ })).toBeNull();
+  expect(within(feed).queryByText("Private child answer")).toBeNull();
+  await userEvent.click(within(feed).getByRole("link", { name: /^Open child,/ }));
+  const own = await screen.findByRole("feed", { name: "Transcript" });
+  expect(await within(own).findByText("Private child answer")).toBeTruthy();
+});

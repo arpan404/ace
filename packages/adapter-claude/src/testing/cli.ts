@@ -183,6 +183,67 @@ for await (const line of lines) {
       continue;
     }
     if (text === "crash") process.exit(3);
+    if (["resumed-child", "resumed-late-child", "completed-child"].includes(text)) {
+      write({
+        type: "system",
+        subtype: "task_started",
+        task_id: "worker",
+        tool_use_id: "original",
+        run_id: "first",
+        task_type: "local_agent",
+      });
+      write({
+        type: "system",
+        subtype: "task_updated",
+        task_id: "worker",
+        run_id: "first",
+        patch: { status: "completed" },
+      });
+      if (text !== "completed-child") {
+        write({
+          type: "system",
+          subtype: "task_started",
+          task_id: "worker",
+          tool_use_id: "resume",
+          run_id: "second",
+          task_type: "local_agent",
+          is_backgrounded: true,
+        });
+        // Old terminal edges must not retire the new run's stop identity.
+        write({
+          type: "system",
+          subtype: "task_updated",
+          task_id: "worker",
+          run_id: "first",
+          patch: { status: "completed" },
+        });
+        if (text === "resumed-late-child")
+          write({
+            type: "system",
+            subtype: "task_updated",
+            task_id: "worker",
+            run_id: "second",
+            patch: { status: "completed" },
+          });
+        write({
+          type: "assistant",
+          parent_tool_use_id: "resume",
+          message: {
+            id: "nested-resumed",
+            role: "assistant",
+            content: [{ type: "tool_use", id: "nested-spawn", name: "Agent", input: {} }],
+          },
+        });
+        write({
+          type: "system",
+          subtype: "task_started",
+          task_id: "nested-worker",
+          tool_use_id: "nested-spawn",
+          task_type: "local_agent",
+        });
+      }
+      write({ type: "system", subtype: "child-control-ready" });
+    }
     if (text === "task-churn") {
       for (let n = 0; n < 2000; n++) {
         write({

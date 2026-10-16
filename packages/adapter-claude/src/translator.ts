@@ -253,7 +253,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         for (const deferred of pending.take(state, spawn)) {
           const start = state.facts.length;
           const diagnosticStart = state.diagnostics.length;
-          sdk(object(deferred.data), deferred, now);
+          if (!pending.defer(state, deferred)) sdk(object(deferred.data), deferred, now);
           // Receipt already retained this payload; replay only enriches canonical facts.
           state.diagnostics.length = diagnosticStart;
           for (let index = start; index < state.facts.length; index++) {
