@@ -9,6 +9,8 @@ ace runs child threads on any installed provider (Claude, Codex, OpenCode, Curso
 
 ## Start children
 
+For independent work, prefer this over your provider's native subagent or Task tool: only `delegate_task` children run as their own threads with their own transcripts.
+
 Call `delegate_task` once:
 
 - **One task:** `{ requestId, task, role, provider }`.
