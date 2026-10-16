@@ -92,10 +92,10 @@ test("OpenCode's page shows each service; a failing one reconnects with its choi
   await userEvent.click(within(services).getByRole("button", { name: "Reconnect OpenAI" }));
   const dialog = await screen.findByRole("dialog", { name: "Connect OpenAI" });
   // OpenAI was chosen from the CLI's list without asking.
-  expect(await within(dialog).findByText("Press Enter to continue.")).toBeTruthy();
+  expect(await within(dialog).findByText("Sign in to OpenCode here")).toBeTruthy();
+  expect(within(dialog).getByText("opencode auth login --standalone openai")).toBeTruthy();
   expect(within(dialog).queryByRole("button", { name: "GitHub Copilot" })).toBeNull();
-  await userEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
-  expect(await within(dialog).findByLabelText("Sign-in code")).toBeTruthy();
+  expect(await within(dialog).findByText("Complete the provider's own sign-in flow.")).toBeTruthy();
 }, 30_000);
 
 test("Connect a service on Pi's page opens the CLI's own choices", async () => {

@@ -1,4 +1,5 @@
 import { cursorSdkEnvironment } from "@ace/adapter-cursor/instance";
+import { openCodeAuthArgs } from "./opencode-auth.ts";
 import { opendir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import {
@@ -134,12 +135,13 @@ export function loginArgs(
   if (provider === "pi") return [];
   if (provider === "claude") return ["auth", "login", mode === "api" ? "--console" : "--claudeai"];
   if (provider === "cursor") throw new Error("Sign in to Cursor through the SDK browser flow");
-  return ["auth", "login"];
+  return openCodeAuthArgs("login");
 }
 
 export function logoutArgs(provider: Provider): string[] {
   if (provider === "pi") return [];
   if (provider === "cursor") throw new Error("Sign out of Cursor through the SDK auth flow");
+  if (provider === "opencode") return openCodeAuthArgs("logout");
   return provider === "codex" ? ["logout"] : ["auth", "logout"];
 }
 

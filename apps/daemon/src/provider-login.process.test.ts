@@ -97,24 +97,13 @@ async function harness(provider: Exclude<ProviderKind, "cursor">, source?: strin
   return { root, sessions, start, wait, events, expire: () => expire?.() };
 }
 
-test.each(["codex", "claude", "opencode"] as const)(
+test.each(["codex", "claude"] as const)(
   "%s native login relays safe challenges and Enter input without output history",
   async (provider) => {
     const f = await harness(provider);
     expect(await f.start()).toMatchObject({
       result: { ok: true, progress: { state: "starting", session: "login-one" } },
     });
-    if (provider === "opencode") {
-      await f.wait("awaiting_input");
-      expect(
-        await f.sessions.handle("phone", {
-          type: "provider.login.input",
-          requestId: "choose",
-          session: "login-one",
-          input: { choice: "github-copilot" },
-        }),
-      ).toMatchObject({ result: { ok: true } });
-    }
     const prompt = await f.wait("awaiting_input");
     // The initial upstream selector is followed by the CLI's Enter prompt.
     const enter =
@@ -129,8 +118,7 @@ test.each(["codex", "claude", "opencode"] as const)(
             });
           });
     expect(enter.url).toMatch(/^https:\/\//);
-    if (provider === "codex" || provider === "opencode")
-      expect(enter.userCode).toMatch(/^[A-Z0-9]+-[A-Z0-9]+$/);
+    if (provider === "codex") expect(enter.userCode).toMatch(/^[A-Z0-9]+-[A-Z0-9]+$/);
     await f.sessions.handle("phone", {
       type: "provider.login.input",
       requestId: "enter",
@@ -140,21 +128,7 @@ test.each(["codex", "claude", "opencode"] as const)(
     await f.wait("succeeded");
     expect(JSON.parse(await readFile(join(f.root, "completed"), "utf8"))).toMatchObject({
       line: "",
-      args:
-        provider === "codex"
-          ? ["login", "--device-auth"]
-          : provider === "claude"
-            ? ["auth", "login", "--claudeai"]
-            : provider === "opencode"
-              ? [
-                  "auth",
-                  "login",
-                  "--provider",
-                  "github-copilot",
-                  "--method",
-                  "Login with GitHub Copilot",
-                ]
-              : ["login"],
+      args: provider === "codex" ? ["login", "--device-auth"] : ["auth", "login", "--claudeai"],
     });
     expect(JSON.stringify(f.events)).not.toMatch(/syntheticSecret|access_token|ghp_/);
     expect(await f.start()).toMatchObject({ result: { progress: { state: "succeeded" } } });

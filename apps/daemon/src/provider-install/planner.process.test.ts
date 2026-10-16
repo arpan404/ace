@@ -286,6 +286,12 @@ test("OpenCode install verification skips earlier v1 and uninstall ignores remai
     f.env.PATH = old + ":" + f.bin;
     const install = await f.installs.plan({ provider: "opencode" }, "install");
     expect(install).toMatchObject({ status: "ready", method: "npm" });
+    expect(install.commands[0]?.args).toEqual([
+      "install",
+      "-g",
+      "--allow-scripts=@opencode/cli",
+      "@opencode/cli@latest",
+    ]);
     await f.existing("opencode", "npm");
     expect(await f.installs.planner.verify(install)).toBe("2.0.0");
     const uninstall = await f.installs.plan({ provider: "opencode" }, "uninstall");

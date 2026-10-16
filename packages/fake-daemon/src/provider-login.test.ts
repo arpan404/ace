@@ -61,19 +61,26 @@ test.each(["codex", "claude", "opencode", "pi", "cursor"] as const)(
           session,
           input: { choice: "github-copilot" },
         });
-        if (provider === "opencode")
-          await f.client.request({
-            type: "provider.login.input",
-            session,
-            input: { confirm: true },
-          });
       }
-      const challenge = await f.wait(
-        provider === "codex" || provider === "opencode" || provider === "pi"
-          ? "awaiting_code_entry"
-          : "awaiting_browser",
-      );
-      expect(challenge.url).toMatch(/^https:/);
+      if (provider === "opencode") {
+        expect(await f.client.request({ type: "provider.login.poll", session })).toMatchObject({
+          result: {
+            ok: true,
+            progress: {
+              state: "awaiting_input",
+              manual: {
+                command: "opencode auth login --standalone github-copilot",
+                terminalId: expect.any(String),
+              },
+            },
+          },
+        });
+      } else {
+        const challenge = await f.wait(
+          provider === "codex" || provider === "pi" ? "awaiting_code_entry" : "awaiting_browser",
+        );
+        expect(challenge.url).toMatch(/^https:/);
+      }
       expect(await f.client.request({ type: "provider.login.start", provider })).toMatchObject({
         result: { ok: false, error: "busy" },
       });
@@ -183,7 +190,7 @@ test("fake onboarding dismissal belongs to the device and terminal fallback uses
       session,
       input: { choice: "opencode-go" },
     });
-    const opened = await f.client.request({ type: "provider.login.terminal", session });
+    const opened = await f.client.request({ type: "provider.login.poll", session });
     if (!opened.result.ok || !opened.result.progress.manual?.terminalId)
       throw new Error("Terminal fallback missing");
     expect(

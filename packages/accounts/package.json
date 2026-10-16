@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./opencode-auth": "./src/opencode-auth.ts",
     "./labels": "./src/labels.ts",
     "./availability": "./src/availability.ts"
   },

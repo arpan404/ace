@@ -46,9 +46,9 @@ const readline = require('node:readline');
 const args = process.argv.slice(2);
 const home = process.env.HOME;
 const signedIn = () => fs.existsSync(home + '/cli-credential');
-if (args[0] === '--version') console.log(${JSON.stringify(provider === "codex" ? "codex-cli 0.159.1" : "2.0.22")});
-else if (args.includes('--help')) console.log('login logout --with-api-key --device-auth --provider --method');
-else if (args.join(' ') === 'login status' || args.includes('list')) console.log(${provider === "codex" ? "signedIn() ? 'Logged in using ChatGPT' : 'Not logged in'" : "signedIn() ? '1 credential' : 'No authenticated integrations'"});
+if (args[0] === '--version') console.log(${JSON.stringify(provider === "codex" ? "codex-cli 0.159.1" : "2.0.30")});
+else if (args.includes('--help')) console.log('login logout --with-api-key --device-auth --standalone');
+else if (args.join(' ') === 'login status' || args.includes('list')) console.log(${provider === "codex" ? "signedIn() ? 'Logged in using ChatGPT' : 'Not logged in'" : "JSON.stringify([{id:'github-copilot',connections:signedIn() ? [{type:'credential'}] : []}, ...(fs.existsSync(home + '/other-credential') ? [{id:'anthropic',connections:[{type:'credential'}]}] : [])])"});
 else if (args[0] === 'app-server') readline.createInterface({input:process.stdin}).on('line', line => {
   const request = JSON.parse(line); if (request.id === undefined) return;
   const result = request.method === 'model/list' ? {data:[{id:'fixture',model:'configured-login-model',displayName:'Fixture',isDefault:true,supportedReasoningEfforts:[],defaultReasoningEffort:'high'}],nextCursor:null} : {};
@@ -56,12 +56,12 @@ else if (args[0] === 'app-server') readline.createInterface({input:process.stdin
 });
 else {
   fs.writeFileSync(home + '/login-started', 'controlled process launched');
-  if (args.includes('--with-api-key') || args.includes('Manually enter API Key')) {
+  if (args.includes('--with-api-key')) {
     let key = ''; process.stdin.on('data', chunk => key += chunk);
     process.stdin.on('end', () => { fs.writeFileSync(home + '/cli-credential', key.trim()); });
   } else {
     console.log('Open https://auth.openai.com/codex/device\\nEnter code: ABCD-12345\\nPress Enter to continue.');
-    readline.createInterface({input:process.stdin}).on('line', () => { fs.writeFileSync(home + '/cli-credential', 'browser login'); process.exit(0); });
+    readline.createInterface({input:process.stdin}).on('line', () => { if(args.includes('logout')) fs.rmSync(home + '/cli-credential',{force:true}); else fs.writeFileSync(home + '/cli-credential', 'browser login'); process.exit(0); });
   }
 }
 `,
@@ -70,8 +70,8 @@ else {
     bin,
     "replacement",
     `
-if (process.argv.includes('--version')) console.log(${JSON.stringify(provider === "codex" ? "codex-cli 0.159.1" : "2.0.22")});
-else console.log(${JSON.stringify(provider === "codex" ? "Not logged in" : "No authenticated integrations")});
+if (process.argv.includes('--version')) console.log(${JSON.stringify(provider === "codex" ? "codex-cli 0.159.1" : "2.0.30")});
+else console.log(${JSON.stringify(provider === "codex" ? "Not logged in" : "[]")});
 `,
   );
   const settings = new SettingsService({ dataDir: f.dataDir });
@@ -97,6 +97,7 @@ else console.log(${JSON.stringify(provider === "codex" ? "Not logged in" : "No a
     services: {
       accountRegistry: f.registry,
       accounts: f.accounts,
+      accountManagement: f.management,
       models: f.models,
       providerConfigurations: configurations,
     },
@@ -146,7 +147,6 @@ else console.log(${JSON.stringify(provider === "codex" ? "Not logged in" : "No a
         provider,
         instance: instance.id,
         method,
-        ...(provider === "opencode" && method === "api_key" ? { upstream: "openai" } : {}),
       });
       if (!result.result.ok) throw new Error("Login not admitted");
       return result.result.progress.session;

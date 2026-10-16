@@ -176,15 +176,25 @@ export function ManualSteps(props: {
 export function AgentLoginTerminal(props: {
   id: string;
   name: string;
+  command?: string;
   instruction?: string;
   cancel(): void;
 }) {
   return (
     <>
       <StepTitle
-        title="Finish signing in"
+        title={`Sign in to ${props.name} here`}
         line={props.instruction ?? "Complete the agent's own prompts here."}
       />
+      <p className="text-sm text-muted-foreground">
+        Use the terminal below. ace opens it on the connected computer for this account.
+        {props.command && (
+          <>
+            {" "}
+            It runs <CopyCommand command={props.command} />.
+          </>
+        )}
+      </p>
       <Suspense fallback={<Spinner />}>
         <AuthTerminal terminalId={props.id} label={`${props.name} sign-in`} onExit={() => {}} />
       </Suspense>
