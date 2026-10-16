@@ -273,11 +273,11 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
         break;
       const previous = get(view.items, p.item.id);
       if (!previous) insertChronologicalItem(view.itemOrder, view.items, p.item);
-      else if (previous.createdAt !== p.item.createdAt && view.itemOrder.includes(p.item.id)) {
-        view.itemOrder = view.itemOrder.filter((id) => id !== p.item.id);
-        insertChronologicalItem(view.itemOrder, view.items, p.item);
-      }
-      put(view.items, p.item.id, structuredCopy(p.item));
+      // Creation time is identity, as in the core reducer. A provider refresh can
+      // replace content but cannot change where an already admitted item belongs.
+      const item = structuredCopy(p.item);
+      if (previous) item.createdAt = previous.createdAt;
+      put(view.items, p.item.id, item);
       break;
     }
     case "item.deleted":
