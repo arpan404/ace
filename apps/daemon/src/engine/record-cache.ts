@@ -29,5 +29,5 @@ export class RecordBudget {
 
 export interface RecordTransaction {
   readonly tracking: boolean;
-  touch(section: { flush(): void }): void;
+  touch(section: { flush(): void; persist(): void; committed(): void }): void;
 }

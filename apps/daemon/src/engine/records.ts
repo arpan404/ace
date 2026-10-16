@@ -26,6 +26,7 @@ export class Records<T> {
   private appendValue: { key: string; value: T } | undefined;
   private replaced = new Set<string>();
   private appended = new Set<string>();
+  private patches = new Map<string, Append[]>();
   private touched = new Map<string, T | undefined>();
   // Transaction baselines must survive LRU eviction. Reading is not a write.
   private originals = new Map<string, string>();
@@ -138,6 +139,10 @@ export class Records<T> {
         value = restoreAppend(value, patch);
         bytes += Buffer.byteLength(patch.text);
       }
+      for (const patch of this.patches.get(key) ?? []) {
+        value = restoreAppend(value, patch);
+        bytes += Buffer.byteLength(patch.text);
+      }
       entry = { json, bytes, value: this.decorate(key, parseRecord(this.decoder, value)) };
     }
     this.cache.delete(key);
@@ -186,9 +191,24 @@ export class Records<T> {
     this.access(true);
     const entry = this.cache.get(key);
     if (this.replaced.has(key) || (!entry?.json && this.appendValue?.key !== key)) return;
-    this.db
-      .prepare("INSERT INTO engine_state_appends (thread_id,section,key,patch) VALUES (?, ?, ?, ?)")
-      .run(this.thread, this.group, key, JSON.stringify(patch));
+    if (this.transaction) {
+      const patches = this.patches.get(key) ?? [];
+      const previous = patches.at(-1);
+      if (
+        previous &&
+        JSON.stringify(previous.path) === JSON.stringify(patch.path) &&
+        previous.text.length + patch.text.length <= 32768
+      )
+        previous.text += patch.text;
+      else patches.push(patch);
+      this.patches.set(key, patches);
+    } else {
+      this.db
+        .prepare(
+          "INSERT INTO engine_state_appends (thread_id,section,key,patch) VALUES (?, ?, ?, ?)",
+        )
+        .run(this.thread, this.group, key, JSON.stringify(patch));
+    }
     if (entry) {
       entry.bytes += Buffer.byteLength(patch.text);
       this.cache.set(key, entry, entry.bytes);
@@ -208,7 +228,15 @@ export class Records<T> {
       )
         this.touched.delete(key);
   }
-  flush(): void {
+  persist(): void {
+    for (const [key, patches] of this.patches)
+      if (!this.replaced.has(key))
+        for (const patch of patches)
+          this.db
+            .prepare(
+              "INSERT INTO engine_state_appends (thread_id,section,key,patch) VALUES (?, ?, ?, ?)",
+            )
+            .run(this.thread, this.group, key, JSON.stringify(patch));
     for (const [key, value] of this.touched) {
       if (value === undefined) {
         this.db
@@ -236,11 +264,18 @@ export class Records<T> {
       }
       this.cache.set(key, { value, json, bytes: Buffer.byteLength(json) }, Buffer.byteLength(json));
     }
+  }
+  committed(): void {
+    this.patches.clear();
     this.touched.clear();
     this.originals.clear();
     this.enumerated = undefined;
     this.replaced.clear();
     this.appended.clear();
     this.tracking = false;
+  }
+  flush(): void {
+    this.persist();
+    this.committed();
   }
 }

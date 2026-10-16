@@ -61,8 +61,13 @@ const entries = `WITH entries AS (
 /** Count compact bytes in SQLite before materializing any event in Node. */
 export class UsageReplay {
   private readonly sizes;
+  private readonly pageEnd;
   private readonly entry;
   constructor(db: DatabaseSync) {
+    this.pageEnd = db.prepare(`SELECT seq FROM (
+      SELECT seq FROM events WHERE seq>? AND seq<=?
+      UNION ALL SELECT seq FROM usage_deletions WHERE seq>? AND seq<=?
+    ) ORDER BY seq LIMIT 1 OFFSET ?`);
     this.sizes = db.prepare(
       `${entries} SELECT seq, length(CAST(entry AS BLOB)) AS bytes FROM entries ORDER BY seq`,
     );
@@ -72,7 +77,12 @@ export class UsageReplay {
   }
   read(input: unknown, headSeq: number): { throughSeq: number; events: UsageEvent[] } {
     const q = Options.parse(input);
-    const end = Math.min(headSeq, q.afterSeq + q.limit);
+    const boundary = this.pageEnd.get(q.afterSeq, headSeq, q.afterSeq, headSeq, q.limit - 1);
+    const end = z
+      .number()
+      .int()
+      .nonnegative()
+      .parse(boundary?.seq ?? headSeq);
     const events: UsageEvent[] = [];
     let bytes = 2;
     let throughSeq = end;

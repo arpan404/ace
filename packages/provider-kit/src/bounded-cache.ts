@@ -2,6 +2,7 @@
 export class BoundedCache<K, V> {
   private entries = new Map<K, { value: V; bytes: number }>();
   private bytes = 0;
+  private evicted = 0;
   private maxEntries: number;
   private maxBytes: number;
   constructor(maxEntries: number, maxBytes: number) {
@@ -14,6 +15,12 @@ export class BoundedCache<K, V> {
       throw new Error("Invalid cache budget");
     this.maxEntries = maxEntries;
     this.maxBytes = maxBytes;
+  }
+  get byteLength(): number {
+    return this.bytes;
+  }
+  get evictions(): number {
+    return this.evicted;
   }
   get size(): number {
     return this.entries.size;
@@ -35,6 +42,7 @@ export class BoundedCache<K, V> {
       const oldest = this.entries.keys().next();
       if (oldest.done) break;
       this.delete(oldest.value);
+      this.evicted++;
     }
   }
   delete(key: K): void {

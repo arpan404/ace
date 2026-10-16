@@ -60,3 +60,74 @@ Thread purges also drop the engine's cached actor for that thread. Before this, 
 - `daemon-start.log` takes its cap from the environment or the default, not from saved settings, because the launcher runs before any daemon.
 - Browser session logs keep their fixed 16 MiB per stream.
 - Native clients do not show the two settings yet.
+
+## Amendment: live SQLite write buffer (issue #857)
+
+Established append streams now enter a daemon-owned buffer before SQLite. The canonical core
+reducer still owns item changes and liveness; its events publish directly from memory. Event
+rows and engine snapshot append patches accumulate until 75 ms, a 64 KiB accounting threshold,
+or a control/read/maintenance/shutdown boundary. Adjacent deltas for the same thread, item,
+agent and field compact to at most 4 KiB; interleaved streams retain their global order. The
+1 ms mailbox remains an intake bound, independently of the persistence window.
+
+The write buffer has an 8 MiB hard admission budget. Accounting charges event text, engine
+patches, decoded strings and per-entry overhead conservatively. Admission flushes before the
+cap; oversized frames take the durable size-boundary path. Residual over-capacity after the
+flush surfaces as transient `Store is busy` so the provider mailbox retries after 100 ms;
+it never poisons the session. Single oversized batches are rejected by the stream() size
+guard before admission. Pending snapshots stay pinned
+outside the engine LRU. Flushes commit all events, derived tables, append patches and snapshot
+headers together. A failed transaction keeps the complete batch and retries after 100 ms;
+provider intake pauses until storage recovers. No uncommitted entry is evicted. This is a
+deliberate divergence from per-thread/agent LRU eviction: uncommitted data is pinned, never
+evicted, and delivery resync stays at the Outbox layer (`RESYNC_CLOSE_CODE`). Control facts,
+new items and full upserts remain durable boundaries. Cursor SDK recovery frames retain their
+existing atomic provenance/offset transaction and durable acknowledgement contract.
+
+An ordinary streaming-frame acknowledgement means admission to this bounded buffer, not
+per-token durability. The usual process-crash loss window is the unflushed tail (at most
+75 ms under healthy storage). A storage failure can extend that window while data stays
+pinned in the running daemon. Completion, explicit engine flush and graceful shutdown drain
+it. This is an intentional change from durable-per-token delivery; memory cannot survive a
+power loss. Completed/control state is never published ahead of its commit.
+
+Live events reserve canonical sequence numbers. Before publishing the first live event in a
+range, a small independent transaction advances the existing `host_sequence` high-water mark
+by at least 65,536 slots counted in events (facts.length), never bytes, so large text
+batches do not over-reserve. The visible durable head comes from actual event/deletion rows,
+not unused reservations. Restart skips the reserved range, including slots published only
+in memory, so a lost tail can never alias later events. The table's encoding is unchanged;
+previous builds also skip its high-water mark. A compacted persisted delta uses the final
+sequence in its span, leaving gaps. Reconnecting from a cursor inside a compacted span, or
+ahead of the durable head after a crash, takes a fresh snapshot rather than replaying an
+append twice. Existing Outbox byte limits and resync-on-congestion remain the delivery
+contract. Snapshot and transcript reads drain the pending tail before reading SQLite. The canonical
+writer passes the actual predecessor to turn and search indexes, so reserved/compacted gaps
+advance their coverage in the same transaction. Usage replay bounds pages by actual rows
+rather than iterating empty sequence ranges.
+
+A separate 8 MiB/512-entry LRU holds thread snapshots, recent item pages and entity pages.
+Every local transaction invalidates it wholesale (coarse but correct), including queue/recovery, switch, fork, migration,
+archive and deletion writes. `PRAGMA data_version` fences writes from other connections; `total_changes()` also fences raw
+writes on the Store connection. A cursor past even the reserved high-water mark is treated
+as unsafe and falls back to a fresh snapshot rather than surfacing a replay error.
+Transactional reads bypass cache population; callers receive independent values. Read-cache
+pressure cannot evict pinned writes. Cache misses fall through to SQLite.
+
+WAL auto-checkpoint and the existing 16 MiB journal limit remain enabled. A bounded idle
+checkpoint timer tries TRUNCATE without waiting for other readers, at most once per five
+seconds after writes. No recurring work remains once idle. Retention semantics are unchanged.
+The authenticated `diagnostics.health` response includes `streaming`, populated by
+`Store.streamingMetrics()`. It exposes committed transaction/event counts, buffered batch rows,
+flush failures, live bytes, current/peak buffer accounting, WAL size and read-cache hits,
+misses, hit bytes, invalidations, evictions, stale serves (always zero by construction) and
+current bytes. Counter differences over a
+measurement interval yield transaction rate and rows per batch.
+
+The standalone scripted-provider benchmark is `node apps/daemon/bench/live-write-buffer.ts`.
+A local run of this implementation delivered all 1,000 individually awaited deltas in 44
+transactions and 43 persisted delta rows (about 23 times fewer), with 68,200 bytes of peak
+buffer accounting and a 1,648,032-byte WAL. These are observed values, not platform-independent
+latency budgets. The regression suite also checks Unicode chunk bounds, replay from compacted
+spans, retry after a rejected transaction, cross-connection/raw-write invalidation and an idle
+checkpoint returning the WAL to zero without subsequent write growth.

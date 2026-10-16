@@ -129,7 +129,7 @@ test("delta frames only change their snapshot record and recover text beyond the
   }
 });
 
-test("a rejected incremental snapshot append cannot commit its delta event or change recovery", async () => {
+test("a rejected incremental append at a control boundary cannot commit its delta or change recovery", async () => {
   const frames = scriptFrames();
   const h = track(
     await harness(
@@ -160,13 +160,16 @@ test("a rejected incremental snapshot append cannot commit its delta event or ch
     ),
   );
   ctx.onFrame(
-    frames.frame({
-      type: "item.delta",
-      agent: "root",
-      item: "answer",
-      field: "text",
-      append: " lost",
-    }),
+    frames.frame(
+      {
+        type: "item.delta",
+        agent: "root",
+        item: "answer",
+        field: "text",
+        append: " lost",
+      },
+      end,
+    ),
   );
   await h.engine.flush();
   const deltas = h.store

@@ -9,8 +9,8 @@
       "sha256": "e66c44ad45e94a6611ff75c2e3d963f1491f76e2944ec6d7ad55ac5eb93532ed"
     },
     "commands.md": {
-      "bytes": 48364,
-      "sha256": "3db876fc95f0066d08a08a3986ab22afcf14d1c463f2472898f14d7f59fb50e4"
+      "bytes": 48587,
+      "sha256": "cdd65668d5f5282e945aa7a679ac22a69a8cf6584d0bb33a1c22797165e7b903"
     },
     "events.md": {
       "bytes": 21299,
@@ -37,8 +37,8 @@
       "sha256": "7bc92880326a32828bf05b3178a73dcb01ec16cdc6d752f43f118a9828f3d807"
     },
     "requests.md": {
-      "bytes": 87637,
-      "sha256": "62ee6db9150c7d60556a631924dbdfc2d21e6f9b4e9adcaa0f893c306bae0b3d"
+      "bytes": 87813,
+      "sha256": "78e484e8768a8006b03a3c36d2a63e320f6856251d149c7defae97622f1bdb71"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -745,8 +745,8 @@
       "sha256": "1f28592145b3b7831464ac56d3ad2c1211afc83a24effd1aa523e874311af0ee"
     },
     "schema/DiagnosticsHealth.json": {
-      "bytes": 3672,
-      "sha256": "2dc7afd0295010ac225cdbfd5d73b95f1163e313a4e0ecb10e2ff15812c3337f"
+      "bytes": 3773,
+      "sha256": "3f25bacd6c5ccc69dfb8221c4b04caa2abd7026a09b2d25f7783adb976504da0"
     },
     "schema/DiagnosticsHealthCommand.json": {
       "bytes": 291,
@@ -2876,6 +2876,10 @@
       "bytes": 1282,
       "sha256": "129a7379025fb7d94bd4406a9f62806216aacf63d5bade6f334135d2a028f9e6"
     },
+    "schema/StreamingStorageMetrics.json": {
+      "bytes": 2545,
+      "sha256": "2f12169b738d46724cdda560b31dc611333e3b863533ce561256068e6d72f255"
+    },
     "schema/SubscriptionScope.json": {
       "bytes": 1108,
       "sha256": "bdcde8f3cdaacba850cdb312c00b1e84a3fd894ea747e60f2929d90027bd3092"
@@ -3689,10 +3693,10 @@
       "sha256": "eadd796e5214ab35199731ca1c2f0faa3dd65dab3d6150142a57acda545ef06d"
     },
     "types.md": {
-      "bytes": 757346,
-      "sha256": "1c7935ff3f5bf462ef696225d06befc3a15b38bb4d1b6250db32146fca6db01c"
+      "bytes": 763671,
+      "sha256": "ae2d8758c962413006652d7a4f2bd8157143d778af4bc30310e9fb53ef61bc4c"
     }
   },
-  "input": "9fc32a67bb1a6f0aa13cf0740df9a1c25d1ed203a533a9f211086fdff0d35566",
+  "input": "1d68fdb79b4373f1d6019b61c4a594a0d940b901ae9c65ce17e1561e7db50d2d",
   "version": 1
 }

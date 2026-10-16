@@ -99,8 +99,10 @@ describe("store", () => {
     expect(store.getThread(thread.id)?.title).toBe(thread.title);
     expect(seen).toEqual([]);
     store.appendEvents(thread.id, [{ type: "thread.updated", title: "Committed" }]);
-    expect(seen[0]?.seq).toBe(2);
-    expect(committed).toEqual([{ seq: 2, title: "Committed" }]);
+    // Sequence reservations may leave gaps; publication must still follow the commit.
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.seq).toBeGreaterThan(1);
+    expect(committed).toEqual([{ seq: seen[0]?.seq, title: "Committed" }]);
   });
   it("atomically records receipts with their events, repeats results and survives reopen", () => {
     const state = setup();
@@ -208,7 +210,11 @@ describe("store", () => {
     expect(store.getThread(thread.id)?.title).toBe(thread.title);
     expect(seen).toEqual([]);
     store.appendEvents(thread.id, [{ type: "thread.updated", title: "Next" }]);
-    expect(seen.map((e) => e.seq)).toEqual([2]);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      seq: store.headSeq(),
+      payload: { type: "thread.updated", title: "Next" },
+    });
   });
   it("keeps publishing committed events to healthy subscribers after another subscriber throws", () => {
     const { store, thread } = setup(() => {

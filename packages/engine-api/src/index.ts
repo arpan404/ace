@@ -145,7 +145,9 @@ export interface SessionContext {
   fork?: { nativeSessionId: string; point: { type: "turn" | "item" | "end"; nativeId: string } };
   options?: ExecutionOptions;
   /** Every sent and received frame goes to the engine for translation and persistence. */
-  /** A returned promise acknowledges durable storage; its resolved value is ignored. */
+  /** Ordered admission acknowledgement; its resolved value is ignored. Established deltas may
+   * remain pinned in the daemon's bounded write buffer until flush. Control facts and SDK
+   * recovery frames acknowledge only after their canonical transaction commits. */
   onFrame(frame: Frame): unknown;
   onExit(exit: { deliberate: boolean; message?: string }): void;
   signal: AbortSignal;

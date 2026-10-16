@@ -167,6 +167,9 @@
         "walBytes"
       ],
       "type": "object"
+    },
+    "streaming": {
+      "$ref": "https://ace.local/protocol/v1/StreamingStorageMetrics.json"
     }
   },
   "required": [
