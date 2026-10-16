@@ -1,0 +1,53 @@
+{
+  "baselineCommit": "67fa95d4e",
+  "runtime": "24.13.0 (the installed application runtime, executing the source harness)",
+  "platform": "macOS 26.7.2 arm64",
+  "method": "Canonical workspace paths; eight visible workflow catalogs; 10s warmup; 60s process CPU including workers; real local WebSocket; isolated environment and homes; no V8 profiler; no other test workloads during final comparison",
+  "qualification": "One-minute host load at the start and end of each window is below the existing repository threshold of 9. This is a targeted workload comparison, not a full performance-gate pass. Five/fifteen-minute load still reflects earlier validation.",
+  "results": [
+    {
+      "implementation": "baseline",
+      "node": "24.13.0",
+      "hostLoadStart": [7.861328125, 26.2685546875, 29.18505859375],
+      "hostLoadEnd": [6.9833984375, 22.740234375, 27.6689453125],
+      "hostTimingLimit": 9,
+      "qualified": true,
+      "contexts": 8,
+      "jobs": 256,
+      "elapsedMs": 60165.41425,
+      "cpuPercent": 101.14393586178956,
+      "publishes": 3390,
+      "errors": 0,
+      "visibleWorkflowCatalogs": 8,
+      "maxLoopDelayMs": 427.032575,
+      "p99LoopDelayMs": 350.486527,
+      "daemonLoop": {
+        "delayMs": 31,
+        "maxDelayMs": 317,
+        "stalls": 0
+      }
+    },
+    {
+      "implementation": "fixed",
+      "node": "24.13.0",
+      "hostLoadStart": [6.83154296875, 22.1884765625, 27.4150390625],
+      "hostLoadEnd": [6.677734375, 19.2138671875, 25.93603515625],
+      "hostTimingLimit": 9,
+      "qualified": true,
+      "contexts": 8,
+      "jobs": 256,
+      "elapsedMs": 60001.105124999995,
+      "cpuPercent": 0.838979547045468,
+      "publishes": 0,
+      "errors": 0,
+      "visibleWorkflowCatalogs": 8,
+      "maxLoopDelayMs": 15.810559,
+      "p99LoopDelayMs": 12.197887,
+      "daemonLoop": {
+        "delayMs": 0,
+        "maxDelayMs": 105,
+        "stalls": 0
+      }
+    }
+  ]
+}

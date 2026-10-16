@@ -2,9 +2,64 @@ import { expect, test } from "vitest";
 import { ProviderStatuses } from "./provider-status.ts";
 import { fixture } from "./socket-test-support.ts";
 import { setImmediate } from "node:timers/promises";
+import { setTimeout as sleep } from "node:timers/promises";
+import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { CommandLibrary } from "@ace/commands";
+import { ServerMessage, type CatalogEntry } from "@ace/protocol";
+
+test("an idle catalog subscription publishes nothing until a real file edit", async () => {
+  const home = await realpath(await mkdtemp(join(tmpdir(), "ace-idle-socket-")));
+  const root = join(home, "workspace/.ace/prompts");
+  await mkdir(root, { recursive: true });
+  const file = join(root, "review.md");
+  await writeFile(file, "---\ndescription: Original review\n---\nReview");
+  const library = new CommandLibrary({
+    aceHome: join(home, "ace"),
+    instances: [],
+    now: () => 0,
+    context: () => ({ workspace: join(home, "workspace"), provider: "codex", instance: "codex" }),
+    // Provider discovery is asynchronous I/O; the socket, discovery and SQLite are real.
+    extras: async () => {
+      await sleep(5);
+      return [];
+    },
+  });
+  const f = await fixture({ commands: library });
+  try {
+    await library.list("thread", "", 10);
+    while ((await library.listCatalog("thread")).stale) await sleep(5);
+    const client = await f.connect();
+    await client.next();
+    client.send({
+      type: "catalog.list",
+      requestId: "idle",
+      threadId: f.thread.id,
+      subscribe: true,
+      query: "",
+      limit: 128,
+    });
+    expect(await client.next()).toMatchObject({ type: "catalog.list.result", stale: false });
+    const pushes: CatalogEntry[][] = [];
+    client.socket.on("message", (data) => {
+      const message = ServerMessage.parse(JSON.parse(data.toString()));
+      if (message.type === "catalog.changed") pushes.push(message.entries);
+    });
+    await sleep(1100);
+    expect(pushes).toEqual([]);
+    await writeFile(file, "---\ndescription: Changed review\n---\nReview changed");
+    await expect
+      .poll(() => pushes.some((entries) => entries.some((e) => e.description === "Changed review")))
+      .toBe(true);
+  } finally {
+    await f.close();
+    await library.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
 
 test("replacing a pending catalog subscription still allows the replacement to unsubscribe", async () => {
-  const { CommandLibrary } = await import("@ace/commands");
   const held = Promise.withResolvers<{ entries: []; stale: boolean }>();
   const reading = Promise.withResolvers<void>();
   const changes = new Set<() => void>();
@@ -109,7 +164,6 @@ test("a slow catalog read lets later socket reads proceed and reports failed sub
   const reading = Promise.withResolvers<void>();
   let changed: (() => void) | undefined;
   let pushFails = false;
-  const { CommandLibrary } = await import("@ace/commands");
   const library = new CommandLibrary({
     aceHome: process.env.HOME ?? "/unused",
     instances: [],
@@ -165,9 +219,6 @@ test("a slow catalog read lets later socket reads proceed and reports failed sub
 
 test("an account read failure is logged and returned without closing the socket", async () => {
   const { AccountService, openRegistry } = await import("@ace/accounts");
-  const { mkdtemp, rm } = await import("node:fs/promises");
-  const { tmpdir } = await import("node:os");
-  const { join } = await import("node:path");
   const home = await mkdtemp(join(tmpdir(), "ace-account-error-"));
   const registry = await openRegistry(join(home, "accounts.sqlite"));
   const accounts = new AccountService({ registry, env: {}, now: () => 0, timeZone: "UTC" });

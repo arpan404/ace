@@ -9,6 +9,7 @@ import { z } from "zod";
 import { ProviderKind, type CommandResolution } from "@ace/protocol";
 import { CommandCatalog, type CommandService, type ProviderInstance } from "./catalog.ts";
 import { CommandFiles } from "./files.ts";
+import { RecoveryLoop, type RecoveryTimer } from "./recovery-loop.ts";
 import { discoveryRoots } from "./roots.ts";
 const context = z.object({
   workspace: z.string().min(1).max(4096),
@@ -32,6 +33,7 @@ interface Entry {
 }
 /** Owns a bounded set of workspace/instance catalogs. Context comes from a trusted thread registry. */
 export class CommandLibrary implements CommandService {
+  private readonly recovery: RecoveryLoop;
   private readonly entries = new Map<string, Entry>();
   private readonly contexts: (thread: string) => unknown;
   private readonly instances: () => readonly ProviderInstance[];
@@ -49,7 +51,9 @@ export class CommandLibrary implements CommandService {
     aceHome: string;
     now: () => number;
     extras?: (context: LibraryContext) => Promise<CatalogEntry[]>;
+    recoveryTimer?: RecoveryTimer;
   }) {
+    this.recovery = new RecoveryLoop(options.recoveryTimer);
     this.extras = options.extras;
     this.contexts = options.context;
     this.aceHome = z.string().min(1).max(4096).parse(options.aceHome);
@@ -111,6 +115,7 @@ export class CommandLibrary implements CommandService {
       const files = new CommandFiles(
         catalog,
         discoveryRoots(instance ? [instance] : [], this.aceHome, ctx.workspace),
+        { schedule: this.recovery.schedule },
       );
       entry = {
         catalog,
@@ -276,7 +281,7 @@ export class CommandLibrary implements CommandService {
     const key = JSON.stringify(roots);
     if ((!roots.length && !entry.pluginFiles) || entry.pluginFiles?.key === key) return;
     await entry.pluginFiles?.files.remove();
-    const files = new CommandFiles(entry.catalog, roots);
+    const files = new CommandFiles(entry.catalog, roots, { schedule: this.recovery.schedule });
     files.subscribe(() => {
       entry.extrasAt = -Infinity;
       this.notify();

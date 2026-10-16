@@ -124,17 +124,14 @@ async function initializeCommands({
       return [
         ...(await discover),
         ...((await services.plugins?.extensions(ctx.provider)) ?? []),
-        ...(services.automations?.list() ?? [])
-          .filter((a) => a.enabled && a.provider === ctx.provider && a.workspace === ctx.workspace)
-          .slice(0, 128)
-          .map((a) => ({
-            id: `ace:workflow:${a.id}`,
-            kind: "workflow" as const,
-            name: a.title,
-            description: "Run this automation",
-            source: { provider: "ace" as const, scope: "project" as const },
-            invocation: { type: "action" as const, action: `automation.run:${a.id}` },
-          })),
+        ...(services.automations?.catalog(ctx.provider, ctx.workspace) ?? []).map((a) => ({
+          id: `ace:workflow:${a.id}`,
+          kind: "workflow" as const,
+          name: a.title,
+          description: "Run this automation",
+          source: { provider: "ace" as const, scope: "project" as const },
+          invocation: { type: "action" as const, action: `automation.run:${a.id}` },
+        })),
       ];
     },
   );
