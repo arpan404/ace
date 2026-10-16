@@ -25,7 +25,6 @@ const reach = ["scale-x-100", "scale-x-[0.66]", "scale-x-[0.45]"] as const;
  */
 export function ConversationRail(props: {
   markers: readonly ConversationMarker[];
-  currentId?: string;
   /** The room the rail may take, in pixels. */
   height: number;
   onJump(id: string): void;
@@ -52,9 +51,7 @@ export function ConversationRail(props: {
   if (markers.length < 2) return null;
   const last = markers.length - 1;
   const height = Math.max(0, Math.min(last * tickSpacing, props.height));
-  const tabStop = markers.some((marker) => marker.id === focused)
-    ? focused
-    : (props.currentId ?? markers[0]?.id);
+  const tabStop = markers.some((marker) => marker.id === focused) ? focused : markers[0]?.id;
   const at = (index: number) => (index / last) * 100;
   const move = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     const targets: Record<string, number> = {
@@ -82,13 +79,11 @@ export function ConversationRail(props: {
     >
       {markers.map((marker, index) => {
         const distance = active === undefined ? undefined : Math.abs(index - active);
-        const current = marker.id === props.currentId;
         return (
           <button
             key={marker.id}
             type="button"
             aria-label={marker.label}
-            aria-current={current ? "location" : undefined}
             tabIndex={marker.id === tabStop ? 0 : -1}
             // Each tick owns the band around it, so the whole rail answers the pointer.
             className="absolute left-0 grid w-full -translate-y-1/2 cursor-pointer items-center outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -105,12 +100,12 @@ export function ConversationRail(props: {
               aria-hidden="true"
               className={cn(
                 // Width and emphasis change by scale and opacity only: the pointer sweeps
-                // across many ticks a second.
-                "ml-1.5 h-0.5 w-5 origin-left rounded-full transition-[scale,opacity] duration-150 motion-reduce:transition-none",
-                current ? "bg-foreground" : "bg-foreground/30",
-                distance === undefined ? (current ? "scale-x-100" : "scale-x-[0.45]") : "",
+                // across many ticks a second. Every tick looks the same: the reader's
+                // turn is never emphasized.
+                "ml-1.5 h-0.5 w-5 origin-left rounded-full bg-foreground/30 transition-[scale,opacity] duration-150 motion-reduce:transition-none",
+                distance === undefined ? "scale-x-[0.45]" : "",
                 distance !== undefined && (reach[distance] ?? "scale-x-[0.33]"),
-                distance === 0 && !current && "bg-foreground/70",
+                distance === 0 && "bg-foreground/70",
               )}
             />
           </button>
