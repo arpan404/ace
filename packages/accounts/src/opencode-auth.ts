@@ -36,3 +36,26 @@ export function openCodeIntegrationConnected(
     ? (connections.get(upstream) ?? 0) > 0
     : [...connections.values()].some((count) => count > 0);
 }
+
+function totalOpenCodeConnections(connections: ReadonlyMap<string, number>): number {
+  return [...connections.values()].reduce((total, count) => total + count, 0);
+}
+
+/**
+ * Verify an OpenCode account change. Targeted choices check that integration;
+ * the untargeted picker trusts the CLI exit for login (any connection means
+ * connected) but requires shrinkage for logout so disconnecting one service
+ * while another remains still counts as a disconnect.
+ */
+export function openCodeAuthChangeVerified(
+  action: "login" | "logout",
+  upstream: string | undefined,
+  before: ReadonlyMap<string, number> | undefined,
+  after: ReadonlyMap<string, number>,
+): boolean {
+  if (upstream && upstream !== "other")
+    return openCodeIntegrationConnected(after, upstream) === (action === "login");
+  if (action === "login") return openCodeIntegrationConnected(after, upstream);
+  if (!before) return !openCodeIntegrationConnected(after, upstream);
+  return totalOpenCodeConnections(after) < totalOpenCodeConnections(before);
+}

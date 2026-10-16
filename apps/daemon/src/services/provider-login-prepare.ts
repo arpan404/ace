@@ -1,5 +1,5 @@
 import { parseOpenCodeAuthConnections } from "@ace/provider-kit/discovery";
-import { openCodeIntegrationConnected } from "@ace/accounts";
+import { openCodeAuthChangeVerified } from "@ace/accounts";
 import { configuredProviderDiscovery } from "../provider-discovery.ts";
 import { nativeLoginGuard } from "./native-login-guard.ts";
 import { prepareAgentLogin } from "./provider-login-agent.ts";
@@ -227,12 +227,28 @@ export async function prepareProviderLogin(
     assertCurrent();
     const executable = status.path;
     if (!executable) throw new Error("CLI not installed");
+    // OpenCode owns its prompts in the embedded terminal; its driver gates on the
+    // parsed v2 version, never on help text, so skip the extra help spawn.
+    let openCodeBefore: ReadonlyMap<string, number> | undefined;
+    if (provider === "opencode") {
+      try {
+        const before = await metadataProbe(
+          executable,
+          ["auth", "list", "--standalone", "--format", "json"],
+          { env, signal: guard.signal, timeoutMs: 4000 },
+        );
+        if (before.code === 0) openCodeBefore = parseOpenCodeAuthConnections(before.stdout);
+      } catch {
+        openCodeBefore = undefined;
+      }
+      assertCurrent();
+    }
     const args =
       target.provider === "claude" || target.provider === "opencode"
         ? ["auth", action, "--help"]
         : [action, "--help"];
     const help =
-      target.provider === "pi"
+      target.provider === "pi" || target.provider === "opencode"
         ? ""
         : await (async () => {
             try {
@@ -363,8 +379,7 @@ export async function prepareProviderLogin(
           const connections =
             probe.code === 0 ? parseOpenCodeAuthConnections(probe.stdout) : undefined;
           if (!connections) throw new Error("OpenCode account verification unavailable");
-          const connected = openCodeIntegrationConnected(connections, openCodeIntegration);
-          if ((action === "login" && !connected) || (action === "logout" && connected))
+          if (!openCodeAuthChangeVerified(action, openCodeIntegration, openCodeBefore, connections))
             throw new Error("OpenCode account change unconfirmed");
         } else {
           if (action === "logout" && provider !== "pi" && after.auth !== "logged_out")
