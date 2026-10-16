@@ -1,5 +1,34 @@
 # Daemon measurements
 
+`idle-catalog.ts` reproduces idle command-discovery work with eight open workspace
+catalogs, one prompt file each, 256 manual automations (approximately 128 KiB per
+prompt), and a real local WebSocket. It sends no model requests. Ten seconds of
+warmup precede a 60-second process CPU and event-loop measurement. Unlike
+`idle-cpu.ts`, this workload holds workspace catalog subscriptions open.
+
+```sh
+task_home=$(mktemp -d /tmp/ace-idle-catalog.XXXXXX)
+task_node=$(command -v node)
+env -i HOME="$task_home" USERPROFILE="$task_home" \
+  CODEX_HOME="$task_home/.codex" CLAUDE_CONFIG_DIR="$task_home/.claude" \
+  XDG_CONFIG_HOME="$task_home/.config" XDG_DATA_HOME="$task_home/.local/share" \
+  XDG_CACHE_HOME="$task_home/.cache" ACE_HOME="$task_home/daemon" \
+  ACE_ACCOUNTS_DB="$task_home/accounts.sqlite" ACE_PORT=0 ACE_LISTEN=local \
+  ACE_LOG_LEVEL=info ACE_MAINTENANCE=0 ACE_DEV=0 \
+  ACE_HISTORY_INSTANCES='[]' ACE_MODEL_INSTANCES='[]' PATH='' \
+  "$task_node" apps/daemon/bench/idle-catalog.ts
+# Logs and data remain under $task_home for inspection; remove it afterward.
+```
+
+Set `IDLE_CONTEXTS`, `IDLE_AUTOMATIONS` or `IDLE_SECONDS` in that isolated environment
+to vary the workload. Run the same script in each checkout so workspace imports
+resolve to the implementation being measured. Use `sample PID 10 10 -file …` and
+`ps -p PID -o pid,%cpu,time,etime` after the `measuring` record. V8 `--cpu-prof`
+adds sampling-thread CPU, so collect it separately from headline CPU measurements.
+The event-loop histogram measures only the window; the daemon's drift monitor
+also includes startup. [Catalog idle measurements](idle-catalog-REPORT.md) record
+the investigation and its host-load limits.
+
 These scripts start the real daemon with a temporary `ACE_HOME`, an in-process scripted provider, real SQLite and a real WebSocket. They never send provider prompts. The synthetic provider deliberately has no native process, so active-session RSS excludes provider CLI memory. The harness adds a second engine sharing the daemon's Store to feed scripted frames through the normal persistence and delivery paths.
 
 ```sh

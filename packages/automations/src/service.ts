@@ -185,6 +185,9 @@ export class AutomationService {
   list(): Automation[] {
     return this.store.list().map((job) => job.automation);
   }
+  catalog(provider: Automation["provider"], workspace: string): { id: string; title: string }[] {
+    return this.store.catalog(provider, workspace);
+  }
   inbox(limit = 50, before?: number, automationId?: string) {
     return this.store.inbox(limit, before, automationId);
   }

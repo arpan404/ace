@@ -5,6 +5,8 @@ import { z } from "zod";
 import { CommandCatalog } from "./catalog.ts";
 import type { DiscoveryRoot } from "./roots.ts";
 import { FileRecovery } from "./recovery.ts";
+import { RecoveryLoop, type RecoveryScheduler } from "./recovery-loop.ts";
+export type { RecoveryScheduler } from "./recovery-loop.ts";
 import { SecureCommandIo, type CommandFileIo } from "./secure-io.ts";
 import { FileIndex, type DiscoveryMetrics } from "./file-index.ts";
 import { inside, key, sourceId, type RegisteredRoot } from "./file-keys.ts";
@@ -32,12 +34,6 @@ const nativeWatch: WatchSource = (path, changed, failed) => {
   watcher.unref();
   return () => watcher.close();
 };
-export type RecoveryScheduler = (run: () => void) => () => void;
-const scheduleRecovery: RecoveryScheduler = (run) => {
-  const timer = setInterval(run, 250);
-  timer.unref();
-  return () => clearInterval(timer);
-};
 /** Thin watcher/lifecycle shell; FileIndex advances bounded incremental discovery jobs. */
 export class CommandFiles {
   private readonly roots: RegisteredRoot[];
@@ -58,13 +54,14 @@ export class CommandFiles {
   private closing: Promise<void> | undefined;
   private stopRecovery: (() => void) | undefined;
   private closed = false;
+  private notifiedRevision = 0;
   constructor(
     catalog: CommandCatalog,
     roots: readonly DiscoveryRoot[],
     options: { watch?: WatchSource; schedule?: RecoveryScheduler; io?: CommandFileIo } = {},
   ) {
     this.watchSource = options.watch ?? nativeWatch;
-    this.scheduleRecovery = options.schedule ?? scheduleRecovery;
+    this.scheduleRecovery = options.schedule ?? new RecoveryLoop().schedule;
     this.io = options.io ?? new SecureCommandIo();
     this.roots = z
       .array(rootSchema)
@@ -151,8 +148,10 @@ export class CommandFiles {
       }
       await this.flush();
       if (!this.closed) {
-        const stop = this.scheduleRecovery(() => {
-          void this.reconcile();
+        const stop = this.scheduleRecovery(async () => {
+          const before = this.index.revision;
+          await this.reconcile();
+          return this.index.revision !== before || this.pending.size > 0 || this.index.pending;
         });
         if (this.closed) stop();
         else this.stopRecovery = stop;
@@ -191,6 +190,8 @@ export class CommandFiles {
   }
   private advance(): Promise<void> {
     if (this.batch) return this.batch;
+    if (!this.pending.size && !this.index.pending && this.index.revision === this.notifiedRevision)
+      return Promise.resolve();
     this.batch = (async () => {
       if (this.closed) return;
       for (const path of this.pending)
@@ -203,7 +204,8 @@ export class CommandFiles {
             );
       this.pending.clear();
       await this.index.step();
-      if (!this.closed)
+      if (!this.closed && this.index.revision !== this.notifiedRevision) {
+        this.notifiedRevision = this.index.revision;
         for (const listener of this.listeners) {
           try {
             listener();
@@ -211,6 +213,7 @@ export class CommandFiles {
             /* subscribers cannot stop discovery */
           }
         }
+      }
     })().finally(() => {
       this.batch = undefined;
     });
@@ -249,6 +252,7 @@ export class CommandFiles {
       await this.advance();
     })().finally(() => {
       this.healing = undefined;
+      if (!this.closed && (this.pending.size || this.index.pending)) void this.pump();
     });
     return this.healing;
   }

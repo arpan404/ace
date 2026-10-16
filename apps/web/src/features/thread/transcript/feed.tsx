@@ -48,6 +48,8 @@ import { AgentPageReveal } from "./agent-page-reveal.tsx";
 
 const nearEdge = 64;
 const tailLive: Block = { kind: "live", key: "live:tail", askId: undefined };
+/** First guess for an unmeasured row's height; measured sizes replace it per row key. */
+const estimatedRowSize = 96;
 /** Room above a row brought into view, for the search bar floating over the transcript's top. */
 const topRoom = 12;
 const gap: Record<Block["kind"], string> = {
@@ -70,6 +72,11 @@ const gap: Record<Block["kind"], string> = {
  * rows it just mounted measured themselves; until then it corrects their size changes against
  * the old position and drags the view away from where it was sent. Telling it at once (its
  * public `scrollOffset`) keeps a jump where it landed.
+ *
+ * Only discrete placements use this (a jump landing, a step to a turn): for a moment after,
+ * what the virtualizer last rendered lags behind the place code set, so the reader's anchor
+ * stays untouched. Keep-place restores across fast pages deliberately skip the freeze, so the
+ * anchor keeps tracking the reader instead of going stale and teleporting back to it.
  */
 function settle(
   virtualizer: { scrollOffset: number | null },
@@ -98,6 +105,7 @@ function placedAt(
     key: row.key,
     index,
     offset: start - el.scrollTop,
+    start,
     itemId: itemId ?? blockItems(row.block)[0],
   };
 }
@@ -195,7 +203,7 @@ export function Feed(props: FeedProps) {
     measureElement: placed.measureElement,
     onChange: placed.onChange,
     getScrollElement: () => viewport.current,
-    estimateSize: () => 96,
+    estimateSize: () => estimatedRowSize,
     // Rows are tall (a message, a log): a generous overscan keeps fast upward
     // flicks covered so older history measures before it scrolls into view.
     overscan: 12,
@@ -223,22 +231,26 @@ export function Feed(props: FeedProps) {
     const el = viewport.current;
     if (el) el.scrollTop = el.scrollHeight;
   };
-  const restore = useCallback(
-    (index: number, offset: number) => {
-      const start = virtualizer.measurementsCache[index]?.start;
-      if (start === undefined) virtualizer.scrollToIndex(index, { align: "start" });
-      else virtualizer.scrollToOffset(start - offset);
-      settle(virtualizer, viewport.current, placedUntil);
+  const shift = useCallback(
+    (delta: number) => {
+      // A structural nudge, not a placement: added rows above push the view down, removed
+      // ones pull it up, and the reader's own scrolling in between is preserved because the
+      // target is relative. Through the virtualizer (not a raw scrollTop set) so its range
+      // follows even where no scroll event fires. Sync it at once (see settle) but freeze
+      // nothing.
+      const el = viewport.current;
+      if (!el || delta === 0) return;
+      virtualizer.scrollToOffset(el.scrollTop + delta);
+      virtualizer.scrollOffset = el.scrollTop;
     },
     [virtualizer],
   );
   const rowOfItem = useCallback((itemId: string) => rowOf(rows, itemId), [rows]);
-  useKeepPlace(keys, anchor, pinnedRef, restore, rowOfItem);
-  // Rows changing (a slide, history paging in) move the view by themselves; those
-  // scroll events are not the reader's.
-  useLayoutEffect(() => {
-    placedUntil.current = performance.now() + 250;
-  }, [keys]);
+  const startOf = useCallback(
+    (index: number) => virtualizer.measurementsCache[index]?.start,
+    [virtualizer],
+  );
+  useKeepPlace(keys, anchor, pinnedRef, shift, rowOfItem, startOf);
   useStayPinned(viewport, pinnedRef, glidingUntil);
   const dock = useRef<HTMLDivElement>(null);
   useDockShift(dock, viewport, pinnedRef);
@@ -292,6 +304,7 @@ export function Feed(props: FeedProps) {
         key: row?.key ?? String(first.key),
         index: first.index,
         offset: first.start - el.scrollTop,
+        start: first.start,
         itemId: row ? blockItems(row.block)[0] : undefined,
       };
     const turnFrom = (index: number) => {

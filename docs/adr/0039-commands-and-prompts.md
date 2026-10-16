@@ -126,6 +126,23 @@ turns. Explicit `flush` and initial `start` drain the bounded queue to completio
 Tests can inject notification loss, scheduling and I/O timing while retaining
 real filesystem operations. See the [Node watch caveats](https://nodejs.org/api/fs.html#caveats).
 
+Recovery uses a single scheduler per library, including plugin discovery. It
+rotates through contexts and runs one bounded batch per wake. Quiet checks back
+off from 250 ms to 5 seconds; a changed catalog or remaining discovery work
+returns recovery to 250 ms. Native watcher hints still wake discovery after the
+30 ms debounce, independently of recovery backoff. No-op checks, unchanged file
+contents and runtime changes owned by other sources do not notify file listeners
+or expire provider metadata. With up to eight contexts and one plugin index each,
+a quiet index can wait up to 80 seconds between fallback batches; a full recovery
+ring needs multiple batches. This deliberately trades slower repair of silently
+lost watch events for bounded aggregate idle work. Native edits do not wait for
+that fallback, and explicit reconciliation remains available.
+
+Automation entries in the catalog use a bounded cache of names, providers,
+workspaces and enabled flags. Saves and deletions invalidate it. Catalog refreshes
+do not decode prompt bodies, polling state or run history. This avoids repeated
+synchronous SQLite/JSON work when metadata changes.
+
 Limits include 4,096 discovery nodes, 8,192 queued jobs, 32 open directory cursors,
 32 pinned anchors, 128 native watchers and 256 pending invalidations per context.
 Files use a 64 KiB read limit. The catalog admits 8 MiB of estimated definitions;
