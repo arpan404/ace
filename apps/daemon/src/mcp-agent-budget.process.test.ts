@@ -106,7 +106,7 @@ it("a core-mode session gains a family's tools by reading its guide or using its
   await core.call("delegate_task", {
     requestId: "open-agents",
     task: "Say hi",
-    role: "helper",
+    role: "say-hi opener",
     provider: "claude",
   });
   await core.refreshTools();
