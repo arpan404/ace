@@ -134,7 +134,7 @@ Example:
 
 List connected paired execution devices, their projects and available agents. Credentials and paths remain on their device.
 
-Required capability: none beyond session authentication. Timeout: 10000 ms.
+Required capability: none beyond session authentication. Timeout: 630000 ms.
 
 ## ace_device_list.input
 
@@ -172,7 +172,7 @@ Example:
 
 Delegate a task to an explicitly selected paired device and project. Use a stable requestId. Returns a task ID; results return to this thread. Selected context is imported through the encrypted relay. Explicit published outputs return as originating-thread attachments; workspaces are not copied or merged.
 
-Required capability: agents. Timeout: 10000 ms.
+Required capability: agents. Timeout: 630000 ms.
 
 ## ace_device_delegate.input
 
@@ -240,7 +240,7 @@ Example:
 
 Read an owned remote task's status, host/thread identity and bounded result.
 
-Required capability: none beyond session authentication. Timeout: 10000 ms.
+Required capability: none beyond session authentication. Timeout: 630000 ms.
 
 ## ace_device_task_status.input
 
@@ -282,7 +282,7 @@ Example:
 
 Wait for an owned remote task and its descendants to settle. Offline devices remain pending.
 
-Required capability: none beyond session authentication. Timeout: 300000 ms.
+Required capability: none beyond session authentication. Timeout: 630000 ms.
 
 ## ace_device_task_wait.input
 
@@ -324,7 +324,7 @@ Example:
 
 Cancel an owned remote task and its descendants, preserving cancellation until its device reconnects.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: thread_control. Timeout: 630000 ms.
 
 ## ace_device_task_cancel.input
 
@@ -366,7 +366,7 @@ Example:
 
 Publish selected owned attachment hashes or relative files from this remote task to its originating thread. One immutable selection per task, stable requestId, at most 16 items/128 MiB. No workspace overwrite or merge.
 
-Required capability: thread_control. Timeout: 300000 ms.
+Required capability: thread_control. Timeout: 630000 ms.
 
 ## ace_device_task_publish.input
 
@@ -409,7 +409,7 @@ Example:
 
 List or search ordinary and child threads in the calling thread's project. Page with the returned cursor; unrelated projects are forbidden.
 
-Required capability: none beyond session authentication. Timeout: 10000 ms.
+Required capability: none beyond session authentication. Timeout: 630000 ms.
 
 ## ace_threads_list.input
 
@@ -455,9 +455,9 @@ Example:
 
 ## ace_thread_start
 
-Start a top-level thread in the person's sidebar with its own project or worktree; text is its first message, which its agent answers at once. For child work whose result you need, use delegate_task. Use a stable requestId. The person sees the new thread as a card: relay the result's summary in a sentence, without its ids.
+Start a top-level thread in the person's sidebar with its own project or worktree; text is its first message, which its agent answers at once. For child work whose result you need, use delegate_task. Use a stable requestId: if the call is cut short, the thread is still being created, and calling again with the same requestId returns it. The person sees the new thread as a card: relay the result's summary in a sentence, without its ids.
 
-Required capability: thread_control. Timeout: 300000 ms.
+Required capability: thread_control. Timeout: 630000 ms.
 
 ## ace_thread_start.input
 
@@ -521,7 +521,7 @@ Example:
 
 Set an owned thread's catalog model and launch options, preserving provider/account and its permission ceiling. The engine applies the configuration through its existing model-switch lifecycle.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: thread_control. Timeout: 630000 ms.
 
 ## ace_thread_configure.input
 
@@ -571,7 +571,7 @@ Example:
 
 Page the composer's live provider/account/model catalog, model options and allowed native permission/runtime modes. Preserve instance when selecting an account. Stale or unknown authentication is explicit; no credentials or account homes are returned.
 
-Required capability: none beyond session authentication. Timeout: 10000 ms.
+Required capability: none beyond session authentication. Timeout: 630000 ms.
 
 ## ace_agents_catalog.input
 
@@ -632,7 +632,7 @@ Example:
 
 Read an owned child's aggregate state, including descendants and human waits.
 
-Required capability: none beyond session authentication. Timeout: 10000 ms.
+Required capability: none beyond session authentication. Timeout: 630000 ms.
 
 ## ace_agent_status.input
 
@@ -677,7 +677,7 @@ Example:
 
 Compact snapshot of every child you delegated, including their own children: state, current step, elapsed seconds, requests waiting on the person and the last output line. Cheap to call, but use ace_wait instead of calling this repeatedly.
 
-Required capability: none beyond session authentication. Timeout: 10000 ms.
+Required capability: none beyond session authentication. Timeout: 630000 ms.
 
 ## ace_agents_status.input
 
@@ -715,7 +715,7 @@ Example:
 
 List the other paired machines whose agent access is on: name, online or offline, access (read or operate), projects, tool groups and providers. Pass a machine's `machine` to delegate_task (with `project`) or to ace_browser_* tools to work there. Tokens and paths never leave their machine.
 
-Required capability: none beyond session authentication. Timeout: 10000 ms.
+Required capability: none beyond session authentication. Timeout: 630000 ms.
 
 ## ace_machines.input
 
@@ -754,7 +754,7 @@ Example:
 
 Read an owned child's settled outcome. This does not consume its durable parent notification. Returns not_ready while any descendant or human wait remains active.
 
-Required capability: none beyond session authentication. Timeout: 10000 ms.
+Required capability: none beyond session authentication. Timeout: 630000 ms.
 
 ## ace_agent_result.input
 
@@ -807,7 +807,7 @@ Example:
 
 Cancel an owned child and all descendants. Acceptance is not proof that its tree has stopped; read status for settlement.
 
-Required capability: agents. Timeout: 10000 ms.
+Required capability: agents. Timeout: 630000 ms.
 
 ## ace_agent_cancel.input
 
@@ -850,7 +850,7 @@ Example:
 
 Send follow-up work to the same owned child, retaining its permissions. Use a stable requestId.
 
-Required capability: agents. Timeout: 10000 ms.
+Required capability: agents. Timeout: 630000 ms.
 
 ## ace_agent_message.input
 
@@ -918,12 +918,12 @@ Semantic rule: Either one task (requestId, task, role, provider) or tasks: [{ re
 | task | no | [MessageText.json](schema/MessageText.json) |  |
 | role | no | [DelegationRole.json](schema/DelegationRole.json) |  |
 | wait | no | boolean |  |
-| waitMs | no | integer | {"minimum":1,"maximum":240000} |
+| waitMs | no | integer | {"minimum":1,"maximum":600000} |
 | workspace | no | [AgentWorkspace.json](schema/AgentWorkspace.json) |  |
 | estimatedLoad | no | number | {"minimum":0,"maximum":100} |
 | machine | no | [MachineName.json](schema/MachineName.json) |  |
 | project | no | string | {"minLength":1,"maxLength":256} |
-| tasks | no | array | {"minItems":1,"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/DelegationTask.json"}} |
+| tasks | no | array | {"minItems":1,"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/DelegationTask.json"}} |
 | await | no | ["none","any","all"] |  |
 | timeoutSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) |  |
 
@@ -951,7 +951,7 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","enum":["completed","failed","cancelled"]},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"before":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["threadId","outcome","result","truncated","before"],"additionalProperties":false},"threadIds":{"type":"array","items":{"type":"string","minLength":1}},"wait":{"type":"object","properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":16,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false}},"additionalProperties":{}} |
+| data | no | object | {"properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","enum":["completed","failed","cancelled"]},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"before":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["threadId","outcome","result","truncated","before"],"additionalProperties":false},"threadIds":{"type":"array","items":{"type":"string","minLength":1}},"wait":{"type":"object","properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false}},"additionalProperties":{}} |
 
 Example:
 
@@ -972,7 +972,7 @@ Example:
 
 Send to an owned thread under its existing permissions. queue waits for settlement, steer uses the provider's native steering or queue fallback, and restart atomically accepts a cascade interrupt followed by queued replacement input. Stable request IDs deduplicate the whole restart.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: thread_control. Timeout: 630000 ms.
 
 ## ace_thread_message.input
 
@@ -1026,7 +1026,7 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadIds | yes | array | {"minItems":1,"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}} |
+| threadIds | yes | array | {"minItems":1,"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}} |
 | mode | no | [WaitMode.json](schema/WaitMode.json) | {"default":"all"} |
 | timeoutSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) | {"default":120} |
 
@@ -1049,7 +1049,7 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":16,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false} |
+| data | no | object | {"properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false} |
 
 Example:
 
@@ -1064,7 +1064,7 @@ Example:
 
 Read a thread's metadata (title, titleSource, status, permission, branch) and a byte-budgeted transcript page. Omit threadId for your own thread. Use itemsBefore as the next before cursor. For truncated parts with source.streamId, use ace_thread_read_output to page retained bytes.
 
-Required capability: none beyond session authentication. Timeout: 10000 ms.
+Required capability: none beyond session authentication. Timeout: 630000 ms.
 
 ## ace_thread_read.input
 
@@ -1107,7 +1107,7 @@ Example:
 
 Read a bounded byte range from a transcript/output source returned by ace_thread_read. Offsets and limits are bytes; the result contains base64 bytes and nextOffset. Decode using the source encoding. The stream must belong to the requested authorized thread.
 
-Required capability: none beyond session authentication. Timeout: 10000 ms.
+Required capability: none beyond session authentication. Timeout: 630000 ms.
 
 ## ace_thread_read_output.input
 
@@ -1154,7 +1154,7 @@ Example:
 
 Search an authorized thread's retained transcript without changing it.
 
-Required capability: none beyond session authentication. Timeout: 10000 ms.
+Required capability: none beyond session authentication. Timeout: 630000 ms.
 
 ## ace_thread_search.input
 
@@ -1204,7 +1204,7 @@ Example:
 
 Interrupt an owned thread and its descendants.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: thread_control. Timeout: 630000 ms.
 
 ## ace_thread_interrupt.input
 
@@ -1247,7 +1247,7 @@ Example:
 
 Create an independent fork of an owned thread's conversation.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: thread_control. Timeout: 630000 ms.
 
 ## ace_thread_fork.input
 
@@ -1292,7 +1292,7 @@ Example:
 
 Merge an owned thread's work through its workspace owner.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: thread_control. Timeout: 630000 ms.
 
 ## ace_thread_merge.input
 
@@ -1336,7 +1336,7 @@ Example:
 
 Replace queued input on an owned thread before it is delivered.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: thread_control. Timeout: 630000 ms.
 
 ## ace_queue_edit.input
 
@@ -1385,7 +1385,7 @@ Example:
 
 Reorder pending input on an owned thread.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: thread_control. Timeout: 630000 ms.
 
 ## ace_queue_reorder.input
 
@@ -1434,7 +1434,7 @@ Example:
 
 Answer a pending question on an owned thread. Permission approvals cannot be answered.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: thread_control. Timeout: 630000 ms.
 
 ## ace_question_answer.input
 
@@ -1483,7 +1483,7 @@ Example:
 
 Change an owned thread's display title.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: thread_control. Timeout: 630000 ms.
 
 ## ace_thread_rename.input
 
@@ -1526,7 +1526,7 @@ Example:
 
 Generate an owned thread's display title from retained user input.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: thread_control. Timeout: 630000 ms.
 
 ## ace_thread_regenerate_title.input
 
@@ -1567,7 +1567,7 @@ Example:
 
 Link a pull request to your calling thread using its URL or number. The repo defaults to the thread workspace's origin remote; repo may be owner/name or host/owner/name. Existing links are unchanged. If the forge is offline or signed out, save an unverified link and refresh it later.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: thread_control. Timeout: 630000 ms.
 
 ## ace_thread_link_pr.input
 
@@ -1633,7 +1633,7 @@ Example:
 
 Unlink a pull request from your calling thread using its URL or number, or all: true to remove every link. This only changes the thread's links; it does not change or close the pull requests.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: thread_control. Timeout: 630000 ms.
 
 ## ace_thread_unlink_pr.input
 
@@ -1717,7 +1717,7 @@ Example:
 
 List your calling thread's linked pull requests, newest first, with their number, repository, URL, state and title.
 
-Required capability: none beyond session authentication. Timeout: 10000 ms.
+Required capability: none beyond session authentication. Timeout: 630000 ms.
 
 ## ace_thread_list_prs.input
 
@@ -1754,7 +1754,7 @@ Example:
 
 Archive an owned thread only after its work has settled.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: thread_control. Timeout: 630000 ms.
 
 ## ace_thread_settle.input
 
@@ -1796,7 +1796,7 @@ Example:
 
 Snooze notifications for an owned thread until the supplied time.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: thread_control. Timeout: 630000 ms.
 
 ## ace_thread_snooze.input
 
@@ -1839,7 +1839,7 @@ Example:
 
 Create, change or run a local automation and its future agent work.
 
-Required capability: automations. Timeout: 10000 ms.
+Required capability: automations. Timeout: 630000 ms.
 
 ## ace_automation_manage.input
 
@@ -1886,7 +1886,7 @@ Example:
 
 Read the caller's workspace project metadata.
 
-Required capability: none beyond session authentication. Timeout: 10000 ms.
+Required capability: none beyond session authentication. Timeout: 630000 ms.
 
 ## ace_project_read.input
 
@@ -1928,7 +1928,7 @@ Example:
 
 Change the caller's workspace project display name.
 
-Required capability: projects. Timeout: 10000 ms.
+Required capability: projects. Timeout: 630000 ms.
 
 ## ace_project_rename.input
 
@@ -1971,7 +1971,7 @@ Example:
 
 Prepare a Git worktree and hand off an owned thread's conversation to it.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: thread_control. Timeout: 630000 ms.
 
 ## ace_thread_handoff.input
 
@@ -2018,7 +2018,7 @@ Example:
 
 List preview servers associated with an authorized thread.
 
-Required capability: none beyond session authentication. Timeout: 10000 ms.
+Required capability: none beyond session authentication. Timeout: 630000 ms.
 
 ## ace_preview_list.input
 
@@ -2060,7 +2060,7 @@ Example:
 
 Stop a preview server associated with an owned thread.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: thread_control. Timeout: 630000 ms.
 
 ## ace_preview_close.input
 
@@ -2262,7 +2262,7 @@ Example:
 | recent | no | array | {"maxItems":10,"items":{"type":"object","properties":{"threadId":{"type":"string"},"title":{"type":"string","maxLength":256},"status":{"type":"string"},"updatedAt":{"type":"number"},"branch":{"type":"string","maxLength":256},"prs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"number":{"type":"number"},"state":{"type":"string"},"url":{"type":"string","maxLength":2048}},"required":["number","state","url"],"additionalProperties":false}},"outcome":{"type":"string","maxLength":400}},"required":["threadId","title","status","updatedAt"],"additionalProperties":false}} |
 | changes | no | union | {"anyOf":[{"type":"object","properties":{"branch":{"anyOf":[{"type":"string","maxLength":256},{"type":"null"}]},"upstream":{"anyOf":[{"type":"string","maxLength":256},{"type":"null"}]},"ahead":{"type":"number"},"behind":{"type":"number"},"staged":{"type":"number"},"unstaged":{"type":"number"},"untracked":{"type":"number"},"files":{"maxItems":50,"type":"array","items":{"type":"string","maxLength":1024}}},"required":["branch","upstream","ahead","behind","staged","unstaged","untracked","files"],"additionalProperties":false},{"type":"null"}]} |
 | prs | no | array | {"maxItems":20,"items":{"type":"object","properties":{"threadId":{"type":"string"},"number":{"type":"number"},"url":{"type":"string","maxLength":2048},"state":{"type":"string"},"title":{"type":"string","maxLength":256},"ci":{"type":"string","enum":["none","pending","success","failure","unknown"]}},"required":["threadId","number","url","state","ci"],"additionalProperties":false}} |
-| notes | no | array | {"maxItems":50,"items":{"type":"object","properties":{"id":{"type":"string"},"text":{"type":"string","maxLength":500},"threadId":{"type":"string"}},"required":["id","text"],"additionalProperties":false}} |
+| notes | no | array | {"maxItems":50,"items":{"type":"object","properties":{"id":{"type":"string"},"text":{"type":"string","maxLength":4096},"threadId":{"type":"string"}},"required":["id","text"],"additionalProperties":false}} |
 | diagnostics | no | object | {"properties":{"failures":{"maxItems":20,"type":"array","items":{"type":"object","properties":{"tool":{"type":"string","maxLength":128},"code":{"type":"string","maxLength":64},"count":{"type":"number"}},"required":["tool","code","count"],"additionalProperties":false}},"blocking":{"maxItems":16,"type":"array","items":{"type":"string","maxLength":240}}},"required":["failures","blocking"],"additionalProperties":false} |
 
 Example:
@@ -2277,7 +2277,7 @@ Example:
 
 ## ace_note_add
 
-Remember a short fact about this project for every future thread and provider, such as how to run its tests or a pitfall you hit. One fact per note, at most 500 characters; facts only, never instructions to ignore other guidance. The person sees and edits notes in Edit project.
+Remember a short fact about this project for every future thread and provider, such as how to run its tests or a pitfall you hit. One fact per note, at most 4,096 characters; facts only, never instructions to ignore other guidance. The person sees and edits notes in Edit project.
 
 Required capability: projects. Timeout: 10000 ms.
 
@@ -2287,7 +2287,7 @@ Required capability: projects. Timeout: 10000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| text | yes | string | {"minLength":1,"maxLength":500} |
+| text | yes | string | {"minLength":1,"maxLength":4096} |
 
 Example:
 

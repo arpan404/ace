@@ -5,12 +5,16 @@ import { observe } from "./observation.ts";
 
 type Outcome = ExecutionResult | { status: "failed"; result: string };
 
-/** One cancellable monitor per durable run. Cancellation never stops the thread. */
+/**
+ * One cancellable monitor per durable run. Cancellation never stops the thread, and a run has no
+ * maximum runtime: its status follows the thread tree the executor watches.
+ */
 export class ExecutionOwner {
   private monitors = new Map<string, AbortController>();
   private pending = new Set<Promise<void>>();
   private deadlines = new Map<string, number>();
   private outcomes = new Map<string, Outcome>();
+  private retries = new Map<string, () => void>();
   private wake: () => void;
   private store: AutomationStore;
   private deps: Dependencies;
@@ -36,42 +40,59 @@ export class ExecutionOwner {
     this.monitor(run, (signal) => this.deps.executor.execute(input, signal));
   }
   restore(run: AutomationRun, input: ExecutionInput): void {
+    this.recover(run, input, 0);
+  }
+  private recover(run: AutomationRun, input: ExecutionInput, attempt: number): void {
     this.monitor(run, async (signal) => {
       let recovered: ExecutionResult | undefined;
       try {
         recovered = await observe(this.deps.executor.recover(input.idempotencyKey, signal), signal);
       } catch (error) {
-        if (!signal.aborted) this.report(error);
+        if (!signal.aborted) {
+          this.report(error);
+          this.retryRecovery(run, input, attempt);
+        }
         return undefined;
       }
       if (signal.aborted) return undefined;
-      if (this.deps.now() >= run.startedAt + (this.deps.maxRunMs ?? 3_600_000)) {
-        this.expire();
-        return undefined;
-      }
       return recovered ?? this.deps.executor.execute(input, signal);
     });
   }
   nextDeadline(): number | undefined {
     return this.deadlines.size ? Math.min(...this.deadlines.values()) : undefined;
   }
+  /** Retries refused recoveries and terminal writes; a run never expires while its thread works. */
   expire(): void {
     for (const [id, deadline] of this.deadlines) {
       if (this.deps.now() < deadline) continue;
-      this.complete(
-        id,
-        this.outcomes.get(id) ?? {
-          status: "failed",
-          result: "Automation exceeded its maximum runtime",
-        },
-      );
+      const outcome = this.outcomes.get(id);
+      if (outcome) {
+        this.complete(id, outcome);
+        continue;
+      }
+      const retry = this.retries.get(id);
+      if (!retry) continue;
+      this.retries.delete(id);
+      this.deadlines.delete(id);
+      this.monitors.get(id)?.abort();
+      this.monitors.delete(id);
+      retry();
     }
+  }
+  /** A refused recovery keeps the run and its concurrency, then observes the thread again. */
+  private retryRecovery(run: AutomationRun, input: ExecutionInput, attempt: number): void {
+    if (this.outcomes.has(run.id)) return;
+    const delay = Math.min(60_000, 1000 * 2 ** Math.min(attempt, 6));
+    this.deadlines.set(run.id, this.deps.now() + delay);
+    this.retries.set(run.id, () => this.recover(run, input, attempt + 1));
+    this.wake();
   }
   stop(): void {
     const monitors = [...this.monitors.values()];
     this.monitors.clear();
     this.deadlines.clear();
     this.outcomes.clear();
+    this.retries.clear();
     this.pending.clear();
     for (const controller of monitors) controller.abort();
   }
@@ -98,6 +119,7 @@ export class ExecutionOwner {
     this.monitors.delete(id);
     this.deadlines.delete(id);
     this.outcomes.delete(id);
+    this.retries.delete(id);
     if (finished) this.publish(finished);
   }
   private monitor(
@@ -105,15 +127,9 @@ export class ExecutionOwner {
     execute: (signal: AbortSignal) => Promise<ExecutionResult | undefined>,
   ): void {
     if (this.monitors.has(run.id)) return;
-    const deadline = run.startedAt + (this.deps.maxRunMs ?? 3_600_000);
     if (this.monitors.size >= 256) throw new Error("Execution monitor limit reached");
     const controller = new AbortController();
     this.monitors.set(run.id, controller);
-    this.deadlines.set(run.id, deadline);
-    if (this.deps.now() >= deadline) {
-      this.expire();
-      return;
-    }
     let request: Promise<ExecutionResult | undefined>;
     try {
       request = Promise.resolve(execute(controller.signal));

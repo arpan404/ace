@@ -18,7 +18,7 @@ export const controlActions: Record<AgentControlOperation["op"], Action> = {
   },
   "thread.start": {
     description:
-      "Start a top-level thread in the person's sidebar with its own project or worktree; text is its first message, which its agent answers at once. For child work whose result you need, use delegate_task. Use a stable requestId. The person sees the new thread as a card: relay the result's summary in a sentence, without its ids.",
+      "Start a top-level thread in the person's sidebar with its own project or worktree; text is its first message, which its agent answers at once. For child work whose result you need, use delegate_task. Use a stable requestId: if the call is cut short, the thread is still being created, and calling again with the same requestId returns it. The person sees the new thread as a card: relay the result's summary in a sentence, without its ids.",
     riskClass: "agent-execution",
   },
   "thread.configure": {

@@ -42,6 +42,7 @@ export const defaults: SettingsValues = {
   "access.defaultMode": "auto-review",
   "access.nativeModes": {},
   "threads.useWorktree": true,
+  "worktree.preparationTimeoutMs": 600_000,
   "threads.autoSettleAfter": "1d",
   "threads.unresponsiveAfter": "5m",
   "threads.settleOnMerge": true,

@@ -17,6 +17,7 @@ import { useConnectionState } from "@ace/client-react";
 import { useSettingsBackend } from "./data/use-settings.ts";
 import { DaemonHealth } from "./daemon-health.tsx";
 import { DaemonSettings } from "./daemon-settings.tsx";
+import { WorktreePreparationSettings } from "./worktree-preparation.tsx";
 import { DisabledReason, offlineReason } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";
 
@@ -40,6 +41,7 @@ export function AdvancedSettings() {
         <SupportExport />
         <DaemonDiagnostics />
       </SettingSection>
+      <WorktreePreparationSettings />
       <SettingSection label="Reset" scope="daemon">
         <SettingRow
           {...settingRow("advanced.reset")}

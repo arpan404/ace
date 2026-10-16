@@ -304,7 +304,10 @@ it("a default lease stays usable beyond one hour and is revoked only when its pr
 });
 
 it("one busy thread cannot consume another thread's tool slots, and its own slots recover after completion", async () => {
-  const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
+  const registry = new ToolRegistry({
+    scheduler: { after: () => () => {} },
+    maxCallsPerThread: 16,
+  });
   let id = 0;
   const credentials = new CredentialRegistry(() => (++id).toString(16).padStart(64, "0"));
   const lifetime = new AbortController();
@@ -342,6 +345,50 @@ it("one busy thread cannot consume another thread's tool slots, and its own slot
     expect(
       await registry.call("ace_wait", { wait: false }, busy.principal, lifetime.signal),
     ).toMatchObject({ structuredContent: { done: true } });
+    credentials.close();
+  }
+});
+
+it("a thread holding forty long waits can still call its other tools", async () => {
+  const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
+  const credentials = new CredentialRegistry(() => "f".repeat(64));
+  const lifetime = new AbortController();
+  const busy = credentials.issue(scope(), lifetime.signal);
+  const released = deferred<void>();
+  registry.register({
+    name: "ace_wait",
+    description: "Wait",
+    input,
+    output,
+    capability: null,
+    timeoutMs: 630_000,
+    async run() {
+      await released.promise;
+      return { done: true };
+    },
+  });
+  registry.register({
+    name: "ace_thread_read",
+    description: "Read",
+    input,
+    output,
+    capability: null,
+    timeoutMs: 1000,
+    async run() {
+      return { done: true };
+    },
+  });
+  const waits = Array.from({ length: 40 }, () =>
+    registry.call("ace_wait", {}, busy.principal, lifetime.signal),
+  );
+  try {
+    expect(
+      await registry.call("ace_thread_read", {}, busy.principal, lifetime.signal),
+    ).toMatchObject({ structuredContent: { done: true } });
+  } finally {
+    released.resolve();
+    for (const result of await Promise.all(waits))
+      expect(result).toMatchObject({ structuredContent: { done: true } });
     credentials.close();
   }
 });

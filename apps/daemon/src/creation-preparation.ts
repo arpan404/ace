@@ -3,6 +3,29 @@ import { lstat } from "node:fs/promises";
 import { join, relative, isAbsolute, sep } from "node:path";
 import { CreationError } from "./creation-failure.ts";
 
+/** How long read-only Git work before `git worktree add` may take; 10 minutes by default. */
+export const defaultPreparationTimeoutMs = 600_000;
+
+/** Environment variable overriding the worktree preparation deadline. */
+export const preparationTimeoutMsEnvVar = "ACE_WORKTREE_PREPARATION_TIMEOUT_MS";
+
+/**
+ * Which preparation deadline to use: an explicit per-environment setting wins, then
+ * `ACE_WORKTREE_PREPARATION_TIMEOUT_MS`, then 10 minutes. Invalid values fall through.
+ */
+export function resolvePreparationTimeoutMs(
+  explicit?: number | undefined,
+  env: NodeJS.ProcessEnv = {},
+): number {
+  if (explicit !== undefined && Number.isInteger(explicit) && explicit > 0) return explicit;
+  const raw = env[preparationTimeoutMsEnvVar];
+  if (raw !== undefined) {
+    const parsed = Number(raw);
+    if (Number.isInteger(parsed) && parsed > 0) return parsed;
+  }
+  return defaultPreparationTimeoutMs;
+}
+
 /**
  * Stop waiting for read-only Git work when `signal` aborts. The read itself may finish later;
  * nothing depends on it, and it writes nothing, so abandoning it is safe.

@@ -1,6 +1,9 @@
 import { z } from "zod";
+import { maxWaitThreads } from "@ace/protocol";
 
-const WaitArguments = z.object({ threadIds: z.array(z.string().min(1).max(256)).min(1).max(16) });
+const WaitArguments = z.object({
+  threadIds: z.array(z.string().min(1).max(256)).min(1).max(maxWaitThreads),
+});
 const DelegateArguments = z.object({
   wait: z.boolean().optional(),
   waitMs: z.number().optional(),

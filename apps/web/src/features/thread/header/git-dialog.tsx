@@ -1,6 +1,10 @@
 import { gitFailureText } from "../lib/git-failure.ts";
 import { DraftWriter } from "./draft-writer.tsx";
-import type { SourceControlSelection } from "@ace/protocol";
+import {
+  maxCommitMessageLength,
+  maxForgeTextLength,
+  type SourceControlSelection,
+} from "@ace/protocol";
 import { useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
@@ -22,6 +26,9 @@ import { useChangedFiles, type GitChange, type GitResult } from "../lib/use-git.
 import { forceLeaseOf } from "../lib/push-rejection.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { ChangedFiles, pathsOf, pickedByDefault } from "./changed-files.tsx";
+
+/** The body's room in a commit message: the subject (at most 200) and its blank line come first. */
+const commitBodyLimit = maxCommitMessageLength - 202;
 
 export type GitDialogKind =
   | "commit"
@@ -221,7 +228,7 @@ export function GitDialog(props: {
                 aria-label={commit ? "Commit details" : "Pull request description"}
                 placeholder={commit ? "Details (optional)" : "What changed and why (optional)"}
                 value={body}
-                maxLength={8000}
+                maxLength={commit ? commitBodyLimit : maxForgeTextLength}
                 onChange={(event) => {
                   setBody(event.target.value);
                   setTextRevision((value) => value + 1);

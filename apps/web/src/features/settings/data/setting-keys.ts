@@ -36,6 +36,11 @@ export const settingKeys = {
   relayUrl: setting("remote.relayUrl", SettingsValues.shape["remote.relayUrl"], ""),
   agentAccess: setting("remote.agentAccess", SettingsValues.shape["remote.agentAccess"], "off"),
   worktree: setting("threads.useWorktree", z.boolean(), true),
+  worktreePreparationTimeout: setting(
+    "worktree.preparationTimeoutMs",
+    SettingsValues.shape["worktree.preparationTimeoutMs"],
+    600_000,
+  ),
   autoSettle: setting("threads.autoSettleAfter", AutoSettle, "2d"),
   settleOnMerge: setting("threads.settleOnMerge", z.boolean(), true),
   settleOnClose: setting("threads.settleOnClose", z.boolean(), false),

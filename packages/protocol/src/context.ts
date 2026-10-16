@@ -33,7 +33,7 @@ export const ResolvedThreadReference = z.object({
 export type ResolvedThreadReference = z.infer<typeof ResolvedThreadReference>;
 export const MessageContext = z.object({
   draftId: key.optional(),
-  items: z.array(ThreadRefContextItem).max(8).optional(),
+  items: z.array(ThreadRefContextItem).max(32).optional(),
   mentions: z.array(Mention).max(64).default([]),
   attachments: z
     .array(z.object({ sha256: BlobHash }))

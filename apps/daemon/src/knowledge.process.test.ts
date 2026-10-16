@@ -37,6 +37,16 @@ it("a note one agent saves reaches the project, every later session's brief, and
   expect(third.instructions).not.toContain("Run tests with bun run test");
 });
 
+it("a project note of about 4 KB is kept whole for later agents", async () => {
+  world = await evalWorld({ browser: false });
+  const { agent } = await world.agent({});
+  const text = `Release steps: ${"run the smoke suite, then tag; ".repeat(130)}`.trim();
+  expect(text.length).toBeGreaterThan(3500);
+  await agent.call("ace_note_add", { text });
+  const { agent: later } = await world.agent({});
+  expect(await notesOf(later)).toEqual([expect.objectContaining({ text })]);
+});
+
 it("ace_context reads recent outcomes, uncommitted files and linked PRs in one call", async () => {
   world = await evalWorld({ browser: false });
   await world.finishedThread("Fix the cart", "Cart totals now round half-up");

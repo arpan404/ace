@@ -11,8 +11,12 @@ import { withControlHint } from "./control-hints.ts";
 import { maxBatchInputBytes, maxControlInputBytes } from "./result-budgets.ts";
 import type { Toolkit } from "./toolkits.ts";
 
-/** The longest bounded wait plus transport grace, still inside every provider's tool timeout. */
-const waitToolTimeoutMs = 630_000;
+/**
+ * The longest bounded wait plus transport grace, still inside every provider's tool timeout.
+ * Every control tool gets it: git-backed forks, merges and handoffs in a large repository, and
+ * thread starts that prepare a worktree, must not be cut short by a tighter ace deadline.
+ */
+const controlToolTimeoutMs = 630_000;
 
 export interface AgentControlPort {
   execute(
@@ -80,12 +84,7 @@ export const agentControlToolCatalog = AgentControlOperation.options.flatMap((sc
             : op === "delegate_task" || op === "device.delegate" || op.startsWith("agent.")
               ? ("agents" as const)
               : ("thread_control" as const),
-    timeoutMs:
-      op === "wait" || op === "delegate_task"
-        ? waitToolTimeoutMs
-        : op === "thread.start" || op === "device.task_wait" || op === "device.task_publish"
-          ? 300000
-          : 10000,
+    timeoutMs: controlToolTimeoutMs,
   };
 });
 /** ace's own tools a provider should still gate itself: the rest never prompt there. */

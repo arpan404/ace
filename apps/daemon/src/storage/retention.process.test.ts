@@ -288,3 +288,31 @@ test("retained skill roots ahead of a reclaimable one cannot hide it from later 
     reasons: ["expired"],
   });
 });
+
+test("cleaning up an archived tree of 300 delegated threads removes every thread", async () => {
+  const f = await setup();
+  const root = f.thread("root");
+  const children = Array.from({ length: 299 }, (_, index) => f.thread(`child-${index}`));
+  f.store.atomic((db) => {
+    db.exec(
+      "CREATE TABLE delegation_participants(thread_id TEXT PRIMARY KEY,root_id TEXT); CREATE TABLE delegation_trees(root_id TEXT PRIMARY KEY,active INTEGER)",
+    );
+    const insert = db.prepare("INSERT INTO delegation_participants VALUES (?,?)");
+    for (const thread of [root, ...children]) insert.run(thread.id, root.id);
+  });
+  // A plan reviews a bounded page of items; later plans pick up the rest.
+  for (let round = 0; round < 3; round++) {
+    const plan = await f.storage.plan("owner", {
+      op: "cleanup.plan",
+      kinds: ["threads"],
+      forceItems: [],
+    });
+    const threads = plan.items.filter((item) => item.kind === "threads");
+    if (!threads.length) break;
+    expect(threads.every((item) => item.disposition === "remove")).toBe(true);
+    expect(threads[0]?.threadIds).toHaveLength(300);
+    expect((await f.storage.apply("owner", plan.id, plan.revision)).state).toBe("complete");
+  }
+  for (const thread of [root, ...children])
+    expect(f.store.getThread(thread.id)?.deletedAt).toBeDefined();
+}, 300000);

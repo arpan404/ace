@@ -20,6 +20,7 @@ import { settledRetentionMs } from "./creation-drafts.ts";
 import {
   abortable,
   checkoutCwd,
+  defaultPreparationTimeoutMs,
   freeBranch,
   insideRoot,
   noCommits,
@@ -33,7 +34,11 @@ export interface CreationWorkspace {
   verify?(): Promise<void>;
 }
 export interface CreationOptions {
-  /** How long the read-only preparation before `git worktree add` may take; 60 s by default. */
+  /**
+   * How long the read-only preparation before `git worktree add` may take.
+   * 10 minutes by default; `ACE_WORKTREE_PREPARATION_TIMEOUT_MS` overrides it
+   * when no explicit value is given.
+   */
   preparationTimeoutMs?: number;
   log?: (message: string, error: unknown) => void;
 }
@@ -70,7 +75,7 @@ export class WorkspaceCreations {
     this.git = git;
     this.directory = directory;
     this.fetchTimeoutMs = fetchTimeoutMs;
-    this.preparationTimeoutMs = options.preparationTimeoutMs ?? 60_000;
+    this.preparationTimeoutMs = options.preparationTimeoutMs ?? defaultPreparationTimeoutMs;
     this.log = options.log ?? (() => {});
     this.journal = new CreationWorkspaceJournal(store);
     // Backfill pre-policy leases and admitted PR bindings. Retained checkouts keep their
@@ -82,6 +87,10 @@ export class WorkspaceCreations {
         this.journal.remember(thread.details.worktree);
     for (const path of this.journal.protectedRoots()) this.git.protectWorktree(path);
     this.recovery = this.recover();
+  }
+  /** Live-update the preparation deadline from settings; the next start uses it. */
+  setPreparationTimeoutMs(timeoutMs: number): void {
+    if (Number.isInteger(timeoutMs) && timeoutMs > 0) this.preparationTimeoutMs = timeoutMs;
   }
   prepare(
     command: Command,
@@ -108,7 +117,7 @@ export class WorkspaceCreations {
     const id = ThreadId.parse(p.threadId);
     if (this.store.getThread(id) || this.pending.has(id))
       throw new Error("thread_creation_in_progress");
-    if (this.closing || this.pending.size >= 16) throw new Error("workspace_busy");
+    if (this.closing || this.pending.size >= 128) throw new Error("workspace_busy");
     const project = this.store.getWorkspacePath(p.workspaceId);
     if (!project) throw new Error("workspace_not_found");
     const requested = requestedBase(p);
@@ -144,7 +153,7 @@ export class WorkspaceCreations {
     const id = creationResourceId(command);
     if (!id) throw new Error("invalid_command");
     await this.ready(id);
-    if (this.closing || this.pending.size >= 16 || this.pending.has(id))
+    if (this.closing || this.pending.size >= 128 || this.pending.has(id))
       throw new Error("workspace_busy");
     const task = this.git.nonExecuting(() =>
       this.create(id, project, requested, progress, {
@@ -186,7 +195,8 @@ export class WorkspaceCreations {
     const parent = join(this.directory, "worktrees");
     await mkdir(parent, { recursive: true, mode: 0o700 });
     const path = join(await realpath(parent), key);
-    // Reads before `git worktree add` are bounded: a stalled Git never pins Cancel or Use local.
+    // Reads before `git worktree add` are bounded (10 minutes by default): a stalled Git
+    // never pins Cancel or Use local.
     const bounded = preparationSignal(signal, this.preparationTimeoutMs);
     const trees = await abortable(this.git.listWorktrees(project, { signal: bounded }), bounded);
     const kept = this.journal.held(id);

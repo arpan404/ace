@@ -61,6 +61,10 @@ export class WorkspaceRoots {
     this.machine = machine;
     this.sourceControl = options.sourceControl;
   }
+  /** Live-update the preparation deadline from settings; the next start uses it. */
+  setPreparationTimeoutMs(timeoutMs: number): void {
+    this.creations.setPreparationTimeoutMs(timeoutMs);
+  }
   creationReady(): Promise<void> {
     return this.creations.ready();
   }
@@ -103,7 +107,7 @@ export class WorkspaceRoots {
     if (binding.ready) return Promise.resolve(binding.path);
     const existing = this.preparations.get(id);
     if (existing) return existing;
-    if (this.preparations.size >= 16) return Promise.reject(new Error("workspace_busy"));
+    if (this.preparations.size >= 128) return Promise.reject(new Error("workspace_busy"));
     const preparation = this.preparePending(id, binding.path, policy).finally(() =>
       this.preparations.delete(id),
     );

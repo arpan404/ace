@@ -16,7 +16,7 @@
       "type": "integer"
     },
     "maxDepth": {
-      "default": 4,
+      "default": 8,
       "maximum": 8,
       "minimum": 1,
       "type": "integer"

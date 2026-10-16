@@ -412,29 +412,22 @@ test("agents page large child output and cannot substitute another thread's stre
   ).toEqual({ ok: false, code: "forbidden" });
 });
 
-test("one caller's waits cannot consume other callers' outcome slots", async () => {
+test("a caller may hold many outcome waits, and cancelling them leaves the child running", async () => {
   const h = setup();
   const parent = await h.parent();
   const first = h.delegate(parent, "first", false);
   const second = h.delegate(parent, "second", false);
   await h.engine.flush();
-  const firstCaller = h.caller(first.childId);
   const cancellation = new AbortController();
-  const pending = Array.from({ length: 16 }, () =>
+  const pending = Array.from({ length: 40 }, () =>
     h.service.wait(parent, first.childId, cancellation.signal),
   );
   const outcomes = Promise.allSettled(pending);
-  await expect(h.service.wait(parent, second.childId, cancellation.signal)).rejects.toThrow(
-    "capacity",
-  );
-  const other = h.service.wait(firstCaller, first.childId, cancellation.signal);
-  const otherResult = Promise.allSettled([other]);
+  const beyond = h.service.wait(parent, second.childId, new AbortController().signal);
+  await h.complete(second.childId, "second finished");
+  expect(await beyond).toMatchObject({ outcome: "completed", result: "second finished" });
   cancellation.abort();
   expect((await outcomes).every((result) => result.status === "rejected")).toBe(true);
-  expect((await otherResult)[0]).toMatchObject({
-    status: "rejected",
-    reason: new Error("Wait cancelled"),
-  });
   const recovered = h.service.wait(parent, first.childId, new AbortController().signal);
   await h.complete(first.childId, "still running after wait cancellation");
   expect(await recovered).toMatchObject({

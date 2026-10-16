@@ -833,7 +833,7 @@
           ]
         },
         "message": {
-          "maxLength": 8192,
+          "maxLength": 65536,
           "minLength": 1,
           "type": "string",
           "x-ace-constraint": "Must contain a non-whitespace commit message."
