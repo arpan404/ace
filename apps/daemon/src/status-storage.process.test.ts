@@ -97,7 +97,7 @@ it("loads cold work status and the item window without reading historical event 
         item: message(`m${i}`),
       })),
     );
-    db.function("historical_body", () => {
+    db.function("historical_body", { varargs: true }, () => {
       throw new Error("read historical event body");
     });
     db.exec(
@@ -108,6 +108,7 @@ it("loads cold work status and the item window without reading historical event 
     const status = store.acquireThread(thread.id);
     expect(status.itemOrder).toEqual([]);
     store.releaseThread(thread.id);
+    expect(() => store.readEvents({ afterSeq: 0, limit: 1 })).toThrow("read historical event body");
   } finally {
     store.close();
   }
