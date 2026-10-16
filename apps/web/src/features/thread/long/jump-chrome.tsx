@@ -1,8 +1,5 @@
 import { formatCount } from "@ace/ui-core";
-import { useState } from "react";
-import { ClockCounterClockwiseIcon, XIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -10,64 +7,11 @@ import { floatingControl, floatingMotion } from "./floating.ts";
 import { useTurnHead } from "./turn-index.ts";
 
 /*
- * What a jumped transcript says about itself: where the reader is ("Jumped to turn 128 of
- * 2,000") and that newer history is not loaded after the window (the gap). Loaded after first
- * paint: only a jump shows them.
+ * What a jumped transcript says about itself: the gap between the window's
+ * newer edge and the live end. There is deliberately no top overlay bar:
+ * older history is one continuous list, and the live pill alone offers the
+ * way back to the live end. Loaded after first paint: only a jump shows them.
  */
-
-/** The context bar over a jumped transcript: where the jump landed and where the reader is. */
-export function JumpBar(props: {
-  turn: number | undefined;
-  /** The turn at the top of the view, once the reader has moved on from the jump's. */
-  reading: number | undefined;
-  threadId: string;
-  failed: string | undefined;
-  /** Leaving: it plays its exit and takes no input. */
-  phase?: "enter" | "exit";
-  onLive(): void;
-}) {
-  const headCount = useTurnHead(props.threadId)?.count;
-  const leaving = props.phase === "exit";
-  // Leaving, it keeps saying what it said: the window it described is already gone.
-  const live = { turn: props.turn, reading: props.reading, count: headCount, failed: props.failed };
-  const [shown, setShown] = useState(live);
-  const changed =
-    shown.turn !== live.turn ||
-    shown.reading !== live.reading ||
-    shown.count !== live.count ||
-    shown.failed !== live.failed;
-  if (!leaving && changed) setShown(live);
-  const { turn, reading, count, failed } = leaving ? shown : live;
-  const where =
-    turn === undefined ? "Viewing earlier history" : `Jumped to turn ${formatCount(turn)}`;
-  const at = reading ?? turn;
-  const moved = at !== undefined && at !== turn;
-  return (
-    <div
-      role={leaving ? undefined : "status"}
-      aria-label={leaving ? undefined : "Jumped"}
-      aria-hidden={leaving || undefined}
-      inert={leaving}
-      style={{ pointerEvents: leaving ? "none" : "auto" }}
-      className={cn(
-        floatingControl,
-        floatingMotion(props.phase ?? "enter"),
-        "gap-2 pr-1 pl-3 text-muted-foreground",
-      )}
-    >
-      <ClockCounterClockwiseIcon aria-hidden size={14} className="shrink-0" />
-      <span className="font-medium text-foreground">{where}</span>
-      {at !== undefined && (
-        <span className="tabular-nums">
-          {moved ? `· at turn ${formatCount(at)}` : ""}
-          {count !== undefined && count >= at ? ` of ${formatCount(count)}` : ""}
-        </span>
-      )}
-      {failed && <span className="text-status-failed">{failed}</span>}
-      <IconButton icon={XIcon} label="Back to live" size="sm" onClick={props.onLive} />
-    </div>
-  );
-}
 
 /**
  * The window's newer edge: what lies between it and the live end, loaded on as the reader

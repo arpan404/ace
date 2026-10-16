@@ -49,10 +49,7 @@ export const DeferredSearchBar = deferredComponent(() =>
   import("./long/search-bar.tsx").then((module) => module.SearchBar),
 );
 
-/** What only a jump shows: where the reader is, and the gap to the live end. */
-export const DeferredJumpBar = deferredComponent(() =>
-  import("./long/jump-chrome.tsx").then((module) => module.JumpBar),
-);
+/** The gap to the live end, shown under a window that does not reach it. */
 export const DeferredJumpFailed = deferredComponent(() =>
   import("./long/jump-chrome.tsx").then((module) => module.JumpFailed),
 );
@@ -88,7 +85,6 @@ export function preloadDeferred(): Promise<unknown> {
     DeferredTurnsPanel.preload(),
     DeferredTurnRail.preload(),
     DeferredSearchBar.preload(),
-    DeferredJumpBar.preload(),
     DeferredGapRow.preload(),
     DeferredJumpFailed.preload(),
     DeferredLivePill.preload(),

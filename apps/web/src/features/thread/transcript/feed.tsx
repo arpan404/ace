@@ -22,7 +22,6 @@ import { LiveFrames, LiveFramesContext } from "../items/live-frames.ts";
 import { usePlaceBeforePaint } from "@/lib/virtual-paint.ts";
 import {
   DeferredGapRow,
-  DeferredJumpBar,
   DeferredJumpFailed,
   DeferredLivePill,
   DeferredSearchBar,
@@ -49,8 +48,8 @@ import { AgentPageReveal } from "./agent-page-reveal.tsx";
 
 const nearEdge = 64;
 const tailLive: Block = { kind: "live", key: "live:tail", askId: undefined };
-/** Room above a row brought into view, for the bars that float over the transcript's top. */
-const topRoom = 56;
+/** Room above a row brought into view, for the search bar floating over the transcript's top. */
+const topRoom = 12;
 const gap: Record<Block["kind"], string> = {
   user: "pb-4",
   message: "pb-4",
@@ -175,7 +174,6 @@ export function Feed(props: FeedProps) {
   const feed = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(!detached);
   const upwardIntent = useRef(false);
-  const [olderIntent, setOlderIntent] = useState(false);
   const glidingUntil = useRef(0);
   // Until this moment the view is where code put it (a restored place, a jump): its scroll
   // events are not the reader's and never page the window.
@@ -198,9 +196,9 @@ export function Feed(props: FeedProps) {
     onChange: placed.onChange,
     getScrollElement: () => viewport.current,
     estimateSize: () => 96,
-    // Rows are tall (a message, a log): four either side cover a fast flick with no gap, and
-    // half the eight it was halves what mounts per scrolled frame on a slow device.
-    overscan: 4,
+    // Rows are tall (a message, a log): a generous overscan keeps fast upward
+    // flicks covered so older history measures before it scrolls into view.
+    overscan: 12,
     // Scroll-driven range changes render with the next update rather than synchronously in
     // the scroll event: one commit per frame however many scroll events it brings.
     useFlushSync: false,
@@ -271,8 +269,6 @@ export function Feed(props: FeedProps) {
     return () => clearTimeout(timer);
   }, [nav.jump, window, jump.joined, pinned]);
 
-  // The turn in the middle of the view: what the jump bar says the reader is looking at.
-  const [reading, setReading] = useState<number>();
   // The live header scrolled out of view above: a copy stays pinned at the top.
   const liveRow = useMemo(() => rows.findIndex((row) => row.block.kind === "live"), [rows]);
   const [livePinned, setLivePinned] = useState(false);
@@ -307,20 +303,10 @@ export function Feed(props: FeedProps) {
     };
     const topTurn = turnFrom(first.index);
     if (topTurn !== undefined) nav.currentTurn.set(topTurn);
-    const middle = el.scrollTop + el.clientHeight / 2;
-    const centre = items.find((item) => item.end > middle) ?? first;
-    const centreTurn = turnFrom(centre.index);
-    if (centreTurn !== reading) setReading(centreTurn);
   };
   useEffect(readTop);
 
-  // Rows above a jump's target measure only once they render, and the virtualizer aimed with
-  // estimates: keep re-aiming at the target for a few frames until the view holds still, so a
-  // jump lands on its row however its neighbours measure. The reader's own scrolling stops it.
-  const rowsNow = useRef(rows);
-  useLayoutEffect(() => {
-    rowsNow.current = rows;
-  }, [rows]);
+  const [olderIntent, setOlderIntent] = useState(false);
   const landing = useRef(0);
   useEffect(() => {
     const el = viewport.current;
@@ -342,36 +328,16 @@ export function Feed(props: FeedProps) {
       stop,
     );
   }, [setPinned, detached]);
-  const keepLanding = useCallback(
-    (key: string, itemId: string, align: "start" | "center") => {
-      const nonce = ++landing.current;
-      let frames = 0;
-      let still = 0;
-      let last = -1;
-      const step = () => {
-        const el = viewport.current;
-        if (landing.current !== nonce || !el || frames++ > 60 || still >= 3) return;
-        const index = rowsNow.current.findIndex((row) => row.key === key);
-        if (index < 0) return;
-        virtualizer.scrollToIndex(index, { align });
-        settle(virtualizer, el, placedUntil);
-        placedAt(anchor, virtualizer, el, rowsNow.current, index, itemId);
-        const at = el.scrollTop + virtualizer.getTotalSize();
-        still = at === last ? still + 1 : 0;
-        last = at;
-        requestAnimationFrame(step);
-      };
-      requestAnimationFrame(step);
-    },
-    [virtualizer],
-  );
 
   // A jump (or a search hit) brings its item into view once its row exists.
+  // One placement only: re-aiming over many frames fights the reader's own
+  // scrolling and reads as jumpiness once neighbours finish measuring.
   useLayoutEffect(() => {
     if (!focus || handled.current === focus.nonce) return;
     const index = rowOf(rows, focus.itemId);
     if (index < 0) return;
     handled.current = focus.nonce;
+    landing.current++;
     setPinned(false);
     virtualizer.scrollToIndex(index, { align: focus.query ? "center" : "start" });
     settle(virtualizer, viewport.current, placedUntil);
@@ -380,8 +346,7 @@ export function Feed(props: FeedProps) {
     // The jump's row is the reader's place from now on, so rows sliding around it
     // (the window's turns arriving, say) keep it where it landed.
     placedAt(anchor, virtualizer, viewport.current, rows, index, focus.itemId);
-    if (key) keepLanding(key, focus.itemId, focus.query ? "center" : "start");
-  }, [focus, rows, virtualizer, setPinned, keepLanding]);
+  }, [focus, rows, virtualizer, setPinned]);
   useEffect(() => {
     if (!flash) return;
     const timer = setTimeout(() => setFlash(undefined), 1_600);
@@ -392,43 +357,40 @@ export function Feed(props: FeedProps) {
     if (!nav.searchOpen) setFlash(undefined);
   }, [nav.searchOpen]);
   const items = virtualizer.getVirtualItems();
-  // getVirtualItems also holds the jump target, even after it leaves the viewport.
-  // Only the virtualizer's visible range says where the reader is now.
-  const firstVisible = virtualizer.range?.startIndex;
   const { hasOlder, loading, loadOlder } = pager;
+  // Older history loads by scroll proximity to the top: one request per upward
+  // gesture, well before the edge, so paging in never surfaces as a visible
+  // jump. A reply or a jump settling must not walk the whole history by itself.
+  const maybeLoadOlder = useCallback(
+    (scrollTop: number) => {
+      if (
+        scrollTop < 900 &&
+        hasOlder &&
+        !loading &&
+        !pager.error &&
+        !jump.failed &&
+        !jump.loading
+      ) {
+        void loadOlder();
+      }
+    },
+    [hasOlder, loading, pager.error, jump.failed, jump.loading, loadOlder],
+  );
   const prefetchFocus = useRef(focus?.nonce);
-  // One read per upward scroll intent near the edge. A tool-heavy page can fold into
-  // the same row; a reply or a jump settling must not walk the whole history by itself.
   useEffect(() => {
     if (prefetchFocus.current !== focus?.nonce) {
       prefetchFocus.current = focus?.nonce;
       setOlderIntent(false);
       return;
     }
-    if (
-      olderIntent &&
-      !pinned &&
-      firstVisible !== undefined &&
-      firstVisible <= 12 &&
-      hasOlder &&
-      !loading &&
-      !pager.error &&
-      !jump.failed
-    ) {
-      setOlderIntent(false);
-      void loadOlder();
+    if (olderIntent && !pinned) {
+      const top = viewport.current?.scrollTop ?? 0;
+      if (top < 1200 && hasOlder && !loading && !pager.error && !jump.failed) {
+        setOlderIntent(false);
+        void loadOlder();
+      }
     }
-  }, [
-    focus?.nonce,
-    olderIntent,
-    pinned,
-    firstVisible,
-    hasOlder,
-    loading,
-    pager.error,
-    jump.failed,
-    loadOlder,
-  ]);
+  }, [focus?.nonce, olderIntent, pinned, hasOlder, loading, pager.error, jump.failed, loadOlder]);
   // A jumped window slides only as the reader scrolls toward one of its edges, so a window
   // that fits on screen never pages itself in both directions. Older history prefetches by
   // proximity (see above); travel counts the reader's own scrolling toward the live end.
@@ -459,16 +421,17 @@ export function Feed(props: FeedProps) {
   };
 
   const lastWindowOrdinal = window ? ordinalOf(window.items.at(-1)?.id ?? "") : undefined;
-  // The floating controls stay mounted through their exit.
+  // The floating controls stay mounted through their exit. There is deliberately
+  // no "viewing history" bar at the top: older history is one continuous list,
+  // and the live pill alone offers the way back to the live end.
   const livePill = usePresence(!pinned || detached);
-  const jumpBar = usePresence(!!window);
   const fadeTop = useTopFade(viewport);
   // At most four chat visualizations hold a live page at once (each runs its own scripts).
   const [liveFrames] = useState(() => new LiveFrames(4));
   return (
     <LiveFramesContext value={liveFrames}>
       <div className="relative flex h-full min-h-0 flex-col">
-        {/* The rows and the bars that float over their top (search, the jump bar). */}
+        {/* The rows and the search bar floating over their top. */}
         <div className="relative flex min-h-0 flex-1 flex-col">
           <Suspense fallback={null}>
             <DeferredTurnRail.Component nav={nav} scroller={viewport} />
@@ -485,6 +448,7 @@ export function Feed(props: FeedProps) {
               const el = event.currentTarget;
               readTop();
               slideOnScroll(el);
+              maybeLoadOlder(el.scrollTop);
               const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < nearEdge;
               if (!atEnd && performance.now() < glidingUntil.current) return;
               // A detached window's end is not the live end.
@@ -583,19 +547,7 @@ export function Feed(props: FeedProps) {
                 <DeferredSearchBar.Component nav={nav} />
               </Suspense>
             )}
-            {jumpBar.mounted && (
-              <Suspense fallback={null}>
-                <DeferredJumpBar.Component
-                  phase={jumpBar.phase}
-                  turn={jump.turn}
-                  reading={reading}
-                  threadId={threadId}
-                  failed={jump.failed}
-                  onLive={toLive}
-                />
-              </Suspense>
-            )}
-            {!window && jump.failed && (
+            {jump.failed && (
               <Suspense fallback={null}>
                 <DeferredJumpFailed.Component
                   message={jump.failed}
