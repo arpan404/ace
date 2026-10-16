@@ -7,8 +7,8 @@ import { useWatched, type ThreadNav } from "./nav.tsx";
 import { useTurnHead, useTurnSummary } from "./turn-index.ts";
 import { railOrdinals } from "./rail-ordinals.ts";
 
-/** Turns before the rail shows: a shorter thread is quicker to scroll than to outline. */
-const railTurns = 6;
+/** Turns before the rail shows: past three turns a thread is quicker to outline than to scroll. */
+const railTurns = 4;
 /** A wheel's lines and pages, in pixels. */
 const wheelLine = 16;
 

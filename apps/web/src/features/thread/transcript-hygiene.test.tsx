@@ -175,8 +175,8 @@ function turns(count: number): Fact[] {
   return all;
 }
 
-test("the turn rail waits for six turns, however long the transcript is", async () => {
-  const { app, feed } = await open(turns(5));
+test("the turn rail waits for four turns, however long the transcript is", async () => {
+  const { app, feed } = await open(turns(3));
   const viewport = feed.closest<HTMLElement>("[data-virtual-viewport]");
   if (!viewport) throw new Error("Missing transcript viewport");
   Object.defineProperties(viewport, {
@@ -190,8 +190,8 @@ test("the turn rail waits for six turns, however long the transcript is", async 
   expect(screen.queryByRole("navigation", { name: "Conversation turns" })).toBeNull();
   act(() =>
     app.daemon.apply("hygiene", [
-      { type: "turn.started", agent: "root", nativeTurnId: "turn-6", trigger: "user" },
-      facts.message("root", "ask-6", "user", "Request 6"),
+      { type: "turn.started", agent: "root", nativeTurnId: "turn-4", trigger: "user" },
+      facts.message("root", "ask-4", "user", "Request 4"),
     ]),
   );
   expect(await screen.findByRole("navigation", { name: "Conversation turns" })).toBeTruthy();
