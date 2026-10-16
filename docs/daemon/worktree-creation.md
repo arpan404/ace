@@ -90,6 +90,6 @@ per reached step, checkout's percent, a "More details" disclosure over `details`
 in `actions`. The composer's tab mirrors the state. `WorktreeCreations` (`@ace/client/worktree-creations`)
 holds the newest progress per command ID, asks `get` when a view opens it and after each
 reconnect, and sends the actions. Retry and local fallback reopen the create's failed intent, so
-the next receipt moves the route to the admitted thread. That thread shows
-`details.worktreeCreation` under its first message as one folded line, such as
-"Worktree ready · branch · 4.2s". Set `?fakeWorktree=slow` in `dev:fake` to watch the steps.
+the next receipt moves the route to the admitted thread. That thread never shows
+`details.worktreeCreation` in chat: once the worktree is made and agents start working, the
+settled "Worktree ready" line is hidden, both while agents work and later. Set `?fakeWorktree=slow` in `dev:fake` to watch the steps.

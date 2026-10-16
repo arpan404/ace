@@ -42,10 +42,15 @@ test("a stale Git lock says so by name, and Clear stale lock lets the start go a
     ),
   );
   await userEvent.keyboard("{Enter}");
-  await screen.findByRole("button", { name: /^Worktree ready/ });
-  const view = made.daemon.snapshot({ kind: "threads" });
-  expect(
-    view?.kind === "threads" &&
-      Object.values(view.threads).some((thread) => thread.title === "Blocked by a lock"),
-  ).toBe(true);
+  // Wait for the thread to be admitted, then the settled worktree stays out of chat.
+  await waitFor(() => {
+    const view = made.daemon.snapshot({ kind: "threads" });
+    expect(
+      view?.kind === "threads" &&
+        Object.values(view.threads).some((thread) => thread.title === "Blocked by a lock"),
+    ).toBe(true);
+  });
+  await screen.findByRole("feed", { name: "Transcript" });
+  expect(screen.queryByRole("button", { name: /^Worktree ready/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Using the local checkout/ })).toBeNull();
 }, 60_000);
