@@ -77,25 +77,28 @@ it("does not launch a new observer after a run notification stops the service", 
   expect(h.service.inbox().runs).toMatchObject([{ status: "succeeded" }]);
 });
 
-it("immediate stop and start preserves the recovered deadline and releases concurrency on expiry", async () => {
+it("immediate stop and start keeps a long run until its recovered thread settles", async () => {
   const h = harness();
   h.service.put(definition());
   const run = h.service.trigger("triage", { key: "first", variables: { subject: "issues" } });
-  h.recoveries.set(run.id, new Promise(() => {}));
+  const recovered = deferred<ExecutionResult>();
+  h.recoveries.set(run.id, recovered.promise);
   for (let i = 0; i < 3; i++) {
     h.service.stop();
     h.service.start();
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
-  h.now = run.startedAt + 3_600_000;
-  await h.timer.fire();
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  expect(h.service.inbox().runs).toMatchObject([
-    { status: "failed", result: "Automation exceeded its maximum runtime" },
-  ]);
-  const next = h.service.trigger("triage", { key: "next", variables: { subject: "issues" } });
-  expect(next.status).toBe("running");
+  h.now = run.startedAt + 3 * 3_600_000;
+  expect(h.service.inbox().runs).toMatchObject([{ status: "running" }]);
+  expect(
+    h.service.trigger("triage", { key: "next", variables: { subject: "issues" } }).status,
+  ).toBe("skipped");
   h.completions[0]?.resolve({ threadId: "obsolete", status: "succeeded", result: "late" });
-  await h.finish(1);
-  expect(h.service.inbox().runs.map((item) => item.status)).toEqual(["succeeded", "failed"]);
+  recovered.resolve({ threadId: "recovered", status: "failed", result: "Thread failed" });
+  await h.service.settled();
+  expect(h.service.inbox().runs.find((item) => item.id === run.id)).toMatchObject({
+    status: "failed",
+    threadId: "recovered",
+  });
+  expect(h.inputs).toHaveLength(1);
 });

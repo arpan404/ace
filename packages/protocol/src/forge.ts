@@ -3,7 +3,9 @@ import { ForgeMergeState } from "./forge-merge-state.ts";
 import { ForgeStackExpected } from "./forge-stacks.ts";
 import { z } from "zod";
 
-const text = z.string().max(65_536);
+/** The longest pull request description or comment, GitHub's own body limit. */
+export const maxForgeTextLength = 65_536;
+const text = z.string().max(maxForgeTextLength);
 export const ForgeRepository = z.object({
   forge: z.enum(["github", "gitlab"]),
   host: z

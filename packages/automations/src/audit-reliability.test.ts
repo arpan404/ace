@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { definition, harness, scheduled, start } from "./service-test-support.ts";
+import type { ExecutionResult } from "./index.ts";
+import { definition, deferred, harness, scheduled, start } from "./service-test-support.ts";
 
 test("a schedule catches up after the wall clock advances during sleep", async () => {
   const h = harness();
@@ -15,34 +16,36 @@ test("a schedule catches up after the wall clock advances during sleep", async (
   await h.finish(1);
 });
 
-test("an expired run releases its cap and late completion cannot rewrite the failure", async () => {
+test("an automation run longer than an hour stays running while its thread works", async () => {
   const h = harness();
   h.service.put(definition());
-  h.service.trigger("triage", { key: "stalled", variables: { subject: "first" } });
-  h.now = start + 3_600_000;
-  await h.timer.fire();
-  await h.service.settled();
-  expect(h.service.inbox().runs[0]).toMatchObject({
-    status: "failed",
-    result: "Automation exceeded its maximum runtime",
-  });
-  h.completions[0]?.resolve({ threadId: "late", status: "succeeded", result: "late" });
+  const run = h.service.trigger("triage", { key: "long", variables: { subject: "first" } });
+  h.now = run.startedAt + 6 * 3_600_000;
+  expect(h.service.inbox().runs[0]?.status).toBe("running");
   expect(
-    h.service.trigger("triage", { key: "next", variables: { subject: "second" } }).status,
-  ).toBe("running");
-  await h.finish(1);
-  expect(h.service.inbox().runs.find((run) => run.eventKey === "stalled")?.status).toBe("failed");
+    h.service.trigger("triage", { key: "blocked", variables: { subject: "second" } }).status,
+  ).toBe("skipped");
+  await h.finish();
+  expect(h.service.inbox().runs.find((item) => item.eventKey === "long")).toMatchObject({
+    status: "succeeded",
+    threadId: "thread-0",
+  });
 });
 
-test("restart expires an overdue running automation using its persisted start time", async () => {
+test("restart keeps observing a running automation started hours earlier", async () => {
   const h = harness();
   h.service.put(definition());
-  const first = h.service.trigger("triage", { key: "stalled", variables: { subject: "first" } });
-  h.recoveries.set(first.id, new Promise(() => {}));
-  h.now = start + 3_600_000;
+  const first = h.service.trigger("triage", { key: "long", variables: { subject: "first" } });
+  const recovered = deferred<ExecutionResult>();
+  h.recoveries.set(first.id, recovered.promise);
+  h.now = start + 5 * 3_600_000;
   h.restart();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(h.service.inbox().runs[0]?.status).toBe("running");
+  recovered.resolve({ threadId: "thread-long", status: "succeeded", result: "Done" });
   await h.service.settled();
-  expect(h.service.inbox().runs[0]?.status).toBe("failed");
+  expect(h.service.inbox().runs[0]).toMatchObject({ status: "succeeded", result: "Done" });
+  expect(h.inputs).toHaveLength(1);
 });
 
 test("changes during a file automation's own run produce no new run or skipped history", async () => {
@@ -93,19 +96,4 @@ test("retention preserves the newest thousand results and unfinished work", asyn
     count += page.runs.length;
   }
   expect(count).toBe(1000);
-});
-
-test("restart never admits a replacement thread for an already expired run", async () => {
-  const h = harness();
-  h.service.put(definition());
-  h.service.trigger("triage", { key: "expired", variables: { subject: "old" } });
-  expect(h.inputs).toHaveLength(1);
-  h.now = start + 3_600_001;
-  h.restart();
-  await h.service.settled();
-  expect(h.inputs).toHaveLength(1);
-  expect(h.service.inbox().runs[0]).toMatchObject({
-    status: "failed",
-    result: "Automation exceeded its maximum runtime",
-  });
 });

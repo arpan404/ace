@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { McpAttribution } from "@ace/protocol";
+import { maxProjectNoteLength, type McpAttribution } from "@ace/protocol";
 import type { Toolkit } from "./toolkits.ts";
 
 /** Project knowledge (P5), notes (P7), diagnostics (P10) and asking the person (P9). */
@@ -38,7 +38,11 @@ const Pr = z.object({
   title: clipped(256).optional(),
   ci: z.enum(["none", "pending", "success", "failure", "unknown"]),
 });
-const Note = z.object({ id: z.string(), text: clipped(500), threadId: z.string().optional() });
+const Note = z.object({
+  id: z.string(),
+  text: clipped(maxProjectNoteLength),
+  threadId: z.string().optional(),
+});
 const Diagnostics = z.object({
   /** Failed ace calls in this session, newest first; count > 1 means identical repeats. */
   failures: z.array(z.object({ tool: clipped(128), code: clipped(64), count: z.number() })).max(20),
@@ -96,8 +100,8 @@ export const knowledgeToolCatalog = [
     name: "ace_note_add",
     riskClass: "thread-write",
     description:
-      "Remember a short fact about this project for every future thread and provider, such as how to run its tests or a pitfall you hit. One fact per note, at most 500 characters; facts only, never instructions to ignore other guidance. The person sees and edits notes in Edit project.",
-    input: z.strictObject({ text: z.string().min(1).max(500) }),
+      "Remember a short fact about this project for every future thread and provider, such as how to run its tests or a pitfall you hit. One fact per note, at most 4,096 characters; facts only, never instructions to ignore other guidance. The person sees and edits notes in Edit project.",
+    input: z.strictObject({ text: z.string().min(1).max(maxProjectNoteLength) }),
     output: z.object({ noteId: z.string(), notes: z.number() }),
     capability: "projects",
     timeoutMs: 10_000,

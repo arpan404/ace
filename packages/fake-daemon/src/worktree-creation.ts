@@ -49,7 +49,7 @@ export class FakeWorktreeCreations {
         ok: false,
         error: "thread_creation_in_progress",
       });
-    if (!prior && this.drafts.size >= 16)
+    if (!prior && this.drafts.size >= 128)
       return Promise.resolve({ commandId: command.id, ok: false, error: "workspace_busy" });
     const p = command.payload;
     const progress: Progress = {

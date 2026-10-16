@@ -54,6 +54,13 @@ const Environment = z.object({
     })
     .pipe(LogMaxBytes)
     .optional(),
+  /** Overrides the saved `worktree.preparationTimeoutMs` while set, in milliseconds. */
+  ACE_WORKTREE_PREPARATION_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(60_000)
+    .max(3_600_000)
+    .optional(),
 });
 export interface Config {
   dataDir: string;
@@ -78,7 +85,14 @@ export interface Config {
    * Settings pinned by environment variables. They win over saved settings (the same
    * convention as ACE_LISTEN); saved values apply again once the variable is unset.
    */
-  settingsOverrides?: Partial<Pick<SettingsValues, "storage.retentionDays" | "logs.maxBytes">>;
+  settingsOverrides?: Partial<
+    Pick<
+      SettingsValues,
+      "storage.retentionDays" | "logs.maxBytes" | "worktree.preparationTimeoutMs"
+    >
+  >;
+  /** How long worktree preparation may take when settings are unavailable (ACE_WORKTREE_PREPARATION_TIMEOUT_MS). */
+  worktreePreparationTimeoutMs?: number;
   screenHelper?: string;
   /** The helper manifest when it does not sit beside the app (the desktop bundle). */
   screenHelperManifest?: string;
@@ -130,6 +144,12 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir(
       ...(settings.ACE_LOG_MAX_BYTES !== undefined
         ? { "logs.maxBytes": settings.ACE_LOG_MAX_BYTES }
         : {}),
+      ...(settings.ACE_WORKTREE_PREPARATION_TIMEOUT_MS !== undefined
+        ? { "worktree.preparationTimeoutMs": settings.ACE_WORKTREE_PREPARATION_TIMEOUT_MS }
+        : {}),
     },
+    ...(settings.ACE_WORKTREE_PREPARATION_TIMEOUT_MS !== undefined
+      ? { worktreePreparationTimeoutMs: settings.ACE_WORKTREE_PREPARATION_TIMEOUT_MS }
+      : {}),
   };
 }

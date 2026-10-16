@@ -7,14 +7,13 @@ import { projectsKey, type Project } from "./project-cache.ts";
 
 export type { Project } from "./project-cache.ts";
 
-/** The daemon pages `workspaces.list` at 100; a person with more projects sees the first 1,000. */
+/** The daemon pages `workspaces.list` at 100; every page is read, however many projects. */
 const pageSize = 100;
-const maxPages = 10;
 
 async function readProjects(client: ClientApi, signal: AbortSignal): Promise<Project[]> {
   const projects: Project[] = [];
   let after: string | undefined;
-  for (let page = 0; page < maxPages; page++) {
+  for (;;) {
     const reply = await client.request(
       {
         type: "workspace.request",
@@ -25,10 +24,11 @@ async function readProjects(client: ClientApi, signal: AbortSignal): Promise<Pro
     const result = reply.result;
     if (result.kind !== "workspaces") throw new Error("ace didn't list its projects.");
     projects.push(...result.workspaces);
-    if (!result.next) break;
+    if (!result.next) return projects;
+    // A cursor that doesn't move would page forever; the daemon's ids only ever advance.
+    if (result.next === after) throw new Error("ace didn't list its projects.");
     after = result.next;
   }
-  return projects;
 }
 
 const none: readonly string[] = [];

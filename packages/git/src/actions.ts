@@ -1,6 +1,7 @@
 import { longWriteTimeoutMs } from "./deadlines.ts";
 import { writingContext } from "./writing-context.ts";
 import { z } from "zod";
+import { maxCommitMessageLength } from "@ace/protocol";
 import type { Repository } from "./repository.ts";
 import { GitError, type PushOptions } from "./types.ts";
 import { failureMessage } from "./failure-text.ts";
@@ -36,7 +37,7 @@ export async function commitChanges(
     paths?: readonly string[] | undefined;
   },
 ): Promise<string> {
-  const message = z.string().trim().min(1).max(8192).parse(options.message);
+  const message = z.string().trim().min(1).max(maxCommitMessageLength).parse(options.message);
   const expected = head.nullable().parse(options.expectedHead);
   const paths = options.paths === undefined ? undefined : commitPaths.safeParse(options.paths);
   if (paths && !paths.success)

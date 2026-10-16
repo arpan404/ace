@@ -1,10 +1,8 @@
-import type { ProjectNoteEdit } from "@ace/protocol";
+import { maxProjectNoteLength, maxProjectNotes, type ProjectNoteEdit } from "@ace/protocol";
 import { PlusIcon, XIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
-
-const maxNotes = 50;
 
 /**
  * Facts every agent in the project reads, whoever wrote them. Kept in ace, never in the repo.
@@ -26,7 +24,7 @@ export function ProjectNotesFields(props: {
           <Input
             aria-label={`Note ${index + 1}`}
             value={note.text}
-            maxLength={500}
+            maxLength={maxProjectNoteLength}
             disabled={props.disabled}
             onChange={(event) => set(index, event.target.value)}
           />
@@ -45,7 +43,7 @@ export function ProjectNotesFields(props: {
         <Button
           variant="ghost"
           size="sm"
-          disabled={props.disabled || value.length >= maxNotes}
+          disabled={props.disabled || value.length >= maxProjectNotes}
           onClick={() => onChange([...value, { text: "" }])}
         >
           <Icon icon={PlusIcon} />

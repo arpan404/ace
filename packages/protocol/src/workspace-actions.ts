@@ -50,6 +50,8 @@ export const GitStatusFile = z.object({
 export type GitStatusFile = z.infer<typeof GitStatusFile>;
 /** The most files one `git.status` read returns. */
 export const gitStatusLimit = 500;
+/** A commit message's longest text; Git reads it from stdin, so only the wire bounds it. */
+export const maxCommitMessageLength = 65_536;
 export const WorkspaceActionRequest = z.object({
   type: z.literal("workspace.request"),
   requestId: id,
@@ -204,7 +206,7 @@ export const WorkspaceCommands = [
     message: z
       .string()
       .min(1)
-      .max(8192)
+      .max(maxCommitMessageLength)
       .refine((value) => value.trim().length > 0)
       .meta({ "x-ace-constraint": "Must contain a non-whitespace commit message." }),
     draftFingerprint: SourceControlContext.shape.fingerprint.optional(),

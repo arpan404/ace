@@ -256,6 +256,12 @@ const entries = [
   },
   // Advanced
   {
+    id: "advanced.worktreeTimeout",
+    page: "/settings/advanced",
+    title: "Worktree preparation timeout",
+    keywords: ["worktree", "timeout", "preparation", "git", "environment"],
+  },
+  {
     id: "advanced.diagnostics",
     page: "/settings/advanced",
     title: "App diagnostics",

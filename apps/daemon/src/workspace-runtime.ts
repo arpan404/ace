@@ -61,6 +61,12 @@ export interface WorkspaceRuntimeOptions {
   gitService?: WorkspaceGit;
   /** How long a remote worktree base's fetch may take; 15 s by default. */
   baseFetchTimeoutMs?: number;
+  /**
+   * How long read-only work before `git worktree add` may take; 10 minutes by default.
+   * `ACE_WORKTREE_PREPARATION_TIMEOUT_MS` or the `worktree.preparationTimeoutMs` setting
+   * overrides it when no explicit value is given.
+   */
+  preparationTimeoutMs?: number;
   terminal?: TerminalManagerOptions;
   /** A handle identifies one shell lifetime, including across daemon restarts. */
   terminalId?: () => string;
@@ -68,8 +74,6 @@ export interface WorkspaceRuntimeOptions {
   editorApplications?: readonly string[];
   platform?: NodeJS.Platform;
   machine?: { host: string; name: string };
-  /** How long worktree preparation before `git worktree add` may take; 60 s by default. */
-  preparationTimeoutMs?: number;
   /** Reports failures nobody waits on: background worktree cleanup and its recovery. */
   log?: (message: string, error: unknown) => void;
 }
@@ -145,6 +149,10 @@ export class WorkspaceRuntime {
     this.commands = new AsyncCommands(store);
     this.checkpoints = new RunCheckpoints(store, this.git, (id) => this.root(id), now);
     this.manager = new TerminalManager({ scrollbackBytes: 262144, ...options.terminal });
+  }
+  /** Live-update the worktree preparation deadline from settings; the next start uses it. */
+  setPreparationTimeoutMs(timeoutMs: number): void {
+    this.roots.setPreparationTimeoutMs(timeoutMs);
   }
   /** The selected remote's HEAD, else the forge's default branch, else Git's local guess. */
   private async defaultBranch(root: string, guess: string): Promise<string> {
@@ -346,7 +354,7 @@ export class WorkspaceRuntime {
         await this.manager.release(entry.terminal);
         this.terminals.delete(key);
       }
-    if (this.terminals.size + this.pendingOpens >= 64) throw new Error("terminal_limit");
+    if (this.terminals.size + this.pendingOpens >= 256) throw new Error("terminal_limit");
     this.pendingOpens++;
     try {
       const terminal = this.manager.openTerminal({ cwd: this.root(threadId), name, cols, rows });

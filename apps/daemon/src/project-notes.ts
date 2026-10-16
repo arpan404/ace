@@ -1,4 +1,5 @@
 import {
+  maxProjectNoteLength,
   maxProjectNotes,
   type ProjectNote,
   type ProjectNoteEdit,
@@ -13,7 +14,7 @@ export function addNote(
   at: number,
   id: string,
 ): ProjectNote[] {
-  const clean = text.replace(/\s+/g, " ").trim().slice(0, 500);
+  const clean = text.replace(/\s+/g, " ").trim().slice(0, maxProjectNoteLength);
   if (!clean) throw new Error("Empty note");
   // The same fact twice is one note.
   if (notes.some((note) => note.text === clean)) return [...notes];

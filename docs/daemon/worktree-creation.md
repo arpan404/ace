@@ -61,7 +61,8 @@ removes the worktree after the script exits (or reaches its Git deadline): killi
 an unconfirmed writer fencing the repository. A failed setup keeps the worktree, reports
 `setup_failed` with the output in `details`, and offers Retry (setup again in the kept
 worktree), Continue and Use local. Read-only preparation before `git worktree add` has a
-60-second deadline (`preparation_timeout`) and stops waiting on Cancel or Use local. A project in
+10-minute deadline (`preparation_timeout`, `ACE_WORKTREE_PREPARATION_TIMEOUT_MS` or the
+`worktree.preparationTimeoutMs` setting overrides it); it stops waiting on Cancel or Use local. A project in
 a repository subfolder runs in the same subfolder of its worktree. When an earlier cleanup kept
 the thread's branch, a retry uses `ace/<key>-2` and so on rather than adopting it.
 

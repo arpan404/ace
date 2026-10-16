@@ -5,7 +5,7 @@ import { definition, deferred, harness } from "./service-test-support.ts";
 
 const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-test("a refused recovery retains its original deadline and releases concurrency without executing again", async () => {
+test("a refused recovery is retried until the thread outcome is observed, without executing again", async () => {
   const h = harness();
   h.service.put(definition());
   const run = h.service.trigger("triage", { key: "refused", variables: { subject: "issues" } });
@@ -13,9 +13,13 @@ test("a refused recovery retains its original deadline and releases concurrency 
   h.restart();
   await h.service.settled();
   expect(h.errors.map(String)).toContain("Error: workspace_change_in_progress");
-  h.now = run.startedAt + 3_600_000;
+  expect(h.service.inbox().runs[0]?.status).toBe("running");
+  h.deps.executor.recover = () =>
+    Promise.resolve({ threadId: "thread-0", status: "succeeded", result: "Recovered" });
+  h.now = run.startedAt + 2 * 3_600_000;
   await h.timer.fire();
-  expect(h.service.inbox().runs[0]?.status).toBe("failed");
+  await h.service.settled();
+  expect(h.service.inbox().runs[0]).toMatchObject({ status: "succeeded", result: "Recovered" });
   expect(h.inputs).toHaveLength(1);
   expect(
     h.service.trigger("triage", { key: "next", variables: { subject: "issues" } }).status,
@@ -49,31 +53,6 @@ test("a successful outcome survives a failed SQLite completion write and is retr
       h.service.trigger("triage", { key: "next", variables: { subject: "issues" } }).status,
     ).toBe("running");
     await h.finish(1);
-  } finally {
-    connection.close();
-  }
-});
-
-test("an expired run keeps retrying its terminal write after temporary SQLite failure", async () => {
-  const h = harness();
-  h.service.put(definition());
-  const run = h.service.trigger("triage", { key: "expire", variables: { subject: "issues" } });
-  const connection = new DatabaseSync(h.storePath);
-  try {
-    connection.exec(
-      "CREATE TRIGGER refuse_finish BEFORE UPDATE ON automation_runs BEGIN SELECT RAISE(ABORT, 'temporary completion failure'); END",
-    );
-    h.now = run.startedAt + 3_600_000;
-    await h.timer.fire();
-    await turn();
-    expect(h.service.inbox().runs[0]?.status).toBe("running");
-    connection.exec("DROP TRIGGER refuse_finish");
-    h.now = run.startedAt + 3_601_000;
-    await h.timer.fire();
-    expect(h.service.inbox().runs[0]).toMatchObject({
-      status: "failed",
-      result: "Automation exceeded its maximum runtime",
-    });
   } finally {
     connection.close();
   }

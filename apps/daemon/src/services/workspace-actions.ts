@@ -26,9 +26,24 @@ export async function startWorkspaceActions({
   options,
   log,
 }: ServiceContext): Promise<void> {
+  const explicitTimeout = options.workspaceActions?.preparationTimeoutMs;
+  let configuredTimeout = explicitTimeout;
+  if (configuredTimeout == null) {
+    if (config.worktreePreparationTimeoutMs != null) {
+      configuredTimeout = config.worktreePreparationTimeoutMs;
+    } else if (services.settings) {
+      try {
+        const entry = await services.settings.get("worktree.preparationTimeoutMs");
+        if (typeof entry.value === "number") configuredTimeout = entry.value;
+      } catch {
+        /* Settings unavailable: the creation default applies. */
+      }
+    }
+  }
   const workspace = new WorkspaceRuntime(store, config.dataDir, now, {
     log: (message, error) => log.log("warn", message, logError(error)),
     ...options.workspaceActions,
+    ...(configuredTimeout != null ? { preparationTimeoutMs: configuredTimeout } : {}),
     git: {
       ...options.workspaceActions?.git,
       onLeaseRetired: ({ lease, repository, reason }) =>
@@ -62,6 +77,26 @@ export async function startWorkspaceActions({
     },
   });
   services.workspaceActions = workspace;
+  // Live-update the preparation deadline from settings, unless an explicit per-environment
+  // option pins it (tests). The settings service already resolves the environment override.
+  if (explicitTimeout == null && services.settings) {
+    try {
+      const release = await services.settings.subscribe(
+        { keys: ["worktree.preparationTimeoutMs"], scope: {} },
+        (event) => {
+          if (event.type !== "changed") return;
+          const entry = event.entries.find(
+            (candidate) => candidate.key === "worktree.preparationTimeoutMs",
+          );
+          if (entry && typeof entry.value === "number")
+            workspace.setPreparationTimeoutMs(entry.value);
+        },
+      );
+      resources.own(release);
+    } catch {
+      /* Settings subscriptions are best-effort: the initial value still applies. */
+    }
+  }
   // Hygiene behind the listener: admission retires stale leases on its own as it meets them.
   const heal = () =>
     workspace

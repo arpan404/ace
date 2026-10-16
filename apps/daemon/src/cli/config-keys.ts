@@ -18,13 +18,33 @@ export const configKeys = {
     format: (value: number) => formatBytes(value),
     hint: "a size from 1m to 64g, such as 512m or 1g",
   },
+  "preparation-timeout": {
+    key: "worktree.preparationTimeoutMs",
+    env: "ACE_WORKTREE_PREPARATION_TIMEOUT_MS",
+    parse: (raw: string) => {
+      if (!/^\d+$/.test(raw)) return { success: false as const };
+      const ms = Number(raw);
+      return Number.isInteger(ms) && ms >= 60_000 && ms <= 3_600_000
+        ? { success: true as const, data: ms }
+        : { success: false as const };
+    },
+    format: (value: number) => (value % 60_000 === 0 ? `${value / 60_000} minutes` : `${value} ms`),
+    hint: "milliseconds from 60000 to 3600000, such as 600000 for 10 minutes",
+  },
 } as const;
 export type ConfigName = keyof typeof configKeys;
-export const configNames: readonly ConfigName[] = ["retention-days", "log-cap"];
+export const configNames: readonly ConfigName[] = [
+  "retention-days",
+  "log-cap",
+  "preparation-timeout",
+];
 
 export function configName(raw: string | undefined): ConfigName {
-  if (raw === "retention-days" || raw === "log-cap") return raw;
-  throw new CliFailure("refused", "Use a setting name: retention-days or log-cap");
+  if (raw === "retention-days" || raw === "log-cap" || raw === "preparation-timeout") return raw;
+  throw new CliFailure(
+    "refused",
+    "Use a setting name: retention-days, log-cap or preparation-timeout",
+  );
 }
 /** Validate before any effect; the daemon validates again with the same schema. */
 export function configValue(name: ConfigName, raw: string | undefined): number {
