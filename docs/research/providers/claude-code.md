@@ -404,3 +404,16 @@ ace displays the saved balance and earliest unspent expiry. Redemption opens
 found. ace does not use the CLI's private HTTP mutation endpoint or read credentials
 for redemption. The weekly `juniper_tide` offer is separate from saved grants and
 is not counted as a banked reset.
+
+## Steering update (2026-10-15)
+
+Anthropic's [SDK 0.3.286 changelog](https://github.com/anthropics/claude-agent-sdk-typescript/blob/main/CHANGELOG.md#03286)
+clarifies `SDKUserMessage.priority`: `now` joins the running turn and moves running
+shell commands, agents and MCP calls to the background. This supersedes the
+unverified priority semantics above. ace's minimum CLI is already 2.1.286, so
+supported Claude versions advertise steering and send `priority: "now"` for a
+steer; queued delivery retains `priority: "next"`. No explicit interrupt is needed.
+Background work continues to count toward thread status through its native task
+events. The process regression test checks delivery through the real SDK to a
+synthetic CLI while a turn is open; it does not spend quota or claim live-model
+verification.
