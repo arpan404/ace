@@ -26,7 +26,7 @@ test("cross-provider child preserves its selection and returns the whole thread 
         origin: expect.objectContaining({
           kind: "spawn",
           parentThreadId: parent.threadId,
-          role: "implementer",
+          role: "test-task-implementation",
         }),
       }),
     ]),
@@ -354,7 +354,7 @@ test("follow-up messages wake again on the same native thread and retries do not
   expect(h.store.getThread(parent.threadId)?.status.state).toBe("working");
   expect(h.contexts.get(child.childId)?.resume?.nativeSessionId).toBe(initialNativeId);
   expect(h.nativeHistories.get(initialNativeId)).toEqual([
-    "Role: implementer\n\nTask:\nImplement safely",
+    "Role: test-task-iterative\n\nTask:\nImplement safely",
     "Refine the result",
   ]);
   await h.complete(child.childId, "refined");

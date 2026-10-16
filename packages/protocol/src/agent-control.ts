@@ -39,7 +39,13 @@ export const AgentSelection = z.object({
 });
 export type AgentSelection = z.infer<typeof AgentSelection>;
 /** The role a delegated child plays, here or on another machine. */
-export const DelegationRole = z.string().min(1).max(1024);
+export const DelegationRole = z
+  .string()
+  .min(1)
+  .max(1024)
+  .describe(
+    "The child's display name. Must be unique among its parent's live children and descriptive of the work (e.g. 'Fix-869-worked-for-toast', never 'Implementer').",
+  );
 export const DelegationRequest = z.strictObject({
   requestId: key,
   task: MessageText,
@@ -108,7 +114,7 @@ export const DelegateTaskOperation = z
         op: "delegate_task",
         requestId: "review-on-studio",
         task: "Review the 0.9 build and list failing benchmarks",
-        role: "Reviewer",
+        role: "Review-0.9-build",
         provider: "claude",
         machine: "studio",
         project: "relay",

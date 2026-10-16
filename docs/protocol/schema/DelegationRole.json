@@ -1,6 +1,7 @@
 {
   "$id": "https://ace.local/protocol/v1/DelegationRole.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The child's display name. Must be unique among its parent's live children and descriptive of the work (e.g. 'Fix-869-worked-for-toast', never 'Implementer').",
   "maxLength": 1024,
   "minLength": 1,
   "type": "string"

@@ -114,7 +114,7 @@ test("agent remote bases use local tracking refs and never execute a configured 
         AgentControlOperation.parse({
           op: "delegate_task",
           requestId: ref,
-          role: "Inspect",
+          role: `Inspect-${ref}`,
           task: "Inspect cached remote",
           provider: "claude",
           workspace: { kind: "new_worktree", base: { ref, remote: "origin" } },

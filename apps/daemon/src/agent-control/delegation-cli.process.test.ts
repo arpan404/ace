@@ -47,7 +47,7 @@ for (const parent of ["claude", "codex"] as const)
         requestId: "after-stop",
         provider,
         task: "Hello",
-        role: "greeter",
+        role: "greet-after-stop",
         wait: true,
       };
       const result = await f.call("delegate_task", args);
@@ -74,7 +74,7 @@ for (const parent of ["claude", "codex"] as const)
 const task = (requestId: string) => ({
   requestId,
   provider: "claude",
-  role: "Hello",
+  role: `say-hello-${requestId}`,
   task: "Hello",
 });
 test("single and batch delegation disclose actionable failures and keep diagnostic detail out of MCP and notices", async () => {
@@ -97,7 +97,7 @@ test("single and batch delegation disclose actionable failures and keep diagnost
     ["claude", "private-missing-account", "account_unavailable"],
   ] as const) {
     const result = await f.call("delegate_task", {
-      role: "Hello",
+      role: `probe-${code}`,
       task: "Hello",
       requestId: code,
       provider,
@@ -115,7 +115,7 @@ test("single and batch delegation disclose actionable failures and keep diagnost
   try {
     expect(
       await f.call("delegate_task", {
-        role: "Hello",
+        role: "probe-missing-workspace",
         task: "Hello",
         requestId: "missing-workspace",
         provider: "claude",
@@ -129,7 +129,7 @@ test("single and batch delegation disclose actionable failures and keep diagnost
   }
   await f.daemon.models.invalidate({ provider: "claude" });
   const result = await f.call("delegate_task", {
-    role: "Hello",
+    role: "probe-missing-model",
     task: "Hello",
     requestId: "missing-model",
     provider: "claude",
@@ -162,7 +162,7 @@ test("single and batch delegation disclose actionable failures and keep diagnost
   f.controls.delegations.close();
   expect(
     await f.call("delegate_task", {
-      role: "Hello",
+      role: "probe-closed-admission",
       task: "Hello",
       requestId: "closed-admission",
       provider: "claude",
@@ -203,7 +203,7 @@ test("one batch delegation awaits every child on a restarted OpenCode root and r
       requestId,
       provider: "opencode",
       task: "Hello",
-      role: "greeter",
+      role: `greet-${requestId}`,
     })),
     await: "all",
     timeoutSeconds: 60,

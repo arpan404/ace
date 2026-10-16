@@ -114,7 +114,7 @@ test("MCP PR operations reject thread selection and ambiguous targets without ch
     const childResult = await f.call({
       op: "thread.create",
       requestId: "pr-child",
-      title: "child",
+      title: "pr-child-task",
       provider: "claude",
     });
     const child = z.object({ threadId: z.string() }).parse(childResult.data);
