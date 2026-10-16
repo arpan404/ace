@@ -127,9 +127,10 @@ module.exports = {
     // Follow workspace exports so a Node-only package root cannot hide a built-in import.
     // RN's published implementation is Flow, which the SWC TypeScript parser cannot read.
     // Its entry still resolves; every ace workspace runtime dependency is followed.
+    // Font imports also resolve, but their binary contents are never JavaScript dependencies.
     doNotFollow: {
       dependencyTypes: ["type-only"],
-      path: "(^|/)node_modules/(react-native|@react-native-masked-view)/",
+      path: "\\.ttf$|(^|/)node_modules/(react-native|@react-native-masked-view)/",
     },
     exclude: { path: `(^|/)routeTree\\.gen\\.ts$|${testOnly}` },
     tsPreCompilationDeps: true,

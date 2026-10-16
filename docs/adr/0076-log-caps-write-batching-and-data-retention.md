@@ -77,7 +77,9 @@ flush surfaces as transient `Store is busy` so the provider mailbox retries afte
 it never poisons the session. Single oversized batches are rejected by the stream() size
 guard before admission. Pending snapshots stay pinned
 outside the engine LRU. Flushes commit all events, derived tables, append patches and snapshot
-headers together. A failed transaction keeps the complete batch and retries after 100 ms;
+headers together. A failed transaction, including a forced flush before a control operation,
+keeps the complete batch and retries after 100 ms; the control operation waits without
+aborting the provider or folding its facts twice;
 provider intake pauses until storage recovers. No uncommitted entry is evicted. This is a
 deliberate divergence from per-thread/agent LRU eviction: uncommitted data is pinned, never
 evicted, and delivery resync stays at the Outbox layer (`RESYNC_CLOSE_CODE`). Control facts,
@@ -93,8 +95,10 @@ power loss. Completed/control state is never published ahead of its commit.
 
 Live events reserve canonical sequence numbers. Before publishing the first live event in a
 range, a small independent transaction advances the existing `host_sequence` high-water mark
-by at least 65,536 slots counted in events (facts.length), never bytes, so large text
-batches do not over-reserve. The visible durable head comes from actual event/deletion rows,
+by at least 65,536 slots. Admission counts canonical output chunks using the projection's
+UTF-8/JSON splitter and includes an allowance for derived agent/thread events. The agent-tree
+allowance is cached until an agent is added, keeping steady-state admission proportional to
+the incoming facts and text. The visible durable head comes from actual event/deletion rows,
 not unused reservations. Restart skips the reserved range, including slots published only
 in memory, so a lost tail can never alias later events. The table's encoding is unchanged;
 previous builds also skip its high-water mark. A compacted persisted delta uses the final

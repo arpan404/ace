@@ -69,6 +69,13 @@ export function recoveryPorts(
           now(),
         )?.id;
       if (!to || to === session.instanceId) throw new Error("No other available provider account");
+      const source = services.accountRegistry?.get(session.instanceId)?.instance;
+      const destination = services.accountRegistry?.get(to)?.instance;
+      if (!source || source.provider !== provider)
+        throw new Error("Unknown source provider account");
+      if (!destination || destination.provider !== provider)
+        throw new Error("Unknown destination provider account");
+      if (source.implicit || destination.implicit) return { instanceId: to, portable: true };
       const result = await services.accounts.handle({
         type: "accounts.migrate",
         requestId: `recovery:${id}`,
