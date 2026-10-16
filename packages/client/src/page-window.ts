@@ -1,12 +1,14 @@
 import type { ItemsPage } from "@ace/protocol";
 import { ClientError } from "./types.ts";
 /** Page admission is independent of arrival order. Unknown legacy cursors are rejected,
- * rather than inventing an order that could hide or skip history. */
+ * rather than inventing an order that could hide or skip history. Explicit history pages
+ * merge without dropping the live tail: the window grows to hold both, so loading earlier
+ * never removes newer messages. The live bound still applies to new deliveries. */
 export function pageWindow(
   current: readonly string[],
   creation: ReadonlyMap<string, number>,
   page: ItemsPage,
-  capacity: number,
+  _capacity: number,
 ): { order: string[]; before: number | null } {
   const sequences = new Map(creation);
   for (const item of page.items) {
@@ -17,9 +19,7 @@ export function pageWindow(
   const ids = new Set([...current, ...page.items.map((item) => item.id)]);
   for (const id of ids)
     if (!sequences.has(id)) throw new ClientError("stale", "History window needs creation cursors");
-  const order = [...ids]
-    .toSorted((a, b) => (sequences.get(a) ?? 0) - (sequences.get(b) ?? 0))
-    .slice(0, capacity);
+  const order = [...ids].toSorted((a, b) => (sequences.get(a) ?? 0) - (sequences.get(b) ?? 0));
   // The cursor describes the beginning of the retained window, never the most recent response.
   const first = order[0];
   const pageFirst = page.items[0]?.id;

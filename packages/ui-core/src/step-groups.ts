@@ -82,9 +82,9 @@ export function stepFact(item: Item, retried?: ReadonlySet<string>): StepFact | 
   };
   switch (item.type) {
     case "reasoning":
-      // What the agent thought reads on its own row, between the steps.
+      // Thoughts count with the tools around them ("Edited 2 files and thought 2 times").
       if (item.complete && !item.text.trim()) return undefined;
-      return { ...base, kind: "think", alone: true, running: !item.complete };
+      return { ...base, kind: "think", alone: false, running: !item.complete };
     case "message":
       if (item.role !== "assistant" || item.synthetic) return undefined;
       return { ...base, kind: "tool", alone: true, running: !item.complete };
@@ -182,6 +182,7 @@ function phrases(facts: readonly StepFact[]): { kind: StepKind; text: string; st
       : 0;
   add("edit", () => `edited ${plural(distinct(facts, "edit"), "file")}`);
   add("command", (steps) => `ran ${plural(steps, "command")}`);
+  add("think", (steps) => `thought ${steps === 1 ? "once" : `${steps} times`}`);
   add("computer", (steps) => `used ${plural(known("computer") || steps, "app")}`);
   add("browser", (steps) =>
     known("browser")

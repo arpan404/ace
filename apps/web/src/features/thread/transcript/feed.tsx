@@ -392,14 +392,23 @@ export function Feed(props: FeedProps) {
   const items = virtualizer.getVirtualItems();
   const firstVisible = items[0]?.index;
   const { hasOlder, loading, loadOlder } = pager;
-  // The live tail pages older history in when its first row shows.
+  // History pages in by proximity, not only when row 0 shows: with tall estimated rows a
+  // reader can sit near the top without row 0 mounting. Chained loads fill long viewports:
+  // after a page merges, firstVisible is still small so this fires again until filled.
   useEffect(() => {
-    if (!window && firstVisible === 0 && hasOlder && !loading && !pinnedRef.current)
+    if (
+      firstVisible !== undefined &&
+      firstVisible <= 12 &&
+      hasOlder &&
+      !loading &&
+      (window || !pinnedRef.current)
+    )
       void loadOlder();
   }, [window, firstVisible, hasOlder, loading, loadOlder]);
   // A jumped window slides only as the reader scrolls toward one of its edges, so a window
-  // that fits on screen never pages itself in both directions. Travel counts the reader's own
-  // scrolling one way; code moving the view (a restored place, a jump) never adds to it.
+  // that fits on screen never pages itself in both directions. Older history prefetches by
+  // proximity (see above); travel counts the reader's own scrolling toward the live end.
+  // Code moving the view (a restored place, a jump) never adds to it.
   const lastTop = useRef(0);
   const travel = useRef(0);
   const slideOnScroll = (el: HTMLElement) => {
@@ -411,14 +420,9 @@ export function Feed(props: FeedProps) {
     }
     travel.current =
       Math.sign(moved) === Math.sign(travel.current) ? travel.current + moved : moved;
-    if (!window || jump.loading || Math.abs(travel.current) < 120) return;
+    if (!window || jump.loading) return;
     const room = el.clientHeight;
-    if (travel.current < 0 && el.scrollTop < room && hasOlder) void loadOlder();
-    else if (
-      travel.current > 0 &&
-      detached &&
-      el.scrollHeight - el.scrollTop - el.clientHeight < room
-    )
+    if (travel.current > 0 && detached && el.scrollHeight - el.scrollTop - el.clientHeight < room)
       void nav.jump.newer();
   };
   const toLive = () => {
