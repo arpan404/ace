@@ -83,6 +83,12 @@ export interface SessionContext {
   cwd: string;
   /** Instance-specific environment; adapters must pass it to every owned provider process. */
   env?: NodeJS.ProcessEnv;
+  /**
+   * Session-scoped tool credentials (for example a GitHub token for one turn).
+   * Only allowlisted keys reach provider processes, never persisted, never
+   * shared with another session's host. See `@ace/accounts/tool-env`.
+   */
+  toolEnv?: Record<string, string | undefined>;
   /** Persist this assignment with the native session ID; resume must reuse the same instance. */
   instanceId?: string;
   model?: string;

@@ -43,7 +43,12 @@ export { loginAcpAccount, AcpLoginPlan, type AcpLoginResolver } from "./acp-logi
 
 export { daemonCursorAuth, cursorDaemonDriver, type CursorCliAuth } from "./cursor-cli-auth.ts";
 
-export { assertManagedHome } from "./managed-home.ts";
+export { assertManagedHome, ensureManagedHomeSkeleton } from "./managed-home.ts";
+export {
+  filterSessionToolEnv,
+  forwardedToolEnvKeys,
+  maxForwardedToolEnvLength,
+} from "./tool-env.ts";
 
 export { canonicalHome } from "./paths.ts";
 
