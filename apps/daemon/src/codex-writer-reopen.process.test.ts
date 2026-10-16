@@ -52,7 +52,7 @@ test("an idle Codex thread reopens beside live work after a library changes the 
           },
           onExit: (exit) => exits.push(exit.deliberate),
         },
-        { provider: "codex", instanceId: "work", role: "worker", estimatedLoad: 1 },
+        { instanceId: "work", role: "worker", estimatedLoad: 1 },
       );
       sessions.push(session);
       const initialized = z.object({ result: z.object({ pid: z.number() }) });
