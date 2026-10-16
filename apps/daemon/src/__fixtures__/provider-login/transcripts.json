@@ -15,14 +15,5 @@
       "Open https://claude.ai/oauth/authorize?client_id=synthetic&response_type=code&code_challenge=fixture",
       "Press Enter to continue."
     ]
-  },
-  "opencode": {
-    "version": "2.0.22",
-    "help": "opencode auth login\n--provider\n--method",
-    "lines": [
-      "Open https://github.com/login/device",
-      "Enter code: ACEF-2048",
-      "Press Enter to continue."
-    ]
   }
 }

@@ -20,7 +20,7 @@ async function fakeClis(root: string) {
     await nodeBinary(
       root,
       command,
-      `const fs = require('node:fs');\nconst path = require('node:path');\nconst command = path.basename(process.argv[1]);\nconst args = process.argv.slice(2);\nconst home = command === 'codex' ? process.env.CODEX_HOME : command === 'claude' ? process.env.CLAUDE_CONFIG_DIR : path.join(process.env.XDG_DATA_HOME, 'opencode');\nif (args[0] === '--version') {console.log('2.1.286');}\nelse if (args.includes('login') && !args.includes('status')) {fs.mkdirSync(home,{recursive:true});fs.writeFileSync(path.join(home,'logged-in'),JSON.stringify(args));}\nelse {const yes = fs.existsSync(path.join(home,'logged-in'));console.log(command === 'claude' ? JSON.stringify({loggedIn:yes}) : command === 'opencode' ? (yes ? '1 credential' : '0 credentials') : (yes ? 'Logged in using ChatGPT' : 'Not logged in'));}\n`,
+      `const fs = require('node:fs');\nconst path = require('node:path');\nconst command = path.basename(process.argv[1]);\nconst args = process.argv.slice(2);\nconst home = command === 'codex' ? process.env.CODEX_HOME : command === 'claude' ? process.env.CLAUDE_CONFIG_DIR : path.join(process.env.XDG_DATA_HOME, 'opencode');\nif (args[0] === '--version') {console.log('2.1.286');}\nelse if (args.includes('login') && !args.includes('status')) {fs.mkdirSync(home,{recursive:true});fs.writeFileSync(path.join(home,'logged-in'),JSON.stringify(args));}\nelse {const yes = fs.existsSync(path.join(home,'logged-in'));console.log(command === 'claude' ? JSON.stringify({loggedIn:yes}) : command === 'opencode' ? JSON.stringify(yes ? [{id:'openai',connections:[{type:'credential'}]}] : []) : (yes ? 'Logged in using ChatGPT' : 'Not logged in'));}\n`,
     );
   }
 }

@@ -21,6 +21,7 @@ import {
 import {
   assertManagedHome,
   instanceEnv,
+  loginArgs,
   loginStatus,
   logoutArgs,
   type AccountRegistry,
@@ -517,9 +518,11 @@ export class AccountManagement {
         ? logoutArgs(instance.provider)
         : instance.provider === "codex"
           ? [action]
-          : instance.provider === "claude" || instance.provider === "opencode"
-            ? ["auth", action]
-            : [];
+          : instance.provider === "opencode"
+            ? loginArgs(instance.provider)
+            : instance.provider === "claude"
+              ? ["auth", action]
+              : [];
     const terminal = this.manager.openLiveTerminal(
       {
         shell: status.path,

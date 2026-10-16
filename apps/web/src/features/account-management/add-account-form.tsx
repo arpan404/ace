@@ -3,33 +3,14 @@ import { accountBadge } from "@/components/ui/account-badge.ts";
 import { AccountBadgeChooser, accountBadgeProblem } from "@/components/ui/account-badge-field.tsx";
 import type { AccountBadgeColor, AccountBadgeIcon } from "@ace/protocol/accounts";
 import { useNavigate } from "@tanstack/react-router";
-import { apiKeyServiceLabel, serviceInfo } from "@ace/ui-core";
-import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
-import { ApiKeyUpstream, type ProviderKind } from "@ace/protocol";
+import { apiKeyServiceLabel } from "@ace/ui-core";
+import { type ProviderKind } from "@ace/protocol";
 import { useId, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { useInlineSignIn } from "@/features/sign-in/index.ts";
-import {
-  apiKeyUpstreamLabel,
-  canAddAccounts,
-  useApiKeySupport,
-  useAccountActions,
-} from "./actions.ts";
-
-const apiServices = ApiKeyUpstream.options.map((value) => ({
-  value,
-  label: apiKeyUpstreamLabel(value),
-  icon: (
-    <ProviderIcon
-      provider="opencode"
-      brand={serviceInfo(value).brand}
-      size={16}
-      label={apiKeyUpstreamLabel(value)}
-    />
-  ),
-}));
+import { canAddAccounts, useApiKeySupport, useAccountActions } from "./actions.ts";
 
 /**
  * The last row: Add account. It asks only for a name, adds the account and opens its sign-in
@@ -74,9 +55,6 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
   const provider = props.provider;
   const support = useApiKeySupport(provider);
   const [method, setMethod] = useState<"login" | "api_key">("login");
-  const [upstream, setUpstream] = useState<"openai" | "anthropic" | "openrouter" | "opencode">(
-    "openai",
-  );
   if (!canAddAccounts(provider)) return null;
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -89,8 +67,7 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
         provider,
         newAccount: name,
         shortLabel: accountBadge(label, badge),
-        method,
-        ...(method === "api_key" && provider === "opencode" ? { upstream } : {}),
+        method: provider === "opencode" ? "login" : method,
       });
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Couldn't add the account.");
@@ -105,9 +82,11 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
         className="flex flex-col gap-2"
       >
         <p className="text-sm text-muted-foreground">
-          {method === "api_key"
-            ? `Next, paste your ${apiKeyServiceLabel(provider, provider === "opencode" ? upstream : undefined)} API key. ${props.name} stores it; ace hands it over once and never saves it.`
-            : `ace opens ${props.name}'s own sign-in in your browser. Your password and tokens stay with ${props.name}; ace never sees them.`}
+          {provider === "opencode"
+            ? "Next, choose a service. ace opens OpenCode v2’s sign-in terminal here, on the connected computer for this account. Finish its browser or API-key prompts there."
+            : method === "api_key"
+              ? `Next, paste your ${apiKeyServiceLabel(provider)} API key. ${props.name} stores it; ace hands it over once and never saves it.`
+              : `ace opens ${props.name}'s own sign-in in your browser. Your password and tokens stay with ${props.name}; ace never sees them.`}
         </p>
         <label htmlFor={nameId} className="text-sm">
           Name
@@ -132,7 +111,7 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
           icon={icon}
           onIconChange={setIcon}
         />
-        {support.data?.supported && (
+        {provider !== "opencode" && support.data?.supported && (
           <div className="flex flex-wrap items-center gap-2">
             <Select<"login" | "api_key">
               label="Sign-in method"
@@ -143,16 +122,6 @@ export function AddAccountForm(props: { provider: ProviderKind; name: string; on
               ]}
               onValueChange={setMethod}
             />
-            {method === "api_key" && provider === "opencode" && (
-              <Select<"openai" | "anthropic" | "openrouter" | "opencode">
-                label="API service"
-                value={upstream}
-                options={apiServices.filter((option) =>
-                  support.data?.upstreams?.includes(option.value),
-                )}
-                onValueChange={setUpstream}
-              />
-            )}
           </div>
         )}
         <div className="flex flex-wrap items-center gap-2">

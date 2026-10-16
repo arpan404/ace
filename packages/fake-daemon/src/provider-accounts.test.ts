@@ -96,12 +96,11 @@ test("API-key success and rejection never echo a key and unsupported providers d
   const captured: unknown[] = [];
   const stop = client.onMessage((message) => captured.push(message));
   try {
-    for (const provider of ["codex", "opencode", "cursor"] as const) {
+    for (const provider of ["codex", "cursor"] as const) {
       const added = await client.request({
         type: "provider.accounts.add",
         provider,
         method: "api_key",
-        ...(provider === "opencode" ? { upstream: "openai" as const } : {}),
       });
       if (!added.result.ok || !added.result.progress?.instance)
         throw new Error("Missing API-key session");
@@ -136,7 +135,7 @@ test("API-key success and rejection never echo a key and unsupported providers d
         })
       ).result,
     ).toMatchObject({ progress: { state: "failed" } });
-    for (const provider of ["claude", "pi"] as const)
+    for (const provider of ["claude", "opencode", "pi"] as const)
       expect(
         (await client.request({ type: "provider.accounts.add", provider, method: "api_key" }))
           .result,

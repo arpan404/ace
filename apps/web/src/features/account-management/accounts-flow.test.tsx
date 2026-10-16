@@ -131,44 +131,26 @@ test("successive account sign-ins announce one consistently named success, repla
   }
 });
 
-test("the API service picker names its known marks and connects the selected OpenRouter service", async () => {
-  const app = harness();
-  await app.open("/settings/providers/opencode");
-  const accounts = await screen.findByRole("list", { name: "OpenCode accounts" });
-  await userEvent.click(within(accounts).getByRole("button", { name: "Add account" }));
-  const form = await screen.findByRole("form", { name: "Add account" });
-  await userEvent.click(await within(form).findByRole("combobox", { name: "Sign-in method" }));
-  await userEvent.click(await screen.findByRole("option", { name: "API key" }));
-  await userEvent.click(await within(form).findByRole("combobox", { name: "API service" }));
-  const service = await screen.findByRole("option", { name: "OpenRouter" });
-  expect(within(service).getByRole("img", { name: "OpenRouter" })).toBeTruthy();
-  await userEvent.click(service);
-  await userEvent.type(within(form).getByRole("textbox", { name: "Account name" }), "Router work");
-  expect(within(form).queryByRole("button", { name: "Add and sign in" })).toBeNull();
-  await userEvent.click(within(form).getByRole("button", { name: "Continue" }));
-  expect(await screen.findByLabelText("OpenRouter API key")).toBeTruthy();
-});
-
-test("choosing API key describes the key hand-off instead of a browser sign-in", async () => {
-  const app = harness();
-  await app.open("/settings/providers/opencode");
-  const accounts = await screen.findByRole("list", { name: "OpenCode accounts" });
-  await userEvent.click(within(accounts).getByRole("button", { name: "Add account" }));
-  const form = await screen.findByRole("form", { name: "Add account" });
-  expect(within(form).getByText(/opens OpenCode's own sign-in in your browser/)).toBeTruthy();
-  expect(within(form).getByRole("button", { name: "Add and sign in" })).toBeTruthy();
-  await userEvent.click(await within(form).findByRole("combobox", { name: "Sign-in method" }));
-  await userEvent.click(await screen.findByRole("option", { name: "API key" }));
-  await userEvent.click(await within(form).findByRole("combobox", { name: "API service" }));
-  await userEvent.click(await screen.findByRole("option", { name: "Anthropic" }));
-  expect(within(form).queryByText(/in your browser/)).toBeNull();
-  expect(
-    within(form).getByText(
-      "Next, paste your Anthropic API key. OpenCode stores it; ace hands it over once and never saves it.",
-    ),
-  ).toBeTruthy();
-  expect(within(form).queryByRole("button", { name: "Add and sign in" })).toBeNull();
-  await userEvent.type(within(form).getByRole("textbox", { name: "Account name" }), "Keyed");
-  await userEvent.click(within(form).getByRole("button", { name: "Continue" }));
-  expect(await screen.findByLabelText("Anthropic API key")).toBeTruthy();
-});
+test.each(["OpenRouter", "Anthropic"])(
+  "adding an OpenCode %s account explains and opens the native v2 terminal for its keys",
+  async (service) => {
+    const app = harness();
+    await app.open("/settings/providers/opencode");
+    const accounts = await screen.findByRole("list", { name: "OpenCode accounts" });
+    await userEvent.click(within(accounts).getByRole("button", { name: "Add account" }));
+    const form = await screen.findByRole("form", { name: "Add account" });
+    expect(within(form).getByText(/OpenCode v2’s sign-in terminal here/)).toBeTruthy();
+    expect(within(form).queryByRole("combobox", { name: "Sign-in method" })).toBeNull();
+    await userEvent.type(within(form).getByRole("textbox", { name: "Account name" }), "Work");
+    await userEvent.click(within(form).getByRole("button", { name: "Add and sign in" }));
+    const choice = await screen.findByRole("button", { name: service });
+    expect(within(choice).getByRole("img", { name: service })).toBeTruthy();
+    await userEvent.click(choice);
+    expect(await screen.findByText("Sign in to OpenCode here")).toBeTruthy();
+    expect(
+      screen.getByText(`opencode auth login --standalone ${service.toLowerCase()}`),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText(`${service} API key`)).toBeNull();
+  },
+  30_000,
+);

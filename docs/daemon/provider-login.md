@@ -107,16 +107,16 @@ available through this native-provider service.
 
 ## Provider support
 
-| Provider    | Supervised path                                                                               | Fallback                                                                                                                   |
-| ----------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Codex       | `codex login`, device auth when advertised; `codex logout`                                    | Unsupported help/version or input prompt                                                                                   |
-| Claude Code | `claude auth login`, `--claudeai` when advertised; `claude auth logout`                       | Paste authorization code, key input or unsupported setup                                                                   |
-| OpenCode    | Upstream choices; Copilot via advertised `--provider` and `--method`; GitHub.com confirmation | Go, Zen, OpenAI, Anthropic, other upstreams, Enterprise domain and logout use `opencode auth login/logout` in the terminal |
-| Pi          | Installed SDK OAuth for ChatGPT/Codex, Claude and GitHub Copilot; native SDK logout           | Other provider runs `pi` in an owner-scoped embedded PTY                                                                   |
-| Cursor      | Accounts-owned SDK browser stream and SDK logout                                              | SDK availability/auth errors stay SDK errors; no CLI fallback                                                              |
+| Provider    | Supervised path                                                                                     | Fallback                                                                                                          |
+| ----------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Codex       | `codex login`, device auth when advertised; `codex logout`                                          | Unsupported help/version or input prompt                                                                          |
+| Claude Code | `claude auth login`, `--claudeai` when advertised; `claude auth logout`                             | Paste authorization code, key input or unsupported setup                                                          |
+| OpenCode v2 | Choose a service; ace opens `opencode auth login --standalone <integration>` directly in the dialog | All browser, key, code, method and account-selection prompts stay in this terminal. Logout uses the same v2 flow. |
+| Pi          | Installed SDK OAuth for ChatGPT/Codex, Claude and GitHub Copilot; native SDK logout                 | Other provider runs `pi` in an owner-scoped embedded PTY                                                          |
+| Cursor      | Accounts-owned SDK browser stream and SDK logout                                                    | SDK availability/auth errors stay SDK errors; no CLI fallback                                                     |
 
 Patterns are gated to the reviewed CLI version families: Codex 0/1, Claude 2, OpenCode
-1/2. Pi auth admits the reviewed 0.85.1 and 1.1.0 installed SDKs; no SDK is bundled.
+2 only. Pi auth admits the reviewed 0.85.1 and 1.1.0 installed SDKs; no SDK is bundled.
 Cursor uses the pinned SDK runtime. Version/help probes are metadata-only. We
 have not tested real OAuth sessions or subscription entitlement. Unknown CLI output
 is private; parsing has an 8 KiB pending-line bound and a 256 KiB total-output bound.
@@ -155,10 +155,10 @@ status probes nor model refreshes send an inference prompt.
 ## Fake daemon
 
 The fake uses the same request and push schemas. Defaults exercise Codex device codes,
-Claude/Cursor browser links, and OpenCode/Pi provider choices. OpenCode Copilot
-asks for Enter before its device code; Pi goes directly to the selected native
+Claude/Cursor browser links, and OpenCode/Pi provider choices. OpenCode runs its
+provider prompts inside the embedded terminal; Pi goes directly to the selected native
 challenge. Pi Other echoes terminal input and completes on `/exit`. OpenCode
-Go/Zen/Anthropic choices exercise terminal fallback.
+service choices open the v2 native terminal without a premature failure or second terminal button.
 Fixtures can set `daemon.services.providerLogin.scenarios[provider]` to `device_code`,
 `browser`, `choice` or `failure`. Complete a browser/device flow with
 `daemon.services.providerLogin.complete(session, success)`; completion is explicit so
@@ -171,7 +171,7 @@ client reconnect, and resets when its daemon is replaced.
 Implementation is fresh code based on ace's account/process owners and primary command
 references: [Codex CLI](https://developers.openai.com/codex/cli/reference),
 [Claude CLI](https://code.claude.com/docs/en/cli-reference),
-[OpenCode CLI](https://opencode.ai/docs/cli/),
+[OpenCode CLI](https://opencode.ai/v2/docs/cli/),
 [OpenCode providers](https://opencode.ai/v2/docs/providers),
 [Pi quickstart](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/quickstart.md)
 and [Cursor SDK auth](https://cursor.com/docs/sdk/typescript#cursorauth).
@@ -210,9 +210,10 @@ not an authoritative billing estimate. `apiKey` is `{ supported, reason?, upstre
 and also appears on readiness rows. Never show a key or a key prefix.
 
 For key sign-in, add or reauthenticate with `method: api_key`. Direct
-`provider.login.start` also accepts that method. OpenCode requires an upstream
-from `openai`, `anthropic`, `openrouter`, `opencode`. Wait for
-`awaiting_api_key`, then submit the dedicated message:
+`provider.login.start` also accepts that method for supported providers (Codex and Cursor).
+OpenCode v2 uses `method: login`: its native terminal handles both OAuth and API-key
+entry; ace does not capture OpenCode keys through this API. For supported key hand-offs,
+wait for `awaiting_api_key`, then submit the dedicated message:
 
 ```ts
 {
@@ -247,18 +248,17 @@ supports native SDK logout for a selected OAuth service.
 
 ### Verified credential paths
 
-| Runtime                        | Path                                                                                        | Evidence and limitation                                                                                                                                                                                                                                                                                     |
-| ------------------------------ | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Codex 0.159.1                  | `codex login --with-api-key`, stdin                                                         | Installed help explicitly names stdin; version/help gates admit reviewed 0/1 families.                                                                                                                                                                                                                      |
-| Claude 2.1.286                 | unsupported                                                                                 | `auth login --help` offers browser subscription/Console login. An env key or `apiKeyHelper` would require ace storage or future env injection.                                                                                                                                                              |
-| OpenCode v1                    | `auth login --provider <upstream> --method "Manually enter API Key"`, password prompt stdin | [CLI reference](https://opencode.ai/docs/cli/#login) documents flags; [provider guide](https://opencode.ai/docs/providers/#using-api-keys) documents key entry. Synthetic prompt fixtures cover the hand-off.                                                                                               |
-| OpenCode 2.0.22 installed here | unsupported                                                                                 | Installed help uses positional targets, method IDs and `--answer`; no reviewed stdin credential contract. Do not put a key in `--answer`.                                                                                                                                                                   |
-| Pi 0.85.1                      | unsupported                                                                                 | Installed `auth --help` exposes read/check commands, not stdin storage. `--api-key` is argv; env/user-managed auth files do not meet this policy.                                                                                                                                                           |
-| Cursor SDK 1.0.35              | isolated stdin worker → `FileCredentialStore.save`                                          | [SDK auth docs](https://cursor.com/docs/sdk/typescript#cursorauth) and the pinned public credential-store declarations; tests use the SDK's real file store without provider calls. [Cursor network configuration](https://cursor.com/docs/enterprise/network-configuration) identifies the backend domain. |
+| Runtime           | Path                                               | Evidence and limitation                                                                                                                                                                                                                                                                                     |
+| ----------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex 0.159.1     | `codex login --with-api-key`, stdin                | Installed help explicitly names stdin; version/help gates admit reviewed 0/1 families.                                                                                                                                                                                                                      |
+| Claude 2.1.286    | unsupported                                        | `auth login --help` offers browser subscription/Console login. An env key or `apiKeyHelper` would require ace storage or future env injection.                                                                                                                                                              |
+| OpenCode v2       | Native sign-in terminal only                       | Installed help uses positional targets, method IDs and `--answer`; no reviewed stdin credential contract. Do not put a key in `--answer`.                                                                                                                                                                   |
+| Pi 0.85.1         | unsupported                                        | Installed `auth --help` exposes read/check commands, not stdin storage. `--api-key` is argv; env/user-managed auth files do not meet this policy.                                                                                                                                                           |
+| Cursor SDK 1.0.35 | isolated stdin worker → `FileCredentialStore.save` | [SDK auth docs](https://cursor.com/docs/sdk/typescript#cursorauth) and the pinned public credential-store declarations; tests use the SDK's real file store without provider calls. [Cursor network configuration](https://cursor.com/docs/enterprise/network-configuration) identifies the backend domain. |
 
 Installed metadata probes ran on 2026-10-07. No real keys, OAuth exchanges,
-provider prompts or recorder sessions ran. OpenCode v1 stdin compatibility is
-covered by fakes; the installed v2 runtime is deliberately refused. Real key
+provider prompts or recorder sessions ran. The v1 key hand-off has been removed.
+OpenCode v2 native login is exercised with real PTYs and scripted providers. Real key
 validity, quota and subscription entitlement remain the provider's responsibility.
 
 The fake daemon supplies three accounts per native provider, both auth methods,

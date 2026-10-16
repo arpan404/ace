@@ -104,7 +104,24 @@ recovery is mandatory; log replay is supplemental only after retention is
 established for the actual server. Failure to establish completeness leaves
 the thread disconnected or unresponsive, never falsely done.
 
-## Alternatives
+## Amendment: v2-only account setup
+
+The installed v2 CLI owns account entry through `opencode auth login --standalone <integration>`
+and `opencode auth logout --standalone <integration>`. The positional integration target and
+`--standalone` are verified against the installed 2.0.30 help. The latter keeps authentication
+in the selected profile rather than attaching to an unrelated background service. ace opens
+its existing owner-scoped, live-only sign-in terminal directly in the dialog after service
+selection. Browser, method, key and code prompts stay inside that native flow. No v1
+`--provider`/display-name `--method` relay or stdin key-capture path remains for OpenCode.
+V1 binaries are refused by discovery and login. Completion rechecks the selected integration's
+v2 JSON connection status; disconnecting one service does not require every other service
+to sign out. Text-format v1 credential status is no longer accepted as authentication evidence.
+
+Setup uses only the reviewed v2 installers. npm explicitly allows `@opencode/cli`'s required
+postinstall; Bun retains `--trust`. See the [v2 install documentation](https://opencode.ai/v2/docs/)
+and [npm global install script policy](https://docs.npmjs.com/cli/v11/using-npm/config/#allow-scripts).
+
+## Alternatives considered for execution
 
 Supporting v1 and v2 live would preserve separate translators, launchers,
 interaction contracts and recovery paths. It adds ongoing correctness work

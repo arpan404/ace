@@ -12,7 +12,13 @@ import {
   parseVersion,
   type AuthStatus,
 } from "./parsers.ts";
-export { parseClaudeAuth, parseCodexAuth, parseOpenCodeAuth, parseVersion } from "./parsers.ts";
+export {
+  parseOpenCodeAuthConnections,
+  parseClaudeAuth,
+  parseCodexAuth,
+  parseOpenCodeAuth,
+  parseVersion,
+} from "./parsers.ts";
 export type { AuthStatus } from "./parsers.ts";
 
 const ProviderSchema = z.enum(["claude", "codex", "opencode", "cursor"]);

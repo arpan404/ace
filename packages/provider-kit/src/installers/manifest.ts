@@ -43,6 +43,7 @@ export const installers: Readonly<Record<Exclude<ProviderKind, "acp">, Installer
   opencode: {
     binary: "opencode",
     package: "@opencode/cli",
+    npmFlags: ["--allow-scripts=@opencode/cli"],
     bun: true,
     sourceUrl: "https://opencode.ai/v2/docs/",
     brew: { name: "anomalyco/tap/opencode-v2" },

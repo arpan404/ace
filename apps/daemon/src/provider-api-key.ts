@@ -14,21 +14,16 @@ export function apiKeySupport(provider: ProviderKind, version?: string, help = "
   )
     return { supported: true };
   if (provider === "cursor" && version === "1.0.35") return { supported: true };
-  if (
-    provider === "opencode" &&
-    /^1\.\d+\.\d+$/.test(version ?? "") &&
-    help.includes("--provider") &&
-    help.includes("--method")
-  )
-    return { supported: true, upstreams: ["openai", "anthropic", "openrouter", "opencode"] };
   return {
     supported: false,
     reason:
-      provider === "claude"
-        ? "Claude supports browser login or an environment key/helper, but no reviewed stdin key-storage command."
-        : provider === "pi"
-          ? "Pi exposes keys through argv, environment or a user-managed auth file, not a stdin key-storage command."
-          : "The installed runtime has no reviewed stdin API-key credential path.",
+      provider === "opencode"
+        ? "OpenCode v2 accepts keys in its own sign-in terminal. Choose Sign in to open it in ace."
+        : provider === "claude"
+          ? "Claude supports browser login or an environment key/helper, but no reviewed stdin key-storage command."
+          : provider === "pi"
+            ? "Pi exposes keys through argv, environment or a user-managed auth file, not a stdin key-storage command."
+            : "The installed runtime has no reviewed stdin API-key credential path.",
   };
 }
 
@@ -38,7 +33,6 @@ export function apiKeyLoginDriver(options: {
   args: string[];
   cwd: string;
   env: NodeJS.ProcessEnv;
-  prompt?: boolean;
   spawn?: (options: SpawnOptions) => RawSupervisedProcess;
   assertCurrent?(): void;
 }): ProviderLoginDriver {
@@ -87,23 +81,6 @@ export function apiKeyLoginDriver(options: {
         signal.addEventListener("abort", abort, { once: true });
         try {
           owned.stderr.resume();
-          if (options.prompt) {
-            // A reviewed OpenCode password prompt may arrive without a newline.
-            await new Promise<void>((resolve, reject) => {
-              let pending = "";
-              const observe = (chunk: Buffer) => {
-                pending = (pending + chunk.toString("utf8")).slice(-8192);
-                if (/(?:enter|paste).*api key/i.test(pending)) {
-                  owned.stdout.off("data", observe);
-                  pending = "";
-                  resolve();
-                }
-              };
-              owned.stdout.on("data", observe);
-              void owned.exited.then(() => reject(new Error("Key prompt unavailable")));
-              if (signal.aborted) abort();
-            });
-          }
           owned.stdout.resume();
           signal.throwIfAborted();
           emit({ state: "verifying" });

@@ -44,8 +44,9 @@ export function authTerminalOutput(
         ? "Pi ready. Type /login, then /exit when finished.\r\nPi > "
         : "Complete the provider's own sign-in flow.\r\n",
     );
-    if (flow.provider !== "pi") exit();
+    if (flow.provider !== "pi" && flow.provider !== "opencode") exit();
   }
+  if (op.op === "write" && flow.provider === "opencode" && /[\r\n]/.test(op.data)) exit();
   if (op.op === "write" && flow.provider === "pi") {
     for (const character of op.data) {
       if (character === "\r" || character === "\n") {

@@ -66,60 +66,37 @@ function configuredServices(count: number): string {
   return `${count} service${count === 1 ? "" : "s"} configured`;
 }
 
-export function parseOpenCodeAuth(text: string): AuthStatus {
-  const clean = stripVTControlCharacters(text);
-  if (clean.startsWith("[")) {
-    try {
-      const rows = z
-        .array(
-          z
-            .object({
-              id: z.string(),
-              connections: z
-                .array(z.object({ type: z.enum(["credential", "env"]) }).passthrough())
-                .max(128),
-            })
-            .passthrough(),
-        )
-        .max(512)
-        .parse(JSON.parse(clean));
-      const count = rows.reduce((total, row) => total + row.connections.length, 0);
-      return count === 0
-        ? { auth: "logged_out" }
-        : {
-            auth: "unknown",
-            authEvidence: "credentials_configured",
-            authDetail: configuredServices(count),
-          };
-    } catch {
-      return unknown;
-    }
+/** Only integration IDs and connection counts leave the CLI status boundary. */
+export function parseOpenCodeAuthConnections(text: string): Map<string, number> | undefined {
+  try {
+    const rows = z
+      .array(
+        z.object({
+          id: z.string().min(1).max(256),
+          connections: z.array(z.object({ type: z.enum(["credential", "env"]) })).max(128),
+        }),
+      )
+      .max(512)
+      .parse(JSON.parse(stripVTControlCharacters(text)));
+    return new Map(rows.map((row) => [row.id, row.connections.length]));
+  } catch {
+    return undefined;
   }
-  if (clean === "No authenticated integrations") return { auth: "logged_out" };
-  const count = /\b(\d+) credentials?\b/i.exec(clean)?.[1];
-  if (count === undefined) return unknown;
-  if (Number(count) === 0) return { auth: "logged_out" };
-  // Future vendors still count as configured. Never expose arbitrary CLI text.
-  const names = [
-    "Anthropic",
-    "OpenAI",
-    "GitHub Copilot",
-    "Google",
-    "OpenCode Zen",
-    "OpenCode Go",
-    "LMStudio",
-    "Amazon Bedrock",
-    "Azure",
-    "OpenRouter",
-  ];
-  const connected = names.filter((name) =>
-    clean.split("\n").some((line) => line.includes(`●  ${name} `) || line.includes(`●  ${name}\t`)),
-  );
-  return {
-    auth: "unknown",
-    authEvidence: "credentials_configured",
-    authDetail: connected.length ? connected.join(", ") : configuredServices(Number(count)),
-  };
+}
+
+export function parseOpenCodeAuth(text: string): AuthStatus {
+  const connections = parseOpenCodeAuthConnections(text);
+  if (!connections) return unknown;
+  const count = [...connections.values()].filter(
+    (connectionsForService) => connectionsForService > 0,
+  ).length;
+  return count === 0
+    ? { auth: "logged_out" }
+    : {
+        auth: "unknown",
+        authEvidence: "credentials_configured",
+        authDetail: configuredServices(count),
+      };
 }
 
 export function parseVersion(_provider: string, text: string): string | undefined {

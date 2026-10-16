@@ -73,3 +73,10 @@ export {
   type UsageResult,
 } from "./usage-sources/read.ts";
 export { usageDeclaration } from "./usage-sources/builtin.ts";
+export {
+  openCodeAuthArgs,
+  openCodeAuthSteps,
+  openCodeLoginChoices,
+  openCodeIntegrationConnected,
+  openCodeAuthChangeVerified,
+} from "./opencode-auth.ts";

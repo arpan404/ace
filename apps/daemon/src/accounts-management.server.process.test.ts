@@ -138,7 +138,7 @@ test("socket account lifecycle isolates login, refreshes models, persists defaul
 test.each([
   ["codex", ["login"], "CODEX_HOME"],
   ["claude", ["auth", "login"], "CLAUDE_CONFIG_DIR"],
-  ["opencode", ["auth", "login"], "XDG_DATA_HOME"],
+  ["opencode", ["auth", "login", "--standalone"], "XDG_DATA_HOME"],
   ["pi", [], "PI_CODING_AGENT_DIR"],
 ] as const)(
   "%s auth terminals run only the selected CLI with private environment and explicit home deletion",
