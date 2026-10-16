@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -38,9 +38,10 @@ const seconds = z.coerce
   .parse(process.env.IDLE_SECONDS ?? 60);
 const daemon = await startDaemon({ commands: { instances: [] }, modelInstances: [] });
 while (!daemon.commands) await sleep(20);
+const workspaceHome = await realpath(home);
 const workspaces: string[] = [];
 for (let i = 0; i < contexts; i++) {
-  const workspace = join(home, `workspace-${i}`);
+  const workspace = join(workspaceHome, `workspace-${i}`);
   await mkdir(join(workspace, ".ace/prompts"), { recursive: true });
   await writeFile(join(workspace, ".ace/prompts/review.md"), "Review the changes");
   workspaces.push(workspace);
@@ -69,11 +70,17 @@ const socket = new WebSocket(daemon.url);
 let publishes = 0;
 let errors = 0;
 let replies = 0;
+const visibleWorkflows = new Set<string>();
 socket.on("message", (data) => {
   const message = ServerMessage.parse(JSON.parse(data.toString()));
   if (message.type === "catalog.changed") publishes++;
   if (message.type === "error") errors++;
   if (message.type === "catalog.list.result") replies++;
+  if (
+    (message.type === "catalog.list.result" || message.type === "catalog.changed") &&
+    message.entries.some((entry) => entry.kind === "workflow")
+  )
+    visibleWorkflows.add(message.requestId);
 });
 const send = (message: ClientMessage) => socket.send(JSON.stringify(ClientMessage.parse(message)));
 await once(socket, "open");
@@ -103,6 +110,9 @@ for (const [i, workspace] of workspaces.entries()) {
 await sleep(10_000);
 if (replies !== contexts || errors)
   throw new Error(`Catalog setup failed: ${replies} replies, ${errors} errors`);
+for (let i = 0; i < Math.min(contexts, jobs); i++)
+  if (!visibleWorkflows.has(`catalog-${i}`))
+    throw new Error(`Workspace ${i} has no seeded workflows`);
 publishes = 0;
 errors = 0;
 const delay = monitorEventLoopDelay({ resolution: 10 });
@@ -125,6 +135,7 @@ process.stdout.write(
     cpuPercent: (used.user + used.system) / (elapsed * 10),
     publishes,
     errors,
+    visibleWorkflowCatalogs: visibleWorkflows.size,
     maxLoopDelayMs: delay.max / 1e6,
     p99LoopDelayMs: delay.percentile(99) / 1e6,
     daemonLoop: daemon.eventLoop(),
