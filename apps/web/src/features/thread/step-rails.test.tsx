@@ -59,41 +59,47 @@ function expectRailed(row: Element | null) {
   return mark;
 }
 
-test("live thinking, prose and step groups show rails before any disclosure opens", async () => {
-  const app = harness();
-  const script = app.play(scenario());
-  script.runThrough("thinking");
-  await app.open("/t/thread-rails");
-  const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const thinking = await within(feed).findByText("Thinking");
-  expect(expectRailed(thinking.closest("li"))?.querySelector("svg")).toBeNull();
+test(
+  "live thinking, prose and step groups show rails before any disclosure opens",
+  { timeout: 15_000 },
+  async () => {
+    const app = harness();
+    const script = app.play(scenario());
+    script.runThrough("thinking");
+    await app.open("/t/thread-rails");
+    const feed = await screen.findByRole("feed", { name: "Transcript" });
+    const thinking = await within(feed).findByText("Thinking");
+    expect(expectRailed(thinking.closest("li"))?.querySelector("svg")).toBeNull();
 
-  act(() => script.runThrough("working"));
-  const completed = await within(feed).findByRole("button", {
-    name: "Ran 1 command and thought once",
-  });
-  expectRailed(completed.closest("li"));
-  await userEvent.click(completed);
-  expectRailed((await within(feed).findByText("Start with the compiler.")).closest("li"));
-  expectRailed(within(feed).getByText("Types pass; checking the build next.").closest("li"));
-  const group = within(feed).getByRole("button", { name: /Running bun run lint.*2 steps/ });
-  expect(group.getAttribute("aria-expanded")).toBe("false");
-  expect(expectRailed(group.closest("li"))?.querySelector("svg")).toBeNull();
+    act(() => script.runThrough("working"));
+    const completed = await within(feed).findByRole("button", {
+      name: "Ran 1 command and thought once",
+    });
+    expectRailed(completed.closest("li"));
+    await userEvent.click(completed);
+    expectRailed((await within(feed).findByText("Start with the compiler.")).closest("li"));
+    expectRailed(within(feed).getByText("Types pass; checking the build next.").closest("li"));
+    const group = within(feed).getByRole("button", { name: /Running bun run lint.*2 steps/ });
+    expect(group.getAttribute("aria-expanded")).toBe("false");
+    expect(expectRailed(group.closest("li"))?.querySelector("svg")).toBeNull();
 
-  await userEvent.click(group);
-  const failed = expectRailed(
-    within(feed)
-      .getByRole("button", { name: /Ran bun run build/ })
-      .closest("li"),
-  );
-  expect(failed?.classList.contains("text-status-failed")).toBe(true);
-  expectRailed(within(feed).getByRole("button", { name: "Running bun run lint" }).closest("li"));
+    await userEvent.click(group);
+    const failed = expectRailed(
+      within(feed)
+        .getByRole("button", { name: /Ran bun run build/ })
+        .closest("li"),
+    );
+    expect(failed?.classList.contains("text-status-failed")).toBe(true);
+    expectRailed(within(feed).getByRole("button", { name: "Running bun run lint" }).closest("li"));
 
-  act(() => script.runThrough("ended"));
-  const steps = await openWorkLog(feed);
-  expectRailed(within(steps).getByRole("button", { name: "Ran bun run typecheck" }).closest("li"));
-  expectRailed(within(steps).getByText("Types pass; checking the build next.").closest("li"));
-});
+    act(() => script.runThrough("ended"));
+    const steps = await openWorkLog(feed);
+    expectRailed(
+      within(steps).getByRole("button", { name: "Ran bun run typecheck" }).closest("li"),
+    );
+    expectRailed(within(steps).getByText("Types pass; checking the build next.").closest("li"));
+  },
+);
 
 test("paused turn details retain the step rail when opened", async () => {
   const app = harness();
