@@ -360,12 +360,15 @@ export function Feed(props: FeedProps) {
   }, [nav.searchOpen]);
   const items = virtualizer.getVirtualItems();
   const { hasOlder, loading, loadOlder } = pager;
-  // Older history loads by scroll proximity to the top: one request per upward
-  // gesture, well before the edge, so paging in never surfaces as a visible
-  // jump. A reply or a jump settling must not walk the whole history by itself.
+  // The scroll handler only observes (like t3code's timeline): it never pages.
+  // Older history loads one request per upward gesture, well before the edge, so
+  // paging in never surfaces as a visible jump. A reply, a jump settling, or a
+  // keep-place restore fires scroll events with no gesture behind them, and those
+  // must never walk the history by themselves.
   const maybeLoadOlder = useCallback(
     (scrollTop: number) => {
       if (
+        olderIntent &&
         scrollTop < 900 &&
         hasOlder &&
         !loading &&
@@ -373,10 +376,11 @@ export function Feed(props: FeedProps) {
         !jump.failed &&
         !jump.loading
       ) {
+        setOlderIntent(false);
         void loadOlder();
       }
     },
-    [hasOlder, loading, pager.error, jump.failed, jump.loading, loadOlder],
+    [olderIntent, hasOlder, loading, pager.error, jump.failed, jump.loading, loadOlder],
   );
   const prefetchFocus = useRef(focus?.nonce);
   useEffect(() => {
@@ -394,10 +398,12 @@ export function Feed(props: FeedProps) {
       }
     }
   }, [focus?.nonce, olderIntent, pinned, hasOlder, loading, pager.error, jump.failed, loadOlder]);
-  // Newer history loads the same way, mirrored: proximity to the live end plus one
-  // request per downward gesture, so scrolling back toward live is one continuous
-  // list. A wheel or key at the very bottom moves no scroll offset, so intent alone
-  // must page; code moving the view never does.
+  // Newer history loads the same way, mirrored: one request per downward
+  // gesture while near the live end, so scrolling back toward live is one
+  // continuous list. A wheel or key at the very bottom moves no scroll offset,
+  // so the intent effect below must page on its own; scroll events with no
+  // gesture behind them (a jump landing, a keep-place restore) never do, so a
+  // page settling can't chain into the next one and stick the view flickering.
   const distanceToLive = () => {
     const el = viewport.current;
     return el ? el.scrollHeight - el.scrollTop - el.clientHeight : Number.POSITIVE_INFINITY;
@@ -405,6 +411,7 @@ export function Feed(props: FeedProps) {
   const maybeLoadNewer = useCallback(
     (distance: number) => {
       if (
+        newerIntent &&
         distance < 900 &&
         detached &&
         window &&
@@ -413,10 +420,11 @@ export function Feed(props: FeedProps) {
         !pager.error &&
         !jump.failed
       ) {
+        setNewerIntent(false);
         void nav.jump.newer();
       }
     },
-    [detached, window, jump.loading, jump.failed, loading, pager.error, nav.jump],
+    [newerIntent, detached, window, jump.loading, jump.failed, loading, pager.error, nav.jump],
   );
   useEffect(() => {
     if (prefetchFocus.current !== focus?.nonce) return;
