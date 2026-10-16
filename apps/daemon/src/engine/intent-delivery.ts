@@ -1,6 +1,7 @@
 import { failedActionTitle, failureReason, retainedFailure } from "./failure-copy.ts";
 import { ModelSelectionError } from "./models.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
+import { GitError } from "@ace/git";
 import type { ProviderErrorDetails } from "@ace/protocol";
 import type { CommandId } from "@ace/protocol";
 import type { PrepareInput } from "./input.ts";
@@ -136,8 +137,13 @@ export class IntentDelivery {
         const provider = this.dependencies.repo.requireState(actor.id).config.provider;
         // Git's cleanup fence can refuse before or while the session opens; either way the
         // person gets its plain-words reason and the way out (Clear stale lock).
-        const fence = [error, error instanceof DeliveryNotStarted ? error.cause : undefined].find(
-          (cause) => cause instanceof Error && "code" in cause && cause.code === "git_quarantined",
+        const localFailure = [
+          error,
+          error instanceof DeliveryNotStarted ? error.cause : undefined,
+        ].find(
+          (cause) =>
+            cause instanceof GitError ||
+            (cause instanceof Error && "code" in cause && cause.code === "git_quarantined"),
         );
         const details = openingFailure
           ? {
@@ -146,8 +152,10 @@ export class IntentDelivery {
               title: openingFailure.title,
               detail: openingFailure.detail,
             }
-          : fence instanceof Error
-            ? { provider, code: "git_quarantined", detail: fence.message.slice(0, 2048) }
+          : localFailure instanceof Error &&
+              "code" in localFailure &&
+              typeof localFailure.code === "string"
+            ? { provider, code: localFailure.code, detail: localFailure.message.slice(0, 2048) }
             : undefined;
         const unavailable =
           error instanceof ModelSelectionError ||

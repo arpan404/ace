@@ -152,6 +152,8 @@ for await (const line of lines) {
     const text = parts.map((p) => object(p)["text"] ?? "image").join(" ");
     write({ type: "system", subtype: "init", session_id: session, cwd: process.cwd() });
     write({ type: "system", subtype: "fake_input", input: data });
+    // Hold a turn open until a follow-up arrives; no timers or model involved.
+    if (text === "steer-wait") continue;
     if (process.env["ACE_TEST_DELEGATION_RESULT"] === "1")
       write({
         type: "assistant",

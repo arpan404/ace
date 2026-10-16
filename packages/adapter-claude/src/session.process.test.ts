@@ -50,9 +50,6 @@ test("multi-part ace input is correlated before its native SDK echo", async () =
 test("the installed executable handshakes and receives queued input with a native session id", async () => {
   const h = await harness();
   try {
-    await expect(h.session.send([{ type: "text", text: "hello" }], "steer")).rejects.toThrow(
-      "steering",
-    );
     await h.session.send([{ type: "text", text: "hello" }], "queue");
     const data = object(object((await h.wait(subtype("fake_input"))).data)["input"]);
     expect(data["session_id"]).toBe(h.session.nativeSessionId);
@@ -63,6 +60,39 @@ test("the installed executable handshakes and receives queued input with a nativ
   }
   expect(await h.exit).toMatchObject({ deliberate: true });
   await expect(h.session.send([], "queue")).rejects.toThrow("closed");
+});
+test("steering reaches an active Claude turn with native immediate priority", async () => {
+  const identities: { commandId: string; nativeId: string }[] = [];
+  const h = await harness(
+    undefined,
+    "root",
+    {},
+    {
+      onInputMessage: (identity) => identities.push(identity),
+    },
+  );
+  try {
+    await h.session.send([{ type: "text", text: "steer-wait" }], "queue");
+    await h.wait(subtype("fake_input"));
+    expect(h.frames.some((f) => object(f.data)["type"] === "result")).toBe(false);
+    await h.session.send([{ type: "text", text: "change direction" }], "steer", "follow-up");
+    const frame = await h.wait((f) => {
+      const input = object(object(f.data)["input"]);
+      return subtype("fake_input")(f) && input["uuid"] === identities[0]?.nativeId;
+    });
+    const input = object(object(frame.data)["input"]);
+    expect(input["priority"]).toBe("now");
+    expect(input["session_id"]).toBe(h.session.nativeSessionId);
+    expect(object(input["message"])["content"]).toEqual([
+      { type: "text", text: "change direction" },
+    ]);
+    expect(identities).toEqual([{ commandId: "follow-up", nativeId: input["uuid"] }]);
+    expect(h.frames.some((f) => object(object(f.data)["request"])["subtype"] === "interrupt")).toBe(
+      false,
+    );
+  } finally {
+    await h.session.close("user");
+  }
 });
 for (const scenario of ["approval", "question", "plan"] as const)
   test(`${scenario} replies reach the provider and reject duplicate answers`, async () => {

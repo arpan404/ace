@@ -241,6 +241,9 @@
           ],
           "type": "string"
         },
+        "threads.forkOnSwitch": {
+          "type": "boolean"
+        },
         "threads.limitPolicy": {
           "enum": [
             "manual",

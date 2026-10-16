@@ -55,6 +55,22 @@ test("each key resolves from the highest present layer and reports its provenanc
   });
 });
 
+test("switch preservation survives restart and a thread can override it", async () => {
+  const f = await setup();
+  await f.service.set("threads.forkOnSwitch", true, { kind: "global" });
+  await f.service.set("threads.forkOnSwitch", false, {
+    kind: "thread",
+    thread: "preserve-choice",
+  });
+  await f.service.close();
+  const restarted = new SettingsService({ dataDir: f.dataDir, io: f.edges.io });
+  cleanups.push(() => restarted.close());
+  expect(await restarted.get("threads.forkOnSwitch")).toMatchObject({ value: true });
+  expect(await restarted.get("threads.forkOnSwitch", { thread: "preserve-choice" })).toMatchObject({
+    value: false,
+  });
+});
+
 test("a v1 document migrates on read and is written back exactly once", async () => {
   const f = await setup();
   await writeFile(

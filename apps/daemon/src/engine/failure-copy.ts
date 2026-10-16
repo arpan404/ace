@@ -61,6 +61,18 @@ export function retainedFailure(
       title:
         "A stale Git lock blocks this checkout. If nothing is still changing it, clear the stale lock, then try again.",
     };
+  if (details?.code === "git_timeout")
+    return {
+      code: "git_timeout",
+      title:
+        "Git took too long to prepare this checkout. Your message is kept. Try again when local Git work finishes.",
+    };
+  if (details?.code.startsWith("git_"))
+    return {
+      code: details.code,
+      title:
+        "Git could not prepare this checkout. Your message is kept. Check Details, then try again.",
+    };
   return {
     code: "delivery_failed",
     title: /Context preparation is unavailable/.test(message)

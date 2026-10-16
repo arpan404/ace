@@ -14,7 +14,7 @@ export function capabilities(cli: DiscoveryResult): Capabilities {
       (version[0] === 2 &&
         ((version[1] ?? 0) > 1 || (version[1] === 1 && (version[2] ?? 0) >= 286))));
   return {
-    steer: false,
+    steer: supported,
     permissionModes: nativePermissionModes("claude"),
     accessModes: accessModeOffers({ provider: "claude" }),
     permissions: {

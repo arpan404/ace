@@ -51,7 +51,7 @@ function scenario(): Scenario {
   };
 }
 
-/** The visible rail and a row's mark, rather than a component's implementation. */
+/** The border and mark that distinguish a work step from plain prose. */
 function expectRailed(row: Element | null) {
   expect(row?.closest("ul")?.classList.contains("border-l")).toBe(true);
   const mark = row?.querySelector(':scope > span[aria-hidden="true"]');
@@ -69,15 +69,16 @@ test("live thinking, prose and step groups show rails before any disclosure open
   expect(expectRailed(thinking.closest("li"))?.querySelector("svg")).toBeNull();
 
   act(() => script.runThrough("working"));
+  const completed = await within(feed).findByRole("button", {
+    name: "Ran 1 command and thought once",
+  });
+  expectRailed(completed.closest("li"));
+  await userEvent.click(completed);
   expectRailed((await within(feed).findByText("Start with the compiler.")).closest("li"));
   expectRailed(within(feed).getByText("Types pass; checking the build next.").closest("li"));
-  const group = within(feed).getByRole("button", { name: /Ran 2 commands/ });
+  const group = within(feed).getByRole("button", { name: /Running bun run lint.*2 steps/ });
   expect(group.getAttribute("aria-expanded")).toBe("false");
-  expectRailed(group.closest("li"));
-  const inFlight = within(feed).getByRole("list", { name: "Step in flight" });
-  expectRailed(
-    within(inFlight).getByRole("button", { name: "Running bun run lint" }).closest("li"),
-  );
+  expect(expectRailed(group.closest("li"))?.querySelector("svg")).toBeNull();
 
   await userEvent.click(group);
   const failed = expectRailed(
@@ -86,7 +87,7 @@ test("live thinking, prose and step groups show rails before any disclosure open
       .closest("li"),
   );
   expect(failed?.classList.contains("text-status-failed")).toBe(true);
-  expect(within(feed).queryByRole("list", { name: "Step in flight" })).toBeNull();
+  expectRailed(within(feed).getByRole("button", { name: "Running bun run lint" }).closest("li"));
 
   act(() => script.runThrough("ended"));
   const steps = await openWorkLog(feed);
@@ -103,6 +104,9 @@ test("paused turn details retain the step rail when opened", async () => {
   await app.open("/t/thread-rails");
   const pause = await screen.findByRole("note", { name: "Paused · Codex usage limit" });
   await userEvent.click(within(pause).getByRole("button", { name: "Paused · Codex usage limit" }));
+  const completed = within(pause).getByRole("button", { name: "Ran 1 command and thought once" });
+  expectRailed(completed.closest("li"));
+  await userEvent.click(completed);
   expectRailed((await within(pause).findByText("Start with the compiler.")).closest("li"));
   expectRailed(within(pause).getByText("Types pass; checking the build next.").closest("li"));
 });

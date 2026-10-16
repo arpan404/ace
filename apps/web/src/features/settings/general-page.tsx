@@ -46,6 +46,11 @@ export function GeneralSettings() {
         <DefaultProvider />
         <AccessDefaultRow />
         <SettingSwitch
+          setting={settingKeys.forkOnSwitch}
+          entry="threads.forkOnSwitch"
+          description="Preserve this thread and continue on the new provider or account in a separate thread."
+        />
+        <SettingSwitch
           setting={settingKeys.worktree}
           entry="threads.useWorktree"
           description="Keeps your checkout clean."
