@@ -1,14 +1,18 @@
 import { ThreadId, type ClientMessage, type ServerMessage } from "@ace/protocol";
+import { SnapshotBinding, type ReadSnapshotStorage } from "./read-snapshots.ts";
+import type { Scheduler } from "./types.ts";
 import { ThreadStore } from "./thread-store.ts";
 import { ClientError, type Limits } from "./types.ts";
 
 interface Cached {
+  persistence?: SnapshotBinding;
   store: ThreadStore;
   threadId: string;
   snapshotAllowed: boolean;
   fresh: boolean;
   rejected: boolean;
   refs: number;
+  inactiveBytes: number;
   subscriptionId: string | undefined;
 }
 export interface ThreadSubscription {
@@ -17,18 +21,43 @@ export interface ThreadSubscription {
 }
 export class Subscriptions {
   #cache = new Map<string, Cached>();
+  #inactiveBytes = 0;
+  #checkpoints = new Set<Promise<void>>();
+  #checkpoint(entry: Cached): void {
+    const pending = entry.persistence?.close();
+    if (!pending) return;
+    this.#checkpoints.add(pending);
+    void pending.finally(() => this.#checkpoints.delete(pending));
+  }
+  #evict(threadId: string, entry: Cached): void {
+    this.#inactiveBytes -= entry.inactiveBytes;
+    this.#cache.delete(threadId);
+    this.#checkpoint(entry);
+  }
+  #retain(entry: Cached): void {
+    this.#inactiveBytes -= entry.inactiveBytes;
+    entry.inactiveBytes = entry.store.retainedBytes();
+    this.#inactiveBytes += entry.inactiveBytes;
+    for (const [id, cached] of this.#cache) {
+      if (this.#inactiveBytes <= 16 * 1024 * 1024) break;
+      if (!cached.refs) this.#evict(id, cached);
+    }
+  }
   #starting = new Set<string>();
   #wires = new Map<string, Cached>();
   #limits: Limits;
   #send: (message: ClientMessage) => boolean;
   #id: () => string;
   #ready: () => boolean;
+  #persistence: { storage: ReadSnapshotStorage; scheduler: Scheduler } | undefined;
   constructor(
     limits: Limits,
     send: (message: ClientMessage) => boolean,
     id: () => string,
     ready: () => boolean,
+    persistence?: { storage: ReadSnapshotStorage; scheduler: Scheduler },
   ) {
+    this.#persistence = persistence;
     this.#limits = limits;
     this.#send = send;
     this.#id = id;
@@ -41,7 +70,7 @@ export class Subscriptions {
       if (this.#cache.size >= this.#limits.threads) {
         const evict = [...this.#cache].find(([, value]) => !value.refs);
         if (!evict) throw new ClientError("limit");
-        this.#cache.delete(evict[0]);
+        this.#evict(evict[0], evict[1]);
       }
       entry = {
         store: new ThreadStore(this.#limits),
@@ -50,12 +79,31 @@ export class Subscriptions {
         fresh: false,
         rejected: false,
         refs: 0,
+        inactiveBytes: 0,
         subscriptionId: undefined,
       };
+    }
+    if (!entry.persistence && this.#persistence) {
+      const owned = entry;
+      entry.persistence = new SnapshotBinding(
+        this.#persistence.storage,
+        this.#persistence.scheduler,
+        `thread:${threadId}`,
+        (changed) => owned.store.observe(changed),
+        () => owned.store.persisted(),
+        (value) => {
+          owned.store.hydrate(value, threadId);
+          // The already-started wire requested a full snapshot; do not resume a cold preview.
+          if (owned.store.cursor !== undefined) owned.fresh = true;
+          if (!owned.refs && this.#cache.get(threadId) === owned) this.#retain(owned);
+        },
+      );
     }
     this.#cache.delete(threadId);
     this.#cache.set(threadId, entry);
     if (entry.refs++ === 0) {
+      this.#inactiveBytes -= entry.inactiveBytes;
+      entry.inactiveBytes = 0;
       entry.rejected = false;
       if (this.#ready()) this.#pump();
     }
@@ -73,8 +121,10 @@ export class Subscriptions {
             this.#starting.delete(owned.subscriptionId);
           }
           owned.subscriptionId = undefined;
+          if (owned.store.cursor !== undefined) owned.store.setSyncing(true);
           this.#cache.delete(threadId);
           this.#cache.set(threadId, owned);
+          this.#retain(owned);
           this.#pump();
         }
       },
@@ -84,6 +134,9 @@ export class Subscriptions {
   held(threadId: string): ThreadStore | undefined {
     const entry = this.#cache.get(threadId);
     return entry?.refs ? entry.store : undefined;
+  }
+  cached(threadId: string): ThreadStore | undefined {
+    return this.#cache.get(threadId)?.store;
   }
   #pump(): void {
     if (!this.#ready()) return;
@@ -108,6 +161,10 @@ export class Subscriptions {
       ...(entry.fresh || entry.store.cursor === undefined ? {} : { afterSeq: entry.store.cursor }),
     });
   }
+  close(): Promise<void> {
+    for (const entry of this.#cache.values()) this.#checkpoint(entry);
+    return Promise.all(this.#checkpoints).then(() => {});
+  }
   reconnect(): void {
     this.#pump();
   }
@@ -128,7 +185,6 @@ export class Subscriptions {
     this.#starting.delete(id);
     entry.subscriptionId = undefined;
     entry.rejected = true;
-    entry.store.setSyncing(false);
     entry.store.fail(error);
     this.#pump();
   }
@@ -136,8 +192,10 @@ export class Subscriptions {
     if (message.type === "subscription.ready") {
       const entry = this.#wires.get(message.subscriptionId);
       if (!entry) return;
-      if (entry.store.cursor === message.seq) entry.store.recover();
-      entry.store.setSyncing(false);
+      if (entry.store.cursor === message.seq) {
+        entry.store.recover();
+        entry.store.setSyncing(false);
+      }
       this.#starting.delete(message.subscriptionId);
       this.#pump();
       return;
@@ -148,11 +206,9 @@ export class Subscriptions {
     if (!entry) return;
     if (message.type === "snapshot") {
       if (message.view.kind !== "thread") throw new ClientError("protocol");
-      if (
-        !entry.snapshotAllowed ||
-        (entry.store.cursor !== undefined && message.seq < entry.store.cursor)
-      )
-        return;
+      // A new wire's authoritative snapshot may rewind a live-only tail lost on daemon crash.
+      // Wire identity and the one-snapshot acceptance window fence stale snapshots instead.
+      if (!entry.snapshotAllowed) return;
       entry.snapshotAllowed = false;
       entry.fresh = false;
       if (message.view.thread.id !== entry.threadId) throw new ClientError("protocol");

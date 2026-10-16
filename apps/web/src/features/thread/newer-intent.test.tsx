@@ -54,3 +54,20 @@ test("one downward gesture pages a jumped window one step newer", async () => {
   await waitFor(() => expect(gap.textContent).not.toBe(before));
   expect(gap.textContent).toMatch(/\d+ newer turns? until live/);
 });
+
+test("programmatic scroll offsets do not release the live pin while rows are being measured", async () => {
+  const app = harness({ snapshotItems: 12, clock: () => 1 });
+  app.play(multiDayDemo(threadId, 2, { scans: 2 })).runUntilBlocked();
+  await app.open(`/t/${threadId}`);
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  await within(feed).findByText(ask(2));
+  const viewport = feed.closest("[data-virtual-viewport]");
+  if (!(viewport instanceof HTMLElement)) throw new Error("No viewport");
+  Object.defineProperty(viewport, "scrollHeight", { configurable: true, value: 10_000 });
+  viewport.scrollTop = 0;
+  fireEvent.scroll(viewport);
+  expect(screen.queryByRole("button", { name: /^Jump to live/ })).toBeNull();
+  // The same position with real upward intent releases the pin and retains the reader's rows.
+  fireEvent.wheel(viewport, { deltaY: -100 });
+  expect(await screen.findByRole("button", { name: /^Jump to live/ })).toBeTruthy();
+});

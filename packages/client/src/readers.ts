@@ -44,6 +44,8 @@ export interface ThreadReader {
   interactionIds(): readonly string[];
   taskIds(): readonly string[];
   item(id: string): Item | undefined;
+  /** Creation cursor for a retained item; never inferred from its timestamp or array index. */
+  itemSequence?(id: string): number | undefined;
   agent(id: string): ThreadView["agents"][string] | undefined;
   run(id: string): ThreadView["runs"][string] | undefined;
   interaction(id: string): ThreadView["interactions"][string] | undefined;
@@ -65,8 +67,16 @@ export interface ThreadReader {
  * `threads` changes with any entry or with membership: one key for views over the whole list,
  * instead of one per thread (a host with thousands of threads would exhaust the listener cap).
  */
-export type SidebarKey = "error" | "ids" | "threads" | "window" | "homeWindow" | `thread:${string}`;
+export type SidebarKey =
+  | "sync"
+  | "error"
+  | "ids"
+  | "threads"
+  | "window"
+  | "homeWindow"
+  | `thread:${string}`;
 export interface SidebarReader {
+  readonly syncing?: boolean;
   readonly homeWindow?: import("@ace/protocol").ThreadListWindow | undefined;
   readonly window?: import("@ace/protocol").ThreadListWindow | undefined;
   readonly error: ClientError | undefined;

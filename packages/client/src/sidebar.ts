@@ -1,3 +1,6 @@
+import { ThreadListView as ThreadListViewSchema } from "@ace/protocol";
+import { SnapshotBinding, type ReadSnapshotStorage } from "./read-snapshots.ts";
+import type { Scheduler } from "./types.ts";
 import { applyDelivery } from "@ace/projection";
 import type { ClientMessage, ServerMessage, ThreadListView, ThreadListEntry } from "@ace/protocol";
 import type { Mirrorable, SidebarExport, SidebarSource } from "./api.ts";
@@ -8,6 +11,61 @@ import { ClientError, type Limits } from "./types.ts";
 export type { SidebarReader } from "./readers.ts";
 
 export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
+  #persistence: { storage: ReadSnapshotStorage; scheduler: Scheduler } | undefined;
+  #binding: SnapshotBinding | undefined;
+  #checkpoints = new Set<Promise<void>>();
+  #retire(): void {
+    const pending = this.#binding?.close();
+    this.#binding = undefined;
+    if (!pending) return;
+    this.#checkpoints.add(pending);
+    void pending.finally(() => this.#checkpoints.delete(pending));
+  }
+  #pending = new Set<string>();
+  get syncing(): boolean {
+    return this.#pending.size > 0;
+  }
+  #persist(): void {
+    this.#retire();
+    const persistence = this.#persistence;
+    if (!persistence) return;
+    this.#binding = new SnapshotBinding(
+      persistence.storage,
+      persistence.scheduler,
+      `sidebar:${JSON.stringify([this.#filter.project ?? null, !!this.#filter.archived])}`,
+      (changed) =>
+        this.observe((keys) => {
+          if (keys === "all" || [...keys].some((key) => key !== "sync")) changed();
+        }),
+      () => ({ version: 1, home: this.#home, archive: this.#archive }),
+      (value) => {
+        if (
+          typeof value !== "object" ||
+          value === null ||
+          !("version" in value) ||
+          value.version !== 1 ||
+          !("home" in value)
+        )
+          return;
+        const home = ThreadListViewSchema.safeParse(value.home);
+        const archive = ThreadListViewSchema.safeParse(
+          "archive" in value ? value.archive : undefined,
+        );
+        if (!home.success || Object.keys(home.data.threads).length > this.#limits.entities) return;
+        if (archive.success && Object.keys(archive.data.threads).length > this.#limits.entities)
+          return;
+        if (!this.#pending.size) this.#pending.add("hydrated");
+        if (!this.#home) this.#home = home.data;
+        if (!this.#archive && archive.success) this.#archive = archive.data;
+        this.#merge();
+        this.#notifications.emitAll();
+      },
+    );
+  }
+  close(): Promise<void> {
+    this.#retire();
+    return Promise.all(this.#checkpoints).then(() => {});
+  }
   #failure: ClientError | undefined;
   get error() {
     return this.#failure;
@@ -46,8 +104,11 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   configure(input: { project?: string | undefined; archived?: boolean | undefined }): void {
     if (input.project === this.#filter.project && !!input.archived === !!this.#filter.archived)
       return;
+    this.#retire();
     const projectChanged = input.project !== this.#filter.project;
     this.#filter = { ...input };
+    if (projectChanged) this.#pending.clear();
+    else if (this.#archiveWire) this.#pending.delete(this.#archiveWire);
     if (this.#archiveWire) this.#send({ type: "unsubscribe", subscriptionId: this.#archiveWire });
     this.#archiveWire = undefined;
     this.#archive = undefined;
@@ -59,6 +120,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     } else if (input.archived && this.#refs && this.#ready()) this.#subscribeArchive();
     this.#merge();
     this.#notifications.emitAll();
+    this.#persist();
   }
   pageRequest() {
     const wire = this.#filter.archived ? this.#archiveWire : this.#wire;
@@ -80,12 +142,15 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     send: (message: ClientMessage) => boolean,
     id: () => string,
     ready: () => boolean,
+    persistence?: { storage: ReadSnapshotStorage; scheduler: Scheduler },
   ) {
+    this.#persistence = persistence;
     this.#limits = limits;
     this.#send = send;
     this.#id = id;
     this.#ready = ready;
     this.#notifications = new Notifications(limits.listeners);
+    this.#persist();
   }
   get ids(): readonly string[] {
     return this.#order;
@@ -109,6 +174,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   export(): SidebarExport {
     const failure = this.#failure;
     return {
+      syncing: this.syncing,
       error: failure && { code: failure.code, message: failure.message },
       view: this.#view,
       homeWindow: this.#home?.window,
@@ -125,6 +191,9 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
         if (released) return;
         released = true;
         if (--this.#refs === 0 && this.#wire) {
+          this.#pending.clear();
+          this.#pending.add("released");
+          this.#notifications.emit(["sync"]);
           this.#send({ type: "unsubscribe", subscriptionId: this.#wire });
           this.#wire = undefined;
           if (this.#archiveWire)
@@ -135,8 +204,11 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     };
   }
   #subscribe(): void {
+    this.#pending.clear();
     this.#homeSnapshotAllowed = true;
     this.#wire = this.#id();
+    this.#pending.add(this.#wire);
+    this.#notifications.emit(["sync"]);
     this.#send({
       type: "subscribe",
       subscriptionId: this.#wire,
@@ -144,13 +216,14 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
         kind: "threads",
         window: { limit: 20, ...(this.#filter.project ? { project: this.#filter.project } : {}) },
       },
-      ...(this.#view ? { afterSeq: this.#view.seq } : {}),
+      // Windowed lists always reconcile with a fresh authoritative window.
     });
     if (this.#filter.archived) this.#subscribeArchive();
   }
   #subscribeArchive(): void {
     this.#archiveSnapshotAllowed = true;
     this.#archiveWire = this.#id();
+    this.#pending.add(this.#archiveWire);
     this.#send({
       type: "subscribe",
       subscriptionId: this.#archiveWire,
@@ -168,10 +241,23 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     if (this.#refs) this.#subscribe();
   }
   disconnect(): void {
+    this.#pending.clear();
+    this.#pending.add("disconnected");
+    this.#notifications.emit(["sync"]);
     this.#wire = undefined;
     this.#archiveWire = undefined;
   }
   receive(message: ServerMessage): void {
+    if (
+      message.type === "subscription.ready" &&
+      (message.subscriptionId === this.#wire || message.subscriptionId === this.#archiveWire)
+    ) {
+      const view = message.subscriptionId === this.#archiveWire ? this.#archive : this.#home;
+      if (view?.seq === message.seq) {
+        this.#pending.delete(message.subscriptionId);
+        this.#notifications.emit(["sync"]);
+      }
+    }
     if (
       (message.type !== "snapshot" &&
         message.type !== "threads.patch" &&
@@ -208,8 +294,6 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
       if (message.view.kind !== "threads") throw new ClientError("protocol");
       const archived = message.subscriptionId === this.#archiveWire;
       if (!(archived ? this.#archiveSnapshotAllowed : this.#homeSnapshotAllowed)) return;
-      const previous = archived ? this.#archive : this.#home;
-      if (previous && message.seq < previous.seq) return;
       if (archived) this.#archiveSnapshotAllowed = false;
       else this.#homeSnapshotAllowed = false;
       const ids = Object.keys(message.view.threads);
@@ -218,6 +302,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
         this.reject(message.subscriptionId, new ClientError("limit"));
         return;
       }
+      this.#pending.delete(message.subscriptionId);
       this.#failure = undefined;
       if (message.subscriptionId === this.#archiveWire) this.#archive = message.view;
       else this.#home = message.view;
@@ -266,6 +351,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   #resync(): void {
     if (this.#wire) this.#send({ type: "unsubscribe", subscriptionId: this.#wire });
     if (this.#archiveWire) this.#send({ type: "unsubscribe", subscriptionId: this.#archiveWire });
+    this.#pending.clear();
     this.#subscribe();
   }
 }

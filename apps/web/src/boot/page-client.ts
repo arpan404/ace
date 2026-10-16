@@ -1,3 +1,4 @@
+import { browserReadSnapshots } from "./read-snapshots.ts";
 import { browserCredential } from "./remote-credential.ts";
 import { webSocketTransport, type ClientApi } from "@ace/client";
 import { createBrowserClient, localOutbox } from "./client.ts";
@@ -16,6 +17,7 @@ export function createPageClient(
     transport: () => webSocketTransport(() => new WebSocket(target.url)),
     credential: browserCredential(target),
     storage: localOutbox(device.outboxKey),
+    readSnapshots: browserReadSnapshots({ ...target, deviceId: device.deviceId }),
     expectedHostId: target.localHostId,
   });
 }

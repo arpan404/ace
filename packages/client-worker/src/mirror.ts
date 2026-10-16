@@ -42,6 +42,7 @@ export class MirrorThread implements ThreadSource {
   private interactionList: readonly string[] = none;
   private taskList: readonly string[] = none;
   private items = new Map<string, Item>();
+  private creation = new Map<string, number>();
   private agents = new Map<string, View["agents"][string]>();
   private runs = new Map<string, View["runs"][string]>();
   private interactions = new Map<string, View["interactions"][string]>();
@@ -53,6 +54,38 @@ export class MirrorThread implements ThreadSource {
   private removed = new Set<string>();
   deleted(id: string): boolean {
     return this.removed.has(id);
+  }
+  itemSequence(id: string): number | undefined {
+    return this.creation.get(id);
+  }
+  /** Cold-boundary accounting only; never traversed while applying streaming patches. */
+  retainedBytes(): number {
+    const collections = [
+      this.items,
+      this.agents,
+      this.runs,
+      this.interactions,
+      this.tasks,
+      this.usages,
+      this.meters,
+      this.snapshots,
+    ];
+    return (
+      JSON.stringify([
+        this.meta,
+        this.queued,
+        this.ids,
+        this.links,
+        this.interactionList,
+        this.taskList,
+        ...collections.map((map) => [...map]),
+        [...this.creation],
+        [...this.cut],
+        [...this.removed],
+      ]).length *
+        2 +
+      collections.reduce((total, map) => total + map.size * 128, 1024)
+    );
   }
   constructor(listeners: number) {
     this.notifications = new Notifications(listeners);
@@ -148,6 +181,7 @@ export class MirrorThread implements ThreadSource {
     this.interactionList = Object.keys(view?.interactions ?? {});
     this.taskList = Object.keys(view?.backgroundTasks ?? {});
     this.items = entries(view?.items);
+    this.creation = entries(view?.itemSeqs);
     this.agents = entries(view?.agents);
     this.runs = entries(view?.runs);
     this.interactions = entries(view?.interactions);
@@ -202,6 +236,8 @@ export class MirrorThread implements ThreadSource {
         this.taskList = trusted<readonly string[] | undefined>(v) ?? none;
         return;
       case "item":
+        if (patch.itemSeq !== undefined) this.creation.set(id, patch.itemSeq);
+        else if (v === undefined && patch.append === undefined) this.creation.delete(id);
         if (patch.deleted) {
           this.removed.add(id);
           while (this.removed.size > defaultLimits.entities) {
@@ -252,6 +288,17 @@ function set<T>(map: Map<string, T>, id: string, value: unknown): void {
 }
 
 export class MirrorSidebar implements SidebarSource {
+  retainedBytes(): number {
+    return (
+      JSON.stringify([this.list, [...this.threads], this.page, this.homePage]).length * 2 +
+      this.threads.size * 128 +
+      1024
+    );
+  }
+  private catchingUp = false;
+  get syncing() {
+    return this.catchingUp;
+  }
   private homePage: import("@ace/protocol").ThreadListWindow | undefined;
   get homeWindow() {
     return this.homePage;
@@ -291,6 +338,7 @@ export class MirrorSidebar implements SidebarSource {
     return this.notifications.tap(tap);
   }
   reset(copy: SidebarExport): void {
+    this.catchingUp = copy.syncing ?? false;
     this.failure = errorOf(copy.error);
     this.list = copy.ids;
     this.snapshot = copy.loaded ?? copy.view !== undefined;
@@ -304,7 +352,8 @@ export class MirrorSidebar implements SidebarSource {
     for (const patch of patches) {
       keys.add(patch.k);
       const { kind, id } = splitKey(patch.k);
-      if (kind === "homeWindow")
+      if (kind === "sync") this.catchingUp = patch.v === true;
+      else if (kind === "homeWindow")
         this.homePage = trusted<import("@ace/protocol").ThreadListWindow | undefined>(patch.v);
       else if (kind === "window")
         this.page = trusted<import("@ace/protocol").ThreadListWindow | undefined>(patch.v);

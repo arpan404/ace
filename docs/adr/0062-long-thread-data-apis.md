@@ -55,3 +55,13 @@ short window cannot page itself repeatedly. Newer slides mirror it: one request 
 downward scroll intent near the live end. The scroll handler only observes; scroll
 events with no gesture behind them (a jump landing, a keep-place restore) never page,
 so a settling page cannot chain into the next one.
+
+## Reader retention (issue #801)
+
+Leaving the live end now captures the current bounded item window, including its creation
+cursors, before the rolling live store can evict those rows. This is the same single history
+window used by paging and jumps; capturing it neither fetches items nor places the scroll
+position. Its overlapping items continue to read live values. When the live tail moves beyond
+it, it detaches and retains the reader's rows, with newer history available through the existing
+gesture-driven paging. Returning to live drops the retained window. Thread status, queues,
+interactions and synchronization state always come from the leased live source.

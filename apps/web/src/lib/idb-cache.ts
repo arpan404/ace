@@ -58,7 +58,12 @@ const isUsage = (value: unknown): value is Usage =>
   "key" in value &&
   typeof value.key === "string" &&
   "bytes" in value &&
-  typeof value.bytes === "number";
+  typeof value.bytes === "number" &&
+  Number.isFinite(value.bytes) &&
+  value.bytes >= 0 &&
+  "used" in value &&
+  typeof value.used === "number" &&
+  Number.isFinite(value.used);
 
 /** Version 2 keeps sizes and use apart from values; an older cache is simply dropped. */
 const version = 2;
@@ -99,7 +104,6 @@ export function idbCache<V>(options: {
 
   /** Keys read since the last flush, with when; written in one transaction. */
   const touched = new Map<string, number>();
-  let wrote = false;
   let flushing = false;
   const flush = async () => {
     flushing = false;
@@ -107,8 +111,6 @@ export function idbCache<V>(options: {
     if (!db) return;
     const stamps = [...touched];
     touched.clear();
-    const prune = wrote;
-    wrote = false;
     try {
       const transaction = db.transaction(["values", "usage"], "readwrite");
       const usage = transaction.objectStore("usage");
@@ -116,7 +118,6 @@ export function idbCache<V>(options: {
         const row: unknown = await request(usage.get(key));
         if (isUsage(row)) usage.put({ ...row, used } satisfies Usage);
       }
-      if (prune) await pruneIn(transaction);
       await done(transaction);
     } catch {
       /* Bookkeeping is best effort; the next flush tries again. */
@@ -158,7 +159,13 @@ export function idbCache<V>(options: {
         );
         if (stored === undefined) return undefined;
         const value = options.decode(stored);
+        touched.delete(key);
         touched.set(key, options.now());
+        while (touched.size > options.maxEntries) {
+          const oldest = touched.keys().next().value;
+          if (oldest === undefined) break;
+          touched.delete(oldest);
+        }
         schedule();
         return value;
       } catch {
@@ -169,15 +176,27 @@ export function idbCache<V>(options: {
       try {
         const db = await database();
         if (!db) return;
-        const bytes = options.weigh(value);
+        const bytes = options.weigh(value) + key.length * 2;
         // Never stored: it would only push out everything else.
-        if (bytes > options.maxBytes) return;
+        if (
+          !Number.isFinite(bytes) ||
+          bytes < 0 ||
+          bytes > options.maxBytes ||
+          options.maxEntries < 1
+        )
+          return;
         const transaction = db.transaction(["values", "usage"], "readwrite");
+        const committed = done(transaction);
+        const usage = transaction.objectStore("usage");
+        const stamps = [...touched];
+        touched.clear();
+        for (const [touchedKey, used] of stamps) {
+          const row: unknown = await request(usage.get(touchedKey));
+          if (isUsage(row)) usage.put({ ...row, used } satisfies Usage);
+        }
         transaction.objectStore("values").put(value, key);
-        transaction.objectStore("usage").put({ key, used: options.now(), bytes } satisfies Usage);
-        await done(transaction);
-        wrote = true;
-        schedule();
+        usage.put({ key, used: options.now(), bytes } satisfies Usage);
+        await Promise.all([pruneIn(transaction), committed]);
       } catch {
         /* A cache that cannot store simply misses next time. */
       }

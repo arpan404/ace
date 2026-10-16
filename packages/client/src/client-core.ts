@@ -33,7 +33,7 @@ import {
   type ServerMessage,
   type CommandPayload,
 } from "@ace/protocol";
-import type { ClientCoreApi, ConnectionControl, RegistryQuery } from "./api.ts";
+import type { ClientCoreApi, ConnectionControl, RegistryQuery, ThreadSource } from "./api.ts";
 import { Connection, sameConnectionInfo } from "./connection.ts";
 import { WireCodec, type ServiceWire } from "./wire-codec.ts";
 import { isOneWayMessage, type OneWayMessage } from "./one-way.ts";
@@ -248,12 +248,18 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       (message) => this.connection.send(message),
       options.id,
       () => this.state === "ready",
+      options.readSnapshots
+        ? { storage: options.readSnapshots, scheduler: options.scheduler }
+        : undefined,
     );
     this.#sidebar = new Sidebar(
       limits,
       (message) => this.connection.send(message),
       options.id,
       () => this.state === "ready",
+      options.readSnapshots
+        ? { storage: options.readSnapshots, scheduler: options.scheduler }
+        : undefined,
     );
     this.#collections.add(this.#sidebar);
     this.#intents = new Intents({
@@ -447,6 +453,10 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   }
   close(): Promise<void> {
     this.closed = true;
+    const checkpoints = [
+      this.#subscriptions.close(),
+      ...[...this.#collections].map((collection) => collection.close()),
+    ];
     this.#recordings.close();
     this.requests.clear(new ClientError("offline"));
     this.#readMarkers.close();
@@ -455,7 +465,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     this.#statusChecks.disconnect();
     this.#serviceListeners.clear();
     this.connection.stop();
-    return this.#intents.settled();
+    return Promise.all([this.#intents.settled(), ...checkpoints]).then(() => {});
   }
   networkOnline(online: boolean): void {
     this.connection.networkOnline(online);
@@ -463,6 +473,12 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   thread(id: string): ThreadSubscription {
     if (this.closed) throw new ClientError("offline");
     return this.#subscriptions.acquire(id);
+  }
+  cachedThread(id: string): ThreadSource | undefined {
+    return this.closed ? undefined : this.#subscriptions.cached(id);
+  }
+  cachedThreads(): Sidebar | undefined {
+    return this.closed ? undefined : this.#sidebar;
   }
   threads(): { store: Sidebar; release(): void } {
     if (this.closed) throw new ClientError("offline");
@@ -479,6 +495,9 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       (message) => this.connection.send(message),
       this.options.id,
       () => this.state === "ready",
+      this.options.readSnapshots
+        ? { storage: this.options.readSnapshots, scheduler: this.options.scheduler }
+        : undefined,
     );
     this.#collections.add(sidebar);
     const leases = new Set<() => void>();
@@ -514,6 +533,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         closed = true;
         for (const release of leases) release();
         leases.clear();
+        sidebar.close();
         this.#collections.delete(sidebar);
       },
     };

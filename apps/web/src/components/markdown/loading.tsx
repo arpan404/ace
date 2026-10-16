@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { LoadingRegion, SkeletonText } from "@/components/ui/skeleton.tsx";
 import type { ReactNode } from "react";
 
@@ -27,4 +28,20 @@ export function MarkdownLoading(props: {
       </span>
     </LoadingRegion>
   ) : null;
+}
+
+/** Readable immediately, without parsing or interpreting markup on the main thread. */
+export function MarkdownPending(props: {
+  text: string;
+  streaming?: boolean | undefined;
+  className?: string | undefined;
+  tail?: ReactNode;
+}) {
+  if (!props.streaming) return <MarkdownLoading text={props.text} className={props.className} />;
+  return (
+    <div className={props.className}>
+      <span className="whitespace-pre-wrap">{props.text}</span>
+      {props.tail}
+    </div>
+  );
 }

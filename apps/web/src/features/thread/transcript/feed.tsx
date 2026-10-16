@@ -1,6 +1,6 @@
 import { StoppedPill } from "../long/stopped-pill.tsx";
 import { listenScrollIntent } from "./scroll-intent.ts";
-import type { HistoryPager } from "@ace/client-react";
+import { useThreadStore, type HistoryPager } from "@ace/client-react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import {
   memo,
@@ -145,6 +145,7 @@ export interface FeedProps {
  */
 export function Feed(props: FeedProps) {
   const { threadId, nav, jump, pager } = props;
+  const reading = useThreadStore(threadId);
   useReadMarker(threadId, nav);
   const window = jump.window;
   const detached = !!window && !jump.joined;
@@ -188,10 +189,14 @@ export function Feed(props: FeedProps) {
   const placedUntil = useRef(0);
   const anchor = useRef<Anchor | undefined>(undefined);
   const [pinned, setPinnedState] = useState(!detached);
-  const setPinned = useCallback((value: boolean) => {
-    pinnedRef.current = value;
-    setPinnedState(value);
-  }, []);
+  const setPinned = useCallback(
+    (value: boolean) => {
+      if (!value && pinnedRef.current && reading) nav.jump.retain(reading);
+      pinnedRef.current = value;
+      setPinnedState(value);
+    },
+    [nav.jump, reading],
+  );
   const [flash, setFlash] = useState<{ key: string; hit: boolean }>();
 
   // A row filling in (its text, a card's code arriving) moves the rows under it in the same
@@ -502,7 +507,13 @@ export function Feed(props: FeedProps) {
               if (!atEnd && performance.now() < glidingUntil.current) return;
               // A detached window's end is not the live end.
               const following = atEnd && !detached && !upwardIntent.current;
-              if (following !== pinnedRef.current) setPinned(following);
+              // Measurements can move the scroll offset before the next pin-to-end pass.
+              // Only reader intent (or a detached window) releases that live pin.
+              if (
+                (following || detached || upwardIntent.current) &&
+                following !== pinnedRef.current
+              )
+                setPinned(following);
             }}
           >
             <div className={`${readingColumn} pt-6 pb-[calc(var(--composer-clearance,0px)+4rem)]`}>

@@ -75,6 +75,7 @@ export interface ClientOptions {
   ): AsyncGenerator<import("./attachment-types.ts").AttachmentFrame>;
   credential(): Promise<Credential>;
   storage: Storage;
+  readSnapshots?: import("./read-snapshot-storage.ts").ReadSnapshotStorage;
   scheduler: Scheduler;
   random(): number;
   id(): string;

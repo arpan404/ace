@@ -90,3 +90,5 @@ export type { PendingSend, SendPayload } from "./pending-sends.ts";
 export { fitsUtf8 } from "./bounds.ts";
 
 export { attachmentReadScope } from "./attachment-scope.ts";
+
+export type { ReadSnapshotStorage } from "./read-snapshots.ts";

@@ -130,6 +130,8 @@ test("a worker-backed jumped window never restores a deleted input when its tail
       before: held.store.itemsBefore,
       firstItemOf: () => undefined,
     }));
+    jump.retain(held.store);
+    expect(jump.snapshot().window?.items.map((item) => item.id)).toEqual(["queued", "newer"]);
     await jump.toSeq(1);
     const window = jump.snapshot().window;
     if (!window) throw new Error("Expected jumped window");
@@ -182,6 +184,14 @@ test("a worker-backed jumped window never restores a deleted input when its tail
       ),
     });
     await vi.waitFor(() => expect(held.store.order).toEqual(["latest-a", "latest-b"]));
+    // Creation cursors cross incremental worker patches too: a reader can retain new rows.
+    const latestReader = new Jump(first, thread.id);
+    latestReader.retain(held.store);
+    expect(latestReader.snapshot().window?.items.map((item) => item.id)).toEqual([
+      "latest-a",
+      "latest-b",
+    ]);
+    latestReader.dispose();
     jump.tailMoved();
     expect(jump.snapshot().joined).toBe(false);
     const detached = jump.source(held.store, window, false);

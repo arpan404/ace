@@ -69,6 +69,7 @@ class SidebarIndex<T> {
     this.store = store;
     this.pick = pick;
     this.equal = equal;
+    this.update("all");
   }
   get = (): readonly T[] | undefined => this.snapshot;
   subscribe = (listener: () => void): (() => void) => {

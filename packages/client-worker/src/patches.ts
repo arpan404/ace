@@ -20,6 +20,7 @@ export interface Patch {
   /** Item keys only: the item holds a prefix of its full text (ThreadReader.truncated). */
   cut?: boolean | undefined;
   deleted?: boolean | undefined;
+  itemSeq?: number | undefined;
 }
 
 /** Ids and parent links of a thread's agents: what the "agents" key covers. */
@@ -162,14 +163,15 @@ export function threadPatches(
     }
     const item = reader.item(id);
     const cut = reader.truncated(id);
+    const itemSeq = reader.itemSequence?.(id);
     const append = appendedText(sent.get(id), item, reader);
     if (item) sent.set(id, item);
     else sent.delete(id);
     patches.push(
       append !== undefined
-        ? { k, append, cut }
+        ? { k, append, cut, itemSeq }
         : item
-          ? { k, v: item, cut }
+          ? { k, v: item, cut, itemSeq }
           : { k, cut, deleted: reader.deleted?.(id) },
     );
   }
@@ -184,15 +186,17 @@ export function sidebarPatches(reader: SidebarReader, keys: Iterable<string>): P
     if (k === "threads") continue;
     const { kind, id } = splitKey(k);
     const v =
-      kind === "homeWindow"
-        ? reader.homeWindow
-        : kind === "window"
-          ? reader.window
-          : kind === "ids"
-            ? reader.ids
-            : kind === "thread"
-              ? reader.thread(id)
-              : errorOf(reader);
+      kind === "sync"
+        ? (reader.syncing ?? false)
+        : kind === "homeWindow"
+          ? reader.homeWindow
+          : kind === "window"
+            ? reader.window
+            : kind === "ids"
+              ? reader.ids
+              : kind === "thread"
+                ? reader.thread(id)
+                : errorOf(reader);
     patches.push(v === undefined ? { k } : { k, v });
   }
   return patches;

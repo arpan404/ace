@@ -9,6 +9,7 @@ import {
   rebuildAgentChildren,
   chronologicalItemOrder,
 } from "@ace/projection";
+import { ThreadView as ThreadViewSchema } from "@ace/protocol";
 import type { ThreadView, EventBatch, Progress, Item, ItemsPage } from "@ace/protocol";
 import type { Mirrorable, ThreadExport, ThreadSource } from "./api.ts";
 import type { ThreadKey, ThreadReader } from "./readers.ts";
@@ -101,6 +102,9 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   item(id: string) {
     return this.#own(this.#view?.items, id);
   }
+  itemSequence(id: string): number | undefined {
+    return this.#creation.get(id);
+  }
   agent(id: string) {
     return this.#own(this.#view?.agents, id);
   }
@@ -151,6 +155,7 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       error: failure && { code: failure.code, message: failure.message },
       view: view && {
         seq: view.seq,
+        itemSeqs: Object.fromEntries(this.#creation),
         thread: view.thread,
         agents: view.agents,
         agentChildren: view.agentChildren,
@@ -169,6 +174,56 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       truncated: [...this.#clipped],
       deleted: [...this.#deleted],
     };
+  }
+  /** Account only at the inactive-cache boundary, never for each streaming delta. */
+  retainedBytes(): number {
+    const view = this.#view;
+    const entities = view
+      ? [
+          view.items,
+          view.agents,
+          view.runs,
+          view.interactions,
+          view.backgroundTasks,
+          view.usage,
+          view.usageSnapshots,
+          view.contextMeters ?? {},
+        ].reduce((sum, record) => sum + Object.keys(record).length, 0)
+      : 0;
+    return (
+      JSON.stringify(this.export()).length * 2 +
+      entities * 128 +
+      (this.#hydrated.size + this.#creation.size + this.#clipped.size + this.#deleted.size) * 96 +
+      this.#journal.retainedBytes() +
+      1024
+    );
+  }
+  /** Persist previews and creation cursors; a cold restore always requests a fresh snapshot. */
+  persisted(): unknown {
+    return { version: 1, view: this.export().view, truncated: [...this.#clipped] };
+  }
+  hydrate(value: unknown, threadId: string): void {
+    if (
+      this.#view ||
+      typeof value !== "object" ||
+      value === null ||
+      !("version" in value) ||
+      value.version !== 1 ||
+      !("view" in value)
+    )
+      return;
+    const parsed = ThreadViewSchema.safeParse(
+      typeof value.view === "object" && value.view !== null
+        ? { ...value.view, kind: "thread" }
+        : undefined,
+    );
+    if (!parsed.success || parsed.data.thread.id !== threadId) return;
+    this.#syncing = true;
+    this.snapshot(parsed.data);
+    if ("truncated" in value && Array.isArray(value.truncated))
+      for (const id of value.truncated)
+        if (typeof id === "string" && this.item(id)) this.#clipped.add(id);
+    this.#notifications.emitAll();
   }
   snapshot(view: ThreadView): void {
     const runs = Object.keys(view.runs).length;

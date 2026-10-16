@@ -72,6 +72,7 @@ const keptStarts = 300;
 
 export class JumpController {
   private state: JumpSnapshot = idle;
+  private retained: JumpWindow | undefined;
   private listeners = new Set<() => void>();
   private abort: AbortController | undefined;
   private nonce = 0;
@@ -93,6 +94,13 @@ export class JumpController {
     this.tail = tail;
   }
 
+  /** A local read cache of the window the reader left, with no placement or history fetch. */
+  retain(window: JumpWindow): void {
+    if (this.state.window || this.state.loading) return;
+    this.set({ ...idle, window, joined: meetsTail(window, this.tail()) });
+    this.retained = window;
+  }
+
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -102,6 +110,7 @@ export class JumpController {
   private set(patch: Partial<JumpSnapshot>): void {
     const window = this.state.window;
     this.state = { ...this.state, ...patch };
+    if (this.state.window !== this.retained) this.retained = undefined;
     if (this.state.window !== window) {
       this.state = { ...this.state, turns: this.turnsOf(this.state.window) };
       if (this.state.window) void this.learnTurns(this.state.window);
@@ -253,8 +262,8 @@ export class JumpController {
   async older(): Promise<void> {
     if (this.state.loading) return;
     const window = this.state.window;
-    if (!window) {
-      const before = this.tail().before;
+    if (!window || window === this.retained) {
+      const before = window ? window.before : this.tail().before;
       if (typeof before !== "number") return;
       // Keep the first live item in the reply so the two windows meet. The tail itself
       // stays subscribed and bounded while history slides independently of new output.
@@ -264,7 +273,7 @@ export class JumpController {
         before: 50,
         after: windowCapacity - 51,
       });
-      if (!reply) return;
+      if (!reply || this.state.window !== window) return;
       const next = openWindow(reply);
       this.set({ window: next, joined: meetsTail(next, this.tail()), loading: undefined });
       return;
@@ -330,6 +339,7 @@ export function jumpedSource(
 ): ThreadSource {
   return windowSource(live, {
     items: window.items,
+    itemSeqs: window.seqs,
     before: window.before,
     joined,
     ...(deleted ? { deleted } : {}),

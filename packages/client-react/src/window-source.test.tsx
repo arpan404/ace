@@ -178,3 +178,26 @@ test("a window joined to the tail keeps its older items and follows the tail's n
   expect(texts.indexOf("Answer 30")).toBeLessThan(texts.indexOf("Answer 31"));
   expect(texts.filter((text) => text === "Answer 30")).toHaveLength(1);
 });
+
+test("a joined window appends only newer tail items when the live cache also holds an older prefix", async () => {
+  const { daemon, client } = setup();
+  new ScenarioPlayer(daemon, longThread()).runUntilBlocked();
+  await client.start();
+  const lease = client.thread("thread-long");
+  await expect.poll(() => lease.store.order.length).toBe(10);
+  const live = lease.store;
+  const selected = live.order.slice(3, 6);
+  const items = selected.flatMap((id) => {
+    const item = live.item(id);
+    return item ? [item] : [];
+  });
+  const seqs = new Map(selected.map((id) => [id, live.itemSequence?.(id) ?? 0]));
+  const source = windowSource(live, {
+    items,
+    itemSeqs: seqs,
+    before: seqs.get(selected[0] ?? "") ?? null,
+    joined: true,
+  });
+  expect(source.order).toEqual(live.order.slice(3));
+  lease.release();
+});
