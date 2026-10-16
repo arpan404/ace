@@ -75,8 +75,8 @@ export function PullRequest(props: { card: ThreadCard }) {
  * The first line's status, as loud as the row's attention (`rowAttention`, with the open
  * thread's `currentAttention`):
  * - what asks the person to act or look: a glyph and a word in the status colour;
- * - live work in a row not open: its small moving glyph and a muted word, no running clock;
- * - the open thread's live work: the coloured word with its elapsed time;
+ * - live work, waiting or background, open or not: its glyph, word and elapsed time, muted
+ *   unless open;
  * - a failure already seen: a quiet word; a thread at rest: only its age.
  */
 export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) {
@@ -89,6 +89,10 @@ export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) 
   const mark = (
     <StatusGlyph state={threadGlyph({ tone, mark: card.status.mark })} tone={tone} size={12} />
   );
+  // Active rows always keep their time beside the word, open or not: the open row is not the
+  // only one that says how long it has been at it. "Limited HH:MM" already names its time.
+  const elapsed =
+    level === "active" && !word.startsWith("Limited") ? <ActiveElapsed card={card} /> : null;
   if (muted)
     return (
       <span
@@ -97,22 +101,29 @@ export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) 
       >
         {mark}
         <span>{word}</span>
+        {elapsed}
       </span>
     );
   return (
     <StatusLabel tone={tone} label={word} mark={mark} className="gap-1 text-meta font-normal">
-      {tone === "working" && <WorkingFor card={card} />}
+      {elapsed}
     </StatusLabel>
   );
 }
 
-/** How long the tree has been working, on the shared second clock while the facts are fresh. */
-function WorkingFor(props: { card: ThreadCard }) {
+/**
+ * How long an active row has been at it, open or not: working reads its live elapsed time on
+ * the shared second clock while the facts are fresh, everything else its age. Falls back to
+ * the age when disconnected, so the time never disappears.
+ */
+function ActiveElapsed(props: { card: ThreadCard }) {
   const { since } = props.card.status;
   const fresh = useLiveConnection().fresh;
   const now = useSeconds(fresh && since !== undefined);
-  if (!fresh || since === undefined) return null;
-  return <span className="tabular-nums">{formatSpan(since, now)}</span>;
+  if (fresh && since !== undefined) {
+    return <span className="tabular-nums">{formatSpan(since, now)}</span>;
+  }
+  return <span className="tabular-nums">{props.card.age}</span>;
 }
 
 /** Only visible, fresh working rows subscribe to the shared second clock. */
