@@ -226,6 +226,47 @@ it("form answers keep field keys and multi-select values, generic dismissal keep
     message: "Declined by owner",
   });
 });
+it("a generic elicitation accept answers the native form with typed content", async () => {
+  const h = await setup(),
+    root = h.session.nativeSessionId;
+  await h.publish("form.created", {
+    form: {
+      id: "search",
+      sessionID: root,
+      title: "Web Search",
+      fields: [
+        { key: "query", type: "string", title: "Query", required: true },
+        { key: "count", type: "integer", title: "Count", minimum: 1, maximum: 10 },
+      ],
+    },
+  });
+  expect(
+    Object.values(h.projection.view.interactions).find(
+      (interaction) => interaction.request.kind === "elicitation",
+    )?.request,
+  ).toEqual({
+    kind: "elicitation",
+    server: "OpenCode",
+    message: "Web Search",
+    schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", title: "Query" },
+        count: { type: "integer", title: "Count", minimum: 1, maximum: 10 },
+      },
+      required: ["query"],
+    },
+  });
+  await h.session.resolve(`form:${root}:search`, {
+    kind: "elicitation",
+    action: "accept",
+    content: { query: "opencode forms", count: 5 },
+  });
+  const requests = array(await h.control("/test/requests")).map(object);
+  expect(requests.find((r) => String(r.path).endsWith("/form/search/reply"))?.body).toEqual({
+    answer: { query: "opencode forms", count: 5 },
+  });
+});
 it("reconnect recovers missing children, permissions and owned shells, keeping the thread unsettled", async () => {
   const h = await setup(),
     root = h.session.nativeSessionId;
