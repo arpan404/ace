@@ -136,6 +136,111 @@ test("a failed batch stays pinned and retries its events and engine snapshot exa
   });
 });
 
+test("turn completion waits for a failed forced flush and resumes without aborting the provider", async () => {
+  const h = await streaming();
+  h.store.atomic((db) =>
+    db.exec(
+      "CREATE TRIGGER fail_forced BEFORE INSERT ON events WHEN NEW.type='item.delta' BEGIN SELECT RAISE(ABORT, 'disk unavailable'); END",
+    ),
+  );
+  await h.append("accepted once");
+  const retry = h.clock.waitForDelay(100);
+  let completed = false;
+  const completion = h.context.onFrame(h.frames.frame(end)).then(() => {
+    completed = true;
+  });
+  await retry;
+  expect(completed).toBe(false);
+  expect(h.context.signal.aborted).toBe(false);
+  const repair = new DatabaseSync(h.path);
+  repair.exec("DROP TRIGGER fail_forced");
+  repair.close();
+  h.clock.advance(1100);
+  await completion;
+  await h.engine.flush();
+  expect(h.context.signal.aborted).toBe(false);
+  expect(h.store.snapshotThread(h.id).thread.status.state).toBe("done");
+  const events = h.store.readEvents({ afterSeq: 0, threadId: h.id, limit: 100 });
+  expect(
+    events.filter((event) => event.payload.type === "item.delta").map((event) => event.payload),
+  ).toEqual([expect.objectContaining({ append: "accepted once" })]);
+  expect(events.filter((event) => event.payload.type === "run.ended")).toHaveLength(1);
+});
+
+test("split shell output reserves every published sequence before a crash", async () => {
+  const h = await streaming();
+  await h.context.onFrame(
+    h.frames.frame({
+      type: "item.upsert",
+      agent: "root",
+      item: "shell",
+      draft: {
+        type: "tool_call",
+        call: {
+          kind: "shell",
+          title: "Build",
+          status: "running",
+          detail: { kind: "shell", command: "build" },
+        },
+      },
+    }),
+  );
+  await h.context.onFrame(
+    h.frames.frame({
+      type: "item.delta",
+      agent: "root",
+      item: "shell",
+      field: "output",
+      append: "warmup",
+    }),
+  );
+  await h.engine.flush();
+  // Seed a boundary fixture, then advance the cursor through a public write.
+  const reserved = Number(h.store.statement("SELECT seq FROM host_sequence WHERE id=1").get()?.seq);
+  h.store
+    .statement("UPDATE events SET seq=? WHERE seq=(SELECT MAX(seq) FROM events)")
+    .run(reserved - 2);
+  h.store.appendEvents(h.id, [{ type: "thread.updated", title: "at reservation boundary" }]);
+  const published: Event[] = [];
+  const stop = h.store.subscribe((events) => published.push(...events));
+  await h.context.onFrame(
+    h.frames.frame({
+      type: "item.delta",
+      agent: "root",
+      item: "shell",
+      field: "output",
+      append: "x".repeat(5000),
+    }),
+  );
+  stop();
+  const output = published.filter((event) => event.payload.type === "item.delta");
+  expect(output).toHaveLength(2);
+  const last = output.at(-1)?.seq ?? 0;
+  expect(last).toBeGreaterThan(reserved);
+  const crashPath = join(h.home, "boundary.sqlite");
+  const durable = new DatabaseSync(h.path, { readOnly: true });
+  await backup(durable, crashPath);
+  durable.close();
+  const recovered = new Store(crashPath);
+  try {
+    recovered.appendEvents(h.id, [{ type: "thread.updated", title: "after crash" }]);
+    expect(recovered.headSeq()).toBeGreaterThan(last);
+    const messages: unknown[] = [];
+    const unsubscribe = subscribe(
+      recovered,
+      "split-reconnect",
+      { kind: "thread", threadId: h.id },
+      last,
+      1000,
+      (message) => messages.push(message),
+    );
+    unsubscribe();
+    expect(messages[0]).toMatchObject({ type: "snapshot" });
+  } finally {
+    await recovered.close();
+  }
+});
+
 test("reconnecting inside a compacted delta batch replaces the tail with a snapshot", async () => {
   const h = await streaming();
   await h.append("a");

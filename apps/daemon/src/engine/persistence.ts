@@ -14,6 +14,7 @@ export class Snapshot {
   readonly state: ThreadState;
   private deadlines: DeadlineIndex | undefined;
   private deadlineObservedAt: number | undefined;
+  private streamStatusBudget: number | undefined;
   private items: Records<Item>;
   private metadata: Records<Item>;
   private readonly sections = new Set<{ flush(): void; persist(): void; committed(): void }>();
@@ -226,6 +227,7 @@ export class Snapshot {
     this.transaction.tracking = true;
   }
   retainChanges(events: EventPayload[]): void {
+    if (events.some((event) => event.type === "agent.created")) this.streamStatusBudget = undefined;
     const changed = new Set(
       events.flatMap((event) =>
         event.type === "item.updated" || event.type === "item.created"
@@ -236,6 +238,10 @@ export class Snapshot {
       ),
     );
     this.items.retainChanges((item) => changed.has(item.id));
+  }
+  /** Cache the derived-event allowance until the agent tree grows. */
+  statusEventBudget(): number {
+    return (this.streamStatusBudget ??= 2 * Object.keys(this.state.agents).length + 4);
   }
   /** A metadata-only lookup keeps streaming work independent of transcript length. */
   streamItem(key: string): Item | undefined {

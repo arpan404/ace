@@ -493,7 +493,7 @@ export class ThreadActor {
       pending = this.tail;
       await pending;
     } while (pending !== this.tail);
-    this.repo.store.flushLiveWrites();
+    await this.runWhenWritable(() => this.repo.store.flushLiveWrites());
   }
   stop(): void {
     this.sealFrames();

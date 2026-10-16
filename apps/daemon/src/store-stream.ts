@@ -80,6 +80,10 @@ export class StoreStream {
           for (const snapshot of snapshots) snapshot.persist();
         }, done);
       });
+    } catch (cause) {
+      // The accepted batch remains pinned. Callers must retry the pending operation
+      // through writable(), rather than treat this storage barrier as provider failure.
+      throw new Error("Store is busy", { cause });
     } finally {
       this.flushing = false;
     }

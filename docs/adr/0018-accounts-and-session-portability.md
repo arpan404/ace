@@ -220,6 +220,17 @@ explicit symbol. Optional `badgeUsesInitial: true` on either rename command rese
 custom symbol to the current name's initial. Older requests retain explicit symbols.
 No credentials or provider execution are involved in these metadata changes.
 
+## Amendment: usage-limit continuation with the normal CLI login
+
+The usage-limit “Move to” action can continue on the normal CLI login. When either
+account is implicit, recovery starts a fresh destination session with the existing
+bounded portable conversation handoff, records its lossy provenance, and delivers
+the continuation before queued messages. It clears the source native session id
+atomically with the destination binding and handoff, so restart cannot resume the
+old native session under the new account. Neither CLI home is copied or modified
+by migration. Explicit `accounts.migrate` and managed-to-managed native recovery
+retain their existing migration and writer-exclusion requirements.
+
 ## Amendment: definite, fresh limits only
 
 Date: 2026-10-15. This replaces "unknown/resetless exhausted windows stay blocked until fresh

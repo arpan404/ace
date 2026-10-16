@@ -1,4 +1,5 @@
 import { hasUnresponsiveAncestor } from "@ace/core";
+import { outputDeltas } from "@ace/projection";
 import { streamFacts } from "./stream-facts.ts";
 import { RecordBudget } from "./records.ts";
 import { initializeThreadCleanup, threadCleaning } from "../thread-cleanup-journal.ts";
@@ -294,7 +295,6 @@ export class EngineRepository {
       return false;
     const bytes = Buffer.byteLength(JSON.stringify(facts));
     if (bytes > 512 * 1024) return false;
-    this.store.prepareLiveWrite(bytes, facts.length);
     const state = this.requireState(id);
     const snapshot = this.snapshots.get(id);
     const deadline = snapshot?.deadline();
@@ -317,6 +317,17 @@ export class EngineRepository {
       )
     )
       return false;
+    // One output fact can emit many transport-sized deltas. Reserve their slots,
+    // plus derived agent/thread updates, before the reducer mutates the pinned snapshot.
+    const eventsNeeded = facts.reduce(
+      (count, fact) =>
+        count +
+        (fact.type === "item.delta" && fact.field === "output"
+          ? Array.from(outputDeltas(fact.append)).length
+          : 1),
+      facts.length * snapshot.statusEventBudget(),
+    );
+    this.store.prepareLiveWrite(bytes, eventsNeeded);
     const events = streamFacts(snapshot, facts, now, this.ids);
     this.store.bufferLiveWrite(id, events, now, {
       persist: () => {

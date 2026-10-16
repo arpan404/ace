@@ -15,6 +15,7 @@ import type { EngineRepository } from "./repository.ts";
 import { maxMessages, isSend } from "./queue-store.ts";
 import type { EngineClock } from "./actor.ts";
 import type { ContextWindowLookup } from "./context-meter.ts";
+import { continueOnAccount, type AccountContinuation } from "./account-continuation.ts";
 
 export const RecoveryPreferences = z.object({
   followUpBehavior: z.enum(["steer", "queue"]).default("queue"),
@@ -26,10 +27,7 @@ export type RecoveryPreferences = z.infer<typeof RecoveryPreferences>;
 export interface RecoveryPorts {
   preferences?(thread: ThreadId | undefined): Promise<RecoveryPreferences>;
   resetAt?(thread: ThreadId): number | null | undefined;
-  migrate?(
-    thread: ThreadId,
-    target?: string,
-  ): Promise<{ nativeSessionId: string; instanceId: string }>;
+  migrate?(thread: ThreadId, target?: string): Promise<AccountContinuation>;
   contextWindow?: ContextWindowLookup;
   /** Reports a deadline pass that failed and will be retried. */
   onError?(error: unknown): void;
@@ -398,22 +396,15 @@ export class Recovery {
       return;
     }
   }
-  async migrate(id: ThreadId, target?: string): Promise<void> {
+  async migrate(
+    id: ThreadId,
+    commandId: import("@ace/protocol").CommandId,
+    target?: string,
+  ): Promise<void> {
     if (!this.ports.migrate) throw new Error("Account migration is unavailable");
     const result = await this.ports.migrate(id, target);
     await this.repo.store.writable();
-    this.repo.nativeSession(id, result.nativeSessionId, this.repo.backend(id), result.instanceId);
-    const metadata = this.repo.transitions.get(id);
-    if (metadata.selection) {
-      metadata.selection.instanceId = result.instanceId;
-      this.repo.transitions.set(id, metadata);
-      this.repo.transitions.remember(id, metadata.selection);
-      this.repo.store.appendEvents(
-        id,
-        [{ type: "thread.updated", execution: metadata.selection }],
-        this.clock.now(),
-      );
-    }
+    continueOnAccount(this.repo, id, commandId, result, this.clock.now());
   }
   bindingChanged(id: ThreadId): void {
     const queue = this.repo.queue.get(id);
