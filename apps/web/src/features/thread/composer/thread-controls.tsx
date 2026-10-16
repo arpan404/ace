@@ -1,5 +1,5 @@
 import { useConnectionState, useThreadMeta } from "@ace/client-react";
-import type { AccessMode, ExecutionOptions } from "@ace/protocol";
+import { ThreadId, type AccessMode, type ExecutionOptions } from "@ace/protocol";
 import {
   accessChoices,
   accountDisplayName,
@@ -22,11 +22,13 @@ import {
   choiceSelection,
   switchUnsupportedNote,
   threadSwitchRoute,
+  threadForkSwitchRoute,
   threadAccessSummary,
   threadEffortControl,
   unavailablePickerModel,
   unavailableModelNotice,
   type ModelChoice,
+  type SwitchRoute,
 } from "@ace/ui-core";
 import { useEffect, useRef, useState } from "react";
 import { useThreadModelAvailability } from "../lib/model-availability.ts";
@@ -148,7 +150,10 @@ export function ThreadModelControl(props: {
   const catalog = useModelCatalogState();
   const statuses = useProviderStatuses();
   const compact = useComposerCompact();
-  const [asking, setAsking] = useState<ModelChoice>();
+  const [asking, setAsking] = useState<{ choice: ModelChoice; route: SwitchRoute }>();
+  const [forkOnSwitch] = useDaemonSetting("threads.forkOnSwitch", {
+    threadId: ThreadId.parse(props.thread.id),
+  });
   const moving = useModelSwitch(props.thread, meta, choices);
   const online = useConnectionState() === "ready";
   const { selection, unavailable } = useThreadModelAvailability(props.thread.id);
@@ -220,7 +225,11 @@ export function ThreadModelControl(props: {
       choice,
       catalogModels && selectionInputs(catalogModels, choiceSelection(choice)),
     );
-  const routeOf = (choice: ModelChoice) => (meta ? threadSwitchRoute(meta, choice) : "in_place");
+  // Until the preference arrives, preserve the source rather than risk an unwanted mutation.
+  const routeOf = (choice: ModelChoice) =>
+    meta
+      ? (forkOnSwitch === false ? threadSwitchRoute : threadForkSwitchRoute)(meta, choice)
+      : "in_place";
   const switchTo = (choice: ModelChoice) => {
     setAsking(undefined);
     props.continued?.onChange(undefined);
@@ -359,7 +368,7 @@ export function ThreadModelControl(props: {
             }
             const provider = moving.chosen?.provider ?? selection?.provider ?? meta?.provider;
             if (route === "new_thread" || (meta && choice.provider !== provider)) {
-              setAsking(choice);
+              setAsking({ choice, route });
               return false;
             }
             switchTo(choice);
@@ -369,7 +378,7 @@ export function ThreadModelControl(props: {
             const choice = choices.find((candidate) => candidate.id === id);
             if (!choice) return;
             if (continuedTo && choice.id === current?.id) props.continued?.onChange(undefined);
-            else if (routeOf(choice) === "new_thread") setAsking(choice);
+            else if (routeOf(choice) === "new_thread") setAsking({ choice, route: "new_thread" });
             else switchTo(choice);
           },
         }}
@@ -377,14 +386,14 @@ export function ThreadModelControl(props: {
       {asking && meta && (
         <SwitchDialog
           from={moving.chosen?.provider ?? selection?.provider ?? meta.provider}
-          to={asking}
+          to={asking.choice}
           busy={props.busy}
-          continues={routeOf(asking) === "new_thread"}
-          warning={routeOf(asking) === "new_thread" ? carryProblem(asking) : undefined}
+          continues={asking.route === "new_thread"}
+          warning={asking.route === "new_thread" ? carryProblem(asking.choice) : undefined}
           onConfirm={() => {
-            if (routeOf(asking) !== "new_thread") return switchTo(asking);
+            if (asking.route !== "new_thread") return switchTo(asking.choice);
             setAsking(undefined);
-            props.continued?.onChange(asking);
+            props.continued?.onChange(asking.choice);
           }}
           onClose={() => setAsking(undefined)}
         />

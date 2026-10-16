@@ -88,6 +88,14 @@ fully parsed and admitted before any git write, including escaped entry lengths.
 
 ## Consequences
 
+The `threads.forkOnSwitch` preference defaults to false. When enabled, picking another
+provider or account in the composer uses the existing portable continuation flow: its
+confirmation keeps the source unchanged and the next message starts an independent thread
+with the latest finished conversation boundary. Model-only changes keep using the same
+thread. Mandatory new-thread routes and unsupported target checks still apply when the
+preference is off. The confirmation retains the chosen route if the preference changes
+while it is open.
+
 Native forks retain provider-private history. Item boundaries unsupported by a
 provider are explicitly portable and lossy. Clients can show ancestry without
 making source status depend on an independent fork. Queued switches survive a

@@ -25,6 +25,7 @@ export const SettingsValues = z.object({
   "host.icon": MachineIcon,
   "projects.roots": z.array(z.string().min(1).max(4096)).max(32),
   "threads.followUpBehavior": z.enum(["steer", "queue"]),
+  "threads.forkOnSwitch": z.boolean(),
   "threads.limitPolicy": z.enum(["manual", "resume_at_reset", "snooze_until_reset", "migrate_now"]),
   "providers.default": ProviderKind,
   "providers.coder.provider": ProviderKind,

@@ -40,6 +40,7 @@ export const settingKeys = {
   settleOnMerge: setting("threads.settleOnMerge", z.boolean(), true),
   settleOnClose: setting("threads.settleOnClose", z.boolean(), false),
   followUp: setting("threads.followUpBehavior", FollowUp, "queue"),
+  forkOnSwitch: setting("threads.forkOnSwitch", z.boolean(), false),
   automations: setting("automations.enabled", z.boolean(), false),
   autoDraftCommits: setting("generation.autoDraftCommits", z.boolean(), true),
   keybindings: setting<Keybindings>("clients.keybindings", Keybindings, {}),

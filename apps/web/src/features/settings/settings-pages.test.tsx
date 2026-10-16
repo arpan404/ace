@@ -34,6 +34,22 @@ test("a switched-off General setting stays off after leaving the page and coming
   ).toBe("false");
 });
 
+test("the switch preservation setting persists after leaving General", async () => {
+  const app = harness();
+  await app.open("/settings/general");
+  const toggle = await screen.findByRole("switch", { name: "Fork when switching providers" });
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
+  await userEvent.click(toggle);
+  await waitFor(() => expect(app.daemon.services.settings.get("threads.forkOnSwitch")).toBe(true));
+  await goTo("Keyboard");
+  await goTo("General");
+  expect(
+    (await screen.findByRole("switch", { name: "Fork when switching providers" })).getAttribute(
+      "aria-checked",
+    ),
+  ).toBe("true");
+});
+
 test("follow-ups are stored on the daemon and nothing offers to continue work after a restart", async () => {
   const app = harness();
   await app.open("/settings/general");

@@ -22,6 +22,7 @@ export const defaults: SettingsValues = {
   "host.icon": { kind: "laptop" },
   "projects.roots": [],
   "threads.followUpBehavior": "queue",
+  "threads.forkOnSwitch": false,
   "threads.limitPolicy": "manual",
   "providers.default": "codex",
   "providers.coder.provider": "codex",

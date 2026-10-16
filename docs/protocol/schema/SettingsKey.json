@@ -12,6 +12,7 @@
     "host.icon",
     "projects.roots",
     "threads.followUpBehavior",
+    "threads.forkOnSwitch",
     "threads.limitPolicy",
     "providers.default",
     "providers.coder.provider",
