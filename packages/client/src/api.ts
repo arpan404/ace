@@ -30,7 +30,13 @@ import type { OneWayMessage } from "./one-way.ts";
 import type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
 import type { ChangeTap, Selection } from "./observable.ts";
 import type { SidebarKey, SidebarReader, ThreadKey, ThreadReader } from "./readers.ts";
-import type { ClientError, ConnectionInfo, ConnectionState, RequestOptions } from "./types.ts";
+import type {
+  ClientError,
+  ConnectionInfo,
+  ConnectionState,
+  RequestOptions,
+  TextReadOptions,
+} from "./types.ts";
 
 /*
  * The surface UI code depends on. `Client` implements it in-process; a client running in a
@@ -151,7 +157,7 @@ export interface ClientApi {
     payload: { streamId: string; offset: number; limit: number },
     options?: RequestOptions,
   ): Promise<OutputData>;
-  text(source: TextSource, options?: RequestOptions): AsyncGenerator<string>;
+  text(source: TextSource, options?: TextReadOptions): AsyncGenerator<string>;
   output(
     payload: { streamId: string; offset: number; limit: number },
     options?: RequestOptions,

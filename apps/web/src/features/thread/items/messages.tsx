@@ -61,16 +61,13 @@ export function AssistantMessage(props: {
       />
       {answer.partial && (
         <div className="mt-2 text-xs text-muted-foreground">
-          <p>Showing a preview of this answer.</p>
-          {streaming ? (
-            <p>Full text can be loaded once streaming stops.</p>
-          ) : answer.status === "loading" ? (
+          {answer.status === "loading" ? (
             <p role="status">Loading full answer…</p>
-          ) : (
+          ) : answer.retryable ? (
             <Button size="sm" onClick={answer.load}>
-              {answer.status === "failed" ? "Try again" : "Show full answer"}
+              Try again
             </Button>
-          )}
+          ) : null}
           {answer.problem && <p role="alert">{answer.problem}</p>}
         </div>
       )}

@@ -54,7 +54,7 @@ function useRendererLoaded(): boolean {
 }
 
 /**
- * Agent prose as markdown, with a skeleton while the renderer loads. `stream`
+ * Agent prose as markdown, with readable live text while the renderer loads. `stream`
  * names a message whose text grows while `streaming` (see `Markdown`).
  */
 export function Prose(props: {
@@ -69,7 +69,15 @@ export function Prose(props: {
   // The renderer is module state that changes once, when its code arrives.
   "use no memo";
   const Markdown = useRendererLoaded() ? renderer : undefined;
-  if (!Markdown) return <MarkdownLoading text={props.text} className={props.className} />;
+  if (!Markdown)
+    return (
+      <MarkdownLoading
+        text={props.text}
+        className={props.className}
+        streaming={props.streaming}
+        tail={props.tail}
+      />
+    );
   return (
     <Markdown
       text={props.text}

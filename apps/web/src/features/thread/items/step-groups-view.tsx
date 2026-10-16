@@ -34,6 +34,9 @@ import { useStepItem, useStepItemsSelect } from "./step-items.ts";
 import { ToolStep } from "./work-log-steps.tsx";
 import { RailMark, StepRail } from "./step-rail.tsx";
 import { LiveGroupTitle } from "./live-group-title.tsx";
+import { useAnswerText } from "./answer-text.ts";
+import { useStreaming } from "../transcript/use-streaming.ts";
+import { Button } from "@/components/ui/button.tsx";
 
 /*
  * A work log as one quiet flow: consecutive calls by one agent read as one sentence row with a
@@ -211,27 +214,42 @@ export function ThinkingRow() {
 /** What the agent thought, as a muted row of its own; "Thinking" while it still thinks. */
 function ThoughtRow(props: { threadId: string; itemId: string }) {
   const item = useStepItem(props.threadId, props.itemId);
-  const [open, setOpen] = useState(false);
+  const answer = useAnswerText(item);
+  const streaming = useStreaming(props.threadId, item);
+  const [toggled, setOpen] = useState<boolean>();
+  const open = toggled ?? streaming;
   if (item?.type !== "reasoning") return null;
-  const text = item.text.trim();
+  const text = answer.text.trim();
   // Still thinking with no words yet: the same header as a thinking turn with no step in flight.
   if (!item.complete && !text) return <ThinkingRow />;
   return (
     <li className="relative flex min-h-8 min-w-0 items-start gap-2.5 py-1.5 text-ui text-muted-foreground">
       <RailMark state={item.complete ? "done" : "running"} />
       <Icon icon={BrainIcon} size={16} className="mt-0.5 text-subtle-foreground" />
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        className={cn(
-          "min-w-0 text-left leading-relaxed whitespace-pre-wrap",
-          !open && "line-clamp-3",
-          !item.complete && "step-shimmer",
+      <div className="min-w-0">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+          className={cn(
+            "min-w-0 text-left leading-relaxed whitespace-pre-wrap",
+            !open && "line-clamp-3",
+            !item.complete && "step-shimmer",
+          )}
+        >
+          {text}
+        </button>
+        {answer.problem && (
+          <p role="alert">
+            {answer.problem}{" "}
+            {answer.retryable && (
+              <Button size="sm" onClick={answer.load}>
+                Try again
+              </Button>
+            )}
+          </p>
         )}
-      >
-        {text}
-      </button>
+      </div>
     </li>
   );
 }

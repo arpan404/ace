@@ -29,6 +29,7 @@ import {
   type OutputData,
   type RegistryQuery,
   type RequestOptions,
+  type TextReadOptions,
   type Scheduler,
   type Selection,
   type SidebarExport,
@@ -564,8 +565,12 @@ export class RemoteClient implements ClientApi {
   ) {
     return this.invoke<OutputData>("outputRead", [payload, timeout(options)], options.signal);
   }
-  text(source: TextSource, options: RequestOptions = {}): AsyncGenerator<string> {
-    return this.stream<string>("text", [source, timeout(options)], options.signal);
+  text(source: TextSource, options: TextReadOptions = {}): AsyncGenerator<string> {
+    return this.stream<string>(
+      "text",
+      [source, { ...timeout(options), offset: options.offset }],
+      options.signal,
+    );
   }
   output(
     payload: { streamId: string; offset: number; limit: number },

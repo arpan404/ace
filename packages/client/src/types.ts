@@ -142,3 +142,8 @@ export interface RequestOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
 }
+
+export interface TextReadOptions extends RequestOptions {
+  /** UTF-16LE byte offset of an already displayed prefix (an even number). */
+  offset?: number;
+}
