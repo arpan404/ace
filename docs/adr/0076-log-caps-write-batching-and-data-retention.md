@@ -118,6 +118,16 @@ as unsafe and falls back to a fresh snapshot rather than surfacing a replay erro
 Transactional reads bypass cache population; callers receive independent values. Read-cache
 pressure cannot evict pinned writes. Cache misses fall through to SQLite.
 
+Read-cache optimization remains a separate follow-up: with 1,000 awaited deltas, a local
+single-writer run committed 42 transactions, while interleaving a snapshot read every four
+deltas committed 251 transactions with 250 cache misses and no hits. Reads currently drain
+the tail to preserve consistency. The next Store extraction should move snapshot, item-page
+and entity-page reads, their cache keys and generation checks into one read-path owner;
+Store will keep the flush barrier and write transaction ownership. This separates read-path
+work before Store reaches its 1,500-line limit. Shutdown now has its own small owner so a
+failed final flush cannot skip timer, worker or connection cleanup; its promise reports
+flush and cleanup failures after all cleanup has been attempted.
+
 WAL auto-checkpoint and the existing 16 MiB journal limit remain enabled. A bounded idle
 checkpoint timer tries TRUNCATE without waiting for other readers, at most once per five
 seconds after writes. No recurring work remains once idle. Retention semantics are unchanged.

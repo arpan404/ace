@@ -1,6 +1,7 @@
 import { loadThreadSnapshot } from "./thread-snapshot.ts";
 import { StreamSequences } from "./stream-sequences.ts";
 import { StoreStream } from "./store-stream.ts";
+import { closeStore } from "./store-shutdown.ts";
 import { ThreadReadCache } from "./thread-read-cache.ts";
 import { WalMaintenance } from "./wal-maintenance.ts";
 import {
@@ -285,32 +286,25 @@ export class Store {
   private onError: (error: unknown) => void;
   close(): Promise<void> {
     if (this.closing) return this.closing;
-    this.flushLiveWrites();
-    this.streaming.buffer.stop();
-    this.wal.close();
     const finished = Promise.withResolvers<void>();
     this.closing = finished.promise;
-    this.searchAbort.abort();
-    const workers = this.searchQueries.close();
-    let failure: unknown;
-    try {
-      this.searchMaintenance.close();
-    } catch (error) {
-      failure = error;
-    }
-    this.statements.clear();
-    this.listeners.clear();
-    this.usageListeners.clear();
-    this.caches.clear();
-    try {
-      this.db.close();
-    } catch (error) {
-      failure ??= error;
-    }
-    void workers.then(() => {
-      if (failure !== undefined) finished.reject(failure);
-      else finished.resolve();
-    }, finished.reject);
+    void closeStore({
+      flush: () => this.flushLiveWrites(),
+      stop: [
+        () => this.streaming.buffer.stop(),
+        () => this.wal.close(),
+        () => this.searchAbort.abort(),
+        () => this.searchMaintenance.close(),
+      ],
+      workers: () => this.searchQueries.close(),
+      release: () => {
+        this.statements.clear();
+        this.listeners.clear();
+        this.usageListeners.clear();
+        this.caches.clear();
+        this.db.close();
+      },
+    }).then(finished.resolve, finished.reject);
     return this.closing;
   }
   /** Shared per-connection prepared statements; SQL text, never entity IDs, keys the bounded LRU. */

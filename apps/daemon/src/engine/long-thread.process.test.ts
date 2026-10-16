@@ -1,5 +1,8 @@
 import { expect, test } from "vitest";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
+import { z } from "zod";
+import type { ServerMessage } from "@ace/protocol";
+import { subscribe } from "../subscription.ts";
 
 test("frames queued while history owns SQLite commit after publication without poisoning the session", async () => {
   const frames = scriptFrames();
@@ -130,6 +133,67 @@ test("explicitly flushed coalesced appends survive SIGKILL without graceful shut
             item.parts.some((part) => part.type === "text" && part.text === "x".repeat(1000)),
         ),
       ).toBe(true);
+    } finally {
+      await store.close();
+    }
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+      await exited;
+    }
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("SIGKILL drops only the buffered tail and reconnects without reusing its delivered cursor", async () => {
+  const { fork } = await import("node:child_process");
+  const { once } = await import("node:events");
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { Store } = await import("../index.ts");
+  const { ThreadId } = await import("@ace/protocol");
+  const home = await mkdtemp(join(tmpdir(), "ace-buffered-kill-"));
+  const path = join(home, "events.sqlite");
+  const child = fork(new URL("./long-thread-child.ts", import.meta.url), [path, home, "buffered"], {
+    stdio: ["ignore", "ignore", "inherit", "ipc"],
+  });
+  const exited = once(child, "exit");
+  try {
+    const [message] = await Promise.race([
+      once(child, "message"),
+      exited.then(() => {
+        throw new Error("Fixture exited before acknowledging its live tail");
+      }),
+    ]);
+    const cursor = z.object({ seq: z.number().int().positive() }).parse(message).seq;
+    child.kill("SIGKILL");
+    const [, signal] = await exited;
+    expect(signal).toBe("SIGKILL");
+    const store = new Store(path);
+    try {
+      const id = ThreadId.parse("committed-thread");
+      expect(store.headSeq()).toBeLessThan(cursor);
+      const texts = Object.values(store.snapshotThread(id).items).flatMap((item) =>
+        item.type === "message"
+          ? item.parts.flatMap((part) => (part.type === "text" ? [part.text] : []))
+          : [],
+      );
+      expect(texts).toContain("x".repeat(1000));
+      expect(texts.some((text) => text.includes("unflushed tail"))).toBe(false);
+      const messages: ServerMessage[] = [];
+      const stop = subscribe(
+        store,
+        "crash-tail",
+        { kind: "thread", threadId: id },
+        cursor,
+        1000,
+        (reply) => messages.push(reply),
+      );
+      stop();
+      expect(messages[0]).toMatchObject({ type: "snapshot", seq: store.headSeq() });
+      store.appendEvents(id, [{ type: "thread.updated", title: "recovered after crash" }]);
+      expect(store.headSeq()).toBeGreaterThan(cursor);
     } finally {
       await store.close();
     }

@@ -47,6 +47,33 @@ async function streaming() {
   return { ...h, id, context, frames, append, scheduler };
 }
 
+test("a delta that creates an item commits durably without reserving a live sequence range", async () => {
+  const h = await streaming();
+  await h.context.onFrame(
+    h.frames.frame({
+      type: "item.delta",
+      agent: "root",
+      item: "new-answer",
+      field: "text",
+      append: "durable first append",
+    }),
+  );
+  const reader = new DatabaseSync(h.path, { readOnly: true });
+  try {
+    const head = h.store.headSeq();
+    expect(Number(reader.prepare("SELECT seq FROM host_sequence WHERE id=1").get()?.seq)).toBe(
+      head,
+    );
+    expect(Number(reader.prepare("SELECT MAX(seq) AS seq FROM events").get()?.seq)).toBe(head);
+    expect(h.store.readItems(h.id, head + 1, 10).items.at(-1)).toMatchObject({
+      parts: [{ type: "text", text: "durable first append" }],
+    });
+    expect(h.errors).toEqual([]);
+  } finally {
+    reader.close();
+  }
+});
+
 test("awaited provider deltas stream immediately while SQLite commits fewer than one batch per ten tokens", async () => {
   const h = await streaming();
   const reader = new DatabaseSync(h.path, { readOnly: true });

@@ -5,6 +5,7 @@ import { Agent, Command, Thread, WorkspaceId, type Event } from "@ace/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { Store } from "./store.ts";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => {
@@ -29,6 +30,64 @@ function setup(onError: (error: unknown) => void = console.error) {
     },
   };
 }
+
+it.each([false, true])(
+  "shutdown closes SQLite and cancels work after a live flush fails (maintenance also fails: %s)",
+  async (failMaintenance) => {
+    vi.useFakeTimers();
+    const home = mkdtempSync(join(tmpdir(), "ace-store-close-"));
+    const database = new DatabaseSync(join(home, "events.sqlite"));
+    const errors: unknown[] = [];
+    const store = new Store(join(home, "events.sqlite"), (error) => errors.push(error), {
+      database,
+      ...(failMaintenance
+        ? {
+            searchScheduler: () => () => {
+              throw new Error("search stop failed");
+            },
+          }
+        : {}),
+    });
+    try {
+      const workspace = store.createWorkspace(home, "Shutdown");
+      const thread = createDevThread(store, workspace);
+      store.atomic((db) =>
+        db.exec(
+          "CREATE TRIGGER fail_close BEFORE INSERT ON events WHEN NEW.type='thread.updated' BEGIN SELECT RAISE(ABORT, 'disk unavailable'); END",
+        ),
+      );
+      store.prepareLiveWrite(100);
+      store.bufferLiveWrite(thread.id, [{ type: "thread.updated", title: "pending" }], 1000, {
+        persist() {},
+        committed() {},
+      });
+      const closed = store.close();
+      const failure: unknown = await closed.catch((error: unknown) => error);
+      if (failMaintenance) {
+        expect(failure).toBeInstanceOf(AggregateError);
+        if (!(failure instanceof AggregateError)) throw new Error("Missing cleanup failures");
+        expect(
+          failure.errors.map((error: unknown) => (error instanceof Error ? error.message : error)),
+        ).toEqual(["Store is busy", "search stop failed"]);
+      } else expect(failure).toMatchObject({ message: "Store is busy" });
+      expect(database.isOpen).toBe(false);
+      const reported = [...errors];
+      vi.advanceTimersByTime(10000);
+      expect(errors).toEqual(reported);
+      await expect(store.close()).rejects.toBe(failure);
+    } finally {
+      // The unfixed implementation exits before cleanup; repair it so a failing regression
+      // still releases the real connection and its search workers.
+      if (database.isOpen) {
+        database.exec("DROP TRIGGER IF EXISTS fail_close");
+        await store.close().catch(() => {});
+      }
+      vi.useRealTimers();
+      rmSync(home, { recursive: true, force: true });
+    }
+  },
+);
+
 describe("store", () => {
   it("checks live ownership without decoding history and follows tombstones and rollback", () => {
     const { store, thread } = setup();
