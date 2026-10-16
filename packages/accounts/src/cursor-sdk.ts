@@ -91,16 +91,7 @@ export function cursorSdkLoginDriver(
   registry: AccountRegistry,
   options: Parameters<typeof createCursorAccountDriver>[0] & { now(): number },
 ) {
-  const driver = createCursorAccountDriver({
-    ...options,
-    environment(instance) {
-      const selected = registry.get(instance.id)?.instance;
-      if (!selected || selected.provider !== "cursor" || selected.homeDir !== instance.homeDir)
-        throw new Error("Cursor SDK auth must use its registered instance home");
-      return instanceEnv(selected, options.launchEnv, "cursor-sdk");
-    },
-  });
-  const selected = (instance: ProviderInstance) => {
+  const selected = (instance: Pick<ProviderInstance, "id" | "homeDir">) => {
     const account = registry.get(instance.id);
     if (
       !account ||
@@ -110,6 +101,11 @@ export function cursorSdkLoginDriver(
       throw new Error("Cursor SDK auth must use its registered instance home");
     return account.instance;
   };
+  const driver = createCursorAccountDriver({
+    ...options,
+    prepareLogin: (instance) => registry.restoreCursorHome(selected(instance).id),
+    environment: (instance) => instanceEnv(selected(instance), options.launchEnv, "cursor-sdk"),
+  });
   const publish = (
     instance: ProviderInstance,
     status: Awaited<ReturnType<typeof driver.status>>,
@@ -137,9 +133,7 @@ export function cursorSdkLoginDriver(
       signal: AbortSignal,
       ephemeralUrl: (url: string) => void,
     ) {
-      await registry.register(instance);
       const account = selected(instance);
-      await registry.validateHome(account);
       return publish(account, await driver.login(cursorIdentity(account), signal, ephemeralUrl));
     },
     async logout(instance: ProviderInstance, signal: AbortSignal) {

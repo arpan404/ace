@@ -10,8 +10,9 @@ configure({ asyncUtilTimeout: 10000 });
 
 /**
  * A new thread's worktree as the person watches it being made: its steps under the first
- * message, checkout's progress, the details log, Cancel, Don't use worktree, Retry, and the
- * one line it folds to once made. The fake daemon's steps are run one at a time.
+ * message, checkout's progress, the details log, Cancel, Don't use worktree, and Retry. Once
+ * made it shows nothing: the settled worktree is never shown in chat. The fake daemon's steps
+ * are run one at a time.
  */
 function app() {
   const jobs: { run(): void; live: boolean }[] = [];
@@ -109,7 +110,7 @@ test("a worktree's steps advance under the first message, with checkout's percen
   expect(made.threads().some((thread) => isNew(thread.id))).toBe(false);
 }, 30_000);
 
-test("once made, the card folds to one line that opens on its steps and log", async () => {
+test("once made, the settled worktree is never shown in chat", async () => {
   const made = app();
   made.daemon.services.settings.seed({
     "host.displayName": "Workshop Mac",
@@ -129,29 +130,14 @@ test("once made, the card folds to one line that opens on its steps and log", as
   expect(within(attachments).getByText("reconnect.txt")).toBeTruthy();
   await made.stepUntil(() => made.threads().some((thread) => isNew(thread.id)));
 
-  // The real thread opens; its first message keeps how the worktree was made, folded.
-  const line = await screen.findByRole("button", { name: /^Worktree ready · ace\/[\w-]+ · \d+s$/ });
+  // The real thread opens; the settled worktree stays out of the transcript, folded or not.
+  const transcript = await screen.findByRole("feed", { name: "Transcript" });
   expect(screen.queryByRole("region", { name: "Creating a worktree" })).toBeNull();
-  const transcript = screen.getByRole("feed", { name: "Transcript" });
-  expect(await within(transcript).findByText("Workshop Mac")).toBeTruthy();
-  expect(within(transcript).getByRole("img", { name: "desktop machine icon" })).toBeTruthy();
-  expect(line.getAttribute("aria-expanded")).toBe("false");
-  await userEvent.click(line);
-  const steps = screen.getByRole("list", { name: "Steps" });
-  expect(
-    within(steps)
-      .getAllByRole("listitem")
-      .map((item) => item.textContent),
-  ).toEqual([
-    "Preparing workspace1.5s",
-    "Fetching the base branch1.5s",
-    "Creating the branch1.5s",
-    "Checking out files11s",
-    "Running setup1.5s",
-  ]);
-  expect(screen.getByRole("log", { name: "Worktree details" }).textContent).toContain(
-    "Worktree setup",
-  );
+  expect(screen.queryByRole("button", { name: /^Worktree ready/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Using the local checkout/ })).toBeNull();
+  expect(screen.queryByRole("list", { name: "Steps" })).toBeNull();
+  expect(screen.queryByRole("log", { name: "Worktree details" })).toBeNull();
+  expect(within(transcript).queryByText("Workshop Mac")).toBeNull();
   expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
     "Keep the retries bounded too",
   );
@@ -220,7 +206,9 @@ test("Cancel stops the worktree, keeps the message unsent and offers Retry or th
   await userEvent.click(within(stopped).getByRole("button", { name: "Retry" }));
   await screen.findByRole("region", { name: "Creating a worktree" });
   await made.stepUntil(() => made.threads().some((thread) => isNew(thread.id)));
-  expect(await screen.findByRole("button", { name: /^Worktree ready/ })).toBeTruthy();
+  await screen.findByRole("feed", { name: "Transcript" });
+  expect(screen.queryByRole("button", { name: /^Worktree ready/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Using the local checkout/ })).toBeNull();
   const created = made.threads().filter((thread) => isNew(thread.id));
   expect(created).toHaveLength(1);
   // The message's own send settles with the retried create's receipt.
@@ -265,11 +253,12 @@ test("Don't use worktree starts the thread on the local checkout and sends the m
   await made.stepUntil(() => checkout() !== null);
 
   await userEvent.click(within(card).getByRole("button", { name: "Don't use worktree" }));
-  const line = await screen.findByRole("button", { name: /^Using the local checkout · / });
-  expect(line).toBeTruthy();
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  // The settled local checkout is never shown in chat either.
+  expect(screen.queryByRole("button", { name: /^Using the local checkout/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Worktree ready/ })).toBeNull();
   const created = made.threads().find((thread) => isNew(thread.id));
   expect(created?.details?.mode).toBe("local");
-  const feed = screen.getByRole("feed", { name: "Transcript" });
   expect(within(feed).getAllByText("Bump the retry budget")).toHaveLength(1);
 }, 30_000);
 

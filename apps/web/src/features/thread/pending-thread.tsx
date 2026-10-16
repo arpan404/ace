@@ -138,7 +138,7 @@ export function PendingThreadView(props: {
                 {props.parts.bubble}
               </div>
             </div>
-            {worktreeSpeaks(progress, failed ? code : undefined) ? (
+            {worktreeSpeaks(progress, failed ? code : undefined) && !made ? (
               <WorktreeCreationCard
                 state={worktree.state}
                 onAction={worktree.act}

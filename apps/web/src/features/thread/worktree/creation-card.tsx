@@ -4,7 +4,6 @@ import {
   worktreeHeadline,
   worktreeNote,
   worktreeStepRows,
-  worktreeSummary,
   type WorktreeStepRow,
 } from "@ace/ui-core";
 import {
@@ -34,8 +33,8 @@ import type { WorktreeAction, WorktreeCreationState } from "./use-worktree-creat
  * one quiet card with a line per step the daemon has reached, checkout's progress bar, a
  * "More details" disclosure over the redacted log, and Cancel / Don't use worktree (Retry once
  * it failed or was cancelled, Continue when only its setup script failed, with the script's
- * output open). A stale Git lock offers Clear stale lock. Once made it folds to one line,
- * "Worktree ready · branch · 4.2s", which opens on the same steps with their timings and the log.
+ * output open). A stale Git lock offers Clear stale lock. Once made it shows nothing: the
+ * settled "Worktree ready" line is never shown in chat, not while agents work nor later.
  */
 
 /** The collapsed "Worked for" line's look, so settled lines in a transcript read alike. */
@@ -90,7 +89,7 @@ export interface CreationFailure {
   detail?: string | undefined;
 }
 
-/** The worktree being made, or how its making ended; nothing until the daemon has reported. */
+/** The worktree being made; nothing until the daemon has reported, and nothing once settled. */
 export function WorktreeCreationCard(props: {
   state: WorktreeCreationState | undefined;
   onAction(action: WorktreeAction): void;
@@ -100,8 +99,7 @@ export function WorktreeCreationCard(props: {
 }) {
   const progress = props.state?.progress;
   if (!props.state || !progress) return null;
-  if (progress.state === "done" || progress.state === "local")
-    return <WorktreeReadyLine progress={progress} />;
+  if (progress.state === "done" || progress.state === "local") return null;
   return <CreationCard {...props} state={props.state} progress={progress} />;
 }
 
@@ -209,47 +207,6 @@ function ActionButton(props: {
         <span className="@max-[26rem]/creation:sr-only">{label}</span>
       </button>
     </Tip>
-  );
-}
-
-/** A settled worktree, folded: "Worktree ready · fix/login-timeout · 4.2s", opening on its steps. */
-export function WorktreeReadyLine(props: {
-  progress: WorktreeCreationProgress;
-  branch?: string | null | undefined;
-}) {
-  const [open, setOpen] = useState(false);
-  const panel = useId();
-  return (
-    <div className="fx-view-in flex flex-col items-start">
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls={panel}
-        onClick={() => setOpen(!open)}
-        className={foldedLine}
-      >
-        <Icon
-          icon={props.progress.state === "local" ? LaptopIcon : GitForkIcon}
-          size={14}
-          className="text-subtle-foreground"
-        />
-        <span className="min-w-0 truncate">{worktreeSummary(props.progress, props.branch)}</span>
-        <CaretRightIcon
-          aria-hidden
-          size={14}
-          className={cn(
-            "shrink-0 text-subtle-foreground transition-transform duration-(--motion-base) ease-spring",
-            open && "rotate-90",
-          )}
-        />
-      </button>
-      {open && (
-        <div id={panel} className="mt-1 w-full py-1 pr-2 pl-3.5">
-          <StepList rows={worktreeStepRows(props.progress)} times />
-          <DetailsLog lines={props.progress.details} />
-        </div>
-      )}
-    </div>
   );
 }
 
