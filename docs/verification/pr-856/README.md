@@ -52,5 +52,25 @@ The collapsed title fits all four widths; [measured bounds](geometry.json) accom
 | 1440  | [Screenshot](light-1440.png) | [Screenshot](dark-1440.png) |
 | 1920  | [Screenshot](light-1920.png) | [Screenshot](dark-1920.png) |
 
-Repository-wide check results are recorded with the review outcome; focused passes do not
-substitute for the merge gate. Issue 849's body-height reservation work remains separate.
+Formatting, protocol generation, lint, source size, UI values, dependency checks and
+TypeScript passed. Dependency-cruiser emits its existing TypeScript 7 compatibility warning.
+
+The full `bun run check` attempt hit UI failures and was stopped; a lower-concurrency
+restart was also stopped after confirming a baseline blocker. The dialog Escape regression
+in `apps/web/src/components/ui/overlay-behavior.test.tsx` fails on both the corrected branch
+and the original PR head `9b5cf9fbb`: the Rename dialog remains open after Escape. That
+isolated baseline run used the original source and the same installed dependency versions.
+The dialog code is outside this change. This PR does **not** have a green repository gate.
+
+The forge stack and hosted-repository suites passed on rerun. Creation recovery, fork
+lineage and handoff refusal passed with one worker and a 60-second test deadline, without
+changing their assertions. These reruns do not replace a passing full check. Issue 849's
+body-height reservation work remains separate.
+
+`bun run check:perf` stops in the daemon idle-import guard because `imports.log` is
+missing (`ENOENT`). Running `node apps/daemon/bench/idle-imports.ts` on the original PR
+head reproduces that error too. The separate web static-performance check also fails its
+bundle budgets: initial JS is 319.20 KB (limit 270), CSS 25.10 KB (21), the largest first
+screen 621.60 KB (405), and the thread route 235.47 KB (138). The client and machine workers
+also exceed their budgets. Bundle sizes here describe the corrected branch; no baseline
+bundle comparison or passing soak/timing qualification is claimed.
