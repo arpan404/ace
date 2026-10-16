@@ -279,7 +279,7 @@ it("keyed question forms keep multi-select answers and dismissal", () => {
     dismissed: true,
   });
 });
-it("generic forms retain typed fields instead of being flattened into questions", () => {
+it("generic forms become a JSON elicitation schema the web form can render", () => {
   const h = setup();
   h.event("form.created", {
     form: {
@@ -289,10 +289,95 @@ it("generic forms retain typed fields instead of being flattened into questions"
       fields: [{ key: "age", type: "number", min: 18 }],
     },
   });
-  expect(Object.values(h.view.interactions)[0]?.request).toMatchObject({
+  expect(Object.values(h.view.interactions)[0]?.request).toEqual({
     kind: "elicitation",
-    schema: { fields: [{ key: "age", type: "number", min: 18 }] },
+    server: "OpenCode",
+    message: "Age",
+    schema: {
+      type: "object",
+      properties: { age: { type: "number", minimum: 18 } },
+      required: [],
+    },
   });
+});
+it("generic forms keep titles, options, requirements and defaults while skipping hidden fields", () => {
+  const h = setup();
+  h.event("form.created", {
+    form: {
+      id: "search",
+      sessionID: "s-root",
+      title: "Web Search",
+      fields: [
+        {
+          key: "query",
+          type: "string",
+          title: "Query",
+          description: "What to search for",
+          required: true,
+          minLength: 2,
+          maxLength: 200,
+        },
+        {
+          key: "region",
+          type: "string",
+          title: "Region",
+          options: [
+            { value: "us", label: "United States" },
+            { value: "eu", label: "Europe" },
+          ],
+          default: "us",
+        },
+        { key: "count", type: "integer", title: "Count", minimum: 1, maximum: 10, default: 5 },
+        { key: "exact", type: "boolean", title: "Exact", default: true },
+        { key: "internal", type: "string", hidden: true, required: true },
+      ],
+    },
+  });
+  expect(Object.values(h.view.interactions)[0]?.request).toEqual({
+    kind: "elicitation",
+    server: "OpenCode",
+    message: "Web Search",
+    schema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          title: "Query",
+          description: "What to search for",
+          minLength: 2,
+          maxLength: 200,
+        },
+        region: {
+          type: "string",
+          title: "Region",
+          enum: ["us", "eu"],
+          enumNames: ["United States", "Europe"],
+          default: "us",
+        },
+        count: { type: "integer", title: "Count", minimum: 1, maximum: 10, default: 5 },
+        exact: { type: "boolean", title: "Exact", default: true },
+      },
+      required: ["query"],
+    },
+  });
+});
+it("generic forms without a renderable field omit the schema and stay explicitly unsupported", () => {
+  for (const fields of [
+    [],
+    [{ key: "pick", type: "multiselect", required: true, options: [{ value: "a" }] }],
+    [{ key: "ack", type: "external", required: true, url: "https://example.com/consent" }],
+    [{ key: "hidden", type: "string", hidden: true }],
+  ]) {
+    const h = setup();
+    h.event("form.created", {
+      form: { id: "generic", sessionID: "s-root", title: "Web Search", fields },
+    });
+    expect(Object.values(h.view.interactions)[0]?.request).toEqual({
+      kind: "elicitation",
+      server: "OpenCode",
+      message: "Web Search",
+    });
+  }
 });
 it("transport disconnection preserves pending interactions until authoritative reconciliation", () => {
   const h = setup();
