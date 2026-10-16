@@ -20,6 +20,12 @@ const JobMetadata = z.object({
 });
 export type JobMetadata = z.infer<typeof JobMetadata>;
 const Job = JobMetadata.extend({ state: z.unknown() });
+const CatalogMetadata = Automation.pick({
+  id: true,
+  title: true,
+  workspace: true,
+  provider: true,
+}).extend({ enabled: z.union([z.literal(0), z.literal(1)]).transform((value) => value === 1) });
 export type Job = z.infer<typeof Job>;
 const Input = z.object({
   idempotencyKey: z.string(),
@@ -33,6 +39,7 @@ const Input = z.object({
   worktree: z.boolean(),
 });
 export class AutomationStore {
+  private catalogCache: z.infer<typeof CatalogMetadata>[] | undefined;
   private db: DatabaseSync;
   private statements = new Map<string, StatementSync>();
   constructor(path: string) {
@@ -100,6 +107,7 @@ export class AutomationStore {
         "INSERT INTO automation_state VALUES(?,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state",
       ).run(automation.id, snapshot);
     });
+    this.catalogCache = undefined;
   }
   remove(id: string): void {
     this.transaction(() => {
@@ -107,6 +115,7 @@ export class AutomationStore {
       this.sql("DELETE FROM automation_state WHERE id=?").run(id);
       this.sql("DELETE FROM automation_jobs WHERE id=?").run(id);
     });
+    this.catalogCache = undefined;
   }
   get(id: string): Job | undefined {
     const row = this.sql("SELECT * FROM automation_jobs WHERE id=?").get(id);
@@ -162,6 +171,19 @@ export class AutomationStore {
   }
   list(): JobMetadata[] {
     return [...this.jobs()];
+  }
+  /** Catalog reads need names, never prompt bodies, scheduling state or run history. */
+  catalog(provider: Automation["provider"], workspace: string): { id: string; title: string }[] {
+    this.catalogCache ??= this.sql(`SELECT id,
+      json_extract(body,'$.title') AS title, json_extract(body,'$.enabled') AS enabled,
+      json_extract(body,'$.workspace') AS workspace, json_extract(body,'$.provider') AS provider
+      FROM automation_jobs ORDER BY id LIMIT 1000`)
+      .all()
+      .map((row) => CatalogMetadata.parse(row));
+    return this.catalogCache
+      .filter((a) => a.enabled && a.provider === provider && a.workspace === workspace)
+      .slice(0, 128)
+      .map(({ id, title }) => ({ id, title }));
   }
   next(excluded: readonly string[] = []): JobMetadata | undefined {
     if (excluded.length > 4) throw new Error("Too many excluded polls");

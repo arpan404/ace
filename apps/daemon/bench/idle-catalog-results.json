@@ -1,0 +1,76 @@
+{
+  "baselineCommit": "67fa95d4e",
+  "node": "26.7.0",
+  "platform": "macOS 26.7.2 arm64",
+  "method": "10s warmup, 60s process.cpuUsage including workers, real local WebSocket, no V8 profiler, isolated environment and homes",
+  "qualification": "Diagnostic runs on a host with other workloads, including repository validation. Not a qualified idle-host timing gate.",
+  "results": [
+    {
+      "implementation": "baseline",
+      "contexts": 8,
+      "jobs": 256,
+      "elapsedMs": 60304.817583,
+      "cpuPercent": 75.5199200085772,
+      "publishes": 1688,
+      "errors": 0,
+      "maxLoopDelayMs": 1729.101823,
+      "p99LoopDelayMs": 1138.753535,
+      "daemonLoop": {
+        "delayMs": 479,
+        "maxDelayMs": 1545,
+        "stalls": 1
+      }
+    },
+    {
+      "implementation": "fixed",
+      "contexts": 8,
+      "jobs": 256,
+      "elapsedMs": 60000.458375,
+      "cpuPercent": 1.1983375118673834,
+      "publishes": 0,
+      "errors": 0,
+      "maxLoopDelayMs": 68.943871,
+      "p99LoopDelayMs": 17.645567,
+      "daemonLoop": {
+        "delayMs": 1,
+        "maxDelayMs": 65,
+        "stalls": 0
+      }
+    }
+  ],
+  "bundledNode": "24.13.0",
+  "bundledNodeResults": [
+    {
+      "implementation": "baseline",
+      "contexts": 8,
+      "jobs": 256,
+      "elapsedMs": 60001.59225,
+      "cpuPercent": 89.85827705263938,
+      "publishes": 1881,
+      "errors": 0,
+      "maxLoopDelayMs": 1007.681535,
+      "p99LoopDelayMs": 851.967999,
+      "daemonLoop": {
+        "delayMs": 73,
+        "maxDelayMs": 1403,
+        "stalls": 1
+      }
+    },
+    {
+      "implementation": "fixed",
+      "contexts": 8,
+      "jobs": 256,
+      "elapsedMs": 60000.700917,
+      "cpuPercent": 1.3665307029233218,
+      "publishes": 0,
+      "errors": 0,
+      "maxLoopDelayMs": 25.444351,
+      "p99LoopDelayMs": 14.557183,
+      "daemonLoop": {
+        "delayMs": 1,
+        "maxDelayMs": 43,
+        "stalls": 0
+      }
+    }
+  ]
+}

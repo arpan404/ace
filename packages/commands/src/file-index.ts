@@ -6,6 +6,7 @@ import { parseMarkdown, parseOpenCodeConfig, parseCodexAgent } from "./parse.ts"
 import type { CommandFileIo } from "./secure-io.ts";
 import type { DirectoryReader } from "./posix.ts";
 import { key, sourceId, type RegisteredRoot } from "./file-keys.ts";
+import type { ParsedSource } from "./types.ts";
 interface Node {
   version: string;
   identity: string;
@@ -35,6 +36,10 @@ export interface DiscoveryMetrics {
 }
 /** One queue step performs one inspection, directory entry or removal. No recursive I/O. */
 export class FileIndex {
+  private version = 0;
+  get revision(): number {
+    return this.version;
+  }
   private readonly catalog: CommandCatalog;
   private readonly io: CommandFileIo;
   private readonly recovery: FileRecovery;
@@ -99,12 +104,23 @@ export class FileIndex {
     const id = sourceId(root, path),
       slot = key(root, path);
     if (!this.sources.has(slot) && this.sources.size >= 2048) return;
-    if (this.catalog.replaceSource(id, { commands: [], diagnostics: [{ source: id, message }] }))
+    if (this.replaceSource(id, { commands: [], diagnostics: [{ source: id, message }] }))
       this.sources.set(slot, id);
+  }
+  private replaceSource(id: string, parsed: ParsedSource): boolean {
+    const before = this.catalog.revision;
+    const accepted = this.catalog.replaceSource(id, parsed);
+    if (this.catalog.revision !== before) this.version++;
+    return accepted;
+  }
+  private removeSource(id: string): void {
+    const before = this.catalog.revision;
+    this.catalog.removeSource(id);
+    if (this.catalog.revision !== before) this.version++;
   }
   private clearSource(slot: string): void {
     const id = this.sources.get(slot);
-    if (id) this.catalog.removeSource(id);
+    if (id) this.removeSource(id);
     this.sources.delete(slot);
   }
   private async stopScan(slot: string): Promise<void> {
@@ -259,7 +275,7 @@ export class FileIndex {
           : root.format === "opencode-config"
             ? parseOpenCodeConfig(read.text, ctx)
             : parseMarkdown(read.text, { ...ctx, format: root.format });
-      if (!this.catalog.replaceSource(id, parsed)) {
+      if (!this.replaceSource(id, parsed)) {
         this.report(root, path, "Catalog admission limit exceeded");
         return;
       }
@@ -325,7 +341,7 @@ export class FileIndex {
     return this.pending;
   }
   clear(): void {
-    for (const source of this.sources.values()) this.catalog.removeSource(source);
+    for (const source of this.sources.values()) this.removeSource(source);
     this.sources.clear();
   }
   async close(): Promise<void> {
