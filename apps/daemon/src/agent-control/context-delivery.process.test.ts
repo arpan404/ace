@@ -12,7 +12,7 @@ test("daemon delivers budgeted thread context with paging pointers and denies a 
       requestId: "context-source",
       provider: "claude",
       task: "work",
-      role: "worker",
+      role: "context-source-task",
       wait: false,
       estimatedLoad: 0,
     });

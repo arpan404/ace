@@ -8,7 +8,7 @@ test("a child cannot widen its captured ceiling after its parent widens", async 
   const child = h.service.delegate(parent, {
     requestId: "narrow",
     task: "inspect",
-    role: "reader",
+    role: "narrow-inspect-task",
     provider: "codex",
     access: "read-only",
     wait: false,
@@ -49,7 +49,7 @@ test("unverifiable cross-provider policies fail before child creation", async ()
     h.service.delegate(parent, {
       requestId: "cross",
       task: "edit",
-      role: "writer",
+      role: "cross-edit-task",
       provider: "claude",
       access: "full-access",
       wait: false,

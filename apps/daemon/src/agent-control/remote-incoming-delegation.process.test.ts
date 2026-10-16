@@ -12,7 +12,7 @@ test("an incoming remote task delegates on the target like any local root", asyn
       requestId: "delegate",
       provider: "claude",
       model: "chosen-model",
-      role: "Worker",
+      role: "incoming-delegate-task",
       task: "Work",
       wait: false,
       estimatedLoad: 0,

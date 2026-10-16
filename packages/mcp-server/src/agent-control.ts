@@ -52,7 +52,7 @@ export const agentControlToolCatalog = AgentControlOperation.options.flatMap((sc
     name: op === "delegate_task" ? "delegate_task" : `ace_${op.replaceAll(".", "_")}`,
     description:
       op === "delegate_task"
-        ? "Start child threads on any provider: one task, or several with tasks: [...]. Returns their ids at once. To use results this turn, set await (any or all) with timeoutSeconds, or call ace_wait with the ids; never poll. If you end your turn instead, settled results arrive as a new turn. Stable requestIds make retries create nothing new. Fields, machines and access: ace_guide ace-agents."
+        ? "Start child threads on any provider: one task, or several with tasks: [...]. Returns their ids at once. Each role is the child's display name: it must be unique among this thread's live children and descriptive of the work (e.g. 'Fix-869-worked-for-toast', never 'Implementer'); generic or repeated roles are rejected. To use results this turn, set await (any or all) with timeoutSeconds, or call ace_wait with the ids; never poll. If you end your turn instead, settled results arrive as a new turn. Stable requestIds make retries create nothing new. Fields, machines and access: ace_guide ace-agents."
         : op === "thread.read_output"
           ? "Read a bounded byte range from a transcript/output source returned by ace_thread_read. Offsets and limits are bytes; the result contains base64 bytes and nextOffset. Decode using the source encoding. The stream must belong to the requested authorized thread."
           : op === "thread.read"

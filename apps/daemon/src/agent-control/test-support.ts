@@ -226,7 +226,7 @@ export function setup(
     return service.delegate(identity, {
       requestId,
       task: "Implement safely",
-      role: "implementer",
+      role: `test-task-${requestId}`,
       provider: "claude",
       model: "chosen-model",
       effort: "high",

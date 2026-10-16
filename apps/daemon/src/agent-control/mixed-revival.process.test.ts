@@ -47,7 +47,7 @@ test.each([false, true])(
         provider: "claude",
         model: "chosen-model",
         task: "Review",
-        role: "Reviewer",
+        role: "revive-local-review",
         wait: true,
         estimatedLoad: 0,
       });

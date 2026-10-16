@@ -15,6 +15,12 @@ import { controlCommandId } from "./delegations.ts";
 import { childTaskView } from "./task-view.ts";
 import { conversationTool, type ConversationStartPort } from "./conversation-tools.ts";
 import { AgentControlError } from "./failure.ts";
+import {
+  batchDuplicateRoleProblem,
+  internalRole,
+  normalizeRole,
+  roleProblem,
+} from "./role-names.ts";
 
 export type ExtensionOperation = Extract<
   AgentControlOperation,
@@ -51,6 +57,28 @@ function threadOwnerOperation(operation: AgentControlOperation): ThreadOwnerOper
       return operation;
     default:
       return undefined;
+  }
+}
+/**
+ * Every name check a batch can meet before anything is created, so a batch never
+ * half-starts and remote-machine children get the same naming rules as local ones.
+ */
+function checkNames(requests: DelegationRequest[]): void {
+  const seen = new Set<string>();
+  for (const request of requests) {
+    const problem = roleProblem(request.role);
+    if (problem)
+      throw new AgentControlError("invalid_arguments", "generic_role", undefined, problem);
+    if (internalRole(request.role)) continue;
+    const name = normalizeRole(request.role);
+    if (seen.has(name))
+      throw new AgentControlError(
+        "invalid_arguments",
+        "duplicate_role",
+        undefined,
+        batchDuplicateRoleProblem(request.role),
+      );
+    seen.add(name);
   }
 }
 export type PrOwnerOperation = Extract<
@@ -215,7 +243,9 @@ export function createAgentControlPort(
             create(request, await check(request));
           const { op: _op, tasks, await: mode, timeoutSeconds, ...single } = operation;
           if (!tasks) {
-            const child = await delegateOne(DelegationRequest.parse(single));
+            const singleRequest = DelegationRequest.parse(single);
+            checkNames([singleRequest]);
+            const child = await delegateOne(singleRequest);
             if (operation.machine && (operation.waitMs !== undefined || operation.wait)) {
               const waited = await service.monitor.wait(
                 caller,
@@ -245,6 +275,7 @@ export function createAgentControlPort(
           // Checked first, then admitted in order. Children past the parent's free slots queue.
           // Stable per-task requestIds make a retried batch create nothing new.
           const requests = tasks.map((task) => DelegationRequest.parse(task));
+          checkNames(requests);
           const configured: (string | undefined)[] = [];
           for (const request of requests) configured.push(await check(request));
           const threadIds: ThreadId[] = [];

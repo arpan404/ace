@@ -77,7 +77,7 @@ test("lease revocation while Git is pending cleans resources while other delegat
       requestId: "while-reserved",
       provider: "claude",
       task: "work",
-      role: "worker",
+      role: "handoff-while-reserved",
       wait: false,
       estimatedLoad: 0,
     });
@@ -118,7 +118,7 @@ test("failed Git creation releases reserved capacity and preserves preexisting b
           requestId: "after-failure",
           provider: "claude",
           task: "work",
-          role: "worker",
+          role: "handoff-after-failure",
           wait: false,
           estimatedLoad: 0,
         })
@@ -145,7 +145,7 @@ test("maintenance rejects prepared launches and handoff retries at the trusted o
       requestId: "maintenance-prepared",
       provider: "claude",
       task: "hold",
-      role: "worker",
+      role: "handoff-maintenance-hold",
       wait: false,
       estimatedLoad: 0,
     });

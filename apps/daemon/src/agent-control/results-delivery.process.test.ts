@@ -171,7 +171,7 @@ test("waiting delegate returns results through its MCP tool without a duplicate 
       op: "delegate_task",
       requestId: "wait-greeter",
       provider: "claude",
-      role: "greeter",
+      role: "wait-greeter-task",
       task: "Say hello",
       wait: true,
       estimatedLoad: 0,

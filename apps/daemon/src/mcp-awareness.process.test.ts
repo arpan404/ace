@@ -27,12 +27,25 @@ it("a new session already knows its project, branch and access", async () => {
 it("the next ace result says what changed: a child waiting on the person, then one finishing", async () => {
   world = await evalWorld({ browser: false });
   const { agent } = await world.agent({});
-  const role = { role: "implementer", provider: "claude" };
   const asking = childId(
-    (await agent.call("delegate_task", { requestId: "a", task: "Ask first", ...role })).text,
+    (
+      await agent.call("delegate_task", {
+        requestId: "a",
+        task: "Ask first",
+        role: "ask-first-question",
+        provider: "claude",
+      })
+    ).text,
   );
   const working = childId(
-    (await agent.call("delegate_task", { requestId: "b", task: "Just do it", ...role })).text,
+    (
+      await agent.call("delegate_task", {
+        requestId: "b",
+        task: "Just do it",
+        role: "just-do-it-task",
+        provider: "claude",
+      })
+    ).text,
   );
   await agent.call("ace_status", {});
   await world.askHuman(asking);
@@ -42,7 +55,7 @@ it("the next ace result says what changed: a child waiting on the person, then o
   expect(waiting.text).not.toMatch(new RegExp(`${asking.slice(0, 8)}[^;]*finished`));
   await world.complete(working, "Done");
   const settled = await agent.call("ace_status", {});
-  expect(settled.text).toContain(`child ${working.slice(0, 8)} "implementer" finished`);
+  expect(settled.text).toContain(`child ${working.slice(0, 8)} "just-do-it-task" finished`);
   expect(settled.text).not.toContain(asking.slice(0, 8));
   // Reported once: the next call has nothing new.
   expect((await agent.call("ace_status", {})).text).not.toContain("ace/changes");

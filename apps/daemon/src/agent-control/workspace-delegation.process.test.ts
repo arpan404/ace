@@ -27,7 +27,7 @@ test("new-worktree delegation retains project identity and deduplicates the acce
       op: "delegate_task",
       requestId: "worktree",
       task: "inspect",
-      role: "inspector",
+      role: "inspect-new-worktree",
       provider: "claude",
       workspace: { kind: "new_worktree", base: { ref: "main" } },
     });
@@ -71,7 +71,7 @@ test("an existing-worktree request cannot nominate an unrelated execution direct
           op: "delegate_task",
           requestId: "outside",
           task: "inspect",
-          role: "reader",
+          role: "read-outside-worktree",
           provider: "claude",
           workspace: { kind: "existing_worktree", path: join(h.home, "..") },
         }),
