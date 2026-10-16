@@ -137,8 +137,6 @@ export function GroupedSteps(props: {
   live?: boolean | undefined;
   /** Surfaces the daemon resolved with the steps (their icon hashes), by item. */
   surfaces?: ReadonlyMap<string, ToolSurface> | undefined;
-  /** Shown on the step rail (an opened "Worked for"), not in the plain flow. */
-  rail?: boolean | undefined;
   id?: string | undefined;
 }) {
   const ace = useAceLog(props.threadId, props.itemIds);
@@ -161,14 +159,10 @@ export function GroupedSteps(props: {
       retried={log.retried}
     />
   ));
-  return props.rail ? (
+  return (
     <StepRail id={props.id} label="Steps">
       {rows}
     </StepRail>
-  ) : (
-    <ul id={props.id} aria-label="Steps" className="flex flex-col">
-      {rows}
-    </ul>
   );
 }
 
@@ -196,7 +190,8 @@ const row = "flex min-h-8 w-full min-w-0 items-center gap-2.5 text-left text-ui"
 /** The turn is working with no step in flight: the model is thinking. */
 export function ThinkingRow() {
   return (
-    <li role="status" className={cn(row, "text-muted-foreground")}>
+    <li role="status" className={cn(row, "relative text-muted-foreground")}>
+      <RailMark state="running" />
       <Icon icon={BrainIcon} size={16} className="text-subtle-foreground" />
       <span className="step-shimmer">Thinking</span>
     </li>
@@ -285,9 +280,9 @@ const GroupView = memo(function GroupView(props: {
       ) : (
         props.live &&
         group.running && (
-          <ul id={panel} aria-label="Step in flight" className="flex flex-col">
+          <StepRail id={panel} label="Step in flight">
             {step(group.newest)}
-          </ul>
+          </StepRail>
         )
       )}
     </li>

@@ -3,10 +3,9 @@ import { createContext, use, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 
 /*
- * Steps shown on a thin rail: an opened group, an opened "Worked for". Each finished step sits on
- * the rail with a small check, a failed one with a small cross, and the step in flight with a
- * quiet dot (its words shimmer). Rows learn they are on a rail from context, so the same rows
- * draw in the plain flow and on the rail.
+ * Steps shown on a thin rail, both live and in opened work logs and groups. Each finished step
+ * sits on the rail with a small check, a failed one with a small cross, and the step in flight
+ * with a quiet dot (its words shimmer). Rows learn they are on a rail from context.
  */
 
 const OnRail = createContext(false);

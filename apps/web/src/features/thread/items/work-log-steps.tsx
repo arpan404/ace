@@ -39,7 +39,8 @@ export function ToolStepContent(props: {
   // What the agent said between two steps.
   if (item?.type === "message")
     return (
-      <li className="py-1.5">
+      <li className="relative py-1.5">
+        <RailMark state={item.complete ? "done" : "running"} />
         <StepProse threadId={props.threadId} itemId={props.itemId} />
       </li>
     );

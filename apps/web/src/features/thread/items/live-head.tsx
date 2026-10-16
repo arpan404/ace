@@ -17,6 +17,7 @@ import { useWatched, type Watched } from "@/lib/use-watched.ts";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { useDescendantRequest } from "../composer/descendant-request.ts";
 import { ThinkingRow } from "./step-groups-view.tsx";
+import { StepRail } from "./step-rail.tsx";
 import { SystemRow } from "./system-row.tsx";
 
 /*
@@ -135,9 +136,9 @@ export function TailThinking(props: { threadId: string }) {
   const thought = useWatched(props.threadId, orderKeys, readThinking, Object.is) ?? false;
   if (activity?.tone !== "working" || activity.current || thought) return null;
   return (
-    <ul aria-label="Working" className="flex flex-col">
+    <StepRail label="Working">
       <ThinkingRow />
-    </ul>
+    </StepRail>
   );
 }
 
