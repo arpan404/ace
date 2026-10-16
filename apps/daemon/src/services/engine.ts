@@ -15,7 +15,7 @@ import { registerPi } from "./pi.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { daemonCursorInstance } from "./cursor-instance.ts";
 import { cursorCheckpointLimitOverride } from "./cursor-limits.ts";
-import { bindCursorSdk, createInstance } from "@ace/accounts";
+import { bindCursorSdk, createInstance, withSubmittedToolEnv } from "@ace/accounts";
 import { activateCursorProvider } from "./cursor-activation.ts";
 import type { ProviderAdapter } from "@ace/engine-api";
 import { recoveryPorts, prepareQueuedInput } from "./recovery.ts";
@@ -112,7 +112,14 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       ...adapter,
       ...(bound.close ? { close: () => bound.close?.() ?? Promise.resolve() } : {}),
       async openSession(session) {
-        const historyContext = await historySessionContext(context, session);
+        const enriched =
+          services.toolEnvVault === undefined
+            ? session
+            : withSubmittedToolEnv(session, services.toolEnvVault, (id) => {
+                const thread = store.getThread(id);
+                return !!thread && thread.deletedAt === undefined;
+              });
+        const historyContext = await historySessionContext(context, enriched);
         if (historyContext) return adapter.openSession(historyContext);
         if (
           adapter.backend === "cursor-sdk" &&

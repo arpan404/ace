@@ -42,6 +42,8 @@ export interface ServerOptions {
   providerInstalls?: import("./provider-install/sessions.ts").ProviderInstalls;
   notificationPublicKey?: string;
   providerLogin?: import("@ace/accounts").ProviderLoginSessions;
+  /** Ephemeral per-thread tool credentials (memory only, never persisted). */
+  toolEnvVault?: import("@ace/accounts").ToolEnvVault;
   onboarding?: import("./onboarding.ts").Onboarding;
   providerStatuses?: import("./provider-status.ts").ProviderStatuses;
   previewClient?: import("./preview-client.ts").PreviewClient;

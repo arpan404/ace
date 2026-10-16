@@ -238,6 +238,33 @@ on loopback, must use the encrypted relay with `hello.channel: provider_auth`.
 Ordinary paired/TLS WebSockets reject key submission. The relay rechecks operate
 scope on requests and pushes. A device cannot submit to another device's session.
 
+### Per-thread tool credentials
+
+Isolated (managed) account homes cannot see the person's `~/.config/gh`,
+`~/.ssh` or `~/.gitconfig`, so home-dependent tools fail there even in Full
+access. `provider.toolEnv.*` submits per-thread tool credentials that reach
+exactly one thread's provider processes through the allowlisted `toolEnv`
+channel (`GH_TOKEN`, `GITHUB_TOKEN`, `GH_HOST`, `SSH_AUTH_SOCK`). Values live
+only in daemon memory, are never persisted or logged, and are dropped on
+explicit clear, thread deletion or daemon shutdown.
+
+```ts
+{
+  type: "provider.toolEnv.submit",
+  requestId: "submit-gh",
+  threadId: "thread-id",
+  entries: [{ key: "GH_TOKEN", value: "pasted-token" }],
+}
+```
+
+Replies have type `provider.toolEnv.result`, with `{ ok: true, stored }` or
+`{ ok: false, error }`. Submission requires operate scope plus the secret
+hand-off gate, like `provider.login.apiKey`; transport buffers are blanked
+after handling. The headless CLI reads values from its own environment, never
+argv: `GH_TOKEN=$(gh auth token) ace tool-env submit THREAD GH_TOKEN`, and
+`ace tool-env clear THREAD` drops the thread's entries. Relay submission is
+not offered; paired clients use their own authenticated path in a follow-up.
+
 Remove waits for Codex/Claude/Cursor's native logout and refuses on failure.
 It preserves the instance home unless `deleteHome: true`. Deletion validates the
 private direct child of the daemon data directory and never removes implicit CLI

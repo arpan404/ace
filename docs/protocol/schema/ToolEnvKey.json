@@ -1,0 +1,11 @@
+{
+  "$id": "https://ace.local/protocol/v1/ToolEnvKey.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "GH_HOST",
+    "SSH_AUTH_SOCK"
+  ],
+  "type": "string"
+}

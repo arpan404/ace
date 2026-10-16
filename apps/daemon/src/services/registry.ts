@@ -7,6 +7,7 @@ import { createRemoteDelegationSession } from "./remote-delegation.ts";
 import { createPromptFilesSession } from "./prompt-files.ts";
 import { createProviderInstallsSession } from "./provider-install.ts";
 import { createProviderLoginSession } from "./provider-login.ts";
+import { createProviderToolEnvSession } from "./provider-tool-env.ts";
 import { createHostIdentitySession } from "./host-identity.ts";
 import { createProviderStatusesSession } from "./provider-status.ts";
 import { createProjectsSession } from "./projects.ts";
@@ -86,6 +87,7 @@ export const socketServiceFactories = [
   createModelsSession,
   createProviderStatusesSession,
   createProviderLoginSession,
+  createProviderToolEnvSession,
   createProviderInstallsSession,
   createAgentRegistrySession,
   createReviewSession,

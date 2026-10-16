@@ -28,6 +28,7 @@ ace thread wait ID... [--any|--all] [--tree]
 ace task spawn [PROMPT|-] --parent ID [--provider PROVIDER] [--model MODEL]
 ace task status|cancel ID
 ace task wait ID... [--any|--all]
+ace tool-env submit THREAD NAME...|tool-env clear THREAD
 ace start|status|token|pair [SCOPES]|devices list|revoke ID
 ace service install|uninstall|start|stop|status
 ace accounts add|list|status|discover
@@ -139,6 +140,7 @@ export async function main(input: string[]): Promise<void> {
         "threads",
         "thread",
         "task",
+        "tool-env",
         "kill-all",
         "mcp",
         "capabilities",
@@ -181,7 +183,10 @@ export async function main(input: string[]): Promise<void> {
           );
       } else if (command === "threads") await listThreads(args, session.client, session.signal);
       else if (command === "thread") await threadCommand(args, session.client, session.signal);
-      else await taskCommand(args, session.client, session.signal);
+      else if (command === "tool-env") {
+        const { toolEnvCommand } = await import("./tool-env.ts");
+        await toolEnvCommand(args, session.client, session.signal);
+      } else await taskCommand(args, session.client, session.signal);
     } finally {
       await session.close();
     }
