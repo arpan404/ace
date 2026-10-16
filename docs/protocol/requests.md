@@ -1372,7 +1372,7 @@ Example:
 ```json
 {
   "keys": [
-    "providers.reviewer.model"
+    "providers.reviewer.provider"
   ],
   "requestId": "example",
   "scope": {

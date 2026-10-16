@@ -37,4 +37,9 @@ export {
 
 export { planStorageItem, type StorageCandidate } from "./storage-retention.ts";
 
-export { switchRoute, type SwitchRoute, type SwitchSide } from "./switch-route.ts";
+export {
+  switchRoute,
+  switchRoutePreservingSource,
+  type SwitchRoute,
+  type SwitchSide,
+} from "./switch-route.ts";

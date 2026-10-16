@@ -89,3 +89,21 @@ export async function restoreCursorHome(
   else await assertHomeIdentity(instance);
   return created;
 }
+
+/**
+ * Create the tool-facing skeleton inside a managed home: per-instance HOME
+ * (`user/`) config ground plus the XDG roots `instanceEnv` points at. No
+ * credentials are ever written here; without these directories every XDG-aware
+ * tool fails before per-session env forwarding can help it.
+ */
+export async function ensureManagedHomeSkeleton(homeDir: string): Promise<void> {
+  for (const dir of [
+    join(homeDir, "user", ".config"),
+    join(homeDir, "user", ".ssh"),
+    join(homeDir, "config"),
+    join(homeDir, "data"),
+    join(homeDir, "state"),
+    join(homeDir, "cache"),
+  ])
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+}

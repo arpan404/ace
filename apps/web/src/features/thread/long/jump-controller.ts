@@ -7,6 +7,7 @@ import {
   newerRequest,
   olderRequest,
   openWindow,
+  windowCapacity,
   withNewer,
   withOlder,
   type JumpWindow,
@@ -248,14 +249,32 @@ export class JumpController {
     });
   }
 
-  /** Slide the window toward older history. */
+  /** Read older history beside the live tail, then slide that bounded window. */
   async older(): Promise<void> {
+    if (this.state.loading) return;
     const window = this.state.window;
+    if (!window) {
+      const before = this.tail().before;
+      if (typeof before !== "number") return;
+      // Keep the first live item in the reply so the two windows meet. The tail itself
+      // stays subscribed and bounded while history slides independently of new output.
+      const reply = await this.fetch("older", {
+        threadId: this.threadId,
+        aroundSeq: before,
+        before: 50,
+        after: windowCapacity - 51,
+      });
+      if (!reply) return;
+      const next = openWindow(reply);
+      this.set({ window: next, joined: meetsTail(next, this.tail()), loading: undefined });
+      return;
+    }
     const request = window && olderRequest(window);
     if (!window || !request || this.state.loading) return;
     const reply = await this.fetch("older", { threadId: this.threadId, ...request });
     if (!reply || this.state.window !== window) return;
-    this.set({ window: withOlder(window, reply), loading: undefined });
+    const next = withOlder(window, reply);
+    this.set({ window: next, joined: meetsTail(next, this.tail()), loading: undefined });
   }
 
   /**

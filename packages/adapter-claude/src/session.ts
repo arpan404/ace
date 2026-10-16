@@ -342,15 +342,14 @@ export async function openSession(
     },
     async send(parts, delivery, commandId, origin) {
       ensureOpen();
-      if (delivery === "steer")
-        throw new Error("Claude steering is unverified; queue the input instead");
       const message = {
         type: "user" as const,
         uuid: randomUUID(),
         session_id: sessionId,
         parent_tool_use_id: null,
         message: { role: "user" as const, content: content(parts) },
-        priority: "next" as const,
+        // CLI 2.1.286+ joins the active turn and backgrounds tools for native steering.
+        priority: delivery === "steer" ? ("now" as const) : ("next" as const),
         ...(origin === "ace" ? { isSynthetic: true } : {}),
       };
       if (commandId) ctx.onInputMessage?.({ commandId, nativeId: message.uuid });

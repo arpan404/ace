@@ -175,6 +175,7 @@ export function Feed(props: FeedProps) {
   const feed = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(!detached);
   const upwardIntent = useRef(false);
+  const [olderIntent, setOlderIntent] = useState(false);
   const glidingUntil = useRef(0);
   // Until this moment the view is where code put it (a restored place, a jump): its scroll
   // events are not the reader's and never page the window.
@@ -331,6 +332,7 @@ export function Feed(props: FeedProps) {
       el,
       (upward) => {
         upwardIntent.current = upward;
+        setOlderIntent(upward);
         if (upward) {
           glidingUntil.current = 0;
           setPinned(false);
@@ -390,16 +392,47 @@ export function Feed(props: FeedProps) {
     if (!nav.searchOpen) setFlash(undefined);
   }, [nav.searchOpen]);
   const items = virtualizer.getVirtualItems();
-  const firstVisible = items[0]?.index;
+  // getVirtualItems also holds the jump target, even after it leaves the viewport.
+  // Only the virtualizer's visible range says where the reader is now.
+  const firstVisible = virtualizer.range?.startIndex;
   const { hasOlder, loading, loadOlder } = pager;
-  // The live tail pages older history in when its first row shows.
+  const prefetchFocus = useRef(focus?.nonce);
+  // One read per upward scroll intent near the edge. A tool-heavy page can fold into
+  // the same row; a reply or a jump settling must not walk the whole history by itself.
   useEffect(() => {
-    if (!window && firstVisible === 0 && hasOlder && !loading && !pinnedRef.current)
+    if (prefetchFocus.current !== focus?.nonce) {
+      prefetchFocus.current = focus?.nonce;
+      setOlderIntent(false);
+      return;
+    }
+    if (
+      olderIntent &&
+      !pinned &&
+      firstVisible !== undefined &&
+      firstVisible <= 12 &&
+      hasOlder &&
+      !loading &&
+      !pager.error &&
+      !jump.failed
+    ) {
+      setOlderIntent(false);
       void loadOlder();
-  }, [window, firstVisible, hasOlder, loading, loadOlder]);
+    }
+  }, [
+    focus?.nonce,
+    olderIntent,
+    pinned,
+    firstVisible,
+    hasOlder,
+    loading,
+    pager.error,
+    jump.failed,
+    loadOlder,
+  ]);
   // A jumped window slides only as the reader scrolls toward one of its edges, so a window
-  // that fits on screen never pages itself in both directions. Travel counts the reader's own
-  // scrolling one way; code moving the view (a restored place, a jump) never adds to it.
+  // that fits on screen never pages itself in both directions. Older history prefetches by
+  // proximity (see above); travel counts the reader's own scrolling toward the live end.
+  // Code moving the view (a restored place, a jump) never adds to it.
   const lastTop = useRef(0);
   const travel = useRef(0);
   const slideOnScroll = (el: HTMLElement) => {
@@ -413,16 +446,12 @@ export function Feed(props: FeedProps) {
       Math.sign(moved) === Math.sign(travel.current) ? travel.current + moved : moved;
     if (!window || jump.loading || Math.abs(travel.current) < 120) return;
     const room = el.clientHeight;
-    if (travel.current < 0 && el.scrollTop < room && hasOlder) void loadOlder();
-    else if (
-      travel.current > 0 &&
-      detached &&
-      el.scrollHeight - el.scrollTop - el.clientHeight < room
-    )
+    if (travel.current > 0 && detached && el.scrollHeight - el.scrollTop - el.clientHeight < room)
       void nav.jump.newer();
   };
   const toLive = () => {
     upwardIntent.current = false;
+    setOlderIntent(false);
     glidingUntil.current = performance.now() + 800;
     setPinned(true);
     if (window) nav.jump.live();
