@@ -77,16 +77,16 @@ static-performance check still fails its bundle budgets, but a build of the merg
 `38ee7436a` (same installed dependencies, no PR changes) fails identically, so the overage
 is pre-existing on main and not caused by this PR:
 
-| Budget | This branch | Merge-base `38ee7436a` | Limit |
-| --- | --- | --- | --- |
-| initial JS | 319.22 KB | 319.20 KB | 270 |
-| CSS | 25.10 KB | 25.10 KB | 21 |
-| first screen (shell + `_home.new.tsx`) | 621.62 KB | 621.35 KB | 405 |
-| route `_home.new.tsx` | 302.40 KB | 302.15 KB | 138 |
-| route `_home.t.$threadId.tsx` | 235.48 KB | 235.16 KB | 138 |
-| route agents `$agentId` | 188.52 KB | 188.28 KB | 138 |
-| worker client-worker (+lazy) | 65.14 (82.81) KB | 65.14 (82.81) KB | 60 (73) |
-| worker machine-worker (+lazy) | 65.07 (82.74) KB | 65.07 (82.74) KB | 60 (73) |
+| Budget                                 | This branch      | Merge-base `38ee7436a` | Limit   |
+| -------------------------------------- | ---------------- | ---------------------- | ------- |
+| initial JS                             | 319.22 KB        | 319.20 KB              | 270     |
+| CSS                                    | 25.10 KB         | 25.10 KB               | 21      |
+| first screen (shell + `_home.new.tsx`) | 621.62 KB        | 621.35 KB              | 405     |
+| route `_home.new.tsx`                  | 302.40 KB        | 302.15 KB              | 138     |
+| route `_home.t.$threadId.tsx`          | 235.48 KB        | 235.16 KB              | 138     |
+| route agents `$agentId`                | 188.52 KB        | 188.28 KB              | 138     |
+| worker client-worker (+lazy)           | 65.14 (82.81) KB | 65.14 (82.81) KB       | 60 (73) |
+| worker machine-worker (+lazy)          | 65.07 (82.74) KB | 65.07 (82.74) KB       | 60 (73) |
 
 No soak/timing qualification is claimed, and no budget number was changed (budgets change
 only with a reason in ADR 0056).
