@@ -2,7 +2,8 @@
 import { inlineSpans } from "@ace/ui-core";
 
 /** The inline code look shared with agent prose (`features/thread/markdown`). */
-export const codeSpanClass = "rounded-[5px] bg-secondary px-[5px] py-px font-mono text-[0.87em]";
+export const codeSpanClass =
+  "rounded-[5px] bg-secondary px-[5px] py-px font-mono text-[0.87em] wrap-break-word";
 
 /**
  * Short text people or agents wrote (line comments, questions, options) with its `code`,
