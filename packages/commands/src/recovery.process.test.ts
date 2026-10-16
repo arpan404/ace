@@ -23,6 +23,45 @@ async function fixture() {
   cleanups.push(() => files.close());
   return { root, catalog, files };
 }
+it("idle recovery and unchanged watcher hints emit no catalog notifications", async () => {
+  const f = await fixture();
+  const path = join(f.root, "review.md");
+  await writeFile(path, "Review");
+  await f.files.start();
+  const notices: string[] = [];
+  f.files.subscribe(() => notices.push("changed"));
+  for (let i = 0; i < 12; i++) await f.files.reconcile();
+  f.files.invalidate(path);
+  await f.files.flush();
+  // Even a metadata change with identical contents leaves the catalog unchanged.
+  await writeFile(path, "Review");
+  f.files.invalidate(path);
+  await f.files.flush();
+  expect(notices).toEqual([]);
+  await writeFile(path, "Changed review");
+  f.files.invalidate(path);
+  await f.files.flush();
+  expect(notices).toEqual(["changed"]);
+  expect(
+    f.catalog.resolve(
+      target,
+      f.catalog.list(target, "review").commands.find((c) => c.namespace === "prompt")?.id ?? "",
+    ),
+  ).toMatchObject({ ok: true, plan: { text: "Changed review" } });
+});
+it("a runtime catalog update does not masquerade as a filesystem change", async () => {
+  const f = await fixture();
+  await writeFile(join(f.root, "item.md"), "Item");
+  await f.files.start();
+  const notices: string[] = [];
+  f.files.subscribe(() => notices.push("files changed"));
+  f.catalog.replaceSource("runtime:other", {
+    commands: [],
+    diagnostics: [{ source: "runtime:other", message: "Provider metadata changed" }],
+  });
+  await f.files.reconcile();
+  expect(notices).toEqual([]);
+});
 it("repairs missed body edits in bounded batches without scanning all sources", async () => {
   const f = await fixture();
   for (let i = 0; i < 64; i++) await writeFile(join(f.root, `value-${i}.md`), "Original");

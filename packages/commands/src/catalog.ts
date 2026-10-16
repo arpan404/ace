@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isDeepStrictEqual } from "node:util";
 import { runtimeExtensions } from "./extension-runtime.ts";
 import { dataWeight } from "./limits.ts";
 import type {
@@ -13,6 +14,10 @@ import { resolveCommand } from "./plan.ts";
 import { parseRuntime } from "./runtime.ts";
 import { searchCommands, type Usage } from "./search.ts";
 export class CommandCatalog {
+  private version = 0;
+  get revision(): number {
+    return this.version;
+  }
   private readonly sources = new Map<string, ParsedSource>();
   private readonly entries = new Map<string, Definition>();
   private readonly usage = new Map<string, Usage>();
@@ -26,6 +31,7 @@ export class CommandCatalog {
   /** Replace exactly one source; rejected admission leaves the previous version intact. */
   replaceSource(source: string, parsed: ParsedSource): boolean {
     const old = this.sources.get(source);
+    if (old && isDeepStrictEqual(old, parsed)) return true;
     if (parsed.commands.length > 512) return false;
     const commands = [...new Map(parsed.commands.map((command) => [command.id, command])).values()];
     let weight = 0;
@@ -53,10 +59,13 @@ export class CommandCatalog {
       diagnostics: parsed.diagnostics.slice(0, 100),
     });
     for (const command of commands) this.entries.set(command.id, command);
+    this.version++;
     return true;
   }
   removeSource(source: string): void {
     const old = this.sources.get(source);
+    if (!old) return;
+    this.version++;
     if (old)
       for (const command of old.commands) {
         this.entries.delete(command.id);

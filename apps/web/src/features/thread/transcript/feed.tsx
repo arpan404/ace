@@ -48,6 +48,8 @@ import { AgentPageReveal } from "./agent-page-reveal.tsx";
 
 const nearEdge = 64;
 const tailLive: Block = { kind: "live", key: "live:tail", askId: undefined };
+/** First guess for an unmeasured row's height; measured sizes replace it per row key. */
+const estimatedRowSize = 96;
 /** Room above a row brought into view, for the search bar floating over the transcript's top. */
 const topRoom = 12;
 const gap: Record<Block["kind"], string> = {
@@ -70,6 +72,11 @@ const gap: Record<Block["kind"], string> = {
  * rows it just mounted measured themselves; until then it corrects their size changes against
  * the old position and drags the view away from where it was sent. Telling it at once (its
  * public `scrollOffset`) keeps a jump where it landed.
+ *
+ * Only discrete placements use this (a jump landing, a step to a turn): for a moment after,
+ * what the virtualizer last rendered lags behind the place code set, so the reader's anchor
+ * stays untouched. Keep-place restores across fast pages deliberately skip the freeze, so the
+ * anchor keeps tracking the reader instead of going stale and teleporting back to it.
  */
 function settle(
   virtualizer: { scrollOffset: number | null },
@@ -98,6 +105,7 @@ function placedAt(
     key: row.key,
     index,
     offset: start - el.scrollTop,
+    start,
     itemId: itemId ?? blockItems(row.block)[0],
   };
 }
@@ -195,7 +203,7 @@ export function Feed(props: FeedProps) {
     measureElement: placed.measureElement,
     onChange: placed.onChange,
     getScrollElement: () => viewport.current,
-    estimateSize: () => 96,
+    estimateSize: () => estimatedRowSize,
     // Rows are tall (a message, a log): a generous overscan keeps fast upward
     // flicks covered so older history measures before it scrolls into view.
     overscan: 12,
@@ -223,22 +231,26 @@ export function Feed(props: FeedProps) {
     const el = viewport.current;
     if (el) el.scrollTop = el.scrollHeight;
   };
-  const restore = useCallback(
-    (index: number, offset: number) => {
-      const start = virtualizer.measurementsCache[index]?.start;
-      if (start === undefined) virtualizer.scrollToIndex(index, { align: "start" });
-      else virtualizer.scrollToOffset(start - offset);
-      settle(virtualizer, viewport.current, placedUntil);
+  const shift = useCallback(
+    (delta: number) => {
+      // A structural nudge, not a placement: added rows above push the view down, removed
+      // ones pull it up, and the reader's own scrolling in between is preserved because the
+      // target is relative. Through the virtualizer (not a raw scrollTop set) so its range
+      // follows even where no scroll event fires. Sync it at once (see settle) but freeze
+      // nothing.
+      const el = viewport.current;
+      if (!el || delta === 0) return;
+      virtualizer.scrollToOffset(el.scrollTop + delta);
+      virtualizer.scrollOffset = el.scrollTop;
     },
     [virtualizer],
   );
   const rowOfItem = useCallback((itemId: string) => rowOf(rows, itemId), [rows]);
-  useKeepPlace(keys, anchor, pinnedRef, restore, rowOfItem);
-  // Rows changing (a slide, history paging in) move the view by themselves; those
-  // scroll events are not the reader's.
-  useLayoutEffect(() => {
-    placedUntil.current = performance.now() + 250;
-  }, [keys]);
+  const startOf = useCallback(
+    (index: number) => virtualizer.measurementsCache[index]?.start,
+    [virtualizer],
+  );
+  useKeepPlace(keys, anchor, pinnedRef, shift, rowOfItem, startOf);
   useStayPinned(viewport, pinnedRef, glidingUntil);
   const dock = useRef<HTMLDivElement>(null);
   useDockShift(dock, viewport, pinnedRef);
@@ -292,6 +304,7 @@ export function Feed(props: FeedProps) {
         key: row?.key ?? String(first.key),
         index: first.index,
         offset: first.start - el.scrollTop,
+        start: first.start,
         itemId: row ? blockItems(row.block)[0] : undefined,
       };
     const turnFrom = (index: number) => {
@@ -307,6 +320,7 @@ export function Feed(props: FeedProps) {
   useEffect(readTop);
 
   const [olderIntent, setOlderIntent] = useState(false);
+  const [newerIntent, setNewerIntent] = useState(false);
   const landing = useRef(0);
   useEffect(() => {
     const el = viewport.current;
@@ -319,6 +333,7 @@ export function Feed(props: FeedProps) {
       (upward) => {
         upwardIntent.current = upward;
         setOlderIntent(upward);
+        setNewerIntent(!upward);
         if (upward) {
           glidingUntil.current = 0;
           setPinned(false);
@@ -358,12 +373,15 @@ export function Feed(props: FeedProps) {
   }, [nav.searchOpen]);
   const items = virtualizer.getVirtualItems();
   const { hasOlder, loading, loadOlder } = pager;
-  // Older history loads by scroll proximity to the top: one request per upward
-  // gesture, well before the edge, so paging in never surfaces as a visible
-  // jump. A reply or a jump settling must not walk the whole history by itself.
+  // The scroll handler only observes (like t3code's timeline): it never pages.
+  // Older history loads one request per upward gesture, well before the edge, so
+  // paging in never surfaces as a visible jump. A reply, a jump settling, or a
+  // keep-place restore fires scroll events with no gesture behind them, and those
+  // must never walk the history by themselves.
   const maybeLoadOlder = useCallback(
     (scrollTop: number) => {
       if (
+        olderIntent &&
         scrollTop < 900 &&
         hasOlder &&
         !loading &&
@@ -371,16 +389,18 @@ export function Feed(props: FeedProps) {
         !jump.failed &&
         !jump.loading
       ) {
+        setOlderIntent(false);
         void loadOlder();
       }
     },
-    [hasOlder, loading, pager.error, jump.failed, jump.loading, loadOlder],
+    [olderIntent, hasOlder, loading, pager.error, jump.failed, jump.loading, loadOlder],
   );
   const prefetchFocus = useRef(focus?.nonce);
   useEffect(() => {
     if (prefetchFocus.current !== focus?.nonce) {
       prefetchFocus.current = focus?.nonce;
       setOlderIntent(false);
+      setNewerIntent(false);
       return;
     }
     if (olderIntent && !pinned) {
@@ -391,29 +411,58 @@ export function Feed(props: FeedProps) {
       }
     }
   }, [focus?.nonce, olderIntent, pinned, hasOlder, loading, pager.error, jump.failed, loadOlder]);
-  // A jumped window slides only as the reader scrolls toward one of its edges, so a window
-  // that fits on screen never pages itself in both directions. Older history prefetches by
-  // proximity (see above); travel counts the reader's own scrolling toward the live end.
-  // Code moving the view (a restored place, a jump) never adds to it.
-  const lastTop = useRef(0);
-  const travel = useRef(0);
-  const slideOnScroll = (el: HTMLElement) => {
-    const moved = el.scrollTop - lastTop.current;
-    lastTop.current = el.scrollTop;
-    if (performance.now() < placedUntil.current) {
-      travel.current = 0;
-      return;
-    }
-    travel.current =
-      Math.sign(moved) === Math.sign(travel.current) ? travel.current + moved : moved;
-    if (!window || jump.loading || Math.abs(travel.current) < 120) return;
-    const room = el.clientHeight;
-    if (travel.current > 0 && detached && el.scrollHeight - el.scrollTop - el.clientHeight < room)
-      void nav.jump.newer();
+  // Newer history loads the same way, mirrored: one request per downward
+  // gesture while near the live end, so scrolling back toward live is one
+  // continuous list. A wheel or key at the very bottom moves no scroll offset,
+  // so the intent effect below must page on its own; scroll events with no
+  // gesture behind them (a jump landing, a keep-place restore) never do, so a
+  // page settling can't chain into the next one and stick the view flickering.
+  const distanceToLive = () => {
+    const el = viewport.current;
+    return el ? el.scrollHeight - el.scrollTop - el.clientHeight : Number.POSITIVE_INFINITY;
   };
+  const maybeLoadNewer = useCallback(
+    (distance: number) => {
+      if (
+        newerIntent &&
+        distance < 900 &&
+        detached &&
+        window &&
+        !jump.loading &&
+        !loading &&
+        !pager.error &&
+        !jump.failed
+      ) {
+        setNewerIntent(false);
+        void nav.jump.newer();
+      }
+    },
+    [newerIntent, detached, window, jump.loading, jump.failed, loading, pager.error, nav.jump],
+  );
+  useEffect(() => {
+    if (prefetchFocus.current !== focus?.nonce) return;
+    if (newerIntent && !pinned && detached && window) {
+      if (distanceToLive() < 1200 && !jump.loading && !loading && !pager.error && !jump.failed) {
+        setNewerIntent(false);
+        void nav.jump.newer();
+      }
+    }
+  }, [
+    focus?.nonce,
+    newerIntent,
+    pinned,
+    detached,
+    window,
+    jump.loading,
+    jump.failed,
+    loading,
+    pager.error,
+    nav.jump,
+  ]);
   const toLive = () => {
     upwardIntent.current = false;
     setOlderIntent(false);
+    setNewerIntent(false);
     glidingUntil.current = performance.now() + 800;
     setPinned(true);
     if (window) nav.jump.live();
@@ -447,7 +496,7 @@ export function Feed(props: FeedProps) {
             onScroll={(event) => {
               const el = event.currentTarget;
               readTop();
-              slideOnScroll(el);
+              maybeLoadNewer(el.scrollHeight - el.scrollTop - el.clientHeight);
               maybeLoadOlder(el.scrollTop);
               const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < nearEdge;
               if (!atEnd && performance.now() < glidingUntil.current) return;

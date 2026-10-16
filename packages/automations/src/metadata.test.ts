@@ -2,6 +2,49 @@ import { AutomationStore } from "./index.ts";
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vitest";
 import { harness, definition } from "./service-test-support.ts";
+it("catalog metadata is scoped and follows saves, disables and deletions without loading prompt payloads", () => {
+  const h = harness();
+  const auto = definition({ prompt: "large prompt ".repeat(10000) });
+  h.service.put(auto);
+  h.service.put(definition({ id: "other-provider", provider: "claude" }));
+  h.service.put(definition({ id: "other-workspace", workspace: "/elsewhere" }));
+  h.service.put(definition({ id: "disabled", enabled: false }));
+  expect(h.service.catalog(auto.provider, auto.workspace)).toEqual([
+    { id: auto.id, title: auto.title },
+  ]);
+  h.service.put({ ...auto, title: "Renamed" });
+  expect(h.service.catalog(auto.provider, auto.workspace)).toEqual([
+    { id: auto.id, title: "Renamed" },
+  ]);
+  h.service.put({ ...auto, enabled: false });
+  expect(h.service.catalog(auto.provider, auto.workspace)).toEqual([]);
+  h.service.put(auto);
+  h.service.remove(auto.id);
+  expect(h.service.catalog(auto.provider, auto.workspace)).toEqual([]);
+});
+it("a reopened catalog reads names without validating unrelated prompt and polling payloads", () => {
+  const h = harness();
+  const auto = definition();
+  h.service.put(auto);
+  const db = new DatabaseSync(h.storePath);
+  try {
+    db.prepare("UPDATE automation_jobs SET body=json_set(body,'$.prompt',NULL) WHERE id=?").run(
+      auto.id,
+    );
+    db.prepare("UPDATE automation_state SET state='invalid JSON' WHERE id=?").run(auto.id);
+  } finally {
+    db.close();
+  }
+  const reopened = new AutomationStore(h.storePath);
+  try {
+    expect(() => reopened.list()).toThrow();
+    expect(reopened.catalog(auto.provider, auto.workspace)).toEqual([
+      { id: auto.id, title: auto.title },
+    ]);
+  } finally {
+    reopened.close();
+  }
+});
 it("lists, restarts and admits manual work without decoding unrelated poll state", async () => {
   const h = harness();
   const auto = definition({
