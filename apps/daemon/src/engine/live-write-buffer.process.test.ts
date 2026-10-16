@@ -308,3 +308,169 @@ test("compacted sequence spans keep turn navigation, search and usage replay cur
   expect(search.hits).toHaveLength(1);
   expect(h.store.readUsagePage({ afterSeq: 0, limit: 256 }).throughSeq).toBe(h.store.headSeq());
 });
+
+test.each([false, true])(
+  "split shell output reserves every sequence without repeating a prefix (refill fails: %s)",
+  async (failRefill) => {
+    const h = await streaming();
+    await h.context.onFrame(
+      h.frames.frame({
+        type: "item.upsert",
+        agent: "root",
+        item: "shell",
+        draft: {
+          type: "tool_call",
+          call: {
+            kind: "shell",
+            title: "Output",
+            status: "running",
+            detail: { kind: "shell", command: "echo" },
+          },
+        },
+      }),
+    );
+    await h.append("warm the reservation");
+    await h.engine.flush();
+    const reserved = Number(
+      h.store.statement("SELECT seq FROM host_sequence WHERE id=1").get()?.seq,
+    );
+    // Simulate an out-of-band durable writer approaching the reserved range's end without
+    // sending 65,536 provider frames. The next shell fact will cross it after splitting.
+    h.store.atomic((db) =>
+      db
+        .prepare("INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)")
+        .run(
+          reserved - 2,
+          "reservation-boundary",
+          h.id,
+          h.clock.now(),
+          "thread.updated",
+          JSON.stringify({ type: "thread.updated", title: "near reservation boundary" }),
+        ),
+    );
+    const live: Event[] = [];
+    const stop = h.store.subscribe((events) => live.push(...events));
+    const output = (append: string) =>
+      h.context.onFrame(
+        h.frames.frame({
+          type: "item.delta",
+          agent: "root",
+          item: "shell",
+          field: "output",
+          append,
+        }),
+      );
+    await output("a");
+    const chunk = "\n".repeat(2500); // JSON escaping splits this into two canonical deltas.
+    const repair = failRefill ? new DatabaseSync(h.path) : undefined;
+    try {
+      repair?.exec(
+        "CREATE TRIGGER fail_refill BEFORE INSERT ON events WHEN NEW.type='item.delta' BEGIN SELECT RAISE(ABORT, 'range refill unavailable'); END",
+      );
+      await output(chunk);
+      if (repair) {
+        expect(h.context.signal.aborted).toBe(false);
+        expect(h.store.streamingMetrics().bufferedBytes).toBeGreaterThan(0);
+        expect(live.filter((event) => event.payload.type === "item.delta")).toHaveLength(1);
+      }
+    } finally {
+      repair?.exec("DROP TRIGGER fail_refill");
+      repair?.close();
+      h.scheduler.advance(1100);
+    }
+    stop();
+    const delivered = live.filter((event) => event.payload.type === "item.delta");
+    expect(delivered).toHaveLength(3);
+    expect(
+      delivered
+        .map((event) => (event.payload.type === "item.delta" ? event.payload.append : ""))
+        .join(""),
+    ).toBe("a" + chunk);
+    const last = delivered.at(-1)?.seq ?? 0;
+    expect(last).toBe(reserved + 1);
+    expect(
+      Number(h.store.statement("SELECT seq FROM host_sequence WHERE id=1").get()?.seq),
+    ).toBeGreaterThanOrEqual(last);
+    await h.append("a tail lost in a crash");
+    const lostCursor = h.store.headSeq();
+    const crashPath = join(h.home, "split-output-crash.sqlite");
+    const durable = new DatabaseSync(h.path, { readOnly: true });
+    try {
+      await backup(durable, crashPath);
+    } finally {
+      durable.close();
+    }
+    const recovered = new Store(crashPath);
+    try {
+      recovered.appendEvents(h.id, [{ type: "thread.updated", title: "recovered" }]);
+      expect(recovered.headSeq()).toBeGreaterThan(lostCursor);
+    } finally {
+      await recovered.close();
+    }
+  },
+);
+
+test("turn completion waits for a failed forced flush and the provider stays usable", async () => {
+  const h = await streaming();
+  await h.append("warm");
+  await h.engine.flush();
+  h.store.atomic((db) =>
+    db.exec(
+      "CREATE TRIGGER fail_boundary BEFORE INSERT ON events WHEN NEW.type='item.delta' BEGIN SELECT RAISE(ABORT, 'disk unavailable'); END",
+    ),
+  );
+  await h.append(" retained");
+  const retry = h.clock.waitForDelay(100);
+  let completed = false;
+  const admission = Promise.resolve(h.context.onFrame(h.frames.frame(end))).then(() => {
+    completed = true;
+  });
+  const repair = new DatabaseSync(h.path);
+  try {
+    await retry;
+    expect(completed).toBe(false);
+    expect(h.context.signal.aborted).toBe(false);
+    expect(h.store.getThread(h.id)?.status.state).toBe("working");
+    expect(h.store.streamingMetrics().bufferedBytes).toBeGreaterThan(0);
+  } finally {
+    repair.exec("DROP TRIGGER fail_boundary");
+    repair.close();
+    h.clock.advance(1100);
+  }
+  await admission;
+  await h.engine.flush();
+  expect(h.store.snapshotThread(h.id).thread.status.state).toBe("done");
+  expect(h.store.readItems(h.id, h.store.headSeq() + 1, 10).items.at(-1)).toMatchObject({
+    parts: [{ type: "text", text: "warm retained" }],
+  });
+  expect(
+    h.store
+      .readEvents({ afterSeq: 0, threadId: h.id, limit: 100 })
+      .some(
+        (event) =>
+          (event.payload.type === "item.created" || event.payload.type === "item.updated") &&
+          event.payload.item.type === "notice" &&
+          event.payload.item.text.includes("disk unavailable"),
+      ),
+  ).toBe(false);
+  expect(h.errors).toEqual([]);
+});
+
+test("a cursor beyond the reservation receives a counted snapshot resync", async () => {
+  const h = await streaming();
+  await h.append("current");
+  const reserved = Number(h.store.statement("SELECT seq FROM host_sequence WHERE id=1").get()?.seq);
+  const before = h.store.streamingMetrics().replayResyncs;
+  const messages: unknown[] = [];
+  const stop = subscribe(
+    h.store,
+    "far-ahead",
+    { kind: "thread", threadId: h.id },
+    reserved + 1,
+    1000,
+    (message) => messages.push(message),
+  );
+  stop();
+  expect(messages[0]).toMatchObject({ type: "snapshot", seq: h.store.headSeq() });
+  expect(h.store.streamingMetrics().replayResyncs).toBe(before + 1);
+});

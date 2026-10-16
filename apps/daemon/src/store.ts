@@ -187,9 +187,7 @@ export class Store {
     this.streaming = new StoreStream({
       scheduler: options.bufferScheduler ?? bufferScheduler,
       nextId: this.nextId,
-      nextSeq: (after) => this.sequences.next(after),
-      head: () => this.sequences.head(),
-      replaySafe: (after) => this.sequences.replaySafe(after),
+      sequences: this.sequences,
       blocked: () => this.writes.isHeld() || this.historyWriting,
       transaction: (run, committed) => this.transaction(run, committed),
       persist: (event) => {
@@ -348,9 +346,8 @@ export class Store {
   hasLiveWrite(id: ThreadId): boolean {
     return this.streaming.buffer.has(id);
   }
-  prepareLiveWrite(bytes: number, events: number): void {
+  prepareLiveWrite(bytes: number): void {
     this.streaming.prepare(bytes);
-    this.sequences.prepare(events);
   }
   bufferLiveWrite(
     id: ThreadId,
@@ -421,8 +418,10 @@ export class Store {
     } finally {
       this.transactionEvents = undefined;
     }
-    committed?.();
-    this.publish(events.filter((event) => event.seq > this.publishedSeq));
+    // The live buffer publishes original envelopes after commit; persisted envelopes may
+    // contain compacted prefixes that subscribers have already received.
+    if (committed) committed();
+    else this.publish(events.filter((event) => event.seq > this.publishedSeq));
     for (const listener of this.usageListeners) {
       try {
         listener();

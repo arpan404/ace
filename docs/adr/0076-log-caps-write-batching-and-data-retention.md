@@ -93,8 +93,12 @@ power loss. Completed/control state is never published ahead of its commit.
 
 Live events reserve canonical sequence numbers. Before publishing the first live event in a
 range, a small independent transaction advances the existing `host_sequence` high-water mark
-by at least 65,536 slots counted in events (facts.length), never bytes, so large text
-batches do not over-reserve. The visible durable head comes from actual event/deletion rows,
+by at least 65,536 slots counted from canonical event envelopes, never bytes or provider
+facts. A shell-output fact may split into several canonical deltas. The exact batch is pinned
+before its range is checked, so refilling a range can durably flush the complete batch and
+snapshot together. Only unpublished original envelopes reach live subscribers; compacting
+the persisted rows never repeats an already delivered prefix. Reservation or forced-flush
+failures retain the batch and apply mailbox backpressure until storage recovers. The visible durable head comes from actual event/deletion rows,
 not unused reservations. Restart skips the reserved range, including slots published only
 in memory, so a lost tail can never alias later events. The table's encoding is unchanged;
 previous builds also skip its high-water mark. A compacted persisted delta uses the final

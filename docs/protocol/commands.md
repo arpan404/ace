@@ -1907,8 +1907,17 @@ Example:
 
 ```json
 {
+  "alive": {
+    "agentsRunning": 7,
+    "operationsRunning": 6,
+    "terminalsOpen": 6
+  },
   "commandId": "example",
-  "error": "example",
+  "detail": "example",
+  "forgeLifecycle": {
+    "headSha": "5e4f89aAd5e8Fc3CeE8Ee0863c132C90f511BE8a66cf",
+    "outcome": "pending"
+  },
   "health": {
     "activeSessions": null,
     "at": 3,
@@ -1918,8 +1927,9 @@ Example:
       "p99Ms": 7
     },
     "logs": {
-      "dropped": 9,
-      "failed": 0,
+      "directory": "example",
+      "dropped": 3,
+      "failed": 9,
       "queued": 0
     },
     "memory": {
@@ -1934,53 +1944,32 @@ Example:
       "walBytes": null
     }
   },
-  "locksCleared": 1,
   "ok": false,
   "pr": {
-    "number": 2,
+    "number": 4,
     "repository": {
       "forge": "github",
-      "host": "i2",
-      "name": "sOaTjO7O.-",
-      "owner": "ABDc8Es"
+      "host": "LABDd8Ftd4",
+      "name": "gTmbi7wp",
+      "owner": "OaTj/O.-kphOeZTR/Cy.39-/N4/l0AsWD/037/Nur.2U5Q"
     }
   },
-  "prExisting": false,
-  "prStatus": {
-    "checks": [],
-    "ci": "unknown",
-    "comments": [],
-    "headSha": "example",
-    "mergeability": "unknown",
-    "raw": null,
-    "ref": {
-      "number": 1,
-      "repository": {
-        "forge": "github",
-        "host": "fZTRDDy",
-        "name": "MwE8b21",
-        "owner": "39-jN4El0As/n037RN/r.2U/QTgTmbi7wp/6fJl/mUo7._riY/8Gg/zlE7EmK6/SgMSPy9JoZ"
-      }
-    },
-    "reviewThreads": [],
-    "state": "draft",
-    "title": "example",
-    "url": "example"
-  },
-  "remoteHead": "f96ada35e3876da758a4cb5b73819b7f17b607bd753d038",
+  "prExisting": true,
   "review": {
-    "comments": [],
+    "intentId": "example",
+    "nextCursor": "example",
     "reply": {
       "commentId": "example",
       "id": "example",
       "text": "example"
     },
     "session": {
-      "createdAt": 2,
+      "createdAt": 1,
       "id": "example",
       "source": {
         "from": {
-          "kind": "working-tree"
+          "kind": "commit",
+          "ref": "example"
         },
         "threadId": "example",
         "to": {
@@ -1988,9 +1977,10 @@ Example:
         },
         "workspaceId": "example"
       },
-      "status": "changes-requested"
+      "status": "approved"
     }
   },
+  "title": "example",
   "workspace": {
     "badge": {},
     "id": "example",
