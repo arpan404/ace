@@ -61,6 +61,9 @@ writer. Explicit context and allowlisted tool environment overrides still apply 
 Codex unsubscribe only releases the subscription: the thread can stay loaded for its inactivity
 grace period. It does not prove that its writer is gone. The offline shared CLI models this
 retention, with optional cross-process writer exclusion for the reopen regression.
+A pool key that still changes for other reasons (explicit per-session environment
+differences) picks a new host with no cross-host resume recovery yet; routing
+`thread/resume` to the owning host is follow-up work.
 
 ## Other providers
 

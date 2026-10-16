@@ -5,8 +5,15 @@ import { join } from "node:path";
 export function writerStore(root: string | undefined) {
   const owned = new Set<string>();
   if (root) mkdirSync(root, { recursive: true });
-  process.on("exit", () => {
-    for (const path of owned) unlinkSync(path);
+  process.once("exit", () => {
+    for (const path of owned) {
+      try {
+        unlinkSync(path);
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") continue;
+        throw error;
+      }
+    }
   });
   return {
     acquire(thread: string): boolean {
