@@ -942,7 +942,7 @@ export class Store {
         const event =
           envelopes?.[inputIndex - 1] ??
           Event.parse({
-            seq: this.sequences.next(seq),
+            seq: (seq = this.sequences.next(seq)),
             id: this.nextId(),
             threadId,
             at,
