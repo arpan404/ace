@@ -3,8 +3,8 @@ import { formatDuration } from "./time.ts";
 
 /*
  * How a new thread's worktree creation reads (docs/daemon/worktree-creation.md): one line per
- * step the daemon has reached, the step in flight with checkout's percent, and a one-line
- * summary once it has settled. Pure over the daemon's progress report.
+ * step the daemon has reached, the step in flight with checkout's percent. The settled
+ * summary is retained for tests but never shown in chat. Pure over the daemon's progress report.
  */
 
 type Progress = WorktreeCreationProgress;
@@ -101,7 +101,7 @@ export function worktreeNote(progress: Progress): string | undefined {
   return undefined;
 }
 
-/** "Worktree ready · fix/login-timeout · 4.2s": the settled card, folded to one line. */
+/** "Worktree ready · fix/login-timeout · 4.2s": retained but never shown in chat. */
 export function worktreeSummary(progress: Progress, branch?: string | null): string {
   const parts = [worktreeHeadline(progress)];
   if (branch && progress.state === "done") parts.push(branch);

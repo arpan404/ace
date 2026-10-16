@@ -70,8 +70,17 @@ test("the returned message, edited, starts the thread with the edited text", asy
 
   // The strip's reason goes with the send; the thread starts on the edited message.
   await waitFor(() => expect(screen.queryByText(failure)).toBeNull());
-  await screen.findByRole("button", { name: /^Worktree ready/ });
-  const feed = screen.getByRole("feed", { name: "Transcript" });
+  await waitFor(() => {
+    const view = made.daemon.snapshot({ kind: "threads" });
+    expect(
+      view?.kind === "threads" &&
+        Object.values(view.threads).some((thread) => thread.title === "Second try, edited"),
+    ).toBe(true);
+  });
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  // The settled worktree is never shown in chat.
+  expect(screen.queryByRole("button", { name: /^Worktree ready/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Using the local checkout/ })).toBeNull();
   expect(within(feed).getByText("Second try, edited")).toBeTruthy();
   expect(within(feed).queryByText("First try")).toBeNull();
 }, 60_000);
