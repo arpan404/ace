@@ -7,6 +7,7 @@ import { AccountManagementRequest, type AccountsResponse } from "@ace/protocol/a
 import type { ProviderLoginSessions } from "@ace/accounts";
 import { AccountManagement } from "../account-management.ts";
 import { AccountService, openRegistryIndex, cursorSdkLoginDriver } from "@ace/accounts";
+import { ToolEnvVault } from "@ace/accounts";
 import { join } from "node:path";
 /** How often every account's limits are re-read where the CLI can say without a turn. */
 const limitsRefreshMs = 5 * 60_000;
@@ -39,6 +40,11 @@ export async function startAccounts(context: ServiceContext) {
         ]),
       );
   services.accountRegistry = registry;
+  const toolEnvVault = new ToolEnvVault();
+  services.toolEnvVault = toolEnvVault;
+  resources.own(async () => {
+    toolEnvVault.clear();
+  });
   services.accounts = new AccountService({
     registry,
     now,

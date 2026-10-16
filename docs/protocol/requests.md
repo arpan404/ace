@@ -722,6 +722,49 @@ Example:
 }
 ```
 
+### provider.toolEnv.submit
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"provider.toolEnv.submit"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| entries | yes | array | {"minItems":1,"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/ToolEnvEntry.json"}} |
+
+Example:
+
+```json
+{
+  "entries": [
+    {
+      "key": "GH_TOKEN",
+      "value": "z{|~}|y"
+    }
+  ],
+  "requestId": "example",
+  "threadId": "example",
+  "type": "provider.toolEnv.submit"
+}
+```
+
+### provider.toolEnv.clear
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"provider.toolEnv.clear"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "threadId": "example",
+  "type": "provider.toolEnv.clear"
+}
+```
+
 ### provider.install.plan
 
 | Field | Required | Type | Constraints |
@@ -737,7 +780,7 @@ Example:
 
 ```json
 {
-  "provider": "pi",
+  "provider": "opencode",
   "requestId": "example",
   "type": "provider.install.plan"
 }
@@ -761,8 +804,9 @@ Example:
 {
   "acpAgentId": "official:3ht2xy",
   "action": "install",
+  "agent": "goose",
   "method": "bun",
-  "provider": "codex",
+  "provider": "acp",
   "requestId": "example",
   "type": "provider.install.run"
 }
@@ -1053,7 +1097,7 @@ Example:
 }
 ```
 
-### Variant 48
+### Variant 50
 
 Type: union. See JSON Schema for constraints.
 
@@ -1485,7 +1529,7 @@ Example:
 }
 ```
 
-### Variant 69
+### Variant 71
 
 Type: union. See JSON Schema for constraints.
 

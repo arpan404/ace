@@ -36,6 +36,8 @@ export interface Services {
   refreshModelInstances?: (provider: import("@ace/protocol").ProviderKind) => Promise<void>;
   providerInstalls?: import("../provider-install/sessions.ts").ProviderInstalls;
   providerLogin?: import("@ace/accounts").ProviderLoginSessions;
+  /** Ephemeral per-thread tool credentials (memory only, never persisted). */
+  toolEnvVault?: import("@ace/accounts").ToolEnvVault;
   onboarding?: import("../onboarding.ts").Onboarding;
   providerStatuses?: import("../provider-status.ts").ProviderStatuses;
   utility?: import("./utility.ts").UtilityService;

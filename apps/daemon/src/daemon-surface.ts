@@ -49,6 +49,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "models",
     "providerStatuses",
     "providerLogin",
+    "toolEnvVault",
     "providerInstalls",
     "onboarding",
     "agentControl",

@@ -29,6 +29,7 @@ import {
   OnboardingResult,
   ProvidersChanged,
 } from "./provider-login.ts";
+import { ToolEnvRequest, ToolEnvResult } from "./provider-tool-env.ts";
 import { ActivityReadsChanged, ActivityReadsRequest, ActivityReadsResult } from "./activity.ts";
 import { ProvidersRequest, ProvidersResult } from "./provider-status.ts";
 import {
@@ -196,6 +197,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   MachinesRequest,
   ProvidersRequest,
   ...ProviderLoginRequest.options,
+  ...ToolEnvRequest.options,
   ...ProviderInstallRequest.options,
   ...OnboardingRequest.options,
   PreviewRequest,
@@ -274,6 +276,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ProvidersResult,
   ProviderLoginResult,
   ProviderLoginEvent,
+  ToolEnvResult,
   ProviderInstallResult,
   ProviderInstallEvent,
   OnboardingResult,

@@ -120,6 +120,8 @@ export * from "./interaction-measurement.ts";
 
 export * from "./provider-login.ts";
 
+export * from "./provider-tool-env.ts";
+
 export * from "./provider-accounts.ts";
 export * from "./provider-install.ts";
 

@@ -48,7 +48,10 @@ export {
   filterSessionToolEnv,
   forwardedToolEnvKeys,
   maxForwardedToolEnvLength,
+  overlayToolEnv,
+  withSubmittedToolEnv,
 } from "./tool-env.ts";
+export { ToolEnvVault } from "./tool-env-vault.ts";
 
 export { canonicalHome } from "./paths.ts";
 

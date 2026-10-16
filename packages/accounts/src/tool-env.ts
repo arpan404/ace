@@ -1,3 +1,6 @@
+import type { SessionContext } from "@ace/engine-api";
+import type { ThreadId } from "@ace/protocol";
+
 /**
  * Per-session tool-credential forwarding for isolated (managed) account homes.
  *
@@ -37,4 +40,33 @@ export function filterSessionToolEnv(input: unknown): NodeJS.ProcessEnv {
     out[key] = value;
   }
   return out;
+}
+
+/**
+ * Merge vault-submitted entries into a session: an explicit user submission
+ * wins over daemon-composed session values. Pure: no I/O.
+ */
+export function overlayToolEnv(
+  context: Pick<SessionContext, "toolEnv">,
+  submitted: NodeJS.ProcessEnv | undefined,
+): SessionContext["toolEnv"] {
+  if (!submitted) return context.toolEnv;
+  return { ...context.toolEnv, ...submitted };
+}
+
+/**
+ * Attach one thread's vault entries to its session, if any are live. The
+ * engine calls this on every provider open; filtering still happens later in
+ * `AccountService`, so denied values cannot reach a provider process.
+ */
+export function withSubmittedToolEnv<S extends Pick<SessionContext, "threadId" | "toolEnv">>(
+  session: S,
+  vault: {
+    get(threadId: ThreadId, isLive: (threadId: ThreadId) => boolean): NodeJS.ProcessEnv | undefined;
+  },
+  isLive: (threadId: ThreadId) => boolean,
+): S {
+  const submitted = vault.get(session.threadId, isLive);
+  if (submitted === undefined) return session;
+  return { ...session, toolEnv: overlayToolEnv(session, submitted) };
 }

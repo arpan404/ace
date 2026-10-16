@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import { filterSessionToolEnv, maxForwardedToolEnvLength } from "./tool-env.ts";
+import { ThreadId } from "@ace/protocol";
+import {
+  filterSessionToolEnv,
+  maxForwardedToolEnvLength,
+  withSubmittedToolEnv,
+} from "./tool-env.ts";
 
 test("allowlisted tool credentials survive filtering", () => {
   expect(
@@ -48,4 +53,16 @@ test("an own __proto__ property cannot smuggle a value through", () => {
   expect(Object.entries(input)).toContainEqual(["__proto__", "polluted"]);
   expect(filterSessionToolEnv(input)).toEqual({ GH_TOKEN: "gho_session" });
   expect(({} as Record<string, unknown>)["polluted"]).toBeUndefined();
+});
+
+test("vault entries win over session values without mutating either", () => {
+  const session = { threadId: ThreadId.parse("thread-1"), toolEnv: { GH_TOKEN: "ambient" } };
+  expect(withSubmittedToolEnv(session, { get: () => undefined }, () => true)).toBe(session);
+  const merged = withSubmittedToolEnv(
+    session,
+    { get: (id: string) => (id === "thread-1" ? { GH_TOKEN: "submitted" } : undefined) },
+    () => true,
+  );
+  expect(merged).toEqual({ threadId: "thread-1", toolEnv: { GH_TOKEN: "submitted" } });
+  expect(session.toolEnv).toEqual({ GH_TOKEN: "ambient" });
 });

@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/ToolEnvEntry.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "key": {
+      "$ref": "https://ace.local/protocol/v1/ToolEnvKey.json"
+    },
+    "value": {
+      "$ref": "https://ace.local/protocol/v1/ToolEnvValue.json"
+    }
+  },
+  "required": [
+    "key",
+    "value"
+  ],
+  "type": "object"
+}

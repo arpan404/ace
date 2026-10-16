@@ -24,11 +24,13 @@ export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "cli.r
         ? Replies<"provider.install.result">
         : Q["type"] extends `provider.login.${string}` | "provider.logout"
           ? Replies<"provider.login.result">
-          : Q["type"] extends `onboarding.${string}`
-            ? Replies<"onboarding.result">
-            : Q["type"] extends "worktree.creation.request"
-              ? Replies<"worktree.creation.result">
-              : LegacyServiceResponse<Q>;
+          : Q["type"] extends `provider.toolEnv.${string}`
+            ? Replies<"provider.toolEnv.result">
+            : Q["type"] extends `onboarding.${string}`
+              ? Replies<"onboarding.result">
+              : Q["type"] extends "worktree.creation.request"
+                ? Replies<"worktree.creation.result">
+                : LegacyServiceResponse<Q>;
 
 type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "storage.request"
   ? Replies<"storage.result">
@@ -211,6 +213,8 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "provider.login.cancel": ["provider.login.result"],
   "provider.login.terminal": ["provider.login.result"],
   "provider.logout": ["provider.login.result"],
+  "provider.toolEnv.submit": ["provider.toolEnv.result"],
+  "provider.toolEnv.clear": ["provider.toolEnv.result"],
   "onboarding.query": ["onboarding.result"],
   "worktree.creation.request": ["worktree.creation.result"],
   "onboarding.dismiss": ["onboarding.result"],
