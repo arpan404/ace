@@ -29,12 +29,118 @@ export function formRequest(form: Data): InteractionRequest {
         allowOther: f.custom === true,
       })),
     };
+  const schema = elicitationSchema(form);
   return {
     kind: "elicitation",
     server: "OpenCode",
     message: string(form.title),
-    schema: { fields: form.fields, metadata: form.metadata },
+    ...(schema === undefined ? {} : { schema }),
   };
+}
+
+/**
+ * A generic OpenCode form as the JSON Schema the elicitation UI renders. Scalar
+ * fields (string, number, integer, boolean) map to primitive properties with
+ * their titles, descriptions, requirements, defaults and bounds; anything the
+ * UI cannot render (multiselect, external, unknown types) is skipped when
+ * optional and fails the whole form when required, so the UI keeps its explicit
+ * unsupported state instead of accepting an incomplete answer. Hidden and
+ * keyless fields are never shown. Conditional (`when`) fields render
+ * unconditionally. Returns undefined when nothing renderable remains.
+ */
+function elicitationSchema(form: Data): Record<string, unknown> | undefined {
+  const properties: Record<string, unknown> = {};
+  const required: string[] = [];
+  for (const field of array(form.fields).map(object)) {
+    const key = string(field.key);
+    if (!key || key in properties || field.hidden === true) continue;
+    const property = fieldProperty(field);
+    if (!property) {
+      if (field.required === true) return undefined;
+      continue;
+    }
+    properties[key] = property;
+    if (field.required === true) required.push(key);
+  }
+  if (Object.keys(properties).length === 0) return undefined;
+  return { type: "object", properties, required };
+}
+
+function fieldProperty(field: Data): Record<string, unknown> | undefined {
+  const title = string(field.title) || undefined;
+  const description = string(field.description) || undefined;
+  switch (string(field.type)) {
+    case "string":
+      return stringProperty(field, title, description);
+    case "number":
+    case "integer":
+      return numericProperty(field, string(field.type) as "number" | "integer", title, description);
+    case "boolean": {
+      const property: Record<string, unknown> = { type: "boolean" };
+      if (title !== undefined) property.title = title;
+      if (description !== undefined) property.description = description;
+      if (typeof field.default === "boolean") property.default = field.default;
+      return property;
+    }
+    default:
+      return undefined;
+  }
+}
+
+function stringProperty(
+  field: Data,
+  title: string | undefined,
+  description: string | undefined,
+): Record<string, unknown> {
+  const property: Record<string, unknown> = { type: "string" };
+  if (title !== undefined) property.title = title;
+  if (description !== undefined) property.description = description;
+  const minLength = countLimit(field.minLength);
+  const maxLength = countLimit(field.maxLength);
+  if (minLength !== undefined) property.minLength = minLength;
+  if (maxLength !== undefined) property.maxLength = maxLength;
+  // A custom field accepts free text alongside its suggestions, which the
+  // elicitation select cannot offer, so it stays a plain text field.
+  if (field.custom !== true) {
+    const options = array(field.options)
+      .map(object)
+      .filter((o) => typeof o.value === "string");
+    if (options.length > 0 && options.length <= 128) {
+      property.enum = options.map((o) => o.value);
+      if (options.some((o) => typeof o.label === "string"))
+        property.enumNames = options.map((o) => string(o.label, string(o.value)));
+    }
+  }
+  if (typeof field.default === "string") property.default = field.default;
+  return property;
+}
+
+function numericProperty(
+  field: Data,
+  type: "number" | "integer",
+  title: string | undefined,
+  description: string | undefined,
+): Record<string, unknown> {
+  const property: Record<string, unknown> = { type };
+  if (title !== undefined) property.title = title;
+  if (description !== undefined) property.description = description;
+  const minimum = finiteNumber(field.minimum ?? field.min);
+  const maximum = finiteNumber(field.maximum ?? field.max);
+  if (minimum !== undefined) property.minimum = minimum;
+  if (maximum !== undefined) property.maximum = maximum;
+  const fallback = finiteNumber(field.default);
+  if (fallback !== undefined && (type === "number" || Number.isInteger(fallback)))
+    property.default = fallback;
+  return property;
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function countLimit(value: unknown): number | undefined {
+  const parsed = finiteNumber(value);
+  return parsed !== undefined && Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 export function interaction(state: NativeState, type: string, p: Data, evidence: unknown): Fact[] {
   const form = type === "form.created" ? object(p.form) : p;
