@@ -42,10 +42,10 @@ function totalOpenCodeConnections(connections: ReadonlyMap<string, number>): num
 }
 
 /**
- * Verify an OpenCode account change. Targeted choices check that integration;
- * the untargeted picker trusts the CLI exit for login (any connection means
- * connected) but requires shrinkage for logout so disconnecting one service
- * while another remains still counts as a disconnect.
+ * Verify an OpenCode account change. Targeted choices check that integration.
+ * The untargeted picker checks any connection for login (the CLI's zero exit,
+ * gated by the terminal driver, is the change signal) but requires shrinkage
+ * for logout so disconnecting one service while another remains still counts.
  */
 export function openCodeAuthChangeVerified(
   action: "login" | "logout",

@@ -243,16 +243,14 @@ export async function prepareProviderLogin(
       }
       assertCurrent();
     }
-    const args =
-      target.provider === "claude" || target.provider === "opencode"
-        ? ["auth", action, "--help"]
-        : [action, "--help"];
     const help =
       target.provider === "pi" || target.provider === "opencode"
         ? ""
         : await (async () => {
             try {
-              const result = await probeOutput(executable, args, {
+              const helpArgs =
+                target.provider === "claude" ? ["auth", action, "--help"] : [action, "--help"];
+              const result = await probeOutput(executable, helpArgs, {
                 env,
                 signal: guard.signal,
                 timeoutMs: 4000,
