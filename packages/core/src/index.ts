@@ -9,6 +9,7 @@ export {
   isSettled,
   completionRelevanceReader,
 } from "./status.ts";
+export { hasUnresponsiveAncestor } from "./liveness.ts";
 export { nextDeadline, DeadlineIndex } from "./deadlines.ts";
 export { isActionableInteraction } from "./human.ts";
 

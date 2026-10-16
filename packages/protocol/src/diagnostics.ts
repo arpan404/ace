@@ -1,5 +1,27 @@
 import { z } from "zod";
 const count = z.number().int().nonnegative();
+/** Cumulative counters; compare samples to derive transaction rate and rows per batch. */
+export const StreamingStorageMetrics = z.object({
+  transactions: count,
+  eventRows: count,
+  flushes: count,
+  rows: count,
+  failures: count,
+  liveBytes: count,
+  peakBytes: count,
+  bufferedBytes: count,
+  walBytes: count,
+  replayResyncs: count,
+  reads: z.object({
+    hits: count,
+    misses: count,
+    hitBytes: count,
+    invalidations: count,
+    evictions: count,
+    bytes: count,
+  }),
+});
+export type StreamingStorageMetrics = z.infer<typeof StreamingStorageMetrics>;
 export const DiagnosticsHealthCommand = z.object({ type: z.literal("diagnostics.health") });
 export const DiagnosticsHealth = z.object({
   at: z.number().nonnegative(),
@@ -12,6 +34,7 @@ export const DiagnosticsHealth = z.object({
   openHandles: count,
   sqlite: z.object({ pageBytes: count.nullable(), walBytes: count.nullable() }),
   activeSessions: count.nullable(),
+  streaming: StreamingStorageMetrics.optional(),
   queues: z
     .record(z.string().max(128), count)
     .refine((value) => Object.keys(value).length <= 64)

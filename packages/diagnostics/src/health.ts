@@ -1,5 +1,5 @@
 import { monitorEventLoopDelay } from "node:perf_hooks";
-import { DiagnosticsHealth } from "@ace/protocol";
+import { DiagnosticsHealth, type StreamingStorageMetrics } from "@ace/protocol";
 import { sqliteSizes } from "./sqlite.ts";
 export interface DelayProbe {
   count: number;
@@ -35,6 +35,7 @@ export interface HealthOptions {
   database: string;
   now: () => number;
   workload: () => { activeSessions: number | null; queues: Record<string, number> };
+  streaming?: () => StreamingStorageMetrics;
   logs: () => { dropped: number; failed: number; queued: number; directory?: string };
 }
 export function createHealthMonitor(options: HealthOptions, runtime: HealthRuntime = systemHealth) {
@@ -72,6 +73,7 @@ export function createHealthMonitor(options: HealthOptions, runtime: HealthRunti
             sqlite,
             ...options.workload(),
             logs: options.logs(),
+            streaming: options.streaming?.(),
           });
           histogram.reset();
           return health;

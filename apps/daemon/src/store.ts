@@ -1,3 +1,13 @@
+import { loadThreadSnapshot } from "./thread-snapshot.ts";
+import { StreamSequences } from "./stream-sequences.ts";
+import { StoreStream } from "./store-stream.ts";
+import { ThreadReadCache } from "./thread-read-cache.ts";
+import { WalMaintenance } from "./wal-maintenance.ts";
+import {
+  bufferScheduler,
+  type BufferScheduler,
+  type BufferedSnapshot,
+} from "./live-write-buffer.ts";
 import { purgeTranscript } from "./storage/transcript.ts";
 import { SearchReplay } from "./search-replay.ts";
 import { migrateSidebarRevisions } from "./sidebar-revisions.ts";
@@ -79,6 +89,7 @@ export interface StoreOptions extends Partial<CredentialRuntime> {
   searchScheduler?: SearchScheduler;
   searchWorkerFactory?: SearchWorkerFactory;
   writeGate?: StoreWriteGateOptions;
+  bufferScheduler?: BufferScheduler;
 }
 type Listener = (events: Event[]) => void;
 export class Store {
@@ -109,6 +120,13 @@ export class Store {
   private statements = new BoundedCache<string, StatementSync>(256, 256);
   private transactionEvents: Event[] | undefined;
   private rolledBack = 0;
+  private readonly streaming: StoreStream;
+  private readonly sequences: StreamSequences;
+  private readonly readCache: ThreadReadCache;
+  private readonly wal: WalMaintenance;
+  private readonly optionsDelay: BufferScheduler["delay"];
+  private transactions = 0;
+  private eventRows = 0;
   private depth = 0;
   private installingHistory = false;
   private historyWriting = false;
@@ -142,10 +160,44 @@ export class Store {
     options: StoreOptions = {},
   ) {
     this.onError = onError;
+    this.optionsDelay = (options.bufferScheduler ?? bufferScheduler).delay;
     this.db = options.database ?? new DatabaseSync(path);
+    this.wal = new WalMaintenance({
+      path,
+      scheduler: options.bufferScheduler ?? bufferScheduler,
+      busy: () =>
+        !!this.transactionEvents || this.historyWriting || this.streaming.buffer.bytes > 0,
+      exec: (sql) => this.db.exec(sql),
+      report: (error) => this.onError(error),
+    });
+    this.readCache = new ThreadReadCache({
+      flush: () => this.flushLiveWrites(),
+      version: () =>
+        `${this.statement("PRAGMA data_version").get()?.data_version}:${this.statement("SELECT total_changes() AS n").get()?.n}`,
+      inTransaction: () => this.transactionEvents !== undefined,
+      externalChange: () => this.caches.clear(),
+    });
+    this.sequences = new StreamSequences({
+      statement: (sql) => this.statement(sql),
+      commit: (run) => this.atomic(run),
+    });
     this.nextId = options.nextId ?? randomUUID;
     this.now = options.now ?? Date.now;
     this.writes = new StoreWriteGate(options.writeGate);
+    this.streaming = new StoreStream({
+      scheduler: options.bufferScheduler ?? bufferScheduler,
+      nextId: this.nextId,
+      nextSeq: (after) => this.sequences.next(after),
+      head: () => this.sequences.head(),
+      replaySafe: (after) => this.sequences.replaySafe(after),
+      blocked: () => this.writes.isHeld() || this.historyWriting,
+      transaction: (run, committed) => this.transaction(run, committed),
+      persist: (event) => {
+        this.appendEventBatch(event.threadId, [event.payload], event.at, [event]);
+      },
+      publish: (events) => this.publish(events),
+      report: (error) => this.onError(error),
+    });
     this.payloads = new PayloadStore(this.db, this.nextId, (sql) => this.statement(sql));
     this.status = new StatusStore(this.db, (sql) => this.statement(sql));
     try {
@@ -154,6 +206,7 @@ export class Store {
         "PRAGMA auto_vacuum=INCREMENTAL; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA cache_size=-2048; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=16777216;",
       );
       migrate(this.db);
+      this.sequences.initialize();
       migrateSidebarRevisions(this.db);
       migrateProjects(this.db);
       this.workspaceReservations = new WorkspaceReservations(this.db, (sql) => this.statement(sql));
@@ -234,6 +287,9 @@ export class Store {
   private onError: (error: unknown) => void;
   close(): Promise<void> {
     if (this.closing) return this.closing;
+    this.flushLiveWrites();
+    this.streaming.buffer.stop();
+    this.wal.close();
     const finished = Promise.withResolvers<void>();
     this.closing = finished.promise;
     this.searchAbort.abort();
@@ -284,13 +340,44 @@ export class Store {
     };
   }
   headSeq(): number {
-    return Number(this.statement("SELECT seq FROM host_sequence WHERE id = 1").get()?.seq);
+    return this.streaming.buffer.head ?? this.sequences.head();
+  }
+  liveWriteBlocked(): boolean {
+    return this.streaming.buffer.failed;
+  }
+  hasLiveWrite(id: ThreadId): boolean {
+    return this.streaming.buffer.has(id);
+  }
+  prepareLiveWrite(bytes: number): void {
+    this.streaming.prepare(bytes);
+    this.sequences.prepare(bytes + 4096);
+  }
+  bufferLiveWrite(
+    id: ThreadId,
+    payloads: EventPayload[],
+    at: number,
+    snapshot: BufferedSnapshot,
+  ): void {
+    this.streaming.append(id, payloads, at, snapshot);
+  }
+  flushLiveWrites(): void {
+    this.streaming.flush();
+  }
+  streamingMetrics() {
+    return {
+      ...this.streaming.metrics(),
+      transactions: this.transactions,
+      eventRows: this.eventRows,
+      walBytes: this.wal.bytes(),
+      reads: { ...this.readCache.metrics },
+    };
   }
   /** In-memory projections must reload after any rollback, including event-free saves. */
   rollbackGeneration(): number {
     return this.rolledBack;
   }
-  private transaction<T>(run: () => T): T {
+  private transaction<T>(run: () => T, committed?: () => void): T {
+    if (!this.streaming.flushing) this.flushLiveWrites();
     if (this.installingHistory) return run();
     if (this.transactionEvents) {
       const length = this.transactionEvents.length;
@@ -302,6 +389,7 @@ export class Store {
         return result;
       } catch (error) {
         this.db.exec(`ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
+        this.readCache.invalidate();
         this.rolledBack++;
         this.sidebarPages.clear();
         this.sidebarSummaries.clear();
@@ -320,6 +408,10 @@ export class Store {
       if (result instanceof Promise) throw new Error("Store transactions must be synchronous");
       events = this.transactionEvents;
       this.db.exec("COMMIT");
+      this.transactions++;
+      this.readCache.invalidate();
+      this.wal.wake();
+      this.eventRows += events.length;
     } catch (error) {
       this.db.exec("ROLLBACK");
       this.rolledBack++;
@@ -329,7 +421,8 @@ export class Store {
     } finally {
       this.transactionEvents = undefined;
     }
-    this.publish(events);
+    committed?.();
+    this.publish(events.filter((event) => event.seq > this.publishedSeq));
     for (const listener of this.usageListeners) {
       try {
         listener();
@@ -414,7 +507,19 @@ export class Store {
         await this.writes.open(signal);
         continue;
       }
-      if (!this.historyWriting) return;
+      if (!this.historyWriting) {
+        if (!this.streaming.buffer.failed) return;
+        try {
+          this.flushLiveWrites();
+          return;
+        } catch (error) {
+          this.onError(error);
+        }
+        await new Promise<void>((resolve) => {
+          this.optionsDelay(resolve, 100);
+        });
+        continue;
+      }
       await new Promise<void>((resolve, reject) => {
         const ready = () => {
           signal?.removeEventListener("abort", abort);
@@ -450,6 +555,7 @@ export class Store {
    * Work receives the connection; it must leave no transaction open across its awaits.
    */
   maintenance<T>(work: (db: DatabaseSync) => Promise<T>, signal?: AbortSignal): Promise<T> {
+    this.flushLiveWrites();
     return this.writes.exclusive(async () => {
       if (this.closing) throw new Error("Store is closed");
       if (this.transactionEvents || this.installingHistory) throw new Error("Store is busy");
@@ -812,8 +918,17 @@ export class Store {
       .map((row) => this.decodeThread(row));
   }
   appendEvents(threadId: ThreadId, payloads: EventPayload[], at = this.now()): Event[] {
+    return this.appendEventBatch(threadId, payloads, at);
+  }
+  private appendEventBatch(
+    threadId: ThreadId,
+    payloads: EventPayload[],
+    at: number,
+    envelopes?: Event[],
+  ): Event[] {
     return this.transaction(() => {
-      let seq = this.headSeq();
+      let seq = this.sequences.head();
+      const afterSeq = seq;
       const events: Event[] = [];
       let followup: EventPayload | undefined;
       let inputIndex = 0;
@@ -821,22 +936,26 @@ export class Store {
         const payload = followup ?? payloads[inputIndex++];
         followup = undefined;
         if (!payload) break;
+        const previousSeq = seq;
         const previous = this.getThread(threadId);
         const prepared = previous ? prepareRunClient(this.db, previous, payload) : payload;
-        const event = Event.parse({
-          seq: ++seq,
-          id: this.nextId(),
-          threadId,
-          at,
-          payload: this.toolResults.decorate(
+        const event =
+          envelopes?.[inputIndex - 1] ??
+          Event.parse({
+            seq: this.sequences.next(seq),
+            id: this.nextId(),
             threadId,
-            this.nativeImages.decorate(
+            at,
+            payload: this.toolResults.decorate(
               threadId,
-              this.measurements.decorate(threadId, prepared, seq),
+              this.nativeImages.decorate(
+                threadId,
+                this.measurements.decorate(threadId, prepared, seq),
+              ),
+              seq,
             ),
-            seq,
-          ),
-        });
+          });
+        seq = event.seq;
         if (!Number.isSafeInteger(seq)) throw new Error("Sequence exhausted");
         let thread: Thread;
         if (event.payload.type === "thread.created") {
@@ -919,7 +1038,7 @@ export class Store {
         this.payloads.persist(event);
         this.history.record(event);
         this.status.persist(event, thread);
-        this.longThreads.append(event, thread);
+        this.longThreads.append(event, thread, previousSeq);
         this.statement("INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)").run(
           seq,
           event.id,
@@ -928,7 +1047,7 @@ export class Store {
           event.payload.type,
           JSON.stringify(event.payload),
         );
-        this.statement("UPDATE host_sequence SET seq = ? WHERE id = 1").run(seq);
+        this.statement("UPDATE host_sequence SET seq = MAX(seq,?) WHERE id = 1").run(seq);
         this.mcp.apply(event, thread);
         events.push(event);
       }
@@ -944,7 +1063,7 @@ export class Store {
         if (current?.deletedAt !== undefined) this.search.deleteThread(threadId);
         else if (current) this.search.observeThread(current, seq);
       }
-      this.search.append(events);
+      this.search.appendCovered(events, afterSeq);
       this.searchMaintenance.wake();
       this.transactionEvents?.push(...events);
       return events;
@@ -980,12 +1099,17 @@ export class Store {
   listMcpAgents(threadId: ThreadId, cursor: string, limit: number) {
     return this.mcp.agents(threadId, cursor, limit);
   }
+  /** A cursor inside a compacted delta span needs a fresh snapshot to avoid double append. */
+  replaySafe(afterSeq: number): boolean {
+    return this.streaming.replaySafe(afterSeq);
+  }
   readEvents(options: {
     afterSeq: number;
     threadId?: ThreadId;
     limit: number;
     byteLimit?: number;
   }): Event[] {
+    this.flushLiveWrites();
     const rows =
       options.threadId === undefined
         ? this.statement("SELECT * FROM events WHERE seq > ? ORDER BY seq LIMIT ?").iterate(
@@ -1013,10 +1137,12 @@ export class Store {
     return events;
   }
   readSearchPage(options: { afterSeq: number; limit: number; maxBytes: number }) {
+    this.flushLiveWrites();
     return this.searchReplay.read(options, this.headSeq());
   }
   /** Usage replay skips transcript/output payloads while advancing host coverage. */
   readUsagePage(options: { afterSeq: number; limit: number; maxBytes?: number }) {
+    this.flushLiveWrites();
     return this.usageReplay.read(options, this.headSeq());
   }
   recordCommand(commandId: CommandId, deviceId: DeviceId, run: () => CommandResult): CommandResult {
@@ -1082,6 +1208,7 @@ export class Store {
     });
   }
   acquireThread(id: ThreadId): ThreadView {
+    this.flushLiveWrites();
     const cached = this.caches.get(id);
     if (cached) {
       this.catchUp(cached.view, id);
@@ -1103,19 +1230,14 @@ export class Store {
     }
   }
   snapshotThread(id: ThreadId): ThreadView {
-    const status = this.acquireThread(id);
-    try {
-      const view: ThreadView = structuredClone({ ...status, items: {}, itemOrder: [] });
-      const page = this.payloads.page(id, this.headSeq() + 1, 200, 1024 * 1024);
-      view.items = Object.fromEntries(page.items.map((item) => [item.id, item]));
-      view.itemOrder = page.items.map((item) => item.id);
-      view.itemsBefore = page.itemsBefore;
-      if (page.itemSeqs) view.itemSeqs = page.itemSeqs;
-      this.status.retainItemAgents(view);
-      return view;
-    } finally {
-      this.releaseThread(id);
-    }
+    return this.readCache.read(`snapshot:${id}`, () =>
+      loadThreadSnapshot({
+        acquire: () => this.acquireThread(id),
+        release: () => this.releaseThread(id),
+        items: () => this.payloads.page(id, this.headSeq() + 1, 200, 1024 * 1024),
+        retainAgents: (view) => this.status.retainItemAgents(view),
+      }),
+    );
   }
   readEntityPage(
     threadId: ThreadId,
@@ -1123,21 +1245,31 @@ export class Store {
     before: number,
     limit: number,
   ) {
+    this.flushLiveWrites();
     const thread = this.getThread(threadId);
     if (!thread) throw new Error("Unknown thread");
-    return EntitiesPage.parse({
-      ...this.status.page(thread, collection, before, limit),
-      seq: this.headSeq(),
-    });
+    return this.readCache.read(
+      JSON.stringify(["entities", threadId, collection, before, limit]),
+      () =>
+        EntitiesPage.parse({
+          ...this.status.page(thread, collection, before, limit),
+          seq: this.headSeq(),
+        }),
+    );
   }
   getInteraction(id: string) {
     return this.status.interaction(id);
   }
   readItems(threadId: ThreadId, before: number, limit: number) {
+    this.flushLiveWrites();
     if (!this.getThread(threadId)) throw new Error("Unknown thread");
-    return { ...this.payloads.page(threadId, before, limit), seq: this.headSeq() };
+    return this.readCache.read(JSON.stringify(["items", threadId, before, limit]), () => ({
+      ...this.payloads.page(threadId, before, limit),
+      seq: this.headSeq(),
+    }));
   }
   private readableThread(id: ThreadId): Thread {
+    this.flushLiveWrites();
     const thread = this.getThread(id);
     if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
     return thread;
@@ -1266,8 +1398,15 @@ export class Store {
     return this.payloads.liveStreamThread(streamId);
   }
   readItemPage(threadId: ThreadId, before: number, limit: number, byteLimit = 1024 * 1024) {
+    this.flushLiveWrites();
     if (!this.getThread(threadId)) throw new Error("Unknown thread");
-    return { ...this.payloads.wirePage(threadId, before, limit, byteLimit), seq: this.headSeq() };
+    return this.readCache.read(
+      JSON.stringify(["wireItems", threadId, before, limit, byteLimit]),
+      () => ({
+        ...this.payloads.wirePage(threadId, before, limit, byteLimit),
+        seq: this.headSeq(),
+      }),
+    );
   }
   appendRawChunk(threadId: ThreadId, chunk: unknown): void {
     this.payloads.streamed.append(threadId, chunk);
@@ -1276,9 +1415,11 @@ export class Store {
     return this.payloads.streamed.read(blobRef, offset, limit);
   }
   historicalItemCount(threadId: ThreadId, through: number): number {
+    this.flushLiveWrites();
     return this.history.count(threadId, through);
   }
   historicalItemCompletion(threadId: ThreadId, itemId: ItemId) {
+    this.flushLiveWrites();
     return this.history.completion(threadId, itemId);
   }
   readHistoricalItemPage(
@@ -1288,6 +1429,7 @@ export class Store {
     limit: number,
     byteLimit = 1024 * 1024,
   ) {
+    this.flushLiveWrites();
     if (!this.getThread(threadId)) throw new Error("Unknown thread");
     return this.history.page(threadId, through, before, limit, byteLimit);
   }
@@ -1298,18 +1440,22 @@ export class Store {
     offset: number,
     limit: number,
   ) {
+    this.flushLiveWrites();
     return this.history.readStream(threadId, streamId, through, offset, limit);
   }
   blobInfo(blobRef: string) {
     return this.payloads.blobInfo(blobRef);
   }
   outputInfo(streamId: string) {
+    this.flushLiveWrites();
     return this.payloads.outputInfo(streamId);
   }
   readOutputBytes(streamId: string, offset: number, limit: number) {
+    this.flushLiveWrites();
     return this.payloads.readLiveOutputBytes(streamId, offset, limit);
   }
   readOutput(streamId: string, offset: number, limit: number) {
+    this.flushLiveWrites();
     return this.payloads.readOutput(streamId, offset, limit);
   }
   readHistoryBlob(threadId: ThreadId, id: string, offset: number, limit: number) {
@@ -1317,13 +1463,14 @@ export class Store {
     return readHistoryBlob(this.db, threadId, id, offset, limit);
   }
   private recordDataDeletion(id: ThreadId): void {
-    const seq = this.headSeq() + 1;
+    const previousSeq = this.headSeq();
+    const seq = this.sequences.next(previousSeq);
     if (!Number.isSafeInteger(seq)) throw new Error("Sequence exhausted");
     this.statement("INSERT INTO usage_deletions VALUES (?, ?, ?)").run(seq, id, this.now());
-    this.statement("UPDATE host_sequence SET seq=? WHERE id=1").run(seq);
+    this.statement("UPDATE host_sequence SET seq=MAX(seq,?) WHERE id=1").run(seq);
     this.search.deleteThread(id);
-    this.search.acknowledgeDeletion(seq);
-    if (this.longThreads.data.indexedSeq() === seq - 1)
+    this.search.acknowledgeDeletion(seq, previousSeq);
+    if (this.longThreads.data.indexedSeq() === previousSeq)
       this.longThreads.data.run("UPDATE long_meta SET seq=? WHERE id=1", seq);
     this.mcp.deleteThread(id);
   }

@@ -29,8 +29,8 @@ export class LongThreadIndex {
     this.writer = new TurnWriter(this.data);
     this.reader = new TurnReader(this.data, getThread);
   }
-  append(event: Event, thread: Thread): void {
-    if (this.data.indexedSeq() === event.seq - 1) this.writer.record(event, thread);
+  append(event: Event, thread: Thread, afterSeq: number): void {
+    if (this.data.indexedSeq() === afterSeq) this.writer.record(event, thread);
   }
   async backfill(source: Source, signal: AbortSignal): Promise<void> {
     let delay = 100;

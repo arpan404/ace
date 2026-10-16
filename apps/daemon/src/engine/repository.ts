@@ -1,3 +1,5 @@
+import { hasUnresponsiveAncestor } from "@ace/core";
+import { streamFacts } from "./stream-facts.ts";
 import { RecordBudget } from "./records.ts";
 import { initializeThreadCleanup, threadCleaning } from "../thread-cleanup-journal.ts";
 import { migrateEmptyCursorThreads } from "./cursor-empty-migration.ts";
@@ -160,39 +162,41 @@ export class EngineRepository {
   private syncSnapshots(): void {
     const generation = this.store.rollbackGeneration();
     if (generation === this.snapshotGeneration) return;
-    this.snapshots.clear();
+    for (const id of this.snapshots.keys())
+      if (!this.store.hasLiveWrite(id)) this.snapshots.delete(id);
     this.snapshotGeneration = generation;
   }
   state(id: ThreadId): ThreadState | undefined {
-    return this.store.atomic((_db) => {
-      this.syncSnapshots();
-      const row = this.store
-        .statement("SELECT state,seq FROM thread_state WHERE thread_id = ?")
-        .get(id);
-      if (!row) {
-        this.snapshots.delete(id);
-        return undefined;
-      }
-      let snapshot = this.snapshots.get(id);
-      if (!snapshot || this.snapshotSeq.get(snapshot) !== Number(row.seq)) {
-        snapshot = new Snapshot(
-          { prepare: (sql) => this.store.statement(sql) },
-          decodeSnapshot(String(row.state)),
-          this.recordBudget,
-        );
-        this.snapshotSeq.set(snapshot, Number(row.seq));
-      }
+    if (this.store.hasLiveWrite(id)) return this.snapshots.get(id)?.state;
+
+    this.syncSnapshots();
+    const row = this.store
+      .statement("SELECT state,seq FROM thread_state WHERE thread_id = ?")
+      .get(id);
+    if (!row) {
       this.snapshots.delete(id);
-      this.snapshots.set(id, snapshot);
-      this.trim();
-      return snapshot.state;
-    });
+      return undefined;
+    }
+    let snapshot = this.snapshots.get(id);
+    if (!snapshot || this.snapshotSeq.get(snapshot) !== Number(row.seq)) {
+      snapshot = new Snapshot(
+        { prepare: (sql) => this.store.statement(sql) },
+        decodeSnapshot(String(row.state)),
+        this.recordBudget,
+      );
+      this.snapshotSeq.set(snapshot, Number(row.seq));
+    }
+    this.snapshots.delete(id);
+    this.snapshots.set(id, snapshot);
+    this.trim();
+    return snapshot.state;
   }
   deadline(id: ThreadId, providerDeadline?: number): number | undefined {
     this.requireState(id);
     return this.snapshots.get(id)?.deadline(providerDeadline);
   }
   evict(id: ThreadId): void {
+    if (this.store.hasLiveWrite(id)) return;
     this.snapshots.delete(id);
   }
   requireState(id: ThreadId): ThreadState {
@@ -272,12 +276,64 @@ export class EngineRepository {
   }
   private trim(): void {
     if (this.snapshots.size > this.capacity) {
-      const oldest = this.snapshots.keys().next().value;
+      const oldest = [...this.snapshots.keys()].find((id) => !this.store.hasLiveWrite(id));
       if (oldest !== undefined) this.snapshots.delete(oldest);
     }
   }
   attributeAction(state: ThreadState, fact: Fact): Fact {
     return attributeAceAction(state, fact, this.aceAction);
+  }
+  /** Only established append streams bypass the durable control-fact transaction. */
+  stream(id: ThreadId, facts: Fact[], now: number): boolean {
+    if (
+      !facts.length ||
+      facts.length > 256 ||
+      !facts.some((fact) => fact.type === "item.delta") ||
+      facts.some((fact) => fact.type !== "item.delta" && fact.type !== "signal")
+    )
+      return false;
+    const bytes = Buffer.byteLength(JSON.stringify(facts));
+    if (bytes > 512 * 1024) return false;
+    this.store.prepareLiveWrite(bytes);
+    const state = this.requireState(id);
+    const snapshot = this.snapshots.get(id);
+    const deadline = snapshot?.deadline();
+    if (
+      state.processExit ||
+      now < (state.statusObservedAt ?? now) ||
+      now < (state.lastTransportSignalAt ?? now) ||
+      (deadline !== undefined && now >= deadline)
+    )
+      return false;
+    if (
+      !snapshot ||
+      facts.some(
+        (fact) =>
+          (fact.type === "item.delta" && !snapshot.streamItem(fact.item)) ||
+          ((fact.type === "item.delta" || fact.type === "signal") &&
+            (fact.agent === undefined ||
+              !state.agents[fact.agent] ||
+              hasUnresponsiveAncestor(state, fact.agent))),
+      )
+    )
+      return false;
+    const events = streamFacts(snapshot, facts, now, this.ids);
+    this.store.bufferLiveWrite(id, events, now, {
+      persist: () => {
+        this.readiness.capture(state, events);
+        this.store
+          .statement(`INSERT INTO thread_state VALUES (?, ?, ?)
+          ON CONFLICT(thread_id) DO UPDATE SET state=excluded.state, seq=excluded.seq`)
+          .run(id, snapshot.header(), this.store.headSeq());
+        snapshot.persist();
+      },
+      committed: () => {
+        snapshot.committed();
+        this.snapshotSeq.set(snapshot, this.store.headSeq());
+      },
+    });
+    this.observe?.(state, facts, events, now);
+    return true;
   }
   apply(id: ThreadId, facts: Fact[], now: number, generation?: number): ThreadState {
     try {

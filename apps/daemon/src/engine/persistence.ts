@@ -16,7 +16,7 @@ export class Snapshot {
   private deadlineObservedAt: number | undefined;
   private items: Records<Item>;
   private metadata: Records<Item>;
-  private readonly sections = new Set<{ flush(): void }>();
+  private readonly sections = new Set<{ flush(): void; persist(): void; committed(): void }>();
   private readonly cache: RecordBudget;
   private readonly transaction: RecordTransaction & { tracking: boolean } = {
     tracking: false,
@@ -237,14 +237,21 @@ export class Snapshot {
     );
     this.items.retainChanges((item) => changed.has(item.id));
   }
-  flush(): void {
-    // Agent serialization can add a new native-run section on this pass.
-    while (this.sections.size) {
-      const section = this.sections.values().next().value;
-      if (!section) break;
-      this.sections.delete(section);
-      section.flush();
-    }
+  /** A metadata-only lookup keeps streaming work independent of transcript length. */
+  streamItem(key: string): Item | undefined {
+    return this.metadata.values[key] ?? this.state.items[key];
+  }
+  persist(): void {
+    // Agent serialization may register another section.
+    for (const section of this.sections) section.persist();
+  }
+  committed(): void {
+    for (const section of this.sections) section.committed();
+    this.sections.clear();
     this.transaction.tracking = false;
+  }
+  flush(): void {
+    this.persist();
+    this.committed();
   }
 }
