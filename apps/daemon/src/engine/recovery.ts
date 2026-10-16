@@ -15,7 +15,11 @@ import type { EngineRepository } from "./repository.ts";
 import { maxMessages, isSend } from "./queue-store.ts";
 import type { EngineClock } from "./actor.ts";
 import type { ContextWindowLookup } from "./context-meter.ts";
-import { continueOnAccount, type AccountContinuation } from "./account-continuation.ts";
+import {
+  accountContinuationApplied,
+  continueOnAccount,
+  type AccountContinuation,
+} from "./account-continuation.ts";
 
 export const RecoveryPreferences = z.object({
   followUpBehavior: z.enum(["steer", "queue"]).default("queue"),
@@ -401,6 +405,7 @@ export class Recovery {
     commandId: import("@ace/protocol").CommandId,
     target?: string,
   ): Promise<void> {
+    if (accountContinuationApplied(this.repo, id, commandId)) return;
     if (!this.ports.migrate) throw new Error("Account migration is unavailable");
     const result = await this.ports.migrate(id, target);
     await this.repo.store.writable();

@@ -7,6 +7,20 @@ export type AccountContinuation =
   | { nativeSessionId: string; instanceId: string }
   | { portable: true; instanceId: string };
 
+/** The handoff and destination binding commit together, before session opening. */
+export function accountContinuationApplied(
+  repo: EngineRepository,
+  id: ThreadId,
+  commandId: CommandId,
+): boolean {
+  const item = repo.requireState(id).items[`handoff:${commandId}`];
+  return (
+    item?.type === "message" &&
+    item.origin?.kind === "handoff" &&
+    item.origin.commandId === commandId
+  );
+}
+
 /** Continue through the existing handoff owner when native history cannot be copied. */
 export function continueOnAccount(
   repo: EngineRepository,
