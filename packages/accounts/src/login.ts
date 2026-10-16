@@ -2,6 +2,7 @@ import { spawnInteractive } from "@ace/provider-kit/process";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { mkdir } from "node:fs/promises";
 import { loginStatus, instanceEnv, loginArgs } from "./instances.ts";
+import { ensureManagedHomeSkeleton } from "./managed-home.ts";
 import type { ProviderInstance } from "@ace/protocol/accounts";
 import type { AccountRegistry } from "./registry.ts";
 import type { DiscoveryOptions } from "@ace/provider-kit/discovery";
@@ -52,6 +53,7 @@ export async function addAccount(
   options.signal?.throwIfAborted();
   await registry.register(instance);
   await mkdir(instance.homeDir, { recursive: true, mode: 0o700 });
+  if (instance.managed) await ensureManagedHomeSkeleton(instance.homeDir);
   const status = await loginStatus(instance, options.discovery);
   if (!status.path) throw new Error("Provider CLI is not installed");
   const env = instanceEnv(instance, options.discovery?.env ?? process.env);

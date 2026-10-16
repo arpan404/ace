@@ -23,12 +23,24 @@ export interface SwitchSide {
  */
 export type SwitchRoute = "in_place" | "new_thread" | "unsupported";
 
+function otherAccount(current: SwitchSide, next: SwitchSide): boolean {
+  return next.instanceId !== undefined && next.instanceId !== current.instanceId;
+}
+
 export function switchRoute(current: SwitchSide, next: SwitchSide): SwitchRoute {
   if (next.provider === "acp" && current.provider !== "acp") return "unsupported";
-  const otherAccount = next.instanceId !== undefined && next.instanceId !== current.instanceId;
-  if (current.backend === "cursor-sdk" && (next.provider !== current.provider || otherAccount))
+  const accountChanged = otherAccount(current, next);
+  if (current.backend === "cursor-sdk" && (next.provider !== current.provider || accountChanged))
     return "new_thread";
-  if (current.provider === "cursor" && next.provider === "cursor" && otherAccount)
+  if (current.provider === "cursor" && next.provider === "cursor" && accountChanged)
     return "new_thread";
   return "in_place";
+}
+
+/** The person's switch preference preserves the source when the provider or account changes. */
+export function switchRoutePreservingSource(current: SwitchSide, next: SwitchSide): SwitchRoute {
+  const route = switchRoute(current, next);
+  return route === "in_place" && (current.provider !== next.provider || otherAccount(current, next))
+    ? "new_thread"
+    : route;
 }

@@ -1,6 +1,6 @@
 import {
   ThreadWindowProvider,
-  useHistoryPager,
+  useThread,
   useItemOrder,
   useThreadStore,
   type HistoryPager,
@@ -39,7 +39,7 @@ export function Transcript(props: { threadId: string }) {
   const jump = useJumpState(nav.jump);
   const live = useThreadStore(props.threadId);
   const liveOrder = useItemOrder(props.threadId) ?? none;
-  const livePager = useHistoryPager(props.threadId);
+  const before = useThread(props.threadId, ["history"], (reader) => reader.itemsBefore);
   const following = useWatched(nav.following);
   const window = jump.window;
   const source = useMemo(
@@ -57,14 +57,12 @@ export function Transcript(props: { threadId: string }) {
     if (landed !== undefined && jump.turn !== undefined) nav.currentTurn.set(jump.turn);
   }, [nav.currentTurn, jump.turn, landed]);
   const fresh = useNewSince(liveOrder, !following || !!window);
-  const pager: HistoryPager = window
-    ? {
-        hasOlder: window.before !== null,
-        loading: jump.loading === "older",
-        error: undefined,
-        loadOlder: () => nav.jump.older(),
-      }
-    : livePager;
+  const pager: HistoryPager = {
+    hasOlder: window ? window.before !== null : typeof before === "number",
+    loading: jump.loading !== undefined,
+    error: undefined,
+    loadOlder: () => nav.jump.older(),
+  };
   return (
     <ThreadWindowProvider threadId={props.threadId} source={source}>
       <Feed

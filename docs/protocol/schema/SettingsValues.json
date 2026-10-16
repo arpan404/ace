@@ -233,6 +233,9 @@
       ],
       "type": "string"
     },
+    "threads.forkOnSwitch": {
+      "type": "boolean"
+    },
     "threads.limitPolicy": {
       "enum": [
         "manual",
@@ -276,6 +279,7 @@
     "host.icon",
     "projects.roots",
     "threads.followUpBehavior",
+    "threads.forkOnSwitch",
     "threads.limitPolicy",
     "providers.default",
     "providers.coder.provider",

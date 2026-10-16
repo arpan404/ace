@@ -1,4 +1,3 @@
-import { prepareDaemonHome } from "@ace/service/home";
 import { fork } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -8,17 +7,18 @@ import { setTimeout as pause } from "node:timers/promises";
 
 /** Source entry keeps dependency names visible; bundled RSS is checked separately. */
 export async function checkIdleImports(): Promise<void> {
-  const home = await mkdtemp(join(tmpdir(), "ace-idle-imports-"));
-  // Initialize the home before the probe file makes it look like an older data home.
-  prepareDaemonHome(home);
-  const output = join(home, "imports.log");
+  const directory = await mkdtemp(join(tmpdir(), "ace-idle-imports-"));
+  // The daemon may rename an unversioned data home on startup. Keep the guard's
+  // output outside that home so the import hook and the reader share one path.
+  const home = join(directory, "daemon");
+  const output = join(directory, "imports.log");
   await writeFile(output, "");
   const child = fork(join(import.meta.dirname, "entry.ts"), [], {
     execArgv: ["--import", join(import.meta.dirname, "idle-import-hook.ts")],
     env: {
       ...process.env,
-      HOME: home,
-      USERPROFILE: home,
+      HOME: directory,
+      USERPROFILE: directory,
       ACE_HOME: home,
       ACE_WORKSPACE_ROOT: home,
       ACE_HISTORY_INSTANCES: "[]",
@@ -66,7 +66,7 @@ export async function checkIdleImports(): Promise<void> {
     clearTimeout(deadline);
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
     await exited;
-    await rm(home, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true });
   }
 }
 
