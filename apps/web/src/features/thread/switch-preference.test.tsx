@@ -58,7 +58,7 @@ test("forking an account switch leaves the source account and transcript intact"
       );
     expect(fork).toMatchObject({
       execution: { instanceId: "codex-team" },
-      lineage: { mode: "portable" },
+      lineage: { parentThreadId: "account-source" },
     });
   });
   const source = app.daemon.snapshot({
