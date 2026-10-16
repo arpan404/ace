@@ -11,6 +11,7 @@ import {
 import { Screen } from "@/features/shell/index.ts";
 import { ThreadComposer } from "./composer/thread-composer.tsx";
 import type { ComposerHandle } from "./composer/composer.tsx";
+import { useRouter } from "@tanstack/react-router";
 import { useFileDrop } from "./composer/file-drop.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
@@ -190,6 +191,12 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   }, [screenActions, setScreenActions]);
   // Step details and interaction cards load once the transcript has painted.
   useEffect(() => whenIdle(() => void preloadDeferred()), []);
+  // New thread opens from here (the sidebar's toolbar): warm its route with the thread, not
+  // once the browser is idle, so leaving a working thread never pays the chunk load on click.
+  const router = useRouter();
+  useEffect(() => {
+    void router.loadRouteChunk(router.routesById["/_home/new"])?.catch(() => {});
+  }, [router]);
   const title = useShownTitle(id, meta?.title);
   const composer = useRef<ComposerHandle>(null);
   // Files dropped anywhere on the thread, or pasted outside a field, go to its composer.
