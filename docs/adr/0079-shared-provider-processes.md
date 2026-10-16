@@ -52,6 +52,16 @@ split the pool.
 A session opened without a pool (direct adapter tests) still gets a private process that stops
 with it, so the single-process behaviour stays covered.
 
+## Amendment: stable account launch environment (#868)
+
+AccountService snapshots its injected base and Cursor environments at construction. Libraries
+loaded later can mutate `process.env` (sharp adds `VIPSHOME`); that must not change the pool key
+and create another app-server for a released thread whose original process still holds its
+writer. Explicit context and allowlisted tool environment overrides still apply at each launch.
+Codex unsubscribe only releases the subscription: the thread can stay loaded for its inactivity
+grace period. It does not prove that its writer is gone. The offline shared CLI models this
+retention, with optional cross-process writer exclusion for the reopen regression.
+
 ## Other providers
 
 | Provider   | Shared process?                                                                                                                                                                                                     |
