@@ -45,16 +45,20 @@ export class LiveWriteBuffer {
   }
   prepare(bytes: number): void {
     // Charge both canonical events and engine append patches, including decoded UTF-16.
+    // Over-capacity is transient backpressure, never a session failure: flush and ask the
+    // mailbox to retry. runWhenWritable retries "Store is busy"; any other message poisons
+    // the provider session. Single oversized batches never reach here (stream() size guard);
+    // delivery resync stays at the Outbox layer via RESYNC_CLOSE_CODE.
     if (this.failed) this.options.flush();
     if (this.weight + bytes * 8 + 4096 > 8 * 1024 * 1024) this.options.flush();
-    if (bytes * 8 + 4096 > 8 * 1024 * 1024) throw new Error("Live write capacity exceeded");
+    if (bytes * 8 + 4096 > 8 * 1024 * 1024) throw new Error("Store is busy");
   }
   append(events: Event[], thread: ThreadId, snapshot: BufferedSnapshot): void {
     const incoming = events.reduce(
       (bytes, event) => bytes + Buffer.byteLength(JSON.stringify(event)) * 8 + 512,
       0,
     );
-    if (this.weight + incoming > 8 * 1024 * 1024) throw new Error("Live write capacity exceeded");
+    if (this.weight + incoming > 8 * 1024 * 1024) throw new Error("Store is busy");
     this.snapshots.set(thread, snapshot);
     for (const event of events) {
       const bytes = Buffer.byteLength(JSON.stringify(event));

@@ -2877,8 +2877,8 @@
       "sha256": "129a7379025fb7d94bd4406a9f62806216aacf63d5bade6f334135d2a028f9e6"
     },
     "schema/StreamingStorageMetrics.json": {
-      "bytes": 2395,
-      "sha256": "6fe5e24f0ebafb5a4d080ea84083225131b18a0ba5933eb56bcb4df96a3a34b7"
+      "bytes": 2545,
+      "sha256": "2f12169b738d46724cdda560b31dc611333e3b863533ce561256068e6d72f255"
     },
     "schema/SubscriptionScope.json": {
       "bytes": 1108,
@@ -3693,10 +3693,10 @@
       "sha256": "eadd796e5214ab35199731ca1c2f0faa3dd65dab3d6150142a57acda545ef06d"
     },
     "types.md": {
-      "bytes": 763583,
-      "sha256": "7366b6c76a48fd4409bf1ae9f10d7198f25a30c5d8ecd70a43e69a4e44c28970"
+      "bytes": 763671,
+      "sha256": "ae2d8758c962413006652d7a4f2bd8157143d778af4bc30310e9fb53ef61bc4c"
     }
   },
-  "input": "35691411b3fa3fcc1801f5834aa31914361701ec38d49c1a5f44f6a16064d6a2",
+  "input": "1d68fdb79b4373f1d6019b61c4a594a0d940b901ae9c65ce17e1561e7db50d2d",
   "version": 1
 }

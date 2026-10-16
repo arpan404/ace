@@ -294,7 +294,7 @@ export class EngineRepository {
       return false;
     const bytes = Buffer.byteLength(JSON.stringify(facts));
     if (bytes > 512 * 1024) return false;
-    this.store.prepareLiveWrite(bytes);
+    this.store.prepareLiveWrite(bytes, facts.length);
     const state = this.requireState(id);
     const snapshot = this.snapshots.get(id);
     const deadline = snapshot?.deadline();

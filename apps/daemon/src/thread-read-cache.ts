@@ -15,7 +15,17 @@ export class ThreadReadCache {
     this.options = privateOptions;
   }
   private readonly options;
-  readonly metrics = { hits: 0, misses: 0, hitBytes: 0, invalidations: 0, evictions: 0, bytes: 0 };
+  // Coarse invalidation (clear-all on any local commit) plus data_version/total_changes
+  // fencing means a stale entry can never be served; staleServes exists only to prove it.
+  readonly metrics = {
+    hits: 0,
+    misses: 0,
+    hitBytes: 0,
+    invalidations: 0,
+    evictions: 0,
+    bytes: 0,
+    staleServes: 0,
+  };
   invalidate(): void {
     this.entries.clear();
     this.metrics.bytes = 0;
