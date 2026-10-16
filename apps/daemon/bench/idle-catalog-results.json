@@ -1,74 +1,51 @@
 {
   "baselineCommit": "67fa95d4e",
-  "node": "26.7.0",
+  "runtime": "24.13.0 (the installed application runtime, executing the source harness)",
   "platform": "macOS 26.7.2 arm64",
-  "method": "10s warmup, 60s process.cpuUsage including workers, real local WebSocket, no V8 profiler, isolated environment and homes",
-  "qualification": "Diagnostic runs on a host with other workloads, including repository validation. Not a qualified idle-host timing gate.",
+  "method": "Canonical workspace paths; eight visible workflow catalogs; 10s warmup; 60s process CPU including workers; real local WebSocket; isolated environment and homes; no V8 profiler; no other test workloads during final comparison",
+  "qualification": "One-minute host load at the start and end of each window is below the existing repository threshold of 9. This is a targeted workload comparison, not a full performance-gate pass. Five/fifteen-minute load still reflects earlier validation.",
   "results": [
     {
       "implementation": "baseline",
+      "node": "24.13.0",
+      "hostLoadStart": [7.861328125, 26.2685546875, 29.18505859375],
+      "hostLoadEnd": [6.9833984375, 22.740234375, 27.6689453125],
+      "hostTimingLimit": 9,
+      "qualified": true,
       "contexts": 8,
       "jobs": 256,
-      "elapsedMs": 60304.817583,
-      "cpuPercent": 75.5199200085772,
-      "publishes": 1688,
+      "elapsedMs": 60165.41425,
+      "cpuPercent": 101.14393586178956,
+      "publishes": 3390,
       "errors": 0,
-      "maxLoopDelayMs": 1729.101823,
-      "p99LoopDelayMs": 1138.753535,
+      "visibleWorkflowCatalogs": 8,
+      "maxLoopDelayMs": 427.032575,
+      "p99LoopDelayMs": 350.486527,
       "daemonLoop": {
-        "delayMs": 479,
-        "maxDelayMs": 1545,
-        "stalls": 1
-      }
-    },
-    {
-      "implementation": "fixed",
-      "contexts": 8,
-      "jobs": 256,
-      "elapsedMs": 60000.458375,
-      "cpuPercent": 1.1983375118673834,
-      "publishes": 0,
-      "errors": 0,
-      "maxLoopDelayMs": 68.943871,
-      "p99LoopDelayMs": 17.645567,
-      "daemonLoop": {
-        "delayMs": 1,
-        "maxDelayMs": 65,
+        "delayMs": 31,
+        "maxDelayMs": 317,
         "stalls": 0
       }
-    }
-  ],
-  "bundledNode": "24.13.0",
-  "bundledNodeResults": [
-    {
-      "implementation": "baseline",
-      "contexts": 8,
-      "jobs": 256,
-      "elapsedMs": 60001.59225,
-      "cpuPercent": 89.85827705263938,
-      "publishes": 1881,
-      "errors": 0,
-      "maxLoopDelayMs": 1007.681535,
-      "p99LoopDelayMs": 851.967999,
-      "daemonLoop": {
-        "delayMs": 73,
-        "maxDelayMs": 1403,
-        "stalls": 1
-      }
     },
     {
       "implementation": "fixed",
+      "node": "24.13.0",
+      "hostLoadStart": [6.83154296875, 22.1884765625, 27.4150390625],
+      "hostLoadEnd": [6.677734375, 19.2138671875, 25.93603515625],
+      "hostTimingLimit": 9,
+      "qualified": true,
       "contexts": 8,
       "jobs": 256,
-      "elapsedMs": 60000.700917,
-      "cpuPercent": 1.3665307029233218,
+      "elapsedMs": 60001.105124999995,
+      "cpuPercent": 0.838979547045468,
       "publishes": 0,
       "errors": 0,
-      "maxLoopDelayMs": 25.444351,
-      "p99LoopDelayMs": 14.557183,
+      "visibleWorkflowCatalogs": 8,
+      "maxLoopDelayMs": 15.810559,
+      "p99LoopDelayMs": 12.197887,
       "daemonLoop": {
-        "delayMs": 1,
-        "maxDelayMs": 43,
+        "delayMs": 0,
+        "maxDelayMs": 105,
         "stalls": 0
       }
     }
