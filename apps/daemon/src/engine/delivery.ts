@@ -131,7 +131,9 @@ export async function executeIntent(
         try {
           await beforeSend?.(actor.id, intent.command.id);
         } catch (error) {
-          throw new DeliveryNotStarted(error instanceof Error ? error.message : String(error));
+          throw new DeliveryNotStarted(error instanceof Error ? error.message : String(error), {
+            cause: error,
+          });
         }
       }
       await repo.store.writable();

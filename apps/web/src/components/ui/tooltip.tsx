@@ -65,6 +65,9 @@ function Tip(props: {
     <TooltipPrimitive.Root
       disabled={props.disabled}
       onOpenChange={(open, details) => {
+        // A tooltip is only a description. Escape must still reach the dialog or
+        // menu containing its trigger after dismissing that description.
+        if (details.reason === "escape-key") details.allowPropagation();
         if (open && behindOpenPopup(details.trigger ?? eventElement(details.event)))
           details.cancel();
       }}

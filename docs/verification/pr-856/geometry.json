@@ -1,0 +1,85 @@
+[
+  {
+    "mode": "dark",
+    "width": 390,
+    "bounds": {
+      "x": 30,
+      "y": 201,
+      "width": 330,
+      "height": 32
+    }
+  },
+  {
+    "mode": "dark",
+    "width": 768,
+    "bounds": {
+      "x": 42,
+      "y": 201,
+      "width": 684,
+      "height": 32
+    }
+  },
+  {
+    "mode": "dark",
+    "width": 1440,
+    "bounds": {
+      "x": 372,
+      "y": 201,
+      "width": 696,
+      "height": 32
+    }
+  },
+  {
+    "mode": "dark",
+    "width": 1920,
+    "bounds": {
+      "x": 752,
+      "y": 201,
+      "width": 696,
+      "height": 32
+    }
+  },
+  {
+    "mode": "light",
+    "width": 390,
+    "bounds": {
+      "x": 30,
+      "y": 201,
+      "width": 330,
+      "height": 32
+    }
+  },
+  {
+    "mode": "light",
+    "width": 768,
+    "bounds": {
+      "x": 42,
+      "y": 201,
+      "width": 684,
+      "height": 32
+    }
+  },
+  {
+    "mode": "light",
+    "width": 1440,
+    "bounds": {
+      "x": 372,
+      "y": 201,
+      "width": 696,
+      "height": 32
+    }
+  },
+  {
+    "mode": "light",
+    "width": 1920,
+    "bounds": {
+      "x": 752,
+      "y": 201,
+      "width": 696,
+      "height": 32
+    }
+  },
+  {
+    "history": "older scroll and jump to fresh live tail passed"
+  }
+]

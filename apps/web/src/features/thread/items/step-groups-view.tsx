@@ -33,13 +33,15 @@ import { useAceLog } from "./ace-steps.tsx";
 import { useStepItem, useStepItemsSelect } from "./step-items.ts";
 import { ToolStep } from "./work-log-steps.tsx";
 import { RailMark, StepRail } from "./step-rail.tsx";
+import { LiveGroupTitle } from "./live-group-title.tsx";
 
 /*
  * A work log as one quiet flow: consecutive calls by one agent read as one sentence row with a
- * muted icon ("Ran 5 commands and read 1 file"), opening in place to their steps; what the agent
- * said between them is prose; what it thought is a muted row of its own. While the turn works,
- * the step in flight closes the flow, shimmering, or "Thinking" when no step is. Each step is
- * read once per change of that step, so streaming costs what changed, not the turn's length.
+ * muted icon ("Edited 2 files, ran 1 command and thought once"), opening in place to their
+ * steps; what the agent said between them is prose. While the turn works, the running group
+ * shows its current step as its title (no second line for the step in flight), settling to
+ * its sentence once done, or "Thinking" when no step is. Each step is read once per change
+ * of that step, so streaming costs what changed, not the turn's length.
  */
 
 /** Per item object: what it counts as, and the surface it drove. Items change by replacement. */
@@ -246,7 +248,7 @@ const GroupView = memo(function GroupView(props: {
   const [open, setOpen] = useState(false);
   const panel = useId();
   const step = (id: string) => (
-    <ToolStep
+    <GroupStep
       key={id}
       threadId={props.threadId}
       itemId={id}
@@ -258,38 +260,71 @@ const GroupView = memo(function GroupView(props: {
   if (group.single && group.icon === "think")
     return <ThoughtRow threadId={props.threadId} itemId={group.key} />;
   if (group.single) return step(group.key);
+  const active = group.active ?? group.newest;
+  const runningLive = props.live && group.running;
   return (
     <li className="relative">
       <RailMark state={group.running ? "running" : group.failed ? "failed" : "done"} />
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls={panel}
-        data-step-group=""
-        onClick={() => setOpen(!open)}
-        className={cn(
-          row,
-          "text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground",
-        )}
-      >
-        <Icon icon={groupIcons[group.icon]} size={16} className="text-subtle-foreground" />
-        <span className="min-w-0 truncate">
-          {group.sentence}
-          {group.failed > 0 && <span className="text-status-failed"> · {group.failed} failed</span>}
-        </span>
-      </button>
-      {open ? (
+      {runningLive ? (
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={panel}
+          data-step-group=""
+          title={group.summary}
+          onClick={() => setOpen(!open)}
+          className={cn(
+            row,
+            "text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground",
+          )}
+        >
+          <LiveGroupTitle
+            threadId={props.threadId}
+            itemId={active}
+            ace={props.contexts[active]}
+            surface={props.surfaces?.get(active) ?? props.carried.get(active)}
+            count={group.ids.length}
+          />
+        </button>
+      ) : (
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={panel}
+          data-step-group=""
+          onClick={() => setOpen(!open)}
+          className={cn(
+            row,
+            "text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground",
+          )}
+        >
+          <Icon icon={groupIcons[group.icon]} size={16} className="text-subtle-foreground" />
+          <span className="min-w-0 truncate">
+            {group.sentence}
+            {group.failed > 0 && (
+              <span className="text-status-failed"> · {group.failed} failed</span>
+            )}
+          </span>
+        </button>
+      )}
+      {open && (
         <StepRail id={panel} label={group.summary}>
           {group.ids.map(step)}
         </StepRail>
-      ) : (
-        props.live &&
-        group.running && (
-          <ul id={panel} aria-label="Step in flight" className="flex flex-col">
-            {step(group.newest)}
-          </ul>
-        )
       )}
     </li>
   );
 });
+
+function GroupStep(props: {
+  threadId: string;
+  itemId: string;
+  ace?: AceToolContext | undefined;
+  retried?: boolean | undefined;
+  surface?: ToolSurface | undefined;
+}) {
+  const item = useStepItem(props.threadId, props.itemId);
+  if (item?.type === "reasoning")
+    return <ThoughtRow threadId={props.threadId} itemId={props.itemId} />;
+  return <ToolStep {...props} />;
+}

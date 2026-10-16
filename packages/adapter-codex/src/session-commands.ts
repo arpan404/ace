@@ -88,17 +88,19 @@ export function createSessionCommands(
       } satisfies ThreadQueueAddParams);
       await config.refreshQueue(threadId);
     } else if (turn) {
-      try {
-        await request(
+      const steerTurn = (expectedTurnId: string) =>
+        request(
           "turn/steer",
           {
             threadId,
-            expectedTurnId: turn,
+            expectedTurnId,
             input: input(parts),
             ...(clientUserMessageId ? { clientUserMessageId } : {}),
           } satisfies TurnSteerParams,
           true,
         );
+      try {
+        await steerTurn(turn);
       } catch (error) {
         let message = error instanceof Error ? error.message : "";
         try {
@@ -109,6 +111,14 @@ export function createSessionCommands(
         }
         if (!/^(?:no active turn to steer|expected active turn id .+ but found .+)$/i.test(message))
           throw error;
+        // A queued turn can start before the rejected steer's reply. It must receive the
+        // input itself; turn/start would conflict with that already-running replacement.
+        const replacement = active.get(threadId);
+        if (replacement && replacement !== turn) {
+          await steerTurn(replacement);
+          return;
+        }
+        if (/^expected active turn id /i.test(message) && replacement === turn) throw error;
         await startTurn(threadId, {
           input: input(parts),
           ...(clientUserMessageId ? { clientUserMessageId } : {}),

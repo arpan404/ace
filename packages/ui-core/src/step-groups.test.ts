@@ -158,7 +158,7 @@ it("a step settling regroups from its group on and keeps its summary current", (
   expect(after.groups[0]?.running).toBe(false);
 });
 
-it("a thought reads on its own row; a finished thought with no words is no step", () => {
+it("thoughts count with the tools around them; a finished thought with no words is no step", () => {
   const { groups } = groupSteps(
     facts([
       shell("a", "bun install"),
@@ -168,8 +168,9 @@ it("a thought reads on its own row; a finished thought with no words is no step"
       thought("now", "", false),
     ]),
   );
-  expect(groups.map((group) => group.ids)).toEqual([["a", "b"], ["why"], ["now"]]);
-  expect(groups[2]?.running).toBe(true);
+  expect(groups.map((group) => group.ids)).toEqual([["a", "b", "why", "now"]]);
+  expect(groups[0]?.running).toBe(true);
+  expect(groups[0]?.summary).toBe("Ran 2 commands and thought 2 times");
 });
 
 it("a mixed group names two kinds as a sentence: commands and a file read", () => {
