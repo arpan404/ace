@@ -14,7 +14,7 @@ test("the conversation rail previews both sides of a turn and jumps with pointer
   await expect(preview).toContainText("Checkpoint 3 completed.");
   await third.click();
   await expect(page.getByRole("status", { name: "Jumped" })).toContainText("Jumped to turn 3");
-  await expect(third).toHaveAttribute("aria-current", "location");
+  await expect(third).not.toHaveAttribute("aria-current", "location");
   await third.focus();
   await page.keyboard.press("ArrowDown");
   const fourth = rail.getByRole("button", { name: /^Turn 4:/ });
@@ -22,7 +22,7 @@ test("the conversation rail previews both sides of a turn and jumps with pointer
   await expect(preview).toContainText("Migrate checkpoint 4, inspect files and report failures.");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("status", { name: "Jumped" })).toContainText("Jumped to turn 4");
-  await expect(fourth).toHaveAttribute("aria-current", "location");
+  await expect(fourth).not.toHaveAttribute("aria-current", "location");
   await page.mouse.move(600, 70);
   await page.getByRole("combobox", { name: "Message", exact: true }).focus();
   await expect(preview).toHaveCount(0);

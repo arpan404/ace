@@ -59,7 +59,6 @@ export function TurnRail({
         markers={markers}
         height={height}
         onWheel={(event) => forwardWheel(event, scroller?.current)}
-        currentId={String(reading)}
         onJump={(id) => {
           void nav.jump.toTurn(Number(id));
         }}

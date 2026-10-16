@@ -12,14 +12,13 @@ const markers = [
 
 const preview = (id: string) => <p>Preview {id}</p>;
 
-function Rail({ currentId, single = false }: { currentId?: string; single?: boolean }) {
+function Rail({ single = false }: { single?: boolean }) {
   const [selected, setSelected] = useState("");
   return (
     <>
       <ConversationRail
         markers={single ? markers.slice(0, 1) : markers}
         height={400}
-        {...(currentId ? { currentId } : {})}
         onJump={setSelected}
         renderPreview={preview}
       />
@@ -29,11 +28,11 @@ function Rail({ currentId, single = false }: { currentId?: string; single?: bool
 }
 
 test("only the hovered turn mounts its preview, while click delegates the jump", async () => {
-  render(<Rail currentId="second" />);
+  render(<Rail />);
   expect(screen.queryByText(/Preview/)).toBeNull();
   const user = userEvent.setup();
   const target = screen.getByRole("button", { name: "Fix retry" });
-  expect(target.getAttribute("aria-current")).toBe("location");
+  expect(target.getAttribute("aria-current")).toBeNull();
   await user.hover(target);
   await screen.findByText("Preview second");
   expect(screen.queryByText("Preview first")).toBeNull();
@@ -43,7 +42,7 @@ test("only the hovered turn mounts its preview, while click delegates the jump",
 });
 
 test("keyboard traversal has one tab stop and Enter jumps the focused turn", async () => {
-  render(<Rail currentId="first" />);
+  render(<Rail />);
   const user = userEvent.setup();
   await user.tab();
   const first = screen.getByRole("button", { name: "Audit login" });
@@ -54,6 +53,19 @@ test("keyboard traversal has one tab stop and Enter jumps the focused turn", asy
   expect(screen.getByLabelText("Selected turn").textContent).toBe("second");
   await user.keyboard("{Home}");
   expect(document.activeElement).toBe(first);
+});
+
+test("no turn is emphasized: every tick shares the same size and color at rest", () => {
+  render(<Rail />);
+  const buttons = screen.getAllByRole("button");
+  expect(buttons).toHaveLength(3);
+  for (const button of buttons) expect(button.getAttribute("aria-current")).toBeNull();
+  const ticks = buttons.map((button) => button.querySelector("span"));
+  expect(ticks.every(Boolean)).toBe(true);
+  const classes = ticks.map((tick) => tick?.getAttribute("class"));
+  expect(new Set(classes).size).toBe(1);
+  expect(classes[0]).toContain("bg-foreground/30");
+  expect(classes[0]).toContain("scale-x-[0.45]");
 });
 
 test("a one-turn conversation does not add an outline", () => {
