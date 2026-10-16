@@ -17,29 +17,23 @@ export class SessionMetadata {
     workspaceReady: boolean;
     options?: ExecutionOptions;
   } {
-    return this.repo.store.atomic((_db) => {
-      const row = this.repo.store
-        .statement("SELECT * FROM engine_sessions WHERE thread_id = ?")
-        .get(id);
-      if (!row) throw new Error("Missing engine session metadata");
-      return {
-        cwd: String(row.cwd),
-        ...(row.backend == null
-          ? {}
-          : { backend: z.enum(["acp", "cursor-sdk"]).parse(row.backend) }),
-        ...(row.instance_id == null
-          ? {}
-          : { instanceId: z.string().min(1).max(256).parse(row.instance_id) }),
-        workspaceReady: row.workspace_ready === 1,
-        ...(row.options == null
-          ? {}
-          : { options: ExecutionOptions.parse(JSON.parse(String(row.options))) }),
-        ...(row.model === null ? {} : { model: String(row.model) }),
-        ...(row.native_session_id === null
-          ? {}
-          : { nativeSessionId: String(row.native_session_id) }),
-      };
-    });
+    const row = this.repo.store
+      .statement("SELECT * FROM engine_sessions WHERE thread_id = ?")
+      .get(id);
+    if (!row) throw new Error("Missing engine session metadata");
+    return {
+      cwd: String(row.cwd),
+      ...(row.backend == null ? {} : { backend: z.enum(["acp", "cursor-sdk"]).parse(row.backend) }),
+      ...(row.instance_id == null
+        ? {}
+        : { instanceId: z.string().min(1).max(256).parse(row.instance_id) }),
+      workspaceReady: row.workspace_ready === 1,
+      ...(row.options == null
+        ? {}
+        : { options: ExecutionOptions.parse(JSON.parse(String(row.options))) }),
+      ...(row.model === null ? {} : { model: String(row.model) }),
+      ...(row.native_session_id === null ? {} : { nativeSessionId: String(row.native_session_id) }),
+    };
   }
   createUnpreparedSession(
     id: ThreadId,

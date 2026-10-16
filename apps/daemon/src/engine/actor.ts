@@ -69,7 +69,8 @@ export class ThreadActor {
   private pressure = false;
   private drains = new Set<() => void>();
   readonly outputFlow = {
-    paused: () => this.pressure || this.repo.store.isHistoryWriting(),
+    paused: () =>
+      this.pressure || this.repo.store.isHistoryWriting() || this.repo.store.liveWriteBlocked(),
     wait: async () => {
       await this.repo.store.writable();
       if (this.pressure) await new Promise<void>((resolve) => this.drains.add(resolve));
@@ -169,6 +170,9 @@ export class ThreadActor {
     this.accept(run, 0);
   }
   private accept(run: () => void, bytes: number, frames = 1): boolean {
+    return this.acceptOperation(() => this.repo.store.atomic(run), bytes, frames);
+  }
+  private acceptOperation(run: () => void, bytes: number, frames = 1): boolean {
     if (this.stopped || this.overflowed) return false;
     if (
       this.queued + frames > this.limits.maxQueuedFrames ||
@@ -229,8 +233,7 @@ export class ThreadActor {
       try {
         // Maintenance holds writers; a busy admission retries and never fails the session.
         await this.repo.store.writable();
-        // Reserve SQLite before translating: translators can consume native sequence state.
-        this.repo.store.atomic(run);
+        run();
         return;
       } catch (error) {
         if (!isStoreBusy(error)) throw error;
@@ -329,39 +332,47 @@ export class ThreadActor {
     const bytes = this.pendingBytes;
     this.pendingFrames = [];
     this.pendingBytes = 0;
-    const admitted = this.accept(
+    let translatedFacts: Fact[] | undefined;
+    const admitted = this.acceptOperation(
       () => {
         const live = pending.filter((entry) => entry.generation === this.generation);
-        const before = this.repo.requireState(this.id).status;
-        const cursorSdk =
-          this.repo.requireState(this.id).config.provider === "cursor" &&
-          this.repo.backend(this.id) === "cursor-sdk";
-        const facts = live.flatMap((entry) => this.translateFrame(entry.frame, cursorSdk));
-        this.apply(facts);
-        if (
-          live.some((entry) => entry.frame.channel === "sdk") &&
-          facts.some((fact) => fact.type === "process.exited" && !fact.deliberate)
-        )
-          this.lifetime?.abort();
-        if (
-          before !== this.repo.requireState(this.id).status ||
-          facts.some((fact) =>
-            [
-              "turn.started",
-              "input.admitted",
-              "turn.ended",
-              "process.exited",
-              "queue.changed",
-              "limit.cleared",
-              "interaction.closed",
-              "background.ended",
-              "retry",
-            ].includes(fact.type),
+        const fold = () => {
+          const before = this.repo.requireState(this.id).status;
+          const cursorSdk =
+            this.repo.requireState(this.id).config.provider === "cursor" &&
+            this.repo.backend(this.id) === "cursor-sdk";
+          const facts = (translatedFacts ??= live.flatMap((entry) =>
+            this.translateFrame(entry.frame, cursorSdk),
+          ));
+          if (!cursorSdk && this.repo.stream(this.id, facts, this.clock.now())) this.schedule();
+          else this.apply(facts);
+          if (
+            live.some((entry) => entry.frame.channel === "sdk") &&
+            facts.some((fact) => fact.type === "process.exited" && !fact.deliberate)
           )
-        ) {
-          this.syncQueue();
-          this.wake();
-        }
+            this.lifetime?.abort();
+          if (
+            before !== this.repo.requireState(this.id).status ||
+            facts.some((fact) =>
+              [
+                "turn.started",
+                "input.admitted",
+                "turn.ended",
+                "process.exited",
+                "queue.changed",
+                "limit.cleared",
+                "interaction.closed",
+                "background.ended",
+                "retry",
+              ].includes(fact.type),
+            )
+          ) {
+            this.syncQueue();
+            this.wake();
+          }
+        };
+        if (live.some((entry) => entry.frame.channel === "sdk")) this.repo.store.atomic(fold);
+        else fold();
       },
       bytes,
       pending.length,
@@ -482,6 +493,7 @@ export class ThreadActor {
       pending = this.tail;
       await pending;
     } while (pending !== this.tail);
+    this.repo.store.flushLiveWrites();
   }
   stop(): void {
     this.sealFrames();

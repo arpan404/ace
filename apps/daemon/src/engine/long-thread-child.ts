@@ -3,6 +3,8 @@ import { Command } from "@ace/protocol";
 import { syntheticProvider } from "../testing/long-thread-provider.ts";
 const [path, root] = process.argv.slice(2);
 if (!path || !root) throw new Error("Missing fixture paths");
+// Keep the fixture alive until the parent kills it, including while unref intake timers wait.
+process.on("message", () => {});
 const store = new Store(path);
 const provider = syntheticProvider();
 const registry = new AdapterRegistry();
@@ -25,4 +27,5 @@ const acknowledgements = Array.from({ length: 1000 }, () =>
   provider.frame({ kind: "delta", append: "x" }),
 );
 await Promise.all(acknowledgements);
+await engine.flush();
 process.send?.("committed");
