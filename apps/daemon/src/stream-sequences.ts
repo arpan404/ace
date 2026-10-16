@@ -28,7 +28,7 @@ export class StreamSequences {
   }
   replaySafe(after: number): boolean {
     const head = this.head();
-    if (after > head && after > this.reserved) throw new Error("Cursor ahead of log");
+    if (after > head && after > this.reserved) return false;
     return (
       after === 0 ||
       after === head ||
@@ -40,9 +40,9 @@ export class StreamSequences {
     if (!Number.isSafeInteger(this.cursor)) throw new Error("Sequence exhausted");
     return this.cursor;
   }
-  prepare(events: number): void {
-    if (this.cursor + events <= this.reserved) return;
-    const through = this.cursor + Math.max(65536, events);
+  prepare(events: number, after: number): void {
+    if (after + events <= this.reserved) return;
+    const through = after + Math.max(65536, events);
     if (!Number.isSafeInteger(through)) throw new Error("Sequence exhausted");
     this.options.commit(() => {
       this.options.statement("UPDATE host_sequence SET seq=MAX(seq,?) WHERE id=1").run(through);

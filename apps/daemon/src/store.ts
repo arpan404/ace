@@ -1,6 +1,7 @@
 import { loadThreadSnapshot } from "./thread-snapshot.ts";
 import { StreamSequences } from "./stream-sequences.ts";
 import { StoreStream } from "./store-stream.ts";
+import { closeStore } from "./store-shutdown.ts";
 import { ThreadReadCache } from "./thread-read-cache.ts";
 import { WalMaintenance } from "./wal-maintenance.ts";
 import {
@@ -187,9 +188,7 @@ export class Store {
     this.streaming = new StoreStream({
       scheduler: options.bufferScheduler ?? bufferScheduler,
       nextId: this.nextId,
-      nextSeq: (after) => this.sequences.next(after),
-      head: () => this.sequences.head(),
-      replaySafe: (after) => this.sequences.replaySafe(after),
+      sequences: this.sequences,
       blocked: () => this.writes.isHeld() || this.historyWriting,
       transaction: (run, committed) => this.transaction(run, committed),
       persist: (event) => {
@@ -287,32 +286,25 @@ export class Store {
   private onError: (error: unknown) => void;
   close(): Promise<void> {
     if (this.closing) return this.closing;
-    this.flushLiveWrites();
-    this.streaming.buffer.stop();
-    this.wal.close();
     const finished = Promise.withResolvers<void>();
     this.closing = finished.promise;
-    this.searchAbort.abort();
-    const workers = this.searchQueries.close();
-    let failure: unknown;
-    try {
-      this.searchMaintenance.close();
-    } catch (error) {
-      failure = error;
-    }
-    this.statements.clear();
-    this.listeners.clear();
-    this.usageListeners.clear();
-    this.caches.clear();
-    try {
-      this.db.close();
-    } catch (error) {
-      failure ??= error;
-    }
-    void workers.then(() => {
-      if (failure !== undefined) finished.reject(failure);
-      else finished.resolve();
-    }, finished.reject);
+    void closeStore({
+      flush: () => this.flushLiveWrites(),
+      stop: [
+        () => this.streaming.buffer.stop(),
+        () => this.wal.close(),
+        () => this.searchAbort.abort(),
+        () => this.searchMaintenance.close(),
+      ],
+      workers: () => this.searchQueries.close(),
+      release: () => {
+        this.statements.clear();
+        this.listeners.clear();
+        this.usageListeners.clear();
+        this.caches.clear();
+        this.db.close();
+      },
+    }).then(finished.resolve, finished.reject);
     return this.closing;
   }
   /** Shared per-connection prepared statements; SQL text, never entity IDs, keys the bounded LRU. */
@@ -348,9 +340,8 @@ export class Store {
   hasLiveWrite(id: ThreadId): boolean {
     return this.streaming.buffer.has(id);
   }
-  prepareLiveWrite(bytes: number, events: number): void {
+  prepareLiveWrite(bytes: number): void {
     this.streaming.prepare(bytes);
-    this.sequences.prepare(events);
   }
   bufferLiveWrite(
     id: ThreadId,
@@ -421,8 +412,10 @@ export class Store {
     } finally {
       this.transactionEvents = undefined;
     }
-    committed?.();
-    this.publish(events.filter((event) => event.seq > this.publishedSeq));
+    // The live buffer publishes original envelopes after commit; persisted envelopes may
+    // contain compacted prefixes that subscribers have already received.
+    if (committed) committed();
+    else this.publish(events.filter((event) => event.seq > this.publishedSeq));
     for (const listener of this.usageListeners) {
       try {
         listener();

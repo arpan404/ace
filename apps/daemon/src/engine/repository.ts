@@ -292,9 +292,6 @@ export class EngineRepository {
       facts.some((fact) => fact.type !== "item.delta" && fact.type !== "signal")
     )
       return false;
-    const bytes = Buffer.byteLength(JSON.stringify(facts));
-    if (bytes > 512 * 1024) return false;
-    this.store.prepareLiveWrite(bytes, facts.length);
     const state = this.requireState(id);
     const snapshot = this.snapshots.get(id);
     const deadline = snapshot?.deadline();
@@ -317,6 +314,9 @@ export class EngineRepository {
       )
     )
       return false;
+    const bytes = Buffer.byteLength(JSON.stringify(facts));
+    if (bytes > 512 * 1024) return false;
+    this.store.prepareLiveWrite(bytes);
     const events = streamFacts(snapshot, facts, now, this.ids);
     this.store.bufferLiveWrite(id, events, now, {
       persist: () => {

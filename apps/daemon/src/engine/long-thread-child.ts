@@ -1,11 +1,15 @@
 import { Store, Engine, AdapterRegistry } from "../index.ts";
 import { Command } from "@ace/protocol";
 import { syntheticProvider } from "../testing/long-thread-provider.ts";
+import { ManualClock } from "./test-support.ts";
+import { z } from "zod";
 const [path, root] = process.argv.slice(2);
 if (!path || !root) throw new Error("Missing fixture paths");
+const mode = z.enum(["committed", "buffered"]).default("committed").parse(process.argv[4]);
 // Keep the fixture alive until the parent kills it, including while unref intake timers wait.
 process.on("message", () => {});
-const store = new Store(path);
+const timer = new ManualClock();
+const store = new Store(path, undefined, { bufferScheduler: { delay: timer.setTimer } });
 const provider = syntheticProvider();
 const registry = new AdapterRegistry();
 registry.register(provider.adapter, { installed: true, auth: "logged_in", loginHint: "synthetic" });
@@ -28,4 +32,5 @@ const acknowledgements = Array.from({ length: 1000 }, () =>
 );
 await Promise.all(acknowledgements);
 await engine.flush();
-process.send?.("committed");
+if (mode === "buffered") await provider.frame({ kind: "delta", append: "unflushed tail" });
+process.send?.({ seq: store.headSeq() });

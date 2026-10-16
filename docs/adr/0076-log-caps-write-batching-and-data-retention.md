@@ -93,8 +93,12 @@ power loss. Completed/control state is never published ahead of its commit.
 
 Live events reserve canonical sequence numbers. Before publishing the first live event in a
 range, a small independent transaction advances the existing `host_sequence` high-water mark
-by at least 65,536 slots counted in events (facts.length), never bytes, so large text
-batches do not over-reserve. The visible durable head comes from actual event/deletion rows,
+by at least 65,536 slots counted from canonical event envelopes, never bytes or provider
+facts. A shell-output fact may split into several canonical deltas. The exact batch is pinned
+before its range is checked, so refilling a range can durably flush the complete batch and
+snapshot together. Only unpublished original envelopes reach live subscribers; compacting
+the persisted rows never repeats an already delivered prefix. Reservation or forced-flush
+failures retain the batch and apply mailbox backpressure until storage recovers. The visible durable head comes from actual event/deletion rows,
 not unused reservations. Restart skips the reserved range, including slots published only
 in memory, so a lost tail can never alias later events. The table's encoding is unchanged;
 previous builds also skip its high-water mark. A compacted persisted delta uses the final
@@ -113,6 +117,16 @@ writes on the Store connection. A cursor past even the reserved high-water mark 
 as unsafe and falls back to a fresh snapshot rather than surfacing a replay error.
 Transactional reads bypass cache population; callers receive independent values. Read-cache
 pressure cannot evict pinned writes. Cache misses fall through to SQLite.
+
+Read-cache optimization remains a separate follow-up: with 1,000 awaited deltas, a local
+single-writer run committed 42 transactions, while interleaving a snapshot read every four
+deltas committed 251 transactions with 250 cache misses and no hits. Reads currently drain
+the tail to preserve consistency. The next Store extraction should move snapshot, item-page
+and entity-page reads, their cache keys and generation checks into one read-path owner;
+Store will keep the flush barrier and write transaction ownership. This separates read-path
+work before Store reaches its 1,500-line limit. Shutdown now has its own small owner so a
+failed final flush cannot skip timer, worker or connection cleanup; its promise reports
+flush and cleanup failures after all cleanup has been attempted.
 
 WAL auto-checkpoint and the existing 16 MiB journal limit remain enabled. A bounded idle
 checkpoint timer tries TRUNCATE without waiting for other readers, at most once per five
