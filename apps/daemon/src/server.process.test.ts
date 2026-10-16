@@ -192,16 +192,36 @@ describe("WebSocket API", () => {
       scope: { kind: "thread", threadId: ThreadId.parse("missing") },
     });
     expect(await client.next()).toMatchObject({ type: "error", code: "subscribe_failed" });
+    client.send({ type: "ping" });
+    expect(await client.next()).toEqual({ type: "pong" });
+    expect(f.store.headSeq()).toBe(1);
+  });
+  it("replaces an ahead-of-log cursor with a snapshot and continues live delivery", async () => {
+    const f = await setup();
+    const client = await f.connect();
+    await client.next();
     client.send({
       type: "subscribe",
       subscriptionId: "s",
       scope: { kind: "threads" },
       afterSeq: 100,
     });
-    expect(await client.next()).toMatchObject({ type: "error", code: "subscribe_failed" });
+    expect(await client.next()).toMatchObject({
+      type: "snapshot",
+      subscriptionId: "s",
+      seq: 1,
+      view: { threads: { [f.thread.id]: { title: f.thread.title } } },
+    });
+    const events = f.store.appendEvents(f.thread.id, [{ type: "thread.updated", title: "Live" }]);
+    expect(await client.next()).toEqual({
+      type: "events",
+      subscriptionId: "s",
+      afterSeq: 1,
+      throughSeq: 2,
+      events,
+    });
     client.send({ type: "ping" });
     expect(await client.next()).toEqual({ type: "pong" });
-    expect(f.store.headSeq()).toBe(1);
   });
   it("filters thread events, advances progress, and replays only its missed events", async () => {
     const f = await setup();
