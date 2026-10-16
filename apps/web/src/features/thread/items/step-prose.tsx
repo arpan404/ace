@@ -16,7 +16,7 @@ export function StepProse(props: { threadId: string; itemId: string }) {
     .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("\n\n");
   return (
-    <div className="font-prose text-prose leading-[1.6] tracking-[-0.005em]">
+    <div className="min-w-0 font-prose text-prose leading-[1.6] tracking-[-0.005em] wrap-break-word">
       <Prose text={text} thread={{ threadId: props.threadId, itemId: props.itemId }} />
     </div>
   );

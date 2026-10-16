@@ -455,7 +455,7 @@ export function Feed(props: FeedProps) {
             // on the composer's axis; `useGutter` gives the composer the same inset.
             // Once scrolled, the top 16px fade, so nothing reads as cut under the header.
             style={fadeTop ? { maskImage: fadeTop, WebkitMaskImage: fadeTop } : undefined}
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
+            className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
             onScroll={(event) => {
               const el = event.currentTarget;
               readTop();
