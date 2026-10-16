@@ -321,6 +321,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
         };
       },
       logs: () => ({ ...log.stats(), directory: logDirectory }),
+      streaming: () => store.streamingMetrics(),
     });
     resources.own(() => health.close());
     const startup = new ServiceStartup(serviceContext, { ...systemStartup, ...options.startup });

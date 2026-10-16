@@ -51,6 +51,11 @@ it("daemon health reads current engine workload and preserves its own queue coun
         ok: true,
         health: {
           activeSessions: expected.sessions,
+          streaming: expect.objectContaining({
+            transactions: expect.any(Number),
+            bufferedBytes: 0,
+            reads: expect.objectContaining({ bytes: expect.any(Number) }),
+          }),
           queues: { engine: expected.pending, "daemon.healthRequests": 1 },
         },
       });
