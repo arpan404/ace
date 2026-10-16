@@ -6,11 +6,9 @@ import { cn } from "@/lib/cn.ts";
  * opens (`turn-work.tsx`): logs start folded.
  */
 
-/** "Worked for 1m 43s ›" with the turn's time at the right, over one hairline. */
+/** "Worked for 1m 43s ›" over one hairline; the turn's time lives with its answer. */
 export function WorkLogHeader(props: {
   label: string;
-  /** When the turn ended, "1:26 PM". */
-  time: string | undefined;
   open: boolean;
   panel: string;
   onToggle(): void;
@@ -34,25 +32,15 @@ export function WorkLogHeader(props: {
           )}
         />
       </button>
-      {props.time && (
-        <span className="ml-auto shrink-0 text-xs tabular-nums text-subtle-foreground">
-          {props.time}
-        </span>
-      )}
     </div>
   );
 }
 
 /** "Worked for 1s" with nothing to open: the same line as the header, as plain text. */
-export function WorkLogLine(props: { label: string; time: string | undefined }) {
+export function WorkLogLine(props: { label: string }) {
   return (
     <div className="flex min-h-8 items-center gap-3 border-b border-border pb-2">
       <p className="min-w-0 truncate text-ui text-muted-foreground">{props.label}</p>
-      {props.time && (
-        <span className="ml-auto shrink-0 text-xs tabular-nums text-subtle-foreground">
-          {props.time}
-        </span>
-      )}
     </div>
   );
 }

@@ -104,8 +104,8 @@ function placedAt(
 }
 /**
  * A progress note followed straight by another sits close to it; a turn's last answer doesn't.
- * An answer under its turn's "Worked for" has no time under it, only its hover actions' row, so
- * its changed files sit close.
+ * An answer under its turn's "Worked for" keeps its time in its hover-actions row, so its
+ * changed files sit close.
  */
 function rowGap(row: Row, next: Row | undefined): string {
   if (row.block.kind === "message" && next?.block.kind === "message") return "pb-1.5";
