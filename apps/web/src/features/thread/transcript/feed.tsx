@@ -307,6 +307,7 @@ export function Feed(props: FeedProps) {
   useEffect(readTop);
 
   const [olderIntent, setOlderIntent] = useState(false);
+  const [newerIntent, setNewerIntent] = useState(false);
   const landing = useRef(0);
   useEffect(() => {
     const el = viewport.current;
@@ -319,6 +320,7 @@ export function Feed(props: FeedProps) {
       (upward) => {
         upwardIntent.current = upward;
         setOlderIntent(upward);
+        setNewerIntent(!upward);
         if (upward) {
           glidingUntil.current = 0;
           setPinned(false);
@@ -381,6 +383,7 @@ export function Feed(props: FeedProps) {
     if (prefetchFocus.current !== focus?.nonce) {
       prefetchFocus.current = focus?.nonce;
       setOlderIntent(false);
+      setNewerIntent(false);
       return;
     }
     if (olderIntent && !pinned) {
@@ -391,29 +394,54 @@ export function Feed(props: FeedProps) {
       }
     }
   }, [focus?.nonce, olderIntent, pinned, hasOlder, loading, pager.error, jump.failed, loadOlder]);
-  // A jumped window slides only as the reader scrolls toward one of its edges, so a window
-  // that fits on screen never pages itself in both directions. Older history prefetches by
-  // proximity (see above); travel counts the reader's own scrolling toward the live end.
-  // Code moving the view (a restored place, a jump) never adds to it.
-  const lastTop = useRef(0);
-  const travel = useRef(0);
-  const slideOnScroll = (el: HTMLElement) => {
-    const moved = el.scrollTop - lastTop.current;
-    lastTop.current = el.scrollTop;
-    if (performance.now() < placedUntil.current) {
-      travel.current = 0;
-      return;
-    }
-    travel.current =
-      Math.sign(moved) === Math.sign(travel.current) ? travel.current + moved : moved;
-    if (!window || jump.loading || Math.abs(travel.current) < 120) return;
-    const room = el.clientHeight;
-    if (travel.current > 0 && detached && el.scrollHeight - el.scrollTop - el.clientHeight < room)
-      void nav.jump.newer();
+  // Newer history loads the same way, mirrored: proximity to the live end plus one
+  // request per downward gesture, so scrolling back toward live is one continuous
+  // list. A wheel or key at the very bottom moves no scroll offset, so intent alone
+  // must page; code moving the view never does.
+  const distanceToLive = () => {
+    const el = viewport.current;
+    return el ? el.scrollHeight - el.scrollTop - el.clientHeight : Number.POSITIVE_INFINITY;
   };
+  const maybeLoadNewer = useCallback(
+    (distance: number) => {
+      if (
+        distance < 900 &&
+        detached &&
+        window &&
+        !jump.loading &&
+        !loading &&
+        !pager.error &&
+        !jump.failed
+      ) {
+        void nav.jump.newer();
+      }
+    },
+    [detached, window, jump.loading, jump.failed, loading, pager.error, nav.jump],
+  );
+  useEffect(() => {
+    if (prefetchFocus.current !== focus?.nonce) return;
+    if (newerIntent && !pinned && detached && window) {
+      if (distanceToLive() < 1200 && !jump.loading && !loading && !pager.error && !jump.failed) {
+        setNewerIntent(false);
+        void nav.jump.newer();
+      }
+    }
+  }, [
+    focus?.nonce,
+    newerIntent,
+    pinned,
+    detached,
+    window,
+    jump.loading,
+    jump.failed,
+    loading,
+    pager.error,
+    nav.jump,
+  ]);
   const toLive = () => {
     upwardIntent.current = false;
     setOlderIntent(false);
+    setNewerIntent(false);
     glidingUntil.current = performance.now() + 800;
     setPinned(true);
     if (window) nav.jump.live();
@@ -447,7 +475,7 @@ export function Feed(props: FeedProps) {
             onScroll={(event) => {
               const el = event.currentTarget;
               readTop();
-              slideOnScroll(el);
+              maybeLoadNewer(el.scrollHeight - el.scrollTop - el.clientHeight);
               maybeLoadOlder(el.scrollTop);
               const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < nearEdge;
               if (!atEnd && performance.now() < glidingUntil.current) return;
