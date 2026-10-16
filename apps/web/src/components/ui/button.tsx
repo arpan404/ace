@@ -24,13 +24,13 @@ const buttonVariants = cva(
     variants: {
       variant: {
         primary:
-          "bg-tint text-tint-foreground shadow-[var(--depth-fill),var(--depth-raise)] hover:bg-[color-mix(in_oklab,var(--ring),var(--background)_14%)] active:shadow-none",
+          "bg-tint text-tint-foreground shadow-none hover:bg-[color-mix(in_oklab,var(--ring),var(--background)_14%)]",
         secondary:
-          "bg-transparent text-foreground shadow-[inset_0_0_0_1px_var(--border),var(--depth-raise)] hover:bg-accent aria-expanded:bg-accent active:shadow-[inset_0_0_0_1px_var(--border)]",
+          "bg-transparent text-foreground shadow-[inset_0_0_0_1px_var(--border)] hover:bg-accent aria-expanded:bg-accent",
         ghost:
           "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground",
         danger:
-          "bg-danger text-danger-foreground shadow-[var(--depth-fill),var(--depth-raise)] hover:bg-danger-hover active:bg-danger-pressed active:shadow-none",
+          "bg-danger text-danger-foreground shadow-none hover:bg-danger-hover active:bg-danger-pressed",
       },
       tone: {
         default: "",

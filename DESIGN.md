@@ -8,7 +8,7 @@ The convention every UI change in ace follows and every UI review checks. It nam
 2. **Hierarchy by one step at a time.** Text tiers, weights, surfaces and hairlines each move exactly one step between neighbours; never two devices for one distinction.
 3. **Colour means state.** Status hues are the only colour in lists and chrome. Identity (projects, providers) is monochrome ink.
 4. **Edges before air.** Separate things with hairlines, weight and size before adding space.
-5. **Materials, not panels.** Floating layers are glass with an edge and a shadow; content is opaque. Controls and the composer carry a little depth (a lit top edge, a 1px lift); content never does.
+5. **Materials, not panels.** Floating layers are glass with an edge and a shadow; content is opaque. The composer carries a soft lift shadow; buttons stay flat.
 6. **Density is a setting, hierarchy is not.** Compact removes padding, never tiers.
 7. **Motion confirms, never entertains.** Things arrive; they don't fly.
 8. **Correct before pretty.** Never show an agent as done while any part of its tree works or waits (AGENTS.md priority 1).
@@ -36,16 +36,16 @@ Rules: never hard-code a colour; never put a status hue on something that is not
 
 **Depth** is a separate, smaller device for things you press or type into, from the `--depth-*` tokens in `theme/tokens.ts`. Use only these; never write a one-off shadow.
 
-| Token               | Where                                                                                                |
-| ------------------- | ---------------------------------------------------------------------------------------------------- |
-| `--depth-highlight` | Lit top edge: the composer, the attached strip, the active tab.                                      |
-| `--depth-dock`      | The composer's soft lift off the page.                                                               |
-| `--depth-strip`     | The smaller lift of the card attached above the composer.                                            |
-| `--depth-raise`     | 1px rest shadow: secondary, outline and split buttons, active tab, picker previews.                  |
-| `--depth-fill`      | Highlight and bottom shade on an ink or coloured fill: primary, danger, Send/Stop, checked checkbox. |
-| `--depth-well`      | Slight recess of text inputs.                                                                        |
+| Token               | Where                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------- |
+| `--depth-highlight` | Lit top edge: the active tab (not the composer or buttons, which stay flat).          |
+| `--depth-dock`      | The composer's soft lift off the page (shadow only, no highlight).                    |
+| `--depth-strip`     | The smaller lift of the card attached above the composer (shadow only, no highlight). |
+| `--depth-raise`     | 1px rest shadow: active tab, picker previews (not buttons).                           |
+| `--depth-fill`      | Highlight and bottom shade on a checked checkbox (not buttons).                       |
+| `--depth-well`      | Slight recess of text inputs.                                                         |
 
-Pressed controls drop their depth (`active:shadow-none`). Rows, cards, bubbles, the sidebar, settings cards and the header stay flat.
+Pressed controls take their pressed wash (`active:shadow-none` only where a shadow remains). Rows, cards, bubbles, the sidebar, settings cards and the header stay flat.
 
 ### Hairlines
 
@@ -114,7 +114,7 @@ Two levels. **`glass-thin`** (`.ace-floating`): menus, popovers, selects, contex
 
 | Component               | Rule                                                                                                                                                                                                                               | Do                                           | Don't                                                   |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------- |
-| **Button `primary`**    | The one action a surface exists for. Ink fill, white label, `--depth-fill` + `--depth-raise`, flat when pressed.                                                                                                                   | "Allow once", "Run now", "Save"              | Two primaries on one surface; a primary in a toolbar    |
+| **Button `primary`**    | The one action a surface exists for. Flat ink fill, white label, no shadow.                                                                                                                                                        | "Allow once", "Run now", "Save"              | Two primaries on one surface; a primary in a toolbar    |
 | **Button `secondary`**  | Any other labelled action; outlined so it reads as a button at rest.                                                                                                                                                               | "Deny", "Cancel" beside a primary, "Preview" | Outlined buttons as tabs or filters                     |
 | **Button `ghost`**      | Actions inside dense chrome: toolbars, row hovers, dialog Cancel.                                                                                                                                                                  | Row actions, header icons                    | Ghost for the main action of a page                     |
 | **Button `danger`**     | The confirming action of a destructive confirmation only.                                                                                                                                                                          | "Stop and delete", "Revoke"                  | Red for "Stop" or "Archive"; red outlines               |
@@ -168,7 +168,7 @@ Two levels. **`glass-thin`** (`.ace-floating`): menus, popovers, selects, contex
 - **Attention levels:** as in §5.
 - **Composer:** nothing renders below it; exactly one strip slot above it (approval/question first), tucked under the composer's edge; Send and Stop are round; live state is the inline "Working for …" line at the end of the transcript; finished turns fold into "Worked for …" disclosures.
 - **Themes:** Mode (Light/Dark/System) is separate from Theme; themes are **colour only** (no fonts, material or spacing) and the set is ace (default), Paper, Midnight, Grove, Harbor, Dusk, with status colours the same in every theme; the accent picker stays; floating layers are glass and the composer is translucent glass; motion is 120/200/320 with the spring `linear()` curve. Mode keeps its three preview cards. Corners is a user setting (Sharp, Default, Round).
-- **Depth:** the composer, its strip and pressable controls carry subtle depth (§2 Surfaces and elevation); the earlier "no material effects" rule is retired.
+- **Depth:** the composer and its strip carry only their lift shadows (`--depth-dock`, `--depth-strip`); buttons are flat with no depth.
 - **Danger confirmations:** solid red button, focus starting on Cancel.
 - **Header order:** `[title] [⋯] [Work icon] [panel toggle]`; Work info is a compact floating card.
 - **Model control:** one composer control (model chip + speed icon + effort label) with a T3-style list popover.
@@ -184,7 +184,7 @@ Answer every one with yes before approving a UI PR.
 4. Are rows, controls and insets on the grid at the token heights, with no 14px literals?
 5. Are radii from the scale, no larger than the padding beside them, sized to the element, and concentric when nested (§2 Radius)? Does the page still look right under Corners → Sharp and Round?
 6. Do separators come from `rules.ts`, with nothing in the sidebar ruled?
-7. Is depth only from `--depth-*`, on controls and the composer, never on content? Is every floating layer `.ace-floating`, `.ace-glass-dock` or `.ace-floating-solid`, with no glass on glass or on a scroller?
+7. Is depth only from `--depth-*`, on the composer/strip and the remaining depth controls (never buttons), never on content? Is every floating layer `.ace-floating`, `.ace-glass-dock` or `.ace-floating-solid`, with no glass on glass or on a scroller?
 8. Do primary/secondary/ghost/danger follow §4, with one primary per surface and danger only on the confirming action?
 9. Does the page title row carry at most one action, and do add actions sit inside cards?
 10. Do empty, error and loading states use `EmptyState` and `--skel` as in §3?
