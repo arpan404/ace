@@ -279,8 +279,19 @@ export function iterateArgs(
     })();
   }
   if (method === "text") {
-    const [source, parsed] = decode(z.tuple([TextSource, Options]), args);
-    return client.text(source, options(parsed, signal));
+    const [source, parsed] = decode(
+      z.tuple([
+        TextSource,
+        RequestOptions.extend({
+          offset: z.number().int().nonnegative().multipleOf(2).optional(),
+        }).optional(),
+      ]),
+      args,
+    );
+    return client.text(source, {
+      ...options(parsed, signal),
+      ...(parsed?.offset === undefined ? {} : { offset: parsed.offset }),
+    });
   }
   if (method === "output") {
     const [read, parsed] = decode(z.tuple([Read, Options]), args);

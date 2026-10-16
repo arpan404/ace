@@ -296,7 +296,7 @@ const TopBlock = memo(function TopBlock(props: { block: MarkdownBlock; writing: 
  * Transcript prose (15.5/1.6), lexed and highlighted in the markdown worker. `stream` names a
  * message whose text grows while `streaming`: its finished blocks render once, and only its
  * open block re-renders, 10 to 20 times a second. Until the first document is ready a
- * skeleton holds its place.
+ * streaming message shows plain text; settled text reserves its place with a skeleton.
  */
 export const Markdown = memo(function Markdown(props: {
   text: string;
@@ -308,7 +308,15 @@ export const Markdown = memo(function Markdown(props: {
   thread?: { threadId: string; cwd?: string; itemId?: string } | undefined;
 }) {
   const doc = useMarkdown(props.text, props.stream, !props.streaming);
-  if (!doc) return <MarkdownLoading text={props.text} className={props.className} />;
+  if (!doc)
+    return (
+      <MarkdownLoading
+        text={props.text}
+        className={props.className}
+        streaming={props.streaming}
+        tail={props.tail}
+      />
+    );
   return (
     <Links value={props.links}>
       <ThreadReferenceScope value={props.thread}>

@@ -373,7 +373,7 @@ export function Feed(props: FeedProps) {
   }, [nav.searchOpen]);
   const items = virtualizer.getVirtualItems();
   const { hasOlder, loading, loadOlder } = pager;
-  // The scroll handler only observes (like t3code's timeline): it never pages.
+  // Only scrolls backed by reader intent may page.
   // Older history loads one request per upward gesture, well before the edge, so
   // paging in never surfaces as a visible jump. A reply, a jump settling, or a
   // keep-place restore fires scroll events with no gesture behind them, and those
@@ -507,20 +507,25 @@ export function Feed(props: FeedProps) {
           >
             <div className={`${readingColumn} pt-6 pb-[calc(var(--composer-clearance,0px)+4rem)]`}>
               {hasOlder && (
-                <div className="flex justify-center pb-4">
+                <div className="flex min-h-8 justify-center pb-4">
+                  {loading && (
+                    <span role="status" aria-label="Loading earlier messages">
+                      <Spinner />
+                    </span>
+                  )}
+                </div>
+              )}
+              {pager.error && (
+                <p role="alert" className="pb-3 text-center text-xs text-status-failed">
+                  Couldn't load earlier messages. Try again.
                   <Button
                     variant="ghost"
                     size="sm"
                     disabled={loading}
                     onClick={() => void loadOlder()}
                   >
-                    {loading && <Spinner />} Load earlier messages
+                    Try again
                   </Button>
-                </div>
-              )}
-              {pager.error && (
-                <p role="alert" className="pb-3 text-center text-xs text-status-failed">
-                  Couldn't load earlier messages. Try again.
                 </p>
               )}
               <div

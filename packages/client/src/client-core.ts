@@ -55,6 +55,7 @@ import {
   defaultLimits,
   type ClientOptions,
   type RequestOptions,
+  type TextReadOptions,
   type ConnectionInfo,
   type ConnectionState,
 } from "./types.ts";
@@ -874,11 +875,13 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       options,
     );
   }
-  /** Read exactly the text length described by a page, in bounded decoded chunks. */
-  async *text(source: TextSource, options: RequestOptions = {}): AsyncGenerator<string> {
+  /** Read a descriptor's text, optionally resuming at a byte offset, in bounded decoded chunks. */
+  async *text(source: TextSource, options: TextReadOptions = {}): AsyncGenerator<string> {
     const parsed = TextSource.safeParse(source);
     if (!parsed.success || parsed.data.bytes % 2) throw new ClientError("protocol");
-    let offset = 0;
+    let offset = options.offset ?? 0;
+    if (!Number.isSafeInteger(offset) || offset < 0 || offset % 2 || offset > parsed.data.bytes)
+      throw new ClientError("protocol", "Invalid text offset");
     let carry = "";
     while (offset < parsed.data.bytes) {
       const result = await this.outputRead(

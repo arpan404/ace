@@ -100,3 +100,17 @@ test("an existing render stays visible while the worker prepares newer text", as
   expect(screen.getByText("Second answer")).toBeTruthy();
   expect(screen.queryByText("First answer")).toBeNull();
 });
+
+test("partial answer text stays readable while the markdown worker starts", async () => {
+  const Markdown = await freshMarkdown();
+  vi.useFakeTimers();
+  const view = render(<Markdown text="First partial answer" stream="slow-start" streaming />);
+  expect(screen.getByText("First partial answer")).toBeTruthy();
+  view.rerender(
+    <Markdown text="First partial answer and the next delta" stream="slow-start" streaming />,
+  );
+  expect(screen.getByText("First partial answer and the next delta")).toBeTruthy();
+  expect(screen.queryByRole("status", { name: "Loading message" })).toBeNull();
+  await act(() => vi.advanceTimersByTimeAsync(3000));
+  expect(screen.getByText("First partial answer and the next delta")).toBeTruthy();
+});

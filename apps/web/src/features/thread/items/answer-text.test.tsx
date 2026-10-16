@@ -1,3 +1,4 @@
+import { Profiler } from "react";
 import { ClientProvider } from "@ace/client-react";
 import { FakeDaemon, ScenarioPlayer, facts } from "@ace/fake-daemon";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -31,7 +32,7 @@ afterEach(() => {
   else Reflect.deleteProperty(navigator, "clipboard");
 });
 
-test("a source-backed answer labels preview copies and retries loading the complete paged answer", async () => {
+test("a failed automatic answer read keeps the preview and retries the complete paged answer", async () => {
   const daemon = new AnswerDaemon({ clock: () => 1000 });
   const full = daemon.answer.toString("utf16le");
   new ScenarioPlayer(daemon, {
@@ -69,6 +70,7 @@ test("a source-backed answer labels preview copies and retries loading the compl
       },
     ],
   }).runUntilBlocked();
+  daemon.unavailable = true;
   const client = fakeClient(daemon);
   await client.start();
   const lease = client.thread("answer-preview");
@@ -91,24 +93,22 @@ test("a source-backed answer labels preview copies and retries loading the compl
       </TooltipProvider>
     </ClientProvider>,
   );
-  expect(await screen.findByText("Showing a preview of this answer.")).toBeTruthy();
+  expect(await screen.findByRole("alert")).toBeTruthy();
   fireEvent.click(await screen.findByRole("button", { name: "Copy preview" }));
   await waitFor(() => expect(copied).toBe(full.slice(0, 4096)));
   expect(screen.queryByRole("button", { name: "Copy answer" })).toBeNull();
-  daemon.unavailable = true;
-  fireEvent.click(screen.getByRole("button", { name: "Show full answer" }));
-  expect(await screen.findByRole("alert")).toBeTruthy();
+
   daemon.unavailable = false;
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-  await waitFor(() => expect(screen.queryByText("Showing a preview of this answer.")).toBeNull());
-  expect(await screen.findByText(/Ending beyond the preview/)).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  expect(await screen.findByText(/Ending beyond the preview/, {}, { timeout: 5000 })).toBeTruthy();
   fireEvent.click(await screen.findByRole("button", { name: "Copy answer" }));
   await waitFor(() => expect(copied).toBe(full));
   lease.release();
 });
 
 test.each(["interrupted", "failed"] as const)(
-  "an incomplete source-backed answer reveals and copies its suffix after its run is %s",
+  "an incomplete source-backed answer loads automatically and remains copyable after its run is %s",
   async (outcome) => {
     const daemon = new AnswerDaemon({ clock: () => 1000 });
     const full = daemon.answer.toString("utf16le");
@@ -173,11 +173,15 @@ test.each(["interrupted", "failed"] as const)(
       </ClientProvider>,
     );
     await screen.findByRole("status", { name: "Streaming" });
-    expect(screen.getByText("Showing a preview of this answer.")).toBeTruthy();
+    expect(
+      await screen.findByText(/Ending beyond the preview/, {}, { timeout: 5000 }),
+    ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Show full answer" })).toBeNull();
     act(() => daemon.apply("answer-preview", [facts.endTurn("root", outcome)]));
-    fireEvent.click(await screen.findByRole("button", { name: "Show full answer" }));
-    expect(await screen.findByText(/Ending beyond the preview/)).toBeTruthy();
+
+    expect(
+      await screen.findByText(/Ending beyond the preview/, {}, { timeout: 5000 }),
+    ).toBeTruthy();
     expect(screen.queryByRole("status", { name: "Streaming" })).toBeNull();
     fireEvent.click(await screen.findByRole("button", { name: "Copy answer" }));
     await waitFor(() => expect(copied).toBe(full));
@@ -185,3 +189,51 @@ test.each(["interrupted", "failed"] as const)(
     lease.release();
   },
 );
+
+test("appending an answer delta does not render a settled answer again", async () => {
+  const daemon = new AnswerDaemon({ clock: () => 1000 });
+  new ScenarioPlayer(daemon, {
+    thread: {
+      id: "localized-delta",
+      workspaceId: "project",
+      provider: "codex",
+      title: "Localized rendering",
+    },
+    steps: [
+      {
+        kind: "facts",
+        facts: [
+          facts.rootAgent("codex"),
+          facts.turn("root"),
+          facts.message("root", "settled", "assistant", "Settled answer stays still."),
+          facts.message("root", "writing", "assistant", "Still writing", false),
+        ],
+      },
+    ],
+  }).runUntilBlocked();
+  const client = fakeClient(daemon);
+  await client.start();
+  const lease = client.thread("localized-delta");
+  await waitFor(() => expect(lease.store.order.length).toBe(2));
+  const [settled, writing] = lease.store.order;
+  if (!settled || !writing) throw new Error("Missing messages");
+  let settledCommits = 0;
+  const view = render(
+    <ClientProvider client={client}>
+      <TooltipProvider>
+        <Profiler id="settled-answer" onRender={() => settledCommits++}>
+          <AssistantMessage threadId="localized-delta" itemId={settled} />
+        </Profiler>
+        <AssistantMessage threadId="localized-delta" itemId={writing} />
+      </TooltipProvider>
+    </ClientProvider>,
+  );
+  await screen.findByText("Settled answer stays still.");
+  await screen.findByText("Still writing");
+  const before = settledCommits;
+  act(() => daemon.apply("localized-delta", [facts.stream("root", "writing", " the next chunk.")]));
+  expect(await screen.findByText("Still writing the next chunk.")).toBeTruthy();
+  expect(settledCommits).toBe(before);
+  view.unmount();
+  lease.release();
+});

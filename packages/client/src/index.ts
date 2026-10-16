@@ -16,6 +16,7 @@ export type {
   Scheduler,
   Limits,
   RequestOptions,
+  TextReadOptions,
 } from "./types.ts";
 export { webSocketTransport } from "./transport.ts";
 export type { SocketLike } from "./transport.ts";
