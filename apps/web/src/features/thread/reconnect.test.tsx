@@ -36,15 +36,16 @@ test("after a dropped connection the transcript catches up by replay, without du
     ]),
   );
   await openWorkLog(feed);
-  // The settled log preserves each replayed step and message once.
+  // The settled log preserves each replayed parent step and message once; the
+  // explorer child's finding stays on its own transcript, not in the parent log.
   await within(feed).findByText("I'll look for timing assumptions in the checkout flow first.");
   for (const text of [
     /checkout.spec.ts fails about one run in five/,
     "I'll look for timing assumptions in the checkout flow first.",
-    /The payment poller retries/,
     "bun run test --watch checkout",
   ])
     expect(within(feed).getAllByText(text)).toHaveLength(1);
+  expect(within(feed).queryByText(/The payment poller retries/)).toBeNull();
   // One subagent is its row alone, with no "1 subagent" header text (#637), listed once
   // (getByRole throws on a duplicate).
   const subagents = within(feed).getByRole("region", { name: "1 subagent" });
@@ -65,4 +66,12 @@ test("after a dropped connection the transcript catches up by replay, without du
   ).toHaveLength(1);
   expect(within(feed).queryByRole("note")).toBeNull();
   expect(screen.getByRole("button", { name: /^Model:/ })).toBeTruthy();
+  // The child's finding reads on its own transcript, opened from its card.
+  const card = within(feed).getByRole("region", { name: "1 subagent" });
+  const disclosure = within(card).queryByRole("button", { name: "1 subagent" });
+  if (disclosure) await userEvent.click(disclosure);
+  await userEvent.click(within(card).getByRole("link", { name: /^Open / }));
+  const own = await screen.findByRole("feed", { name: "Transcript" });
+  expect(await within(own).findByText(/The payment poller retries/)).toBeTruthy();
+  expect(within(own).queryByText("bun run test --watch checkout")).toBeNull();
 });

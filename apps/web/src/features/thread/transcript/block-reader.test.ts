@@ -96,11 +96,11 @@ test("replacing a question with the same count updates its transcript block", ()
   );
 });
 
-function settledTree(link: "agent" | "spawn") {
+function settledTree(link: "agent" | "spawn", provider: Thread["provider"] = "codex") {
   const thread = Thread.parse({
     id: "tree",
     workspaceId: "workspace",
-    provider: "codex",
+    provider,
     title: "Tree",
     rootAgentId: "root",
     status: { state: "done" },
@@ -114,7 +114,7 @@ function settledTree(link: "agent" | "spawn") {
       threadId: thread.id,
       parentId: id === "root" ? null : "root",
       origin: id === "root" ? "root" : "provider_subagent",
-      native: { provider: "codex" },
+      native: { provider },
       fidelity: "full",
       cwd: "/",
       createdAt: 0,
@@ -185,34 +185,69 @@ function settledTree(link: "agent" | "spawn") {
 }
 
 test.each(["agent", "spawn"] as const)(
-  "a settled child's late %s link regroups its work",
+  "parent and child transcripts stay separate across a late %s link",
   (link) => {
     const source = settledTree(link);
     const read = createBlockReader();
-    const before = read(source.store);
-    // The spawn's own turn has no steps; it still reads "Worked for", an empty work block.
-    const work = (blocks: typeof before.value) =>
+    const child = createBlockReader("child");
+    const work = (blocks: ReturnType<typeof read>["value"]) =>
       blocks.flatMap((block) =>
         block.kind === "work" && block.itemIds.length ? [block.itemIds] : [],
       );
-    expect(work(before.value)).toEqual([["second-before", "child-output", "second-after"]]);
-    const order = source.store.order;
+    const before = read(source.store);
+    expect(work(before.value)).toEqual([["second-before", "second-after"]]);
+    expect(work(child(source.store).value)).toEqual([["child-output"]]);
     source.update(
       link === "agent"
         ? { type: "agent.updated", agentId: "child", spawnedBy: "spawn" }
         : { type: "item.updated", item: { ...source.spawn, runId: "first" } },
     );
-    expect(source.store.order).toBe(order);
     const after = read(source.store);
-    expect(work(after.value)).toEqual([["second-before", "second-after"], ["child-output"]]);
-    expect(before.watch).toContain("agent:child");
-    if (link === "spawn") expect(before.watch).toContain("item:spawn");
+    expect(work(after.value)).toEqual([["second-before", "second-after"]]);
+    expect(work(child(source.store).value)).toEqual([["child-output"]]);
     expect(after.value).toEqual(createBlockReader()(source.store).value);
-    expect(after.watch).toContain("item:spawn");
     source.update({
       type: "item.updated",
       item: { ...source.store.item("child-output"), text: "More reasoning" },
     });
     expect(read(source.store).value).toBe(after.value);
+  },
+);
+
+// All providers feed the same transcript selector, including summary-only children.
+test.each(["claude", "codex", "acp", "opencode", "cursor"] as const)(
+  "%s child tools stay in their own transcript while their launch remains in the parent",
+  (provider) => {
+    const source = settledTree("spawn", provider);
+    source.update({
+      type: "item.updated",
+      item: Item.parse({
+        id: "child-output",
+        agentId: "child",
+        runId: "child-run",
+        createdAt: 2,
+        complete: true,
+        type: "tool_call",
+        call: {
+          id: "child-output",
+          agentId: "child",
+          kind: "shell",
+          title: "pwd",
+          status: "succeeded",
+          detail: { kind: "shell", command: "pwd" },
+          startedAt: 1,
+          endedAt: 2,
+          raw: [],
+        },
+      }),
+    });
+    const parent = createBlockReader()(source.store).value;
+    const own = createBlockReader("child")(source.store).value;
+    expect(JSON.stringify(parent)).toContain("spawn");
+    expect(JSON.stringify(parent)).not.toContain("child-output");
+    expect(
+      own.some((block) => block.kind === "work" && block.itemIds.includes("child-output")),
+    ).toBe(true);
+    expect(JSON.stringify(own)).not.toContain("second-before");
   },
 );

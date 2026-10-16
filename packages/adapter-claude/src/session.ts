@@ -363,17 +363,16 @@ export async function openSession(
       let targetSpawn = "";
       if (target.agent && target.agent !== (ctx.rootKey ?? "root") && target.agent !== sessionId) {
         const spawn = nativeKey(target.agent, "child");
-        targetId = [...tasks].find(
-          ([id, task]) =>
-            id === target.agent || id === spawn.replace(/^native:/, "") || task.spawn === spawn,
-        )?.[0];
-        if (!targetId) throw new Error("Unknown Claude child agent");
-        targetSpawn = tasks.get(targetId)?.spawn ?? "";
-        try {
-          await q.stopTask(targetId);
-        } catch (error) {
-          failures.push(error);
-        }
+        const task = taskIndex.resolve(spawn) ?? taskIndex.resolve(spawn.replace(/^native:/, ""));
+        if (!task) throw new Error("Claude child is no longer available for individual stop");
+        targetId = task.id;
+        targetSpawn = task.spawn;
+        if (task.live)
+          try {
+            await q.stopTask(targetId);
+          } catch (error) {
+            failures.push(error);
+          }
       } else {
         try {
           const receipt = await q.interrupt();

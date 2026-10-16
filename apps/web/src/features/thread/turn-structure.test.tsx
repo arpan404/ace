@@ -574,7 +574,7 @@ test("a finished child with no spawn link does not claim the active parent's tur
   );
   expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
   act(() => app.daemon.apply("thread-unlinked", [endTurn("root")]));
-  expect(await within(feed).findByRole("button", { name: /^Worked for 4s/ })).toBeTruthy();
+  expect(await within(feed).findByText(/^Worked for 4s/)).toBeTruthy();
   // Settled: the live head is gone.
   expect(within(feed).queryByRole("group", { name: "Turn in progress" })).toBeNull();
 });
