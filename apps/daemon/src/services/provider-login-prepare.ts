@@ -73,7 +73,7 @@ export async function prepareProviderLogin(
     const instance = registry.get(instanceId)?.instance;
     if (!instance || instance.provider !== "cursor" || instance.implicit)
       throw new Error("SDK requires an SDK instance");
-    await registry.validateHome(instance);
+    if (action === "logout") await registry.validateHome(instance);
     signal.throwIfAborted();
     if (services.cursorAuth?.isChangingInstance(instanceId))
       throw new ProviderLoginFailure(
@@ -134,7 +134,7 @@ export async function prepareProviderLogin(
         if (target.method === "api_key") {
           await binding.stopInstance(instanceId);
           await slots.stopInstance(instanceId);
-          await registry.validateHome(instance);
+          await registry.restoreCursorHome(instanceId);
           runSignal.throwIfAborted();
         }
         const result = await driver.run(runSignal, emit);

@@ -18,7 +18,7 @@ import { availability, blockedUntil } from "./availability.ts";
 import { initialQuota, ingestQuota, type QuotaFact } from "./quota.ts";
 import { instanceEnv } from "./instances.ts";
 import { pickInstance } from "./scheduler.ts";
-import { assertManagedHome } from "./managed-home.ts";
+import { assertManagedHome, restoreCursorHome } from "./managed-home.ts";
 import { canonicalHome } from "./paths.ts";
 const selectionRow = z.object({ backend: z.string(), instance_id: AccountInstanceId });
 const row = z.object({ instance: z.string().max(32768), quota: z.string().max(16384) });
@@ -155,6 +155,25 @@ export class AccountRegistry {
     if (!instance.managed) return;
     if (!this.managedDataDir) throw new Error("Managed account needs its daemon data root");
     await assertManagedHome(this.managedDataDir, instance);
+  }
+  /** A user-requested Cursor sign-in can repair a missing private folder without a restart. */
+  async restoreCursorHome(id: string): Promise<void> {
+    const account = this.get(id);
+    if (!account || !this.managedDataDir) throw new Error("Account unavailable");
+    const problem = account.quota.blockers.homeUnavailable;
+    if (problem === "foreign_home" || problem === "home_conflict") throw new Error(problem);
+    const created = await restoreCursorHome(this.managedDataDir, account.instance);
+    const current = this.get(id);
+    if (!current || current.instance.homeDir !== account.instance.homeDir)
+      throw new Error("Account changed during home recovery");
+    const quota = { ...current.quota, blockers: { ...current.quota.blockers } };
+    delete quota.blockers.homeUnavailable;
+    if (created) {
+      quota.auth = "unknown";
+      delete quota.cursorSdkAuth;
+    }
+    this.updateQuota.run(JSON.stringify(quota), id);
+    for (const listener of this.quotaListeners) listener(id);
   }
   private decode(value: unknown) {
     const parsed = row.parse(value);

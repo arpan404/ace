@@ -24,6 +24,7 @@ export async function providerAccounts(
     result: { ok: false, error, ...(instanceId ? { instanceId } : {}) },
   });
   let progress: import("@ace/protocol").ProviderLoginProgress | undefined;
+  let homeUnavailable = false;
   if (request.type !== "provider.accounts.list") {
     let instanceId: string;
     if (request.type === "provider.accounts.add") {
@@ -41,6 +42,7 @@ export async function providerAccounts(
       instanceId = request.instanceId;
       const account = management.summaries(request.provider).find((row) => row.id === instanceId);
       if (!account) return fail("not_found");
+      homeUnavailable = account.quota.blockers.homeUnavailable !== undefined;
       if (request.type === "provider.accounts.remove" && account.implicit) return fail("failed");
     }
     if (request.type === "provider.accounts.add" || request.type === "provider.accounts.reauth") {
@@ -71,7 +73,8 @@ export async function providerAccounts(
       progress = result.result.progress;
     } else if (request.type === "provider.accounts.remove") {
       // These providers expose reviewed unattended logout. A failed logout retains metadata/home.
-      if (["codex", "claude", "cursor"].includes(request.provider)) {
+      // Unavailable folders cannot be signed out. Forget their registration without touching them.
+      if (!homeUnavailable && ["codex", "claude", "cursor"].includes(request.provider)) {
         const result = await login.handle(owner, {
           type: "provider.logout",
           requestId: request.requestId,

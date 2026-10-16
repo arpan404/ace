@@ -17,6 +17,8 @@ export interface CursorAccountDriverOptions extends Omit<HostOptions, "env" | "c
   environment?(instance: CursorInstance): NodeJS.ProcessEnv;
   /** Must fence sends, await admissions/hosts, and retain reservations on failed exit. */
   stopInstance(id: string): Promise<void>;
+  /** Runs under the instance fence, after its previous hosts have exited. */
+  prepareLogin?(instance: CursorInstance): Promise<void>;
 }
 const reserve = (kind: "login" | "logout") => {
   const completion = Promise.withResolvers<void>();
@@ -112,6 +114,7 @@ export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
       try {
         await options.stopInstance(selected.id);
         await slots.stopInstance(selected.id);
+        await options.prepareLogin?.(selected);
         return SafeAuth.parse(
           await operate(
             selected,
