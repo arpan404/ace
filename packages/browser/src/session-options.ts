@@ -7,7 +7,8 @@ import type {
 } from "@ace/protocol";
 import type { ProcessSpawner } from "./io.ts";
 import type { NavigationClock } from "./navigation.ts";
-export type Actor = { kind: "agent" } | { kind: "human"; connectionId: string };
+/** Who submits a command. `agentId` gives an agent its own current tab; omitted agents share one. */
+export type Actor = { kind: "agent"; agentId?: string } | { kind: "human"; connectionId: string };
 export interface SessionOptions {
   threadId: ThreadId;
   backend: BrowserBackendSession;
@@ -38,4 +39,12 @@ export interface SessionOptions {
   /** Annotation events for the one connection that started annotate mode (ADR 0082). */
   annotation?: (connectionId: string, event: BrowserAnnotationEvent) => void;
   cleanup: () => Promise<void>;
+  /** Tab records from before a restart: their labels and openers come back with them. */
+  restoredTabs?: readonly import("./tab-store.ts").BrowserTabRecord[];
+  /** Keep the thread's tabs whenever they change, for restore after a daemon restart. */
+  persistTabs?: (records: import("./tab-store.ts").BrowserTabRecord[]) => void;
+  /** A person or agent closed the browser: nothing comes back after a restart. */
+  forgetTabs?: () => void;
+  /** Freeze idle tabs; omitted, tabs stay live. */
+  lifecycle?: import("./session-lifecycle.ts").LifecycleSchedule;
 }

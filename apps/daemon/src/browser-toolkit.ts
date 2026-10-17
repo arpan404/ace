@@ -13,6 +13,12 @@ import type { Store } from "./store.ts";
 const content = (value: unknown) => ({
   content: [{ type: "text", text: JSON.stringify(value) ?? "null" }],
 });
+/** What an agent needs back from opening: the tab it now works in. */
+const tabSummary = (tab: { tabId: string; url: string; title: string }) => ({
+  tabId: tab.tabId,
+  url: tab.url,
+  title: tab.title,
+});
 
 /**
  * Trusted MCP attribution chooses the thread; agents cannot supply another thread id. With a
@@ -39,10 +45,16 @@ export function browserToolkit(
       registry.registerContent({
         name: "ace_browser_open",
         description:
-          "Open this thread's ace browser, which the person can watch and take over in ace, at an optional HTTP(S) url (localhost included). The best pick when the person should see the page, or you need console and network evidence (ace_browser_logs). Then ace_browser_snapshot for element refs. More: ace_guide ace-browser.",
+          "Open this thread's ace browser, which the person can watch and take over in ace, at an optional HTTP(S) url (localhost included). Returns tabId. newTab opens your own tab (give it a label); parallel agents must each open a labelled tab and pass its tabId to every ace_browser_* call. The best pick when the person should see the page, or you need console and network evidence (ace_browser_logs). Then ace_browser_snapshot for element refs. More: ace_guide ace-browser.",
         input: z.strictObject({
           url: z.string().max(8192).optional(),
           newTab: z.boolean().default(false),
+          label: z
+            .string()
+            .min(1)
+            .max(64)
+            .optional()
+            .describe("A short name for a new tab, such as checkout or admin."),
           ...browserMachineInput,
         }),
         capability: "browser",
@@ -64,18 +76,31 @@ export function browserToolkit(
             );
           await open(caller.threadId);
           signal.throwIfAborted();
-          if (browser.state(caller.threadId).takeoverMode === "private")
-            throw new PublicToolError("human_private");
-          return content(
-            args.url === undefined
-              ? browser.state(caller.threadId)
-              : await browser.execute(
-                  caller.threadId,
-                  { action: "navigate", url: args.url },
-                  { kind: "agent" },
-                  signal,
-                ),
-          );
+          const actor = { kind: "agent" as const, agentId: caller.agentId };
+          if (args.newTab) {
+            await browser.execute(
+              caller.threadId,
+              { action: "tabs", operation: "open", url: args.url, label: args.label },
+              actor,
+              signal,
+            );
+            return content({
+              ...browser.state(caller.threadId),
+              ...tabSummary(browser.currentTab(caller.threadId, actor)),
+            });
+          }
+          const current = await browser.claimTab(caller.threadId, actor);
+          if (args.url !== undefined)
+            await browser.execute(
+              caller.threadId,
+              { action: "navigate", url: args.url, tabId: current.tabId },
+              actor,
+              signal,
+            );
+          return content({
+            ...browser.state(caller.threadId),
+            ...tabSummary(browser.currentTab(caller.threadId, actor)),
+          });
         },
       });
       scopedBrowserToolkit(
@@ -86,11 +111,11 @@ export function browserToolkit(
             signal?.throwIfAborted();
             return browser.execute(threadId, command, actor, signal);
           },
-          async screenshot(threadId, signal, tabId) {
+          async screenshot(threadId, signal, tabId, options, actor) {
             signal?.throwIfAborted();
             await open(ThreadId.parse(threadId));
             signal?.throwIfAborted();
-            return browser.screenshot(threadId, signal, tabId);
+            return browser.screenshot(threadId, signal, tabId, options, actor);
           },
         },
         200_000,
@@ -98,8 +123,12 @@ export function browserToolkit(
       ).register(registry);
       registry.registerContent({
         name: "ace_browser_close",
-        description: "Close this thread's ace browser.",
-        input: z.strictObject({ ...browserMachineInput }),
+        description:
+          "Close one tab with tabId (close the tabs you opened when done), or without tabId the whole browser and every tab in it.",
+        input: z.strictObject({
+          tabId: z.string().min(1).max(256).optional(),
+          ...browserMachineInput,
+        }),
         capability: "browser",
         timeoutMs: 60_000,
         async run(input, context) {
@@ -111,12 +140,22 @@ export function browserToolkit(
               {
                 machine: input.machine,
                 tool: "ace_browser_close",
-                args: {},
+                args: input.tabId ? { tabId: input.tabId } : {},
                 timeoutMs: 55_000,
               },
               context,
             );
-          await browser.closeThread(caller.threadId, { kind: "agent" }, signal);
+          const actor = { kind: "agent" as const, agentId: caller.agentId };
+          if (input.tabId !== undefined) {
+            await browser.execute(
+              caller.threadId,
+              { action: "tabs", operation: "close", tabId: input.tabId },
+              actor,
+              signal,
+            );
+            return content({ closed: true, tabId: input.tabId });
+          }
+          await browser.closeThread(caller.threadId, actor, signal);
           return content({ closed: true });
         },
       });

@@ -32,7 +32,15 @@ export const BrowserOpen = z.object({
   background: z.boolean().default(false),
 });
 export type BrowserOpen = z.infer<typeof BrowserOpen>;
-const commandBase = z.object({ tabId: short.optional() });
+/**
+ * `tabId` routes a command to one tab. Omitted: an agent's own current tab (the last it opened or
+ * selected), otherwise the tab the person is viewing. Commands on different tabs run concurrently.
+ */
+const commandBase = z.object({
+  tabId: short
+    .optional()
+    .describe("The tab to act in, from ace_browser_tabs. Omitted: your current tab."),
+});
 const [click, type, press, scroll, drag] = BrowserInteractionAction.options;
 const annotate = commandBase.extend({ action: z.literal("annotate") });
 /** Annotate mode belongs to the person holding the page's control lease (ADR 0082). */
@@ -57,7 +65,18 @@ export const BrowserCommand = z.discriminatedUnion("action", [
     forward: z.boolean().default(true),
   }),
   commandBase.extend({ action: z.literal("navigate"), url: z.string().max(8192), timeout }),
-  commandBase.extend(click.shape),
+  commandBase.extend({
+    action: click.shape.action,
+    ref: short.optional().describe("Ref from the latest snapshot. Omit it to click at x, y."),
+    x: coordinate.optional().describe("CSS pixels from the viewport's left edge; needs y."),
+    y: coordinate.optional().describe("CSS pixels from the viewport's top edge; needs x."),
+    button: z.enum(["left", "middle", "right"]).default("left"),
+    clickCount: z.number().int().min(1).max(3).default(1),
+    modifiers: z
+      .array(z.enum(["Alt", "Control", "Meta", "Shift"]))
+      .max(4)
+      .default([]),
+  }),
   commandBase.extend(type.shape),
   commandBase.extend(press.shape),
   commandBase.extend(scroll.shape),
@@ -67,7 +86,11 @@ export const BrowserCommand = z.discriminatedUnion("action", [
     ...BrowserMeasurementOptions.shape,
   }),
   commandBase.extend({ action: z.literal("snapshot") }),
-  commandBase.extend({ action: z.literal("screenshot") }),
+  commandBase.extend({
+    action: z.literal("screenshot"),
+    fullPage: z.boolean().default(false).describe("The whole scrollable page, not the viewport."),
+    ref: short.optional().describe("Only this element from the latest snapshot."),
+  }),
   commandBase.extend({
     action: z.literal("evaluate"),
     expression: z.string().max(65_536),
@@ -115,8 +138,31 @@ export const BrowserCommand = z.discriminatedUnion("action", [
   }),
   commandBase.extend({
     action: z.literal("tabs"),
-    operation: z.enum(["list", "open", "switch", "close"]).default("list"),
+    /** `switch` is the earlier name of `select`. */
+    operation: z.enum(["list", "open", "select", "switch", "close"]).default("list"),
     url: z.string().max(8192).optional(),
+    label: z.string().min(1).max(64).optional(),
+  }),
+  commandBase.extend({
+    action: z.literal("fill_form"),
+    fields: z
+      .array(z.object({ ref: short, value: z.string().max(65_536) }))
+      .min(1)
+      .max(64),
+  }),
+  commandBase.extend({
+    action: z.literal("downloads"),
+    operation: z.enum(["list", "wait"]).default("list"),
+    timeout,
+  }),
+  commandBase.extend({
+    action: z.literal("pdf"),
+    landscape: z.boolean().default(false),
+    printBackground: z.boolean().default(true),
+  }),
+  commandBase.extend({
+    action: z.literal("extensions"),
+    operation: z.enum(["list"]).default("list"),
   }),
   commandBase.extend({
     action: z.literal("upload"),
@@ -225,6 +271,8 @@ export const BrowserFrame = z.object({
   data: z.string().max(4 * 1024 * 1024),
   width: dimension,
   height: dimension,
+  /** The tab this frame shows; the person's viewed tab. */
+  tabId: short.optional(),
 });
 export type BrowserFrame = z.infer<typeof BrowserFrame>;
 export const BrowserArtifact = z.object({
@@ -249,6 +297,8 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
   base.extend({ type: z.literal("browser.tabs.list") }),
   base.extend({ type: z.literal("browser.tabs.open"), url: z.string().max(8192).optional() }),
   base.extend({ type: z.literal("browser.tabs.switch"), tabId: short }),
+  /** Show this tab to the person; it stays shown until they pick another. */
+  base.extend({ type: z.literal("browser.tabs.select"), tabId: short }),
   base.extend({ type: z.literal("browser.tabs.close"), tabId: short }),
   base.extend({ type: z.literal("browser.downloads.list") }),
   base.extend({
@@ -263,12 +313,14 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
   base.extend({ type: z.literal("browser.capture"), viewport: BrowserCaptureViewport }),
   base.extend({ type: z.literal("browser.unsubscribe"), subscriberId: short.optional() }),
   base.extend({ type: z.literal("browser.ack"), sequence: z.number().int().nonnegative() }),
+  /** Control leases are per tab; omitted `tabId` means the tab the person is viewing. */
   base.extend({
     type: z.literal("browser.takeover"),
     mode: z.enum(["shared", "private"]).default("shared"),
+    tabId: short.optional(),
   }),
-  base.extend({ type: z.literal("browser.handback") }),
-  base.extend({ type: z.literal("browser.input"), input: BrowserInput }),
+  base.extend({ type: z.literal("browser.handback"), tabId: short.optional() }),
+  base.extend({ type: z.literal("browser.input"), input: BrowserInput, tabId: short.optional() }),
   base.extend({ type: z.literal("browser.recording.start") }),
   base.extend({ type: z.literal("browser.recording.stop") }),
 ]);

@@ -12,6 +12,7 @@ const inputActions = new Set([
   "resize",
   "emulate",
   "tabs",
+  "fill_form",
   "upload",
   "dialog",
   "hover",
@@ -31,15 +32,25 @@ export function mutatesBrowser(command: BrowserCommand): boolean {
     inputActions.has(command.action) && !(command.action === "tabs" && command.operation === "list")
   );
 }
-/** One bounded queue; dialog answers deliberately bypass renderer work. */
+/** Pending commands across every tab of one thread. */
+export class QueueBudget {
+  pending = 0;
+  readonly limit: number;
+  constructor(limit = 128) {
+    this.limit = limit;
+  }
+}
+/** One tab's bounded queue; dialog answers deliberately bypass renderer work. */
 export class SessionQueue {
   private tail: Promise<unknown> = Promise.resolve();
   private pending = 0;
   private dialogWaiters = new Set<() => void>();
   private dialogWork: Promise<void> | undefined;
   private dialog: () => BrowserDialog | undefined;
-  constructor(dialog: () => BrowserDialog | undefined) {
+  private budget: QueueBudget;
+  constructor(dialog: () => BrowserDialog | undefined, budget = new QueueBudget()) {
     this.dialog = dialog;
+    this.budget = budget;
   }
   get idle(): boolean {
     return this.pending === 0 && !this.dialogWork;
@@ -54,13 +65,16 @@ export class SessionQueue {
     await this.dialogWork;
   }
   run<T>(work: () => Promise<T>): Promise<T> {
-    if (this.pending >= 32) return Promise.reject(new BrowserActionError("queue_full"));
+    if (this.pending >= 32 || this.budget.pending >= this.budget.limit)
+      return Promise.reject(new BrowserActionError("queue_full"));
     this.pending++;
+    this.budget.pending++;
     const result = this.tail.then(work);
     this.tail = result
       .catch(() => {})
       .finally(() => {
         this.pending--;
+        this.budget.pending--;
       });
     return result;
   }

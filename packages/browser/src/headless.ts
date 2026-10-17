@@ -1,5 +1,10 @@
 import { z } from "zod";
-import type { BrowserBackend, BackendOpen, BrowserBackendSession } from "./backend.ts";
+import type {
+  BrowserBackend,
+  BackendOpen,
+  BrowserBackendPage,
+  BrowserBackendSession,
+} from "./backend.ts";
 import { cancellableCdp } from "./cancellable-cdp.ts";
 import { navigateCdp } from "./cdp-navigation.ts";
 import { ChromeHost, type ChromeLease } from "./chrome-host.ts";
@@ -129,59 +134,88 @@ export class ChromeBackend implements BrowserBackend {
       await close().catch(() => {});
       throw error;
     }
-    const cdp = () => tabs.current().cdp;
-    const input = chromeInput(cdp, this.options.platform);
+    /** One tab's page; without an id, whichever tab the person is shown. */
+    const pageOf = (id?: string): BrowserBackendPage => {
+      const cdp = () => (id === undefined ? tabs.current() : tabs.tab(id)).cdp;
+      const input = chromeInput(cdp, this.options.platform);
+      const tabId = () => id ?? tabs.active();
+      return {
+        get cdp() {
+          return cancellableCdp(cdp(), signal);
+        },
+        frames: () => tabs.frames(tabId()),
+        pageStatus: () => tabs.pageStatus(tabId()),
+        networkBody: (requestId) => tabs.inspection.body(requestId),
+        url: () => tabs.url(tabId()),
+        navigate: async (url, _timeout, navigation) => {
+          // The session owns the load budget; it pauses during policy waits.
+          const page = cdp();
+          const stop = () => void page.send("Page.stopLoading").catch(() => {});
+          navigation?.addEventListener("abort", stop, { once: true });
+          try {
+            await navigateCdp(
+              page,
+              url,
+              navigation ? AbortSignal.any([signal, navigation]) : signal,
+            );
+          } finally {
+            navigation?.removeEventListener("abort", stop);
+          }
+        },
+        click: (x, y) => input.click(x, y),
+        insertText: (text) => input.insertText(text),
+        press: (key) => input.press(key),
+        wheel: (x, y) => input.wheel(x, y),
+        screenshot: async (format) => {
+          if (format === "jpeg") return modelScreenshot(cdp());
+          const { data } = Png.parse(await cdp().send("Page.captureScreenshot", { format: "png" }));
+          return Buffer.from(data, "base64");
+        },
+        resize: (width, height) => tabs.resize(width, height, tabId()),
+        viewport: () => tabs.viewportSize(tabId()),
+        media: async (colorScheme) => {
+          await cdp().send("Emulation.setEmulatedMedia", {
+            features: [{ name: "prefers-color-scheme", value: colorScheme }],
+          });
+        },
+      };
+    };
+    const pages = new Map<string, BrowserBackendPage>();
+    const page = (id: string) => {
+      tabs.tab(id);
+      let entry = pages.get(id);
+      if (!entry) {
+        entry = pageOf(id);
+        pages.set(id, entry);
+      }
+      for (const known of pages.keys())
+        if (!tabs.list().some((tab) => tab.tabId === known)) pages.delete(known);
+      return entry;
+    };
+    const shown = pageOf();
     return {
+      ...shown,
+      // A spread copies a getter's value; the shown tab's page must stay live.
       get cdp() {
-        return cancellableCdp(cdp(), signal);
+        return shown.cdp;
       },
       tabs: {
         list: () => tabs.list(),
         active: () => tabs.active(),
-        open: () => tabs.open(),
+        open: (options) => tabs.open(options),
         switch: (id) => tabs.switch(id),
         close: (id) => tabs.close(id),
         dialog: () => tabs.dialog(),
         answer: (id, accept, text) => tabs.answer(id, accept, text),
         downloads: () => tabs.downloads.transfers.list(),
+        page,
       },
-      frames: () => tabs.frames(),
-      pageStatus: () => tabs.pageStatus(),
       privateMode: (enabled) => {
         tabs.inspection.privacy(enabled);
         tabs.downloads.transfers.privacy(enabled);
       },
-      networkBody: (id) => tabs.inspection.body(id),
-      url: () => tabs.url(),
-      navigate: async (url, _timeout, navigation) => {
-        // The session owns the load budget; it pauses during policy waits.
-        const page = cdp();
-        const stop = () => void page.send("Page.stopLoading").catch(() => {});
-        navigation?.addEventListener("abort", stop, { once: true });
-        try {
-          await navigateCdp(page, url, navigation ? AbortSignal.any([signal, navigation]) : signal);
-        } finally {
-          navigation?.removeEventListener("abort", stop);
-        }
-      },
-      click: (x, y) => input.click(x, y),
-      insertText: (text) => input.insertText(text),
-      press: (key) => input.press(key),
-      wheel: (x, y) => input.wheel(x, y),
-      screenshot: async (format) => {
-        if (format === "jpeg") return modelScreenshot(cdp());
-        const { data } = Png.parse(await cdp().send("Page.captureScreenshot", { format: "png" }));
-        return Buffer.from(data, "base64");
-      },
-      resize: (width, height) => tabs.resize(width, height),
-      viewport: () => tabs.viewportSize(),
-      media: async (colorScheme) => {
-        await cdp().send("Emulation.setEmulatedMedia", {
-          features: [{ name: "prefers-color-scheme", value: colorScheme }],
-        });
-      },
-      controller: async (controller) => {
-        tabs.lease(controller.controller);
+      controller: async (controller, tabId) => {
+        tabs.lease(controller.controller, tabId);
       },
       close,
     };

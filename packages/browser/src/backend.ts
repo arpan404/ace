@@ -13,6 +13,8 @@ export interface BrowserCdp {
   off(method: string, listener: (params: unknown) => void): unknown;
 }
 export interface BackendLog {
+  /** The tab that logged the entry, when the backend knows it. */
+  tabId?: string;
   requestId?: string;
   url?: string;
   status?: number;
@@ -20,10 +22,22 @@ export interface BackendLog {
   type: string;
   text: string;
 }
+/** A tab to bring back when a thread's browser reopens, such as after a daemon restart. */
+export interface BackendRestoreTab {
+  tabId: string;
+  url: string;
+}
 export interface BackendOpen {
   options: BrowserOpen;
   id?(): string;
   reserveTab?(): () => void;
+  /**
+   * Tabs to recreate with these ids at these URLs, in order. A backend that cannot choose tab
+   * ids (the desktop's views) ignores it; the thread browser then keeps what the backend reports.
+   */
+  restoreTabs?: readonly BackendRestoreTab[];
+  /** Most tabs one thread may hold in this backend, popups included. */
+  maxTabs?: number;
   changed?(): void;
   downloadDir?: string;
   maxDownloadBytes?: number;
@@ -33,31 +47,52 @@ export interface BackendOpen {
   signal: AbortSignal;
   allowed(url: string, context?: { navigation?: boolean; human?: boolean }): Promise<boolean>;
   /** A page event submits navigation through the session owner before asking for approval. */
-  popup?(url: string, target: { current(): boolean; navigate(): Promise<void> }): Promise<void>;
+  popup?(url: string, target: PopupTarget): Promise<void>;
   /** Initiating actor of active work, otherwise the current lease owner. */
   initiator?(): boolean;
-  navigation(): void;
-  restarted?(): void;
+  navigation(tabId?: string): void;
+  /** A renderer (with `tabId`) or the whole browser (without) came back; re-arm its pages. */
+  restarted?(tabId?: string): void;
   log(entry: BackendLog): void;
   lost(reason: string): void;
   /** Version 1 backends deny natively before reporting these hooks. */
   permissionDenied?(request: { origin: string; permission: string }): void;
   downloadDenied?(request: { url: string; suggestedFilename: string }): void;
 }
-export interface BrowserBackendSession {
+/** The page a popup asked to load in place of the one that opened it. */
+export interface PopupTarget {
+  /** The opener's tab; the navigation runs in that tab's queue. */
+  tabId?: string;
+  current(): boolean;
+  navigate(): Promise<void>;
+}
+/**
+ * The tabs of one thread's browser. Every backend reports a list and the tab the person is shown
+ * (`active`). Multi-tab backends also hand out each tab's own page (`page`), so commands on
+ * different tabs never share or switch a page; a backend without `page` has one usable page, the
+ * active one.
+ */
+export interface BrowserBackendTabs {
+  list(): BrowserTab[];
+  /** The tab shown to the person. Agent commands never change it. */
+  active(): string;
+  /**
+   * Opens a tab and returns its id. `background` leaves the shown tab alone. A backend that
+   * cannot open another tab returns the id of a tab it already has.
+   */
+  open(options?: { background?: boolean }): Promise<string>;
+  /** Shows this tab to the person. */
+  switch(tabId: string): Promise<void>;
+  close(tabId: string): Promise<void>;
+  dialog(): BrowserDialog | undefined;
+  answer(dialogId: string, accept: boolean, promptText?: string): Promise<void>;
+  downloads(): BrowserDownload[];
+  page?(tabId: string): BrowserBackendPage;
+}
+/** One page's surface. Everything here acts on that page only. */
+export interface BrowserBackendPage {
   readonly cdp: BrowserCdp;
-  tabs?: {
-    list(): BrowserTab[];
-    active(): string;
-    open(): Promise<string>;
-    switch(tabId: string): Promise<void>;
-    close(tabId: string): Promise<void>;
-    dialog(): BrowserDialog | undefined;
-    answer(dialogId: string, accept: boolean, promptText?: string): Promise<void>;
-    downloads(): BrowserDownload[];
-  };
   findText?(text: string, forward: boolean): Promise<unknown>;
-  privateMode?(enabled: boolean): void;
   pageStatus?(): {
     loading: boolean;
     loadError?: string | undefined;
@@ -75,8 +110,18 @@ export interface BrowserBackendSession {
   resize(width: number, height: number): Promise<void>;
   viewport(): { width: number; height: number };
   media(colorScheme: "light" | "dark" | "no-preference"): Promise<void>;
-  /** Must apply the generation before resolving, reject obsolete generations. */
-  controller(lease: BrowserControllerLease): Promise<void>;
+}
+/** A thread's browser in one backend; as a page it is the active tab. */
+export interface BrowserBackendSession extends BrowserBackendPage {
+  tabs?: BrowserBackendTabs;
+  privateMode?(enabled: boolean): void;
+  /**
+   * Must apply the generation before resolving, reject obsolete generations. With `tabId` the
+   * lease is that tab's; without, it is the active tab's.
+   */
+  controller(lease: BrowserControllerLease, tabId?: string): Promise<void>;
+  /** Agent-visible extensions, read-only. */
+  extensions?(): Promise<{ id: string; name: string; version?: string; enabled: boolean }[]>;
   close(): Promise<void>;
 }
 export interface BrowserBackend {

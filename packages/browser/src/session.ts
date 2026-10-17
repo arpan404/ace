@@ -1,61 +1,66 @@
 import { NavigationPolicies } from "./policy-waits.ts";
 import { BrowserActionError } from "./action-error.ts";
-import { BrowserOriginError } from "./policy.ts";
-import { agentScreenshot } from "./session-images.ts";
-import type { BrowserBackendSession } from "./backend.ts";
-import type { BrowserOriginBlock } from "@ace/protocol";
-import {
-  BrowserCommand,
-  BrowserInput,
-  type BrowserArtifact,
-  type BrowserState,
-} from "@ace/protocol";
+import type { BackendLog, BrowserBackendSession, PopupTarget } from "./backend.ts";
+import type { BrowserAnnotationEvent, BrowserOriginBlock } from "@ace/protocol";
+import { BrowserCommand, type BrowserArtifact, type BrowserState } from "@ace/protocol";
 import { LiveCapture } from "./live.ts";
 import { SessionLogs } from "./logs.ts";
-import { SnapshotRefs } from "./refs.ts";
 import { browserState } from "./session-state.ts";
 import { closeSession } from "./session-close.ts";
-import { SessionOwnership } from "./session-ownership.ts";
-import { SessionQueue, mutatesBrowser } from "./session-queue.ts";
+import { QueueBudget } from "./session-queue.ts";
 import { SessionRecording } from "./session-recording.ts";
-import { sendHumanInput } from "./session-input.ts";
 import type { NavigationTask } from "./navigation.ts";
-import { executeBrowserCommand } from "./session-commands.ts";
-import { AnnotationSession } from "./annotation-session.ts";
+import { SessionTabs } from "./session-tabs.ts";
+import { TabRuntime, type TabHost } from "./tab-runtime.ts";
+import { executeDownloads, executeTabs } from "./session-structure.ts";
+import { freezeIdleTabs, wakeTab } from "./session-lifecycle.ts";
+import { tabCommand } from "./session-commands.ts";
 
 import type { Actor, SessionOptions } from "./session-options.ts";
 export type { Actor, SessionOptions } from "./session-options.ts";
+
+/**
+ * One thread's browser: its tabs, the person's view of them, and the thread-wide facts every tab
+ * shares (open, paused, logs, recording). Each tab runs its own commands (TabRuntime); this
+ * routes commands to tabs and changes the tab set.
+ */
 export class BrowserSession {
   readonly live: LiveCapture;
-  private refs: SnapshotRefs;
-  private annotation: AnnotationSession;
   lastActivity: number;
-  get evictable(): boolean {
-    return (
-      this.ownership.controller === "agent" &&
-      this.ownership.mode !== "private" &&
-      this.options.now() - this.lastActivity >= 30_000 &&
-      this.queue.idle &&
-      !this.recordings.active &&
-      !this.options.backend.tabs?.dialog()
-    );
-  }
   private logs: SessionLogs;
   private options: SessionOptions;
-  private ownership = new SessionOwnership();
-  private activeTabId: string | undefined;
+  private tabs: SessionTabs;
+  private budget = new QueueBudget(128);
   private closed = false;
   private closing: Promise<void> | undefined;
-  private queue: SessionQueue;
   private recordings: SessionRecording;
   private paused = false;
   private blocked: BrowserOriginBlock | undefined;
   private policies = new NavigationPolicies();
+  private lastUrl: string | undefined;
+  private reason: string | undefined;
+  private pageStateLost = false;
+  /** The tab whose frames the live capture carries: the one the person views. */
+  private captured: string | undefined;
+  private persisted = "";
+  private capturing: Promise<void> = Promise.resolve();
+  private captureToken = 0;
+  private stopLifecycle = () => {};
+  get evictable(): boolean {
+    return (
+      this.tabs
+        .all()
+        .every((tab) => tab.ownership.controller === "agent" && !tab.private && !tab.busy) &&
+      this.options.now() - this.lastActivity >= 30_000 &&
+      !this.recordings.active &&
+      !this.options.backend.tabs?.dialog()
+    );
+  }
   get navigationTask(): NavigationTask | undefined {
     return this.policies.task;
   }
   initiatingHuman(): boolean {
-    return this.policies.task?.human ?? this.ownership.controller === "human";
+    return this.policies.task?.human ?? this.tabs.viewed()?.ownership.controller === "human";
   }
   blockedNavigation(blocked: BrowserOriginBlock, navigation?: NavigationTask): void {
     // A cancelled policy may settle after the next queued navigation starts.
@@ -67,37 +72,137 @@ export class BrowserSession {
   policyWait(url: string): () => void {
     return this.policies.wait(url);
   }
-  private lastUrl: string | undefined;
-  private reason: string | undefined;
-  private pageStateLost = false;
-  private leaseReady: Promise<void> = Promise.resolve();
-  private syncLease(): void {
-    const lease = this.ownership.lease();
-    const backend = this.options.backend;
-    this.leaseReady = backend.controller(lease);
-    void this.leaseReady.catch((error) => {
-      if (lease.generation === this.ownership.generation)
-        this.suspend(error instanceof Error ? error.message : "Controller lease failed");
+  constructor(options: SessionOptions) {
+    this.options = options;
+    this.lastActivity = options.now();
+    this.logs = new SessionLogs(options.dir);
+    this.recordings = new SessionRecording(options, () => this.paused);
+    this.tabs = new SessionTabs(this.host(), () => this.options.backend);
+    for (const record of options.restoredTabs ?? [])
+      this.tabs.expect(record.tabId, {
+        openedBy: record.openedBy,
+        label: record.label,
+        lastActiveAt: record.lastActiveAt,
+      });
+    this.tabs.reconcile();
+    this.captured = this.tabs.viewedId();
+    this.live = new LiveCapture(
+      this.viewedPage().cdp,
+      options.now,
+      (frame, epoch) => {
+        const viewed = this.tabs.viewed();
+        if (viewed && !viewed.private && epoch === viewed.ownership.epoch)
+          this.recordings.accept(frame);
+      },
+      () => {
+        const ownership = this.tabs.viewed()?.ownership;
+        return { epoch: ownership?.epoch ?? 0, since: ownership?.since ?? -Infinity };
+      },
+      () => this.viewedPage().viewport(),
+      () => (this.options.backend.tabs ? this.captured : undefined),
+    );
+    this.persist();
+    this.scheduleLifecycle();
+  }
+  private viewedPage() {
+    return this.tabs.page(this.tabs.viewedId());
+  }
+  /** What each tab reaches through its thread. */
+  private host(): TabHost {
+    return {
+      options: this.options,
+      logs: this.logs,
+      policies: this.policies,
+      budget: this.budget,
+      page: (tabId) => this.tabs.page(tabId),
+      flags: () => ({
+        closed: this.closed,
+        paused: this.paused,
+        pageStateLost: this.pageStateLost,
+      }),
+      dialog: (tabId) =>
+        this.options.backend.tabs?.list().find((tab) => tab.tabId === tabId)?.pending_dialog,
+      answer: async (dialogId, accept, promptText) => {
+        const tabs = this.options.backend.tabs;
+        if (!tabs) throw new BrowserActionError("not_supported");
+        await tabs.answer(dialogId, accept, promptText);
+      },
+      blocked: () => this.blocked,
+      blockedNavigation: (blocked) => this.blockedNavigation(blocked),
+      clearBlocked: () => {
+        this.blocked = undefined;
+      },
+      state: () => this.state,
+      emit: () => this.emit(),
+      suspend: (reason) => this.suspend(reason),
+      resumeIntact: () => {
+        if (this.paused && !this.pageStateLost) {
+          this.paused = false;
+          this.reason = undefined;
+        }
+      },
+      privatePaused: () => this.options.privatePaused?.(),
+      privacyChanged: () => {
+        const anyPrivate = this.tabs.all().some((tab) => tab.private);
+        this.options.backend.privateMode?.(anyPrivate);
+        if (!anyPrivate) this.options.privateResumed?.();
+      },
+      wake: async (tabId) => {
+        const runtime = this.tabs.find(tabId);
+        if (runtime && (await wakeTab(runtime))) this.emit();
+      },
+      beginRecording: (check) => this.recordings.start(check),
+      finishRecording: () => this.recordings.stop(),
+      annotation: (connectionId: string, event: BrowserAnnotationEvent) =>
+        this.options.annotation?.(connectionId, event),
+    };
+  }
+  get state(): BrowserState {
+    const viewed = this.tabs.viewed();
+    return browserState(this.options, {
+      viewed: viewed?.ownership,
+      tabs: this.options.backend.tabs ? this.tabs.list() : undefined,
+      activeTabId: this.options.backend.tabs ? this.tabs.viewedId() : undefined,
+      paused: this.paused,
+      closed: this.closed,
+      reason: this.reason,
+      pageStateLost: this.pageStateLost,
+      lastUrl: this.lastUrl,
+      blocked: this.blocked,
+      annotation: viewed?.annotation.owner,
     });
   }
-  navigation(): void {
+  private emit(): void {
+    this.options.state(this.state);
+  }
+  private persist(): void {
+    if (!this.options.persistTabs || this.closed) return;
+    const records = this.tabs.records();
+    // Activity times alone do not warrant a write.
+    const signature = JSON.stringify(
+      records.map((tab) => [tab.tabId, tab.url, tab.title, tab.label, tab.openedBy]),
+    );
+    if (signature === this.persisted) return;
+    this.persisted = signature;
+    this.options.persistTabs(records);
+  }
+  navigation(tabId?: string): void {
     this.blocked = undefined;
-    this.refs.invalidate();
+    (tabId === undefined ? this.tabs.viewed() : this.tabs.find(tabId))?.invalidate();
     this.emit();
   }
-  log(entry: import("./backend.ts").BackendLog): void {
-    if (this.ownership.mode === "private") return;
+  log(entry: BackendLog): void {
+    const tab = entry.tabId === undefined ? undefined : this.tabs.find(entry.tabId);
+    if (tab ? tab.private : this.tabs.all().some((candidate) => candidate.private)) return;
     this.logs.append(entry.kind, { ...entry, at: this.options.now() });
   }
   suspend(reason: string): void {
     if (this.closed || this.paused) return;
-    this.annotation.end("restart");
+    for (const tab of this.tabs.all()) tab.lost();
     this.lastUrl = this.options.backend.url();
     this.paused = true;
     this.reason = reason.slice(0, 2048);
     this.pageStateLost = true;
-    this.ownership.generation++;
-    this.refs.invalidate();
     this.live.detach();
     this.emit();
   }
@@ -107,17 +212,32 @@ export class BrowserSession {
     this.emit();
   }
   async releaseLostBackend(): Promise<void> {
-    await this.queue.settled();
+    await Promise.all(this.tabs.all().map((tab) => tab.settled()));
     await this.options.backend.close();
   }
-  restarted(): void {
-    this.annotation.restarted(this.options.backend.cdp);
-    this.refs.invalidate();
-    void this.live.replace(this.options.backend.cdp).then(
-      () => this.emit(),
-      (error) =>
-        this.suspend(error instanceof Error ? error.message : "The page could not reconnect"),
-    );
+  /** A renderer (`tabId`) or the whole browser came back: re-arm annotate mode and capture. */
+  restarted(tabId?: string): void {
+    const tabs = tabId === undefined ? this.tabs.all() : [this.tabs.find(tabId)];
+    for (const tab of tabs) tab?.restarted();
+    if (tabId !== undefined && tabId !== this.captured) return;
+    this.recapture("The page could not reconnect");
+  }
+  /**
+   * Point the live capture at the viewed tab. Changes run one at a time and a newer one
+   * supersedes a pending one, so quick view changes never fail each other.
+   */
+  private recapture(failure: string): void {
+    const token = ++this.captureToken;
+    this.capturing = this.capturing
+      .then(async () => {
+        if (token !== this.captureToken || this.closed || this.paused) return;
+        await this.live.replace(this.viewedPage().cdp);
+        if (token === this.captureToken) this.emit();
+      })
+      .catch((error: unknown) => {
+        if (token === this.captureToken && !this.closed)
+          this.suspend(error instanceof Error ? error.message : failure);
+      });
   }
   async replace(
     backend: BrowserBackendSession,
@@ -129,350 +249,293 @@ export class BrowserSession {
       await backend.close();
       throw new Error("Browser closed during recovery");
     }
-    await this.queue.settled();
+    await Promise.all(this.tabs.all().map((tab) => tab.settled()));
     signal?.throwIfAborted();
     if (this.closed) {
       await backend.close();
       throw new Error("Browser closed during recovery");
     }
-    this.annotation.end("restart");
+    for (const tab of this.tabs.all()) tab.annotation.end("restart");
     await this.options.backend.close().catch(() => {});
     signal?.throwIfAborted();
+    // The person's control of the page they were viewing carries over to the new page.
+    const carried = this.tabs.viewed()?.ownership;
     this.options.backend = backend;
     this.options.backendKind = kind;
-    backend.privateMode?.(this.ownership.mode === "private");
-    this.refs.replace(backend.cdp);
-    this.leaseReady = Promise.resolve();
-    this.syncLease();
-    await this.leaseReady;
+    backend.privateMode?.(carried?.mode === "private");
+    const { removed } = this.tabs.reconcile(carried);
+    for (const tab of removed) void tab.close();
+    for (const tab of this.tabs.all()) tab.rebind();
+    await Promise.all(this.tabs.all().map((tab) => tab.syncLease()));
     signal?.throwIfAborted();
-    await this.live.replace(backend.cdp);
+    this.captured = this.tabs.viewedId();
+    // Supersede any view change queued against the old backend.
+    this.captureToken++;
+    await this.live.replace(this.viewedPage().cdp);
     signal?.throwIfAborted();
     this.lastUrl = undefined;
     this.paused = false;
     this.reason = "The page was reopened after the browser disconnected";
     this.emit();
   }
-  constructor(options: SessionOptions) {
-    this.options = options;
-    this.lastActivity = options.now();
-    this.queue = new SessionQueue(() => options.backend.tabs?.dialog());
-    this.annotation = new AnnotationSession(
-      (connectionId, event) => options.annotation?.(connectionId, event),
-      () => this.emit(),
-    );
-    this.refs = new SnapshotRefs(
-      options.backend.cdp,
-      options.backend.frames ? () => options.backend.frames?.() ?? Promise.resolve([]) : undefined,
-      () => this.annotation.hostNode(),
-    );
-    this.activeTabId = options.backend.tabs?.active();
-    this.logs = new SessionLogs(options.dir);
-    this.recordings = new SessionRecording(options, () => this.paused);
-    this.live = new LiveCapture(
-      options.backend.cdp,
-      options.now,
-      (frame, epoch) =>
-        this.ownership.mode !== "private" &&
-        epoch === this.ownership.epoch &&
-        this.recordings.accept(frame),
-      () => ({ epoch: this.ownership.epoch, since: this.ownership.since }),
-      () => options.backend.viewport(),
-    );
-  }
-
-  get state(): BrowserState {
-    return browserState(this.options, this.ownership, {
-      paused: this.paused,
-      closed: this.closed,
-      reason: this.reason,
-      pageStateLost: this.pageStateLost,
-      lastUrl: this.lastUrl,
-      blocked: this.blocked,
-      annotation: this.annotation.owner,
-    });
-  }
-
-  private emit(): void {
-    this.options.state(this.state);
+  /** The tab a takeover, handback or input names; omitted, the tab the person views. */
+  private tab(tabId?: string): TabRuntime {
+    if (this.closed) throw new BrowserActionError("browser_closed");
+    return tabId === undefined
+      ? this.tabs.resolve({ kind: "human", connectionId: "" })
+      : this.tabs.get(tabId);
   }
   restorePrivate(): void {
-    this.ownership.restorePrivate(this.options.now());
+    this.tab().restorePrivate();
     this.paused = true;
     this.reason = "Private browser interrupted; explicit handback required";
-    this.refs.invalidate();
-    this.options.backend.privateMode?.(true);
-    this.syncLease();
     this.emit();
   }
-  takeover(connectionId: string, mode: "shared" | "private" = "shared"): BrowserState {
-    if (this.closed) throw new BrowserActionError("browser_closed");
-    if (!this.ownership.prepareTakeover(connectionId, mode)) return this.state;
-    if (mode === "private") this.options.privatePaused?.();
-    if (this.ownership.mode === "private" || mode === "private") this.refs.invalidate();
-    this.ownership.takeover(connectionId, mode, this.options.now());
-    this.options.backend.privateMode?.(mode === "private");
-    if (this.paused && !this.pageStateLost) {
-      this.paused = false;
-      this.reason = undefined;
-    }
-    if (!this.paused) this.syncLease();
+  takeover(
+    connectionId: string,
+    mode: "shared" | "private" = "shared",
+    tabId?: string,
+  ): BrowserState {
+    this.tab(tabId).takeover(connectionId, mode);
     this.emit();
     return this.state;
   }
-  handback(connectionId: string): BrowserState {
-    if (this.ownership.owner === connectionId) this.annotation.end("lease");
-    const wasPrivate = this.ownership.mode === "private";
-    this.ownership.handback(connectionId, this.options.now());
-    if (wasPrivate) this.refs.invalidate();
-    this.options.backend.privateMode?.(false);
-    if (this.paused && !this.pageStateLost) {
-      this.paused = false;
-      this.reason = undefined;
-    }
-    this.options.privateResumed?.();
-    if (!this.paused) this.syncLease();
+  handback(connectionId: string, tabId?: string): BrowserState {
+    this.tab(tabId).handback(connectionId);
     this.emit();
     return this.state;
   }
   disconnect(connectionId: string): void {
-    if (this.annotation.owner === connectionId) this.annotation.end("disconnect");
-    if (this.ownership.owner !== connectionId) return;
-    if (this.ownership.mode === "private") {
-      this.ownership.owner = undefined;
+    let waiting = false,
+      held = false;
+    for (const tab of this.tabs.all()) {
+      held ||= tab.ownership.owner === connectionId || tab.annotation.owner === connectionId;
+      waiting = tab.disconnect(connectionId) || waiting;
+    }
+    if (waiting) {
       this.paused = true;
       this.reason = "Private takeover disconnected; explicit handback required";
-      this.options.privatePaused?.();
-      this.syncLease();
-      this.emit();
-    } else this.handback(connectionId);
+    }
+    if (held) this.emit();
   }
-  private check(actor: Actor, signal?: AbortSignal, generation = this.ownership.generation): void {
-    this.ownership.check(actor, { closed: this.closed, paused: this.paused }, signal, generation);
-  }
-  private readCheck(actor: Actor, epoch = this.ownership.epoch): void {
-    this.ownership.read(actor, epoch);
-  }
+  /** The backend's tabs, dialogs or view changed. */
   changed(): void {
-    this.queue.changed();
+    for (const tab of this.tabs.all()) tab.changed();
     if (this.closed) return;
+    const viewed = this.tabs.viewed();
+    const { added, removed } = this.tabs.reconcile();
+    for (const tab of removed) void tab.close();
+    // A popup opened while a person holds the page is theirs too.
+    const holder = viewed?.ownership;
+    for (const tab of added)
+      if (tab.openedBy?.kind === "page" && holder?.controller === "human" && holder.owner)
+        tab.takeover(holder.owner, holder.mode);
+    const viewedId = this.tabs.viewedId();
+    if (viewedId !== this.captured && !this.paused) {
+      this.tabs.find(this.captured ?? "")?.annotation.end("tab");
+      this.captured = viewedId;
+      this.recapture("Tab capture failed");
+    }
+    this.persist();
     this.emit();
-    if (this.options.backend.tabs?.active() !== this.activeTabId && !this.paused)
-      void this.enqueue(() => this.syncTab()).catch((error) => {
-        if (!this.closed)
-          this.suspend(error instanceof Error ? error.message : "Tab capture failed");
-      });
-  }
-  private async syncTab(): Promise<void> {
-    const tabId = this.options.backend.tabs?.active();
-    if (tabId === this.activeTabId) return;
-    this.annotation.end("tab");
-    this.activeTabId = tabId;
-    this.refs.replace(this.options.backend.cdp);
-    await this.live.replace(this.options.backend.cdp);
-  }
-  private enqueue<T>(work: () => Promise<T>): Promise<T> {
-    if (this.closed) return Promise.reject(new BrowserActionError("browser_closed"));
-    return this.queue.run(work);
   }
   execute(raw: unknown, actor: Actor = { kind: "agent" }, signal?: AbortSignal): Promise<unknown> {
     return this.submit(BrowserCommand.parse(raw), actor, signal);
   }
-  /** Popup events capture the submitting lease and page before entering the normal command queue. */
-  async popup(
-    url: string,
-    target: { current(): boolean; navigate(): Promise<void> },
-  ): Promise<void> {
-    const actor: Actor = this.initiatingHuman()
-      ? { kind: "human", connectionId: this.ownership.owner ?? "" }
-      : { kind: "agent" };
-    await this.submit(BrowserCommand.parse({ action: "navigate", url }), actor, undefined, target);
+  /** Popup events capture the submitting lease and page before entering their tab's queue. */
+  async popup(url: string, target: PopupTarget): Promise<void> {
+    const runtime =
+      (target.tabId === undefined ? undefined : this.tabs.find(target.tabId)) ?? this.tabs.viewed();
+    if (!runtime) throw new BrowserActionError("backend_changed");
+    const actor: Actor =
+      (this.policies.task?.human ?? runtime.ownership.controller === "human")
+        ? { kind: "human", connectionId: runtime.ownership.owner ?? "" }
+        : { kind: "agent" };
+    await runtime.submit(tabCommand({ action: "navigate", url }), actor, undefined, target);
   }
-  private submit(
-    command: BrowserCommand,
-    actor: Actor,
-    signal?: AbortSignal,
-    target?: { current(): boolean; navigate(): Promise<void> },
-  ): Promise<unknown> {
-    this.lastActivity = this.options.now();
-    const checkTarget = () => {
-      if (target && !target.current()) throw new BrowserActionError("backend_changed");
-    };
-    const submittedGeneration = this.ownership.generation;
-    const privateEpoch = this.ownership.epoch;
-    // Dialog answers cannot wait behind a renderer command paused by that dialog.
-    if (
-      command.action === "dialog" ||
-      (command.action === "history" && command.direction === "stop")
-    )
-      return (async () => {
-        this.readCheck(actor, privateEpoch);
-        this.check(actor, signal, submittedGeneration);
-        await this.leaseReady;
-        this.check(actor, signal, submittedGeneration);
-        return this.run(command, actor, signal, submittedGeneration);
-      })();
-    return this.enqueue(async () => {
-      signal?.throwIfAborted();
-      checkTarget();
-      this.readCheck(actor, privateEpoch);
-      if (this.closed) throw new BrowserActionError("browser_closed");
-      if (mutatesBrowser(command)) {
-        this.check(actor, signal, submittedGeneration);
-      }
-      if (this.paused) throw new BrowserActionError("browser_paused");
-      const generation = this.ownership.generation;
-      if (mutatesBrowser(command)) {
-        await this.leaseReady;
-        this.check(actor, signal, submittedGeneration);
-      }
-      // A dialog owns its original tab until answered, regardless of the requested tab.
-      const pending_dialog = this.options.backend.tabs?.dialog();
-      if (pending_dialog)
-        return command.action === "tabs" && command.operation === "list"
-          ? {
-              activeTabId: this.options.backend.tabs?.active(),
-              tabs: this.options.backend.tabs?.list(),
-            }
-          : { pending_dialog };
-      await this.queue.drainDialog();
-      this.readCheck(actor, privateEpoch);
-      if (mutatesBrowser(command)) this.check(actor, signal, submittedGeneration);
-      if (command.tabId && command.action !== "tabs") {
-        this.check(actor, signal, submittedGeneration);
-        await this.options.backend.tabs?.switch(command.tabId);
-      }
-      await this.syncTab();
-      this.readCheck(actor, privateEpoch);
-      if (command.tabId || mutatesBrowser(command)) this.check(actor, signal, submittedGeneration);
-      let result: unknown;
-      try {
-        result = await this.queue.untilDialog(() =>
-          this.run(command, actor, signal, submittedGeneration, checkTarget, target?.navigate),
-        );
-      } catch (error) {
-        if (error instanceof BrowserOriginError) this.blockedNavigation(error.blocked);
-        throw error;
-      }
-      this.readCheck(actor, privateEpoch);
-      if (this.paused || (generation !== this.ownership.generation && this.pageStateLost))
-        throw new BrowserActionError("backend_changed");
-      return result;
-    });
+  private ready(): void {
+    if (this.closed) throw new BrowserActionError("browser_closed");
+    if (this.paused) throw new BrowserActionError("browser_paused");
   }
-  screenshot(signal?: AbortSignal, tabId?: string): Promise<Uint8Array> {
-    const submittedGeneration = this.ownership.generation;
-    const privateEpoch = this.ownership.epoch;
-    return this.enqueue(() =>
-      agentScreenshot(
-        this.options.backend,
-        () => this.syncTab(),
-        {
-          read: () => this.readCheck({ kind: "agent" }, privateEpoch),
-          input: () => this.check({ kind: "agent" }, signal, submittedGeneration),
-          ready: () => {
-            if (this.closed) throw new BrowserActionError("browser_closed");
-            if (this.paused) throw new BrowserActionError("browser_paused");
-          },
-          generation: () => this.ownership.generation,
-          lost: () => this.pageStateLost,
-          paused: () => this.paused,
+  /**
+   * The tab a command runs on. An agent without a tab of its own gets one when the viewed tab is
+   * another agent's. Synchronous whenever no tab must open, so a command captures the control
+   * generation of the moment it was submitted.
+   */
+  private route(actor: Actor, tabId?: string): TabRuntime | Promise<TabRuntime> {
+    if (tabId !== undefined || !this.tabs.contended(actor)) return this.tabs.resolve(actor, tabId);
+    return this.tabs
+      .structural(() => this.tabs.open(actor, {}))
+      .then(
+        (runtime) => {
+          this.changed();
+          return runtime;
         },
-        signal,
-        tabId,
-      ),
-    );
+        (error: unknown) => {
+          if (error instanceof BrowserActionError && error.code === "tab_limit")
+            return this.tabs.resolve(actor);
+          throw error;
+        },
+      );
   }
-
+  private onTab<T>(
+    actor: Actor,
+    tabId: string | undefined,
+    work: (runtime: TabRuntime) => Promise<T>,
+  ): Promise<T> {
+    try {
+      const runtime = this.route(actor, tabId);
+      return runtime instanceof TabRuntime ? work(runtime) : runtime.then(work);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+  private structure() {
+    return {
+      tabs: this.tabs,
+      backend: () => this.options.backend,
+      ready: () => this.ready(),
+      closeBrowser: (actor: Actor, signal?: AbortSignal) => this.closeBy(actor, signal),
+      changed: () => this.changed(),
+      navigate: (runtime: TabRuntime, url: string, actor: Actor, signal?: AbortSignal) =>
+        runtime.submit(tabCommand({ action: "navigate", url }), actor, signal),
+    };
+  }
+  private submit(command: BrowserCommand, actor: Actor, signal?: AbortSignal): Promise<unknown> {
+    this.lastActivity = this.options.now();
+    if (this.closed) return Promise.reject(new BrowserActionError("browser_closed"));
+    switch (command.action) {
+      case "tabs":
+        return executeTabs(this.structure(), command, actor, signal);
+      case "downloads":
+        return this.onTab(actor, command.tabId, async (runtime) => {
+          runtime.readCheck(actor);
+          return executeDownloads(this.structure(), command, this.options.navigationClock, signal);
+        });
+      case "extensions":
+        return (async () => ({ extensions: (await this.options.backend.extensions?.()) ?? [] }))();
+      case "dialog": {
+        // A dialog answer goes to the tab that raised it, whichever tab the caller names.
+        const owner = this.options.backend.tabs
+          ?.list()
+          .find((tab) => tab.pending_dialog?.dialogId === command.dialogId)?.tabId;
+        return this.onTab(actor, owner ?? command.tabId, (runtime) =>
+          runtime.submit(command, actor, signal),
+        );
+      }
+      default:
+        return this.onTab(actor, command.tabId, (runtime) =>
+          runtime.submit(command, actor, signal),
+        );
+    }
+  }
+  screenshot(
+    signal?: AbortSignal,
+    tabId?: string,
+    options: { fullPage?: boolean | undefined; ref?: string | undefined } = {},
+    actor: Actor = { kind: "agent" },
+  ): Promise<Uint8Array> {
+    this.lastActivity = this.options.now();
+    return this.onTab(actor, tabId, (runtime) => runtime.screenshot(actor, signal, options));
+  }
   closeBy(actor: Actor, signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
-    this.readCheck(actor);
-    if (
-      actor.kind === "agent" &&
-      (this.ownership.controller === "human" || this.ownership.owner !== undefined)
-    )
-      throw new BrowserActionError(
-        "human_controlled",
-        "Browser controlled by human",
-        "Wait for handback before closing.",
-      );
+    const tabs = this.tabs.all();
+    if (actor.kind === "agent") {
+      for (const tab of tabs) tab.readCheck(actor);
+      if (tabs.some((tab) => tab.ownership.controller === "human" || tab.ownership.owner))
+        throw new BrowserActionError(
+          "human_controlled",
+          "Browser controlled by human",
+          "Wait for handback before closing.",
+        );
+    }
     if (
       actor.kind === "human" &&
-      this.ownership.owner !== undefined &&
-      this.ownership.owner !== actor.connectionId
+      tabs.some(
+        (tab) => tab.ownership.owner !== undefined && tab.ownership.owner !== actor.connectionId,
+      )
     )
       throw new Error("Browser controller mismatch");
     this.options.privateResumed?.();
+    this.options.forgetTabs?.();
     return this.close();
   }
-  private run(
-    command: BrowserCommand,
-    actor: Actor,
-    signal: AbortSignal | undefined,
-    generation: number,
-    beforeInput?: () => void,
-    navigate?: () => Promise<void>,
-  ): Promise<unknown> {
-    const epoch = this.ownership.epoch;
-    return executeBrowserCommand(command, actor, signal, generation, {
-      options: this.options,
-      beforeInput,
-      navigate,
-      refs: this.refs,
-      annotation: this.annotation,
-      logs: this.logs,
-      policies: this.policies,
-      state: () => this.state,
-      read: () => this.readCheck(actor, epoch),
-      blocked: () => this.blocked,
-      clearBlocked: () => {
-        this.blocked = undefined;
-      },
-      check: (...args) => this.check(...args),
-      refDispatch: (ref) => this.refs.dispatch(ref, () => this.check(actor, signal, generation)),
-      syncTab: () => this.syncTab(),
-      emit: () => this.emit(),
-      run: (...args) => this.run(...args),
-      beginRecording: (check) => this.recordings.start(check),
-      finishRecording: () => this.recordings.stop(),
-    });
-  }
-  input(raw: unknown, connectionId: string): Promise<void> {
-    const input = BrowserInput.parse(raw);
-    const generation = this.ownership.generation;
-    return this.enqueue(async () => {
-      this.check({ kind: "human", connectionId }, undefined, generation);
-      await this.leaseReady;
-      this.check({ kind: "human", connectionId }, undefined, generation);
-      await sendHumanInput(input, this.options.backend.cdp, () =>
-        this.check({ kind: "human", connectionId }, undefined, generation),
-      );
-    });
+  input(raw: unknown, connectionId: string, tabId?: string): Promise<void> {
+    return this.tab(tabId).input(raw, connectionId);
   }
   startRecording(): Promise<void> {
-    const epoch = this.ownership.epoch;
-    return this.enqueue(() =>
-      this.recordings.start(() => this.readCheck({ kind: "agent" }, epoch)),
+    const viewed = this.tab();
+    const epoch = viewed.ownership.epoch;
+    return viewed.serialize(() =>
+      this.recordings.start(() => viewed.readCheck({ kind: "agent" }, epoch)),
     );
   }
   stopRecording(actor: Actor = { kind: "agent" }): Promise<BrowserArtifact> {
-    const epoch = this.ownership.epoch;
-    return this.enqueue(() => {
-      this.readCheck(actor, epoch);
+    const viewed = this.tab();
+    const epoch = viewed.ownership.epoch;
+    return viewed.serialize(() => {
+      viewed.readCheck(actor, epoch);
       return this.recordings.stop();
+    });
+  }
+  private scheduleLifecycle(): void {
+    const lifecycle = this.options.lifecycle;
+    if (!lifecycle || this.closed) return;
+    this.stopLifecycle = lifecycle.set(lifecycle.every, () => {
+      if (this.closed) return;
+      const dialogs = new Set(
+        this.options.backend.tabs?.list().flatMap((tab) => (tab.pending_dialog ? [tab.tabId] : [])),
+      );
+      void freezeIdleTabs(
+        this.tabs.all(),
+        this.tabs.viewedId(),
+        this.options.now(),
+        lifecycle.policy,
+        (tab) =>
+          dialogs.has(tab.id) || tab.ownership.controller !== "agent" || this.recordings.active,
+      )
+        .then((changed) => {
+          if (changed) this.emit();
+        })
+        .finally(() => this.scheduleLifecycle());
     });
   }
   close(): Promise<void> {
     this.closing ??= (async () => {
-      this.annotation.end("stopped");
+      this.stopLifecycle();
+      for (const tab of this.tabs.all()) tab.annotation.end("stopped");
       this.lastUrl = this.options.backend.url();
       this.closed = true;
       this.options.cancelPolicy();
-      this.ownership.controller = "none";
-      this.ownership.owner = undefined;
+      for (const tab of this.tabs.all()) {
+        tab.ownership.controller = "none";
+        tab.ownership.owner = undefined;
+      }
       this.emit();
-      await closeSession(this.options, this.live, this.queue, this.recordings, this.logs);
+      await closeSession(
+        this.options,
+        this.live,
+        () => Promise.all(this.tabs.all().map((tab) => tab.settled())),
+        this.recordings,
+        this.logs,
+      );
     })();
     return this.closing;
+  }
+  /**
+   * The agent's own tab, claiming one as a command would (a new tab when the viewed one is
+   * another agent's). Refuses a tab a person holds privately.
+   */
+  async claim(actor: Actor): Promise<{ tabId: string; url: string; title: string }> {
+    if (this.closed) throw new BrowserActionError("browser_closed");
+    await this.onTab(actor, undefined, async (runtime) => runtime.readCheck(actor));
+    return this.currentTab(actor);
+  }
+  /** The tab an agent's next command without `tabId` would use, with its address. */
+  currentTab(actor: Actor): { tabId: string; url: string; title: string } {
+    const tabId = this.tabs.resolve(actor).id;
+    const tab = this.tabs.list(actor).find((entry) => entry.tabId === tabId);
+    return { tabId, url: tab?.url ?? this.options.backend.url(), title: tab?.title ?? "" };
   }
 }

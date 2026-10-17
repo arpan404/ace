@@ -11,6 +11,7 @@ import {
 } from "@ace/protocol";
 import { desktopCredential } from "../browser-desktop.ts";
 import { BrowserForget } from "../browser-forget.ts";
+import { SqliteBrowserTabStore } from "../browser-tab-store.ts";
 import type { ServiceContext } from "./types.ts";
 const BrowserProfilePreference = z.enum(["persistent", "ephemeral"]);
 export async function startBrowser(context: ServiceContext): Promise<void> {
@@ -23,6 +24,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
     ...options.browser,
     dataDir: config.dataDir,
     ...privateBrowserOwnership(context),
+    tabStore: options.browser?.tabStore ?? new SqliteBrowserTabStore((sql) => store.statement(sql)),
     workspaceRoot:
       options.browser?.workspaceRoot ??
       ((threadId) => {

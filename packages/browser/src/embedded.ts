@@ -14,7 +14,13 @@ import {
   type BrowserBackendServerMessage,
   type BrowserBackendRequest,
 } from "@ace/protocol";
-import type { BrowserBackend, BackendOpen, BrowserBackendSession } from "./backend.ts";
+import type {
+  BrowserBackend,
+  BackendOpen,
+  BrowserBackendPage,
+  BrowserBackendSession,
+} from "./backend.ts";
+import { embeddedTabPage } from "./embedded-page.ts";
 import { installOriginGuard } from "./origin-guard.ts";
 import { Screencast } from "./cdp.ts";
 import { navigateCdp } from "./cdp-navigation.ts";
@@ -475,13 +481,7 @@ export class EmbeddedBackend implements BrowserBackend {
         get cdp() {
           return currentCdp();
         },
-        ...(tabs
-          ? {
-              tabs,
-              networkBody: tabs.inspection.body.bind(tabs.inspection),
-              frames: tabs.frames.bind(tabs),
-            }
-          : {}),
+        ...(tabs ? embeddedTabSurface(tabs, call) : {}),
         url: () => tabs?.list().find((tab) => tab.tabId === tabs?.active())?.url ?? remote.url,
         navigate: async (url, _timeout, signal) => {
           const navigationSignal = signal ?? request.signal;
@@ -551,7 +551,9 @@ export class EmbeddedBackend implements BrowserBackend {
             features: [{ name: "prefers-color-scheme", value: colorScheme }],
           });
         },
-        controller: async (lease) => {
+        // The desktop applies one lease to the view it shows: the shown tab's.
+        controller: async (lease, tabId) => {
+          if (tabId !== undefined && tabs && tabId !== tabs.active()) return;
           await call({ kind: "controller", lease });
         },
         close,
@@ -561,4 +563,50 @@ export class EmbeddedBackend implements BrowserBackend {
       throw error;
     }
   }
+}
+
+/** The desktop's tabs as the thread browser reads them, with a stable page per tab. */
+function embeddedTabList(
+  tabs: EmbeddedTabs,
+  build: (id: string) => BrowserBackendPage,
+): NonNullable<BrowserBackendSession["tabs"]> {
+  const pages = new Map<string, BrowserBackendPage>();
+  return {
+    list: () => tabs.list(),
+    active: () => tabs.active(),
+    open: (options) => tabs.open(options),
+    switch: (id) => tabs.switch(id),
+    close: async (id) => {
+      await tabs.close(id);
+      pages.delete(id);
+    },
+    dialog: () => tabs.dialog(),
+    answer: (id, accept, text) => tabs.answer(id, accept, text),
+    downloads: () => tabs.downloads(),
+    page: (id) => {
+      tabs.tab(id);
+      let page = pages.get(id);
+      if (!page) {
+        page = build(id);
+        pages.set(id, page);
+      }
+      return page;
+    },
+  };
+}
+
+function embeddedTabSurface(
+  tabs: EmbeddedTabs,
+  call: (operation: BrowserBackendOperation) => Promise<unknown>,
+) {
+  return {
+    tabs: embeddedTabList(tabs, (id) =>
+      embeddedTabPage(tabs, id, {
+        press: (key) => call({ kind: "press", key }),
+        resize: (width, height) => call({ kind: "resize", width, height }),
+      }),
+    ),
+    networkBody: tabs.inspection.body.bind(tabs.inspection),
+    frames: () => tabs.frames(),
+  };
 }

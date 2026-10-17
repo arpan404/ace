@@ -2,7 +2,7 @@
 
 Date: 2026-10-03. Status: proposed.
 
-Amended 2026-10-17 by [ADR 0083](0083-browser-v2-daemon-chrome.md): the embedded browser backend below is removed once the daemon's Chrome serves every client.
+Amended 2026-10-17 by [ADR 0083](0083-browser-v2-daemon-chrome.md): the embedded browser backend below stays the desktop's primary renderer, with several tabs per thread; the daemon's own Chrome is its fallback.
 
 Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provider-native (owner decision). The thread browser origin consent section below (approvals, thread grants, the global allowlist) is removed: agent navigation to any http(s) origin proceeds. Human takeover and private mode still pause the agent.
 
