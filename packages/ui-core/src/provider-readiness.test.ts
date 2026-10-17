@@ -24,6 +24,32 @@ test("a signed-in CLI reads as who it's signed in as, and asks for nothing", () 
   ]);
 });
 
+test("a CLI older than ace's minimum asks for an update, naming both versions, even with models", () => {
+  const view = readinessView(
+    row({
+      provider: "claude",
+      version: "2.1.200",
+      readiness: "needs_update",
+      versionCheck: { status: "too_old", installed: "2.1.200", required: "2.1.286" },
+    }),
+    listed,
+  );
+  expect(view).toMatchObject({
+    state: "needs_update",
+    ready: false,
+    summary: "Update needed",
+    tone: "action",
+    primary: "update",
+    detail:
+      "Claude Code 2.1.200 is older than 2.1.286, the oldest version ace supports. Update Claude Code, then refresh.",
+  });
+  const updated = row({
+    provider: "claude",
+    versionCheck: { status: "ok", installed: "2.1.290", required: "2.1.286" },
+  });
+  expect(readinessView(updated, listed)).toMatchObject({ ready: true });
+});
+
 test("a CLI that doesn't report its sign-in is checked, then ready once it lists models", () => {
   const unknown = row({ auth: "unknown" });
   expect(readinessView(unknown).summary).toBe("Checking…");

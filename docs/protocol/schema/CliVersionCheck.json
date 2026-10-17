@@ -1,0 +1,72 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliVersionCheck.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "installed": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "required": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "const": "ok",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "installed",
+        "required"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "installed": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "required": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "const": "too_old",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "installed",
+        "required"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "required": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "const": "unreadable",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "required"
+      ],
+      "type": "object"
+    }
+  ]
+}

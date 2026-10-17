@@ -2,6 +2,7 @@ import { antigravityDiscovery } from "./antigravity.ts";
 import { reportedAuthMethod } from "../provider-account-support.ts";
 import { apiKeySupport } from "../provider-api-key.ts";
 import { probeOutput } from "@ace/provider-kit/process";
+import { checkCli } from "@ace/provider-kit/cli-requirements";
 import { instanceEnv, cursorSdkLoginDriver } from "@ace/accounts";
 import { createCursorAccountDriver } from "@ace/adapter-cursor/auth";
 import { discoverCursorSdk } from "@ace/adapter-cursor/discovery";
@@ -143,7 +144,9 @@ export function startProviderStatuses(context: ServiceContext): void {
           const installation = {
             installed: sdk.installed,
             ...(sdk.module ? { path: sdk.module } : {}),
-            ...(sdk.version ? { version: sdk.version } : {}),
+            ...(sdk.version
+              ? { version: sdk.version, versionCheck: checkCli("cursor-sdk", sdk.version) }
+              : {}),
             auth: "unknown" as const,
             loginHint: "Sign in to Cursor",
           };

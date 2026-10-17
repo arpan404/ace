@@ -96,9 +96,10 @@ function ProviderPage(props: { entry: ProviderEntry }) {
   const upstreams = install.kind === "opencode" || install.kind === "pi";
   const version = row?.version ?? install.version;
   const updateAvailable =
-    row?.updateAvailable ??
-    (!!install.registry?.agent &&
-      compareVersions(install.registry.agent.version, install.registry.version) > 0);
+    view?.state === "needs_update" ||
+    (row?.updateAvailable ??
+      (!!install.registry?.agent &&
+        compareVersions(install.registry.agent.version, install.registry.version) > 0));
   const setup = (
     <ProviderSetupRow
       ref={setupActions}

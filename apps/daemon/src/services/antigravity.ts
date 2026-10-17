@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { createAcpAdapter, antigravityQuirks } from "@ace/adapter-acp";
 import { antigravityIdentity, createAntigravityInstance } from "@ace/accounts";
 import { discoverAntigravity } from "@ace/provider-kit/discovery";
+import { checkCli } from "@ace/provider-kit/cli-requirements";
 import type { AdapterRegistry } from "../engine/index.ts";
 import type { ServiceContext } from "./types.ts";
 
@@ -15,6 +16,18 @@ export async function antigravityDiscovery(context: ServiceContext, signal?: Abo
         entry.metadata.acpAgentId === "official:antigravity-acp" && entry.command === command,
     );
   if (registry && installed) {
+    const versionCheck = checkCli("antigravity", installed.metadata.version);
+    // Too old to launch: report it (sessions are refused at launch) instead of failing discovery.
+    if (versionCheck.status === "too_old")
+      return {
+        installed: true,
+        installation: installed,
+        path: installed.command,
+        version: installed.metadata.version,
+        versionCheck,
+        auth: "unknown" as const,
+        loginHint: "Sign in to Antigravity",
+      };
     const launch = await registry.resolve(
       installed.metadata,
       context.options.providerStatus?.env ?? process.env,
@@ -26,6 +39,7 @@ export async function antigravityDiscovery(context: ServiceContext, signal?: Abo
       launch,
       path: launch.command,
       version: launch.version,
+      versionCheck,
       auth: "unknown" as const,
       loginHint: "Sign in to Antigravity",
     };

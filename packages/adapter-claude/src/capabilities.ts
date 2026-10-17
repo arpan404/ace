@@ -1,18 +1,11 @@
 import { accessModeOffers } from "@ace/provider-kit/access-modes";
 import { nativePermissionModes } from "@ace/provider-kit/permission-modes";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
+import { admitsVersion } from "@ace/provider-kit/cli-requirements";
 import type { Capabilities } from "@ace/protocol";
 export function capabilities(cli: DiscoveryResult): Capabilities {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.exec(
-    cli.version ?? "",
-  );
-  const version = match ? [Number(match[1]), Number(match[2]), Number(match[3])] : [0, 0, 0];
-  // The recorded baseline is the only version for which the full tree contract is proven.
-  const supported =
-    cli.installed &&
-    ((version[0] ?? 0) > 2 ||
-      (version[0] === 2 &&
-        ((version[1] ?? 0) > 1 || (version[1] === 1 && (version[2] ?? 0) >= 286))));
+  // The recorded baseline (ace's minimum) is the oldest version the full tree contract is proven on.
+  const supported = cli.installed && admitsVersion("claude", cli.version);
   return {
     steer: supported,
     permissionModes: nativePermissionModes("claude"),

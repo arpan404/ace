@@ -5,6 +5,7 @@ import { DiscoveryBackoff } from "./discovery-backoff.ts";
 import { connectionRevision } from "./discovery-revision.ts";
 import { discoveryError } from "./discovery-errors.ts";
 import { discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
+import { providerCli, requireMinimum } from "@ace/provider-kit/cli-requirements";
 import { refreshedSources, sourceFailed } from "./catalog-sources.ts";
 import { cleanCatalog } from "./catalog-cleanup.ts";
 import { createCleanModelView, providerConfiguration } from "./preferences.ts";
@@ -903,6 +904,9 @@ export class ModelCatalog implements ModelCatalogApi {
           };
           const configuration = this.#configuration(state.config);
           if (configuration.enabled === false) return;
+          // A CLI older than ace's minimum is reported as such, not probed into a vaguer failure.
+          const cli = providerCli(state.config.provider);
+          if (cli) requireMinimum(cli, state.config.installationVersion);
           const discovery = this.#options.discover(
             { ...state.config, executable: configuration.binaryPath ?? state.config.executable },
             abort.signal,

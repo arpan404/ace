@@ -183,7 +183,7 @@ createInterface({input:process.stdin}).on('line', line => {
         {
           id: "pi-account",
           provider: "pi",
-          installationVersion: "0.72.0",
+          installationVersion: "0.85.1",
           executable,
           cwd: home,
           env: { HOME: home },
@@ -219,7 +219,7 @@ createInterface({input:process.stdin}).on('line', line => {
           sourceLabel: "OpenAI",
           stage: null,
           code: "parse_failure",
-          cliVersion: "0.72.0",
+          cliVersion: "0.85.1",
           message: "Provider returned unreadable model metadata.",
           durationMs: expect.any(Number),
         },
