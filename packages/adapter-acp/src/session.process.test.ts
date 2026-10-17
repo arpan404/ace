@@ -118,6 +118,24 @@ it.each([130_808, 700_000, 922_403])(
     }
   },
 );
+it("an agent without embedded context receives an uninlined file as an ACP resource_link", async () => {
+  const h = await setup();
+  try {
+    const base = input("attachment-proof");
+    const projection = projectAttachments(
+      [{ path: "/files/archive.zip", name: "archive.zip", mimeType: "application/zip", bytes: 9 }],
+      { provider: "acp", images: [], documents: [], embeddedContext: false, maxInlineBytes: 0 },
+    );
+    await h.session.send([...base, ...canonicalContext(projection)], "queue");
+    const proof = await h.wait((f) => f.dir === "recv" && method(f, "test/attachments"));
+    const actual = JSON.stringify(proof.data);
+    expect(actual).toContain('"type":"resource_link"');
+    expect(actual).toContain('"uri":"file:///files/archive.zip"');
+    expect(actual).not.toContain("Read the full file");
+  } finally {
+    await h.session.close("user");
+  }
+});
 it("passive completed child tool refreshes leave the next root prompt deliverable", async () => {
   const h = await setup();
   try {

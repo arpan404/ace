@@ -364,7 +364,7 @@ test("the Claude CLI receives image content with the original MIME and base64 by
   }
 });
 
-test("the fake Claude CLI receives text and binary paths plus a native PDF document", async () => {
+test("the fake Claude CLI receives binary paths plus native PDF and text documents with their content", async () => {
   const h = await harness();
   try {
     await h.session.send(
@@ -378,6 +378,12 @@ test("the fake Claude CLI receives text and binary paths plus a native PDF docum
           content: { encoding: "base64", data: "JVBERi0xLjc=" },
         },
         { type: "file", path: "/files/archive.zip", mimeType: "application/zip" },
+        {
+          type: "file",
+          path: "/files/notes.md",
+          mimeType: "text/plain",
+          content: { encoding: "text", data: "# Notes" },
+        },
       ],
       "queue",
     );
@@ -390,6 +396,12 @@ test("the fake Claude CLI receives text and binary paths plus a native PDF docum
         source: { type: "base64", media_type: "application/pdf", data: "JVBERi0xLjc=" },
       },
       { type: "text", text: 'File (application/zip): "/files/archive.zip"' },
+      {
+        type: "document",
+        title: "notes.md",
+        context: 'Path: "/files/notes.md"',
+        source: { type: "text", media_type: "text/plain", data: "# Notes" },
+      },
     ]);
   } finally {
     await h.session.close("user");

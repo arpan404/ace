@@ -93,6 +93,57 @@ test("binary mentions include a readable full path", async () => {
   ]);
   expect(result.diagnostics.map((d) => d.code)).toEqual(["binary"]);
 });
+test("an @-mentioned workspace image reaches each provider in its native image form", async () => {
+  const f = await fixture();
+  await f.write("assets/pic.png", png);
+  const mention = { mentions: [{ path: "assets/pic.png" }], attachments: [] };
+  const claude = await f.service.compose("device", thread, mention, caps);
+  expect(claude.projection.input).toEqual([
+    {
+      type: "image",
+      source: { type: "base64", media_type: "image/png", data: png.toString("base64") },
+    },
+  ]);
+  expect(claude.diagnostics).toEqual([]);
+  const codex = await f.service.compose("device", thread, mention, {
+    ...caps,
+    provider: "codex",
+  });
+  expect(codex.projection.input).toEqual([
+    { type: "localImage", path: `${f.root}/assets/pic.png`, mimeType: "image/png" },
+  ]);
+});
+test("an @-mentioned PDF reaches document-capable providers as a native document", async () => {
+  const f = await fixture();
+  const pdf = Buffer.from("%PDF-1.7\n%synthetic\n");
+  await f.write("docs/spec.pdf", pdf);
+  const mention = { mentions: [{ path: "docs/spec.pdf" }], attachments: [] };
+  const claude = await f.service.compose("device", thread, mention, {
+    ...caps,
+    documents: ["application/pdf"],
+  });
+  expect(claude.projection.input).toEqual([
+    {
+      type: "document",
+      title: "docs/spec.pdf",
+      path: `${f.root}/docs/spec.pdf`,
+      source: { type: "base64", media_type: "application/pdf", data: pdf.toString("base64") },
+    },
+  ]);
+  const opencode = await f.service.compose("device", thread, mention, {
+    ...caps,
+    provider: "opencode",
+    documents: ["application/pdf"],
+  });
+  expect(opencode.projection.input).toEqual([
+    {
+      type: "file",
+      mime: "application/pdf",
+      filename: "docs/spec.pdf",
+      url: `file://${f.root}/docs/spec.pdf`,
+    },
+  ]);
+});
 test("workspace contents are never returned to a denied device", async () => {
   const f = await fixture();
   await f.write("private.ts", "private content");
@@ -106,7 +157,7 @@ test("workspace contents are never returned to a denied device", async () => {
     f.service.compose("denied", thread, { mentions: [], attachments: [] }, caps),
   ).rejects.toMatchObject({ code: "forbidden" });
 });
-test("completion and folder context share the initialized file index", async () => {
+test("completion and folder listings share the initialized file index", async () => {
   const f = await fixture();
   await f.write("src/main.ts", "source");
   await f.write(".gitignore", "hidden.txt\n");
@@ -124,7 +175,7 @@ test("completion and folder context share the initialized file index", async () 
   });
   expect(mentions.result).toMatchObject({
     kind: "mentions",
-    entries: [{ path: "src/main.ts", text: "File: src/main.ts\nsource" }],
+    entries: [{ path: "src", text: expect.stringContaining("\nsrc/main.ts (6 bytes)") }],
   });
 });
 

@@ -1,4 +1,4 @@
-import { extname, resolve } from "node:path";
+import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ContentPart, ExecutionOptions } from "@ace/protocol";
 export function messageId(now: number, sequence: number, entropy: string): string {
@@ -23,7 +23,8 @@ export function promptBody(input: ContentPart[], cwd: string, id: string) {
   const skills: { id: string; mention: { start: number; end: number; text: string } }[] = [];
   let textLength = 0;
   const text: string[] = [],
-    files: { uri: string }[] = [];
+    files: { uri: string; mention?: { start: number; end: number; text: string } }[] = [],
+    labels: (string | undefined)[] = [];
   for (const part of input) {
     if (part.type === "mention") {
       const native = part.invocation;
@@ -44,6 +45,9 @@ export function promptBody(input: ContentPart[], cwd: string, id: string) {
     } else if (
       part.type === "file" &&
       !part.mimeType?.startsWith("image/") &&
+      // OpenCode inlines text files and sends PDFs as media; other binaries would be dropped.
+      part.mimeType !== "text/plain" &&
+      part.mimeType !== "application/pdf" &&
       !(part.mimeType === undefined && /^\.(png|jpe?g|gif|webp)$/i.test(extname(part.path)))
     ) {
       const fileText = `File (${part.mimeType ?? "application/octet-stream"}): ${JSON.stringify(resolve(cwd, part.path))}`;
@@ -55,14 +59,40 @@ export function promptBody(input: ContentPart[], cwd: string, id: string) {
       files.push({
         uri: part.type === "image" ? part.url : pathToFileURL(resolve(cwd, part.path)).href,
       });
+      labels.push(part.type === "file" ? workspaceLabel(cwd, part.path) : undefined);
     }
   }
+  const prompt = text.join(input.some((p) => p.type === "mention") ? "" : "\n");
+  // The composer writes `@relative/path` for a picked file; OpenCode anchors the file there.
+  const anchored = new Set<number>();
+  files.forEach((file, index) => {
+    const label = labels[index];
+    const start = label === undefined ? -1 : anchor(prompt, label, anchored);
+    if (label !== undefined && start >= 0)
+      file.mention = { start, end: start + label.length, text: label };
+  });
   return {
     id,
-    text: text.join(input.some((p) => p.type === "mention") ? "" : "\n"),
+    text: prompt,
     ...(files.length ? { files } : {}),
     ...(agents.length ? { agents } : {}),
     ...(skills.length ? { skills } : {}),
     commands,
   };
+}
+function workspaceLabel(cwd: string, path: string): string | undefined {
+  const local = relative(cwd, resolve(cwd, path));
+  if (!local || local === ".." || local.startsWith(`..${sep}`) || isAbsolute(local))
+    return undefined;
+  return `@${local.split(sep).join("/")}`;
+}
+/** First whole-token occurrence of `label` not already anchored to another file. */
+function anchor(text: string, label: string, used: Set<number>): number {
+  for (let at = text.indexOf(label); at >= 0; at = text.indexOf(label, at + 1)) {
+    const after = text.slice(at + label.length, at + label.length + 2);
+    if (used.has(at) || /^(?:[\w/-]|\.\w)/.test(after)) continue;
+    used.add(at);
+    return at;
+  }
+  return -1;
 }

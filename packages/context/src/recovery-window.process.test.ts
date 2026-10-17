@@ -4,7 +4,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { GitWorkspace, WorkspaceCache, resolveMentions } from "./index.ts";
-import { repository } from "./test-support.ts";
+import { listedPaths, repository } from "./test-support.ts";
 
 test.each(["creation", "deletion", "ignore"])(
   "a real replacement watcher captures %s after the recovery inventory cut",
@@ -58,9 +58,7 @@ test.each(["creation", "deletion", "ignore"])(
         .poll(() => workspace.index.complete("late"), { timeout: 30000 })
         .toEqual(change === "creation" ? ["src/late.ts"] : []);
       expect(
-        (await resolveMentions(workspace, [{ path: "src" }])).entries
-          .map((entry) => entry.path)
-          .toSorted(),
+        listedPaths((await resolveMentions(workspace, [{ path: "src" }])).entries).toSorted(),
       ).toEqual(change === "creation" ? ["src/kept.ts", "src/late.ts"] : ["src/kept.ts"]);
     } finally {
       await cache.close();
