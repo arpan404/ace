@@ -7,10 +7,29 @@ import { scrollToEnd as glideToEnd } from "@/lib/motion.ts";
  * `use-feed-scroll.ts`'s.
  */
 
+/** What changed about the viewport since the last look. */
+export interface ViewportChange {
+  height: boolean;
+  width: boolean;
+  /** The bottom padding the overlaid composer reserves: the composer grew or shrank. */
+  clearance: boolean;
+}
+
+/**
+ * How a reader at the live end stays there through a resize: nothing changed, nothing moves; the
+ * composer growing or shrinking (its clearance) moves the end at once, in step with the
+ * composer, since a glide would trail behind it with each line typed; any other resize (a panel,
+ * the window) glides.
+ */
+export function pinnedMove(change: ViewportChange): "none" | "jump" | "glide" {
+  if (change.clearance) return "jump";
+  return change.height || change.width ? "glide" : "none";
+}
+
 /**
  * The reading column changes height when a panel opens, the composer grows or the window
- * resizes. A reader at the latest stays there: the end glides back into view (instantly under
- * reduced motion) instead of the newest lines ending up under the composer or the terminal.
+ * resizes. A reader at the latest stays there (`pinnedMove`): the end comes back into view
+ * instead of the newest lines ending up under the composer or the terminal.
  */
 export function useStayPinned(
   viewport: RefObject<HTMLDivElement | null>,
@@ -28,11 +47,19 @@ export function useStayPinned(
       const next = el.clientHeight;
       const nextWidth = el.clientWidth;
       const nextClearance = content ? getComputedStyle(content).paddingBottom : "";
-      if (next === height && nextWidth === width && nextClearance === clearance) return;
+      const move = pinnedMove({
+        height: next !== height,
+        width: nextWidth !== width,
+        clearance: nextClearance !== clearance,
+      });
       height = next;
       width = nextWidth;
       clearance = nextClearance;
-      if (!following()) return;
+      if (move === "none" || !following()) return;
+      if (move === "jump") {
+        el.scrollTop = el.scrollHeight - el.clientHeight;
+        return;
+      }
       // The glide's own scroll events must not read as the reader scrolling away.
       glidingUntil.current = performance.now() + 800;
       glideToEnd(el, true);

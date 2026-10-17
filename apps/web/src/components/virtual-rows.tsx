@@ -65,8 +65,20 @@ export function VirtualRows<T>(props: VirtualRowsProps<T>) {
     // Content above the rows (a file collapsing) moves them; so does the scroller resizing.
     const observer = new ResizeObserver(measure);
     observer.observe(found);
-    if (found.firstElementChild) observer.observe(found.firstElementChild);
-    return () => observer.disconnect();
+    // Inside a row of the transcript (a long block), only that row: watching the whole
+    // transcript would re-measure on every resize of every row while text streams. Rows above
+    // it move it by scrolling (the transcript compensates), so a scroll re-measures too.
+    const row = found.matches("[data-virtual-viewport]")
+      ? element.closest<HTMLElement>("[data-index]")
+      : null;
+    const own = row && found.contains(row) ? row : undefined;
+    const content = own ?? found.firstElementChild;
+    if (content) observer.observe(content);
+    if (own) found.addEventListener("scroll", measure, { passive: true });
+    return () => {
+      observer.disconnect();
+      found.removeEventListener("scroll", measure);
+    };
   }, []);
   // The compiler skips this component (the virtualizer's callbacks are unstable by design).
   // oxlint-disable-next-line react-compiler/incompatible-library

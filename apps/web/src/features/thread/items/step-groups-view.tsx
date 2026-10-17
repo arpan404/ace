@@ -10,9 +10,13 @@ import {
   type StepFact,
   type StepGroup,
 } from "@ace/ui-core";
+import type { ThreadKey, ThreadReader } from "@ace/client";
+import { useThread } from "@ace/client-react";
+import { thoughtLabel, thoughtMs } from "./thought-time.ts";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
 import {
   BrainIcon,
+  CaretRightIcon,
   FileTextIcon,
   FolderSimpleIcon,
   GlobeIcon,
@@ -26,7 +30,7 @@ import {
   TerminalIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
-import { memo, useId, useMemo, useState } from "react";
+import { memo, useCallback, useId, useMemo, useState } from "react";
 import { OpenStepsContext, useGroupOpen, useOpenSteps, useStepOpen } from "./step-open.ts";
 import { Icon } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -38,6 +42,7 @@ import { LiveGroupTitle } from "./live-group-title.tsx";
 import { useAnswerText } from "./answer-text.ts";
 import { useStreaming } from "../transcript/use-streaming.ts";
 import { Button } from "@/components/ui/button.tsx";
+import { Prose } from "@/components/markdown/prose.tsx";
 
 /*
  * A work log as one quiet flow: consecutive calls by one agent read as one sentence row with a
@@ -211,51 +216,85 @@ export function ThinkingRow() {
       <RailMark state="running" />
       <div role="status" data-step-group="" className={cn(row, "text-muted-foreground")}>
         <Icon icon={BrainIcon} size={16} className="text-subtle-foreground" />
-        <span className="step-shimmer min-w-0 truncate">Thinking</span>
+        <span className="step-shimmer min-w-0 truncate">{thoughtLabel(false, undefined)}</span>
       </div>
     </li>
   );
 }
 
-/** What the agent thought, as a muted row of its own; "Thinking" while it still thinks. */
+/** A thought's time changes as items follow it and as it finishes. */
+const thoughtKeys: readonly ThreadKey[] = ["order", "thread"];
+
+/**
+ * What the agent thought, as one quiet header row: "Thinking…" while it thinks, "Thought for 12s"
+ * once done, the same height either way so nothing moves when it finishes. The thought itself
+ * opens in place, as markdown, only when the reader asks for it.
+ */
 function ThoughtRow(props: { threadId: string; itemId: string }) {
   const item = useStepItem(props.threadId, props.itemId);
   const answer = useAnswerText(item);
   const streaming = useStreaming(props.threadId, item);
   const [toggled, setOpen] = useStepOpen(props.itemId);
-  const open = toggled ?? streaming;
+  const panel = useId();
+  const open = toggled ?? false;
+  const readTook = useCallback(
+    (reader: ThreadReader) => thoughtMs(reader, props.itemId),
+    [props.itemId],
+  );
+  const took = useThread(props.threadId, thoughtKeys, readTook, Object.is);
   if (item?.type !== "reasoning") return null;
   const text = answer.text.trim();
   // Still thinking with no words yet: the same header as a thinking turn with no step in flight.
   if (!item.complete && !text) return <ThinkingRow />;
+  const label = thoughtLabel(item.complete, took);
   return (
-    <li className="relative flex min-h-8 min-w-0 items-start gap-2.5 py-1.5 text-ui text-muted-foreground">
+    <li className="relative min-w-0 text-ui text-muted-foreground">
       <RailMark state={item.complete ? "done" : "running"} />
-      <Icon icon={BrainIcon} size={16} className="mt-0.5 text-subtle-foreground" />
-      <div className="min-w-0">
-        <button
-          type="button"
-          aria-expanded={open}
-          onClick={() => setOpen(!open)}
-          className={cn(
-            "min-w-0 text-left leading-relaxed whitespace-pre-wrap",
-            !open && "line-clamp-3",
-            !item.complete && "step-shimmer",
-          )}
-        >
-          {text}
-        </button>
-        {answer.problem && (
-          <p role="alert">
-            {answer.problem}{" "}
-            {answer.retryable && (
-              <Button size="sm" onClick={answer.load}>
-                Try again
-              </Button>
-            )}
-          </p>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={panel}
+        data-step-group=""
+        onClick={() => setOpen(!open)}
+        className={cn(
+          row,
+          "transition-colors duration-(--motion-fast) hover:text-foreground focus-ring-inset",
         )}
-      </div>
+      >
+        <Icon icon={BrainIcon} size={16} className="text-subtle-foreground" />
+        <span className={cn("min-w-0 truncate", !item.complete && "step-shimmer")}>{label}</span>
+        <CaretRightIcon
+          aria-hidden
+          size={12}
+          className={cn(
+            "shrink-0 text-faint-foreground transition-transform duration-(--motion-fast)",
+            open && "rotate-90",
+          )}
+        />
+      </button>
+      {open && (
+        <div
+          id={panel}
+          className="min-w-0 pb-1.5 pl-6.5 font-prose text-ui leading-relaxed wrap-break-word"
+        >
+          <Prose
+            text={text}
+            thread={{ threadId: props.threadId, itemId: props.itemId }}
+            stream={`${props.threadId}/${props.itemId}`}
+            streaming={streaming}
+          />
+        </div>
+      )}
+      {answer.problem && (
+        <p role="alert" className="pl-6.5">
+          {answer.problem}{" "}
+          {answer.retryable && (
+            <Button size="sm" onClick={answer.load}>
+              Try again
+            </Button>
+          )}
+        </p>
+      )}
     </li>
   );
 }
