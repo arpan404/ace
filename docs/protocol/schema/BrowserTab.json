@@ -2,6 +2,29 @@
   "$id": "https://ace.local/protocol/v1/BrowserTab.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "drivenBy": {
+      "$ref": "https://ace.local/protocol/v1/BrowserTabActor.json"
+    },
+    "favicon": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "lease": {
+      "$ref": "https://ace.local/protocol/v1/BrowserTabLease.json"
+    },
+    "lifecycle": {
+      "$ref": "https://ace.local/protocol/v1/BrowserTabLifecycle.json"
+    },
+    "loading": {
+      "type": "boolean"
+    },
+    "openedBy": {
+      "$ref": "https://ace.local/protocol/v1/BrowserTabActor.json"
+    },
     "pending_dialog": {
       "$ref": "https://ace.local/protocol/v1/BrowserDialog.json"
     },

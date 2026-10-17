@@ -9,6 +9,7 @@ import {
 import type { ApprovalTarget } from "@ace/protocol";
 import { validateMeasurementBudget } from "@ace/interaction";
 import type { BrowserToolkit } from "@ace/mcp-server";
+import { PublicToolError } from "@ace/mcp-server/errors";
 import type { BrowserService } from "./service.ts";
 /** Browser actions only a person drives (ADR 0082). */
 type AgentAction = Exclude<BrowserCommand["action"], "annotate" | "annotate_capture">;
@@ -186,11 +187,26 @@ export const browserMachineInput = {
     .describe("Another paired machine's browser (ace_machines); omit for this machine."),
 };
 
+/**
+ * The optional `browser` argument every browser tool takes when "Use my Chrome" is available
+ * (ADR 0084): ace's own browser, or the person's own Chrome.
+ */
+export const browserChoiceInput = {
+  browser: z
+    .enum(["ace", "user"])
+    .optional()
+    .describe(
+      'Omit (or "ace") for ace\'s browser, which the person watches in ace. "user": the person\'s own Chrome through Use my Chrome, with their logins and extensions, for work that needs their signed-in session. There you get your own tab in an "ace" window; tabs the person shared show in ace_browser_tabs list (browser "user") with openedBy human: pass a tabId to work in one. Not with machine.',
+    ),
+};
+
 /** Agents act in the thread's browser; a person's takeover still pauses them until handback. */
 export function browserToolkit(
   service: Pick<BrowserService, "execute" | "screenshot">,
   startupReserveMs = 0,
   route?: BrowserMachineRoute,
+  /** The person's own browser (ADR 0084), for calls with `browser: "user"`. */
+  user?: () => Pick<BrowserService, "execute" | "screenshot">,
 ): BrowserToolkit {
   return {
     capability: "browser",
@@ -213,13 +229,17 @@ export function browserToolkit(
               Object.entries(command.shape).filter(([key]) => key !== "action"),
             ),
             ...(route ? browserMachineInput : {}),
+            ...(user ? browserChoiceInput : {}),
           }),
           capability: "browser",
           timeoutMs,
           async run(input, context) {
             const { caller, signal } = context;
             signal.throwIfAborted();
-            const { machine, ...args } = input;
+            const { machine, browser, ...args } = input;
+            if (browser === "user" && (typeof machine === "string" || !user))
+              throw new PublicToolError("user_browser_unavailable");
+            const target = browser === "user" && user ? user() : service;
             if (route && typeof machine === "string")
               return route(
                 {
@@ -243,7 +263,7 @@ export function browserToolkit(
             }
             const actor = { kind: "agent" as const, agentId: caller.agentId };
             if (action === "screenshot") {
-              const bytes = await service.screenshot(
+              const bytes = await target.screenshot(
                 caller.threadId,
                 signal,
                 typeof args["tabId"] === "string" ? args["tabId"] : undefined,
@@ -266,7 +286,7 @@ export function browserToolkit(
                 ],
               };
             }
-            const result = await service.execute(
+            const result = await target.execute(
               caller.threadId,
               { ...args, action },
               actor,

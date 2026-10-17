@@ -22,6 +22,7 @@ import { startFiles } from "./files.ts";
 import { startRelayKeys } from "./relay.ts";
 import { startPlugins } from "./plugins.ts";
 import { startBrowser } from "./browser.ts";
+import { startUserBrowser } from "./user-browser.ts";
 import { startContext } from "./context.ts";
 import { startSettings } from "./settings.ts";
 import { startReview } from "./review.ts";
@@ -63,7 +64,14 @@ export const serviceFactories: readonly ServiceDefinition[] = [
   { name: "plugins", phase: "core", requires: [], after: [], start: startPlugins },
   { name: "activityReads", phase: "core", requires: [], after: [], start: startActivityReads },
   { name: "icons", phase: "core", requires: [], after: [], start: startIcons },
-  { name: "browser", phase: "core", requires: [], after: ["settings"], start: startBrowser },
+  { name: "userBrowser", phase: "core", requires: [], after: [], start: startUserBrowser },
+  {
+    name: "browser",
+    phase: "core",
+    requires: [],
+    after: ["settings", "userBrowser"],
+    start: startBrowser,
+  },
   {
     name: "workspaceActions",
     phase: "core",

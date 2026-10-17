@@ -63,6 +63,11 @@ export interface BrowserServiceOptions {
   ) => "auto" | "embedded" | "headless" | Promise<"auto" | "embedded" | "headless">;
   backendLoss?: (options: BrowserOpen) => "pause" | "headless" | Promise<"pause" | "headless">;
   /**
+   * How long a thread whose desktop link dropped waits for the desktop to re-adopt its views
+   * before reporting their pages lost (ADR 0085); 0 reports at once. Default 10 s.
+   */
+  desktopReadoptionGraceMs?: number;
+  /**
    * The profile for an open that names none; the library default is `persistent`, ace's one
    * shared browser profile. `ephemeral` is a private throwaway context inside it.
    */

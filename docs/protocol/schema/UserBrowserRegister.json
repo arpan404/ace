@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/UserBrowserRegister.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "browser": {
+      "$ref": "https://ace.local/protocol/v1/UserBrowserIdentity.json"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "user_browser.register",
+      "type": "string"
+    },
+    "version": {
+      "const": 1,
+      "type": "number"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "version",
+    "browser"
+  ],
+  "type": "object"
+}

@@ -47,3 +47,12 @@ When the person takes over a tab, tools in that tab pause with `human_controlled
 ## Another machine
 
 Every browser tool takes `machine` (a name from `ace_machines`) to act in that machine's ace browser, for example to test a dev server running there.
+
+## The person's own Chrome
+
+With "Use my Chrome" set up, every browser tool takes `browser: "user"` to act in the person's own Chrome, signed in as them, with their extensions. Use it only when the task needs their session (a dashboard behind their SSO, their staging login); otherwise stay in ace's browser.
+
+- `ace_browser_open` with `browser: "user"` gives you your own tab in an "ace" window of their Chrome.
+- Tabs the person shared appear in `ace_browser_tabs` `list` (with `browser: "user"`) with `openedBy` human. Pass one's `tabId` to work in it; `ace_browser_close` with that `tabId` lets go of it and leaves it open for them.
+- Pass `browser: "user"` on every call for those tabs. A tab the person closes, un-shares or stops is gone; nothing moves it to ace's browser. If their browser is not connected, the tools say so: ask them, or use ace's browser.
+- Their Chrome refuses settings, extension and password pages. ace has no cookie or storage tools there.

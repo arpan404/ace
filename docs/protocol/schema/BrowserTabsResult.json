@@ -9,6 +9,11 @@
           "minLength": 1,
           "type": "string"
         },
+        "tabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
         "tabs": {
           "$ref": "https://ace.local/protocol/v1/BrowserTabList.json"
         }

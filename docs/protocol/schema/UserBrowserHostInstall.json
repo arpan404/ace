@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/UserBrowserHostInstall.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "browser": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "manifestPath": {
+      "maxLength": 4096,
+      "type": "string"
+    }
+  },
+  "required": [
+    "browser",
+    "manifestPath"
+  ],
+  "type": "object"
+}

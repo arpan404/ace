@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/UserBrowserCommand.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "operation": {
+      "$ref": "https://ace.local/protocol/v1/UserBrowserOperation.json"
+    },
+    "type": {
+      "const": "user_browser.command",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "id",
+    "operation"
+  ],
+  "type": "object"
+}

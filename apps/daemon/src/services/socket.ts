@@ -6,6 +6,7 @@ import type {
   BrowserClientMessage,
   BrowserBackendClientMessage,
   ServerMessage,
+  UserBrowserExtensionMessage,
 } from "@ace/protocol";
 import type { PluginClientMessage, PluginServerMessage } from "@ace/protocol/plugins";
 import type { WebSocket } from "ws";
@@ -15,7 +16,8 @@ export type SocketMessage =
   | ClientMessage
   | PluginClientMessage
   | BrowserClientMessage
-  | BrowserBackendClientMessage;
+  | BrowserBackendClientMessage
+  | UserBrowserExtensionMessage;
 export interface CommandRegistration {
   types: readonly Command["payload"]["type"][];
   scope(command: Command): DeviceScope;

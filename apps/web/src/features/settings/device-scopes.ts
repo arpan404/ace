@@ -7,6 +7,7 @@ const labels: Record<DeviceScope, string> = {
   projects: "Projects",
   accounts: "Accounts",
   desktop: "Desktop",
+  "user-browser": "Use my Chrome",
 };
 export const deviceAccessOptions = (["operate", "read", "admin"] as const).map((value) => ({
   value,

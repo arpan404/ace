@@ -1,26 +1,7 @@
 import { expect, it } from "vitest";
 import { z } from "zod";
 import { EmbeddedPageGroup, nativeTabLimit } from "./page-group.ts";
-import { FakePage } from "./test-support.ts";
-
-/** A tab's view: where the group last placed it and whether the person's input reaches it. */
-class TabPage extends FakePage {
-  shown = false;
-  agent = true;
-  viewport() {
-    return { width: 800, height: 600 };
-  }
-  place(target: { visible: boolean }) {
-    this.shown = target.visible;
-  }
-  async placementReady() {}
-  isShown() {
-    return this.shown;
-  }
-  setAgentControl(agent: boolean) {
-    this.agent = agent;
-  }
-}
+import { TabPage } from "./test-support.ts";
 
 function group() {
   const pages = new Map<string, TabPage>();
@@ -137,4 +118,18 @@ it("a lost link orphans every tab and an adoption hands each a fresh session", a
   expect([...pages.values()].map((page) => page.orphaned)).toEqual([true, true]);
   await tabs.readopt();
   expect([...pages.values()].map((page) => page.adoptions)).toEqual([1, 1]);
+});
+
+it("a person's lease reaches only the shown tab; an unseen tab stays the agents'", async () => {
+  const { tabs, pages, panel } = group();
+  await tabs.openTab();
+  tabs.place({ ...panel, visible: true });
+  await tabs.cdp("ace.tabs.open");
+  tabs.setAgentControl(false);
+  expect(pages.get("native-tab-1")?.agent).toBe(false);
+  expect(pages.get("native-tab-2")?.agent).toBe(true);
+  // The daemon sends the newly shown tab's lease after a switch; until then the old one holds.
+  await tabs.cdp("ace.tabs.switch", { tabId: "native-tab-2" });
+  expect(pages.get("native-tab-1")?.agent).toBe(true);
+  expect(pages.get("native-tab-2")?.agent).toBe(false);
 });

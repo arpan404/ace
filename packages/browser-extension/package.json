@@ -1,0 +1,24 @@
+{
+  "name": "@ace/browser-extension",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "node ../../scripts/typecheck.ts --workspace",
+    "build": "node scripts/build-extension.ts",
+    "check": "node scripts/build-extension.ts --check"
+  },
+  "dependencies": {
+    "@ace/protocol": "workspace:*",
+    "ws": "8.22.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@ace/browser": "workspace:*",
+    "@types/ws": "8.18.1",
+    "esbuild": "0.25.12"
+  }
+}
