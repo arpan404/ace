@@ -80,6 +80,7 @@ export interface BrowserBackendSession {
   close(): Promise<void>;
 }
 export interface BrowserBackend {
-  readonly kind: "embedded" | "headless";
+  /** `user`: the person's own browser through the ace extension (ADR 0084). */
+  readonly kind: "embedded" | "headless" | "user";
   open(request: BackendOpen): Promise<BrowserBackendSession>;
 }

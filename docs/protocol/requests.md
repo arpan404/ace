@@ -56,6 +56,24 @@ Example:
 }
 ```
 
+### user_browser.settings
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"user_browser.settings"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| operation | yes | ["status","install","revoke","stop"] |  |
+
+Example:
+
+```json
+{
+  "operation": "install",
+  "requestId": "example",
+  "type": "user_browser.settings"
+}
+```
+
 ### delegation.remote.transport
 
 | Field | Required | Type | Constraints |
@@ -86,12 +104,12 @@ Example:
 ```json
 {
   "operation": {
-    "offset": 4,
+    "offset": 9,
     "op": "read",
-    "sha256": "b44d8310897fde611de6d0c931c4f7155649575aabdd5098842430310bcdb0f4"
+    "sha256": "44d8310897fde611de6d0c931c4f7155649575aabdd5098842430310bcdb0f40"
   },
   "requestId": "example",
-  "taskId": "8bc07b664b02edfa9ae202db2d7058b57ecf355c0fe8730cd40c79a991575ac8",
+  "taskId": "bc07b664b02edfa9ae202db2d7058b57ecf355c0fe8730cd40c79a991575ac87",
   "type": "delegation.remote.output"
 }
 ```
@@ -115,14 +133,12 @@ Example:
     "hostId": "example",
     "parentThreadId": "example",
     "sourceHostId": "example",
-    "taskId": "d4f4ed320931dc5c6c96ed01bd50ed6dd5760af69e1c8b77367926a232113e59",
+    "taskId": "4f4ed320931dc5c6c96ed01bd50ed6dd5760af69e1c8b77367926a232113e593",
     "threadId": "example"
   },
   "lease": "example",
   "operation": {
-    "data": "example",
-    "offset": 9,
-    "op": "chunk",
+    "op": "commit",
     "uploadId": "example"
   },
   "requestId": "example",
@@ -1058,7 +1074,7 @@ Example:
 }
 ```
 
-### Variant 48
+### Variant 49
 
 Type: union. See JSON Schema for constraints.
 
@@ -1481,7 +1497,7 @@ Example:
 }
 ```
 
-### Variant 69
+### Variant 70
 
 Type: union. See JSON Schema for constraints.
 

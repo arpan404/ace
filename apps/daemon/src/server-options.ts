@@ -103,6 +103,7 @@ export interface ServerOptions {
   handler: CommandHandler;
   plugins?: { handle(input: unknown): Promise<PluginResponse> };
   browser?: BrowserService;
+  userBrowser?: import("./user-browser.ts").UserBrowserService;
   review?: ReviewPort;
   replayLimit?: number;
   idleTimeoutMs?: number;

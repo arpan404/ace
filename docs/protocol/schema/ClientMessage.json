@@ -9,6 +9,9 @@
       "$ref": "https://ace.local/protocol/v1/StorageRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/UserBrowserSettings.json"
+    },
+    {
       "additionalProperties": false,
       "properties": {
         "requestId": {

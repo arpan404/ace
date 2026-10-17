@@ -74,6 +74,7 @@
         "@ace/agent-registry": "workspace:*",
         "@ace/automations": "workspace:*",
         "@ace/browser": "workspace:*",
+        "@ace/browser-extension": "workspace:*",
         "@ace/client": "workspace:*",
         "@ace/commands": "workspace:*",
         "@ace/context": "workspace:*",
@@ -418,6 +419,19 @@
         "@ace/protocol": "workspace:*",
       },
       "devDependencies": {
+        "esbuild": "0.25.12",
+      },
+    },
+    "packages/browser-extension": {
+      "name": "@ace/browser-extension",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "ws": "8.22.0",
+        "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@ace/browser": "workspace:*",
+        "@types/ws": "8.18.1",
         "esbuild": "0.25.12",
       },
     },
@@ -1002,6 +1016,8 @@
     "@ace/browser": ["@ace/browser@workspace:packages/browser"],
 
     "@ace/browser-annotate": ["@ace/browser-annotate@workspace:packages/browser-annotate"],
+
+    "@ace/browser-extension": ["@ace/browser-extension@workspace:packages/browser-extension"],
 
     "@ace/client": ["@ace/client@workspace:packages/client"],
 
@@ -3494,6 +3510,8 @@
     "@ace/browser/@types/ws": ["@types/ws@8.18.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg=="],
 
     "@ace/browser/yauzl": ["yauzl@3.2.0", "", { "dependencies": { "buffer-crc32": "~0.2.3", "pend": "~1.2.0" } }, "sha512-Ow9nuGZE+qp1u4JIPvg+uCiUr7xGQWdff7JQSk5VGYTAZMDe2q8lxJ10ygv10qmSj031Ty/6FNJpLO4o1Sgc+w=="],
+
+    "@ace/browser-extension/@types/ws": ["@types/ws@8.18.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg=="],
 
     "@ace/client-react/react": ["react@19.3.0", "", {}, "sha512-E8LUcbtBWt20bbl2YoHfx4ZDBdxVTfOKtCZn9cDSJ4l6/nuoApcpIBcj47t2wZoVX8g2ZHuMHbiShgCR1T5Sog=="],
 

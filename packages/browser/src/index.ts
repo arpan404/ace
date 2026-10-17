@@ -27,3 +27,6 @@ export { acquireChromium, type ChromiumAcquisitionOptions } from "./acquisition.
 export { chromiumArtifact, ChromiumArtifact } from "./chromium-manifest.ts";
 
 export { chromiumProcessKiller, type KillCommand } from "./chromium-process.ts";
+export { UserChromeHub, userChromeLinkLimit } from "./user-chrome-hub.ts";
+export { UserChromeBackend, type UserTabRef } from "./user-chrome.ts";
+export type { UserChromeLink, UserChromeTransport } from "./user-chrome-link.ts";
