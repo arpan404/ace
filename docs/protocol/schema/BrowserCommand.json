@@ -837,6 +837,105 @@
         "action"
       ],
       "type": "object"
+    },
+    {
+      "oneOf": [
+        {
+          "properties": {
+            "action": {
+              "const": "annotate",
+              "type": "string"
+            },
+            "config": {
+              "$ref": "https://ace.local/protocol/v1/BrowserAnnotationConfig.json",
+              "default": {}
+            },
+            "operation": {
+              "const": "start",
+              "type": "string"
+            },
+            "tabId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "operation"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "annotate",
+              "type": "string"
+            },
+            "operation": {
+              "const": "stop",
+              "type": "string"
+            },
+            "tabId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "operation"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "action": {
+              "const": "annotate",
+              "type": "string"
+            },
+            "command": {
+              "$ref": "https://ace.local/protocol/v1/BrowserAnnotationPageCommand.json"
+            },
+            "operation": {
+              "const": "command",
+              "type": "string"
+            },
+            "tabId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "operation",
+            "command"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "annotate_capture",
+          "type": "string"
+        },
+        "tabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "target": {
+          "$ref": "https://ace.local/protocol/v1/BrowserAnnotationCaptureTarget.json"
+        }
+      },
+      "required": [
+        "action",
+        "target"
+      ],
+      "type": "object"
     }
   ]
 }

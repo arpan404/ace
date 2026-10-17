@@ -4,6 +4,7 @@ export * from "./agent.ts";
 export * from "./background.ts";
 export * from "./browser.ts";
 export * from "./browser-features.ts";
+export * from "./browser-annotation.ts";
 export * from "./browser-backend.ts";
 export * from "./commands.ts";
 export * from "./events.ts";

@@ -118,6 +118,15 @@ Queued commands are capped at 32 per session. There are at most 8 sessions, 8 ta
 64 viewers per session. Reconnects must subscribe again. A closed browser also
 requires a fresh subscription after reopening.
 
+## Annotation
+
+`annotate` and `annotate_capture` commands let the person holding the control lease pin
+numbered comments on page elements ([ADR 0082](../../docs/adr/0082-browser-annotation.md)).
+The overlay from `@ace/browser-annotate` runs in the `ace-annotate` isolated world of the top
+document; its events reach only the connection that started it, as `browser.annotation`
+messages. Navigation, handback, tab switches, backend loss and disconnects end it. Agents get
+no tool for it, and agent snapshots omit the overlay.
+
 ## Files and recordings
 
 Session directories live in `dataDir/browser`. Console and network logs are

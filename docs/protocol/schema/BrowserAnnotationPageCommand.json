@@ -1,0 +1,168 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserAnnotationPageCommand.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "bar": {
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "x",
+            "y"
+          ],
+          "type": "object"
+        },
+        "markersHidden": {
+          "type": "boolean"
+        },
+        "nextNumber": {
+          "default": 1,
+          "maximum": 99,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "op": {
+          "const": "configure",
+          "type": "string"
+        },
+        "theme": {
+          "$ref": "https://ace.local/protocol/v1/BrowserAnnotationTheme.json",
+          "default": "dark"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "op": {
+          "const": "edit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "op": {
+          "const": "remove",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "clear",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "numbers": {
+          "items": {
+            "properties": {
+              "id": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "number": {
+                "maximum": 99,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "number"
+            ],
+            "type": "object"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "op": {
+          "const": "renumber",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "numbers"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "toast",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "text"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "annotations": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/BrowserAnnotation.json"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "op": {
+          "const": "restore",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "annotations"
+      ],
+      "type": "object"
+    }
+  ]
+}

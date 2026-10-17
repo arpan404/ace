@@ -1,5 +1,10 @@
 import type { BrowserBackendSession, BrowserBackend } from "./backend.ts";
-import type { BrowserArtifact, BrowserState, ThreadId } from "@ace/protocol";
+import type {
+  BrowserAnnotationEvent,
+  BrowserArtifact,
+  BrowserState,
+  ThreadId,
+} from "@ace/protocol";
 import type { ProcessSpawner } from "./io.ts";
 import type { NavigationClock } from "./navigation.ts";
 export type Actor = { kind: "agent" } | { kind: "human"; connectionId: string };
@@ -30,5 +35,7 @@ export interface SessionOptions {
   uploadPolicy?: (paths: string[], signal?: AbortSignal) => boolean | Promise<boolean>;
   artifact: (artifact: BrowserArtifact) => void | Promise<void>;
   state: (state: BrowserState) => void;
+  /** Annotation events for the one connection that started annotate mode (ADR 0082). */
+  annotation?: (connectionId: string, event: BrowserAnnotationEvent) => void;
   cleanup: () => Promise<void>;
 }

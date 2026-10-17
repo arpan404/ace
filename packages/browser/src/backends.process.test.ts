@@ -68,7 +68,9 @@ it("pause on desktop loss emits the URL and rejects an in-flight read without re
     "viewer",
     { send: () => true },
     (state) => states.push(state),
-    (event) => events.push(event),
+    (event) => {
+      if (event.type === "browser.backend.lost") events.push(event);
+    },
   );
   f.hold("Accessibility.getFullAXTree");
   const started = once(f.requests, "Accessibility.getFullAXTree");

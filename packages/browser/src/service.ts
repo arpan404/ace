@@ -15,7 +15,11 @@ import { BrowserProfiles } from "./profiles.ts";
 import { TabBudget } from "./tab-budget.ts";
 import { EmbeddedBackend, type EmbeddedTransport } from "./embedded.ts";
 import type { BrowserBackend, BackendOpen, BrowserBackendSession } from "./backend.ts";
-import type { BrowserBackendLost, BrowserDownloadProgress } from "@ace/protocol";
+import type {
+  BrowserAnnotationMessage,
+  BrowserBackendLost,
+  BrowserDownloadProgress,
+} from "@ace/protocol";
 import { sessionPolicies } from "./session-policies.ts";
 import { agentResumes, backendCandidates } from "./backend-choice.ts";
 import { BrowserSession, type Actor } from "./session.ts";
@@ -325,6 +329,12 @@ export class BrowserService {
         ...policies.session,
         artifact: (artifact) => this.options.onArtifact?.(options.threadId, artifact),
         state: (state) => this.emit(state),
+        annotation: (connectionId, event) =>
+          this.subscriptions.annotation(connectionId, {
+            type: "browser.annotation",
+            threadId: options.threadId,
+            event,
+          }),
         cleanup: async () => {
           await release();
         },
@@ -427,14 +437,14 @@ export class BrowserService {
     connectionId: string,
     sink: FrameSink,
     onState: (state: BrowserState) => void,
-    onBackendEvent?: (event: BrowserBackendLost) => void,
+    onBackendEvent?: (event: BrowserBackendLost | BrowserAnnotationMessage) => void,
   ): () => void {
     const session = this.get(threadId);
     return this.subscriptions.add(threadId, session.live.fanout, session.state, {
       connectionId,
       sink,
       state: onState,
-      ...(onBackendEvent ? { backendLost: onBackendEvent } : {}),
+      ...(onBackendEvent ? { event: onBackendEvent } : {}),
     });
   }
   configureCapture(

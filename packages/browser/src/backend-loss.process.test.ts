@@ -20,7 +20,9 @@ it("a detached desktop view rejects its pending read and reopens on the survivin
       if (state.backend === "embedded" && state.status === "ready" && state.pageStateLost)
         ready.resolve();
     },
-    (event) => events.push(event),
+    (event) => {
+      if (event.type === "browser.backend.lost") events.push(event);
+    },
   );
   f.hold("Accessibility.getFullAXTree");
   const entered = once(f.requests, "Accessibility.getFullAXTree");
@@ -66,7 +68,9 @@ it("desktop disconnection still emits loss and recovers after a controller lease
       if (state.status === "paused" && state.reason === "Lease refused") paused.resolve();
       if (state.status === "ready" && state.backend === "headless") ready.resolve();
     },
-    (event) => events.push(event),
+    (event) => {
+      if (event.type === "browser.backend.lost") events.push(event);
+    },
   );
   f.failController("Lease refused");
   f.service.takeover("thread", "human");

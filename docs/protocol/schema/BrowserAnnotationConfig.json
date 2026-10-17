@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserAnnotationConfig.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bar": {
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "markersHidden": {
+      "type": "boolean"
+    },
+    "nextNumber": {
+      "default": 1,
+      "maximum": 99,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "theme": {
+      "$ref": "https://ace.local/protocol/v1/BrowserAnnotationTheme.json",
+      "default": "dark"
+    }
+  },
+  "type": "object"
+}

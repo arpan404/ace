@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserAnnotationViewport.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "devicePixelRatio": {
+      "exclusiveMinimum": 0,
+      "type": "number"
+    },
+    "height": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "scrollX": {
+      "type": "number"
+    },
+    "scrollY": {
+      "type": "number"
+    },
+    "width": {
+      "minimum": 0,
+      "type": "number"
+    }
+  },
+  "required": [
+    "width",
+    "height",
+    "devicePixelRatio",
+    "scrollX",
+    "scrollY"
+  ],
+  "type": "object"
+}

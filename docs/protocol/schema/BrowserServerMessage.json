@@ -73,6 +73,9 @@
         "frame"
       ],
       "type": "object"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/BrowserAnnotationMessage.json"
     }
   ]
 }
