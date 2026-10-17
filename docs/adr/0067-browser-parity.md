@@ -204,6 +204,11 @@ The audit found ways an agent could still trip over the person. The rules above 
   command queue. Snapshot, find, screenshot and logs queued after it run at once. An input whose
   queue turn comes while the person is busy again goes back to the lane, within the same
   `maxWaitMs` budget.
+- **An agent's click never lets a page write the clipboard.** On the desktop's native view a
+  page gets `clipboard-sanitized-write` only while the last click or key press that activated
+  it was the person's own, within Chromium's five-second activation. Input the daemon relays
+  (an agent's, or the person's from another device) activates the page for popups but not for
+  the clipboard, so a page cannot replace what the person copied after an agent clicks it.
 
 ## Private takeover and recording (superseded by Collaboration above)
 

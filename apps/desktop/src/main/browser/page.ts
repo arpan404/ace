@@ -53,8 +53,9 @@ export class EmbeddedPage implements ViewPage {
   private appZoom = 1;
   private nativeInput = false;
   private agentControl = false;
+  /** A page writes the clipboard only on the person's own recent click or key press. */
   allowsClipboard(): boolean {
-    return this.nativeInput;
+    return this.nativeInput && this.activation.byPerson();
   }
   /**
    * Set only while this page itself dispatches an input event (a relayed CDP `Input.*`
@@ -175,7 +176,7 @@ export class EmbeddedPage implements ViewPage {
       }
       if (this.allowInput()) {
         if (input.type === "keyDown") {
-          this.activation.note();
+          this.activation.note(this.injecting === 0 ? "person" : "agent");
           if (this.injecting === 0) this.reportHuman();
         }
         return;
@@ -184,7 +185,8 @@ export class EmbeddedPage implements ViewPage {
     });
     contents.on("before-mouse-event", (event, mouse) => {
       if (this.allowInput()) {
-        if (mouse.type === "mouseDown") this.activation.note();
+        if (mouse.type === "mouseDown")
+          this.activation.note(this.injecting === 0 ? "person" : "agent");
         if (this.injecting === 0 && (mouse.type === "mouseDown" || mouse.type === "mouseWheel"))
           this.reportHuman();
         return;

@@ -1,18 +1,29 @@
 /** Chromium's transient user activation lasts five seconds after a click or key press. */
 const activationMs = 5_000;
 
-/** Remembers the last input the page accepted (a person's own, or one an agent sent). */
+/** Remembers the last input the page accepted: a person's own, or one an agent sent. */
 export class UserActivation {
   private readonly now: () => number;
   private last = Number.NEGATIVE_INFINITY;
+  private lastBy: "person" | "agent" = "agent";
   constructor(now: () => number) {
     this.now = now;
   }
-  note(): void {
+  note(by: "person" | "agent"): void {
     this.last = this.now();
+    this.lastBy = by;
   }
+  /** Any recent input: a page may follow a link it opens in a new tab. */
   active(): boolean {
     return this.now() - this.last <= activationMs;
+  }
+  /**
+   * The person's own click or key press activated the page, and no agent input came since.
+   * Only then may the page write the system clipboard: an agent's click activates the page
+   * too, and must never let it replace what the person copied.
+   */
+  byPerson(): boolean {
+    return this.active() && this.lastBy === "person";
   }
 }
 

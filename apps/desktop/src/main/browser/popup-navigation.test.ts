@@ -28,9 +28,28 @@ it("input keeps a page activated for five seconds, then lapses", () => {
   let now = 1_000;
   const activation = new UserActivation(() => now);
   expect(activation.active()).toBe(false);
-  activation.note();
+  activation.note("person");
   now += 5_000;
   expect(activation.active()).toBe(true);
   now += 1;
   expect(activation.active()).toBe(false);
+});
+
+it("the page may write the clipboard after the person's click but not after an agent's", () => {
+  let now = 1_000;
+  const activation = new UserActivation(() => now);
+  activation.note("agent");
+  expect(activation.active()).toBe(true);
+  expect(activation.byPerson()).toBe(false);
+  now += 100;
+  activation.note("person");
+  expect(activation.byPerson()).toBe(true);
+  // An agent's click after the person's takes the page's activation over.
+  now += 100;
+  activation.note("agent");
+  expect(activation.byPerson()).toBe(false);
+  now += 100;
+  activation.note("person");
+  now += 5_001;
+  expect(activation.byPerson()).toBe(false);
 });
