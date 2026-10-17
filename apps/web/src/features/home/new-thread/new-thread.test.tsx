@@ -558,51 +558,87 @@ test("Enter opens the new thread at once with the message as its first bubble, e
 
 afterEach(() => vi.restoreAllMocks());
 
-test.each(["defaults", "native"])(
-  "new-thread sending waits for selected provider %s without losing its draft",
-  async (check) => {
-    const made = app();
-    const handle = made.daemon.services.handle.bind(made.daemon.services);
-    const delayed: (() => void)[] = [];
-    let holding = true;
-    vi.spyOn(made.daemon.services, "handle").mockImplementation((message, push, device) => {
-      const selectedRead =
-        check === "defaults"
-          ? message.type === "settings.subscribe" && message.keys.includes("access.defaultMode")
-          : message.type === "permissions.capabilities";
-      if (holding && selectedRead) {
-        delayed.push(() => {
-          handle(message, push, device);
-        });
-        return true;
-      }
-      return handle(message, push, device);
-    });
-    await made.open("/new?project=relay");
-    const field = await prompt();
-    await userEvent.type(field, "Preserve this draft until checks finish");
-    await waitFor(() => expect(delayed.length).toBeGreaterThan(0));
-    expect(screen.getByText("Checking provider settings…")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).toBe("true");
-    await userEvent.click(screen.getByRole("button", { name: "Send" }));
-    await userEvent.click(field);
-    await userEvent.keyboard("{Enter}");
-    expect(listed(made).some((thread) => isNew(thread.id))).toBe(false);
-    expect(field.textContent).toBe("Preserve this draft until checks finish");
-    await act(async () => {
-      holding = false;
-      for (const release of delayed) release();
-    });
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
-        "true",
-      ),
-    );
-    expect(screen.queryByText("Checking provider settings…")).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Send" }));
-    expect(await started(made)).toMatchObject({ workspaceId: "relay", provider: "claude" });
-  },
-);
+test("a text-only message starts its thread while the provider's access modes are still being read", async () => {
+  const made = app();
+  const handle = made.daemon.services.handle.bind(made.daemon.services);
+  let held = 0;
+  vi.spyOn(made.daemon.services, "handle").mockImplementation((message, push, device) => {
+    // The provider's access modes never arrive.
+    if (message.type === "permissions.capabilities") {
+      held++;
+      return true;
+    }
+    return handle(message, push, device);
+  });
+  await made.open("/new?project=relay");
+  const field = await prompt();
+  await userEvent.type(field, "Start before the access check");
+  await waitFor(() => expect(held).toBeGreaterThan(0));
+  // Nothing waiting takes the strip: the project and where it runs stay in reach.
+  expect(screen.getByRole("region", { name: "Where this thread runs" })).toBeTruthy();
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
+      "true",
+    ),
+  );
+  await userEvent.keyboard("{Enter}");
+  // The daemon applies its own default.
+  expect(await started(made)).toMatchObject({
+    workspaceId: "relay",
+    provider: "claude",
+    permission: { override: null, effective: "auto-review" },
+  });
+});
+
+test("a text-only message starts on the last thread's model before the model catalog loads", async () => {
+  const made = app();
+  await made.open("/new?project=relay");
+  await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 5.5/);
+  await closeModelControl();
+  await userEvent.type(await prompt(), "The first thread{Enter}");
+  expect(await started(made)).toMatchObject({ provider: "codex" });
+  cleanup();
+
+  made.daemon.holdRequests("models.list");
+  await made.open("/new?project=ace");
+  const field = await prompt();
+  // The catalog hasn't answered: the chip names the last model, without its account or effort.
+  expect(await screen.findByRole("button", { name: "Model: GPT-5 Codex" })).toBeTruthy();
+  await userEvent.type(field, "Sent before the catalog");
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
+      "true",
+    ),
+  );
+  await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+  await waitFor(() =>
+    expect(listed(made).find((thread) => thread.title === "Sent before the catalog")).toMatchObject(
+      { workspaceId: "ace", provider: "codex" },
+    ),
+  );
+});
+
+test("a text-only message goes before its draft scope is granted", async () => {
+  const made = app();
+  const handle = made.daemon.services.handle.bind(made.daemon.services);
+  vi.spyOn(made.daemon.services, "handle").mockImplementation((message, push, device) =>
+    // The scope for files is never granted.
+    message.type === "context.request" && message.operation.op === "draft.create"
+      ? true
+      : handle(message, push, device),
+  );
+  await made.open("/new?project=relay");
+  await userEvent.type(await prompt(), "No scope needed");
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
+      "true",
+    ),
+  );
+  await userEvent.keyboard("{Enter}");
+  await waitFor(() =>
+    expect(listed(made).some((thread) => thread.title === "No scope needed")).toBe(true),
+  );
+});
 
 test("failed access checks explain blocked sending and retain the draft", async () => {
   const made = app();

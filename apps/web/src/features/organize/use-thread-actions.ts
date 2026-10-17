@@ -59,6 +59,7 @@ export interface ThreadActions {
   remove(entry: ThreadTarget): void;
   /** An archived thread, deleted now: the person confirmed it, so there is no Undo. */
   deleteArchived(entry: ThreadTarget): void;
+  /** New thread in the entry's project, from its default branch. */
   newThreadOnMain(entry: ThreadTarget): void;
   copyLink(entry: ThreadTarget): void;
 }
@@ -441,7 +442,8 @@ export function useThreadActions(): ThreadActions {
         });
       },
       newThreadOnMain: (entry) =>
-        void navigate({ to: "/new", search: { project: entry.workspaceId, base: "main" } }),
+        // No base: New thread starts from the project's own default branch, whatever it's named.
+        void navigate({ to: "/new", search: { project: entry.workspaceId } }),
       copyLink: (entry) => {
         const link = new URL(`/t/${entry.id}`, location.href).href;
         const copied =
