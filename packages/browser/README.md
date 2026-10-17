@@ -248,3 +248,37 @@ The optional JPEG filmstrip retains sixteen candidates from the existing live
 capture and returns one grid of up to eight timestamped images. It does not drive
 frame timing. Tracing and live capture overhead inside Chromium are excluded from
 the reported host processing percentage. Headless refresh cadence can be virtual.
+
+## Engine conformance suite
+
+`@ace/browser/conformance` is one behaviour suite that every browser engine runs, so a feature
+cannot work in one engine only. `defineBrowserConformance(engine)` takes an engine factory (a
+`BrowserService` whose thread browsers open in that engine) and runs every scenario in
+`src/conformance/scenarios-*.ts` through `BrowserService.execute` against a local fixture site:
+navigation, redirects, self-navigating pages, input by ref, stable refs, screenshots, evaluate,
+tabs and tab ids, popups, dialogs, downloads, uploads, same-origin and cross-site frames,
+console and network logs, and the annotation overlay.
+
+| Engine                    | Test file                                                    | Needs                                                       |
+| ------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------- |
+| ace's Chrome (headless)   | `packages/browser/src/conformance/headless.process.test.ts`  | Chromium                                                    |
+| Desktop native view       | `apps/desktop/src/main/browser/conformance.process.test.ts`  | Chromium (stands in for Electron's views)                   |
+| Use my Chrome (extension) | `packages/browser-extension/src/conformance.process.test.ts` | Chromium that allows `Extensions.loadUnpacked`; not Windows |
+
+```sh
+# Every engine:
+bun run test -- packages/browser/src/conformance apps/desktop/src/main/browser/conformance.process.test.ts packages/browser-extension/src/conformance.process.test.ts
+# One engine: pass just its file. ACE_CHROMIUM_PATH picks the Chromium (default: detectChromium()).
+ACE_CHROMIUM_PATH=/path/to/chrome bun run test -- packages/browser/src/conformance
+```
+
+The desktop engine runs the desktop's real backend, connection and page groups over the real
+relay socket; only Electron's `WebContentsView` is replaced, by a Chrome page per native tab
+(`chrome-views-test-support.ts`). The extension engine loads ace for Chrome into Chrome for
+Testing with its real native host, as the extension's end-to-end test does.
+
+An engine with no browser on the machine is reported as skipped with the reason in its suite
+name. Engines declare, per scenario id, `knownFailures` (run as expected failures, each with a
+TODO naming the gap), `unsupported` (the scenario must fail promptly with that public error code)
+and `harnessSkips` (the test harness cannot exercise it). Fixing a gap turns its expected failure
+red: delete the entry then.
