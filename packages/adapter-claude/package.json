@@ -13,6 +13,7 @@
     "typecheck": "node ../../scripts/typecheck.ts --workspace"
   },
   "dependencies": {
+    "@ace/commands": "workspace:*",
     "@ace/core": "workspace:*",
     "@ace/engine-api": "workspace:*",
     "@ace/mcp-server": "workspace:*",

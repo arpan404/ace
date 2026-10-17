@@ -372,7 +372,7 @@ test("a skill selected before session startup stays linked when the harness adve
       { type: "mention", entryId: selected.id, name: selected.name, kind: "skill", arguments: "" },
     ]),
   ).toMatchObject([
-    { text: "Please " },
+    { text: "Please $review" },
     {
       type: "mention",
       name: "Review changes",
@@ -487,12 +487,12 @@ test.each(["claude", "pi"] as const)(
     const prepared = await f.library.prepareMentions("thread", [
       { type: "mention", entryId: skill.id, name: "clerk", kind: "skill", arguments: "" },
     ]);
-    if (provider === "claude")
-      expect(prepared).toMatchObject([{ type: "text", text: expect.stringContaining("clerk") }]);
-    else
-      expect(prepared).toMatchObject([
-        { type: "mention", invocation: { type: "slash", name: "skill:clerk" } },
-      ]);
+    expect(prepared).toMatchObject([
+      {
+        type: "mention",
+        invocation: { type: "slash", name: provider === "claude" ? "clerk" : "skill:clerk" },
+      },
+    ]);
   },
 );
 

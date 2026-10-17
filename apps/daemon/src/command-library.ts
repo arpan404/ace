@@ -20,9 +20,11 @@ export function createDaemonCommandLibrary(
   extras?: (
     context: import("@ace/commands").LibraryContext,
   ) => Promise<import("@ace/protocol").CatalogEntry[]>,
+  builtinSkills?: import("@ace/commands").BuiltinSkills,
 ): CommandLibrary {
   return new CommandLibrary({
     aceHome,
+    ...(builtinSkills ? { builtinSkills } : {}),
     ...(extras ? { extras } : {}),
     instances: instances ?? defaultCommandInstances(env),
     now,

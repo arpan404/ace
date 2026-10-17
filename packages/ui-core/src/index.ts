@@ -101,6 +101,7 @@ export {
   composerInput,
   editComposerTokens,
   tokensFromInput,
+  withTypedCommand,
   type ComposerToken,
 } from "./composer-tokens.ts";
 
