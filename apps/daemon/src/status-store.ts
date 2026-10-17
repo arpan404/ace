@@ -66,6 +66,7 @@ export class StatusStore {
   private interactionRead: StatementSync | undefined;
   private statement: (sql: string) => StatementSync;
   private retention = new WeakMap<ThreadView, EntityRetention>();
+  private invalidated = new WeakSet<ThreadView>();
   constructor(
     db: DatabaseSync,
     statement: (sql: string) => StatementSync = (sql) => db.prepare(sql),
@@ -296,13 +297,22 @@ export class StatusStore {
       if (Array.from(changed.values()).some((entry) => entry.collection === collection))
         trimAgentMetadata(view, collection);
   }
+  // A database generation change expires contents, not an acquired view's identity.
+  invalidateCache(view: ThreadView): void {
+    this.invalidated.add(view);
+  }
+  cacheInvalidated(view: ThreadView): boolean {
+    return this.invalidated.has(view);
+  }
   replaceCache(view: ThreadView, source: ThreadView): void {
+    this.invalidated.delete(view);
     Object.assign(view, source);
     const policy = this.retention.get(source);
     if (policy) this.retention.set(view, policy);
     else this.seedRetention(view);
   }
-  snapshot(thread: Thread, seq: number): ThreadView {
+  snapshot(thread: Thread | undefined, seq: number): ThreadView {
+    if (!thread) throw new Error("Unknown thread");
     const input: Record<Collection, Record<string, unknown>> = {
       agents: {},
       runs: {},
