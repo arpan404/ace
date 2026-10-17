@@ -10,7 +10,7 @@ import type { DownloadItem } from "electron";
 import { z } from "zod";
 import type { BaseWindow, Session, WebContents, WebContentsView } from "electron";
 import type { ViewPage } from "./backend.ts";
-import { appChord, browserChord } from "../shortcuts.ts";
+import { appChord, browserChord, pageChord } from "../shortcuts.ts";
 import { parseChord } from "./keys.ts";
 import { WebSocketGate } from "./socket-gate.ts";
 import { throttleDecision, type ViewPresence } from "./throttle.ts";
@@ -19,6 +19,9 @@ import { clearPartition } from "./partition-cleanup.ts";
 import { PausedRequests } from "./paused-requests.ts";
 import { CrashBackoff } from "./crash-backoff.ts";
 import { FocusHandoff, type ReplayedKey } from "./focus-handoff.ts";
+import { popupContextMenu } from "./context-menu.ts";
+import { openDevTools, printPage } from "./devtools.ts";
+import type { BrowserContextAction } from "../../shared/contract.ts";
 const throttleIdleMs = 30_000;
 /** The longest the view keeps keys for the app before giving them up. */
 const handoffMs = 1_000;
@@ -36,6 +39,8 @@ export interface PageOptions {
   log(message: string): void;
   /** Replays an app shortcut the person pressed in the page into the app's own page. */
   forward(accelerator: string): void;
+  /** A context menu pick the app carries out (history, a new tab, annotate, page source). */
+  contextAction?(action: BrowserContextAction["action"], url?: string): void;
   forget(): void;
   authPreload?: string | undefined;
   rememberPopup?(contents: WebContents): () => void;
@@ -91,6 +96,8 @@ export class EmbeddedPage implements ViewPage {
   private crashed = false;
   private crashReload: ReturnType<typeof setTimeout> | undefined;
   private handoff = new FocusHandoff();
+  /** When the person last pressed the right button here: only their clicks open the menu. */
+  private humanContextAt = -Infinity;
 
   constructor(options: PageOptions) {
     this.options = options;
@@ -133,33 +140,15 @@ export class EmbeddedPage implements ViewPage {
         event.preventDefault();
         return;
       }
-      if (
-        this.injecting === 0 &&
-        (options.platform === "darwin" ? input.meta : input.control) &&
-        ["+", "=", "-", "0"].includes(input.key)
-      ) {
+      // Zoom and developer tools are the tab's, kept per tab by the daemon: the app's
+      // toolbar (which shows the zoom) carries them out.
+      const page = this.injecting === 0 ? pageChord(input, options.platform) : undefined;
+      if (page) {
         event.preventDefault();
-        if (input.type === "keyDown") {
-          const zoom =
-            input.key === "0"
-              ? this.appZoom
-              : Math.min(
-                  5,
-                  Math.max(
-                    0.25,
-                    this.contents.getZoomFactor() * (input.key === "-" ? 1 / 1.2 : 1.2),
-                  ),
-                );
-          this.contents.setZoomFactor(zoom);
-          if (this.target)
-            this.place({
-              window: this.home,
-              bounds: this.target.bounds,
-              visible: this.placed,
-              zoom: this.appZoom,
-              device: this.target.device,
-            });
-        }
+        if (input.type !== "keyDown" || input.isAutoRepeat) return;
+        if (page === "CmdOrCtrl+P") void this.print();
+        else if (page === "Alt+CmdOrCtrl+I") this.devtools();
+        else options.forward(page);
         return;
       }
       // The app's shortcuts keep working while the page has focus, whoever controls it; keys
@@ -183,6 +172,8 @@ export class EmbeddedPage implements ViewPage {
       event.preventDefault();
     });
     contents.on("before-mouse-event", (event, mouse) => {
+      if (this.injecting === 0 && mouse.type === "mouseDown" && mouse.button === "right")
+        this.humanContextAt = Date.now();
       if (this.allowInput()) {
         if (mouse.type === "mouseDown") this.activation.note();
         if (this.injecting === 0 && (mouse.type === "mouseDown" || mouse.type === "mouseWheel"))
@@ -213,6 +204,24 @@ export class EmbeddedPage implements ViewPage {
       });
     });
     contents.on("render-process-gone", (_event, details) => this.rendererGone(details.reason));
+    // An agent's right click (a CDP mouse event) opens nothing on the person's screen.
+    contents.on("context-menu", (_event, params) => {
+      const person =
+        params.menuSourceType === "keyboard" || Date.now() - this.humanContextAt < 1_000;
+      if (!person || !this.allowInput() || this.closing) return;
+      popupContextMenu({
+        window: this.options.window,
+        contents,
+        params,
+        inspect: (at) => openDevTools(contents, at),
+        app: (action, url) => options.contextAction?.(action, url),
+      });
+    });
+    // Chromium keeps zoom per site: a new site would come up at its own level.
+    contents.on("did-navigate", () => {
+      if (!contents.isDestroyed() && contents.getZoomFactor() !== this.appliedZoom)
+        contents.setZoomFactor(this.appliedZoom);
+    });
     contents.on("destroyed", () => this.detached("Browser view destroyed"));
   }
 
@@ -390,8 +399,6 @@ export class EmbeddedPage implements ViewPage {
     if (this.placed) this.attach(this.home);
     if (target.bounds && (this.placed || this.presence !== "parked")) view.setBounds(target.bounds);
     if (target.visible && target.bounds) {
-      const observedZoom = this.contents.getZoomFactor();
-      if (observedZoom !== this.appliedZoom) this.pageZoom = observedZoom / this.appZoom;
       this.appZoom = target.zoom ?? 1;
       const zoom = this.appZoom * this.pageZoom;
       this.appliedZoom = zoom;
@@ -482,10 +489,12 @@ export class EmbeddedPage implements ViewPage {
       method === "Emulation.clearDeviceMetricsOverride"
     ) {
       return this.metrics.override(() => {
-        if (this.placed && this.agentControl)
-          throw new Error(
-            "The visible panel sets the page size. Hide the panel before emulating a device.",
-          );
+        // An agent's device on a shown page is drawn fitted into the panel; the person's
+        // device toolbar takes it up and places the page at that size (`ace.tabs` lists it).
+        if (this.placed && this.agentControl && this.target)
+          return method === "Emulation.setDeviceMetricsOverride"
+            ? this.send(method, this.fitted(params))
+            : this.send(method);
         if (this.placed && this.target) {
           const { device, bounds, zoom } = this.target;
           return device
@@ -500,6 +509,16 @@ export class EmbeddedPage implements ViewPage {
         }
         return this.send(method, params);
       });
+    }
+    if (method === "ace.zoom") {
+      this.pageZoom = z.object({ factor: z.number().min(0.25).max(5) }).parse(params).factor;
+      this.applyZoom();
+      return {};
+    }
+    if (method === "ace.clearData") {
+      if (!(await clearPartition(this.options.session)))
+        throw new Error("Browsing data could not be cleared");
+      return {};
     }
     if (method === "ace.rendererReady") {
       this.recovery.ready();
@@ -636,8 +655,15 @@ export class EmbeddedPage implements ViewPage {
   async resize(width: number, height: number): Promise<void> {
     this.driven();
     if (this.placed) {
+      // The panel sizes a shown page; an agent's size is drawn fitted into it until the
+      // person's device toolbar takes it up.
       if (this.agentControl)
-        throw new Error("The visible panel sets the page size. Hide the panel before resizing.");
+        await this.metrics.override(() =>
+          this.send(
+            "Emulation.setDeviceMetricsOverride",
+            this.fitted({ width, height, deviceScaleFactor: 0, mobile: false }),
+          ),
+        );
       return;
     }
     await this.metrics.override(() =>
@@ -654,6 +680,46 @@ export class EmbeddedPage implements ViewPage {
     if (this.placed) return;
     if (this.presence === "parked") this.options.park({ width, height });
     this.options.view.setBounds({ x: 0, y: 0, width, height });
+  }
+
+  /** The page zoom the daemon keeps for this tab, on top of the app window's own zoom. */
+  private applyZoom(): void {
+    const zoom = this.appZoom * this.pageZoom;
+    this.appliedZoom = zoom;
+    if (!this.contents.isDestroyed() && this.contents.getZoomFactor() !== zoom)
+      this.contents.setZoomFactor(zoom);
+    if (this.target && this.placed)
+      this.place({
+        window: this.home,
+        bounds: this.target.bounds,
+        visible: true,
+        zoom: this.appZoom,
+        device: this.target.device,
+      });
+  }
+
+  /** Device metrics scaled so the whole device fits the box the panel gives the page. */
+  private fitted(params: Record<string, unknown> | undefined): Record<string, unknown> {
+    const size = z
+      .object({ width: z.number().positive(), height: z.number().positive() })
+      .safeParse(params);
+    if (!size.success || !this.target) return params ?? {};
+    const { bounds, zoom } = this.target;
+    const scale = Math.min(
+      1,
+      bounds.width / (size.data.width * zoom),
+      bounds.height / (size.data.height * zoom),
+    );
+    return { deviceScaleFactor: 0, mobile: false, ...params, scale };
+  }
+
+  /** The tab's developer tools in their own window, at an element when `at` is given. */
+  devtools(at?: { x: number; y: number }): void {
+    openDevTools(this.contents, at);
+  }
+
+  print(): Promise<boolean> {
+    return printPage(this.contents);
   }
 
   setNativeInput(enabled: boolean): void {

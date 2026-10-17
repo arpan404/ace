@@ -190,6 +190,7 @@ export function createHandlers(options: {
     },
     "browser.snapshot": async (request) =>
       (await background.snapshotBrowser(request.threadId)) ?? null,
+    "browser.page": (request) => background.browserPage(request),
     "browser.focus-app": (_request, sender) => {
       if (sender) background.focusApp(sender.id);
       return undefined;

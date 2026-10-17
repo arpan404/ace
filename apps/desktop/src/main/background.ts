@@ -265,6 +265,11 @@ export class Background {
     return this.browser?.views.snapshot(threadId) ?? Promise.resolve(undefined);
   }
 
+  /** Print or developer tools for a thread's shown native tab; false when it has none here. */
+  browserPage(request: import("../shared/contract.ts").BrowserPageAction): Promise<boolean> {
+    return this.browser?.views.pageAction(request) ?? Promise.resolve(false);
+  }
+
   /** Route an alert and show it if the rules allow; true when shown. */
   alert(alert: Alert): boolean {
     const decision = this.router.route(alert);

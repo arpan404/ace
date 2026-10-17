@@ -12,7 +12,12 @@ import {
   type WebContents,
 } from "electron";
 import type { BrowserOpen } from "@ace/protocol";
-import type { BrowserPlacementReceipt, BrowserPlacement } from "../../shared/contract.ts";
+import type {
+  BrowserContextAction,
+  BrowserPageAction,
+  BrowserPlacementReceipt,
+  BrowserPlacement,
+} from "../../shared/contract.ts";
 import { emit } from "../ipc.ts";
 import { BrowserShortcut } from "../../shared/contract.ts";
 import { replayChord } from "../shortcuts.ts";
@@ -152,6 +157,7 @@ export class EmbeddedViews implements ViewHost {
           platform: this.options.platform,
           log: this.options.log,
           forward: (accelerator) => this.forward(threadId, accelerator, page),
+          contextAction: (action, url) => this.context({ threadId, action, url }),
           forget: () => this.byContents.delete(view.webContents.id),
           rememberPopup: (contents) => {
             this.byContents.set(contents.id, page);
@@ -345,6 +351,15 @@ export class EmbeddedViews implements ViewHost {
       replayChord(contents, accelerator, this.options.platform);
       return;
     }
+    // Zoom keys change the page in place: typing stays in the page.
+    if (
+      accelerator === "CmdOrCtrl+=" ||
+      accelerator === "CmdOrCtrl+-" ||
+      accelerator === "CmdOrCtrl+0"
+    ) {
+      emit(contents, "browser.shortcut", shortcut.data);
+      return;
+    }
     if (accelerator === "CmdOrCtrl+L" || accelerator === "CmdOrCtrl+F") {
       this.endHandoff();
       page.beginHandoff();
@@ -352,6 +367,23 @@ export class EmbeddedViews implements ViewHost {
       this.handoff = { host, page, cancel: () => clearTimeout(timer) };
     } else contents.focus();
     emit(contents, "browser.shortcut", shortcut.data);
+  }
+
+  /** A context menu pick for the app page showing the thread's view to carry out. */
+  private context(action: BrowserContextAction): void {
+    const host = this.placements.resolve(action.threadId).host;
+    const contents = host === undefined ? undefined : webContents.fromId(host);
+    if (!contents || contents.isDestroyed()) return;
+    emit(contents, "browser.context", action);
+  }
+
+  /** Print or open developer tools for the thread's shown tab; false when it has no view here. */
+  async pageAction(request: BrowserPageAction): Promise<boolean> {
+    const group = this.pages.get(request.threadId);
+    if (!group) return false;
+    if (request.action === "print") return group.print();
+    group.devtools(request.inspect);
+    return true;
   }
 
   /**
