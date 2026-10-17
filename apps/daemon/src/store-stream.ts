@@ -1,6 +1,7 @@
 import { Event, type EventPayload, type ThreadId } from "@ace/protocol";
 import type { StreamSequences } from "./stream-sequences.ts";
 import {
+  compactDeltas,
   LiveWriteBuffer,
   type BufferScheduler,
   type BufferedSnapshot,
@@ -9,9 +10,12 @@ import {
 /** Thin store shell around the pinned buffer. Sequence reservation and publication share one owner. */
 export class StoreStream {
   readonly buffer: LiveWriteBuffer;
-  // References to pinned envelopes awaiting publication; compaction must never replay an
-  // already delivered prefix when a durable boundary publishes the remaining suffix.
-  private unpublished: Event[] = [];
+  // Buffered envelopes through this sequence have reached subscribers. They are stored under
+  // their own sequences, compacted (a merged row takes its span's final sequence). The held
+  // suffix was never seen: it is stored uncompacted and exactly the stored rows publish after
+  // commit. A live-metadata follow-up takes a fresh sequence, so every held event after it is
+  // renumbered too and the stored order matches an unbuffered append.
+  private publishedThrough = 0;
   flushing = false;
   resyncs = 0;
   constructor(privateOptions: {
@@ -20,7 +24,10 @@ export class StoreStream {
     sequences: StreamSequences;
     blocked(): boolean;
     transaction(run: () => void, committed: () => void): void;
-    persist(event: Event): void;
+    /** Store an envelope under its own sequence; returns it and any follow-up rows. */
+    persist(event: Event): Event[];
+    /** Store an unpublished event's payload as a new append; returns every row written. */
+    append(event: Event): Event[];
     publish(events: Event[]): void;
     report(error: unknown): void;
   }) {
@@ -68,7 +75,6 @@ export class StoreStream {
       }),
     );
     this.buffer.append(events, id, snapshot);
-    this.unpublished.push(...events);
     try {
       // Reserve the actual canonical event count, including split shell output. Pin first:
       // a reservation transaction drains the buffer, and a failed drain must retain the
@@ -84,20 +90,37 @@ export class StoreStream {
       this.options.report(error);
     }
   }
+  /** The visible head. Mid-flush, held events may already be stored under newer sequences. */
+  head(): number {
+    const stored = this.options.sequences.head();
+    return this.flushing ? Math.max(this.buffer.head ?? 0, stored) : (this.buffer.head ?? stored);
+  }
   flush(): void {
     if (this.flushing || !this.buffer.size) return;
     if (this.options.blocked()) throw new Error("Store is busy");
     this.flushing = true;
     try {
       this.buffer.flush((events, snapshots, done) => {
+        const split = events.findIndex((event) => event.seq > this.publishedThrough);
+        const published = compactDeltas(split < 0 ? events : events.slice(0, split));
+        const held = split < 0 ? [] : events.slice(split);
+        let stored: Event[] = [];
         this.options.transaction(
           () => {
-            for (const event of events) this.options.persist(event);
+            // Rows other subscribers have not seen yet: follow-ups and the held suffix.
+            stored = published.flatMap((event) => this.options.persist(event).slice(1));
+            let renumber = stored.length > 0;
+            for (const event of held) {
+              const rows = renumber ? this.options.append(event) : this.options.persist(event);
+              stored.push(...rows);
+              renumber ||= rows.length > 1;
+            }
             for (const snapshot of snapshots) snapshot.persist();
           },
           () => {
-            done();
-            this.publishPending();
+            done(published.length + stored.length);
+            this.publishedThrough = 0;
+            this.options.publish(stored);
           },
         );
       });
@@ -111,8 +134,8 @@ export class StoreStream {
     }
   }
   private publishPending(): void {
-    const events = this.unpublished;
-    this.unpublished = [];
+    const events = this.buffer.after(this.publishedThrough);
+    this.publishedThrough = this.buffer.head ?? this.publishedThrough;
     this.options.publish(events);
   }
 }

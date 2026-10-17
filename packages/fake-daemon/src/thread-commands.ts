@@ -1,11 +1,12 @@
-import { deriveThreadStatus, type Fact } from "@ace/core";
+import { acceptsPersonInput, deriveThreadStatus, type Fact } from "@ace/core";
 import { CommandId, type ContentPart, type MessageContext } from "@ace/protocol";
 import type { ThreadHost } from "./thread-host.ts";
 
 /**
  * How the fake daemon acts on a person's thread commands. There is no model behind it: a sent
  * message starts a turn that stays open until a script ends it or the person interrupts it, a
- * queued message waits until the root agent's turn ends. Pure: returns the facts to apply.
+ * queued message waits until the root agent's turn ends (background work and subagents keep
+ * running past it). Pure: returns the facts to apply.
  */
 export type ThreadCommandOutcome = { ok: true; facts: Fact[] } | { ok: false; error: string };
 
@@ -30,6 +31,23 @@ export function busy(host: ThreadHost): boolean {
   return !["new", "done", "failed"].includes(
     deriveThreadStatus({ ...host.state, queueCount: host.state.queueSources.provider }).state,
   );
+}
+
+/**
+ * Like the daemon: a person's plain message starts the next turn once the root agent is between
+ * turns, even while background commands and subagents run. One that changes the model or
+ * options waits for the whole tree, since switching may reopen the session.
+ */
+function takesMessage(host: ThreadHost, plain: boolean): boolean {
+  return !busy(host) || (plain && acceptsPersonInput(host.state, host.foldedAt));
+}
+
+/** A steer joins the root's running turn; with none running it starts the next one. */
+export function steerOrStart(host: ThreadHost, key: string, text: string): Fact[] {
+  const root = host.state.rootKey;
+  return root !== undefined && host.state.agents[root]?.activeRun
+    ? steerFacts(host, key, text)
+    : startTurn(host, key, text);
 }
 
 /** Admission owns the user bubble. Provider delivery reuses this exact item key. */
@@ -69,7 +87,7 @@ export function startTurn(host: ThreadHost, key: string, _text: string): Fact[] 
   ];
 }
 /** Steering acknowledges an admitted input without fabricating an echo item. */
-export function steerFacts(host: ThreadHost, key: string, _text: string): Fact[] {
+function steerFacts(host: ThreadHost, key: string, _text: string): Fact[] {
   const root = host.state.rootKey;
   if (root === undefined) return [];
   return [{ type: "input.admitted", agent: root, nativeInputId: key, commandId: key }];
@@ -102,7 +120,8 @@ export function sendFacts(
     host.queueDirty = true;
   }
   // A held queue (paused, limited, uncertain) keeps every send in order.
-  if (!busy(host) && !host.queue.paused) {
+  const plain = payload.model === undefined && payload.options === undefined;
+  if (takesMessage(host, plain) && !host.queue.paused && !host.queued.length) {
     host.nextSelection = {
       ...(payload.model ? { model: payload.model } : {}),
       ...(payload.options ? { options: payload.options } : {}),
@@ -115,17 +134,12 @@ export function sendFacts(
       ],
     };
   }
-  if (
-    payload.delivery === "steer" &&
-    !host.queue.paused &&
-    payload.model === undefined &&
-    payload.options === undefined
-  )
+  if (payload.delivery === "steer" && !host.queue.paused && plain)
     return {
       ok: true,
       facts: [
         ...admissionFacts(host, commandId, payload.input, payload.attachments),
-        ...steerFacts(host, commandId, text),
+        ...steerOrStart(host, commandId, text),
       ],
     };
   if (host.queued.length >= 256) return { ok: false, error: "queue_limit" };
@@ -143,19 +157,18 @@ export function sendFacts(
   host.queueDirty = true;
   return {
     ok: true,
-    facts: [
-      ...admissionFacts(host, commandId, payload.input, payload.attachments),
-      { type: "queue.changed", count: host.queued.length },
-    ],
+    // Like the daemon, a queued message joins the transcript when it is delivered.
+    facts: [{ type: "queue.changed", count: host.queued.length }],
   };
 }
 
-/** Once the root agent is free, the oldest queued message starts the next turn. */
+/** A free root agent takes the oldest queued message: it joins the transcript and starts a turn. */
 export function drainQueue(host: ThreadHost): Fact[] {
   const root = host.state.rootKey;
-  if (root === undefined || busy(host) || host.queue.paused) return [];
-  const next = host.queued.shift();
-  if (!next) return [];
+  const next = host.queued[0];
+  if (root === undefined || !next || host.queue.paused) return [];
+  if (!takesMessage(host, next.model === undefined && next.options === undefined)) return [];
+  host.queued.shift();
   host.queueDirty = true;
   host.nextSelection = {
     ...(next.model ? { model: next.model } : {}),
@@ -163,6 +176,7 @@ export function drainQueue(host: ThreadHost): Fact[] {
   };
   return [
     { type: "queue.changed", count: host.queued.length },
+    ...admissionFacts(host, next.key, next.input, next.attachments),
     ...startTurn(host, next.key, next.text),
   ];
 }
@@ -177,6 +191,14 @@ export function interruptFacts(
   if (!Object.values(host.state.agents).some((record) => record.agent.id === target))
     return { ok: false, error: "agent_not_found" };
   const keys = host.interruptKeys(target, cascade);
+  // Like the daemon, Stop holds what was queued behind the stopped work: it sends on the
+  // person's Resume or next message, never by itself once the turn ends.
+  if (host.queued.length && !host.queue.paused) {
+    host.queue.paused = true;
+    host.queue.reason = "stopped";
+    host.queue.resumeAt = null;
+    host.queueDirty = true;
+  }
   return {
     ok: true,
     facts: keys.map((agent) => ({ type: "turn.ended", agent, outcome: "interrupted" })),

@@ -8,7 +8,7 @@ import { findExecutable } from "@ace/provider-kit/discovery";
 import { probeOutput, type SupervisedProcess } from "@ace/provider-kit/process";
 import type { InteractionResolution } from "@ace/protocol";
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
-import { capabilities } from "./capabilities.ts";
+import { requireReadableMinimum } from "@ace/provider-kit/cli-requirements";
 import { SessionTasks } from "./session-tasks.ts";
 import { InputStream, content } from "./input.ts";
 import { object, string } from "./native.ts";
@@ -49,16 +49,8 @@ export async function openSession(
   if (!executable) throw new Error("Claude CLI is not installed");
   const versionProbe = await probeOutput(executable, ["--version"], { env });
   if (versionProbe.code !== 0) throw new Error("Claude version probe failed");
-  const version = versionProbe.stdout.split(/\s/)[0];
-  if (
-    !capabilities({
-      installed: true,
-      auth: "unknown",
-      loginHint: "claude, then /login",
-      ...(version ? { version } : {}),
-    }).backgroundTaskControl
-  )
-    throw new Error("Claude CLI 2.1.286 or newer is required");
+  // Steer binding (user_message_uuids) and the tree contract need the minimum; never run older.
+  requireReadableMinimum("claude", versionProbe.stdout);
   ctx.signal.throwIfAborted();
   const sessionId = ctx.resume?.nativeSessionId ?? randomUUID();
   const input = new InputStream();

@@ -133,3 +133,19 @@ test("a definitive final Git refusal releases admission and stays protected acro
     await restarted.close();
   }
 });
+
+test("a checkout Git cannot inspect leaves data retention finished and the worktree plan unfinished", async () => {
+  const f = await setup();
+  f.edge.inspectWhen = () => true;
+  f.edge.duringInspection = async () => {
+    throw new Error("Git is unavailable");
+  };
+  // Retention governs threads, attachments and logs; a broken checkout is not its unfinished work.
+  expect(await f.storage.retain(120, () => true)).toMatchObject({ complete: true });
+  f.edge.duringInspection = async () => {
+    throw new Error("Git is unavailable");
+  };
+  const plan = await f.storage.plan("owner", request);
+  expect(plan.complete).toBe(false);
+  expect(plan.items[0]?.reasons).toContain("unknown_git_state");
+});

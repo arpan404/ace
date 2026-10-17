@@ -1,6 +1,6 @@
-import { Client } from "@ace/client";
+import { Client, ThreadStore, defaultLimits } from "@ace/client";
 import { FakeDaemon, ScenarioPlayer, facts, fakeTransport, type Scenario } from "@ace/fake-daemon";
-import { DeviceId } from "@ace/protocol";
+import { DeviceId, Item, Thread } from "@ace/protocol";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, expect, test } from "vitest";
@@ -177,4 +177,51 @@ test("a window joined to the tail keeps its older items and follows the tail's n
   expect(texts.indexOf("Question 24")).toBeLessThan(texts.indexOf("Answer 30"));
   expect(texts.indexOf("Answer 30")).toBeLessThan(texts.indexOf("Answer 31"));
   expect(texts.filter((text) => text === "Answer 30")).toHaveLength(1);
+});
+
+const message = (id: string) =>
+  Item.parse({
+    id,
+    agentId: "root",
+    type: "message",
+    role: "assistant",
+    createdAt: 0,
+    complete: true,
+    parts: [{ type: "text", text: id }],
+  });
+
+test("a joined window is followed only by newer tail items, not a root item kept before it", () => {
+  const live = new ThreadStore(defaultLimits);
+  const items = ["kept-prompt", "shared", "newest"].map(message);
+  live.snapshot({
+    kind: "thread",
+    seq: 20,
+    thread: Thread.parse({
+      id: "thread",
+      workspaceId: "ws",
+      provider: "codex",
+      title: "Retained",
+      rootAgentId: "root",
+      status: { state: "done" },
+      createdAt: 0,
+      updatedAt: 0,
+    }),
+    agents: {},
+    agentChildren: {},
+    runs: {},
+    items: Object.fromEntries(items.map((item) => [item.id, item])),
+    itemOrder: items.map((item) => item.id),
+    itemSeqs: { "kept-prompt": 1, shared: 10, newest: 11 },
+    itemsBefore: 10,
+    interactions: {},
+    backgroundTasks: {},
+    usage: {},
+    usageSnapshots: {},
+  });
+  const source = windowSource(live, {
+    items: [message("older"), message("shared")],
+    before: 5,
+    joined: true,
+  });
+  expect(source.order).toEqual(["older", "shared", "newest"]);
 });

@@ -1,4 +1,5 @@
-import { findExecutable, parseVersion } from "@ace/provider-kit/discovery";
+import { findExecutable } from "@ace/provider-kit/discovery";
+import { compareCliVersions, parseCliVersion } from "@ace/provider-kit/cli-versions";
 import { z } from "zod";
 import type { ProviderInstallPlan } from "@ace/protocol";
 import { installer } from "@ace/provider-kit/installers";
@@ -11,15 +12,10 @@ const BrewInfo = z.object({
 const Version = z.string().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/);
 /** Stable releases only; a prerelease never makes a stable installed release look outdated. */
 export function updateAvailable(installed: string, latest: string): boolean | undefined {
-  const current = Version.safeParse(parseVersion("codex", installed));
-  const next = Version.safeParse(latest);
-  if (!current.success || !next.success || next.data.includes("-")) return undefined;
-  const a = current.data.split(/[.+-]/).slice(0, 3).map(Number);
-  const b = next.data.split(/[.+-]/).slice(0, 3).map(Number);
-  for (let i = 0; i < 3; i++) {
-    if ((b[i] ?? 0) !== (a[i] ?? 0)) return (b[i] ?? 0) > (a[i] ?? 0);
-  }
-  return current.data.includes("-");
+  const current = parseCliVersion(installed);
+  const next = Version.safeParse(latest).success ? parseCliVersion(latest) : undefined;
+  if (!current || !next || next.prerelease.length) return undefined;
+  return compareCliVersions(next, current) > 0;
 }
 export class InstallVersions {
   private cache = new Map<string, { latest?: string; checkedAt: number; retryAt: number }>();

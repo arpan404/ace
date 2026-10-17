@@ -7,7 +7,7 @@ import { useThreadSources } from "../sources/index.ts";
 import { QueueNotice, type HeldQueue } from "./queue-notice.tsx";
 import { QueuedTray } from "./queued.tsx";
 import type { PendingQueued } from "./queued-pending.ts";
-import { useActiveRootRun, useStopping } from "./stop-state.ts";
+import { useStopping } from "./stop-state.ts";
 import type { QueueControls } from "./use-queue.ts";
 
 const queueOf = (reader: ThreadReader) => reader.queue;
@@ -45,7 +45,6 @@ export function QueueStrip(props: {
   });
   const hold = useThread(props.threadId, ["queue"], queueOf);
   const selectionWaiting = useThreadMeta(props.threadId)?.switch?.state === "queued";
-  const active = !!useActiveRootRun(props.threadId);
   const stopping = useStopping(props.threadId);
   const steerReason = !queue.canSteer
     ? "This provider doesn't support steering."
@@ -55,11 +54,9 @@ export function QueueStrip(props: {
         ? "The turn is stopping."
         : (hold?.paused ?? queue.page?.paused)
           ? "Resume the queue before steering."
-          : !active
-            ? "There is no running turn to steer."
-            : queue.failed || !queue.page || (hold && hold.revision !== queue.page.revision)
-              ? "Wait for the queue to refresh."
-              : undefined;
+          : queue.failed || !queue.page || (hold && hold.revision !== queue.page.revision)
+            ? "Wait for the queue to refresh."
+            : undefined;
   return (
     <QueuedTray
       threadId={props.threadId}

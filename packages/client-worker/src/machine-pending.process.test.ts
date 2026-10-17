@@ -90,16 +90,22 @@ test("replacement workers replay every record only to its machine even when comm
   await wait(f.pool.status("laptop"), (state) => state?.status === "online");
   const left = f.pool.thread(ref("laptop"));
   cleanup.push(async () => left.release());
+  // Both records reach the laptop. The first starts a turn; the second waits in the laptop's
+  // queue behind it, outside the transcript, until that turn ends (ADR 0065).
+  const laptop = f.pool.client("laptop").pendingSends("shared");
+  await wait(laptop, (entries) =>
+    entries.some((entry) => entry.commandId === "second-command" && entry.state === "accepted"),
+  );
   await wait(
     left.store.select(["order"], (store) => store.order.length),
-    (length) => length === 2,
+    (length) => length === 1,
   );
-  expect(left.store.order).toEqual(["input:same-command", "input:second-command"]);
+  expect(left.store.order).toEqual(["input:same-command"]);
   expect(left.store.item("input:same-command")).toMatchObject({
     parts: [{ text: "First laptop draft" }],
   });
-  expect(left.store.item("input:second-command")).toMatchObject({
-    parts: [{ text: "Second laptop draft" }],
+  expect(laptop.getSnapshot().find((entry) => entry.commandId === "second-command")).toMatchObject({
+    payload: { input: [{ text: "Second laptop draft" }] },
   });
   expect(desktop.getSnapshot()).toMatchObject([
     { state: "sent", payload: { input: [{ text: "Only desktop draft" }] } },

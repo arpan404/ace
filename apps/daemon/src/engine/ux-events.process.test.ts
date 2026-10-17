@@ -130,6 +130,7 @@ test("prepared handoffs publish their summary before the spawn input", async () 
     },
     "spawn-handoff",
   );
+  await h.engine.flush();
   const view = h.store.snapshotThread(prepared.threadId);
   const ordered = view.itemOrder.map((id) => view.items[id]);
   const summary = ordered.find(

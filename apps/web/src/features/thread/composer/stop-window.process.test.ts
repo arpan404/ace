@@ -113,7 +113,7 @@ afterEach(async () => {
   for (const close of cleanups.splice(0)) await close();
 });
 
-test("Stop after a child-only 200-item reload stays fenced to the original root turn", async () => {
+test("Stop after a reload holding only child output stays fenced to the original root turn", async () => {
   const frames = scriptFrames();
   const h = await harness(
     [
@@ -136,22 +136,24 @@ test("Stop after a child-only 200-item reload stays fenced to the original root 
         cwd: "/workspace",
       },
       { type: "turn.started", agent: "child", trigger: "spawn" },
-      ...Array.from({ length: 205 }, (_, index) => ({
+      // A snapshot keeps the root's share of its window (ADR 0062). Only a newest item larger
+      // than the whole snapshot budget leaves the root out: it shows alone, as its preview.
+      {
         type: "item.upsert" as const,
         agent: "child",
-        item: `child-${index}`,
+        item: "child-output",
         draft: {
           type: "message" as const,
           role: "assistant" as const,
           complete: true,
-          parts: [{ type: "text" as const, text: `Child output ${index}` }],
+          parts: [{ type: "text" as const, text: "Child output ".repeat(100_000) }],
         },
-      })),
+      },
     ),
   );
   await h.engine.flush();
   const snapshot = h.store.snapshotThread(id);
-  expect(snapshot.itemOrder).toHaveLength(200);
+  expect(snapshot.itemOrder).toHaveLength(1);
   expect(
     Object.values(snapshot.items).every((item) => item.agentId !== snapshot.thread.rootAgentId),
   ).toBe(true);

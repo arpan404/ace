@@ -24,6 +24,18 @@ test("a sent message appears once before provider startup and keeps its id when 
   };
   const h = await harness([{ on: "send", frames: [frames.frame(start, echo, end)] }], frames);
   close.push(h.close);
+  const opened: { before?: ReturnType<typeof h.store.snapshotThread> } = {};
+  const original = h.registry.get("codex").adapter;
+  h.registry.register(
+    {
+      ...original,
+      openSession(ctx) {
+        opened.before ??= h.store.snapshotThread(ctx.threadId);
+        return original.openSession(ctx);
+      },
+    },
+    { installed: true, auth: "logged_in", loginHint: "unused" },
+  );
   const receipt = h.command(
     {
       type: "thread.create",
@@ -35,8 +47,9 @@ test("a sent message appears once before provider startup and keeps its id when 
     "create-person",
   );
   if (!receipt.threadId) throw new Error("Missing thread");
-  const before = h.store.snapshotThread(receipt.threadId);
-  expect(h.contexts).toHaveLength(0);
+  await h.engine.flush();
+  const before = opened.before;
+  if (!before) throw new Error("Provider never started");
   expect(before.items["input:create-person"]).toMatchObject({
     type: "message",
     parts: [{ type: "text", text: "first" }],
@@ -189,10 +202,10 @@ test("external sends cannot forge ace provenance or trusted run triggers", async
     "forged",
   );
   if (!result.threadId) throw new Error("Missing thread");
+  await h.engine.flush();
   expect(h.store.snapshotThread(result.threadId).items["input:forged"]).toMatchObject({
     synthetic: false,
     origin: { kind: "person", commandId: "forged" },
   });
-  await h.engine.flush();
   expect(Object.values(h.store.snapshotThread(result.threadId).runs)[0]?.trigger).toBe("user");
 });

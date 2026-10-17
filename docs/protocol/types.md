@@ -6790,6 +6790,62 @@ Example:
 []
 ```
 
+## CliVersionCheck
+
+[JSON Schema](schema/CliVersionCheck.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| status | yes | `"ok"` |  |
+| installed | yes | string | {"minLength":1,"maxLength":64} |
+| required | yes | string | {"minLength":1,"maxLength":64} |
+
+Example:
+
+```json
+{
+  "installed": "example",
+  "required": "example",
+  "status": "ok"
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| status | yes | `"too_old"` |  |
+| installed | yes | string | {"minLength":1,"maxLength":64} |
+| required | yes | string | {"minLength":1,"maxLength":64} |
+
+Example:
+
+```json
+{
+  "installed": "example",
+  "required": "example",
+  "status": "too_old"
+}
+```
+
+### Variant 3
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| status | yes | `"unreadable"` |  |
+| required | yes | string | {"minLength":1,"maxLength":64} |
+
+Example:
+
+```json
+{
+  "required": "example",
+  "status": "unreadable"
+}
+```
+
 ## CommandDiagnostic
 
 [JSON Schema](schema/CommandDiagnostic.json), input validation.
@@ -18371,7 +18427,7 @@ Example:
 | instanceId | no | string | {"minLength":1,"maxLength":256} |
 | permissionModes | no | array | {"maxItems":256,"items":{"$ref":"https://ace.local/protocol/v1/NativePermissionMode.json"}} |
 | accessModes | no | array | {"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/AccessModeOffer.json"}} |
-| readiness | no | ["not_installed","installed_signed_out","signed_in","needs_attention","not_configured"] |  |
+| readiness | no | ["not_installed","installed_signed_out","signed_in","needs_attention","not_configured","needs_update"] |  |
 | installHint | no | string | {"maxLength":1024} |
 | installCommand | no | string | {"maxLength":256} |
 | latestVersion | no | string | {"maxLength":256} |
@@ -18382,6 +18438,7 @@ Example:
 | enabled | no | boolean |  |
 | path | no | string | {"minLength":1,"maxLength":4096} |
 | version | no | string | {"minLength":1,"maxLength":256} |
+| versionCheck | no | [CliVersionCheck.json](schema/CliVersionCheck.json) |  |
 | auth | yes | ["logged_in","logged_out","unknown"] |  |
 | authMethod | no | [AccountAuthMethod.json](schema/AccountAuthMethod.json) |  |
 | apiKey | no | [ApiKeySupport.json](schema/ApiKeySupport.json) |  |
@@ -18402,24 +18459,29 @@ Example:
 ```json
 {
   "accessModes": [],
-  "accountLabel": "example",
   "actionId": "provider.sign_in",
+  "apiKey": {
+    "supported": true,
+    "upstreams": []
+  },
   "auth": "logged_in",
   "authDetail": "example",
-  "authMethod": "browser",
-  "checkedAt": 9,
   "installCommand": "example",
   "installed": false,
   "latestVersion": "example",
   "loginHint": "example",
-  "modelsAvailable": false,
   "path": "example",
   "permissionModes": [],
   "provider": "cursor",
   "refreshing": false,
   "runtime": "cli",
   "stale": false,
-  "updateAvailable": true
+  "updateAvailable": true,
+  "versionCheck": {
+    "installed": "example",
+    "required": "example",
+    "status": "ok"
+  }
 }
 ```
 
@@ -18442,7 +18504,7 @@ Example:
 
 ```json
 {
-  "exitCode": 9
+  "exitCode": 4
 }
 ```
 
@@ -18463,7 +18525,7 @@ Example:
 
 ```json
 {
-  "allowOther": true,
+  "header": "example",
   "id": "example",
   "options": [],
   "text": "example"
@@ -18487,17 +18549,16 @@ Example:
 
 ```json
 {
-  "context": {
-    "attachments": [],
-    "items": []
-  },
-  "delivery": "steer",
+  "context": {},
+  "delivery": "queue",
   "id": "example",
   "input": [
     {
-      "mimeType": "example",
-      "type": "image",
-      "url": "example"
+      "arguments": "example",
+      "entryId": "example",
+      "kind": "skill",
+      "name": "example",
+      "type": "mention"
     }
   ],
   "state": "queued"
@@ -18538,12 +18599,16 @@ Example:
 ```json
 [
   {
-    "content": {
-      "data": "example",
-      "encoding": "base64"
+    "arguments": "example",
+    "entryId": "example",
+    "invocation": {
+      "name": "example",
+      "type": "plugin"
     },
-    "path": "example",
-    "type": "file"
+    "kind": "plugin",
+    "name": "example",
+    "type": "mention",
+    "values": {}
   }
 ]
 ```
@@ -18570,13 +18635,14 @@ Example:
 ```json
 {
   "messages": [],
-  "next": "example",
+  "next": null,
   "paused": true,
-  "reason": "snooze",
-  "resumeAt": 0,
-  "revision": 9,
+  "pendingCount": 2,
+  "reason": null,
+  "resumeAt": 1,
+  "revision": 4,
   "threadId": "example",
-  "total": 0
+  "total": 4
 }
 ```
 
@@ -18596,11 +18662,10 @@ Example:
 {
   "queue": {
     "messages": [],
-    "next": null,
+    "next": "example",
     "paused": true,
-    "pendingCount": 2,
     "reason": null,
-    "resumeAt": 1,
+    "resumeAt": null,
     "revision": 4,
     "threadId": "example",
     "total": 4
@@ -18629,11 +18694,15 @@ Example:
 
 ```json
 {
+  "lastFailure": {
+    "code": "example",
+    "title": "example"
+  },
   "messages": [],
-  "paused": true,
+  "paused": false,
   "reason": null,
   "resumeAt": null,
-  "revision": 4,
+  "revision": 7,
   "threadId": "example"
 }
 ```
@@ -18655,10 +18724,11 @@ Example:
 
 ```json
 {
-  "paused": false,
+  "lastFailure": null,
+  "paused": true,
   "reason": null,
-  "resumeAt": 0,
-  "revision": 1
+  "resumeAt": null,
+  "revision": 0
 }
 ```
 
@@ -18680,14 +18750,10 @@ Example:
 
 ```json
 {
-  "lastFailure": {
-    "code": "example",
-    "title": "example"
-  },
-  "paused": false,
-  "reason": "not_sent",
-  "resumeAt": null,
-  "revision": 5,
+  "paused": true,
+  "reason": null,
+  "resumeAt": 1,
+  "revision": 1,
   "type": "queue.updated"
 }
 ```
@@ -18706,8 +18772,8 @@ Example:
 
 ```json
 {
-  "endMinute": 4,
-  "startMinute": 6,
+  "endMinute": 7,
+  "startMinute": 4,
   "timeZone": "UTC"
 }
 ```
@@ -18725,8 +18791,7 @@ Example:
 
 ```json
 {
-  "available": 1,
-  "nextExpiresAt": null
+  "available": 4
 }
 ```
 
@@ -18749,9 +18814,11 @@ Example:
 
 ```json
 {
-  "advisory": true,
-  "resetsAt": 1,
-  "usedPercent": 7
+  "observedAt": 0,
+  "remainingPercent": 5,
+  "resetsAt": 6,
+  "source": "limit_error",
+  "usedPercent": 4
 }
 ```
 
@@ -18772,6 +18839,7 @@ Example:
 ```json
 {
   "data": null,
+  "name": "example",
   "type": "example"
 }
 ```
@@ -18791,9 +18859,8 @@ Example:
 ```json
 {
   "blobRef": "example",
-  "name": "example",
   "preview": "example",
-  "size": 5,
+  "size": 7,
   "type": "example"
 }
 ```
@@ -18828,12 +18895,11 @@ Example:
   "acpAgentId": "example",
   "auth": "unknown",
   "authors": [],
-  "availability": "unsupported_distribution",
+  "availability": "available",
   "coverage": "source_profile",
   "description": "example",
-  "homepage": "https://example.invalid/",
+  "icon": "https://example.invalid/",
   "isolation": "unsupported",
-  "license": "example",
   "loginHint": "example",
   "name": "example",
   "source": "https://example.invalid/",
@@ -18867,6 +18933,7 @@ Example:
   "instanceId": "example",
   "packageManager": {
     "command": "example",
+    "integrity": "example",
     "package": "example"
   },
   "profileRevision": "example",
@@ -18899,12 +18966,12 @@ Example:
   "acpAgentId": "example",
   "argv": [],
   "destination": "example",
-  "digest": "c0a8438accf64281f6a642e125aab62e2c38b4560baeb04ace3272161013f984",
+  "digest": "f64281f6a642e125aab62e2c38b4560baeb04ace3272161013f984f2aa592e94",
   "publisher": [],
   "runtime": "npm",
   "source": "https://example.invalid/",
   "target": "example",
-  "verification": "unsigned_https",
+  "verification": "sha256",
   "version": "example"
 }
 ```
@@ -18924,10 +18991,10 @@ Example:
 
 ```json
 {
-  "digest": "a592e940e2ee8ed2c41000bff23e0a0bc2068846fcf6b4c002442b95b4822e82",
+  "digest": "ee8ed2c41000bff23e0a0bc2068846fcf6b4c002442b95b4822e82192ecba28d",
   "intentId": "example",
-  "phase": "extract",
-  "receivedBytes": 9
+  "phase": "download",
+  "receivedBytes": 7
 }
 ```
 
@@ -18948,7 +19015,7 @@ Example:
 
 ```json
 {
-  "limit": 2,
+  "offset": 2,
   "requestId": "example",
   "type": "registry.list"
 }
@@ -18995,7 +19062,6 @@ Example:
   "instanceId": "example",
   "requestId": "example",
   "type": "registry.bind",
-  "underlyingCommand": "example",
   "version": "example"
 }
 ```
@@ -19015,7 +19081,7 @@ Example:
 {
   "acpAgentId": "example",
   "requestId": "example",
-  "runtime": "binary",
+  "runtime": "npm",
   "type": "registry.install-plan"
 }
 ```
@@ -19033,7 +19099,7 @@ Example:
 
 ```json
 {
-  "digest": "8de5be0342f4d8bb53d1fb3bab39cc24466f21028c0d0c1ecfde233cd1269f80",
+  "digest": "f4d8bb53d1fb3bab39cc24466f21028c0d0c1ecfde233cd1269f80fd72180f50",
   "intentId": "example",
   "requestId": "example",
   "type": "registry.install-intent"
@@ -19075,10 +19141,10 @@ Example:
   "requestId": "example",
   "result": {
     "agents": [],
+    "error": "cache_failed",
     "installations": [],
     "ok": true,
     "refreshing": false,
-    "schemaVersion": "example",
     "source": "example",
     "stale": true
   },
@@ -19095,7 +19161,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"releases/1681.386993.129194-uzwu3np3fh-linux-x64"
+"releases/4129.94.856658347-darwin-arm64"
 ```
 
 ## ReleaseManifest
@@ -19120,7 +19186,7 @@ Example:
   "channel": "stable",
   "sha256": "a398e2ed6f7df81d4a8e4a15691c63a815f6e8c9b68152b3d848a9125cb0d31d",
   "target": "linux-arm64",
-  "version": "36595.26001.573-krffwkmk5"
+  "version": "4365954260.1.573-krffwkmk5"
 }
 ```
 

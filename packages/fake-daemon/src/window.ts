@@ -1,4 +1,4 @@
-import { chronologicalItemOrder } from "@ace/projection";
+import { retainedTail } from "@ace/projection";
 import type { Item, ItemsPage, ThreadView } from "@ace/protocol";
 
 function seqs(ids: readonly string[], creation: ReadonlyMap<string, number>) {
@@ -26,26 +26,34 @@ function cursor(
   return shown.length < total && first !== undefined ? (creation.get(first) ?? null) : null;
 }
 
-/** ADR 0006 snapshot: every status entity, but only the newest `limit` items. */
+/**
+ * ADR 0006 snapshot: every status entity, but only the tail of `limit` items the daemon's
+ * snapshot keeps (its newest items, with the root agent's share), in creation order.
+ */
 export function windowSnapshot(
   view: ThreadView,
   creation: ReadonlyMap<string, number>,
   limit: number,
   seq: number,
 ): ThreadView {
-  const kept = chronologicalItemOrder(
-    view.itemOrder,
-    (id) => view.items[id],
-    (id) => creation.get(id),
-  ).slice(-limit);
+  const root = view.thread.rootAgentId;
+  const tail = retainedTail(
+    view.itemOrder.map((id) => ({
+      id,
+      seq: creation.get(id),
+      root: root !== undefined && view.items[id]?.agentId === root,
+    })),
+    limit,
+  );
+  const kept = tail.kept.map((entry) => entry.id);
   const { items: _items, itemOrder: _order, ...rest } = view;
   return {
     ...structuredClone(rest),
     seq,
     items: Object.fromEntries(pick(view, kept).map((item) => [item.id, item])),
-    itemOrder: [...kept],
+    itemOrder: kept,
     itemSeqs: seqs(kept, creation),
-    itemsBefore: cursor(kept, view.itemOrder.length, creation),
+    itemsBefore: tail.before ?? null,
   };
 }
 

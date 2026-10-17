@@ -3,8 +3,10 @@ import { RawPayload } from "@ace/protocol";
 import { ContentPart } from "@ace/protocol";
 import { CursorSdkAuth } from "@ace/protocol/accounts";
 import { CursorModelParams } from "@ace/provider-kit/cursor-selection";
+import { cliRequirements } from "@ace/provider-kit/cli-requirements";
 
-export const sdkVersion = "1.0.35";
+/** The SDK ships with ace pinned exactly; its floor and pin are both ace's declared minimum. */
+export const sdkVersion = cliRequirements["cursor-sdk"].minimum;
 const identity = z.string().min(1).max(512);
 export const Limits = z.strictObject({
   maxWorkers: z.number().int().positive().max(64).default(8),

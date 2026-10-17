@@ -1,5 +1,7 @@
 # Provider integration research: overview
 
+The oldest CLI version ace supports for each provider, and why, is in [minimum-versions.md](minimum-versions.md).
+
 Researched 2026-10-01/02 for the ace rewrite. This file compares the five priority providers and draws conclusions for the canonical protocol. The per-provider files hold the detail and the citations:
 
 | Provider    | File                             | Version inspected                                                                            |

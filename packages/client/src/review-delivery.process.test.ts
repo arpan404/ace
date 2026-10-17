@@ -1,6 +1,16 @@
 import { afterEach, expect, test } from "vitest";
 import { ItemId } from "@ace/protocol";
-import { setup, ready, when, barrier, message, delta, itemId, itemText } from "./test-support.ts";
+import {
+  setup,
+  ready,
+  when,
+  barrier,
+  message,
+  delta,
+  itemId,
+  itemText,
+  newestOnly,
+} from "./test-support.ts";
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => {
   await cleanup?.();
@@ -85,8 +95,9 @@ test("a held history page cannot admit an item older than its observed live upda
     message,
     { ...message, item: { ...message.item, id: ItemId.parse("new") } },
   ]);
-  const { client, faults } = h.make({ limits: { items: 1 } });
+  const { client, faults } = h.make({ limits: { items: 2 } });
   await ready(client);
+  newestOnly(faults);
   const { store } = client.thread(h.thread.id);
   await when(
     store.select(["thread"], (s) => s.thread),
@@ -98,11 +109,8 @@ test("a held history page cannot admit an item older than its observed live upda
       release = () => deliver(frame);
     } else deliver(frame);
   };
-  const pending = client.itemsPage({
-    threadId: h.thread.id,
-    before: h.daemon.store.headSeq(),
-    limit: 1,
-  });
+  const before = h.daemon.store.headSeq();
+  const pending = client.itemsPage({ threadId: h.thread.id, before, limit: 1 });
   await faults.wait((event) => event.type === "items.page");
   h.daemon.store.appendEvents(h.thread.id, [
     { type: "item.updated", item: { ...message.item, complete: true } },
@@ -111,7 +119,7 @@ test("a held history page cannot admit an item older than its observed live upda
   if (!release) throw new Error("Page not captured");
   release();
   const page = await pending;
-  store.page(page);
+  store.page(page, before);
   expect(store.item(itemId)?.complete).toBe(true);
 });
 
@@ -124,8 +132,9 @@ test("a page newer than delivery ignores deltas already included in that page", 
     { ...message, item: { ...message.item, id: ItemId.parse("new") } },
   ]);
   const before = h.daemon.store.headSeq();
-  const { client, faults } = h.make({ limits: { items: 1 } });
+  const { client, faults } = h.make({ limits: { items: 2 } });
   await ready(client);
+  newestOnly(faults);
   const { store } = client.thread(h.thread.id);
   await barrier(client, h.thread.id);
   let replay: (() => void) | undefined;
@@ -135,7 +144,7 @@ test("a page newer than delivery ignores deltas already included in that page", 
   };
   h.daemon.store.appendEvents(h.thread.id, [delta("once")]);
   const page = await client.itemsPage({ threadId: h.thread.id, before, limit: 1 });
-  store.page(page);
+  store.page(page, before);
   if (!replay) throw new Error("Delta not captured");
   replay();
   expect(itemText(store.item(itemId))).toBe("once");
@@ -151,16 +160,17 @@ test("an expired page journal rejects stale history and a fresh page recovers", 
     { ...message, item: { ...message.item, id: ItemId.parse("new") } },
   ]);
   const before = h.daemon.store.headSeq();
-  const { client } = h.make({ limits: { items: 1, entities: 1 } });
+  const { client, faults } = h.make({ limits: { items: 2, entities: 1 } });
   await ready(client);
+  newestOnly(faults);
   const { store } = client.thread(h.thread.id);
   await barrier(client, h.thread.id);
   const old = await client.itemsPage({ threadId: h.thread.id, before, limit: 1 });
   h.daemon.store.appendEvents(h.thread.id, [delta("A"), delta("B")]);
   await barrier(client, h.thread.id);
-  expect(() => store.page(old)).toThrow("fresh read");
+  expect(() => store.page(old, before)).toThrow("fresh read");
   const fresh = await client.itemsPage({ threadId: h.thread.id, before, limit: 1 });
-  store.page(fresh);
+  store.page(fresh, before);
   expect(itemText(store.item(itemId))).toBe("AB");
   expect(client.state).toBe("ready");
 });

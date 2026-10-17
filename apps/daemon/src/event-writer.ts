@@ -49,6 +49,8 @@ export class EventWriter {
     let followup: EventPayload | undefined;
     let inputIndex = 0;
     while (followup || inputIndex < payloads.length) {
+      // A supplied envelope belongs to its input payload only; a follow-up is a new append.
+      const envelope = followup ? undefined : envelopes?.[inputIndex];
       const payload = followup ?? payloads[inputIndex++];
       followup = undefined;
       if (!payload) break;
@@ -56,7 +58,7 @@ export class EventWriter {
       const previous = this.source.getThread(threadId);
       const prepared = previous ? prepareRunClient(this.source.db, previous, payload) : payload;
       const event =
-        envelopes?.[inputIndex - 1] ??
+        envelope ??
         Event.parse({
           seq: (seq = this.source.sequences.next(seq)),
           id: this.source.nextId(),

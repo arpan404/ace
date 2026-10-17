@@ -121,6 +121,12 @@ test("a window at the thread's end still asks for newer items, since a live thre
   expect(meetsTail(window, { order: ["item-1300"], before: seqOf(1300) })).toBe(false);
 });
 
+test("a window sharing only a root item the tail kept before its cursor does not meet it", () => {
+  const window = openWindow(reply(seqOf(500), 20, 20));
+  const tail = { order: ["item-510", "item-900"], before: seqOf(900) };
+  expect(meetsTail(window, tail)).toBe(false);
+});
+
 test("a tail holding the whole thread always meets a window", () => {
   const window = openWindow(reply(seqOf(10), 5, 5));
   expect(meetsTail(window, { order: ["item-900"], before: null })).toBe(true);

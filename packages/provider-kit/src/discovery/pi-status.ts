@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { discoverPi } from "./pi.ts";
-import { piVersionSupported } from "./pi-version.ts";
+import { admitsVersion } from "../cli-requirements.ts";
 import type { DiscoveryOptions } from "./index.ts";
 import type { DiscoveryResult } from "./types.ts";
 import { probeOutput } from "../process.ts";
@@ -43,7 +43,9 @@ export async function discoverPiStatus(
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
       return { ...result, error: "Pi settings or readiness probe unavailable" };
   }
-  if (!piVersionSupported(result.version))
+  // Too old is reported through `versionCheck`; only an unreadable version is an error here.
+  if (result.versionCheck?.status === "too_old") return result;
+  if (!admitsVersion("pi", result.version))
     return { ...result, error: "Pi auth status is unsupported for this version" };
   const providers = [
     ...new Set([...(provider ? [provider] : []), "openai-codex", "anthropic", "github-copilot"]),

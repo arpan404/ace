@@ -48,6 +48,8 @@ export class ThreadHost {
   queueDirty = false;
   nextSelection: { model?: string; options?: TurnOptions } | undefined;
   runOrdinal = 0;
+  /** The clock reading of the last folded fact: "now" for readiness rules between commands. */
+  foldedAt = 0;
   permissionParent: string | undefined;
   private counter = 0;
   constructor(thread: Thread, silenceMs?: number) {
@@ -98,6 +100,7 @@ export class ThreadHost {
           },
         };
     }
+    this.foldedAt = now;
     const events = apply(this.state, fact, {
       now,
       ids: {
@@ -118,9 +121,9 @@ export class ThreadHost {
     return events;
   }
   /**
-   * Like the daemon, admission writes the person's item before its run exists (or while an
-   * earlier run is still going); the root run started for that command takes it as its own, so
-   * the transcript groups the ask with the turn answering it.
+   * Like the daemon, delivery writes the person's item just before its run exists; the root run
+   * started for that command takes it as its own, so the transcript groups the ask with the
+   * turn answering it.
    */
   private attachInput(fact: Fact, events: EventPayload[]): void {
     if (fact.type !== "turn.started" || fact.agent !== this.state.rootKey) return;

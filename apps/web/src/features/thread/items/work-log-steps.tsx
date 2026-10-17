@@ -2,7 +2,7 @@ import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import type { Item, ToolSurface } from "@ace/protocol";
 import { isMeasurementCall, type StepText } from "@ace/ui-core";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
-import { Suspense, useId, useState } from "react";
+import { Suspense, useId } from "react";
 import { cn } from "@/lib/cn.ts";
 import { DeferredMeasurementStep } from "./deferred-measurement.ts";
 import { MessageAttachments } from "@/components/attachment-message.tsx";
@@ -12,6 +12,7 @@ import { StepGlyph } from "./step-glyph.tsx";
 import { RailMark } from "./step-rail.tsx";
 import { StepProse } from "./step-prose.tsx";
 import { useStepDisplay } from "./use-step-display.ts";
+import { useStepOpen } from "./step-open.ts";
 
 /*
  * One work-log step as a quiet row that expands to its detail, and what the agent said between
@@ -43,7 +44,14 @@ export function ToolStepContent(props: {
         <StepProse threadId={props.threadId} itemId={props.itemId} />
       </li>
     );
-  const line = <StepLine threadId={props.threadId} data={display} surface={props.surface} />;
+  const line = (
+    <StepLine
+      threadId={props.threadId}
+      itemId={props.itemId}
+      data={display}
+      surface={props.surface}
+    />
+  );
   if (
     data &&
     ((item?.type === "tool_call" && (item.measurement || isMeasurementCall(item.call))) ||
@@ -59,12 +67,15 @@ export function ToolStepContent(props: {
 
 function StepLine(props: {
   threadId: string;
+  itemId: string;
   data: ReturnType<typeof useStepDisplay>;
   surface?: ToolSurface | undefined;
 }) {
   const { data } = props;
-  // Details start folded; pending requests remain visible above the composer.
-  const [open, setOpen] = useState(false);
+  // Details start folded; pending requests remain visible above the composer. What the reader
+  // opened stays open when the step joins a group.
+  const [toggled, setOpen] = useStepOpen(props.itemId);
+  const open = toggled ?? false;
   const panel = useId();
   if (!data || data.awaiting) return null;
   const expandable = hasStepDetail(data.item);

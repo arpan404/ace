@@ -47,6 +47,7 @@ const allowed: Record<Fact["type"], string[]> = {
   ],
   "agent.linked": ["agent", "parent", "spawnedBy", "background", "name", "model"],
   "input.admitted": ["agent", "nativeInputId", "commandId"],
+  "input.consumed": ["agent", "nativeInputIds"],
   "turn.started": ["agent", "nativeTurnId", "trigger", "permissionMode"],
   "turn.ended": ["agent", "nativeTurnId", "outcome", "trigger", "error", "historical"],
   activity: ["agent", "activity", "detail"],
@@ -270,6 +271,14 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
           (typeof fact.commandId === "string" &&
             fact.commandId.length > 0 &&
             fact.commandId.length <= 512))
+      );
+    case "input.consumed":
+      return (
+        Array.isArray(fact.nativeInputIds) &&
+        fact.nativeInputIds.length <= 64 &&
+        fact.nativeInputIds.every(
+          (id) => typeof id === "string" && id.length > 0 && id.length <= 512,
+        )
       );
     case "activity":
       return AgentActivity.safeParse(fact.activity).success && optionalString(fact.detail);

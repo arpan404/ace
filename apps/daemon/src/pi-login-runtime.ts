@@ -3,17 +3,17 @@ import { open, realpath } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
-import { piVersionSupported } from "@ace/provider-kit/discovery";
+import { admitsVersion, requireReadableMinimum } from "@ace/provider-kit/cli-requirements";
 
 const Manifest = z.object({
   name: z.literal("@earendil-works/pi-coding-agent"),
-  version: z.string().refine(piVersionSupported),
+  version: z.string().refine((value) => admitsVersion("pi", value)),
   main: z.literal("./dist/index.js"),
 });
 
 /** Bind auth to the SDK shipped with the selected executable, never an ace-installed copy. */
 export async function piLoginRuntime(command: string, version?: string): Promise<string> {
-  if (!piVersionSupported(version)) throw new Error("Pi login requires Pi 0.85.1 or newer");
+  requireReadableMinimum("pi", version);
   let directory = dirname(await realpath(command));
   for (let depth = 0; depth < 6; depth++) {
     try {

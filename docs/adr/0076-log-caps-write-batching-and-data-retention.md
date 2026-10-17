@@ -96,8 +96,12 @@ range, a small independent transaction advances the existing `host_sequence` hig
 by at least 65,536 slots counted from canonical event envelopes, never bytes or provider
 facts. A shell-output fact may split into several canonical deltas. The exact batch is pinned
 before its range is checked, so refilling a range can durably flush the complete batch and
-snapshot together. Only unpublished original envelopes reach live subscribers; compacting
-the persisted rows never repeats an already delivered prefix. Reservation or forced-flush
+snapshot together. Delta-only batches publish their original envelopes at once; only that
+already delivered prefix is compacted when persisted, so compaction never repeats it. A batch
+with any other event is held, stored uncompacted and published after commit as exactly the
+rows stored. When storing produces a live-metadata follow-up (`thread.client.updated`), the
+follow-up takes the next fresh sequence and every later held event is renumbered after it,
+the same order an unbuffered append writes. Reservation or forced-flush
 failures retain the batch and apply mailbox backpressure until storage recovers. The visible durable head comes from actual event/deletion rows,
 not unused reservations. Restart skips the reserved range, including slots published only
 in memory, so a lost tail can never alias later events. The table's encoding is unchanged;

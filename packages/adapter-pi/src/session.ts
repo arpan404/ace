@@ -10,13 +10,13 @@ import { finished } from "node:stream/promises";
 import { piLaunchArgs } from "./launch-args.ts";
 import type { ProviderSession, SessionContext, Frame } from "@ace/engine-api";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
-import { piVersionRefusal, type DiscoveryResult } from "@ace/provider-kit/discovery";
+import type { DiscoveryResult } from "@ace/provider-kit/discovery";
+import { requireReadableMinimum } from "@ace/provider-kit/cli-requirements";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { readJsonLines } from "@ace/provider-kit/jsonl";
 import { PiRpc } from "./rpc.ts";
 import { runtime, type PiRuntime } from "./runtime.ts";
 import { Dialog, State, Cancelled, obj, str, list, isBlockingDialogMethod } from "./native.ts";
-import { piProfile } from "./capabilities.ts";
 import { piInput } from "./input.ts";
 import { dialogResponse } from "./dialogs.ts";
 import {
@@ -58,7 +58,9 @@ export async function openPiSession(
       ...(ctx.env ? { env: ctx.env } : {}),
       signal: ctx.signal,
     }));
-  if (!cli.path || !piProfile(cli).supported) throw new Error(piVersionRefusal(cli.version));
+  if (!cli.installed || !cli.path)
+    throw new Error("Pi is not installed. Install it or configure its path.");
+  requireReadableMinimum("pi", cli.version);
   const referenceDir = sessionReferenceDirectory(options.sessionReferenceDir);
   const resume = ctx.resume
     ? await loadSessionReference(referenceDir, ctx.resume.nativeSessionId)
