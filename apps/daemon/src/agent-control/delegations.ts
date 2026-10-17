@@ -168,11 +168,7 @@ export class DelegationService {
     const thread = this.deps.store.getThread(threadId);
     this.journal.activity(
       threadId,
-      thread &&
-        thread.deletedAt === undefined &&
-        !["done", "failed", "new"].includes(thread.status.state)
-        ? 1
-        : 0,
+      thread && thread.deletedAt === undefined && thread.status.state === "working" ? 1 : 0,
     );
   }
   catalog(
@@ -766,7 +762,7 @@ export class DelegationService {
     const thread = this.deps.store.getThread(edge.childId);
     if (!thread) return;
     this.deps.store.atomic(() => {
-      if (edge.phase === "settled" && !["done", "failed", "new"].includes(thread.status.state)) {
+      if (edge.phase === "settled" && thread.status.state === "working") {
         // Revived work always continues, whatever the counts. Only a cancelled child stays stopped.
         this.journal.revive(edge);
         if (this.journal.stopped(edge.childId) || this.journal.ancestorStopped(edge.childId)) {
@@ -790,7 +786,7 @@ export class DelegationService {
         status: this.launches.has(edge.childId) ? queuedStatus : childStatus(edge, thread),
       };
       this.deps.engine.updateChild(edge.parentId, shown);
-      if (edge.phase === "settled" || !["done", "failed"].includes(thread.status.state)) {
+      if (edge.phase === "settled" || thread.status.state === "working") {
         this.deps.engine.delegationStarted(edge, shown);
         return;
       }
@@ -815,7 +811,7 @@ export class DelegationService {
     const outcome =
       record?.phase === "settled" && record.outcome && thread.status.state === "new"
         ? record.outcome
-        : ["done", "failed"].includes(thread.status.state)
+        : thread.status.state !== "working"
           ? (record?.outcome ?? threadOutcome(this.deps.store, thread))
           : await this.waiters.wait(threadId, signal);
     signal.throwIfAborted();

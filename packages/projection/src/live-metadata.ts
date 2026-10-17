@@ -117,7 +117,7 @@ export function liveMetadata(
   const unsettled =
     payload.type === "thread.updated" &&
     payload.status &&
-    payload.status.state !== "done" &&
+    payload.status.state === "working" &&
     (thread.settledAt !== undefined || thread.autoSettleAt !== undefined);
   const live: Live = { provider: thread.provider, ...thread.live };
   if (payload.type === "thread.updated") {

@@ -6,7 +6,7 @@ import type { ThreadListEntry, ThreadReadStateResponse } from "@ace/protocol";
  * worked, unread. Home's order (`arrange.ts`) reads these.
  */
 
-/** In the Settled section. A thread that needs you is never shown settled. */
+/** In the Settled section. Only working threads are never shown settled. */
 export function isSettled(entry: ThreadListEntry): boolean {
   return sidebarSettled(entry);
 }

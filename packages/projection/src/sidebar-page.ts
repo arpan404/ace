@@ -1,7 +1,9 @@
 import type { ThreadListEntry, ThreadListCursor, ThreadListWindow } from "@ace/protocol";
 import { threadAttention } from "./thread-attention.ts";
 export function sidebarSettled(entry: ThreadListEntry): boolean {
-  return entry.settledAt !== undefined && entry.status.state === "done" && !threadAttention(entry);
+  return (
+    entry.settledAt !== undefined && entry.status.state !== "working" && !threadAttention(entry)
+  );
 }
 export function sidebarVisible(entry: ThreadListEntry, archived = false): boolean {
   return entry.deletedAt === undefined && (entry.archivedAt !== undefined) === archived;
