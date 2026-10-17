@@ -167,12 +167,8 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       onVisibility: (listener: (value: EventOf<"browser.visibility">) => void) =>
         subscribe("browser.visibility", listener),
       place: (placement: RequestOf<"browser.place">) => call("browser.place", placement),
-      setController: (request: RequestOf<"browser.control">) => call("browser.control", request),
+      snapshot: (request: RequestOf<"browser.snapshot">) => call("browser.snapshot", request),
       focusApp: () => call("browser.focus-app"),
-      onController: (listener: (value: EventOf<"browser.controller">) => void) =>
-        subscribe("browser.controller", listener),
-      onWantsControl: (listener: (value: EventOf<"browser.wants-control">) => void) =>
-        subscribe("browser.wants-control", listener),
     },
     updates: {
       check: () => call("updates.check"),

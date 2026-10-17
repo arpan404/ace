@@ -2,14 +2,12 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { notificationOutbox } from "./link/notification-outbox.ts";
 import { join } from "node:path";
-import { webContents, type BaseWindow, type BrowserWindow } from "electron";
+import type { BaseWindow, BrowserWindow } from "electron";
 import type { BrowserPlacement, DeepLink, DesktopSettings } from "../shared/contract.ts";
-import type { ControllerState } from "./browser/backend.ts";
 import type { BackendConnection } from "./browser/connection.ts";
 import type { EmbeddedViews, PlacementHost } from "./browser/views.ts";
 import type { DaemonRuntime } from "./daemon/runtime.ts";
 import type { DesktopLink } from "./link/desktop-link.ts";
-import { emit } from "./ipc.ts";
 import { LinkKeeper, runtimeLinkSource, type Endpoint } from "./link/link-keeper.ts";
 import { NativeNotifier } from "./notifications/native.ts";
 import { NotificationRouter, type Alert } from "./notifications/router.ts";
@@ -28,7 +26,6 @@ export interface BackgroundOptions {
   open(link?: DeepLink): void;
   quitAll(): void;
   log(message: string): void;
-  onController(state: ControllerState): void;
 }
 
 /** How long Quit waits for the daemon link to close before it moves on. */
@@ -187,14 +184,9 @@ export class Background {
       partitionsDir: join(this.options.userData, "Partitions"),
       platform: process.platform,
       log,
-      onClaim: (threadId, owner) => backend.claimControl(threadId, owner),
       onPages: () => this.reviewLifetime(),
     });
-    const backend = new BrowserBackend(views, {
-      onController: this.options.onController,
-      onTakeover: (threadId) => this.wantsControl(threadId),
-      log,
-    });
+    const backend = new BrowserBackend(views, { log });
     const connection = new BackendConnection(backend, {
       daemon: async () => {
         const daemon = await runtime.local();
@@ -266,21 +258,11 @@ export class Background {
   }
 
   /**
-   * The person clicked or typed on a view they don't control. The renderer showing it takes
-   * control through its own daemon connection, the one its address bar and buttons use; with
-   * no renderer showing it, this app's backend connection asks.
+   * A picture of a thread's shown view as it is now (a PNG `data:` URL), for the renderer to
+   * hold in its place while a menu or popover covers it; undefined when nothing shows.
    */
-  private wantsControl(threadId: string): void {
-    const host = this.browser?.views.shownIn(threadId);
-    const renderer = host === undefined ? undefined : webContents.fromId(host);
-    if (renderer) emit(renderer, "browser.wants-control", { threadId });
-    else this.browser?.connection.takeover(threadId);
-  }
-
-  /** The person asked for control of a thread's view (`human`) or gave it back. */
-  browserControl(threadId: string, controller: "agent" | "human"): void {
-    if (controller === "human") this.browser?.connection.takeover(threadId);
-    else this.browser?.connection.handback(threadId);
+  snapshotBrowser(threadId: string): Promise<string | undefined> {
+    return this.browser?.views.snapshot(threadId) ?? Promise.resolve(undefined);
   }
 
   /** Route an alert and show it if the rules allow; true when shown. */

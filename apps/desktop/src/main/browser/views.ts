@@ -38,8 +38,6 @@ export interface ViewHostOptions {
   partitionsDir: string;
   platform: NodeJS.Platform;
   log(message: string): void;
-  /** The connection the renderer showing a thread's view holds the page through, if any. */
-  onClaim?(threadId: string, owner: string | undefined): void;
   /** The number of threads with native pages changed (they keep the app running). */
   onPages?(count: number): void;
 }
@@ -234,6 +232,11 @@ export class EmbeddedViews implements ViewHost {
   }
 
   /** Threads with a native page here; the app stays running while there are any. */
+  /** The shown tab of a thread's view as a PNG `data:` URL, while it is on screen. */
+  async snapshot(threadId: string): Promise<string | undefined> {
+    return this.pages.get(threadId)?.picture();
+  }
+
   count(): number {
     return this.pages.size;
   }
@@ -263,7 +266,6 @@ export class EmbeddedViews implements ViewHost {
     this.placements.set(threadId, host.id, {
       bounds,
       visible: placement.visible,
-      owner: placement.owner,
       device: placement.device,
     });
     this.apply(threadId);
@@ -389,7 +391,6 @@ export class EmbeddedViews implements ViewHost {
       zoom: host?.zoom ?? 1,
       device: placement.device,
     });
-    this.options.onClaim?.(threadId, placement.owner);
     if (page.isShown()) this.ready.set(threadId, generation);
     else this.ready.delete(threadId);
     this.reportVisibility(threadId);

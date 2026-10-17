@@ -45,14 +45,14 @@ export class EmbeddedPage implements ViewPage {
   private options: PageOptions;
   private contents: WebContents;
   private listeners = new Set<(method: string, params: unknown) => void>();
-  private blocked = new Set<() => void>();
+  private humanInput = new Set<() => void>();
   private gate = new WebSocketGate(new Set(["http:", "https:", "ws:", "wss:"]));
   private readonly recovery: RendererRecovery;
   private pageZoom = 1;
   private appliedZoom = 1;
   private appZoom = 1;
   private nativeInput = false;
-  private agentControl = true;
+  private agentControl = false;
   allowsClipboard(): boolean {
     return this.nativeInput;
   }
@@ -63,7 +63,7 @@ export class EmbeddedPage implements ViewPage {
    * arrive as separate tasks and never see it set. See `inject`.
    */
   private injecting = 0;
-  private lastBlocked = 0;
+  private lastHuman = 0;
   private placed = false;
   private placementPending = false;
   private placementGeneration = 0;
@@ -174,7 +174,10 @@ export class EmbeddedPage implements ViewPage {
         return;
       }
       if (this.allowInput()) {
-        if (input.type === "keyDown") this.activation.note();
+        if (input.type === "keyDown") {
+          this.activation.note();
+          if (this.injecting === 0) this.reportHuman();
+        }
         return;
       }
       event.preventDefault();
@@ -182,10 +185,11 @@ export class EmbeddedPage implements ViewPage {
     contents.on("before-mouse-event", (event, mouse) => {
       if (this.allowInput()) {
         if (mouse.type === "mouseDown") this.activation.note();
+        if (this.injecting === 0 && (mouse.type === "mouseDown" || mouse.type === "mouseWheel"))
+          this.reportHuman();
         return;
       }
       event.preventDefault();
-      if (mouse.type === "mouseDown") this.reportBlocked();
     });
     contents.debugger.on("message", (_event, method: string, params: unknown, sessionId) => {
       // Flattened child sessions are not part of the relay; the daemon uses
@@ -524,8 +528,7 @@ export class EmbeddedPage implements ViewPage {
 
   /**
    * Run a synchronous input dispatch whose events must pass the native gate: the daemon only
-   * relays input that its sender may give (an agent, or the person who holds the lease
-   * elsewhere). No time window is opened: an event the dispatch doesn't produce synchronously
+   * relays input from agents and from the person's other devices. No time window is opened: an event the dispatch doesn't produce synchronously
    * is treated as the person's and gated, so a change in Chromium fails closed.
    */
   private inject<T>(dispatch: () => T): T {
@@ -542,9 +545,21 @@ export class EmbeddedPage implements ViewPage {
     return () => this.listeners.delete(listener);
   }
 
-  onBlockedInput(listener: () => void): () => void {
-    this.blocked.add(listener);
-    return () => this.blocked.delete(listener);
+  /**
+   * The page as it is drawn now, as a PNG `data:` URL; undefined while it is not on screen.
+   * The renderer holds this picture exactly where the view is while one of its menus covers
+   * the view, so the page never moves or resizes to make room (ADR 0085).
+   */
+  async picture(): Promise<string | undefined> {
+    if (!this.placed || this.contents.isDestroyed()) return undefined;
+    const image = await this.contents.capturePage();
+    return image.isEmpty() ? undefined : image.toDataURL();
+  }
+
+  /** The person pressed a key, clicked or scrolled in the view (at most every 250 ms). */
+  onHumanInput(listener: () => void): () => void {
+    this.humanInput.add(listener);
+    return () => this.humanInput.delete(listener);
   }
 
   navigate(url: string, timeoutMs: number): Promise<string> {
@@ -674,7 +689,7 @@ export class EmbeddedPage implements ViewPage {
     this.gate.close();
     this.downloads.close();
     this.listeners.clear();
-    this.blocked.clear();
+    this.humanInput.clear();
     clearTimeout(this.throttleTimer);
     clearTimeout(this.crashReload);
     this.recovery.ready();
@@ -734,12 +749,15 @@ export class EmbeddedPage implements ViewPage {
     return this.nativeInput || this.injecting > 0;
   }
 
-  /** At most one take-control request a second, however fast the person clicks. */
-  private reportBlocked(): void {
+  /**
+   * The daemon holds an agent's input in this tab while the person is busy here (ADR 0067,
+   * collaboration); a report every 250 ms is enough for its 1.5 s quiet window.
+   */
+  private reportHuman(): void {
     const now = Date.now();
-    if (now - this.lastBlocked < 1_000) return;
-    this.lastBlocked = now;
-    for (const listener of this.blocked) listener();
+    if (now - this.lastHuman < 250) return;
+    this.lastHuman = now;
+    for (const listener of this.humanInput) listener();
   }
 
   /** The view went away without the daemon asking: tell it once, as CDP would. */

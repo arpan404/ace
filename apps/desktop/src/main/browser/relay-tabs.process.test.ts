@@ -77,31 +77,19 @@ it("two agents drive two native tabs at once; a slow tab holds up neither the ot
   expect(service.state("t-1").activeTabId).toBe(other);
 });
 
-it("a person holding the shown tab stops agents there only; the lease follows the view", async () => {
+it("the shown view learns whether an agent uses it, as the person moves between tabs", async () => {
   const { service, views } = await nativeTabs();
   const own = await service.claimTab("t-1", first);
   await service.execute("t-1", { action: "tabs", operation: "open", label: "b" }, second);
   const other = service.currentTab("t-1", second).tabId;
-  service.takeover("t-1", "connection-1", "shared", other);
+  const person = { kind: "human" as const, connectionId: "connection-1" };
+  await service.execute("t-1", { action: "tabs", operation: "select", tabId: other }, person);
+  // Nobody works in the shown tab yet: the person's file choosers stay native.
   await eventually(() => expect(views.tab(other).agent).toBe(false));
-  expect(views.tab(own.tabId).agent).toBe(true);
-  await expect(
-    service.execute("t-1", { action: "navigate", url: "http://localhost:5173/b" }, second),
-  ).rejects.toThrow();
+  await service.execute("t-1", { action: "navigate", url: "http://localhost:5173/b" }, second);
+  await eventually(() => expect(views.tab(other).agent).toBe(true));
+  // The person can still use the agent's tab at once, and the agent its own tab meanwhile.
+  await service.input("t-1", { kind: "key", event: "char", key: "x" }, "connection-1", other);
   await service.execute("t-1", { action: "navigate", url: "http://localhost:5173/a" }, first);
   expect(views.tab(own.tabId).url()).toBe("http://localhost:5173/a");
-  // The person shows the agent's tab: the desktop now applies that tab's (agent) lease.
-  await service.execute(
-    "t-1",
-    { action: "tabs", operation: "select", tabId: own.tabId },
-    { kind: "human", connectionId: "connection-1" },
-  );
-  await eventually(() => {
-    expect(service.state("t-1").activeTabId).toBe(own.tabId);
-    expect(views.tab(own.tabId).agent).toBe(true);
-  });
-  // Handing back the person's tab leaves both tabs to the agents again.
-  service.handback("t-1", "connection-1", other);
-  await service.execute("t-1", { action: "navigate", url: "http://localhost:5173/c" }, second);
-  expect(views.tab(other).url()).toBe("http://localhost:5173/c");
 });

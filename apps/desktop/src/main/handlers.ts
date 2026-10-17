@@ -188,10 +188,8 @@ export function createHandlers(options: {
         });
       return "unavailable";
     },
-    "browser.control": (request) => {
-      background.browserControl(request.threadId, request.controller);
-      return undefined;
-    },
+    "browser.snapshot": async (request) =>
+      (await background.snapshotBrowser(request.threadId)) ?? null,
     "browser.focus-app": (_request, sender) => {
       if (sender) background.focusApp(sender.id);
       return undefined;

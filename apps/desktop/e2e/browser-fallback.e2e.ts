@@ -41,7 +41,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
         s.daemon.browser.execute(
           s.thread.id,
           { action: "evaluate", expression },
-          { kind: "human", connectionId: s.daemon.browser.state(s.thread.id).owner ?? "" },
+          { kind: "human", connectionId: "person" },
         );
       await expect
         .poll(

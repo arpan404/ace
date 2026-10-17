@@ -5,10 +5,9 @@ import {
   AppInfo,
   AppIdentity,
   AppIdentityRequest,
-  BrowserControlRequest,
-  BrowserController,
   BrowserPlacement,
-  BrowserWantsControl,
+  BrowserSnapshot,
+  BrowserThread,
   BrowserShortcut,
   ClipboardImage,
   DaemonConnection,
@@ -90,8 +89,8 @@ export const requests = {
   "permissions.status": { request: None, result: Permissions },
   "permissions.open": { request: PermissionPane, result: z.boolean() },
   "browser.place": { request: BrowserPlacement, result: BrowserPlacementReceipt },
-  /** The new lease arrives as a `browser.controller` event once the daemon grants it. */
-  "browser.control": { request: BrowserControlRequest, result: None },
+  /** The shown view's picture, held in its place while an app overlay covers it. */
+  "browser.snapshot": { request: BrowserThread, result: BrowserSnapshot },
   /**
    * The page focused one of its own fields (the address bar): the OS focus leaves any native
    * browser view, and keys typed there since a ⌘L or ⌘F are typed into the field.
@@ -111,9 +110,7 @@ export const events = {
   "theme.changed": NativeAppearance,
   "window.changed": WindowState,
   "settings.changed": DesktopSettings,
-  "browser.controller": BrowserController,
   "browser.visibility": z.object({ threadId: z.string(), visible: z.boolean() }),
-  "browser.wants-control": BrowserWantsControl,
   "browser.shortcut": BrowserShortcut,
   "updates.status": UpdateStatus,
   /** The machine woke up; the renderer should reconnect now rather than wait for backoff. */

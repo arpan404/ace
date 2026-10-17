@@ -15,7 +15,6 @@ import { nativePage } from "./fixtures/native-page.ts";
  *   or the panel displayed the first screencast frame after the headless page painted it.
  * - fps: pictures of an animated page the person sees per second (native paints, or
  *   screencast frames the panel displays).
- * - takeover: the person's Take over click, until the daemon hands them the lease.
  */
 const rounds = 15;
 const agent = { kind: "agent" } as const;
@@ -129,16 +128,11 @@ async function measure(backend: "auto" | "headless") {
           );
     const fps = painted / 2;
 
-    const started = Date.now();
-    await p.getByRole("button", { name: "Take over", exact: true }).click();
-    await expect.poll(() => s.daemon.browser.state(threadId).controller).toBe("human");
-    const takeover = Date.now() - started;
     return {
       backend: s.daemon.browser.state(threadId).backend,
       load: stats(load),
       visible: stats(visible),
       fps,
-      takeover,
     };
   } finally {
     await s.close();

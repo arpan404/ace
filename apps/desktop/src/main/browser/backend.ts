@@ -7,10 +7,8 @@ import {
   type BrowserBackendOperation,
   type BrowserBackendRequest,
   type BrowserBackendServerMessage,
-  type BrowserControllerLease,
   browserSessionLimit,
 } from "@ace/protocol";
-import { claimAfterLease, claimHolds, type RendererClaim } from "./input-grant.ts";
 
 /** Relay limits from ADR 0055; the daemon's relay disconnects a backend that exceeds them. */
 const relayLimits = {
@@ -27,8 +25,8 @@ export interface ViewPage {
   cdp(method: string, params?: Record<string, unknown>): Promise<unknown>;
   /** CDP events, plus `ace.permissionDenied`, `ace.downloadDenied` and `Inspector.detached`. */
   onEvent(listener: (method: string, params: unknown) => void): () => void;
-  /** The person clicked or pressed a key in the view while its native input was off. */
-  onBlockedInput(listener: () => void): () => void;
+  /** The person pressed a key, clicked or scrolled in a tab (`tabId` when it has several). */
+  onHumanInput(listener: (tabId?: string) => void): () => void;
   /** Resolves with the final URL once the main frame fired DOMContentLoaded. */
   navigate(url: string, timeoutMs: number): Promise<string>;
   /** A Playwright-compatible key or chord. */
@@ -36,7 +34,7 @@ export interface ViewPage {
   resize(width: number, height: number): Promise<void>;
   /** Whether the person's own pointer and keyboard reach the page. */
   setNativeInput(enabled: boolean): void;
-  /** Whether the daemon's lease gives the page to an agent (an unseen view then renders). */
+  /** Whether an agent uses the shown tab (it then intercepts file choosers and renders unseen). */
   setAgentControl?(agent: boolean): void;
   snapshot?(): { activeTabId: string; tabs: { tabId: string; url: string; title: string }[] };
   url(): string;
@@ -73,20 +71,10 @@ export interface BackendLink {
   send(serialized: string): boolean;
 }
 
-export interface ControllerState {
-  threadId: string;
-  controller: BrowserControllerLease["controller"];
-  /** The lease belongs to this app's own connection, so the person can use the view here. */
-  here: boolean;
-}
-
 export interface BackendOptions {
   /** How long a page outlives a lost daemon link, waiting to be adopted again. */
   orphanGraceMs?: number;
   timers?: { set(delayMs: number, callback: () => void): () => void };
-  onController?(state: ControllerState): void;
-  /** The person tried to use a view they do not control: ask the daemon for control. */
-  onTakeover?(threadId: string): void;
   log(message: string): void;
 }
 
@@ -127,7 +115,6 @@ interface Session {
   threadId: string;
   options: BrowserOpen;
   page: ViewPage;
-  lease: BrowserControllerLease;
   stops: (() => void)[];
   /** The CDP screencast frame id sent and not yet acknowledged by the daemon. */
   inFlight: number | undefined;
@@ -140,7 +127,8 @@ interface Session {
  * `browser.backend.request` operations; each gets exactly one `browser.backend.response`
  * with the same ids. CDP events are forwarded at once. Screencast frames keep one in flight
  * and one replaceable latest frame per session, released by the daemon's `frameAck`.
- * Controller leases decide whether the person's own input reaches a view.
+ * The person's own input always reaches the view they see; the daemon hears about it
+ * (`ace.humanInput`) so agents in that tab wait for them (ADR 0067, collaboration).
  *
  * A dropped link does not close the views. Each stays alive, refusing loads only the daemon may
  * approve, for `orphanGraceMs`; a daemon that opens a session for the same thread and profile
@@ -149,8 +137,6 @@ interface Session {
  */
 export class BrowserBackend {
   private sessions = new Map<string, Session>();
-  /** Renderers' claims to hold each thread's page (by thread id). */
-  private claims = new Map<string, RendererClaim>();
   private opening = new Map<string, PendingOpen>();
   /** Pages of a lost link, by thread, until adopted or expired. */
   private orphans = new Map<string, Orphan>();
@@ -259,25 +245,6 @@ export class BrowserBackend {
     }
   }
 
-  /**
-   * The renderer showing a thread's view says its daemon connection `owner` holds the page
-   * (undefined: it doesn't, or nothing shows the view). The person's input reaches the view
-   * only while the daemon's lease is that connection's; see `claimAfterLease`.
-   */
-  claimControl(threadId: string, owner: string | undefined): void {
-    const session = this.byThread(threadId);
-    if (!owner) this.claims.delete(threadId);
-    else if (this.claims.get(threadId)?.owner !== owner)
-      this.claims.set(threadId, { owner, since: session?.lease.generation ?? -1 });
-    if (session) this.updateInput(session);
-  }
-
-  /** The thread's embedded session, if one is open here. */
-  controller(threadId: string): ControllerState | undefined {
-    const session = this.byThread(threadId);
-    return session && this.controllerState(session);
-  }
-
   handle(message: BrowserBackendServerMessage): void {
     const link = this.link;
     if (!link || message.type === "browser.backend.registered") return;
@@ -352,8 +319,8 @@ export class BrowserBackend {
       case "resize":
         await session.page.resize(operation.width, operation.height);
         return {};
-      case "controller":
-        this.applyLease(session, operation.lease);
+      case "agentUse":
+        session.page.setAgentControl?.(operation.active);
         return {};
       case "close":
         await this.dispose(session);
@@ -403,7 +370,6 @@ export class BrowserBackend {
         threadId: operation.options.threadId,
         options: operation.options,
         page,
-        lease: { generation: -1, controller: "none" },
         stops: [],
         inFlight: undefined,
         latest: undefined,
@@ -411,11 +377,11 @@ export class BrowserBackend {
       this.sessions.set(sessionId, session);
       session.stops.push(
         page.onEvent((method, params) => this.event(session, method, params)),
-        page.onBlockedInput(() => {
-          if (!this.allowsInput(session)) this.options.onTakeover?.(session.threadId);
-        }),
+        page.onHumanInput((tabId) => this.humanInput(session, tabId)),
       );
-      this.applyLease(session, operation.lease);
+      // People and agents share the page: the person's input always reaches what they see.
+      page.setNativeInput(true);
+      page.setAgentControl?.(false);
       return { url: page.url(), ...page.snapshot?.(), ...(adopted ? { adopted: true } : {}) };
     } finally {
       this.opening.delete(sessionId);
@@ -423,29 +389,16 @@ export class BrowserBackend {
     }
   }
 
-  private applyLease(session: Session, lease: BrowserControllerLease): void {
-    if (lease.generation < session.lease.generation)
-      throw new Error("Obsolete controller lease generation");
-    session.lease = lease;
-    const claim = claimAfterLease(this.claims.get(session.threadId), lease);
-    if (claim) this.claims.set(session.threadId, claim);
-    else this.claims.delete(session.threadId);
-    this.updateInput(session);
-    session.page.setAgentControl?.(lease.controller === "agent");
-    this.options.onController?.(this.controllerState(session));
-  }
-
-  /** This app's own connection holds the lease, or the renderer showing the view does. */
-  private allowsInput(session: Session): boolean {
-    return (
-      this.isHere(session.lease) || claimHolds(this.claims.get(session.threadId), session.lease)
-    );
-  }
-
-  private updateInput(session: Session): void {
-    session.page.setNativeInput(
-      this.sessions.get(session.id) === session && this.allowsInput(session),
-    );
+  private humanInput(session: Session, tabId: string | undefined): void {
+    const link = this.link;
+    if (!link || this.sessions.get(session.id) !== session) return;
+    this.send({
+      type: "browser.backend.event",
+      backendId: link.backendId,
+      sessionId: session.id,
+      method: "ace.humanInput",
+      params: tabId === undefined ? {} : { tabId },
+    });
   }
 
   private event(session: Session, method: string, params: unknown): void {
@@ -566,27 +519,8 @@ export class BrowserBackend {
   private async dispose(session: Session): Promise<void> {
     if (this.sessions.get(session.id) !== session) return;
     this.sessions.delete(session.id);
-    this.claims.delete(session.threadId);
     for (const stop of session.stops.splice(0)) stop();
-    session.lease = { generation: session.lease.generation, controller: "none" };
-    this.options.onController?.(this.controllerState(session));
     await session.page.close().catch((error: unknown) => this.options.log(String(error)));
-  }
-
-  private isHere(lease: BrowserControllerLease): boolean {
-    return (
-      lease.controller === "human" &&
-      this.link !== undefined &&
-      lease.owner === this.link.connectionId
-    );
-  }
-
-  private controllerState(session: Session): ControllerState {
-    return {
-      threadId: session.threadId,
-      controller: session.lease.controller,
-      here: this.sessions.has(session.id) && this.isHere(session.lease),
-    };
   }
 
   private byThread(threadId: string): Session | undefined {

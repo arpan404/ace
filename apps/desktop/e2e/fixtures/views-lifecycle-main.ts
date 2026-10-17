@@ -147,7 +147,6 @@ const harness = {
       kind: "open",
       options: { threadId, workspaceId: "workspace-1", profile: "ephemeral" },
       viewport: { width: 600, height: 400 },
-      lease: { generation: 0, controller: "agent" },
     });
     await request({ kind: "navigate", url: marked, timeout: 15_000 });
   },
@@ -267,7 +266,6 @@ const harness = {
       kind: "open",
       options: { threadId, workspaceId: "workspace-1", profile: "ephemeral" },
       viewport: { width: 600, height: 400 },
-      lease: { generation: 0, controller: "agent" },
     });
   },
   /** Frames a tab drew in half a second, and whether it thinks it is visible. */

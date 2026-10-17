@@ -288,19 +288,18 @@ export const BrowserPlacement = z.object({
     height: z.number().min(0).max(16384),
   }),
   visible: z.boolean(),
-  /**
-   * The daemon connection through which this renderer holds the page's control lease, as its
-   * take-control reply named it. The person's input reaches the view only while the daemon's
-   * current lease is that connection's.
-   */
-  owner: z.string().min(1).max(256).optional(),
 });
 export type BrowserPlacement = z.infer<typeof BrowserPlacement>;
-/** The person clicked or typed on a view they don't control: the renderer should take control. */
-export const BrowserWantsControl = z.object({ threadId: z.string().min(1).max(256) });
-export type BrowserWantsControl = z.infer<typeof BrowserWantsControl>;
+/** Names a thread's embedded browser view. */
+export const BrowserThread = z.object({ threadId: z.string().min(1).max(256) });
+export type BrowserThread = z.infer<typeof BrowserThread>;
+/** A thread view's picture as a PNG `data:` URL; null while nothing shows it. */
+export const BrowserSnapshot = z
+  .string()
+  .max(64 * 1024 * 1024)
+  .nullable();
 /** A toolbar shortcut from the thread's native page. */
-export const BrowserShortcut = BrowserWantsControl.extend({
+export const BrowserShortcut = BrowserThread.extend({
   accelerator: z.enum([
     "CmdOrCtrl+T",
     "CmdOrCtrl+L",
@@ -311,19 +310,6 @@ export const BrowserShortcut = BrowserWantsControl.extend({
   ]),
 });
 export type BrowserShortcut = z.infer<typeof BrowserShortcut>;
-/** Ask the daemon for control of a thread's embedded view (`human`) or give it back. */
-export const BrowserControlRequest = z.object({
-  threadId: z.string().min(1).max(256),
-  controller: z.enum(["agent", "human"]),
-});
-export type BrowserControlRequest = z.infer<typeof BrowserControlRequest>;
-/** Who drives a thread's embedded view; `here` when the person in this app does. */
-export const BrowserController = z.object({
-  threadId: z.string().min(1).max(256),
-  controller: z.enum(["agent", "human", "none"]),
-  here: z.boolean(),
-});
-export type BrowserController = z.infer<typeof BrowserController>;
 
 export const UpdateStatus = z.discriminatedUnion("state", [
   z.object({ state: z.literal("idle") }),
