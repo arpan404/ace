@@ -53,6 +53,22 @@ export interface FeedScrollOptions {
 const distanceToEnd = (el: HTMLElement) => el.scrollHeight - el.scrollTop - el.clientHeight;
 
 /**
+ * How the virtualizer scrolls the viewport: an instant scroll is a plain `scrollTop` write, so
+ * it lands at once wherever `scrollTo` does nothing; a smooth one glides.
+ */
+export function writeScroll(
+  offset: number,
+  options: { adjustments?: number | undefined; behavior?: ScrollBehavior | undefined },
+  instance: FeedVirtualizer,
+): void {
+  const el = instance.scrollElement;
+  if (!el) return;
+  const top = offset + (options.adjustments ?? 0);
+  if (options.behavior === "smooth") el.scrollTo({ top, behavior: "smooth" });
+  else el.scrollTop = top;
+}
+
+/**
  * The virtualizer learns a new position from the scroll event, which arrives after the rows it
  * just mounted measured themselves; until then it corrects their size changes against the old
  * position. Telling it at once keeps a placement where it landed.

@@ -572,13 +572,13 @@ export function buildBlocks(source: BlockSource): Block[] {
           } else {
             // Said between steps: it reads inside the log, in order. After the last step: the
             // answer, below the log. Which one it is only shows once the turn has settled, so
-            // while it works everything it says stays in its log, where it was first drawn:
-            // a later step never moves a row that is already on screen.
+            // while it works the row is decided by what came before it alone: after a step it
+            // stays in that log, before any it is its own row. A later step never moves a row
+            // that is already on screen.
             const at = stretchAt[index] ?? -1;
+            const working = !!mark && stillWorking(source, mark.id, at === lastStretch);
             const between =
-              !launchNarration &&
-              ((!!mark && stillWorking(source, mark.id, at === lastStretch)) ||
-                (lastWork.get(at) ?? -1) > index);
+              !launchNarration && (working ? !!stretch.work : (lastWork.get(at) ?? -1) > index);
             if (between) group("work", id);
             else
               push(

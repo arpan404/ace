@@ -94,11 +94,12 @@ test("a working turn's rows keep their key and kind as each next item arrives", 
     for (const [key, kind] of seen) expect({ key, kind: now.get(key) }).toEqual({ key, kind });
     seen = now;
   }
-  // Everything the agent said while it worked stayed inside its one log.
+  // What it said before its first step stayed its own row; what it said after one stayed in
+  // that log.
   const log = buildBlocks(source(turn, { run: active }, () => false)).find(
     (block) => block.kind === "work",
   );
-  expect(log?.itemIds).toEqual(["let-me-check", "grep", "why", "test", "found-it", "fix"]);
+  expect(log?.itemIds).toEqual(["grep", "why", "test", "found-it", "fix"]);
 });
 
 test("once the turn settles, what it said after its last step is the answer below its log", () => {

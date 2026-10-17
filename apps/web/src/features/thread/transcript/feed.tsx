@@ -39,7 +39,7 @@ import { LiveHead } from "../items/live-head.tsx";
 import { useDropTurnSteps } from "../lib/turn-steps.ts";
 import { rowOf, sameRow, transcriptRows, type Row } from "./rows.ts";
 import { useGutter } from "./scroll.ts";
-import { useFeedScroll } from "./use-feed-scroll.ts";
+import { useFeedScroll, writeScroll } from "./use-feed-scroll.ts";
 import { rowGap } from "./row-gap.ts";
 import { useHistoryPaging, usePagingIntent } from "./use-history-paging.ts";
 import { useRunOrdinals } from "./run-ordinals.ts";
@@ -157,6 +157,7 @@ export function Feed(props: FeedProps) {
     scrollMargin: feed.current?.offsetTop ?? 0,
     scrollPaddingStart: topRoom,
     getItemKey,
+    scrollToFn: writeScroll,
     // A jump must measure its target even when estimated sizes initially place
     // it outside the viewport. Retain only that one row alongside the visible
     // range; the next jump or return to live replaces or clears the focus.
