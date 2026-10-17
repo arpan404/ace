@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { fixtureFiles } from "./fixture-files.ts";
 
 /** The local pages every engine is driven against. Nothing here knows which engine loads it. */
 export interface FixtureSite {
@@ -57,6 +58,13 @@ const pages: Record<string, (host: string) => string> = {
       "Logs",
       `<p>Logging page</p><script>console.log('conformance-console-marker');fetch('/api/ping').then(r=>r.text()).then(t=>document.body.insertAdjacentHTML('beforeend','<p>Ping '+t+'</p>'));</script>`,
     ),
+  "/identity": () =>
+    `<!doctype html><html><head><title>Identity page</title><link rel="icon" href="/files/icon.png"></head><body><p>Identity ready</p><button onclick="document.title='Renamed (1)'">Rename</button></body></html>`,
+  "/files": () =>
+    html(
+      "Files",
+      `<p>Files page</p><a href="/files/doc.pdf">Open PDF</a> <a href="/files/photo.png">Open image</a> <a href="/files/archive.zip">Get archive</a>`,
+    ),
   "/annotate": () =>
     html(
       "Annotate",
@@ -91,6 +99,12 @@ function serve(request: IncomingMessage, response: ServerResponse): void {
       "Content-Disposition": "attachment; filename=report.zip",
     });
     response.end("conformance-download");
+    return;
+  }
+  const file = fixtureFiles[url.pathname];
+  if (file) {
+    response.writeHead(200, { "Content-Type": file.type });
+    response.end(file.body());
     return;
   }
   if (url.pathname === "/api/ping") {

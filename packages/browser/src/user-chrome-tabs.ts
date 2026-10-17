@@ -306,8 +306,9 @@ class UserTabs {
         return current().cdp;
       },
       tabs: this.tabs(),
-      pageStatus: () => current().pageStatus?.() ?? { loading: false },
-      url: () => current().url(),
+      // State is read after a lost tab too (a timer's last update): it reads as idle and blank.
+      pageStatus: () => this.read(() => current().pageStatus?.(), undefined) ?? { loading: false },
+      url: () => this.read(() => current().url(), "about:blank"),
       navigate: (url, timeout, signal) => current().navigate(url, timeout, signal),
       click: (x, y) => current().click(x, y),
       insertText: (text) => current().insertText(text),
@@ -320,6 +321,13 @@ class UserTabs {
       frames: async () => (await current().frames?.()) ?? [],
       close: () => this.close(),
     };
+  }
+  private read<T>(get: () => T, fallback: T): T {
+    try {
+      return get();
+    } catch {
+      return fallback;
+    }
   }
   private async close(): Promise<void> {
     if (this.closed) return;

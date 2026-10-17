@@ -25,6 +25,12 @@ defineBrowserConformance({
   unsupported: {
     // ADR 0084: the person's browser saves its tabs' downloads itself; ace never sees them.
     downloads: "not_supported",
+    "zip-download": "not_supported",
+  },
+  knownFailures: {
+    // Chrome detaches an extension's debugger from a tab showing its PDF viewer (an extension
+    // frame of its own), so ace loses the tab. The PDF still shows in the person's browser.
+    "pdf-inline": "Chrome detaches extension debuggers from its PDF viewer",
   },
   async start({ options, cleanup }) {
     const cleanups: (() => Promise<void>)[] = [];

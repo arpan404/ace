@@ -13,6 +13,7 @@ import { BrowserActionError } from "./action-error.ts";
 import { AnnotationSession } from "./annotation-session.ts";
 import type { BrowserBackendPage, BrowserCdp, PopupTarget } from "./backend.ts";
 import type { SessionLogs } from "./logs.ts";
+import { PageIdentity } from "./page-identity.ts";
 import { screenshotRegion } from "./page-capture.ts";
 import { BrowserOriginError } from "./policy.ts";
 import type { NavigationPolicies } from "./policy-waits.ts";
@@ -73,6 +74,8 @@ export class TabRuntime {
   readonly access = new TabAccess();
   readonly refs: SnapshotRefs;
   readonly annotation: AnnotationSession;
+  /** The page's own title and favicon, as the document reports them. */
+  readonly identity: PageIdentity;
   /** When the person last used this tab (collaboration clock); -Infinity: never. */
   humanAt = -Infinity;
   private queue: SessionQueue;
@@ -112,6 +115,19 @@ export class TabRuntime {
       () => this.page.frames?.(),
       () => this.annotation.hostNode(),
     );
+    this.identity = new PageIdentity(() => host.emit());
+    this.watchIdentity();
+  }
+  /** Follow the title and favicon on the session that reaches the page now. */
+  private watchIdentity(): void {
+    let page: BrowserBackendPage;
+    try {
+      page = this.page;
+    } catch {
+      // A backend without per-tab pages reaches only the shown tab: its title is the backend's.
+      return;
+    }
+    this.identity.watch(page.cdp);
   }
   get page(): BrowserBackendPage {
     return this.host.page(this.id);
@@ -165,10 +181,12 @@ export class TabRuntime {
     this.refs.invalidate();
     this.agentShown = false;
     this.syncAgent();
+    this.watchIdentity();
   }
   restarted(): void {
     this.annotation.restarted(this.page.cdp);
     this.refs.invalidate();
+    this.watchIdentity();
   }
   /** Dialog state changed on the page. */
   changed(): void {
@@ -183,6 +201,7 @@ export class TabRuntime {
   close(): Promise<unknown> {
     this.closed = true;
     this.stopInUse?.();
+    this.identity.close();
     this.annotation.end("stopped");
     return this.queue.settled();
   }

@@ -153,6 +153,8 @@ export class SessionTabs {
       if (runtime.openedBy) entry.openedBy = runtime.openedBy;
       if (runtime.drivenBy) entry.drivenBy = runtime.drivenBy;
       if (runtime.label) entry.label = runtime.label;
+      if (runtime.identity.title) entry.title = runtime.identity.title;
+      if (runtime.identity.favicon) entry.favicon = runtime.identity.favicon;
       const status = this.statusOf(tab.tabId);
       if (status) entry.loading = status.loading;
       if (cursor === tab.tabId) entry.current = true;
@@ -177,7 +179,7 @@ export class SessionTabs {
               tabId: tab.tabId,
               position,
               url: tab.url,
-              title: tab.title,
+              title: runtime.identity.title ?? tab.title,
               ...(runtime.label ? { label: runtime.label } : {}),
               ...(runtime.openedBy ? { openedBy: runtime.openedBy } : {}),
               ...(runtime.private ? { private: true } : {}),

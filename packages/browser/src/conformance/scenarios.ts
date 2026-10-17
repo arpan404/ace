@@ -1,5 +1,6 @@
 import type { ConformanceScenario } from "./engine.ts";
 import { annotationScenarios } from "./scenarios-annotation.ts";
+import { contentScenarios } from "./scenarios-content.ts";
 import { interactionScenarios } from "./scenarios-interaction.ts";
 import { navigationScenarios } from "./scenarios-navigation.ts";
 import { pageScenarios } from "./scenarios-page.ts";
@@ -11,5 +12,6 @@ export const scenarios: readonly ConformanceScenario[] = [
   ...interactionScenarios,
   ...tabScenarios,
   ...pageScenarios,
+  ...contentScenarios,
   ...annotationScenarios,
 ];
