@@ -9,7 +9,7 @@ import {
   type ItemsPage,
   type ThreadId,
 } from "@ace/protocol";
-import { applyDelta } from "@ace/projection";
+import { applyDelta, retainedTail } from "@ace/projection";
 
 function decodeAppend(value: unknown): string {
   return z.string().parse(JSON.parse(z.string().parse(value)));
@@ -85,7 +85,7 @@ export class ItemStore {
     this.statement(
       "INSERT INTO items VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET item = excluded.item",
     ).run(item.id, event.threadId, event.seq, body);
-    this.statement(`INSERT INTO item_heads VALUES (?, ?, ?, ?, ?, ?, ?)
+    this.statement(`INSERT INTO item_heads VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET size = excluded.size, item_type = excluded.item_type, text_prefix = excluded.text_prefix, text_last_unit = excluded.text_last_unit`).run(
       item.id,
       event.threadId,
@@ -94,6 +94,7 @@ export class ItemStore {
       item.type,
       prefix,
       lastUnit,
+      item.agentId ?? "",
     );
     this.statement("DELETE FROM item_text_chunks WHERE item_id = ?").run(item.id);
     this.texts.seed(item, event.seq);
@@ -320,6 +321,75 @@ export class ItemStore {
       ).get(threadId, last)
         ? last
         : null,
+    };
+  }
+  /**
+   * A snapshot's transcript tail: the items the client's bounded window holds after its trim
+   * (`retainedTail`, ADR 0062), whole, in creation order. Only the newest `limit + 1` heads and
+   * the root's newest `limit / 2` can be chosen, so two indexed reads cover any thread length.
+   * If those items exceed `byteLimit`, the same rule picks a smaller window that fits.
+   */
+  tail(
+    threadId: ThreadId,
+    rootAgentId: string | undefined,
+    limit: number,
+    byteLimit: number,
+  ): Omit<ItemsPage, "seq"> {
+    const Head = z.object({
+      id: ItemId,
+      created_seq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+      size: z.number().int().nonnegative(),
+      agent_id: z.string(),
+    });
+    const columns = "SELECT id, created_seq, size, agent_id FROM item_heads WHERE thread_id = ?";
+    const rows = [
+      ...this.statement(`${columns} ORDER BY created_seq DESC LIMIT ?`).all(threadId, limit + 1),
+      ...(rootAgentId === undefined
+        ? []
+        : this.statement(`${columns} AND agent_id = ? ORDER BY created_seq DESC LIMIT ?`).all(
+            threadId,
+            rootAgentId,
+            Math.floor(limit / 2),
+          )),
+    ];
+    const heads = new Map<number, z.infer<typeof Head>>();
+    for (const row of z
+      .array(Head)
+      .max(2 * limit + 1)
+      .parse(rows))
+      heads.set(row.created_seq, row);
+    const sorted = [...heads.values()].toSorted((a, b) => a.created_seq - b.created_seq);
+    const entries = sorted.map((head) => ({
+      id: String(head.id),
+      seq: head.created_seq,
+      root: rootAgentId !== undefined && head.agent_id === rootAgentId,
+    }));
+    const sizes = new Map(sorted.map((head) => [String(head.id), head.size]));
+    // Budget both items:{} and itemOrder:[], including serialized ids, colons and commas.
+    const bytes = (ids: readonly { id: string }[]) =>
+      ids.reduce(
+        (total, { id }, index) =>
+          total +
+          (sizes.get(id) ?? 0) +
+          2 * Buffer.byteLength(JSON.stringify(id)) +
+          1 +
+          (index ? 2 : 0),
+        4,
+      );
+    let capacity = Math.min(limit, entries.length);
+    let tail = retainedTail(entries, capacity);
+    while (capacity > 0 && bytes(tail.kept) > byteLimit) tail = retainedTail(entries, --capacity);
+    const items = tail.kept.map((entry) =>
+      this.materialize(
+        entry.id,
+        this.statement("SELECT item FROM items WHERE id = ?").get(entry.id)?.item,
+      ),
+    );
+    return {
+      threadId,
+      items,
+      itemSeqs: Object.fromEntries(tail.kept.map((entry) => [entry.id, entry.seq ?? 0])),
+      itemsBefore: tail.before ?? null,
     };
   }
   page(

@@ -75,6 +75,10 @@ person's prompts and the root's replies out of the root transcript. Root items a
 agents' items each stay one contiguous newest run. `itemsBefore` is the cursor from which
 every item is held; root items the window kept before it are deduplicated by id when history
 pages or a window overlaps them, and only a window reaching past the cursor joins the tail.
-The fake daemon's snapshot selects with the same rule. The real daemon's snapshot still sends
-the newest 200 items, so a resnapshot can drop root items the live window had kept until the
-daemon can select root items by agent without a full scan.
+The daemon's thread snapshot selects its 200 items with the same rule, so a reload or a
+resnapshot holds exactly what a following client's window held. `item_heads` carries each
+item's `agent_id` (schema bump; older databases are refused, as ace is pre-release) with an
+index on `(thread_id, agent_id, created_seq)`: only the newest 201 heads and the root's newest
+100 can be chosen, so two indexed reads serve any thread length. When those items exceed the
+snapshot's byte budget, the same rule picks the largest smaller window that fits. The fake
+daemon's snapshot uses the rule too.

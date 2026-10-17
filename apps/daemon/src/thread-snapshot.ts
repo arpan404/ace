@@ -4,7 +4,7 @@ import type { Item, ThreadView } from "@ace/protocol";
 export function loadThreadSnapshot(source: {
   acquire(): ThreadView;
   release(): void;
-  items(): {
+  items(status: ThreadView): {
     items: Item[];
     itemsBefore: ThreadView["itemsBefore"];
     itemSeqs?: ThreadView["itemSeqs"];
@@ -14,7 +14,7 @@ export function loadThreadSnapshot(source: {
   const status = source.acquire();
   try {
     const view: ThreadView = structuredClone({ ...status, items: {}, itemOrder: [] });
-    const page = source.items();
+    const page = source.items(status);
     view.items = Object.fromEntries(page.items.map((item) => [item.id, item]));
     view.itemOrder = page.items.map((item) => item.id);
     view.itemsBefore = page.itemsBefore;
