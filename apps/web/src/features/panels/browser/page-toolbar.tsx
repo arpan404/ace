@@ -27,6 +27,8 @@ export function PageNav(props: {
   reload: NavControl;
   stop?: NavControl;
   loading?: boolean;
+  /** A page tool drawn right after Reload (Annotate). */
+  after?: ReactNode;
 }) {
   const control = (
     name: string,
@@ -52,6 +54,7 @@ export function PageNav(props: {
       {props.loading
         ? control("Stop", XIcon, props.stop ?? {})
         : control("Reload", ArrowClockwiseIcon, props.reload)}
+      {props.after}
     </div>
   );
 }

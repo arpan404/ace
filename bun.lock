@@ -396,6 +396,7 @@
     "packages/browser": {
       "name": "@ace/browser",
       "dependencies": {
+        "@ace/browser-annotate": "workspace:*",
         "@ace/interaction": "workspace:*",
         "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
@@ -409,6 +410,16 @@
         "@types/ws": "8.18.1",
         "@types/yauzl": "2.10.3",
         "ws": "8.22.0",
+      },
+    },
+    "packages/browser-annotate": {
+      "name": "@ace/browser-annotate",
+      "dependencies": {
+        "@ace/design-tokens": "workspace:*",
+        "@ace/protocol": "workspace:*",
+      },
+      "devDependencies": {
+        "esbuild": "0.25.12",
       },
     },
     "packages/client": {
@@ -990,6 +1001,8 @@
     "@ace/automations": ["@ace/automations@workspace:packages/automations"],
 
     "@ace/browser": ["@ace/browser@workspace:packages/browser"],
+
+    "@ace/browser-annotate": ["@ace/browser-annotate@workspace:packages/browser-annotate"],
 
     "@ace/client": ["@ace/client@workspace:packages/client"],
 

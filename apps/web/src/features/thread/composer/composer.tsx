@@ -57,6 +57,12 @@ import { useSuggestions, type Suggestion } from "./suggestions.tsx";
 import { useAutosize } from "./use-autosize.ts";
 import { useDraftPersistence } from "./use-draft-persistence.ts";
 import { useTypeToFocus } from "./use-type-to-focus.ts";
+import { useComposerAnnotations } from "./use-composer-annotations.ts";
+import {
+  AnnotationChip,
+  useAnnotationPort,
+  withAnnotations,
+} from "@/features/annotations/index.ts";
 
 export type { Draft } from "./draft.ts";
 
@@ -72,6 +78,8 @@ export interface ComposerHandle {
   focus(): void;
   /** Attach what a drop or paste elsewhere on the screen carries; call it during the event. */
   takeFiles(data: DataTransfer): void;
+  /** Send the message as Send would (the Browser's annotate bar asks for it). */
+  submit(): void;
 }
 
 /**
@@ -235,6 +243,10 @@ function ComposerBody({
     props.replacedDraft?.attachments ??
       (props.keepsAttachments ? restored?.attachments : undefined),
   );
+  const annotations = useComposerAnnotations(
+    props.thread,
+    props.replacedDraft?.annotations ?? restored?.annotations,
+  );
   const attach = (files: Iterable<File>, note?: string) => {
     const selected = [...files];
     const left = attachments.add(selected);
@@ -265,7 +277,7 @@ function ComposerBody({
     highlight.key === listKey ? highlight.index : 0,
     Math.max(0, items.length - 1),
   );
-  const empty = !text.trim() && !attachments.items.length;
+  const empty = !text.trim() && !attachments.items.length && !annotations.count;
   const compact = width > 0 && width < compactWidth;
   const handheld = useHandheld();
 
@@ -274,6 +286,7 @@ function ComposerBody({
     tokens,
     mentions: [...picked],
     attachments: props.keepsAttachments ? attachments.ready : [],
+    annotations: annotations.draft,
   };
   // Another window's version of this draft is taken whole, its files too (SY-12). Files can't
   // be set in place, so a different set remounts the composer on the stored draft: theirs.
@@ -298,6 +311,7 @@ function ComposerBody({
         (props.draftKey && draftSaveFailed(storage, props.draftKey))
       )
         return void setTheirs(draft);
+      annotations.replace(draft.annotations);
       if (!otherFiles(draft)) return void takeText(draft);
       props.onReplaced(draft);
       return "replace";
@@ -385,25 +399,6 @@ function ComposerBody({
     placeCaret.current = next.caret;
     input.current?.focus();
   };
-  useImperativeHandle(ref, () => ({
-    openAdd: () => addMenu.current?.open(),
-    focus: () => input.current?.focus(),
-    takeFiles: intake,
-    preserveDraft: (key) => writeDraft(storage, key, current),
-    discardIfSubmitted(sent) {
-      if (!matchesSubmittedDraft({ ...current, attachments: attachments.ready }, sent))
-        return false;
-      // The recovery owner already removed the matching persisted draft. Stop a stale
-      // unmount flush from restoring it while leaving newer drafts untouched.
-      saved.drop();
-      setText("");
-      setTokens([]);
-      setPicked(new Set());
-      setCaret(0);
-      attachments.clear();
-      return true;
-    },
-  }));
   const rememberMention = (path: string) => {
     setPicked((paths) => new Set(paths).add(path));
     rememberFile(storage, props.thread.workspaceId, path);
@@ -553,16 +548,30 @@ function ComposerBody({
   // message this device couldn't save comes back, and only into an untouched composer.
   const submit = (opposite: boolean) => {
     if (blocked) return;
+    const content = composerContent({ ...current, attachments: attachments.ready });
+    const annotated = annotations.handOff();
+    const message = withAnnotations(
+      { input: content.input, files: attachments.handOff() },
+      annotated,
+      (image) => image,
+    );
     const draft: Draft = {
       text,
-      ...composerContent({ ...current, attachments: attachments.ready }),
+      ...content,
+      input: message.input,
       files: {
-        ...attachments.handOff(),
+        ...message.files,
         uploading: attachments.items.filter((file) => file.state === "uploading").length,
       },
       opposite,
     };
-    const before = { text, picked, tokens, files: attachments.ready };
+    const before = {
+      text,
+      picked,
+      tokens,
+      files: attachments.ready,
+      annotated: annotated?.returned,
+    };
     saved.hold();
     setText("");
     setCaret(0);
@@ -576,6 +585,7 @@ function ComposerBody({
         tokens: before.tokens,
         mentions: [...before.picked],
         attachments: before.files,
+        annotations: before.annotated,
       };
       if (!saved.finish()) {
         if (!sent && draftKey) {
@@ -599,6 +609,31 @@ function ComposerBody({
       if (!sent) restoreSubmission(returned, draft);
     });
   };
+  useImperativeHandle(ref, () => ({
+    openAdd: () => addMenu.current?.open(),
+    focus: () => input.current?.focus(),
+    takeFiles: intake,
+    submit: () => submit(false),
+    preserveDraft: (key) => writeDraft(storage, key, current),
+    discardIfSubmitted(sent) {
+      if (!matchesSubmittedDraft({ ...current, attachments: attachments.ready }, sent))
+        return false;
+      // The recovery owner already removed the matching persisted draft. Stop a stale
+      // unmount flush from restoring it while leaving newer drafts untouched.
+      saved.drop();
+      setText("");
+      setTokens([]);
+      setPicked(new Set());
+      setCaret(0);
+      attachments.clear();
+      annotations.replace(undefined);
+      return true;
+    },
+  }));
+  // The Browser's annotate bar adds to the draft and presses Send through this.
+  useAnnotationPort(props.thread.draft ? undefined : props.thread.id, annotations, () =>
+    submit(false),
+  );
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
     if (event.key === "Enter" && event.shiftKey && input.current) {
@@ -754,6 +789,10 @@ function ComposerBody({
             data-pill={pill ? "" : undefined}
             className={cn(composerSurface, "relative z-10 flex flex-col rounded-xl")}
           >
+            <AnnotationChip
+              threadId={props.thread.draft ? undefined : props.thread.id}
+              annotations={annotations}
+            />
             <AttachmentChips
               items={chips}
               onRemove={attachments.remove}

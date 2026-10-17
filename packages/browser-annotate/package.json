@@ -1,0 +1,22 @@
+{
+  "name": "@ace/browser-annotate",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "node ../../scripts/typecheck.ts --workspace",
+    "build": "node scripts/build-overlay.ts",
+    "check": "node scripts/build-overlay.ts --check"
+  },
+  "dependencies": {
+    "@ace/design-tokens": "workspace:*",
+    "@ace/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
+  }
+}

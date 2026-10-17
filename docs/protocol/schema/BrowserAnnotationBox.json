@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserAnnotationBox.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "height": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "width": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "x": {
+      "type": "number"
+    },
+    "y": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "x",
+    "y",
+    "width",
+    "height"
+  ],
+  "type": "object"
+}

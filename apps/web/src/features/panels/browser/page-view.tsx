@@ -2,6 +2,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  type ClipboardEvent,
   type KeyboardEvent,
   type MouseEvent,
   type WheelEvent,
@@ -156,39 +157,41 @@ export function PageView(props: {
     "absolute inset-0 flex overflow-hidden",
     props.fit ? "items-start justify-start" : "items-center justify-center p-6",
   );
-  return props.interactive && !props.nativeShown ? (
+  // One element whether or not the page takes input now, so focus stays on it when control or
+  // annotate mode changes hands: dropped to <body>, the composer would take the next keys and
+  // Enter would send it. While the page can't take them, keys typed here go nowhere.
+  const live = props.interactive && !props.nativeShown;
+  const paste = (event: ClipboardEvent<HTMLElement>) => {
+    event.preventDefault();
+    const text = event.clipboardData.getData("text");
+    void (async () => {
+      for (let index = 0; index < Math.min(text.length, 65536); index += 256)
+        await props.source.input(props.threadId, {
+          kind: "key",
+          event: "char",
+          key: "Paste",
+          text: text.slice(index, index + 256),
+        });
+    })();
+  };
+  return (
     <div
       ref={pane}
-      role="application"
-      aria-label={`Control ${props.view.url}`}
-      aria-roledescription="Live page"
-      tabIndex={0}
-      onMouseMove={onMove}
-      onMouseDown={send("mousePressed")}
-      onMouseUp={send("mouseReleased")}
-      onWheel={onWheel}
-      onContextMenu={(event) => event.preventDefault()}
-      onKeyDown={onKey("keyDown")}
-      onKeyUp={onKey("keyUp")}
-      onPaste={(event) => {
-        event.preventDefault();
-        const text = event.clipboardData.getData("text");
-        void (async () => {
-          for (let index = 0; index < Math.min(text.length, 65536); index += 256)
-            await props.source.input(props.threadId, {
-              kind: "key",
-              event: "char",
-              key: "Paste",
-              text: text.slice(index, index + 256),
-            });
-        })();
-      }}
-      className={cn(className, "cursor-default outline-none focus-ring-inset")}
+      data-page-view=""
+      role={live ? "application" : undefined}
+      aria-label={live ? `Control ${props.view.url}` : undefined}
+      aria-roledescription={live ? "Live page" : undefined}
+      tabIndex={live ? 0 : -1}
+      onMouseMove={live ? onMove : undefined}
+      onMouseDown={live ? send("mousePressed") : undefined}
+      onMouseUp={live ? send("mouseReleased") : undefined}
+      onWheel={live ? onWheel : undefined}
+      onContextMenu={live ? (event) => event.preventDefault() : undefined}
+      onKeyDown={live ? onKey("keyDown") : undefined}
+      onKeyUp={live ? onKey("keyUp") : undefined}
+      onPaste={live ? paste : undefined}
+      className={cn(className, "outline-none", live && "cursor-default focus-ring-inset")}
     >
-      {image}
-    </div>
-  ) : (
-    <div ref={pane} className={className}>
       {image}
     </div>
   );

@@ -7,6 +7,19 @@
       "minLength": 1,
       "type": "string"
     },
+    "annotation": {
+      "properties": {
+        "owner": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "owner"
+      ],
+      "type": "object"
+    },
     "backend": {
       "enum": [
         "embedded",
@@ -33,6 +46,14 @@
         "$ref": "https://ace.local/protocol/v1/BrowserDownload.json"
       },
       "maxItems": 128,
+      "type": "array"
+    },
+    "features": {
+      "items": {
+        "maxLength": 64,
+        "type": "string"
+      },
+      "maxItems": 32,
       "type": "array"
     },
     "loadError": {
