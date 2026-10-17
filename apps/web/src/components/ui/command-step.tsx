@@ -88,6 +88,7 @@ function CommandOption(props: {
   className?: string | undefined;
 }) {
   return (
+    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- keys pick through the field's aria-activedescendant
     <div
       id={props.id}
       role="option"
