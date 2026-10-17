@@ -31,9 +31,12 @@ function operation(raw: unknown): UserBrowserOperation | undefined {
     case "cdp":
       if (!tabId(raw.tabId) || !text(raw.method, 256) || !raw.method) return undefined;
       if (raw.params !== undefined && !isRecord(raw.params)) return undefined;
+      if (raw.sessionId !== undefined && (!text(raw.sessionId, 128) || !raw.sessionId))
+        return undefined;
       return {
         op: "cdp",
         tabId: raw.tabId,
+        ...(raw.sessionId === undefined ? {} : { sessionId: raw.sessionId }),
         method: raw.method,
         ...(raw.params === undefined ? {} : { params: raw.params }),
       };

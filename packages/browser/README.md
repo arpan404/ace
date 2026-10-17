@@ -285,4 +285,5 @@ An engine with no browser on the machine is reported as skipped with the reason 
 name. Engines declare, per scenario id, `knownFailures` (run as expected failures, each with a
 TODO naming the gap), `unsupported` (the scenario must fail promptly with that public error code)
 and `harnessSkips` (the test harness cannot exercise it). Fixing a gap turns its expected failure
-red: delete the entry then.
+red: delete the entry then. Today no engine has a known failure; Use my Chrome declares downloads
+`not_supported` (ADR 0084: the person's browser saves them itself).

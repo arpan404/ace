@@ -36,7 +36,7 @@ export function browserState(
       ? {
           ...(lifecycle.activeTabId ? { activeTabId: lifecycle.activeTabId } : {}),
           tabs: lifecycle.tabs ?? tabs.list(),
-          downloads: tabs.downloads(),
+          ...(tabs.downloads ? { downloads: tabs.downloads() } : {}),
           pending_dialog: tabs.dialog(),
         }
       : {}),

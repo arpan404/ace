@@ -82,7 +82,16 @@ export interface BrowserBackendTabs {
   close(tabId: string): Promise<void>;
   dialog(): BrowserDialog | undefined;
   answer(dialogId: string, accept: boolean, promptText?: string): Promise<void>;
-  downloads(): BrowserDownload[];
+  /**
+   * What the tabs downloaded. A backend without it cannot see downloads (the person's own
+   * browser saves them itself, ADR 0084): asking for them fails at once with `not_supported`.
+   */
+  downloads?(): BrowserDownload[];
+  /**
+   * The tab whose page opened this one (a popup the backend adopted as a tab of its own). The
+   * new tab counts as opened by whoever drove its opener.
+   */
+  opener?(tabId: string): string | undefined;
   page?(tabId: string): BrowserBackendPage;
 }
 /** One page's surface. Everything here acts on that page only. */

@@ -45,6 +45,8 @@ export const pageScenarios: ConformanceScenario[] = [
     id: "downloads",
     title: "a download is reported and its bytes are published as an artifact",
     async run(page) {
+      // An engine that cannot see downloads says so here, before anything waits for one.
+      expect(await page.execute({ action: "downloads" })).toEqual({ downloads: [] });
       await visit(page, "/download", "Download page");
       await page.execute({
         action: "click",

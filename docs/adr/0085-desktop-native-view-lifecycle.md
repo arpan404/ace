@@ -103,7 +103,8 @@ This is the one tab contract the desktop and the daemon's tab runtime (ADR 0083)
   before `ace.tabs.open` returns to the caller, then navigates it with `ace.tabs.cdp`
   `Page.navigate`.
 - **Driving.** Every tab, shown or not, takes input, navigation, screenshots and printing through
-  `ace.tabs.cdp`. Tab events arrive as `ace.tabs.event {tabId, method, params}`; popups as
+  `ace.tabs.cdp`. Tab events arrive as `ace.tabs.event {tabId, method, params}` (the daemon
+  logs each tab's console calls and network requests from them, by tab); popups as
   `ace.popupRequested {url, tabId}`, run in the opener's queue.
 - **The shown tab only.** Whether an agent uses the tab (`agentUse`, amended 2026-10-17 for H4:
   the controller lease is gone and the person's input always reaches the shown view; the view

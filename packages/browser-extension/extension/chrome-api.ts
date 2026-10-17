@@ -14,6 +14,8 @@ export interface ChromeTab {
   title?: string;
   active: boolean;
   groupId?: number;
+  /** The tab whose page opened this one. */
+  openerTabId?: number;
 }
 export interface ChromeWindow {
   id?: number;
@@ -21,6 +23,11 @@ export interface ChromeWindow {
 }
 export interface DebuggeeSource {
   tabId?: number;
+  sessionId?: string;
+}
+/** A tab, or one of its child sessions (an out-of-process iframe), Chrome 125+. */
+export interface DebuggerSession {
+  tabId: number;
   sessionId?: string;
 }
 export interface ChromePort {
@@ -40,6 +47,7 @@ export interface ChromeTabs {
     groupId?: number;
     createProperties?: { windowId: number };
   }): Promise<number>;
+  onCreated: ChromeEvent<(tab: ChromeTab) => void>;
   onRemoved: ChromeEvent<(tabId: number) => void>;
   onUpdated: ChromeEvent<
     (
@@ -69,7 +77,7 @@ export interface ChromeApi {
   debugger: {
     attach(target: { tabId: number }, version: string): Promise<void>;
     detach(target: { tabId: number }): Promise<void>;
-    sendCommand(target: { tabId: number }, method: string, params?: object): Promise<unknown>;
+    sendCommand(target: DebuggerSession, method: string, params?: object): Promise<unknown>;
     onEvent: ChromeEvent<(source: DebuggeeSource, method: string, params?: unknown) => void>;
     onDetach: ChromeEvent<(source: DebuggeeSource, reason: string) => void>;
   };

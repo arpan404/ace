@@ -92,10 +92,18 @@ export class SessionTabs {
       if (!runtime) {
         // A backend may say who opened a tab (the person's own shared tabs, ADR 0084).
         const reported = listed.find((tab) => tab.tabId === id)?.openedBy;
+        // A popup the backend adopted belongs to whoever drove the tab that opened it.
+        const openerId = tabs?.opener?.(id);
+        const opener = openerId === undefined ? undefined : this.runtimes.get(openerId);
+        const inherited: TabMeta | undefined = opener && {
+          openedBy: opener.drivenBy ?? opener.openedBy ?? { kind: "page" },
+          ...(opener.private ? { private: true } : {}),
+        };
         const meta = this.pending.get(id) ??
           (reported ? { openedBy: reported } : undefined) ??
+          inherited ??
           this.opening ?? { openedBy: { kind: "page" as const } };
-        if (!this.pending.delete(id) && !reported) this.opening = undefined;
+        if (!this.pending.delete(id) && !reported && !inherited) this.opening = undefined;
         runtime = new TabRuntime(this.host, id, carry?.private ? { ...meta, private: true } : meta);
         carry = undefined;
         added.push(runtime);

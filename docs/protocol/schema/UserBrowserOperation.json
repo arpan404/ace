@@ -102,6 +102,11 @@
           },
           "type": "object"
         },
+        "sessionId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
         "tabId": {
           "maximum": 9007199254740991,
           "minimum": 0,

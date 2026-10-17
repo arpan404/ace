@@ -22,21 +22,9 @@ defineBrowserConformance({
     : process.platform === "win32"
       ? "the native host is not supported on Windows yet"
       : undefined,
-  knownFailures: {
-    // TODO(browser): UserChromeTabsBackend lists agent tabs with an empty title.
-    navigate: "agent tabs report an empty title",
-    // TODO(browser): closing the shown agent tab pauses the thread ("Browser session closed").
-    tabs: "closing the shown tab pauses the whole browser",
-    // TODO(browser): a target=_blank from an agent tab opens an ordinary tab of the person's
-    // that the thread never sees.
-    popups: "popups leave the thread's reach",
-    // TODO(browser): `dialog()` is always undefined; a click that opens one hangs until the
-    // link's 30 s deadline instead of reporting `pending_dialog`.
-    dialogs: "dialogs are never reported; the opening click hangs 30 s",
-    // TODO(browser): downloads go to the person's browser and are never reported or published.
-    downloads: "downloads are never reported",
-    // TODO(browser): no `frames()` for user tabs; snapshots omit every iframe's content.
-    frames: "iframe content is missing from snapshots",
+  unsupported: {
+    // ADR 0084: the person's browser saves its tabs' downloads itself; ace never sees them.
+    downloads: "not_supported",
   },
   async start({ options, cleanup }) {
     const cleanups: (() => Promise<void>)[] = [];

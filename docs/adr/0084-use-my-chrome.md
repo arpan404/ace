@@ -37,7 +37,9 @@ with `browser: "user"` on browser tool calls (see "Integration" below).
      Sharing is per tab and ends when the tab closes, the person un-shares, or they press Stop.
    - **Agent** tabs: tabs an agent opened through the extension. They live in a dedicated, unfocused
      **ace window** and inside a tab group titled "ace". Dragging one out of the window or group
-     turns it into an ordinary tab of the person's and ends control.
+     turns it into an ordinary tab of the person's and ends control. A tab that an agent tab's page
+     opens (`target=_blank`, `window.open`) is an agent tab too: the extension groups and attaches
+     it and reports its opener (`openerTabId`). Popups of the person's shared tabs stay theirs.
      Every other tab is invisible to the daemon: not listed, not attachable, no events.
 3. **Visible indicator.** While the debugger is attached Chrome shows its own "ace for Chrome
    started debugging this browser" bar, which ace cannot hide. The toolbar icon shows a badge with
@@ -58,7 +60,10 @@ with `browser: "user"` on browser tool calls (see "Integration" below).
    denylist inside them: every cookie method (`Network.getCookies`, `getAllCookies`, `setCookie(s)`,
    `deleteCookies`, `clearBrowserCookies`), `Network.setExtraHTTPHeaders`, and the whole `Storage`,
    `DOMStorage`, `IndexedDB`, `CacheStorage`, `Fetch`, `Target`, `Browser` and `SystemInfo`
-   domains. ace has no cookie, password, storage or history tool for this backend. Page script an
+   domains. The extension itself (never the daemon) sends `Target.setAutoAttach` with `flatten` on
+   a controlled tab, from ace's first command there, to reach its out-of-process iframes; it relays
+   only `iframe` child sessions and accepts commands only for those, under the same allowlist.
+   ace has no cookie, password, storage or history tool for this backend. Page script an
    agent evaluates can still read what the page itself can (for example non-HttpOnly cookies) on a
    tab the person shared; HttpOnly cookies, saved passwords and other sites' data are never
    reachable.
@@ -102,11 +107,12 @@ extension (service worker) ⇄ native messaging (stdio) ⇄ host (Node) ⇄ WebS
 Extension → daemon (the host relays): `user_browser.register` (browser family and version,
 a random per-profile id kept in `chrome.storage.local`, extension version), `user_browser.reply`
 (a command result or error) and `user_browser.event` (`tabs` with the full allowed-tab list,
-`cdp` with a tab's CDP event, `detached` with a reason: `closed`, `revoked`, `stopped`,
+each agent popup with its `openerTabId`; `cdp` with a tab's CDP event, `sessionId` set for one of
+its iframes; `detached` with a reason: `closed`, `revoked`, `stopped`,
 `canceled`, `sensitive`, `unreachable`). Daemon → extension: `user_browser.registered` and
 `user_browser.command` with an operation: `tabs.list`, `tabs.open {url?}`, `tabs.attach {tabId}`,
-`tabs.detach {tabId}`, `tabs.close {tabId}` (agent tabs only), `cdp {tabId, method, params}` and
-`stop`. Host → extension only: `user_browser.link` with the daemon link state.
+`tabs.detach {tabId}`, `tabs.close {tabId}` (agent tabs only), `cdp {tabId, sessionId?, method,
+params}` and `stop`. Host → extension only: `user_browser.link` with the daemon link state.
 
 Settings use `user_browser.settings` (`status`, `install`, `revoke`, `stop`) and its
 `user_browser.settings.result`, admin scope only.
@@ -128,7 +134,13 @@ snapshot, refs, click, type, wait, evaluate and the rest of `BrowserSession` wor
 Differences: no request interception (the person's own browsing is not policed, and a paused
 document must never hang their tab when the daemon is slow); the extension enforces the scheme
 policy instead. `resize` emulates a viewport only on agent tabs; a shared tab keeps the person's
-size. Closing an agent session closes its tab; closing a shared session only detaches. Loss of a
+size. Closing an agent session closes its tab; closing a shared session only detaches.
+Alerts, confirms and prompts are reported as the tab's `pending_dialog` and answered with
+`Page.handleJavaScriptDialog` (the person can still answer them in their browser; a
+`beforeunload` in an agent tab is accepted). Snapshots and refs reach same-origin frames through
+the tab and cross-site frames through their child sessions. Downloads are not reported: the
+person's browser saves them itself, so `ace_browser_downloads` fails at once with
+`not_supported` instead of waiting for a download it can never see. Loss of a
 tab, link or browser closes the thread's session; it never falls back to ace's own browsers,
 because the page's logins would not come with it.
 
@@ -182,7 +194,9 @@ the bundle is stale, and the daemon writes the unpacked directory from it withou
   `openedBy: {kind: "human"}`. A shared tab is claimed (`backend.claim`) only by the first
   command that uses it, so listing never attaches to the person's tab; closing it in ace only
   detaches. ace's own viewers are shown an agent tab, never a shared one, and a thread there
-  always keeps one agent tab.
+  always keeps one agent tab. A popup of one of the thread's agent tabs is adopted
+  (`backend.adopt`) as a tab of the thread, opened by whoever drove its opener; over the thread's
+  tab limit it is closed. Tab titles are the extension's.
 - Every agent browser tool takes `browser: "user"` (MCP schema `browserChoiceInput`, explained
   in the tool descriptions and the `ace-browser` skill) to act there; omitted or `"ace"` is ace's
   browser. With no browser connected the call fails with `user_browser_unavailable`. `browser:
@@ -209,4 +223,6 @@ through `BrowserService` (navigate, snapshot, click by ref) via daemon → host 
 A daemon process test drives the MCP tools with `browser: "user"` against a stand-in extension
 on a real link: the agent's tab opens in the person's browser, a shared tab is listed as the
 person's and attached only on first use, a lost browser closes the thread's session there, and
-ace's own browser is never opened.
+ace's own browser is never opened. The shared browser conformance suite
+(`packages/browser-extension/src/conformance.process.test.ts`) runs every engine scenario against
+this backend, with downloads declared `not_supported`.

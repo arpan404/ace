@@ -1,8 +1,8 @@
 import { UserBrowserTab } from "@ace/protocol";
-import type { BackendOpen, BrowserBackend, BrowserBackendSession } from "./backend.ts";
+import type { BackendOpen, BrowserBackend } from "./backend.ts";
 import type { UserChromeHub } from "./user-chrome-hub.ts";
 import type { UserChromeLink } from "./user-chrome-link.ts";
-import { userTabSession } from "./user-chrome-session.ts";
+import { userTabSession, type UserTabSession } from "./user-chrome-session.ts";
 
 /** A tab in one connected browser: the browser's link id and the browser's own tab id. */
 export interface UserTabRef {
@@ -40,14 +40,45 @@ export class UserChromeBackend implements BrowserBackend {
           .map((tab) => ({ connectionId: connection.connectionId, tabId: tab.tabId, tab })),
       );
   }
-  async open(request: BackendOpen): Promise<BrowserBackendSession> {
+  /**
+   * Tabs an agent tab's page opened (popups), in every connected browser. The extension made
+   * them agent tabs; the thread that owns the opener adopts them.
+   */
+  popups(): (UserTabRef & { openerTabId: number })[] {
+    return this.hub.connections().flatMap((connection) =>
+      connection.tabs.flatMap((tab) =>
+        tab.access === "agent" && tab.openerTabId !== undefined
+          ? [
+              {
+                connectionId: connection.connectionId,
+                tabId: tab.tabId,
+                openerTabId: tab.openerTabId,
+              },
+            ]
+          : [],
+      ),
+    );
+  }
+  async open(request: BackendOpen): Promise<UserTabSession & { ref: UserTabRef }> {
     request.signal.throwIfAborted();
     const link = this.hub.preferred();
     if (!link) throw new Error("No browser is connected through Use my Chrome");
     const tab = UserBrowserTab.parse(await link.command({ op: "tabs.open" }, request.signal));
+    const session = await this.start(link, tab, request);
+    return Object.assign(session, { ref: { connectionId: link.connectionId, tabId: tab.tabId } });
+  }
+  /** Takes over a popup an agent tab opened; it is an agent tab, closed with its session. */
+  async adopt(request: BackendOpen, ref: UserTabRef): Promise<UserTabSession> {
+    request.signal.throwIfAborted();
+    const link = this.hub.get(ref.connectionId);
+    if (!link) throw new Error("That browser is not connected to ace");
+    const tab = UserBrowserTab.parse(
+      await link.command({ op: "tabs.attach", tabId: ref.tabId }, request.signal),
+    );
+    if (tab.access !== "agent") throw new Error("That tab is not an agent's");
     return this.start(link, tab, request);
   }
-  async claim(request: BackendOpen, ref: UserTabRef): Promise<BrowserBackendSession> {
+  async claim(request: BackendOpen, ref: UserTabRef): Promise<UserTabSession> {
     request.signal.throwIfAborted();
     const link = this.hub.get(ref.connectionId);
     if (!link) throw new Error("That browser is not connected to ace");
@@ -63,7 +94,7 @@ export class UserChromeBackend implements BrowserBackend {
     link: UserChromeLink,
     tab: UserBrowserTab,
     request: BackendOpen,
-  ): Promise<BrowserBackendSession> {
+  ): Promise<UserTabSession> {
     return userTabSession(link, tab, request, this.platform);
   }
 }

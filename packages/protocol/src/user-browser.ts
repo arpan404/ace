@@ -14,6 +14,8 @@ export const userBrowserTabLimit = 512;
 const id = z.string().min(1).max(256);
 const url = z.string().max(8192);
 const tabId = z.number().int().nonnegative();
+/** A child debugger session of a controlled tab: one of its out-of-process iframes. */
+const sessionId = z.string().min(1).max(128);
 
 export const UserBrowserFamily = z.enum([
   "chrome",
@@ -40,6 +42,8 @@ export const UserBrowserTab = z.object({
   access: UserBrowserAccess,
   /** The debugger is attached: an agent controls the tab. */
   attached: z.boolean(),
+  /** The agent tab whose page opened this one (a `target=_blank` link, `window.open`). */
+  openerTabId: tabId.optional(),
 });
 export type UserBrowserTab = z.infer<typeof UserBrowserTab>;
 
@@ -84,6 +88,8 @@ export const UserBrowserEvent = z.object({
     z.object({
       kind: z.literal("cdp"),
       tabId,
+      /** Set for an event of one of the tab's out-of-process iframes. */
+      sessionId: sessionId.optional(),
       method: id,
       params: z.unknown(),
     }),
@@ -107,6 +113,8 @@ export const UserBrowserOperation = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("cdp"),
     tabId,
+    /** Sends to one of the tab's out-of-process iframes instead of the tab itself. */
+    sessionId: sessionId.optional(),
     method: id,
     params: z.record(z.string(), z.unknown()).optional(),
   }),

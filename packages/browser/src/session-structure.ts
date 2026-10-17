@@ -92,8 +92,11 @@ export async function executeDownloads(
   clock: NavigationClock,
   signal?: AbortSignal,
 ): Promise<{ downloads: BrowserDownload[] }> {
+  const tabs = context.backend().tabs;
+  // The backend's browser keeps its own downloads (the person's Chrome): say so at once.
+  if (tabs && !tabs.downloads) throw new BrowserActionError("not_supported");
   const read = () =>
-    (context.backend().tabs?.downloads() ?? []).filter(
+    (tabs?.downloads?.() ?? []).filter(
       (download) => !command.tabId || download.tabId === command.tabId,
     );
   if (command.operation === "list") return { downloads: read() };
