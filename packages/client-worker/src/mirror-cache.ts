@@ -5,7 +5,12 @@ export class MirrorCache {
   private entries = new Map<string, { mirror: MirrorThread | MirrorSidebar; bytes: number }>();
   private bytes = 0;
   get(key: string): MirrorThread | MirrorSidebar | undefined {
-    return this.entries.get(key)?.mirror;
+    const cached = this.entries.get(key);
+    if (!cached) return undefined;
+    // Refresh recency: eviction walks insertion order, so a hot peek must re-insert.
+    this.entries.delete(key);
+    this.entries.set(key, cached);
+    return cached.mirror;
   }
   take(key: string): MirrorThread | MirrorSidebar | undefined {
     const cached = this.entries.get(key);

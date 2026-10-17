@@ -73,6 +73,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   reject(id: string, error: ClientError): void {
     if (id !== this.#wire && id !== this.#archiveWire) return;
     this.#failure = error;
+    this.#pending.delete(id);
     if (id === this.#archiveWire) this.#archiveWire = undefined;
     else this.#wire = undefined;
     this.#notifications.emit(["error"]);

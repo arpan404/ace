@@ -218,8 +218,13 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
         : undefined,
     );
     if (!parsed.success || parsed.data.thread.id !== threadId) return;
+    try {
+      this.snapshot(parsed.data);
+    } catch {
+      // An over-limit cached view stays unhydrated; the live wire still snapshots.
+      return;
+    }
     this.#syncing = true;
-    this.snapshot(parsed.data);
     if ("truncated" in value && Array.isArray(value.truncated))
       for (const id of value.truncated)
         if (typeof id === "string" && this.item(id)) this.#clipped.add(id);

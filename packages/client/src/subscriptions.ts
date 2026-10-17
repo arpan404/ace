@@ -219,6 +219,7 @@ export class Subscriptions {
         if (!(error instanceof ClientError) || error.code !== "limit") throw error;
         this.#send({ type: "unsubscribe", subscriptionId: message.subscriptionId });
         this.reject(message.subscriptionId, error);
+        return;
       }
       // A complete snapshot finishes initialization itself. Keep replay paced by its
       // explicit acknowledgement, but don't leave a hydrated scope holding a startup slot.

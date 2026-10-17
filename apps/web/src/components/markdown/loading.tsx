@@ -28,19 +28,3 @@ export function MarkdownLoading(props: {
     </LoadingRegion>
   ) : null;
 }
-
-/** Readable immediately, without parsing or interpreting markup on the main thread. */
-export function MarkdownPending(props: {
-  text: string;
-  streaming?: boolean | undefined;
-  className?: string | undefined;
-  tail?: ReactNode;
-}) {
-  if (!props.streaming) return <MarkdownLoading text={props.text} className={props.className} />;
-  return (
-    <div className={props.className}>
-      <span className="whitespace-pre-wrap">{props.text}</span>
-      {props.tail}
-    </div>
-  );
-}

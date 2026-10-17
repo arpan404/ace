@@ -529,12 +529,13 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
           await this.#readCore(payload, (value) => CoreServerMessage.parse(value), options);
       },
       close: () => {
-        if (closed) return;
+        if (closed) return Promise.resolve();
         closed = true;
         for (const release of leases) release();
         leases.clear();
-        sidebar.close();
+        const checkpoint = sidebar.close();
         this.#collections.delete(sidebar);
+        return checkpoint;
       },
     };
   }

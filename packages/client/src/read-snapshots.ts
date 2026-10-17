@@ -43,14 +43,15 @@ export class SnapshotBinding {
     };
     this.#checkpoint = () => {
       if (!this.#dirty) return this.#written;
-      this.#dirty = false;
       // Capture before yielding: the store may still receive frames during shutdown.
+      // Clear only after serializing: a transient failure keeps the write dirty for the next pass.
       let serialized: string;
       try {
         serialized = JSON.stringify(read());
       } catch {
         return this.#written;
       }
+      this.#dirty = false;
       this.#written = this.#written
         .then(() => {
           const value: unknown = JSON.parse(serialized);
