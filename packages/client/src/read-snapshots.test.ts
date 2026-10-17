@@ -182,6 +182,9 @@ test("an archived filter persists only its half and an archive-only record still
   await collection.threadsWindow({ archived: true });
   // Archive-only hydration marks the view loaded before any wire snapshot arrives.
   await expect.poll(() => lease.store.loaded).toBe(true);
+  // And the cached half paints its rows at once: no blank window until Home's wire lands.
+  expect(lease.store.thread("thread")?.title).toBe("Archived");
+  expect(lease.store.ids).toEqual(["thread"]);
   await f.start();
   const wires = f.sent.filter(
     (message) => message.type === "subscribe" && message.scope.kind === "threads",
@@ -228,6 +231,8 @@ test("a late cached sidebar cannot replace a live window", async () => {
   pending.get("sidebar:[null,false]")?.({ version: 1, home: list("Old") });
   await Promise.resolve();
   expect(lease.store.thread("thread")?.title).toBe("Live");
+  // A no-change hydrate cannot re-enter the syncing set when nothing adopted.
+  expect(lease.store.syncing).toBe(false);
   await f.client.close();
 });
 

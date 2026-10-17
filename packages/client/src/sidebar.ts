@@ -43,31 +43,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
         // keys, so one filter's writes never duplicate the other half's view.
         ...(this.#filter.archived ? { archive: this.#archive } : { home: this.#home }),
       }),
-      (value) => {
-        if (
-          typeof value !== "object" ||
-          value === null ||
-          !("version" in value) ||
-          value.version !== 1 ||
-          (!("home" in value) && !("archive" in value))
-        )
-          return;
-        // Each half is fenced independently: a record may carry only the half its
-        // filter persisted, and a malformed half never blocks the other one.
-        const home = "home" in value ? ThreadListViewSchema.safeParse(value.home) : undefined;
-        const archive =
-          "archive" in value ? ThreadListViewSchema.safeParse(value.archive) : undefined;
-        if (
-          home &&
-          (!home.success || Object.keys(home.data.threads).length > this.#limits.entities)
-        )
-          return;
-        if (!this.#pending.size) this.#pending.add("hydrated");
-        if (!this.#home && home?.success) this.#home = home.data;
-        if (!this.#archive && archive?.success) this.#archive = archive.data;
-        this.#merge();
-        this.#notifications.emitAll();
-      },
+      (value) => this.#hydrate(value),
     );
   }
   close(): Promise<void> {
@@ -97,15 +73,46 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   get window() {
     return this.#filter.archived ? this.#archive?.window : this.#home?.window;
   }
+  #hydrate(value: unknown): void {
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      !("version" in value) ||
+      value.version !== 1 ||
+      (!("home" in value) && !("archive" in value))
+    )
+      return;
+    // Each half is fenced independently: a malformed or over-limit half is skipped, never
+    // blocking the other one, and only a missing half adopts — a late read can't unseat the wire.
+    const home = "home" in value ? ThreadListViewSchema.safeParse(value.home) : undefined;
+    const archive = "archive" in value ? ThreadListViewSchema.safeParse(value.archive) : undefined;
+    const fits = (data: ThreadListView | undefined) =>
+      data !== undefined && Object.keys(data.threads).length <= this.#limits.entities;
+    const adoptHome = home !== undefined && home.success && fits(home.data);
+    const adoptArchive = archive !== undefined && archive.success && fits(archive.data);
+    if (!(adoptHome && !this.#home) && !(adoptArchive && !this.#archive)) return;
+    if (!this.#pending.size) this.#pending.add("hydrated");
+    if (adoptHome && !this.#home && home?.success) this.#home = home.data;
+    if (adoptArchive && !this.#archive && archive?.success) this.#archive = archive.data;
+    this.#merge();
+    this.#notifications.emitAll();
+  }
   #merge(): void {
-    if (!this.#home) {
+    const home = this.#home;
+    const archive = this.#archive;
+    if (!home && !archive) {
       this.#view = undefined;
       this.#order = [];
       return;
     }
+    // Either half paints its window before the wire catches up: a session that went offline at
+    // the archive shows its cached rows at once. Screens filter rows by archived state, so
+    // only the archive screen can show a row the home window never sent.
+    const base = home ?? archive;
+    if (!base) return; // Unreachable past the gate above; needed so the checker narrows the union.
     this.#view = {
-      ...this.#home,
-      threads: { ...this.#home.threads, ...this.#archive?.threads },
+      ...base,
+      threads: { ...home?.threads, ...archive?.threads },
       ...(this.window ? { window: this.window } : {}),
     };
     this.#order = Object.keys(this.#view.threads);
