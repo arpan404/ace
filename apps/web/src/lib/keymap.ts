@@ -40,6 +40,12 @@ export const keymap = {
   // One launcher: ⇧⌘K, once a separate search sheet, opens the same palette.
   palette: { keys: "mod+k", also: ["shift+mod+k"], label: "Command palette" },
   newThread: { keys: "mod+n", web: "alt+mod+n", label: "New thread" },
+  // In the current project without asking which (⌘N asks when there are several).
+  newThreadHere: {
+    keys: "shift+mod+n",
+    web: "shift+alt+mod+n",
+    label: "New thread in the current project",
+  },
   addProject: { keys: "shift+mod+o", label: "Add project" },
   nextThread: { keys: "alt+mod+arrowdown", label: "Next thread" },
   previousThread: { keys: "alt+mod+arrowup", label: "Previous thread" },

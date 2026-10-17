@@ -1,21 +1,17 @@
 import { PublishRepositoryDialog } from "./publish-repository-dialog.tsx";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { desktopFolders } from "@/boot/desktop-folders.ts";
-import { AddProjectDialog } from "./add-project-dialog.tsx";
 import { useLandInProject } from "./land.ts";
 import { RemoveProjectDialog } from "./manage-dialogs.tsx";
 import { EditProjectDialog } from "./edit-project-dialog.tsx";
 import { projectFailure, useProjectCommands } from "./project-commands.ts";
-import type { AddTab, FolderAttempt, ProjectRequest } from "./requests.ts";
-import { useCloneRun } from "./use-clone-run.ts";
-import { useMachines } from "@/lib/machines.ts";
+import type { ProjectRequest } from "./requests.ts";
 
 /**
- * The project dialogs, loaded on first use (ADR 0056) and kept mounted after, so a clone in
- * progress survives its dialog closing. A folder request (dropped, picked natively) adds the
- * folder straight away and opens New thread in it; when the daemon refuses, Add project opens
- * with the reason beside that folder.
+ * The project dialogs, loaded on first use (ADR 0056). A folder request (dropped, picked
+ * natively) adds the folder straight away and opens New thread in it; when the daemon refuses,
+ * Add project opens in the palette with the reason beside that folder.
  */
 export default function ProjectDialogs(props: {
   request: ProjectRequest;
@@ -28,26 +24,6 @@ export default function ProjectDialogs(props: {
   const target = endpoint?.kind === "daemon" ? endpoint.target : undefined;
   const land = useLandInProject();
   const commands = useProjectCommands();
-  const [tab, setTab] = useState<AddTab>("open");
-  const [attempt, setAttempt] = useState<FolderAttempt>();
-  // Each Add project request picks its tab and the folder it is about.
-  const [shown, setShown] = useState<ProjectRequest>();
-  if (shown !== request) {
-    setShown(request);
-    if (request.kind === "add") {
-      setTab(request.tab);
-      setAttempt(request.attempt);
-    }
-  }
-  const machines = useMachines();
-  const clone = useCloneRun({
-    machines,
-    visible: open && request.kind === "add",
-    onCloned: (result, machine) => {
-      onOpenChange(false);
-      land(result, "Cloned", { machine });
-    },
-  });
 
   // A dropped folder is a folder request in the desktop app, which knows its path; a browser
   // doesn't share it, so there Add project opens to pick it from the daemon's side.
@@ -131,18 +107,5 @@ export default function ProjectDialogs(props: {
         onOpenChange={onOpenChange}
       />
     ) : null;
-  return (
-    <AddProjectDialog
-      open={open && request.kind === "add"}
-      onOpenChange={onOpenChange}
-      tab={tab}
-      onTab={setTab}
-      attempt={attempt}
-      clone={clone}
-      onAdded={(result, verb, options) => {
-        onOpenChange(false);
-        land(result, verb, options);
-      }}
-    />
-  );
+  return null;
 }

@@ -14,6 +14,10 @@ import { useNoProjects } from "./app-sidebar.tsx";
 export function GlobalHotkeys(props: {
   /** Opens Add project; composed in by the app layer. New thread does this while there is none. */
   onAddProject?(): void;
+  /** ⌘N, composed in by the app layer: asks which project when there are several. */
+  onNewThread?(): void;
+  /** ⇧⌘N: a new thread in the current project, without asking. */
+  onNewThreadHere?(): void;
 }) {
   useKeybindingsSync();
   const navigate = useNavigate();
@@ -24,7 +28,14 @@ export function GlobalHotkeys(props: {
   // ⌘K and ⇧⌘K: the one launcher (search, threads and commands).
   useHotkey(keymap.palette.keys, () => layout.setPaletteOpen(!layout.paletteOpen));
   useHotkey(keymap.newThread.keys, () =>
-    noProjects ? props.onAddProject?.() : void navigate({ to: "/new" }),
+    props.onNewThread
+      ? props.onNewThread()
+      : noProjects
+        ? props.onAddProject?.()
+        : void navigate({ to: "/new" }),
+  );
+  useHotkey(keymap.newThreadHere.keys, () =>
+    props.onNewThreadHere ? props.onNewThreadHere() : void navigate({ to: "/new" }),
   );
   useHotkey(keymap.back.keys, nav.back);
   useHotkey(keymap.forward.keys, nav.forward);

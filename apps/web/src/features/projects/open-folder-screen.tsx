@@ -79,7 +79,13 @@ export function OpenFolderScreen(props: { folder: string }) {
                     kind: "add",
                     tab: "open",
                     ...(failure.code !== "local_folder"
-                      ? { attempt: { path: props.folder, problem: failure.message } }
+                      ? {
+                          attempt: {
+                            path: props.folder,
+                            problem: failure.message,
+                            canAllow: failure.canAllow,
+                          },
+                        }
                       : {}),
                   })
                 }
