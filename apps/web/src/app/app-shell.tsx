@@ -11,7 +11,12 @@ import { ComputerUseIndicator } from "@/features/computer-use/index.ts";
 import { loadPullRequestTab } from "@/features/forge/index.ts";
 import { PullRequestViewProvider } from "@/features/panels/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
-import { ThreadStepKeys, ThreadsSidebar, useSeenWhileOpen } from "@/features/home/index.ts";
+import {
+  ThreadLeaveProvider,
+  ThreadStepKeys,
+  ThreadsSidebar,
+  useSeenWhileOpen,
+} from "@/features/home/index.ts";
 import { SearchHost } from "@/features/search/index.ts";
 import { SignInHost } from "@/features/sign-in/index.ts";
 import { AppSidebar, GlobalHotkeys, SidebarFrame, ShortcutHost } from "@/features/shell/index.ts";
@@ -66,9 +71,11 @@ export function AppShell() {
                 </LocalBoundary>
               }
             >
-              <PullRequestViewProvider value={PullRequestTab.Component}>
-                <Outlet />
-              </PullRequestViewProvider>
+              <ThreadLeaveProvider>
+                <PullRequestViewProvider value={PullRequestTab.Component}>
+                  <Outlet />
+                </PullRequestViewProvider>
+              </ThreadLeaveProvider>
             </SidebarFrame>
             <LocalBoundary label="the command palette" fallback={null}>
               <CommandPalette />

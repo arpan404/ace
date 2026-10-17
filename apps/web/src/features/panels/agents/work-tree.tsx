@@ -244,6 +244,7 @@ function AgentRow(props: {
     <div className={cn("group/agent flex flex-wrap items-center gap-1", capsule)}>
       {/* The row is the tree item: Enter or a click opens the agent as the whole chat; a click on
           its chevron, or anywhere on the main agent (which opens nothing), folds its subagents. */}
+      {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- Enter opens it through the tree's key handler (treeKeys) */}
       <div
         role="treeitem"
         data-agent={agent.id}

@@ -1,7 +1,9 @@
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
+import { focusComposerSoon } from "@/lib/focus-composer.ts";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
+import { ThreadLeaveContext } from "@/lib/thread-leave.ts";
 import { useHomeList } from "./use-home-threads.ts";
 
 /**
@@ -16,6 +18,16 @@ export function stepThread(
   const at = current === undefined ? -1 : order.indexOf(current);
   if (at < 0) return delta > 0 ? order[0] : order.at(-1);
   return order[at + delta];
+}
+
+/**
+ * Where to go when `id` leaves the list: the thread after it, else the one before it (it was
+ * last); the top of the list when it wasn't listed; nothing when no other thread is.
+ */
+export function threadAfterLeaving(order: readonly string[], id: string): string | undefined {
+  const at = order.indexOf(id);
+  if (at < 0) return order[0];
+  return order[at + 1] ?? (at > 0 ? order[at - 1] : undefined);
 }
 
 /** The next thread after `current` (wrapping round) that needs the person. */
@@ -52,6 +64,13 @@ export function useThreadSteps() {
     next: () => go(stepThread(order, current, 1)),
     previous: () => go(stepThread(order, current, -1)),
     nextNeedsYou: () => go(nextNeedingYou(order, needsYou, current)),
+    /** `id` has left the list: open its neighbour with the caret in its composer, else Home. */
+    leave: (id: string) => {
+      const to = threadAfterLeaving(order, id);
+      if (!to) return void navigate({ to: "/" });
+      go(to);
+      focusComposerSoon();
+    },
     /** Whether another thread needs the person now. */
     othersNeedYou: nextNeedingYou(order, needsYou, current) !== undefined,
   };
@@ -64,4 +83,19 @@ export function ThreadStepKeys() {
   useHotkey(keymap.previousThread.keys, steps.previous);
   useHotkey(keymap.nextNeedsYou.keys, steps.nextNeedsYou);
   return null;
+}
+
+/**
+ * Gives the thread screen its leave step (`lib/thread-leave.ts`): archiving the open thread
+ * opens the next one in this list's order. The value is stable across list changes, so the
+ * screens reading it never re-render for them.
+ */
+export function ThreadLeaveProvider(props: { children: ReactNode }) {
+  const steps = useThreadSteps();
+  const latest = useRef(steps.leave);
+  useLayoutEffect(() => {
+    latest.current = steps.leave;
+  });
+  const leave = useCallback((id: string) => latest.current(id), []);
+  return <ThreadLeaveContext.Provider value={leave}>{props.children}</ThreadLeaveContext.Provider>;
 }

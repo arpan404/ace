@@ -62,6 +62,7 @@ export function MessageInput({
   }, [autoFocus, input]);
   return (
     <>
+      {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- the caller passes its role (combobox) in props */}
       <div
         {...props}
         ref={input}

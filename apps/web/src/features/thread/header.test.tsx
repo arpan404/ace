@@ -677,6 +677,40 @@ test("archiving from the ⋯ menu leaves the thread", async () => {
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
 });
 
+test("archiving the open thread opens the other thread in the list, caret in its composer, and Undo comes back", async () => {
+  const app = harness();
+  for (const [id, title] of [
+    ["thread-notes", "Tidy the release notes"],
+    ["thread-replay-cursor", "Replay cursor resets on every resume"],
+  ] as const) {
+    app.daemon.createThread({ id, workspaceId: "relay", provider: "claude", title });
+    app.daemon.apply(id, [facts.rootAgent("claude")]);
+  }
+  await app.open("/t/thread-replay-cursor");
+  await screen.findByRole("heading", { level: 1, name: "Replay cursor resets on every resume" });
+  // Opening the menu loads the thread's shortcuts with it.
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await screen.findByRole("menuitem", { name: /^Archive/ });
+  await userEvent.keyboard("{Escape}");
+
+  // Off Apple platforms Archive is Ctrl+Alt+Shift+A.
+  await userEvent.keyboard("{Control>}{Alt>}{Shift>}a{/Shift}{/Alt}{/Control}");
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "Tidy the release notes" }),
+  ).toBeTruthy();
+  await waitFor(() =>
+    expect(document.activeElement?.closest('[data-slot="composer"]')).toBeTruthy(),
+  );
+
+  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+  expect(
+    await screen.findByRole("heading", {
+      level: 1,
+      name: "Replay cursor resets on every resume",
+    }),
+  ).toBeTruthy();
+});
+
 test("deleting a thread with work still running from the ⋯ menu keeps it and says why", async () => {
   const app = await openThread();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));

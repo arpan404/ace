@@ -11,6 +11,8 @@ import { useProjectDirectory } from "@/lib/projects.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { formatKeys } from "@/lib/keymap.ts";
 import { ThreadsActions } from "./project-filter.tsx";
+import { ListSearch } from "./list-search.tsx";
+import { useListQuery } from "./list-query.ts";
 import { ThreadList } from "./thread-list.tsx";
 import { ThreadPagination } from "./thread-pagination.tsx";
 import { useHomeList } from "./use-home-threads.ts";
@@ -30,6 +32,7 @@ export function HomeSidebar() {
   const list = useHomeList();
   const settledTotal = useSidebar(["homeWindow"], (reader) => reader.homeWindow?.total);
   const { project, settledOpen } = useOrganizerState();
+  const query = useListQuery().trim();
   const organizer = useOrganizer();
   const loaded = useSidebarLoaded();
   const empty = [list.pinned, list.active, list.recent, list.snoozed, list.settled].every(
@@ -60,8 +63,11 @@ export function HomeSidebar() {
             <StartedTitlePublisher.Component />
           </Suspense>
         )}
+        {loaded && !(empty && !query && !project) && <ListSearch list={list} />}
         {!loaded ? (
           <ListSkeleton label="threads" shape="thread" />
+        ) : empty && query ? (
+          <p className="shrink-0 px-4 pt-2 text-ui text-muted-foreground">No matching threads</p>
         ) : empty ? (
           <>
             <EmptyState

@@ -111,6 +111,7 @@ export function ModelRow(props: {
   return (
     <div role="none" className="group/row relative">
       <Tip label={tip} side="right">
+        {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- keys pick through the combobox's aria-activedescendant */}
         <div
           role="option"
           id={props.id}
@@ -193,6 +194,7 @@ export function LegacyToggle(props: {
   onToggle(): void;
 }) {
   return (
+    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- keys pick through the combobox's aria-activedescendant
     <div
       role="option"
       id={props.id}
