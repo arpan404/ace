@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Fact } from "@ace/core";
-import type { ThreadId } from "@ace/protocol";
+import { ThreadId } from "@ace/protocol";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
 
 const reply = (item: string, text: string): Fact => ({
@@ -316,6 +316,37 @@ test("a steer the running turn reports consuming stays where it was sent", async
     await h.engine.flush();
     expect(creationOrder(h, id)).toEqual(["first", "working on first", "q1", "took q1 in"]);
     expect(runOf(h, id, "q1")).toBe(runOf(h, id, "first"));
+  } finally {
+    await h.close();
+  }
+});
+
+test("a thread whose only message waits in a held queue stays listed as a task", async () => {
+  const frames = scriptFrames();
+  const h = await harness([], frames);
+  try {
+    const prepared = h.command({
+      type: "thread.prepare",
+      threadId: ThreadId.parse("held-only"),
+      workspaceId: h.workspace,
+      provider: "codex",
+      title: "Held task",
+    });
+    if (!prepared.threadId) throw new Error("Missing thread");
+    const id = prepared.threadId;
+    // Clients list a thread as a task, not an empty draft, once it has a sent message.
+    const listed = () =>
+      h.store.sidebarPage({ limit: 20 }).threads.find((entry) => entry.id === id)?.hasSentMessage;
+    expect(listed()).toBe(false);
+    const revision = h.engine.queue(id).revision;
+    expect(h.command({ type: "queue.pause", threadId: id, expectedRevision: revision }).ok).toBe(
+      true,
+    );
+    send(h, id, "only message", "queue");
+    await h.engine.flush();
+    expect(h.engine.queue(id).messages).toMatchObject([{ input: [{ text: "only message" }] }]);
+    expect(creationOrder(h, id)).toEqual([]);
+    expect(listed()).toBe(true);
   } finally {
     await h.close();
   }

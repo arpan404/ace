@@ -148,6 +148,13 @@ it("an unanswered question returns pending, keeps the thread waiting, and the la
 
   await world.answerAsk(child, "blue");
   await world.flush();
+  // The child's turn is still running, so the answer waits in its queue, outside the
+  // transcript, and joins it when the engine delivers it after that turn (ADR 0065).
+  expect(engine.queue(child).messages).toMatchObject([
+    { input: [{ type: "text", text: 'My answer to "Which colour?": blue' }] },
+  ]);
+  await world.complete(child, "Asked; waiting for the answer.");
+  await world.flush();
   const items = world.store.readItemPage(child, world.store.headSeq() + 1, 50).items;
   expect(items).toContainEqual(
     expect.objectContaining({
