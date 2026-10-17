@@ -167,9 +167,9 @@ export class AgentMonitor {
       });
     }
     for (const child of this.remote?.children(caller) ?? []) {
-      if (children.length >= 64) break;
+      // Counts describe the whole tree even when the compact display is full.
       counts[child.state]++;
-      children.push(child);
+      if (children.length < 64) children.push(child);
     }
     return { children, counts };
   }

@@ -182,6 +182,11 @@ export const controlActions: Record<AgentControlOperation["op"], Action> = {
     description: "Snooze notifications for an owned thread until the supplied time.",
     riskClass: "thread-write",
   },
+  offshift: {
+    description:
+      "Track a coding outcome through plan, implementation, verification, review and delivery. Durable runs and revision-bound evidence belong to your calling thread. Use stable requestIds and the returned version for mutations. Read the offshift guide for the verification sequence. This tool records work; use existing agent and execution tools to perform it.",
+    riskClass: "thread-write",
+  },
   "automation.manage": {
     description: "Create, change or run a local automation and its future agent work.",
     riskClass: "external-effect",

@@ -38,7 +38,7 @@ import { deleteBranch, type BranchCleanup } from "./branch-cleanup.ts";
 import { GitCli } from "./cli.ts";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { createCheckpoint, deleteCheckpoints, listCheckpoints } from "./checkpoints.ts";
+import { snapshot, createCheckpoint, deleteCheckpoints, listCheckpoints } from "./checkpoints.ts";
 import { diff } from "./diff.ts";
 import { readRevisionLines, type RevisionLineOptions } from "./revision-lines.ts";
 import { Repository } from "./repository.ts";
@@ -309,6 +309,21 @@ export class GitService {
   fetchPrHead(options: FetchPrHeadOptions): Promise<string> {
     return fetchPrHead(this.repository, options);
   }
+  /** Source identity for evidence: HEAD plus all tracked/nonignored working-tree contents.
+   * Uses the checkpoint snapshot owner without creating a checkpoint or touching the user's index.
+   * Explicit calls only; never run on provider deltas.
+   */
+  async workspaceRevision(worktree: string): Promise<string> {
+    const root = await this.repository.root(worktree);
+    return this.repository.serial(root, () =>
+      this.nonExecuting(async () => {
+        const { branch } = await this.repository.state(root);
+        const tree = await snapshot(this.repository, root);
+        return `${branch.head ?? "unborn"}:${tree}`;
+      }),
+    );
+  }
+
   async repositoryInfo(repo: string) {
     const root = await this.repository.root(repo);
     return this.repository.serial(root, () => this.repository.info(root));

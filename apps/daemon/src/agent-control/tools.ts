@@ -31,6 +31,7 @@ export type ExtensionOperation = Extract<
       | "queue.edit"
       | "queue.reorder"
       | "automation.manage"
+      | "offshift"
       | "thread.handoff"
       | "preview.list"
       | "preview.close";
@@ -467,6 +468,7 @@ export function createAgentControlPort(
         case "thread.merge":
         case "queue.edit":
         case "queue.reorder":
+        case "offshift":
         case "automation.manage":
         case "thread.handoff":
         case "preview.list":

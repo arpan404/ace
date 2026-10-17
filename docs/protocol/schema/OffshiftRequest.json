@@ -1,0 +1,292 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "start",
+          "type": "string"
+        },
+        "criteria": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/OffshiftCriterion.json"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array",
+          "x-ace-constraint": "Criterion IDs must be unique."
+        },
+        "endpoint": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "outcome": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "runId",
+        "requestId",
+        "outcome",
+        "endpoint",
+        "criteria"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "get",
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "runId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "advance",
+          "type": "string"
+        },
+        "note": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "phase": {
+          "$ref": "https://ace.local/protocol/v1/OffshiftPhase.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "version": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action",
+        "runId",
+        "requestId",
+        "version",
+        "phase",
+        "note"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "block",
+          "type": "string"
+        },
+        "note": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "version": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action",
+        "runId",
+        "requestId",
+        "version",
+        "note"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "resume",
+          "type": "string"
+        },
+        "note": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "version": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action",
+        "runId",
+        "requestId",
+        "version",
+        "note"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "evidence",
+          "type": "string"
+        },
+        "evidence": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "artifact": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "criterionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[a-zA-Z0-9_.-]+$",
+              "type": "string"
+            },
+            "kind": {
+              "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceKind.json"
+            },
+            "note": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "result": {
+              "enum": [
+                "pass",
+                "fail"
+              ],
+              "type": "string"
+            },
+            "revision": {
+              "$ref": "https://ace.local/protocol/v1/OffshiftRevision.json"
+            }
+          },
+          "required": [
+            "criterionId",
+            "kind",
+            "result",
+            "revision",
+            "action",
+            "artifact",
+            "note"
+          ],
+          "type": "object"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "type": "string"
+        },
+        "version": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action",
+        "runId",
+        "requestId",
+        "version",
+        "evidence"
+      ],
+      "type": "object"
+    }
+  ]
+}

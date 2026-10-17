@@ -1,0 +1,55 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftEvidence.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "artifact": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "criterionId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceKind.json"
+    },
+    "note": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "recordedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "result": {
+      "enum": [
+        "pass",
+        "fail"
+      ],
+      "type": "string"
+    },
+    "revision": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftRevision.json"
+    }
+  },
+  "required": [
+    "criterionId",
+    "kind",
+    "result",
+    "revision",
+    "action",
+    "artifact",
+    "note",
+    "recordedAt"
+  ],
+  "type": "object"
+}

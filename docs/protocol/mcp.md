@@ -1882,6 +1882,55 @@ Example:
 }
 ```
 
+## ace_offshift
+
+Track a coding outcome through plan, implementation, verification, review and delivery. Durable runs and revision-bound evidence belong to your calling thread. Use stable requestIds and the returned version for mutations. Read the offshift guide for the verification sequence. This tool records work; use existing agent and execution tools to perform it.
+
+Required capability: thread_control. Timeout: 630000 ms.
+
+## ace_offshift.input
+
+[JSON Schema](schema/ace_offshift.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| request | yes | [OffshiftRequest.json](schema/OffshiftRequest.json) |  |
+
+Example:
+
+```json
+{
+  "request": {
+    "action": "block",
+    "note": "example",
+    "requestId": "s",
+    "runId": "f4UZXTZ191",
+    "version": 0
+  }
+}
+```
+
+## ace_offshift.output
+
+[JSON Schema](schema/ace_offshift.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+| data | no | union | {"anyOf":[{"type":"object","properties":{"run":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","minLength":1,"maxLength":4096},"endpoint":{"type":"string","minLength":1,"maxLength":4096},"criteria":{"minItems":1,"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"description":{"type":"string","minLength":1,"maxLength":4096},"requiredKinds":{"minItems":1,"maxItems":5,"type":"array","items":{"type":"string","enum":["automated","source","ui","human","manual"]}}},"required":["id","description","requiredKinds"],"additionalProperties":false},"x-ace-constraint":"Criterion IDs must be unique."},"phase":{"type":"string","enum":["plan","implement","verify","review","delivery"]},"version":{"type":"integer","minimum":0,"maximum":9007199254740991},"blocker":{"anyOf":[{"type":"string","minLength":1,"maxLength":4096},{"type":"null"}]},"note":{"type":"string","minLength":1,"maxLength":4096},"evidence":{"maxItems":320,"type":"array","items":{"type":"object","properties":{"criterionId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"kind":{"type":"string","enum":["automated","source","ui","human","manual"]},"result":{"type":"string","enum":["pass","fail"]},"revision":{"type":"string","minLength":1,"maxLength":512},"action":{"type":"string","minLength":1,"maxLength":4096},"artifact":{"type":"string","minLength":1,"maxLength":4096},"note":{"type":"string","minLength":1,"maxLength":4096},"recordedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["criterionId","kind","result","revision","action","artifact","note","recordedAt"],"additionalProperties":false}},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"updatedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","threadId","outcome","endpoint","criteria","phase","version","blocker","note","evidence","createdAt","updatedAt"],"additionalProperties":false},"revision":{"type":"string","minLength":1,"maxLength":512},"state":{"type":"string","enum":["active","blocked","needs_evidence","waiting_on_tree","complete"]},"pending":{"maxItems":320,"type":"array","items":{"type":"object","properties":{"criterionId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"kind":{"type":"string","enum":["automated","source","ui","human","manual"]}},"required":["criterionId","kind"],"additionalProperties":false}},"treeState":{"type":"string","enum":["working","waiting","needs_you","failed","done","unknown"]}},"required":["run","revision","state","pending","treeState"],"additionalProperties":false},{"maxItems":32,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"},"outcome":{"type":"string","maxLength":256},"phase":{"type":"string","enum":["plan","implement","verify","review","delivery"]},"outcomeTruncated":{"type":"boolean"}},"required":["id","outcome","phase","outcomeTruncated"],"additionalProperties":false}}]} |
+
+Example:
+
+```json
+{
+  "code": "unavailable",
+  "data": [],
+  "ok": true
+}
+```
+
 ## ace_project_read
 
 Read the caller's workspace project metadata.
@@ -1919,7 +1968,11 @@ Example:
 
 ```json
 {
-  "hint": "example",
+  "code": "invalid",
+  "data": {
+    "id": "example",
+    "name": "example"
+  },
   "ok": false
 }
 ```
@@ -1988,7 +2041,7 @@ Example:
 ```json
 {
   "branch": "example",
-  "requestId": "191aseko_",
+  "requestId": "5vAF",
   "threadId": "example"
 }
 ```
@@ -2008,9 +2061,9 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
   "data": null,
-  "ok": false
+  "hint": "example",
+  "ok": true
 }
 ```
 
@@ -2075,7 +2128,7 @@ Example:
 
 ```json
 {
-  "previewId": "OKu5vA",
+  "previewId": "4qhLR9",
   "threadId": "example"
 }
 ```
@@ -2095,7 +2148,8 @@ Example:
 
 ```json
 {
-  "data": null,
+  "code": "invalid",
+  "hint": "example",
   "ok": true
 }
 ```
@@ -2120,7 +2174,6 @@ Example:
 
 ```json
 {
-  "before": 7,
   "sourceThreadId": "example"
 }
 ```
@@ -2140,7 +2193,7 @@ Example:
 ```json
 {
   "items": [],
-  "itemsBefore": 5,
+  "itemsBefore": null,
   "threadId": "example"
 }
 ```
@@ -2166,6 +2219,7 @@ Example:
 
 ```json
 {
+  "offset": 5,
   "sourceThreadId": "example",
   "streamId": "example"
 }
@@ -2187,9 +2241,9 @@ Example:
 ```json
 {
   "bytes": "example",
-  "encoding": "utf-16le",
-  "eof": false,
-  "nextOffset": 1
+  "encoding": "utf-8",
+  "eof": true,
+  "nextOffset": 3
 }
 ```
 
@@ -2250,7 +2304,11 @@ Required capability: none beyond session authentication. Timeout: 30000 ms.
 Example:
 
 ```json
-{}
+{
+  "topics": [
+    "changes"
+  ]
+}
 ```
 
 ## ace_context.output
@@ -2269,9 +2327,7 @@ Example:
 
 ```json
 {
-  "changes": null,
-  "prs": [],
-  "recent": []
+  "notes": []
 }
 ```
 
@@ -2311,7 +2367,7 @@ Example:
 ```json
 {
   "noteId": "example",
-  "notes": 5
+  "notes": 4
 }
 ```
 
@@ -2349,7 +2405,7 @@ Example:
 
 ```json
 {
-  "retired": false
+  "retired": true
 }
 ```
 
@@ -2374,7 +2430,7 @@ Example:
 
 ```json
 {
-  "options": [],
+  "allowOther": false,
   "question": "example"
 }
 ```
@@ -2393,7 +2449,8 @@ Example:
 
 ```json
 {
+  "answer": [],
   "askId": "example",
-  "status": "pending"
+  "status": "declined"
 }
 ```

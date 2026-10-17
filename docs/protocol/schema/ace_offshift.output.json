@@ -1,0 +1,335 @@
+{
+  "$id": "https://ace.local/protocol/v1/ace_offshift.output.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "enum": [
+        "unsupported",
+        "forbidden",
+        "not_found",
+        "limit",
+        "not_ready",
+        "invalid",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "data": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "pending": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "criterionId": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[a-zA-Z0-9_.-]+$",
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "automated",
+                      "source",
+                      "ui",
+                      "human",
+                      "manual"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "criterionId",
+                  "kind"
+                ],
+                "type": "object"
+              },
+              "maxItems": 320,
+              "type": "array"
+            },
+            "revision": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "run": {
+              "additionalProperties": false,
+              "properties": {
+                "blocker": {
+                  "anyOf": [
+                    {
+                      "maxLength": 4096,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "createdAt": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "criteria": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "description": {
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "id": {
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[a-zA-Z0-9_.-]+$",
+                        "type": "string"
+                      },
+                      "requiredKinds": {
+                        "items": {
+                          "enum": [
+                            "automated",
+                            "source",
+                            "ui",
+                            "human",
+                            "manual"
+                          ],
+                          "type": "string"
+                        },
+                        "maxItems": 5,
+                        "minItems": 1,
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "description",
+                      "requiredKinds"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 64,
+                  "minItems": 1,
+                  "type": "array",
+                  "x-ace-constraint": "Criterion IDs must be unique."
+                },
+                "endpoint": {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "evidence": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "action": {
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "artifact": {
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "criterionId": {
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "pattern": "^[a-zA-Z0-9_.-]+$",
+                        "type": "string"
+                      },
+                      "kind": {
+                        "enum": [
+                          "automated",
+                          "source",
+                          "ui",
+                          "human",
+                          "manual"
+                        ],
+                        "type": "string"
+                      },
+                      "note": {
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "recordedAt": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "result": {
+                        "enum": [
+                          "pass",
+                          "fail"
+                        ],
+                        "type": "string"
+                      },
+                      "revision": {
+                        "maxLength": 512,
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "criterionId",
+                      "kind",
+                      "result",
+                      "revision",
+                      "action",
+                      "artifact",
+                      "note",
+                      "recordedAt"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 320,
+                  "type": "array"
+                },
+                "id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[a-zA-Z0-9_.-]+$",
+                  "type": "string"
+                },
+                "note": {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "outcome": {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "phase": {
+                  "enum": [
+                    "plan",
+                    "implement",
+                    "verify",
+                    "review",
+                    "delivery"
+                  ],
+                  "type": "string"
+                },
+                "threadId": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "version": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "threadId",
+                "outcome",
+                "endpoint",
+                "criteria",
+                "phase",
+                "version",
+                "blocker",
+                "note",
+                "evidence",
+                "createdAt",
+                "updatedAt"
+              ],
+              "type": "object"
+            },
+            "state": {
+              "enum": [
+                "active",
+                "blocked",
+                "needs_evidence",
+                "waiting_on_tree",
+                "complete"
+              ],
+              "type": "string"
+            },
+            "treeState": {
+              "enum": [
+                "working",
+                "waiting",
+                "needs_you",
+                "failed",
+                "done",
+                "unknown"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "run",
+            "revision",
+            "state",
+            "pending",
+            "treeState"
+          ],
+          "type": "object"
+        },
+        {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-zA-Z0-9_.-]+$",
+                "type": "string"
+              },
+              "outcome": {
+                "maxLength": 256,
+                "type": "string"
+              },
+              "outcomeTruncated": {
+                "type": "boolean"
+              },
+              "phase": {
+                "enum": [
+                  "plan",
+                  "implement",
+                  "verify",
+                  "review",
+                  "delivery"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "outcome",
+              "phase",
+              "outcomeTruncated"
+            ],
+            "type": "object"
+          },
+          "maxItems": 32,
+          "type": "array"
+        }
+      ]
+    },
+    "hint": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "type": "object"
+}

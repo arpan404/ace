@@ -1,3 +1,4 @@
+import { OffshiftJournal } from "@ace/offshift";
 import {
   access,
   mkdir,
@@ -316,3 +317,65 @@ test("cleaning up an archived tree of 300 delegated threads removes every thread
   for (const thread of [root, ...children])
     expect(f.store.getThread(thread.id)?.deletedAt).toBeDefined();
 }, 300000);
+
+test("purging a thread removes its Offshift outcome and evidence while preserving another run", async () => {
+  const f = await setup();
+  const old = f.thread("old-offshift");
+  const retained = f.thread("retained-offshift");
+  const journal = new OffshiftJournal(f.store);
+  const request = {
+    action: "start",
+    runId: "feature",
+    requestId: "start",
+    outcome: "Private outcome",
+    endpoint: "local",
+    criteria: [{ id: "behavior", description: "Private requirement", requiredKinds: ["source"] }],
+  } as const;
+  for (const thread of [old, retained]) {
+    const context = { threadId: thread.id, now: 1, revision: "source", treeState: "done" as const };
+    journal.execute(request, context);
+    journal.execute(
+      {
+        action: "evidence",
+        runId: "feature",
+        requestId: "evidence",
+        version: 0,
+        evidence: {
+          criterionId: "behavior",
+          kind: "source",
+          result: "pass",
+          revision: "source",
+          action: "Inspect diff",
+          artifact: "private report",
+          note: "Private observation",
+        },
+      },
+      context,
+    );
+  }
+  f.store.appendEvents(
+    retained.id,
+    [{ type: "thread.client.updated", changes: { pinned: true } }],
+    2,
+  );
+  const plan = await f.storage.plan("owner", {
+    op: "cleanup.plan",
+    kinds: ["threads"],
+    forceItems: [],
+  });
+  expect((await f.storage.apply("owner", plan.id, plan.revision)).state).toBe("complete");
+  expect(() =>
+    journal.execute(
+      { action: "get", runId: "feature" },
+      { threadId: old.id, now: 2, revision: "source", treeState: "done" },
+    ),
+  ).toThrow("Run not found");
+  expect(
+    journal.execute(
+      { action: "get", runId: "feature" },
+      { threadId: retained.id, now: 2, revision: "source", treeState: "done" },
+    ),
+  ).toMatchObject({
+    run: { outcome: "Private outcome", evidence: [{ note: "Private observation" }] },
+  });
+});

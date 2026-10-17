@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftCriterion.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "description": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "requiredKinds": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/OffshiftEvidenceKind.json"
+      },
+      "maxItems": 5,
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "description",
+    "requiredKinds"
+  ],
+  "type": "object"
+}
