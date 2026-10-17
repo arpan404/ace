@@ -13,6 +13,7 @@ test("a CLI older than ace's minimum lists no models and says which update it ne
   cleanup.push(work.close);
   const clock = new Clock();
   let probes = 0;
+  const reported: string[] = [];
   const catalog = new ModelCatalog({
     storage: openModelStorage(join(work.path, "models.sqlite")),
     instances: [{ ...instance("codex"), cwd: work.path, installationVersion: "0.158.0" }],
@@ -23,6 +24,7 @@ test("a CLI older than ace's minimum lists no models and says which update it ne
     now: () => clock.now,
     deadline: clock.deadline,
     random: () => 0.5,
+    onError: (_provider, _instance, error) => reported.push(error.message),
   });
   cleanup.push(() => catalog.close());
   await catalog.refresh();
@@ -32,6 +34,10 @@ test("a CLI older than ace's minimum lists no models and says which update it ne
     message: "Codex 0.158.0 is older than 0.159.1, the oldest version ace supports.",
     hint: "Update Codex, then refresh models.",
   });
+  // The diagnostic log names the versions too, not a generic "cannot list" line.
+  expect(reported).toContain(
+    "Codex 0.158.0 is older than 0.159.1, the oldest version ace supports.",
+  );
   catalog.installationChanged("codex", "0.159.1");
   await catalog.refresh();
   expect(probes).toBeGreaterThan(0);

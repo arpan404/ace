@@ -1,4 +1,4 @@
-import type { ModelDiscoveryError } from "@ace/protocol";
+import { ModelDiscoveryError } from "@ace/protocol";
 import { discoveryFailureCode } from "@ace/provider-kit/discovery-failure";
 import {
   cliTooOldMessage,
@@ -71,6 +71,14 @@ export function discoveryError(
     (typeof error === "object" && error !== null && "code" in error && error.code === "no_models")
       ? "no_models"
       : discoveryFailureCode(error, fallback);
+  // A too-old detail re-reported (logging, per-source copies) keeps the versions it names.
+  const known = kind === "cli_too_old" ? ModelDiscoveryError.safeParse(error) : undefined;
+  if (
+    known?.success &&
+    known.data.code === "cli_too_old" &&
+    known.data.message !== messages.cli_too_old[0]
+  )
+    return Object.freeze(known.data);
   const tooOld = kind === "cli_too_old" ? TooOld.safeParse(error) : undefined;
   if (tooOld?.success) {
     const name = cliRequirements[tooOld.data.cli].name;
