@@ -32,15 +32,15 @@ export const BrowserTab = z.object({
   url: z.string().max(8192),
   title: z.string().max(1024),
   pending_dialog: BrowserDialog.optional(),
-  openedBy: BrowserTabActor.optional().catch(undefined),
+  openedBy: BrowserTabActor.optional(),
   /** The actor whose command ran on this tab most recently. */
-  drivenBy: BrowserTabActor.optional().catch(undefined),
+  drivenBy: BrowserTabActor.optional(),
   /** A short name an agent gave the tab when it opened it, such as "checkout". */
-  label: z.string().max(64).optional().catch(undefined),
-  lease: BrowserTabLease.optional().catch(undefined),
-  lifecycle: BrowserTabLifecycle.optional().catch(undefined),
-  loading: z.boolean().optional().catch(undefined),
-  favicon: z.string().max(8192).optional().catch(undefined),
+  label: z.string().max(64).optional(),
+  lease: BrowserTabLease.optional(),
+  lifecycle: BrowserTabLifecycle.optional(),
+  loading: z.boolean().optional(),
+  favicon: z.string().max(8192).optional(),
 });
 export type BrowserTab = z.infer<typeof BrowserTab>;
 /** Wire bound on one browser's tab list: far above what a person keeps open, still bounded. */

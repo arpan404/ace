@@ -92,6 +92,8 @@ export interface Services {
     options: SpawnOptions,
   ): ReturnType<typeof launchPluginProcess>;
   browser: BrowserService;
+  /** "Use my Chrome" (ADR 0084): browsers connected through the ace extension. */
+  userBrowser?: import("../user-browser.ts").UserBrowserService;
   /** Refuses answers to a private-takeover hold; only handback releases it. */
   browserPrivateAnswers?: (
     command: import("@ace/protocol").Command,

@@ -244,7 +244,8 @@ export const BrowserState = z.object({
   owner: short.optional(),
   url: z.string().max(8192),
   closed: z.boolean(),
-  backend: z.enum(["embedded", "headless"]).optional(),
+  /** `user`: the person's own browser through the ace extension (ADR 0084). */
+  backend: z.enum(["embedded", "headless", "user"]).optional(),
   status: z.enum(["ready", "paused", "recovering"]).optional(),
   reason: z.string().max(2048).optional(),
   pageStateLost: z.boolean().optional(),

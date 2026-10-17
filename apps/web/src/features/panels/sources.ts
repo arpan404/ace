@@ -53,7 +53,7 @@ export interface BrowserView {
   status?: "ready" | "paused" | "recovering" | undefined;
   reason?: string | undefined;
   /** Where the page runs: the desktop app's own browser, or the daemon's headless Chromium. */
-  backend?: "embedded" | "headless" | undefined;
+  backend?: "embedded" | "headless" | "user" | undefined;
   /** The page was reopened after its backend was lost; cookies and page state are gone. */
   pageStateLost?: boolean | undefined;
   loading?: boolean | undefined;

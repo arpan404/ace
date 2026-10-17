@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/UserBrowserToExtension.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "https://ace.local/protocol/v1/UserBrowserDaemonMessage.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/UserBrowserLink.json"
+    }
+  ]
+}

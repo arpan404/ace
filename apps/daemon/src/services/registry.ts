@@ -29,11 +29,17 @@ import { createCursorAuthSession } from "./cursor-auth.ts";
 import { createAccountsSession } from "./accounts.ts";
 import { createCommandsSession } from "./commands.ts";
 import { createFilesSession } from "./files.ts";
-import { ClientMessage, BrowserClientMessage, BrowserBackendClientMessage } from "@ace/protocol";
+import {
+  ClientMessage,
+  BrowserClientMessage,
+  BrowserBackendClientMessage,
+  UserBrowserExtensionMessage,
+} from "@ace/protocol";
 import { PluginClientMessage } from "@ace/protocol/plugins";
 import { createNotificationsSession } from "./notifications.ts";
 import { createPluginsSession } from "./plugins.ts";
 import { createBrowserSession } from "./browser.ts";
+import { createUserBrowserSession } from "./user-browser.ts";
 import { createContextSession } from "./context.ts";
 import { createSettingsSession } from "./settings.ts";
 import { createPermissionsSession } from "./permissions.ts";
@@ -77,6 +83,7 @@ export const socketServiceFactories = [
   createNotificationsSession,
   createPluginsSession,
   createBrowserSession,
+  createUserBrowserSession,
   createContextSession,
   createSettingsSession,
   createPermissionsSession,
@@ -106,6 +113,7 @@ export function parseSocketMessage(input: unknown): SocketMessage {
     PluginClientMessage,
     BrowserClientMessage,
     BrowserBackendClientMessage,
+    UserBrowserExtensionMessage,
   ]) {
     const result = schema.safeParse(input);
     if (result.success) return result.data;
