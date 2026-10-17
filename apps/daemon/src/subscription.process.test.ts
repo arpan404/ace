@@ -30,6 +30,37 @@ function port(store: SubscriptionStore): SubscriptionStore {
   };
 }
 describe("subscription bootstrap", () => {
+  it("a cursor committed by the replay barrier continues live without a replacement snapshot", async () => {
+    const f = await setup();
+    const input = port(f.store);
+    const cursor = f.store.headSeq() + 1;
+    input.replaySafe = (after) => {
+      f.store.appendEvents(f.thread.id, [{ type: "thread.updated", title: "At barrier" }]);
+      return f.store.replaySafe(after);
+    };
+    const messages: ServerMessage[] = [];
+    cleanups.push(
+      subscribe(
+        input,
+        "s",
+        { kind: "thread", threadId: f.thread.id },
+        cursor,
+        5000,
+        (message) => messages.push(message),
+        250,
+        undefined,
+        true,
+      ),
+    );
+    expect(messages).toEqual([{ type: "subscription.ready", subscriptionId: "s", seq: cursor }]);
+    f.store.appendEvents(f.thread.id, [{ type: "thread.updated", title: "Live next" }]);
+    expect(messages[1]).toMatchObject({
+      type: "events",
+      afterSeq: cursor,
+      throughSeq: cursor + 1,
+      events: [{ payload: { type: "thread.updated", title: "Live next" } }],
+    });
+  });
   it.each([undefined, 0])(
     "queues commits made inside snapshot or replay delivery, afterSeq=%s",
     async (afterSeq) => {

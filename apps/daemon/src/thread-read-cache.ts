@@ -10,7 +10,7 @@ export class ThreadReadCache {
     flush(): void;
     version(): string;
     inTransaction(): boolean;
-    externalChange(): void;
+    generationChanged(): void;
   }) {
     this.options = privateOptions;
   }
@@ -37,7 +37,7 @@ export class ThreadReadCache {
     if (version !== this.version) {
       this.version = version;
       this.invalidate();
-      this.options.externalChange();
+      this.options.generationChanged();
     }
     if (this.options.inTransaction()) return load();
     const cached = this.entries.get(key);

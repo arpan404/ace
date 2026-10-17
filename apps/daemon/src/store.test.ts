@@ -89,6 +89,40 @@ it.each([false, true])(
 );
 
 describe("store", () => {
+  it("a snapshot inside a rejected transaction does not expose its changes to an acquired view", () => {
+    const { store, thread } = setup();
+    const view = store.acquireThread(thread.id);
+    expect(() =>
+      store.atomic(() => {
+        store.appendEvents(thread.id, [{ type: "thread.updated", title: "uncommitted" }]);
+        expect(store.snapshotThread(thread.id).thread.title).toBe("uncommitted");
+        expect(view.thread.title).toBe(thread.title);
+        throw new Error("rejected");
+      }),
+    ).toThrow("rejected");
+    expect(view.thread.title).toBe(thread.title);
+    expect(store.snapshotThread(thread.id).thread.title).toBe(thread.title);
+    store.releaseThread(thread.id);
+  });
+  it("snapshot and entity reads keep acquired status live across external writes", () => {
+    const { store, thread, dbPath } = setup();
+    const view = store.acquireThread(thread.id);
+    store.snapshotThread(thread.id);
+    store.appendEvents(thread.id, [{ type: "thread.updated", title: "after snapshot" }]);
+    expect(view.thread.title).toBe("after snapshot");
+    const external = new DatabaseSync(dbPath);
+    try {
+      external.prepare("UPDATE threads SET title=? WHERE id=?").run("external", thread.id);
+    } finally {
+      external.close();
+    }
+    expect(store.snapshotThread(thread.id).thread.title).toBe("external");
+    expect(view.thread.title).toBe("external");
+    store.readEntityPage(thread.id, "agents", Number.MAX_SAFE_INTEGER, 20);
+    store.appendEvents(thread.id, [{ type: "thread.updated", title: "after entity page" }]);
+    expect(view.thread.title).toBe("after entity page");
+    store.releaseThread(thread.id);
+  });
   it("checks live ownership without decoding history and follows tombstones and rollback", () => {
     const { store, thread } = setup();
     vi.spyOn(store, "getThread").mockImplementation(() => {

@@ -133,7 +133,6 @@ export function subscribe(
     if (acquired) store.releaseThread(acquired);
   };
   try {
-    const initialHead = afterSeq === undefined ? undefined : store.headSeq();
     let replaySafe = afterSeq === undefined;
     if (afterSeq !== undefined) {
       try {
@@ -144,6 +143,8 @@ export function subscribe(
         replaySafe = false;
       }
     }
+    // Replay safety drains pending writes; compare the cursor with the resulting head.
+    const initialHead = afterSeq === undefined ? undefined : store.headSeq();
     if (
       afterSeq === undefined ||
       afterSeq > (initialHead ?? 0) ||

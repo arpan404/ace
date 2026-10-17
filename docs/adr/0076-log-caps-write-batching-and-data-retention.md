@@ -115,8 +115,10 @@ Every local transaction invalidates it wholesale (coarse but correct), including
 archive and deletion writes. `PRAGMA data_version` fences writes from other connections; `total_changes()` also fences raw
 writes on the Store connection. A cursor past even the reserved high-water mark is treated
 as unsafe and falls back to a fresh snapshot rather than surfacing a replay error.
-Transactional reads bypass cache population; callers receive independent values. Read-cache
-pressure cannot evict pinned writes. Cache misses fall through to SQLite.
+Transactional reads bypass cache population; callers receive independent values. Acquired live status views keep their identity across read-cache generation changes; stale
+contents refresh in place before acquisition or the next status publication. Transactional
+reads retain their separate snapshot so rolled-back changes do not leak into held views.
+Read-cache pressure cannot evict pinned writes. Cache misses fall through to SQLite.
 
 Read-cache optimization remains a separate follow-up: with 1,000 awaited deltas, a local
 single-writer run committed 42 transactions, while interleaving a snapshot read every four

@@ -176,7 +176,10 @@ export class Store {
       version: () =>
         `${this.statement("PRAGMA data_version").get()?.data_version}:${this.statement("SELECT total_changes() AS n").get()?.n}`,
       inTransaction: () => this.transactionEvents !== undefined,
-      externalChange: () => this.caches.clear(),
+      generationChanged: () => {
+        if (this.transactionEvents) this.caches.clear();
+        else for (const { view } of this.caches.values()) this.status.invalidateCache(view);
+      },
     });
     this.sequences = new StreamSequences({
       statement: (sql) => this.statement(sql),
@@ -460,7 +463,8 @@ export class Store {
               !event.payload.type.startsWith("item."),
           );
           try {
-            if (changes.length) this.status.updateCache(view, changes);
+            if (changes.length && this.status.cacheInvalidated(view)) this.catchUp(view, id);
+            else if (changes.length) this.status.updateCache(view, changes);
             view.seq = Math.max(view.seq, batch.at(-1)?.seq ?? view.seq);
           } catch (error) {
             this.caches.delete(id);
@@ -1216,7 +1220,7 @@ export class Store {
   }
   private catchUp(view: ThreadView, id: ThreadId): void {
     const head = this.headSeq();
-    if (view.seq < head) {
+    if (view.seq < head || this.status.cacheInvalidated(view)) {
       const thread = this.getThread(id);
       if (!thread) throw new Error("Unknown thread");
       this.status.replaceCache(view, this.status.snapshot(thread, head));
