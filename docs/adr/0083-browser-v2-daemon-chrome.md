@@ -5,6 +5,10 @@ Date: 2026-10-17. Status: accepted, revised the same day (see Hybrid). Amends
 [ADR 0009](0009-browser-service.md), [ADR 0054](0054-desktop-shell.md),
 [ADR 0067](0067-browser-parity.md) and [ADR 0082](0082-browser-annotation.md).
 
+Amended 2026-10-17 by [ADR 0085](0085-desktop-native-view-lifecycle.md): under the owner's
+hybrid decision the desktop's native view stays the in-app renderer, so the embedded backend
+is kept, not deleted.
+
 ## Context
 
 The owner wants the Browser to behave like a real browser: agents use several tabs at once with

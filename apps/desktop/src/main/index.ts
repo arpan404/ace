@@ -231,10 +231,12 @@ function main(target: DaemonTarget): void {
     });
     renderer.on("render-process-gone", forget);
     renderer.on("destroyed", forget);
-    window.on("closed", () => {
+    const closing = window;
+    // Browser views move to the parking window before the window (and its views) go.
+    closing.on("close", () => background.windowClosing(closing));
+    closing.on("closed", () => {
       window = undefined;
-      // Embedded views live in the window: without one the app stops offering the backend,
-      // so the daemon pauses or moves those sessions instead of driving dead views.
+      // The app quits here only when nothing keeps it running (`appLifetime`).
       background.windowChanged();
       focusChanged();
     });
@@ -300,9 +302,9 @@ function main(target: DaemonTarget): void {
       .catch((error: unknown) => log("error", String(error)))
       .finally(() => app.quit());
   });
-  app.on("window-all-closed", () => {
-    if (!settings.get().background && process.platform !== "darwin") app.quit();
-  });
+  // Background decides when a windowless app quits (os/lifetime.ts): never while an agent
+  // works or a thread has a browser page. Listening here stops Electron quitting on its own.
+  app.on("window-all-closed", () => background.windowChanged());
   app.on("activate", () => open());
 
   void app.whenReady().then(async () => {

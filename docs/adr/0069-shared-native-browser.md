@@ -5,6 +5,11 @@ Date: 2026-10-07. Status: accepted, amended by ADR 0083. Amends [ADR 0055](0055-
 
 Amended 2026-10-17 by [ADR 0083](0083-browser-v2-daemon-chrome.md): agents still drive the desktop's native view when a desktop is attached, now in several tabs per thread. With no desktop, they use the daemon's own Chrome, whose threads share one ace profile, with private contexts on request.
 
+Amended 2026-10-17 by [ADR 0085](0085-desktop-native-view-lifecycle.md): under the hybrid the
+native view stays the in-app renderer. Views outlive app windows and lost links, a thread holds
+several native tabs, and whether a windowless app quits is decided by `appLifetime`, not by the
+parking window.
+
 ## Context
 
 ADR 0067 sent every agent browser session to the daemon's headless Chromium, even with the
