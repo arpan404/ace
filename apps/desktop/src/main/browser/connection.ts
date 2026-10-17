@@ -3,7 +3,7 @@ import type { BrowserBackend } from "./backend.ts";
 import { BrowserBackendServerMessage, type DeviceCredential } from "@ace/protocol";
 
 /**
- * - `off`: no window to draw views in, so this app is not offering a backend;
+ * - `off`: this app is not offering a backend (before it starts, and after Quit);
  * - `connecting`: hello and registration in progress;
  * - `registered`: the daemon routes embedded browser sessions here;
  * - `unsupported`: the daemon publishes no desktop credential or does not know the frames;
@@ -59,9 +59,10 @@ const capabilities = {
  * carries notifications, the badge and the tray.
  *
  * It authenticates with the host token and the desktop credential's device id, registers
- * with the credential, then hands requests to the backend. Lost connections retry with
- * backoff while a window exists; without one it unregisters, so the daemon pauses or moves
- * those sessions and runs new ones headless.
+ * with the credential, then hands requests to the backend. It stays offered with every window
+ * closed: views render in the parking window. Lost connections retry with backoff and keep
+ * the views for the daemon to adopt again (`BrowserBackend.detach`); only `close` (Quit)
+ * closes them.
  */
 export class BackendConnection {
   private backend: BrowserBackend;
@@ -95,12 +96,12 @@ export class BackendConnection {
     return () => this.listeners.delete(listener);
   }
 
-  /** Offer the backend while the app has a window to draw views in. */
+  /** Offer the backend, or stop offering it and close its views. */
   setAvailable(available: boolean): void {
     if (available === this.wanted) return;
     this.wanted = available;
     if (available) void this.connect();
-    else this.disconnect();
+    else void this.disconnect();
   }
 
   /** The daemon (re)started or the machine woke: try again now. */
@@ -118,9 +119,10 @@ export class BackendConnection {
     this.sendBrowser("browser.handback", threadId);
   }
 
-  close(): void {
+  /** Quit: unregister and close every view; resolves once they are closed. */
+  close(): Promise<void> {
     this.wanted = false;
-    this.disconnect();
+    return this.disconnect();
   }
 
   private async connect(): Promise<void> {
@@ -241,18 +243,17 @@ export class BackendConnection {
     });
   }
 
-  private disconnect(): void {
+  private disconnect(): Promise<void> {
     this.generation++;
     this.clearRetry();
     const socket = this.socket;
     this.socket = undefined;
-    if (this.registered) {
-      this.registered = undefined;
-      // Close the views now; the socket's close event may arrive later.
-      this.backend.detach();
-    }
+    if (this.registered) this.registered = undefined;
+    // Close the views now; the socket's close event may arrive later.
+    const closed = this.backend.closeAll();
     socket?.close();
     this.setState("off");
+    return closed;
   }
 
   private retry(state: BackendState): void {
