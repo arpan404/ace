@@ -36,7 +36,7 @@ test("Steer accepts a running root turn before its first transcript item", async
   expect((await queue(app)).total).toBe(0);
 });
 
-test("Steer follows live root ownership when a snapshot retains only child output", async () => {
+test("Steer stays available when no root turn runs and sends the message at once", async () => {
   const app = harness({ snapshotItems: 1 });
   // Keep older transcript pages outside this device's retained window.
   app.daemon.holdRequests("items.page");
@@ -63,21 +63,45 @@ test("Steer follows live root ownership when a snapshot retains only child outpu
   );
   const steer = await screen.findByRole("button", { name: "Steer" });
   await waitFor(() => expect(steer.getAttribute("aria-disabled")).toBe("false"));
-  act(() =>
-    app.daemon.apply(threadId, [{ type: "turn.ended", agent: "root", outcome: "completed" }]),
-  );
-  await waitFor(() =>
-    expect(steer.getAttribute("aria-description")).toBe("There is no running turn to steer."),
-  );
+  // The root's turn ends while its subagents and the relay keep running, and the provider has
+  // said it will start a turn of its own: the message stays queued for that turn.
   act(() =>
     app.daemon.apply(threadId, [
-      { type: "turn.started", agent: "root", nativeTurnId: "next-root", trigger: "user" },
+      { type: "turn.ended", agent: "root", outcome: "completed" },
+      { type: "wake.expected", agent: "root", until: 4_102_444_800_000 },
     ]),
   );
+  await waitFor(() => expect(within(feed).queryByText("Follow the live turn")).toBeNull());
+  // Steering never needs a running turn: it starts the next one now.
   await waitFor(() => expect(steer.getAttribute("aria-disabled")).toBe("false"));
   await userEvent.click(steer);
   expect(await within(feed).findByText("Follow the live turn")).toBeTruthy();
   expect((await queue(app)).total).toBe(0);
+});
+
+test("a queued message reaches the agent when the root's turn ends while subagents keep working", async () => {
+  const app = harness();
+  app.play(replayCursor()).runThrough("finding");
+  await app.open(`/t/${threadId}`);
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Message" }),
+    "After your turn{Enter}",
+  );
+  await waitFor(() => expect(rows()).toHaveLength(1));
+  expect(within(feed).queryByText("After your turn")).toBeNull();
+  act(() =>
+    app.daemon.apply(threadId, [{ type: "turn.ended", agent: "root", outcome: "completed" }]),
+  );
+  expect(await within(feed).findByText("After your turn")).toBeTruthy();
+  expect((await queue(app)).total).toBe(0);
+  // The subagents still run: the thread keeps reading as working.
+  const lease = app.client.thread(threadId);
+  try {
+    await waitFor(() => expect(lease.store.thread?.status.state).toBe("working"));
+  } finally {
+    lease.release();
+  }
 });
 
 test.each(["save", "take back"])(
