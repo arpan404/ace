@@ -74,11 +74,37 @@ test("where the thread runs is one row in the strip above the composer; a notice
     composer && where.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
   expect(within(where).getByRole("checkbox", { name: "Worktree" })).toBeTruthy();
-  expect(within(where).getByRole("img", { name: /machine icon/ })).toBeTruthy();
+  // One device: the machine goes without saying.
+  expect(within(where).queryByRole("img", { name: /machine icon/ })).toBeNull();
 
   refuse = true;
   await userEvent.type(message, "Keep this editor open");
   expect((await screen.findByRole("alert")).textContent).toContain("Couldn't save");
   expect(screen.queryByRole("region", { name: "Where this thread runs" })).toBeNull();
+  // The project stays in reach beside the notice.
+  expect(screen.getByRole("button", { name: "Project: relay" })).toBeTruthy();
   expect(textAfterComposer()).toBe("");
+});
+
+test("the page is the composer and its strip: no wordmark or heading, the project a strip control", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  await app.open("/new?project=relay");
+  await screen.findByRole("combobox", { name: "Message" });
+  const main = screen.getByRole("main");
+  expect(within(main).queryByRole("heading", { level: 2 })).toBeNull();
+  expect(within(main).queryByText("ace", { exact: true })).toBeNull();
+  const project = await screen.findByRole("button", { name: "Project: relay" });
+  const composer = document.querySelector("[data-slot=composer]");
+  expect(
+    composer && project.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+});
+
+test("the strip names the machine only while more than one device is connected", async () => {
+  const app = harness({ machines: [{ hostId: "build", name: "Build server" }] });
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  await app.open("/new?project=relay");
+  const where = await screen.findByRole("region", { name: "Where this thread runs" });
+  expect(await within(where).findByRole("img", { name: /machine icon/ })).toBeTruthy();
 });

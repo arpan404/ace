@@ -8,6 +8,7 @@ export { PermissionPicker } from "./composer/permission-picker.tsx";
 export { useAccessModes } from "./composer/permission-hooks.ts";
 export {
   chipControl as composerChip,
+  composerSurface,
   stripControl as composerStrip,
   noticeSurface as composerNoticeSurface,
   environmentSurface as composerEnvironmentSurface,
