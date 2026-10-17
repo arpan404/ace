@@ -249,3 +249,25 @@ test("a draft's annotations come back after the thread is reopened, and annotati
   await userEvent.click(annotateButton(reopened));
   await waitFor(() => expect(commands).toContainEqual({ op: "restore", annotations: [pinned] }));
 });
+
+test("keys typed at the page never reach the composer, even once the page stops taking them", async () => {
+  const { app, panel, browser, message } = await annotating();
+  const before = userMessages(app).length;
+  await userEvent.click(annotateButton(panel));
+  await waitFor(() => expect(browser.view(threadId)?.annotation?.owner).toBeTruthy());
+  await userEvent.click(within(panel).getByRole("application"));
+  await userEvent.keyboard("First");
+  act(() => void browser.annotations.pin(threadId, { comment: "First" }));
+  await screen.findByRole("button", { name: "Show 1 annotation" });
+  expect(browser.inputs.filter((entry) => entry.input.kind === "key").length).toBeGreaterThan(0);
+
+  // Annotate mode ends from the page and the agent has it back while the person is at it.
+  act(() => browser.annotations.emit(threadId, { kind: "close" }));
+  await waitFor(() => expect(browser.view(threadId)?.controller).toBe("agent"));
+  await userEvent.keyboard("Rounder");
+  await userEvent.click(within(panel).getByRole("img", { name: /Live view/ }));
+  await userEvent.keyboard("corners{Enter}");
+
+  expect(message.textContent).toBe("");
+  expect(userMessages(app).length).toBe(before);
+});
