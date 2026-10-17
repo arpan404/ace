@@ -22,7 +22,17 @@ export { ChromeBackend, type ChromeBackendOptions } from "./headless.ts";
 export type { ChromeCleanup, ChromeLaunch } from "./chrome-instance.ts";
 export type { CdpIntercept, CdpSend } from "./cdp-connection.ts";
 export { EmbeddedBackend, type EmbeddedTransport } from "./embedded.ts";
-export type { BrowserBackend, BrowserBackendSession, BrowserCdp, BackendOpen } from "./backend.ts";
+export type {
+  BrowserBackend,
+  BrowserBackendPage,
+  BrowserBackendSession,
+  BrowserBackendTabs,
+  BrowserCdp,
+  BackendOpen,
+} from "./backend.ts";
+export type { BrowserTabRecord, BrowserTabStore } from "./tab-store.ts";
+export { agentTabLimit, daemonTabLimit, threadTabLimit } from "./tab-limits.ts";
+export type { LifecycleSchedule } from "./session-lifecycle.ts";
 export { acquireChromium, type ChromiumAcquisitionOptions } from "./acquisition.ts";
 export { chromiumArtifact, ChromiumArtifact } from "./chromium-manifest.ts";
 

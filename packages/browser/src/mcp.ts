@@ -23,12 +23,18 @@ const actions = {
   },
   navigate: {
     riskClass: "external-effect",
-    description: "Navigate this thread's ace browser to a URL.",
+    description:
+      "Navigate a tab of this thread's ace browser to a URL (your current tab, or tabId).",
   },
   click: {
     riskClass: "external-effect",
     description:
-      "Click a ref from ace_browser_snapshot. After a navigation-triggering click, wait_for url or text, then snapshot again. Old document refs expire.",
+      "Click a ref from ace_browser_snapshot, or a point x, y in CSS pixels (with button, clickCount, modifiers). After a navigation-triggering click, wait_for url or text, then snapshot again. Old document refs expire.",
+  },
+  fill_form: {
+    riskClass: "external-effect",
+    description:
+      "Fill several text fields in one call: fields is a list of {ref, value} from the latest snapshot; each value replaces the field's text. Use select or check for other controls.",
   },
   type: {
     riskClass: "external-effect",
@@ -70,7 +76,21 @@ const actions = {
   },
   screenshot: {
     riskClass: "read-only",
-    description: "Read a screenshot of this thread's ace browser.",
+    description:
+      "Read a screenshot of one tab without changing what the person sees: the viewport, fullPage for the whole page, or ref for one element.",
+  },
+  pdf: {
+    riskClass: "read-only",
+    description: "Print a tab to a PDF file and return its path.",
+  },
+  downloads: {
+    riskClass: "read-only",
+    description:
+      "List what this thread's tabs downloaded (with tabId, only that tab's), or operation wait to wait until downloads finish.",
+  },
+  extensions: {
+    riskClass: "read-only",
+    description: "List the browser extensions installed in ace's browser. Read-only.",
   },
   evaluate: {
     riskClass: "external-effect",
@@ -97,7 +117,7 @@ const actions = {
   tabs: {
     riskClass: "external-effect",
     description:
-      "List this thread's single browser page. Legacy open reuses it; switch accepts its current id. Close the page with ace_browser_close.",
+      "Tabs of this thread's ace browser. list: every tab with tabId, url, title, label, openedBy, drivenBy, lease, lifecycle, loading, pending_dialog; current marks yours. open: a new tab (optional url and label) that becomes your current tab. select: make tabId your current tab. close: close tabId. Parallel agents: each open a labelled tab and pass its tabId to every browser tool.",
   },
   upload: {
     riskClass: "external-effect",
@@ -133,7 +153,7 @@ const actions = {
   record_start: {
     riskClass: "external-effect",
     description:
-      "Start recording this thread's browser using the artifact pipeline. Private takeover excludes frames.",
+      "Start recording the tab the person is viewing, using the artifact pipeline. Private takeover excludes frames.",
   },
   record_stop: {
     riskClass: "external-effect",
@@ -221,11 +241,17 @@ export function browserToolkit(
                 }),
               );
             }
+            const actor = { kind: "agent" as const, agentId: caller.agentId };
             if (action === "screenshot") {
               const bytes = await service.screenshot(
                 caller.threadId,
                 signal,
                 typeof args["tabId"] === "string" ? args["tabId"] : undefined,
+                {
+                  fullPage: args["fullPage"] === true,
+                  ...(typeof args["ref"] === "string" ? { ref: args["ref"] } : {}),
+                },
+                actor,
               );
               signal.throwIfAborted();
               return {
@@ -243,7 +269,7 @@ export function browserToolkit(
             const result = await service.execute(
               caller.threadId,
               { ...args, action },
-              { kind: "agent" },
+              actor,
               signal,
             );
             signal.throwIfAborted();

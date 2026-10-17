@@ -13,6 +13,7 @@ import { installOriginGuard } from "./origin-guard.ts";
 import { pageFrames } from "./page-frames.ts";
 import { pageStatus } from "./page-status.ts";
 import { TabCdp } from "./tab-cdp.ts";
+import { threadTabLimit } from "./tab-limits.ts";
 
 const Navigated = z.object({
   frame: z.object({
@@ -43,6 +44,11 @@ export interface TabHost {
 interface Tab {
   id: string;
   cdp: TabCdp;
+  viewport: { width: number; height: number };
+  /** The person or agent holding this tab: agents never get popups or beforeunload prompts. */
+  controller: "agent" | "human" | "none";
+  /** Bumped each time the tab gets a new target, so a popup from an old target is refused. */
+  binding: number;
   target?: AttachedTarget | undefined;
   guard?: Guard | undefined;
   mainFrame?: string | undefined;
@@ -57,16 +63,16 @@ interface Tab {
 }
 
 /**
- * One thread's pages in ace's Chrome: a main page plus at most one human sign-in popup.
- * Each page is its own top-level target with its own window and flattened CDP session.
+ * One thread's tabs in ace's Chrome, popups included, up to the thread's tab limit. Each tab is
+ * its own top-level target with its own window and flattened CDP session, so tabs render and
+ * take input independently. `active` is only the tab the person is shown.
  */
 export class ChromeTabs {
   private tabs = new Map<string, Tab>();
   private starting = 0;
   private activeId = "";
-  private targetGeneration = 0;
-  private controller: "agent" | "human" | "none" = "agent";
   private stopped = false;
+  private maxTabs: number;
   private sequence = 0;
   private host: TabHost | undefined;
   private unwatch = () => {};
@@ -81,6 +87,7 @@ export class ChromeTabs {
     this.deviceScaleFactor = deviceScaleFactor;
     this.schedule = schedule;
     this.viewport = { width: 1280, height: 720 };
+    this.maxTabs = request.maxTabs ?? threadTabLimit;
     this.inspection = new BrowserInspection(request.log);
     this.downloads = new ChromeDownloads(request, () =>
       this.host
@@ -92,74 +99,91 @@ export class ChromeTabs {
         : undefined,
     );
   }
+  /** Opens the thread's first tab, or the tabs it had before a restart with the same ids. */
   async start(host: TabHost): Promise<void> {
     this.attachHost(host);
-    await this.create();
+    const restoring = (this.request.restoreTabs ?? []).slice(0, this.maxTabs);
+    if (!restoring.length) {
+      await this.create();
+      return;
+    }
+    for (const entry of restoring) {
+      const tab = await this.create(entry.tabId);
+      tab.url = entry.url;
+    }
+    await Promise.all([...this.tabs.values()].map((tab) => this.reopen(tab)));
+    this.request.changed?.();
   }
   /**
-   * The browser restarted: popups are gone, the main page returns with its tab id at its
-   * last URL. Page state (DOM, scripts, history) is lost; cookies in the profile survive.
+   * The browser restarted: every tab returns with its tab id at its last URL. Page state (DOM,
+   * scripts, history) is lost; cookies in the profile survive.
    */
   async restore(host: TabHost): Promise<void> {
     if (this.stopped) throw new Error("Browser closed");
     this.attachHost(host);
-    const [main, ...rest] = this.tabs.values();
-    for (const tab of rest) this.remove(tab, false);
-    if (!main) throw new Error("Browser tab unavailable");
-    this.unbind(main);
-    main.dialog = undefined;
-    const target = await host.instance.targets.create({
-      ...this.viewport,
-      browserContextId: host.browserContextId,
-    });
-    try {
-      await this.bind(main, target);
-    } catch (error) {
-      void host.instance.targets.close(target.targetId);
-      throw error;
-    }
-    this.activate(main.id);
-    if (main.url !== "about:blank") {
-      const deadline = new AbortController();
-      const cancel = this.schedule(
-        () => deadline.abort(new Error("The page did not reopen in time")),
-        30_000,
-      );
+    const tabs = [...this.tabs.values()];
+    if (!tabs.length) throw new Error("Browser tab unavailable");
+    for (const tab of tabs) {
+      this.unbind(tab);
+      tab.dialog = undefined;
+      const target = await host.instance.targets.create({
+        ...tab.viewport,
+        browserContextId: host.browserContextId,
+      });
       try {
-        await navigateCdp(
-          main.cdp,
-          main.url,
-          AbortSignal.any([this.request.signal, deadline.signal]),
-        );
-      } finally {
-        cancel();
+        await this.bind(tab, target);
+      } catch (error) {
+        void host.instance.targets.close(target.targetId);
+        throw error;
       }
     }
+    await Promise.all(tabs.map((tab) => this.reopen(tab)));
     this.request.changed?.();
   }
+  /** Loads a recreated tab's last address; a slow page fails on its own without the others. */
+  private async reopen(tab: Tab): Promise<void> {
+    if (tab.url === "about:blank") return;
+    const deadline = new AbortController();
+    const cancel = this.schedule(
+      () => deadline.abort(new Error("The page did not reopen in time")),
+      30_000,
+    );
+    try {
+      await navigateCdp(tab.cdp, tab.url, AbortSignal.any([this.request.signal, deadline.signal]));
+    } finally {
+      cancel();
+    }
+  }
   current(): { cdp: BrowserCdp } {
-    const tab = this.tabs.get(this.activeId);
+    return this.tab(this.activeId);
+  }
+  tab(id: string): { cdp: BrowserCdp } {
+    const tab = this.tabs.get(id);
     if (!tab) throw new Error("Browser tab unavailable");
     return tab;
   }
   targets(): string[] {
     return [...this.tabs.values()].flatMap((tab) => (tab.target ? [tab.target.targetId] : []));
   }
-  pageStatus() {
-    return this.tabs.get(this.activeId)?.status.read() ?? { loading: false };
+  pageStatus(id = this.activeId) {
+    return this.tabs.get(id)?.status.read() ?? { loading: false };
   }
   active(): string {
     return this.activeId;
   }
-  url(): string {
-    return this.tabs.get(this.activeId)?.url ?? "about:blank";
+  url(id = this.activeId): string {
+    return this.tabs.get(id)?.url ?? "about:blank";
   }
-  viewportSize(): { width: number; height: number } {
-    return { ...this.viewport };
+  viewportSize(id = this.activeId): { width: number; height: number } {
+    return { ...(this.tabs.get(id)?.viewport ?? this.viewport) };
   }
-  async resize(width: number, height: number): Promise<void> {
+  /** Sizes one tab; new tabs open at the size last set. */
+  async resize(width: number, height: number, id = this.activeId): Promise<void> {
+    const tab = this.tabs.get(id);
+    if (!tab) throw new Error("Browser tab unavailable");
     this.viewport = { width, height };
-    await sizeHeadlessTab(this.current().cdp, this.viewport, this.deviceScaleFactor);
+    tab.viewport = { width, height };
+    await sizeHeadlessTab(tab.cdp, tab.viewport, this.deviceScaleFactor);
   }
   list(): BrowserTab[] {
     return [...this.tabs.values()].map((tab) => ({
@@ -167,16 +191,19 @@ export class ChromeTabs {
       url: tab.url.slice(0, 8192),
       title: tab.title,
       pending_dialog: tab.dialog,
+      loading: tab.status.read().loading,
     }));
   }
-  async open(): Promise<string> {
-    if (this.activeId) return this.activeId;
-    return (await this.create()).id;
+  /** A new tab; `background` leaves the person's view where it is. */
+  async open(options: { background?: boolean } = {}): Promise<string> {
+    const tab = await this.create();
+    if (!options.background) this.activate(tab.id);
+    this.request.changed?.();
+    return tab.id;
   }
   async switch(id: string): Promise<void> {
     if (!this.tabs.has(id)) throw new Error("Browser tab unavailable");
     this.activate(id);
-    this.request.navigation();
     this.request.changed?.();
   }
   async close(id: string): Promise<void> {
@@ -200,11 +227,15 @@ export class ChromeTabs {
     tab.dialog = undefined;
     this.request.changed?.();
   }
-  lease(controller: "agent" | "human" | "none"): void {
-    this.controller = controller;
+  /** One tab's holder; without an id, the shown tab's. */
+  lease(controller: "agent" | "human" | "none", id = this.activeId): void {
+    const tab = this.tabs.get(id);
+    if (tab) tab.controller = controller;
   }
-  async frames(): Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]> {
-    const tab = this.tabs.get(this.activeId);
+  async frames(
+    id = this.activeId,
+  ): Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]> {
+    const tab = this.tabs.get(id);
     if (!tab?.guard) throw new Error("Browser tab unavailable");
     await tab.guard.ready();
     return pageFrames([tab.cdp, ...tab.guard.frameSessions()]);
@@ -231,12 +262,11 @@ export class ChromeTabs {
     this.unwatch = () => host.instance.root.off("Target.detachedFromTarget", detached);
   }
   private activate(id: string): void {
-    if (this.activeId !== id) this.targetGeneration++;
     this.activeId = id;
   }
-  private async create(): Promise<Tab> {
+  private async create(id?: string): Promise<Tab> {
     const host = this.host;
-    if (this.stopped || !host || this.tabs.size + this.starting >= 2)
+    if (this.stopped || !host || this.tabs.size + this.starting >= this.maxTabs)
       throw new Error("Browser tab limit");
     const release = this.request.reserveTab?.() ?? (() => {});
     this.starting++;
@@ -247,7 +277,7 @@ export class ChromeTabs {
         ...this.viewport,
         browserContextId: host.browserContextId,
       });
-      tab = this.track(release);
+      tab = this.track(release, id);
       await this.bind(tab, target);
       if (!this.activeId) this.activate(tab.id);
       this.request.changed?.();
@@ -269,9 +299,9 @@ export class ChromeTabs {
     if (
       this.stopped ||
       !host ||
-      this.controller === "agent" ||
+      opener.controller === "agent" ||
       reuse === true ||
-      this.tabs.size + this.starting >= 2
+      this.tabs.size + this.starting >= this.maxTabs
     ) {
       refuse();
       return;
@@ -284,11 +314,11 @@ export class ChromeTabs {
       return;
     }
     const tab = this.track(release);
+    tab.controller = opener.controller;
     this.starting++;
     void this.bind(tab, target)
       .then(() => {
         this.activate(tab.id);
-        this.request.navigation();
         this.request.changed?.();
       })
       .catch(() => {
@@ -300,12 +330,15 @@ export class ChromeTabs {
       });
   }
   /** Listeners that live as long as the tab, across browser restarts. */
-  private track(release: () => void): Tab {
-    const id = `tab-${this.request.id?.() ?? ++this.sequence}`;
+  private track(release: () => void, restoredId?: string): Tab {
+    const id = restoredId ?? `tab-${this.request.id?.() ?? ++this.sequence}`;
     const cdp = new TabCdp();
     const tab: Tab = {
       id,
       cdp,
+      viewport: { ...this.viewport },
+      controller: "agent",
+      binding: 0,
       status: pageStatus(cdp, () => this.request.changed?.()),
       title: "",
       url: "about:blank",
@@ -318,7 +351,7 @@ export class ChromeTabs {
     on("Page.javascriptDialogOpening", (raw) => {
       const parsed = Dialog.safeParse(raw);
       if (!parsed.success) return;
-      if (parsed.data.type === "beforeunload" && this.controller === "agent") {
+      if (parsed.data.type === "beforeunload" && tab.controller === "agent") {
         void cdp.send("Page.handleJavaScriptDialog", { accept: true }).catch(() => {});
         return;
       }
@@ -354,14 +387,14 @@ export class ChromeTabs {
     for (const method of ["Runtime.consoleAPICalled", "Runtime.exceptionThrown"])
       on(method, (raw) => {
         const entry = consoleEntry(method, raw);
-        if (entry) this.request.log(entry);
+        if (entry) this.request.log({ ...entry, tabId: tab.id });
       });
     on("Inspector.targetCrashed", () => this.crashed(tab));
     tab.stops.push(this.downloads.watch(id, cdp));
     return tab;
   }
   private navigated(tab: Tab): void {
-    if (this.activeId === tab.id) this.request.navigation();
+    this.request.navigation(tab.id);
     this.request.changed?.();
   }
   private title(tab: Tab): void {
@@ -378,19 +411,16 @@ export class ChromeTabs {
     const popup = WindowOpen.safeParse(raw);
     if (!popup.success) return;
     const reuse =
-      this.controller === "agent" ||
+      tab.controller === "agent" ||
       ((!popup.data.windowName || popup.data.windowName.startsWith("_")) &&
         !popup.data.windowFeatures?.length);
     if (tab.popupKinds.length < 8) tab.popupKinds.push(reuse);
     if (!reuse) return;
-    const generation = this.targetGeneration;
+    const binding = tab.binding;
     void this.request
       .popup?.(popup.data.url, {
-        current: () =>
-          !this.stopped &&
-          this.activeId === tab.id &&
-          this.tabs.get(tab.id) === tab &&
-          this.targetGeneration === generation,
+        tabId: tab.id,
+        current: () => !this.stopped && this.tabs.get(tab.id) === tab && tab.binding === binding,
         navigate: async () => {
           await navigateCdp(tab.cdp, popup.data.url, this.request.signal);
         },
@@ -405,8 +435,8 @@ export class ChromeTabs {
       // Renderer-side commands wait for a renderer; only the browser-side navigation starts one.
       await tab.cdp.send("Page.navigate", { url: tab.url });
       await tab.cdp.send("Runtime.enable");
-      await sizeHeadlessTab(tab.cdp, this.viewport, this.deviceScaleFactor);
-      if (this.activeId === tab.id) this.request.restarted?.();
+      await sizeHeadlessTab(tab.cdp, tab.viewport, this.deviceScaleFactor);
+      this.request.restarted?.(tab.id);
     })()
       .catch(() => {
         if (!this.stopped && this.tabs.get(tab.id) === tab)
@@ -421,6 +451,7 @@ export class ChromeTabs {
     const host = this.host;
     if (!host || this.stopped) throw new Error("Browser closed");
     tab.target = target;
+    tab.binding++;
     tab.cdp.bind(host.instance.connection.session(target.sessionId));
     const stopPopups = host.instance.targets.popups(target.targetId, (popup) =>
       this.popup(tab, popup),
@@ -429,7 +460,7 @@ export class ChromeTabs {
     await tab.cdp.send("Page.enable");
     await tab.cdp.send("Runtime.enable");
     await tab.cdp.send("Emulation.setFocusEmulationEnabled", { enabled: true });
-    await sizeHeadlessTab(tab.cdp, this.viewport, this.deviceScaleFactor);
+    await sizeHeadlessTab(tab.cdp, tab.viewport, this.deviceScaleFactor);
     tab.guard = await installOriginGuard(tab.cdp, this.request.allowed, this.request.initiator, {
       attach: (child) => this.inspection.attach(child, tab.id),
       detach: (child) => this.inspection.detach(child),
@@ -453,10 +484,7 @@ export class ChromeTabs {
     for (const stop of tab.stops.splice(0)) stop();
     tab.cdp.clear();
     tab.release();
-    if (this.activeId === tab.id) {
-      this.activate(this.tabs.keys().next().value ?? "");
-      if (notify && !this.stopped) this.request.navigation();
-    }
+    if (this.activeId === tab.id) this.activate(this.tabs.keys().next().value ?? "");
     if (!notify || this.stopped) return;
     if (this.tabs.size === 0) this.request.lost("All browser tabs closed");
     else this.request.changed?.();
