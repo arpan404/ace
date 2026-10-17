@@ -109,12 +109,12 @@ it("Pi's native tool defaults include a scoped ace MCP lease that expires with i
         const parsed = response.safeParse(frame.data);
         return parsed.success ? parsed.data.data.mcpProof.tools : [];
       }),
-    ).toContain("ace_browser_open");
+    ).toContain("browser_open");
     if (!connection) throw new Error("Pi did not receive an MCP lease");
     expect(JSON.stringify(frames)).not.toContain(connection.bearer);
   }
   await session.close("shutdown");
-  if (connection) expect((await invoke(connection, "ace_browser_open", {})).status).toBe(401);
+  if (connection) expect((await invoke(connection, "browser_open", {})).status).toBe(401);
 });
 
 it.each<LazyProvider>([
@@ -195,7 +195,7 @@ it.each<LazyProvider>([
       expect.objectContaining({
         name: "ace",
         validAceConnection: true,
-        aceTools: expect.arrayContaining(["ace_browser_open"]),
+        aceTools: expect.arrayContaining(["browser_open"]),
       }),
     ]);
   } else expect(session.nativeSessionId).toBe(cursor ? "synthetic-sdk" : "native");

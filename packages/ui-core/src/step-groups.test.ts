@@ -118,13 +118,18 @@ it("a failure retried with success is not counted as failed", () => {
 
 it("browser and computer-use steps count sites visited and app steps", () => {
   const browse = (id: string, url: string) =>
-    call(id, { kind: "mcp", server: "ace", tool: "ace_browser_open", arguments: { url } });
+    call(id, { kind: "mcp", server: "ace", tool: "browser_open", arguments: { url } });
   const summary = groupSummary(
     facts([
       browse("one", "https://vercel.com/docs"),
       browse("two", "https://github.com/a"),
       browse("three", "https://github.com/b"),
-      call("click", { kind: "mcp", server: "ace", tool: "screen_click", arguments: {} }),
+      call("click", {
+        kind: "mcp",
+        server: "ace",
+        tool: "screen_input",
+        arguments: { action: "click" },
+      }),
     ]),
   );
   expect(summary).toBe("Used 1 app and visited 2 sites");

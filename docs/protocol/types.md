@@ -4290,12 +4290,16 @@ Example:
 | --- | --- | --- | --- |
 | tabId | no | string | {"minLength":1,"maxLength":256} |
 | action | yes | `"snapshot"` |  |
+| ref | no | string | {"description":"Ref of a container from the latest snapshot: return only its subtree.","minLength":1,"maxLength":256} |
+| interactiveOnly | no | boolean | {"default":false,"description":"Only actionable elements (buttons, links, fields), as a flat list."} |
+| maxNodes | no | integer | {"default":120,"description":"Most lines to return; the result says when more exist.","minimum":1,"maximum":2000} |
 
 Example:
 
 ```json
 {
   "action": "snapshot",
+  "maxNodes": 9,
   "tabId": "example"
 }
 ```
@@ -4350,8 +4354,7 @@ Example:
 
 ```json
 {
-  "action": "wait_for",
-  "state": "hidden"
+  "action": "wait_for"
 }
 ```
 
@@ -4372,8 +4375,8 @@ Example:
 ```json
 {
   "action": "logs",
-  "limit": 7,
-  "status": 108
+  "kind": "network",
+  "level": "example"
 }
 ```
 
@@ -4391,7 +4394,7 @@ Example:
 ```json
 {
   "action": "resize",
-  "height": 109,
+  "height": 105,
   "width": 108
 }
 ```
@@ -4414,8 +4417,9 @@ Example:
 ```json
 {
   "action": "emulate",
-  "height": 106,
-  "width": 105
+  "height": 107,
+  "touch": false,
+  "width": 104
 }
 ```
 
@@ -4425,8 +4429,7 @@ Example:
 | --- | --- | --- | --- |
 | tabId | no | string | {"minLength":1,"maxLength":256} |
 | action | yes | `"tabs"` |  |
-| operation | no | ["list","open","switch","close"] | {"default":"list"} |
-| url | no | string | {"maxLength":8192} |
+| operation | no | ["list","switch"] | {"default":"list"} |
 
 Example:
 
@@ -4454,8 +4457,7 @@ Example:
   "files": [
     "example"
   ],
-  "ref": "example",
-  "tabId": "example"
+  "ref": "example"
 }
 ```
 
@@ -4476,7 +4478,7 @@ Example:
   "accept": false,
   "action": "dialog",
   "dialogId": "example",
-  "promptText": "example"
+  "tabId": "example"
 }
 ```
 
@@ -4575,9 +4577,9 @@ Example:
 | --- | --- | --- | --- |
 | tabId | no | string | {"minLength":1,"maxLength":256} |
 | action | yes | `"find"` |  |
-| role | yes | string | {"minLength":1,"maxLength":256} |
-| name | yes | string | {"maxLength":1024} |
-| exact | no | boolean | {"default":true} |
+| role | no | string | {"description":"Accessible role, e.g. button, link, textbox, heading.","minLength":1,"maxLength":256} |
+| name | no | string | {"description":"Accessible name; a case-insensitive substring unless exact is true.","minLength":1,"maxLength":1024} |
+| exact | no | boolean | {"default":false,"description":"Match the whole name exactly."} |
 
 Example:
 
@@ -4585,7 +4587,7 @@ Example:
 {
   "action": "find",
   "name": "example",
-  "role": "example"
+  "tabId": "example"
 }
 ```
 
@@ -4602,8 +4604,7 @@ Example:
 ```json
 {
   "action": "network_body",
-  "requestId": "example",
-  "tabId": "example"
+  "requestId": "example"
 }
 ```
 
@@ -4653,7 +4654,7 @@ Example:
 ```json
 {
   "controller": "none",
-  "generation": 5
+  "generation": 9
 }
 ```
 
@@ -4676,7 +4677,7 @@ Example:
   "dialogId": "example",
   "message": "example",
   "tabId": "example",
-  "type": "confirm"
+  "type": "prompt"
 }
 ```
 
@@ -4699,12 +4700,13 @@ Example:
 
 ```json
 {
-  "bytes": 7,
+  "bytes": 3,
   "downloadId": "example",
   "filename": "example",
   "flags": [],
   "mimeType": "example",
-  "state": "denied",
+  "path": "example",
+  "state": "pending",
   "tabId": "example"
 }
 ```
@@ -4725,9 +4727,9 @@ Example:
 
 ```json
 {
-  "phase": "ready",
-  "received": 3,
-  "total": 3,
+  "phase": "verifying",
+  "received": 1,
+  "total": 8,
   "type": "browser.download.progress",
   "version": "example"
 }
@@ -4750,10 +4752,10 @@ Example:
 ```json
 {
   "data": "example",
-  "height": 108,
-  "sequence": 3,
-  "timestamp": 1,
-  "width": 100
+  "height": 102,
+  "sequence": 9,
+  "timestamp": 6,
+  "width": 101
 }
 ```
 
@@ -4776,12 +4778,10 @@ Example:
 
 ```json
 {
-  "button": "right",
-  "clickCount": 0,
   "event": "mouseReleased",
   "kind": "mouse",
-  "x": 6,
-  "y": 1
+  "x": 1,
+  "y": 2
 }
 ```
 
@@ -4800,7 +4800,7 @@ Example:
 
 ```json
 {
-  "event": "keyUp",
+  "event": "char",
   "key": "example",
   "kind": "key"
 }
@@ -4820,11 +4820,11 @@ Example:
 
 ```json
 {
-  "deltaX": 0,
-  "deltaY": 9,
+  "deltaX": 7,
+  "deltaY": 1,
   "kind": "scroll",
-  "x": 8,
-  "y": 4
+  "x": 0,
+  "y": 9
 }
 ```
 
@@ -4840,7 +4840,7 @@ Example:
 
 ```json
 {
-  "event": "touchEnd",
+  "event": "touchMove",
   "kind": "touch",
   "points": []
 }
@@ -4897,8 +4897,7 @@ Example:
 ```json
 {
   "action": "press",
-  "key": "example",
-  "ref": "example"
+  "key": "example"
 }
 ```
 
@@ -4915,8 +4914,8 @@ Example:
 ```json
 {
   "action": "scroll",
-  "x": 4,
-  "y": 5
+  "x": 5,
+  "y": 4
 }
 ```
 
@@ -4953,11 +4952,7 @@ Example:
 
 ```json
 {
-  "interaction": {
-    "action": "scroll",
-    "x": 3,
-    "y": 6
-  }
+  "repeat": 4
 }
 ```
 
@@ -12525,7 +12520,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | op | yes | `"browser"` |  |
-| tool | yes | string | {"pattern":"^ace_browser_[a-z_]{1,64}$"} |
+| tool | yes | string | {"pattern":"^browser_[a-z_]{1,64}$"} |
 | args | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{}} |
 
 Example:
@@ -12534,7 +12529,7 @@ Example:
 {
   "args": {},
   "op": "browser",
-  "tool": "ace_browser_lkusf_umlrpiklcrrzfbhwfcsegtslyjrbvieggenksibxogx"
+  "tool": "browser_lkusf_umlrpiklcrrzfbhwfcsegtslyjrbvieggenksibxogx"
 }
 ```
 

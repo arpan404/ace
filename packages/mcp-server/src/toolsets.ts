@@ -14,7 +14,7 @@ export const coreTools: ReadonlySet<string> = new Set([
   "ace_ask",
   "delegate_task",
   "ace_wait",
-  "ace_browser_open",
+  "browser_open",
   "ace_html_render",
   "ace_context",
   "ace_thread_read",
@@ -26,14 +26,14 @@ export const coreTools: ReadonlySet<string> = new Set([
 /** Using one of these opens its family: the next steps after it are its toolset's tools. */
 const entryPoints: ReadonlyMap<string, string> = new Map([
   ["delegate_task", "ace-agents"],
-  ["ace_browser_open", "ace-browser"],
+  ["browser_open", "ace-browser"],
   ["screen_open_app", "ace-computer-use"],
 ]);
 
 /** The guide topic whose toolset a tool belongs to. Every ace tool belongs to exactly one. */
 export function toolsetOf(name: string): string {
-  if (name.startsWith("ace_browser_")) return "ace-browser";
-  if (name.startsWith("screen_") || name.startsWith("device_")) return "ace-computer-use";
+  if (name.startsWith("browser_")) return "ace-browser";
+  if (name.startsWith("screen_") || name.startsWith("sim_")) return "ace-computer-use";
   if (
     name === "delegate_task" ||
     name === "ace_wait" ||

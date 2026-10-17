@@ -11,18 +11,13 @@ type CallInput = {
 
 const record = z.record(z.string(), z.unknown());
 const screen = new Set([
-  "screenshot",
-  "click",
-  "type",
-  "paste",
-  "key",
-  "scroll",
-  "ui_tree",
-  "ui_find",
-  "ui_act",
-  "measure_interaction",
   "open_app",
-  "request_foreground",
+  "windows",
+  "ui_tree",
+  "ui_act",
+  "input",
+  "screenshot",
+  "measure",
 ]);
 
 /** Provider namespaces wrap the same daemon tool names. Other servers are never reclassified. */
@@ -36,13 +31,15 @@ export function aceToolName(name: string): string | undefined {
     return name;
   if (
     name.startsWith("ace_screen_") ||
-    name.startsWith("ace_device_") ||
+    name.startsWith("ace_browser_") ||
+    name.startsWith("ace_sim_") ||
     name.startsWith("ace_ace_") ||
     name === "ace_delegate_task"
   )
     name = name.slice(4);
   if (name.startsWith("screen_") && screen.has(name.slice(7))) return name;
-  if (/^(?:ace_|device_)[a-z0-9_]{1,100}$/.test(name) || name === "delegate_task") return name;
+  if (/^(?:ace_|browser_|sim_)[a-z0-9_]{1,100}$/.test(name) || name === "delegate_task")
+    return name;
   return undefined;
 }
 
@@ -114,20 +111,15 @@ export function aceToolInput(call: CallInput): { name: string; input: unknown } 
 export function privateAceInput(name: string, input?: unknown): boolean {
   const payload = record.safeParse(input).data;
   const action = record.safeParse(payload?.action ?? payload?.interaction).data;
-  if (name.endsWith("measure_interaction") && action && ("text" in action || "value" in action))
-    return true;
-  return [
-    "ace_html_preview",
-    "ace_html_render",
-    "screen_type",
-    "screen_paste",
-    "screen_ui_act",
-    "device_type",
-    "device_ui_act",
-    "device_act",
-    "ace_browser_type",
-    "ace_browser_fill",
-  ].includes(name);
+  if (name.endsWith("_measure") && action && ("text" in action || "value" in action)) return true;
+  if (["ace_html_preview", "ace_html_render"].includes(name)) return true;
+  // Merged input tools carry text only for typing, pasting or setting a value; a click or key
+  // press stays visible, error and all.
+  return (
+    ["screen_input", "screen_ui_act", "sim_act", "browser_act"].includes(name) &&
+    payload !== undefined &&
+    ["text", "value", "promptText"].some((key) => payload[key] !== undefined)
+  );
 }
 export function redactAceArguments(name: string, value: unknown): unknown {
   if (!privateAceInput(name, value)) return value;
@@ -136,7 +128,7 @@ export function redactAceArguments(name: string, value: unknown): unknown {
   const redacted = Object.fromEntries(
     Object.entries(parsed.data).map(([key, child]) => [
       key,
-      ["text", "value", "html", "title"].includes(key) ? "[redacted]" : child,
+      ["text", "value", "html", "title", "promptText"].includes(key) ? "[redacted]" : child,
     ]),
   );
   for (const field of ["action", "interaction"]) {
@@ -145,7 +137,7 @@ export function redactAceArguments(name: string, value: unknown): unknown {
       redacted[field] = Object.fromEntries(
         Object.entries(action.data).map(([key, child]) => [
           key,
-          ["text", "value", "html", "title"].includes(key) ? "[redacted]" : child,
+          ["text", "value", "html", "title", "promptText"].includes(key) ? "[redacted]" : child,
         ]),
       );
   }

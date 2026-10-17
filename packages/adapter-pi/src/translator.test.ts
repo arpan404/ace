@@ -322,8 +322,8 @@ test("ace MCP error details fail a Pi tool even when Pi reports normal execution
   h.recv({
     type: "tool_execution_start",
     toolCallId: "ace-error",
-    toolName: "screen_click",
-    args: { x: 1, y: 2 },
+    toolName: "screen_input",
+    args: { action: "click", x: 1, y: 2 },
   });
   h.recv({
     type: "tool_execution_end",
@@ -338,7 +338,7 @@ test("ace MCP error details fail a Pi tool even when Pi reports normal execution
   const item = Object.values(h.state.items).find((entry) => entry.type === "tool_call");
   expect(item).toMatchObject({
     complete: true,
-    call: { status: "failed", detail: { kind: "mcp", server: "ace", tool: "screen_click" } },
+    call: { status: "failed", detail: { kind: "mcp", server: "ace", tool: "screen_input" } },
   });
 });
 

@@ -1,7 +1,7 @@
 import type { ToolCall } from "@ace/protocol";
 
 /** ace's own smoothness tools, as an MCP server names them. */
-const tools = new Set(["screen_measure_interaction", "ace_browser_measure_interaction"]);
+const tools = new Set(["screen_measure", "browser_measure"]);
 
 /**
  * Whether a step is one of ace's interaction measurements, which the work log shows as a

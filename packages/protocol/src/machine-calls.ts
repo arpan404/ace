@@ -89,7 +89,7 @@ export const MachineCall = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("browser.session") }),
   z.strictObject({
     op: z.literal("browser"),
-    tool: z.string().regex(/^ace_browser_[a-z_]{1,64}$/),
+    tool: z.string().regex(/^browser_[a-z_]{1,64}$/),
     args: z.record(z.string(), z.unknown()),
   }),
 ]);

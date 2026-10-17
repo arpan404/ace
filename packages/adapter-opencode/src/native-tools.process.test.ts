@@ -119,7 +119,7 @@ test("Full access keeps OpenCode Desktop's browser tools off, as its Build agent
     expect(rules.filter((rule) => rule.effect === "deny").map((rule) => rule.action)).toEqual([
       "browser",
     ]);
-    expect(effect(rules, "ace_ace_browser_open")).toBe("allow");
+    expect(effect(rules, "ace_browser_open")).toBe("allow");
   } finally {
     await close();
   }

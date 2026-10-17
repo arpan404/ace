@@ -21,7 +21,7 @@ test("a Codex MCP result yields the measurement and its filmstrip", () => {
       {
         type: "mcpToolCall",
         data: {
-          tool: "screen_measure_interaction",
+          tool: "screen_measure",
           arguments: { observeMs: 2000 },
           result: {
             content: [

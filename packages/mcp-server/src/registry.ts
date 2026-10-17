@@ -27,6 +27,10 @@ export interface ToolDefinition<I extends z.ZodObject, O extends z.ZodObject> {
   riskClass?: import("@ace/protocol").ApprovalTarget["riskClass"];
   /** Deletes, overwrites or spends: the only ace tools a provider should gate itself. */
   destructive?: boolean;
+  /** Human-readable name clients show instead of the registry name. */
+  title?: string;
+  /** Overrides the risk-class default: local-only effects are not open-world. */
+  openWorld?: boolean;
   description: string;
   input: I;
   output: O;
@@ -58,8 +62,20 @@ const JsonObjectSchema = z.object({ type: z.literal("object") }).passthrough();
  * schemas are small. Every upfront tool costs context on every request, so keep this short.
  * Other clients ignore the key.
  */
-const alwaysLoadedTools: ReadonlySet<string> = new Set(["ace_browser_open", "ace_html_render"]);
+const alwaysLoadedTools: ReadonlySet<string> = new Set(["browser_open", "ace_html_render"]);
 function noop(): void {}
+interface ToolHints {
+  riskClass?: import("@ace/protocol").ApprovalTarget["riskClass"] | undefined;
+  destructive?: boolean | undefined;
+  title?: string | undefined;
+  openWorld?: boolean | undefined;
+}
+const hintsOf = (definition: ToolHints): ToolHints => ({
+  riskClass: definition.riskClass,
+  destructive: definition.destructive,
+  title: definition.title,
+  openWorld: definition.openWorld,
+});
 interface Entry {
   /** Built on first list or schema read: JSON Schema per tool would otherwise sit idle in heap. */
   descriptor(): Tool;
@@ -109,8 +125,7 @@ export class ToolRegistry {
       capability,
       timeoutMs,
       definition.advertisedOutput ?? output,
-      definition.riskClass,
-      definition.destructive,
+      hintsOf(definition),
     );
     this.entries.set(name, {
       descriptor,
@@ -145,8 +160,7 @@ export class ToolRegistry {
       capability,
       timeoutMs,
       undefined,
-      definition.riskClass,
-      definition.destructive,
+      hintsOf(definition),
     );
     this.entries.set(name, {
       descriptor,
@@ -167,15 +181,15 @@ export class ToolRegistry {
     input: z.ZodType,
     capability: McpCapability | null,
     timeoutMs: number,
-    output?: z.ZodObject,
-    riskClass?: import("@ace/protocol").ApprovalTarget["riskClass"],
-    destructive?: boolean,
+    output: z.ZodObject | undefined,
+    hints: ToolHints,
   ): () => Tool {
     if (
       (name !== "delegate_task" &&
         !/^ace_[a-z0-9_]{1,100}$/.test(name) &&
+        !(capability === "browser" && /^browser_[a-z0-9_]{1,100}$/.test(name)) &&
         !(capability === "screen" && /^screen_[a-z0-9_]{1,100}$/.test(name)) &&
-        !(capability === "devices" && /^device_[a-z0-9_]{1,100}$/.test(name))) ||
+        !(capability === "devices" && /^sim_[a-z0-9_]{1,100}$/.test(name))) ||
       this.entries.has(name)
     )
       throw new Error("Invalid or duplicate tool name");
@@ -183,8 +197,7 @@ export class ToolRegistry {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > maxToolTimeoutMs)
       throw new Error("Invalid tool timeout");
     let built: Tool | undefined;
-    return () =>
-      (built ??= this.build(name, description, input, timeoutMs, output, riskClass, destructive));
+    return () => (built ??= this.build(name, description, input, timeoutMs, output, hints));
   }
   /**
    * Built from trusted definitions and Zod-generated JSON schemas, without loading the MCP SDK;
@@ -195,27 +208,28 @@ export class ToolRegistry {
     description: string,
     input: z.ZodType,
     timeoutMs: number,
-    output?: z.ZodObject,
-    riskClass?: import("@ace/protocol").ApprovalTarget["riskClass"],
-    destructive?: boolean,
+    output: z.ZodObject | undefined,
+    hints: ToolHints,
   ): Tool {
-    const risk = riskClass ?? "external-effect";
+    const risk = hints.riskClass ?? "external-effect";
     const inputSchema = JsonObjectSchema.parse(
       advertisedInputSchema({ ...z.toJSONSchema(input, { io: "input" }), type: "object" }),
     );
     const properties = z.record(z.string(), z.unknown()).safeParse(inputSchema["properties"]).data;
     return {
       name,
+      ...(hints.title ? { title: hints.title } : {}),
       description,
       // MCP reads a missing destructiveHint as true, so every tool states every hint, even one
       // registered without a risk class. Opening or clicking a page reaches the open world
       // without destroying anything.
       annotations: {
+        ...(hints.title ? { title: hints.title } : {}),
         readOnlyHint: risk === "read-only",
-        destructiveHint: destructive === true,
+        destructiveHint: hints.destructive === true,
         // Reads change nothing; a stable requestId makes a repeated call a no-op.
         idempotentHint: risk === "read-only" || properties?.["requestId"] !== undefined,
-        openWorldHint: risk === "external-effect",
+        openWorldHint: hints.openWorld ?? risk === "external-effect",
       },
       _meta: {
         "ace/timeoutMs": timeoutMs,

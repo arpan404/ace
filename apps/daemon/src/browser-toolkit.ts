@@ -1,18 +1,12 @@
 import { PublicToolError } from "@ace/mcp-server/errors";
-import { z } from "zod";
 import { ThreadId } from "@ace/protocol";
 import {
-  browserMachineInput,
   browserToolkit as scopedBrowserToolkit,
   type BrowserMachineRoute,
   type BrowserService,
 } from "@ace/browser";
 import type { Toolkit } from "@ace/mcp-server";
 import type { Store } from "./store.ts";
-
-const content = (value: unknown) => ({
-  content: [{ type: "text", text: JSON.stringify(value) ?? "null" }],
-});
 
 /**
  * Trusted MCP attribution chooses the thread; agents cannot supply another thread id. With a
@@ -23,103 +17,33 @@ export function browserToolkit(
   store: Store,
   route?: BrowserMachineRoute,
 ): Toolkit {
-  const open = async (threadId: ThreadId) => {
-    const thread = store.getThread(threadId);
+  const open = async (threadId: string, signal: AbortSignal) => {
+    signal.throwIfAborted();
+    const id = ThreadId.parse(threadId);
+    const thread = store.getThread(id);
     if (!thread) throw new Error("Browser thread unavailable");
-    await browser.open({ threadId, workspaceId: thread.workspaceId, background: true });
+    await browser.open({ threadId: id, workspaceId: thread.workspaceId, background: true });
+    signal.throwIfAborted();
+    const state = browser.state(id);
+    if (state.takeoverMode === "private") throw new PublicToolError("human_private");
+    return state;
   };
-  // Only a daemon that can reach other machines accepts `machine`; elsewhere it is refused.
-  const elsewhere = (target: string | undefined) => {
-    if (target !== undefined && !route) throw new PublicToolError("machine_unavailable");
-    return route && target !== undefined ? route : undefined;
-  };
-
-  return {
-    register(registry) {
-      registry.registerContent({
-        name: "ace_browser_open",
-        description:
-          "Open this thread's ace browser, which the person can watch and take over in ace, at an optional HTTP(S) url (localhost included). The best pick when the person should see the page, or you need console and network evidence (ace_browser_logs). Then ace_browser_snapshot for element refs. More: ace_guide ace-browser.",
-        input: z.strictObject({
-          url: z.string().max(8192).optional(),
-          newTab: z.boolean().default(false),
-          ...browserMachineInput,
-        }),
-        capability: "browser",
-        timeoutMs: 300_000,
-        async run(input, context) {
-          const { caller, signal } = context;
-          signal.throwIfAborted();
-          const { machine: target, ...args } = input;
-          const remote = elsewhere(target);
-          if (remote && target)
-            return remote(
-              {
-                machine: target,
-                tool: "ace_browser_open",
-                args,
-                timeoutMs: 295_000,
-              },
-              context,
-            );
-          await open(caller.threadId);
-          signal.throwIfAborted();
-          if (browser.state(caller.threadId).takeoverMode === "private")
-            throw new PublicToolError("human_private");
-          return content(
-            args.url === undefined
-              ? browser.state(caller.threadId)
-              : await browser.execute(
-                  caller.threadId,
-                  { action: "navigate", url: args.url },
-                  { kind: "agent" },
-                  signal,
-                ),
-          );
-        },
-      });
-      scopedBrowserToolkit(
-        {
-          async execute(threadId, command, actor, signal) {
-            signal?.throwIfAborted();
-            await open(ThreadId.parse(threadId));
-            signal?.throwIfAborted();
-            return browser.execute(threadId, command, actor, signal);
-          },
-          async screenshot(threadId, signal, tabId) {
-            signal?.throwIfAborted();
-            await open(ThreadId.parse(threadId));
-            signal?.throwIfAborted();
-            return browser.screenshot(threadId, signal, tabId);
-          },
-        },
-        200_000,
-        route,
-      ).register(registry);
-      registry.registerContent({
-        name: "ace_browser_close",
-        description: "Close this thread's ace browser.",
-        input: z.strictObject({ ...browserMachineInput }),
-        capability: "browser",
-        timeoutMs: 60_000,
-        async run(input, context) {
-          const { caller, signal } = context;
-          signal.throwIfAborted();
-          const remote = elsewhere(input.machine);
-          if (remote && input.machine)
-            return remote(
-              {
-                machine: input.machine,
-                tool: "ace_browser_close",
-                args: {},
-                timeoutMs: 55_000,
-              },
-              context,
-            );
-          await browser.closeThread(caller.threadId, { kind: "agent" }, signal);
-          return content({ closed: true });
-        },
-      });
+  return scopedBrowserToolkit(
+    {
+      open,
+      async execute(threadId, command, signal) {
+        await open(threadId, signal);
+        return browser.execute(threadId, command, { kind: "agent" }, signal);
+      },
+      async screenshot(threadId, signal) {
+        await open(threadId, signal);
+        return browser.screenshot(threadId, signal);
+      },
+      async close(threadId, signal) {
+        signal.throwIfAborted();
+        await browser.closeThread(threadId, { kind: "agent" }, signal);
+      },
     },
-  };
+    route,
+  );
 }

@@ -13,11 +13,11 @@ afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
 
-/** Tool names as guidance writes them: ace_x, screen_x, device_x and delegate_task. */
+/** Tool names as guidance writes them: ace_x, browser_x, screen_x, sim_x and delegate_task. */
 function namedTools(text: string): string[] {
   return [
     ...new Set(
-      [...text.matchAll(/\b(?:ace|screen|device)_[a-z0-9_]+\b|\bdelegate_task\b/g)].map(
+      [...text.matchAll(/\b(?:ace|browser|screen|sim)_[a-z0-9_]+\b|\bdelegate_task\b/g)].map(
         ([name]) => name,
       ),
     ),
@@ -48,7 +48,7 @@ it("ace's guidance and shipped guides name only tools the daemon registers", asy
   named.delete("ace_ace_guide");
   named.delete("ace_delegate_task");
   expect(named.size).toBeGreaterThan(10);
-  // Simulator tools (device_*) register only when the devices service runs.
-  const missing = [...named].filter((name) => !registered.has(name) && !name.startsWith("device_"));
+  // Simulator tools (sim_*) register only when the devices service runs.
+  const missing = [...named].filter((name) => !registered.has(name) && !name.startsWith("sim_"));
   expect(missing).toEqual([]);
 });

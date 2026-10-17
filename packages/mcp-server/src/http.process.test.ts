@@ -270,7 +270,7 @@ it("routes a browser workstream adapter through schema checks, attribution and c
   registerAutomationTool(
     h.registry,
     {
-      name: "ace_browser_open",
+      name: "browser_open",
       description: "Open browser",
       input: z.strictObject({ url: z.url() }),
       output: z.strictObject({ tabId: z.string(), agent: z.string() }),
@@ -289,17 +289,17 @@ it("routes a browser workstream adapter through schema checks, attribution and c
   expect((await denied.client.listTools()).tools.map((tool) => tool.name)).toEqual(["ace_status"]);
   expect(
     await denied.client.callTool({
-      name: "ace_browser_open",
+      name: "browser_open",
       arguments: { url: "https://denied.example" },
     }),
   ).toMatchObject({ isError: true });
   expect(effects).toEqual([]);
   const { client } = await h.connect(scope("browser-child", ["browser"]));
   expect(
-    await client.callTool({ name: "ace_browser_open", arguments: { url: "https://example.com" } }),
+    await client.callTool({ name: "browser_open", arguments: { url: "https://example.com" } }),
   ).toMatchObject({ structuredContent: { tabId: "example.com", agent: "browser-child" } });
   expect(
-    await client.callTool({ name: "ace_browser_open", arguments: { url: "invalid" } }),
+    await client.callTool({ name: "browser_open", arguments: { url: "invalid" } }),
   ).toMatchObject({ isError: true });
   expect(effects).toEqual(["https://example.com"]);
 });

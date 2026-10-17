@@ -9,6 +9,10 @@ export interface ContentToolDefinition<I extends z.ZodType> {
   name: string;
   riskClass?: import("@ace/protocol").ApprovalTarget["riskClass"];
   destructive?: boolean;
+  /** Human-readable name clients show instead of the registry name. */
+  title?: string;
+  /** Overrides the risk-class default: local-only effects (a window, a simulator) are not open-world. */
+  openWorld?: boolean;
   description: string;
   input: I;
   capability: McpCapability;

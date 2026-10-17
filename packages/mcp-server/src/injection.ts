@@ -41,7 +41,7 @@ const prefix: Record<ProviderKind, string> = {
   cursor: `ace tools come from the ace MCP server. ${skills}`,
   antigravity: "ace tools come from the ace MCP server.",
   acp: "ace tools come from the ace MCP server.",
-  pi: `ace tools are the ace_*, screen_* and device_* extension tools. ${skills}`,
+  pi: `ace tools are the ace_*, browser_*, screen_* and sim_* extension tools. ${skills}`,
 };
 
 /**

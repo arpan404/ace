@@ -27,12 +27,12 @@ export type StatusReader = (caller: McpAttribution) => {
 export function aceGuidance(groups?: readonly string[]): string {
   const has = (...names: string[]) => !groups || names.some((name) => groups.includes(name));
   return [
-    "ace is the app running this session. Its tools add ace features beside your own; your shell, file, web and other tools work as usual. Look for ace tools (ace_*, screen_*, device_*, delegate_task) when a task needs:",
+    "ace is the app running this session. Its tools add ace features beside your own; your shell, file, web and other tools work as usual. Look for ace tools (ace_*, browser_*, screen_*, sim_*, delegate_task) when a task needs:",
     has("agents")
       ? "- other agents or providers working in parallel: delegate_task (not your provider's native subagent tool), then ace_wait;"
       : "",
     has("browser")
-      ? "- a page the person can watch in ace's browser, localhost included: ace_browser_open;"
+      ? "- a page the person can watch in ace's browser, localhost included, with console and network: browser_open;"
       : "",
     "- a chart, diagram or mockup shown inline: ace_html_render;",
     "- this project's recent work, changes, PRs and notes: ace_context; link a PR you opened: ace_thread_link_pr;",

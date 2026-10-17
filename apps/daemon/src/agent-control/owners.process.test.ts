@@ -235,7 +235,7 @@ test("native session MCP leases delegate across providers and deny a child's att
       .result.tools.map((tool) => tool.name);
     expect(tools).toEqual(
       expect.arrayContaining([
-        "ace_browser_open",
+        "browser_open",
         "delegate_task",
         "ace_thread_read",
         "ace_automation_manage",

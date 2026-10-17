@@ -40,9 +40,9 @@ export async function browserProof(raw: unknown, kind: "http" | "stdio") {
   try {
     await client.connect(wire);
     const listed = (await client.listTools()).tools.map((tool) => tool.name);
-    if (!listed.includes("ace_browser_open")) throw new Error("Browser entry point is not listed");
+    if (!listed.includes("browser_open")) throw new Error("Browser entry point is not listed");
     const result = await client.callTool({
-      name: "ace_browser_open",
+      name: "browser_open",
       arguments: { url: process.env.ACE_TEST_BROWSER_URL },
     });
     if (result.isError) throw new Error("Injected browser tool failed");

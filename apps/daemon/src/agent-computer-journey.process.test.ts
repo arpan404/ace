@@ -199,16 +199,18 @@ it("screen and device agents edit, submit, resume expired leases and respect tak
   await screen.enable(true);
   const session = await screen.start({ kind: "window", windowId: 1, bundleId: "dev.ace.journey" });
   screen.delegateAgent(session.sessionId, scope);
-  expect(data(await call("screen_type", { text: "denied" }, true))).toMatchObject({
+  expect(data(await call("screen_input", { action: "type", text: "denied" }, true))).toMatchObject({
     code: "foreground_required",
   });
-  expect(data(await call("screen_request_foreground"))).toMatchObject({ mode: "foreground" });
   expect(
-    Tree.parse(data(await call("screen_ui_find", { query: { name: "Name" } }))).nodes[0]?.ref,
-  ).toBe("name");
+    data(await call("screen_open_app", { bundleId: "dev.ace.journey", mode: "foreground" })),
+  ).toMatchObject({ mode: "foreground" });
+  expect(Tree.parse(data(await call("screen_ui_tree", { name: "Name" }))).nodes[0]?.ref).toBe(
+    "name",
+  );
   await call("screen_ui_act", { ref: "name", action: "setValue", value: "journey" });
-  await call("screen_type", { text: "!" });
-  await call("screen_key", { key: "Enter" });
+  await call("screen_input", { action: "type", text: "!" });
+  await call("screen_input", { action: "key", key: "Enter" });
   expect(Tree.parse(data(await call("screen_ui_tree"))).nodes).toContainEqual(
     expect.objectContaining({ name: "Saved", value: "journey!" }),
   );
@@ -221,11 +223,11 @@ it("screen and device agents edit, submit, resume expired leases and respect tak
     hint: expect.stringContaining("current ref"),
   });
   screen.controller(session.sessionId, "human", "person");
-  await call("screen_type", { text: "forbidden" }, true);
+  await call("screen_input", { action: "type", text: "forbidden" }, true);
   screen.delegateAgent(session.sessionId, scope);
-  await call("screen_request_foreground");
-  await call("screen_scroll", { dx: 0, dy: 10 });
-  await call("screen_click", { x: 1, y: 2 });
+  await call("screen_open_app", { bundleId: "dev.ace.journey", mode: "foreground" });
+  await call("screen_input", { action: "scroll", dx: 0, dy: 10 });
+  await call("screen_input", { action: "click", x: 1, y: 2 });
   await call("screen_screenshot", { threadId: "other" }, true);
   const human = { kind: "human", owner: "person" } as const;
   const request = (operation: unknown) => devices.request(DeviceOperation.parse(operation), human);
@@ -239,57 +241,62 @@ it("screen and device agents edit, submit, resume expired leases and respect tak
       agentId: root,
     });
   await delegate();
-  expect(data(await call("device_list"))).toMatchObject({ devices: [{ id: "android:Pixel" }] });
-  await call("device_boot", { deviceId: "android:Pixel" });
-  await call("device_start", { deviceId: "android:Pixel" });
-  const deviceRef = Tree.parse(
-    data(await call("device_find", { deviceId: "android:Pixel", query: { name: "Name" } })),
-  ).nodes[0]?.ref;
+  expect(data(await call("sim_list"))).toMatchObject({ devices: [{ id: "android:Pixel" }] });
+  await call("sim_start", { simId: "android:Pixel" });
+  const deviceRef = Tree.parse(data(await call("sim_ui", { simId: "android:Pixel", name: "Name" })))
+    .nodes[0]?.ref;
   if (!deviceRef) throw new Error("Missing device control");
-  await call("device_act", { deviceId: "android:Pixel", ref: deviceRef, action: "focus" });
-  await call("device_type", { deviceId: "android:Pixel", text: "journey" });
-  await call("device_key", { deviceId: "android:Pixel", key: "enter" });
-  expect(
-    Tree.parse(data(await call("device_ui_tree", { deviceId: "android:Pixel" }))).nodes,
-  ).toContainEqual(expect.objectContaining({ name: "Saved journey" }));
+  await call("sim_act", {
+    simId: "android:Pixel",
+    action: "ui",
+    ref: deviceRef,
+    uiAction: "focus",
+  });
+  await call("sim_act", { simId: "android:Pixel", action: "type", text: "journey" });
+  await call("sim_act", { simId: "android:Pixel", action: "key", key: "enter" });
+  expect(Tree.parse(data(await call("sim_ui", { simId: "android:Pixel" }))).nodes).toContainEqual(
+    expect.objectContaining({ name: "Saved journey" }),
+  );
   expect(
     Buffer.from(
-      (await call("device_screenshot", { deviceId: "android:Pixel" })).content[0]?.data ?? "",
+      (await call("sim_screenshot", { simId: "android:Pixel" })).content[0]?.data ?? "",
       "base64",
     ).toString(),
   ).toBe("Saved:journey");
   expect(
     data(
       await call(
-        "device_act",
-        { deviceId: "android:Pixel", ref: deviceRef, action: "focus" },
+        "sim_act",
+        { simId: "android:Pixel", action: "ui", ref: deviceRef, uiAction: "focus" },
         true,
       ),
     ),
   ).toMatchObject({ code: "stale_ref" });
   await request({ op: "controller", deviceId: "android:Pixel", controller: "human" });
   expect(
-    data(await call("device_tap", { deviceId: "android:Pixel", x: 1, y: 2 }, true)),
+    data(await call("sim_act", { simId: "android:Pixel", action: "tap", x: 1, y: 2 }, true)),
   ).toMatchObject({ code: "lease_required", hint: expect.any(String) });
   await delegate();
-  await call("device_tap", { deviceId: "android:Pixel", x: 1, y: 2 });
+  await call("sim_act", { simId: "android:Pixel", action: "tap", x: 1, y: 2 });
   now += 30_001;
-  await call("device_type", { deviceId: "android:Pixel", text: "late" });
+  await call("sim_act", { simId: "android:Pixel", action: "type", text: "late" });
   expect(
     Buffer.from(
-      (await call("device_screenshot", { deviceId: "android:Pixel" })).content[0]?.data ?? "",
+      (await call("sim_screenshot", { simId: "android:Pixel" })).content[0]?.data ?? "",
       "base64",
     ).toString(),
   ).toBe("Saved:late");
   now += 30_001;
   devices.disconnect(agentOwner(scope.threadId, scope.agentId));
   expect(
-    data(await call("device_type", { deviceId: "android:Pixel", text: "disconnected" }, true)),
+    data(
+      await call("sim_act", { simId: "android:Pixel", action: "type", text: "disconnected" }, true),
+    ),
   ).toMatchObject({ code: "lease_required" });
   await delegate();
-  await call("device_stop", { deviceId: "android:Pixel" });
+  await call("sim_stop", { simId: "android:Pixel" });
   await request({ op: "enable", enabled: false });
-  await call("device_screenshot", { deviceId: "android:Pixel" }, true);
+  await call("sim_screenshot", { simId: "android:Pixel" }, true);
   lease.end();
   expect(
     (await invoke({ url: daemon.mcp.url, bearer: lease.bearer }, "screen_ui_tree", {})).status,

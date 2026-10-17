@@ -393,10 +393,10 @@ it("the daemon advertises unique scoped tools from every real registered toolkit
     return result.result.tools.map((tool) => tool.name);
   }
   const disabled = await catalog();
-  expect(disabled.filter((name) => /^(screen_|device_)/.test(name))).toEqual([]);
+  expect(disabled.filter((name) => /^(screen_|sim_)/.test(name))).toEqual([]);
   await screen.enable(true);
   expect((await catalog()).filter((name) => name.startsWith("screen_"))).toEqual(
-    expect.arrayContaining(["screen_open_app", "screen_ui_tree", "screen_request_foreground"]),
+    expect.arrayContaining(["screen_open_app", "screen_ui_tree", "screen_input"]),
   );
   const devices = daemon.devices;
   if (!devices) throw new Error("Missing catalog devices service");
@@ -408,15 +408,15 @@ it("the daemon advertises unique scoped tools from every real registered toolkit
       "ace_thread_read",
       "ace_read_handoff",
       "ace_read_handoff_chunk",
-      "ace_browser_open",
-      "ace_browser_close",
-      "ace_browser_snapshot",
-      "ace_browser_screenshot",
+      "browser_open",
+      "browser_settings",
+      "browser_snapshot",
+      "browser_screenshot",
       "screen_screenshot",
       "screen_ui_tree",
-      "device_screenshot",
-      "device_ui_tree",
-      "device_tap",
+      "sim_screenshot",
+      "sim_ui",
+      "sim_act",
     ]),
   );
   lease.end();

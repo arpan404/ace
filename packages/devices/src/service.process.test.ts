@@ -1,367 +1,26 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, writeFile, chmod, rm, readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { FilesService } from "@ace/files";
-import { basename } from "node:path";
+import { describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
 import { CredentialRegistry, ToolRegistry } from "@ace/mcp-server";
 import { AgentId, ThreadId } from "@ace/protocol";
-import { DeviceOperation, type DeviceInput } from "@ace/protocol/devices";
-import { framePacket, type Frame, type RecordingArtifact } from "@ace/screen";
+import type { DeviceInput } from "@ace/protocol/devices";
 import {
-  spawnRawSupervised,
-  spawnSupervised,
-  type SupervisedProcess,
-  type RawSupervisedProcess,
-} from "@ace/provider-kit/process";
-import {
-  DevicesService,
-  DevicePlatform,
   devicesToolkit,
   agentOwner,
   connectDevices,
-  type Actor,
   devicePacketDelivery,
   sendDeviceFrame,
 } from "./index.ts";
-import type { startCapture } from "./capture.ts";
-
-const cleanups: (() => Promise<void>)[] = [];
-afterEach(async () => {
-  for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
-});
-function noop() {}
-function deferred<T>() {
-  let resolve: (value: T) => void = noop;
-  const promise = new Promise<T>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
-const human: Actor = { kind: "human", owner: "phone-1" };
-const agent: Actor = {
-  kind: "agent",
-  threadId: "thread-1",
-  agentId: "agent-1",
-  owner: agentOwner("thread-1", "agent-1"),
-};
-const deviceId = "android:Pixel";
-function frame(streamId: string, sequence: number): Frame {
-  const payload = Buffer.from(`jpeg-${sequence}`);
-  const header = {
-    version: 1 as const,
-    sessionId: streamId,
-    sequence,
-    timestamp: sequence,
-    width: 100,
-    height: 200,
-    codec: "jpeg" as const,
-    bytes: payload.length,
-  };
-  return { header, payload, packet: framePacket(header, payload) };
-}
-async function harness(withRegistry = false, cancelCapture = false, recordingDirectory?: string) {
-  const root = await mkdtemp(join(tmpdir(), "ace-devices-service-"));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
-  for (const path of ["platform-tools/adb", "emulator/emulator"]) {
-    await mkdir(join(root, path, ".."), { recursive: true });
-    await writeFile(join(root, path), "#!/bin/sh\nexit 0\n");
-    await chmod(join(root, path), 0o700);
-  }
-  let now = 0;
-  let exists = true;
-  let firstFrame = true;
-  const frameDeadline = deferred<void>();
-  let id = 0;
-  const timers = new Map<() => void, number>();
-  const files = withRegistry
-    ? await FilesService.create({
-        workspace: root,
-        dataDir: join(root, "registry"),
-        artifactRoots: [root],
-        now: () => now,
-        id: () => `artifact-${++id}`,
-        authorize: () => true,
-      })
-    : undefined;
-  if (files) cleanups.push(async () => files.close());
-  const effects: string[] = [];
-  const profiles: import("@ace/protocol").ScreenStreamSettings[] = [];
-  const publications: RecordingArtifact[] = [];
-  const published = deferred<void>();
-  const publishing = deferred<void>();
-  let publicationGate: ReturnType<typeof deferred<void>> | undefined;
-  let native: RawSupervisedProcess | undefined;
-  let logProcess: SupervisedProcess | undefined;
-  let stopFailure = false;
-  let stopGate: ReturnType<typeof deferred<void>> | undefined;
-  const stopEntered = deferred<void>();
-  let releaseGate: ReturnType<typeof deferred<void>> | undefined;
-  const releaseEntered = deferred<void>();
-  let captureOptions: Parameters<typeof startCapture>[0] | undefined;
-  let inputGate: ReturnType<typeof deferred<void>> | undefined;
-  let captureGate: ReturnType<typeof deferred<void>> | undefined;
-  const captureEntered = deferred<void>();
-  let inventoryEntered = deferred<void>();
-  let inventoryGate: ReturnType<typeof deferred<void>> | undefined;
-  const entered = deferred<void>();
-  const platform = new DevicePlatform({
-    platform: "linux",
-    home: root,
-    env: { ANDROID_HOME: root },
-    spawn(options) {
-      if (options.name !== "device-input") return spawnSupervised(options);
-      const process = spawnSupervised({
-        command: globalThis.process.execPath,
-        args: [
-          "-e",
-          `
-        let marker, ready=false;
-        function finish(){if(marker && ready){console.log(marker+'0');marker=undefined;ready=false;}}
-        require('node:readline').createInterface({input:process.stdin}).on('line',line=>{
-          if(line==='continue'){ready=true;finish();}
-          else if(line.startsWith('printf')){marker=/ACE_INPUT_\\d+:/.exec(line)?.[0];finish();}
-          else console.log('effect:'+line);
-        });
-      `,
-        ],
-        env: {},
-        name: "fake-android-input",
-      });
-      process.stdout.on("line", (line: string) => {
-        if (!line.startsWith("effect:")) return;
-        effects.push(`-s emulator-5554 shell ${line.slice(7)}`);
-        entered.resolve();
-        void Promise.resolve(inputGate?.promise).then(() => process.stdin.write("continue\n"));
-      });
-      return process;
-    },
-    async probe(_command, args) {
-      const command = args.join(" ");
-      if (command === "-list-avds") return { stdout: exists ? "Pixel" : "", stderr: "", code: 0 };
-      if (command === "devices -l") {
-        if (inventoryGate) {
-          inventoryEntered.resolve();
-          await inventoryGate.promise;
-        }
-        return {
-          stdout: exists
-            ? "List of devices attached\nemulator-5554 device model:Pixel"
-            : "List of devices attached\n",
-          stderr: "",
-          code: 0,
-        };
-      }
-      if (command.endsWith("emu avd name")) return { stdout: "Pixel\nOK", stderr: "", code: 0 };
-      if (command.includes("input") || args.includes("install")) {
-        effects.push(command);
-        entered.resolve();
-        if (inputGate) await inputGate.promise;
-      }
-      return { stdout: "", stderr: "", code: 0 };
-    },
-  });
-  const service = new DevicesService({
-    platform,
-    env: {},
-    spawnLogs() {
-      logProcess = spawnSupervised({
-        command: process.execPath,
-        args: ["-e", "process.stdin.pipe(process.stdout)"],
-        env: {},
-        name: "fake-device-log",
-      });
-      return logProcess;
-    },
-    recordingLimitBytes: 512,
-    recordingDirectory: recordingDirectory ?? root,
-    runtime: {
-      now: () => now,
-      id: () => `device-stream-${++id}`,
-      spawn: spawnRawSupervised,
-      after(ms, run) {
-        if (ms === 100) {
-          const timer = setTimeout(run, ms);
-          return () => clearTimeout(timer);
-        }
-        if (ms === 10000) frameDeadline.resolve();
-        timers.set(run, now + ms);
-        return () => {
-          timers.delete(run);
-        };
-      },
-    },
-    async capture(options) {
-      captureOptions = options;
-      native = spawnRawSupervised({
-        command: process.execPath,
-        args: ["-e", "process.stdin.resume()"],
-        env: {},
-        name: "fake-native-capture",
-      });
-      const owned = native;
-      captureEntered.resolve();
-      if (captureGate) {
-        if (cancelCapture) {
-          const cancelled = Promise.withResolvers<void>();
-          const abort = () => cancelled.resolve();
-          options.signal?.addEventListener("abort", abort, { once: true });
-          try {
-            await Promise.race([captureGate.promise, cancelled.promise]);
-          } finally {
-            options.signal?.removeEventListener("abort", abort);
-          }
-        } else await captureGate.promise;
-      }
-      if (cancelCapture && options.signal?.aborted) {
-        await owned.stop({ graceMs: 0 });
-        throw new DOMException("Capture startup cancelled", "AbortError");
-      }
-      if (firstFrame) options.publish(frame(options.streamId, 0));
-      return {
-        async releaseInput() {
-          releaseEntered.resolve();
-          await releaseGate?.promise;
-        },
-        async configure(settings) {
-          profiles.push(settings);
-          return { codec: settings.codec };
-        },
-        async stop() {
-          stopEntered.resolve();
-          if (stopGate) await stopGate.promise;
-          await owned.stop({ graceMs: 0 });
-          if (stopFailure) throw new Error("native cleanup failed");
-        },
-      };
-    },
-    async publishArtifact(artifact) {
-      publications.push(artifact);
-      publishing.resolve();
-      if (publicationGate) await publicationGate.promise;
-      published.resolve();
-      if (files) {
-        const registered = await files.registerArtifact({
-          root,
-          path: basename(artifact.path),
-          name: "device.screen",
-          category: "recording",
-        });
-        return { id: registered, bytes: artifact.bytes, mimeType: artifact.mimeType };
-      }
-      return { ...artifact };
-    },
-  });
-  cleanups.push(() => service.close());
-  const request = (raw: unknown, actor = human) =>
-    service.request(DeviceOperation.parse(raw), actor);
-  return {
-    service,
-    platform,
-    frameDeadline,
-    skipFirstFrame() {
-      firstFrame = false;
-    },
-    removeDevice() {
-      exists = false;
-    },
-    profiles,
-    releaseEntered,
-    blockRelease() {
-      releaseGate = deferred<void>();
-      return releaseGate;
-    },
-    request,
-    effects,
-    publications,
-    published,
-    publishing,
-    blockPublication() {
-      publicationGate = deferred<void>();
-      return publicationGate;
-    },
-    files,
-    entered,
-    captureEntered,
-    get inventoryEntered() {
-      return inventoryEntered;
-    },
-    blockInventory() {
-      inventoryEntered = deferred<void>();
-      inventoryGate = deferred<void>();
-      return inventoryGate;
-    },
-    deadlines(budget?: number) {
-      for (const [run, at] of timers) if (budget === undefined || at - now === budget) run();
-    },
-    nativeStarted() {
-      return native !== undefined;
-    },
-    stopEntered,
-    nativeExit() {
-      if (!native) throw new Error("No native capture");
-      return native.exited;
-    },
-    logStarted() {
-      return logProcess !== undefined;
-    },
-    logExit() {
-      if (!logProcess) throw new Error("No log process");
-      return logProcess.exited;
-    },
-    log(line: string) {
-      if (!logProcess) throw new Error("No log process");
-      logProcess.stdin.write(line + "\n");
-    },
-    failStop() {
-      stopFailure = true;
-    },
-    clearStopFailure() {
-      stopFailure = false;
-    },
-    blockStop() {
-      stopGate = deferred<void>();
-      return stopGate;
-    },
-    blockCapture() {
-      captureGate = deferred<void>();
-      return captureGate;
-    },
-    blockInput() {
-      inputGate = deferred<void>();
-      return inputGate;
-    },
-    time(at: number) {
-      now = at;
-    },
-    publish(sequence: number, bytes?: number) {
-      if (!captureOptions) throw new Error("Capture is not started");
-      const image = frame(captureOptions.streamId, sequence);
-      if (bytes !== undefined) {
-        image.payload = Buffer.alloc(bytes, 7);
-        image.header = { ...image.header, bytes };
-        image.packet = framePacket(image.header, image.payload);
-      }
-      captureOptions.publish(image);
-    },
-    fail() {
-      captureOptions?.failure(new Error("capture disconnected"));
-    },
-  };
-}
-/** A person hands the device to a thread's agent, which also moves the device to that thread. */
-function delegateTo(h: Awaited<ReturnType<typeof harness>>, threadId: string, agentId = "agent-1") {
-  return h.request({ op: "controller", deviceId, controller: "agent", threadId, agentId });
-}
-async function delegate(h: Awaited<ReturnType<typeof harness>>) {
-  await h.request({ op: "enable", enabled: true });
-  await delegateTo(h, "thread-1");
-}
-/** Devices on, and the device used by thread-1 with nobody in control. */
-async function bind(h: Awaited<ReturnType<typeof harness>>) {
-  await delegate(h);
-  await h.request({ op: "controller", deviceId, controller: "none" });
-}
+import {
+  agent,
+  bind,
+  cleanups,
+  deferred,
+  delegate,
+  delegateTo,
+  deviceId,
+  harness,
+  human,
+} from "./service-test-support.ts";
 describe("in-app device ownership", () => {
   it("agents cannot turn devices on or hand out control", async () => {
     const h = await harness();
@@ -791,17 +450,19 @@ describe("in-app device ownership", () => {
     await delegate(h);
     const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
     devicesToolkit(h.service).register(registry);
-    expect(registry.action("device_ui_tree", { deviceId })).toMatchObject({
+    expect(registry.action("sim_ui", { simId: deviceId })).toMatchObject({
       origin: "ace",
       riskClass: "read-only",
       access: "read",
       description: expect.stringContaining(deviceId),
     });
-    expect(registry.action("device_tap", { deviceId, x: 3, y: 4 })).toMatchObject({
+    expect(
+      registry.action("sim_act", { simId: deviceId, action: "tap", x: 3, y: 4 }),
+    ).toMatchObject({
       origin: "ace",
       riskClass: "external-effect",
       access: "write",
-      description: expect.stringContaining("Tap"),
+      description: expect.stringContaining("tap"),
     });
     // A second owner cannot replace the first toolkit's authorized bindings.
     expect(() => devicesToolkit(h.service).register(registry)).toThrow(
@@ -822,8 +483,8 @@ describe("in-app device ownership", () => {
     expect(
       (
         await registry.call(
-          "device_tap",
-          { deviceId, x: 3, y: 4 },
+          "sim_act",
+          { simId: deviceId, action: "tap", x: 3, y: 4 },
           denied.principal,
           new AbortController().signal,
         )
@@ -841,8 +502,8 @@ describe("in-app device ownership", () => {
     expect(
       (
         await registry.call(
-          "device_tap",
-          { deviceId, x: 3, y: 4, threadId: "thread-2" },
+          "sim_act",
+          { simId: deviceId, action: "tap", x: 3, y: 4, threadId: "thread-2" },
           allowed.principal,
           new AbortController().signal,
         )
@@ -851,8 +512,8 @@ describe("in-app device ownership", () => {
     expect(
       (
         await registry.call(
-          "device_tap",
-          { deviceId, x: 3, y: 4 },
+          "sim_act",
+          { simId: deviceId, action: "tap", x: 3, y: 4 },
           allowed.principal,
           new AbortController().signal,
         )
@@ -862,8 +523,8 @@ describe("in-app device ownership", () => {
     expect(
       (
         await registry.call(
-          "device_tap",
-          { deviceId, x: 3, y: 4 },
+          "sim_act",
+          { simId: deviceId, action: "tap", x: 3, y: 4 },
           allowed.principal,
           new AbortController().signal,
         )
@@ -892,29 +553,86 @@ describe("in-app device ownership", () => {
         lifetime.signal,
       );
       return async (name: string, args: Record<string, unknown>) =>
-        registry.call(name, { deviceId, ...args }, lease.principal, new AbortController().signal);
+        registry.call(
+          name,
+          { simId: deviceId, ...args },
+          lease.principal,
+          new AbortController().signal,
+        );
     };
     const first = callAs("thread-1", "agent-1"),
       second = callAs("thread-2", "agent-2");
-    expect((await first("device_start", {})).isError).not.toBe(true);
-    expect((await first("device_tap", { x: 3, y: 4 })).isError).not.toBe(true);
+    expect((await first("sim_start", {})).isError).not.toBe(true);
+    expect((await first("sim_act", { action: "tap", x: 3, y: 4 })).isError).not.toBe(true);
     expect(h.effects).toEqual([expect.stringContaining("'tap' '3' '4'")]);
     expect(h.service.states()[0]).toMatchObject({
       threadId: "thread-1",
       controller: "agent",
       holder: { threadId: "thread-1", agentId: "agent-1" },
     });
-    expect(JSON.stringify(await second("device_start", {}))).toContain("busy");
+    expect(JSON.stringify(await second("sim_start", {}))).toContain("busy");
     await h.request({ op: "controller", deviceId, controller: "human" });
-    expect(JSON.stringify(await first("device_start", {}))).toContain("lease_required");
+    expect(JSON.stringify(await first("sim_start", {}))).toContain("lease_required");
     expect(h.service.states()[0]?.controller).toBe("human");
     await h.request({ op: "controller", deviceId, controller: "none" });
-    expect((await second("device_start", {})).isError).not.toBe(true);
+    expect((await second("sim_start", {})).isError).not.toBe(true);
     expect(h.service.states()[0]).toMatchObject({
       threadId: "thread-2",
       holder: { threadId: "thread-2", agentId: "agent-2" },
     });
     lifetime.abort();
+  });
+  it("sim_act performs each gesture, text and key action on the simulator it took", async () => {
+    const h = await harness();
+    await h.request({ op: "enable", enabled: true });
+    const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
+    devicesToolkit(h.service).register(registry);
+    const credentials = new CredentialRegistry(() => "a".repeat(64));
+    cleanups.push(async () => credentials.close());
+    const lease = credentials.issue(
+      {
+        sessionId: "sim-act",
+        threadId: ThreadId.parse("thread-1"),
+        agentId: AgentId.parse("agent-1"),
+        capabilities: ["devices"],
+      },
+      new AbortController().signal,
+    );
+    const call = (name: string, args: Record<string, unknown>) =>
+      registry.call(
+        name,
+        { simId: deviceId, ...args },
+        lease.principal,
+        new AbortController().signal,
+      );
+    const started = await call("sim_start", {});
+    expect(started.isError, JSON.stringify(started.content)).not.toBe(true);
+    expect(started.content).toMatchObject([
+      { text: expect.stringContaining(`"simId":"${deviceId}"`) },
+    ]);
+    for (const args of [
+      { action: "tap", x: 3, y: 4 },
+      { action: "long_press", x: 5, y: 6, durationMs: 700 },
+      { action: "swipe", x: 1, y: 2, toX: 7, toY: 8 },
+      { action: "type", text: "hello" },
+      { action: "key", key: "back" },
+    ]) {
+      const result = await call("sim_act", args);
+      expect(result.isError, `${args.action}: ${JSON.stringify(result.content)}`).not.toBe(true);
+    }
+    expect(h.effects).toEqual([
+      expect.stringMatching(/'tap' '3' '4'/),
+      expect.stringMatching(/'swipe' '5' '6' '5' '6' '700'/),
+      expect.stringMatching(/'swipe' '1' '2' '7' '8'/),
+      expect.stringMatching(/'text' 'hello'/),
+      expect.stringMatching(/'keyevent'/),
+    ]);
+    const stray = await call("sim_act", { action: "tap", x: 1, y: 2, text: "stray" });
+    expect(stray).toMatchObject({
+      isError: true,
+      content: [{ text: expect.stringContaining('"path":"text"') }],
+    });
+    expect(h.effects).toHaveLength(5);
   });
 });
 
@@ -1148,8 +866,8 @@ it("an agent installation lasting six minutes returns success through MCP", asyn
   cleanups.push(async () => lease.end());
   const gate = h.blockInput();
   const installing = registry.call(
-    "device_install",
-    { deviceId, path: "/tmp/Example.apk" },
+    "sim_act",
+    { simId: deviceId, action: "install", path: "/tmp/Example.apk" },
     lease.principal,
     new AbortController().signal,
   );
@@ -1214,267 +932,4 @@ it("reaching a recording limit reports why capture stopped and publishes its vid
   expect(await h.request({ op: "record.stop", deviceId })).toMatchObject({
     bytes: expect.any(Number),
   });
-});
-it("closing human logs preserves an agent's log stream", async () => {
-  const h = await harness();
-  await bind(h);
-  await h.request({ op: "logs", deviceId, limit: 10 }, agent);
-  await h.request({ op: "logs.start", deviceId });
-  await h.request({ op: "logs.stop", deviceId });
-  const received = deferred<void>();
-  const lines: string[] = [];
-  await h.service.subscribeLogs(deviceId, agent, async (batch) => {
-    lines.push(...batch.lines);
-    received.resolve();
-  });
-  h.log("agent still watching");
-  await received.promise;
-  expect(lines).toEqual(["agent still watching"]);
-  await h.request({ op: "logs.stop", deviceId }, agent);
-  await h.logExit();
-});
-it("deleted idle devices no thread uses release their session slots", async () => {
-  const h = await harness();
-  await h.request({ op: "enable", enabled: true });
-  await h.request({ op: "controller", deviceId, controller: "none" });
-  h.removeDevice();
-  expect(await h.service.list()).toEqual([]);
-  expect(h.service.states()).toEqual([]);
-});
-it("excess log readers are refused while existing readers can still stop cleanly", async () => {
-  const h = await harness();
-  await bind(h);
-  const readers = Array.from({ length: 64 }, (_, index) => ({
-    kind: "human" as const,
-    owner: `reader-${index}`,
-  }));
-  for (const reader of readers) await h.request({ op: "logs.start", deviceId }, reader);
-  await expect(h.request({ op: "logs.start", deviceId })).rejects.toThrow(
-    "Too many device log readers",
-  );
-  for (const reader of readers) await h.request({ op: "logs.stop", deviceId }, reader);
-  await h.logExit();
-});
-
-it("capture opening expires separately and terminates its stalled native process", async () => {
-  const h = await harness(false, true);
-  await bind(h);
-  const gate = h.blockCapture();
-  const rejected = expect(h.request({ op: "start", deviceId })).rejects.toMatchObject({
-    code: "timeout",
-    message: "The live view did not open",
-  });
-  try {
-    await h.captureEntered.promise;
-    h.time(30_000);
-    h.deadlines();
-    await rejected;
-    expect((await h.nativeExit()).reason).toBe("stopped");
-    expect(h.service.states()[0]).toMatchObject({ lifecycle: "failed" });
-  } finally {
-    gate.resolve();
-  }
-});
-
-it("a failed agent log start does not retain the later human stream", async () => {
-  const h = await harness();
-  await bind(h);
-  const logs = h.platform.logs.bind(h.platform);
-  h.platform.logs = async () => {
-    throw new Error("Fixture discovery failed");
-  };
-  await expect(h.request({ op: "logs", deviceId, limit: 10 }, agent)).rejects.toThrow(
-    "Fixture discovery failed",
-  );
-  h.platform.logs = logs;
-  await h.request({ op: "logs.start", deviceId });
-  await h.request({ op: "logs.stop", deviceId });
-  expect((await h.logExit()).reason).toBe("stopped");
-});
-
-it("a supported long agent typing request stays live for six minutes through MCP", async () => {
-  const h = await harness();
-  await delegate(h);
-  let now = 0;
-  const timers = new Set<{ at: number; run(): void }>();
-  const registry = new ToolRegistry({
-    scheduler: {
-      after(ms, run) {
-        const timer = { at: now + ms, run };
-        timers.add(timer);
-        return () => {
-          timers.delete(timer);
-        };
-      },
-    },
-  });
-  devicesToolkit(h.service).register(registry);
-  const credentials = new CredentialRegistry(() => "a".repeat(64));
-  const lease = credentials.issue(
-    {
-      sessionId: "typing-session",
-      threadId: ThreadId.parse("thread-1"),
-      agentId: AgentId.parse("agent-1"),
-      capabilities: ["devices"],
-    },
-    new AbortController().signal,
-  );
-  cleanups.push(async () => lease.end());
-  const gate = h.blockInput();
-  const installing = registry.call(
-    "device_type",
-    { deviceId, text: "x".repeat(4096) },
-    lease.principal,
-    new AbortController().signal,
-  );
-  await h.entered.promise;
-  now = 360000;
-  h.time(now);
-  h.deadlines();
-  for (const timer of timers) if (timer.at <= now) timer.run();
-  gate.resolve();
-  expect(await installing).toMatchObject({
-    content: [{ type: "text", text: '{"completed":true}' }],
-  });
-  expect(h.service.states()[0]?.controller).toBe("agent");
-  expect(h.effects).toEqual(["-s emulator-5554 shell 'input' 'text' '" + "x".repeat(4096) + "'"]);
-});
-
-it.each(["disconnect", "stop"] as const)(
-  "%s while log discovery is pending prevents a child starting",
-  async (cancel) => {
-    const h = await harness();
-    await bind(h);
-    const lookup = deferred<void>();
-    const entered = deferred<void>();
-    const logs = h.platform.logs.bind(h.platform);
-    h.platform.logs = async (device) => {
-      entered.resolve();
-      await lookup.promise;
-      return logs(device);
-    };
-    const started = h.request({ op: "logs.start", deviceId });
-    const rejected = expect(started).rejects.toThrow();
-    await entered.promise;
-    if (cancel === "disconnect") h.service.disconnect(human.owner);
-    else await h.request({ op: "logs.stop", deviceId });
-    lookup.resolve();
-    await rejected;
-    expect(h.logStarted()).toBe(false);
-  },
-);
-
-it("a cancelled older log lookup cannot remove a fresh reader or its shared stream", async () => {
-  const h = await harness();
-  await bind(h);
-  const lookup = deferred<void>();
-  const entered = deferred<void>();
-  const logs = h.platform.logs.bind(h.platform);
-  h.platform.logs = async (device) => {
-    entered.resolve();
-    await lookup.promise;
-    return logs(device);
-  };
-  const old = h.request({ op: "logs.start", deviceId });
-  const rejected = expect(old).rejects.toThrow();
-  await entered.promise;
-  await h.request({ op: "logs.stop", deviceId });
-  h.platform.logs = logs;
-  await h.request({ op: "logs.start", deviceId });
-  await h.request({ op: "logs", deviceId, limit: 10 }, agent);
-  lookup.resolve();
-  await rejected;
-  h.service.disconnect(agent.owner);
-  const received = deferred<void>();
-  const lines: string[] = [];
-  const unsubscribe = await h.service.subscribeLogs(deviceId, human, async (batch) => {
-    lines.push(...batch.lines);
-    received.resolve();
-  });
-  h.log("fresh reader remains");
-  await received.promise;
-  expect(lines).toContain("fresh reader remains");
-  unsubscribe();
-  await h.request({ op: "logs.stop", deviceId });
-  expect((await h.logExit()).reason).toBe("stopped");
-});
-
-it("revoking a device peer during log discovery cannot start an unauthorized process", async () => {
-  const h = await harness();
-  await bind(h);
-  const lookup = deferred<void>();
-  const entered = deferred<void>();
-  const logs = h.platform.logs.bind(h.platform);
-  h.platform.logs = async (device) => {
-    entered.resolve();
-    await lookup.promise;
-    return logs(device);
-  };
-  let authorized = true;
-  const channel = connectDevices(h.service, "revoked-reader", {
-    authorize: () => authorized,
-    canReadThread: () => true,
-    agentExists: () => true,
-    async send() {},
-    async frame() {},
-    async image() {},
-  });
-  try {
-    const started = channel.request({
-      type: "devices.request",
-      requestId: "logs",
-      operation: { op: "logs.start", deviceId },
-    });
-    await entered.promise;
-    authorized = false;
-    lookup.resolve();
-    await started;
-    expect(h.logStarted()).toBe(false);
-  } finally {
-    channel.close();
-  }
-});
-
-it("stopping logs during first subscription discovery prevents startup and permits a fresh reader", async () => {
-  const h = await harness();
-  await h.request({ op: "enable", enabled: true });
-  const inventory = h.blockInventory();
-  const received = deferred<void>();
-  const lines: string[] = [];
-  const channel = connectDevices(h.service, "first-log-reader", {
-    authorize: () => true,
-    canReadThread: () => true,
-    agentExists: () => true,
-    async send(message) {
-      if (message.type !== "devices.logs") return;
-      lines.push(...message.lines);
-      received.resolve();
-    },
-    async frame() {},
-    async image() {},
-  });
-  const request = (requestId: string, op: "logs.start" | "logs.stop") =>
-    channel.request({
-      type: "devices.request",
-      requestId,
-      operation: { op, deviceId },
-    });
-  try {
-    const old = request("old", "logs.start");
-    await h.inventoryEntered.promise;
-    const stopped = request("stop", "logs.stop");
-    inventory.resolve();
-    await Promise.all([old, stopped]);
-    expect(h.logStarted()).toBe(false);
-    await request("fresh", "logs.start");
-    h.log("fresh subscription receives logs");
-    h.deadlines(100);
-    await received.promise;
-    expect(lines).toContain("fresh subscription receives logs");
-    await request("fresh-stop", "logs.stop");
-    expect((await h.logExit()).reason).toBe("stopped");
-  } finally {
-    inventory.resolve();
-    channel.close();
-  }
 });

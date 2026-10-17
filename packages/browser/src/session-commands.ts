@@ -166,38 +166,52 @@ export async function executeBrowserCommand(
       }
     }
     case "snapshot":
-      return { tabId: page.tabs?.active(), ...(await context.refs.snapshot()) };
-    case "find": {
-      const snapshot = await context.refs.snapshot();
       return {
-        ...snapshot,
-        tabId: page.tabs?.active(),
-        nodes: snapshot.nodes.filter(
-          (node) =>
-            node.role === command.role &&
-            (command.exact ? node.name === command.name : node.name.includes(command.name)),
-        ),
+        url: page.url(),
+        ...(await context.refs.snapshot({
+          ...(command.ref ? { scope: command.ref } : {}),
+          interactiveOnly: command.interactiveOnly,
+          maxNodes: command.maxNodes,
+        })),
       };
+    case "find": {
+      if (command.role === undefined && command.name === undefined)
+        throw new BrowserActionError("invalid_arguments", undefined, undefined, [
+          { path: "role", expected: "role or name (or both)" },
+        ]);
+      const role = command.role?.toLowerCase();
+      const name = command.name?.toLowerCase();
+      const found = await context.refs.snapshot({
+        maxNodes: 50,
+        match: (node) =>
+          node.role !== "text" &&
+          (role === undefined || node.role.toLowerCase() === role) &&
+          (command.name === undefined ||
+            (command.exact
+              ? node.name === command.name
+              : node.name.toLowerCase().includes(name ?? ""))),
+      });
+      // Matches are a flat list; their tree depth would only mislead.
+      for (const node of found.nodes) node.depth = 0;
+      return found;
     }
     case "tabs": {
       const tabs = page.tabs;
       if (!tabs) throw new BrowserActionError("not_supported");
       if (command.operation === "list") return { activeTabId: tabs.active(), tabs: tabs.list() };
+      // Switching to one of the person's tabs moves the shared page they watch.
       context.check(actor, signal, generation);
-      // Keep legacy open callers compatible: the main browser has one page.
-      if (command.operation === "close")
-        throw new BrowserActionError("not_supported", "Close the browser to close its page");
-      if (command.operation === "switch" && command.tabId !== tabs.active())
-        throw new BrowserActionError("invalid_arguments");
+      if (!command.tabId)
+        throw new BrowserActionError("invalid_arguments", undefined, undefined, [
+          { path: "tabId", expected: "a tabId from the tab list" },
+        ]);
+      if (!tabs.list().some((tab) => tab.tabId === command.tabId))
+        throw new BrowserActionError("invalid_arguments", undefined, undefined, [
+          { path: "tabId", expected: "a tabId from the current tab list" },
+        ]);
+      if (command.tabId !== tabs.active()) await tabs.switch(command.tabId);
       await context.syncTab();
       context.check(actor, signal, generation);
-      if (command.url)
-        await context.run(
-          BrowserCommand.parse({ action: "navigate", url: command.url }),
-          actor,
-          signal,
-          generation,
-        );
       context.emit();
       return { activeTabId: tabs.active(), tabs: tabs.list() };
     }

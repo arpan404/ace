@@ -209,7 +209,7 @@ if (mode === "opencode") {
   const session = { getContextUsage: () => undefined, ui: { notify() {} } };
   for (const start of starts)
     if (typeof start === "function") await Reflect.apply(start, undefined, [{}, session]);
-  const browser = tools.get("ace_browser_open");
+  const browser = tools.get("browser_open");
   const mcpProof = browser
     ? {
         tools: [...tools.keys()],

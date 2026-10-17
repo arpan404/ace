@@ -4,9 +4,7 @@ import type { Item, ToolCall } from "@ace/protocol";
 
 export function measurementTool(name: string): string | undefined {
   const tool = aceToolName(name);
-  return tool === "screen_measure_interaction" || tool === "ace_browser_measure_interaction"
-    ? tool
-    : undefined;
+  return tool === "screen_measure" || tool === "browser_measure" ? tool : undefined;
 }
 
 function canonical(input: unknown): unknown {

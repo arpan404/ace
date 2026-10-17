@@ -29,16 +29,16 @@ export function describeAceAction(
 ): ApprovalTarget {
   // Measurement reads are safe to approve as view operations; a nested input is an effect.
   if (
-    (tool === "screen_measure_interaction" || tool === "ace_browser_measure_interaction") &&
+    (tool === "screen_measure" || tool === "browser_measure") &&
     input &&
     typeof input === "object"
   ) {
-    const field = tool === "screen_measure_interaction" ? "action" : "interaction";
-    const selectsTab =
-      tool === "ace_browser_measure_interaction" && Reflect.get(input, "tabId") !== undefined;
-    riskClass =
-      Reflect.get(input, field) === undefined && !selectsTab ? "read-only" : "external-effect";
+    const field = tool === "screen_measure" ? "action" : "interaction";
+    riskClass = Reflect.get(input, field) === undefined ? "read-only" : "external-effect";
   }
+  // Listing history reads; moving through it navigates.
+  if (tool === "browser_history" && input && typeof input === "object")
+    riskClass = Reflect.get(input, "direction") === undefined ? "read-only" : "external-effect";
   const scope =
     input && typeof input === "object"
       ? Object.entries(input).filter(([key]) =>
@@ -49,7 +49,7 @@ export function describeAceAction(
             "model",
             "role",
             "streamId",
-            "deviceId",
+            "simId",
             "appId",
             "url",
             "ref",

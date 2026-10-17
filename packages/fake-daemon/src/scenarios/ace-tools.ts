@@ -152,8 +152,8 @@ export function aceToolsComputerUse(): Scenario {
     aceCall(
       "root",
       "address",
-      "screen_key",
-      { key: "l", modifiers: ["command"] },
+      "screen_input",
+      { action: "key", key: "l", modifiers: ["command"] },
       failure(
         "not_supported",
         "The installed device or helper does not support this operation",
@@ -165,8 +165,8 @@ export function aceToolsComputerUse(): Scenario {
     aceCall(
       "root",
       "type",
-      "screen_type",
-      { text: "gmail.com" },
+      "screen_input",
+      { action: "type", text: "gmail.com" },
       failure(
         "focus_changed",
         "Background action changed focus or cursor",
@@ -187,7 +187,7 @@ export function aceToolsComputerUse(): Scenario {
       }),
     ),
     screenAudit("root", "sign-in-audit", "press", safari, "background", "completed"),
-    aceCall("root", "click", "screen_click", { x: 640, y: 432 }, offscreen, true),
+    aceCall("root", "click", "screen_input", { action: "click", x: 640, y: 432 }, offscreen, true),
     screenAudit("root", "click-audit", "pointer.click", safari, "background", "window_offscreen"),
     message(
       "root",
@@ -216,27 +216,12 @@ export function aceToolsComputerUse(): Scenario {
 
 /** A sign-in page in ace's browser: refs named by the snapshot, a screenshot, and a refusal. */
 export function aceToolsBrowser(): Scenario {
-  const snapshot = {
-    nodes: [
-      {
-        id: "1",
-        ignored: false,
-        role: "RootWebArea",
-        name: "Sign in to GitHub",
-        children: ["2", "3"],
-      },
-      {
-        id: "2",
-        ignored: false,
-        role: "textbox",
-        name: "Username or email address",
-        ref: "e1-12",
-        children: [],
-      },
-      { id: "3", ignored: false, role: "button", name: "Sign in", ref: "e1-13", children: [] },
-    ],
-    truncated: false,
-  };
+  // As browser_snapshot answers: one line per meaningful node, refs for the action tools.
+  const snapshot = [
+    '- document "Sign in to GitHub"',
+    '  - textbox "Username or email address" [ref=e1-12]',
+    '  - button "Sign in" [ref=e1-13]',
+  ].join("\n");
   return {
     thread: {
       id: "thread-ace-tools-browser",
@@ -255,37 +240,43 @@ export function aceToolsBrowser(): Scenario {
           aceCall(
             "root",
             "open",
-            "ace_browser_open",
+            "browser_open",
             { url: "https://github.com/login" },
             json({
               tabId: "tab-1",
               url: "https://github.com/login",
             }),
           ),
-          aceCall("root", "snapshot", "ace_browser_snapshot", {}, json(snapshot)),
+          aceCall("root", "snapshot", "browser_snapshot", {}, [{ type: "text", text: snapshot }]),
           aceCall(
             "root",
             "type",
-            "ace_browser_type",
-            { ref: "e1-12", text: "octocat" },
+            "browser_act",
+            { action: "type", ref: "e1-12", text: "octocat" },
             json(null),
           ),
-          aceCall("root", "click", "ace_browser_click", { ref: "e1-13" }, json(null)),
+          aceCall(
+            "root",
+            "click",
+            "browser_act",
+            { action: "click", ref: "e1-13" },
+            json({ ok: true }),
+          ),
           aceCall(
             "root",
             "wait",
-            "ace_browser_wait_for",
+            "browser_wait_for",
             { url: "https://github.com/sessions/two-factor" },
             json(null),
           ),
-          aceCall("root", "shot", "ace_browser_screenshot", {}, [
+          aceCall("root", "shot", "browser_screenshot", {}, [
             { type: "image", mimeType: "image/png", data: pageShot },
           ]),
           aceCall(
             "root",
             "press",
-            "ace_browser_press",
-            { key: "Meta+L" },
+            "browser_act",
+            { action: "press", key: "Meta+L" },
             failure(
               "human_controlled",
               "Browser controlled by human",
@@ -313,7 +304,7 @@ export function aceToolsBrowser(): Scenario {
 /** A simulator: listed, booted, an app installed and opened, tapped, and a lost lease. */
 export function aceToolsDevices(): Scenario {
   const device = "ios:8A1F3C2E-4B5D-4E6F-9A0B-1C2D3E4F5A6B";
-  const on = { deviceId: device };
+  const on = { simId: device };
   return {
     thread: {
       id: "thread-ace-tools-devices",
@@ -337,7 +328,7 @@ export function aceToolsDevices(): Scenario {
           aceCall(
             "root",
             "list",
-            "device_list",
+            "sim_list",
             {},
             json({
               devices: [
@@ -351,13 +342,14 @@ export function aceToolsDevices(): Scenario {
               ],
             }),
           ),
-          aceCall("root", "boot", "device_boot", on, json({ ok: true })),
+          aceCall("root", "boot", "sim_start", on, json({ ok: true })),
           aceCall(
             "root",
             "install",
-            "device_install",
+            "sim_act",
             {
               ...on,
+              action: "install",
               path: "/Users/dev/acme/build/Shop.app",
             },
             json({ ok: true }),
@@ -365,22 +357,22 @@ export function aceToolsDevices(): Scenario {
           aceCall(
             "root",
             "launch",
-            "device_open_app",
-            { ...on, appId: "com.acme.Shop" },
+            "sim_act",
+            { ...on, action: "open_app", appId: "com.acme.Shop" },
             json({ ok: true }),
           ),
           aceCall(
             "root",
             "shot",
-            "device_screenshot",
+            "sim_screenshot",
             on,
             shot(phoneShot, "Frame 12, 120x240. Input uses target points; frame scale 1."),
           ),
           aceCall(
             "root",
             "find",
-            "device_find",
-            { ...on, query: { name: "Log in" } },
+            "sim_ui",
+            { ...on, name: "Log in" },
             json({
               nodes: [
                 {
@@ -399,26 +391,26 @@ export function aceToolsDevices(): Scenario {
           aceCall(
             "root",
             "tap",
-            "device_act",
-            { ...on, ref: "d4", action: "press" },
+            "sim_act",
+            { ...on, action: "ui", ref: "d4", uiAction: "press" },
             json({ fallback: false }),
           ),
           aceCall(
             "root",
             "email",
-            "device_type",
-            { ...on, text: "dev@acme.test" },
+            "sim_act",
+            { ...on, action: "type", text: "dev@acme.test" },
             json({ ok: true }),
           ),
           aceCall(
             "root",
             "home",
-            "device_key",
-            { ...on, key: "home" },
+            "sim_act",
+            { ...on, action: "key", key: "home" },
             failure(
               "lease_required",
               "Device controller lease required",
-              "Ask the user to delegate the device controller again after expiry or takeover.",
+              "Call sim_start to take the simulator for this thread, then retry.",
             ),
             true,
           ),

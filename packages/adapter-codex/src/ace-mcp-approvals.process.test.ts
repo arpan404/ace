@@ -23,8 +23,8 @@ const calls = (h: Awaited<ReturnType<typeof scripted>>, tool: string) =>
   );
 
 test.each([
-  [":danger-full-access", "ace_browser_navigate"],
-  [":workspace", "ace_browser_navigate"],
+  [":danger-full-access", "browser_open"],
+  [":workspace", "browser_open"],
   [":workspace", "ace_thread_read"],
   [":read-only", "ace_status"],
 ])("Codex in %s calls %s five times without asking the person", async (mode, tool) => {

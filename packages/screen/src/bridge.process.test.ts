@@ -38,7 +38,7 @@ it("human devices can discover sessions, delegate to a scoped agent and observe 
     state.sessionId,
     JSON.stringify(["thread-1", "agent-1"]),
   );
-  await tool("screen_type", { text: "hello" });
+  await tool("screen_input", { action: "type", text: "hello" });
   await connection.request({
     type: "screen.request",
     requestId: "takeover",
@@ -49,7 +49,9 @@ it("human devices can discover sessions, delegate to a scoped agent and observe 
       (message) => message.type === "screen.state" && message.state.controller === "human",
     ),
   ).toBe(true);
-  await expect(tool("screen_type", { text: "hello" })).rejects.toThrow("ownership");
+  await expect(tool("screen_input", { action: "type", text: "hello" })).rejects.toThrow(
+    "ownership",
+  );
   connection.close();
   expect(test.screen.state(state.sessionId).controller).toBe("none");
 });

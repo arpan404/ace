@@ -11,7 +11,7 @@ import type { PiExtensionApi } from "./extension-api.ts";
 export const AceToolName = z
   .string()
   .max(128)
-  .regex(/^(?:delegate_task|(?:ace_|screen_|device_)[a-z0-9_]+)$/);
+  .regex(/^(?:delegate_task|(?:ace_|browser_|screen_|sim_)[a-z0-9_]+)$/);
 const Tools = z.object({
   tools: z
     .array(

@@ -5,100 +5,95 @@ selects the thread and agent. Never pass `threadId`, `agentId`, `sessionId`, or 
 credential in tool arguments. A closed provider session loses its MCP authority.
 Discover the tool catalog for the current session before choosing tools.
 
-Use ace's tools for the thread browser and delegated devices. Provider-specific
+Use ace's tools for the thread browser, native apps and simulators. Provider-specific
 browser extensions and `cua_repl.js` do not control ace's thread browser and are
 not part of this contract. ace's own tools never ask for approval: the provider
 that calls them applies its own permissions, so every call ace receives proceeds.
 
 ## Browser journey
 
-1. `ace_browser_open({url: "http://localhost:3000/"})` opens the thread browser
-   and waits for the initial document. Omitting `url` opens a blank browser. Add `newTab:true` for another background tab.
-   Other browser tools also open it lazily.
-2. `ace_browser_snapshot({})` returns bounded accessibility `nodes`, with
-   `name`, `role`, optional `value`, and optional `ref`. Only nodes with refs
-   can be targeted. Take a new snapshot after navigation.
-3. `ace_browser_click({ref: "e1-42"})` clicks the element's centre.
-   `ace_browser_type({ref: "e1-43", text: "Ada"})` replaces the editable
-   element's contents. `ace_browser_press({ref: "e1-43", key: "Enter"})`
-   focuses it and sends a key. Omitting `ref` uses the focused element.
-4. After submitting, use `ace_browser_wait_for({url: "http://localhost:3000/results"})`
-   for an exact destination through DOMContentLoaded, or
-   `ace_browser_wait_for({text: "Saved"})` for a bounded visible-text substring.
-   These check the current document, so they work if navigation already finished.
-   A URL includes its query string and fragment. A loaded error document is not
-   proof that a submission succeeded; inspect its content.
-5. Snapshot again to read results and obtain current refs.
-   `ace_browser_screenshot({})` returns an inline JPEG of the viewport, capped
-   at 1536 pixels on its longest side. Capture scaling does not change layout.
+The thread browser is a real Chromium page the person watches in ace, with a visible
+marker while an agent holds control. Prefer it to a provider's web fetch when the work
+needs a rendered page: verifying UI, testing a dev server on localhost, letting the
+person watch, or reading console and network evidence.
 
-Choose exactly one wait condition: `url`, `text`, or `ref` with
-`state: "visible" | "hidden"`. The element form applies to the current document;
-it cannot wait for a destination element whose ref does not exist yet. Wait and
-navigation `timeout` values are milliseconds, default 10000, maximum 30000.
-Cancellation does not return a late success. Each text poll visits at most 1024 DOM nodes
-and 65536 text characters, and rejects documents over the 20000-node snapshot cap.
-Larger searches return `page_text_limit` instead of repeatedly scanning the page.
+1. `browser_open({url: "http://localhost:3000/"})` opens or joins the thread browser
+   and waits for the initial document. Without `url` it reports the current page:
+   `url`, `title`, `controller`, and, when the person has several tabs open, `tabs`
+   and `activeTabId`. `browser_open({tabId})` switches to one of those tabs; agents
+   do not open new tabs. Every other browser tool also opens the browser lazily.
+2. `browser_snapshot({})` returns compact indented text, one line per meaningful
+   accessibility node: `- button "Save" [disabled] [ref=e3-41]`, with field values
+   after a colon and headings marked `[level=n]`. Ignored nodes, wrappers and text that
+   only repeats its element's name are dropped. `maxNodes` (default 120, max 2000) and
+   a 48 KiB cap bound the result; a cut snapshot ends with a `[truncated: …]` line.
+   Narrow with `ref` (a container's subtree), `interactiveOnly: true`, or
+   `browser_find({role, name})`, which returns matching lines from every frame.
+3. `browser_act({action, …})` performs `click`, `hover`, `focus`, `check`, `uncheck`
+   (ref), `type` (ref and text; replaces the field's contents), `press` (key, optional
+   ref), `select` (ref and option values), `drag` (ref and toRef), `upload` (ref and
+   files), `scroll` (x/y pixel deltas) and `dialog` (dialogId, accept, promptText).
+   A field another action does not use is refused with `invalid_arguments`. The result
+   is `{ok, url}`, plus a note when the page navigated.
+4. After an action that navigates, `browser_wait_for` with exactly one of `url` (exact
+   destination through DOMContentLoaded), `text` (visible substring) or `ref` with
+   `state: "visible" | "hidden"`. These check the current document, so they work if
+   navigation already finished. Then snapshot again.
+5. `browser_screenshot({})` returns an inline JPEG of the viewport, capped at 1536
+   pixels on its longest side. Use it for visuals; snapshots read structure.
 
-Refs include frame identity, a document generation and Chromium node identity. They remain
-stable across snapshots of an unchanged element in the same document, but only
-the latest snapshot grants actionable refs. Navigation, detached elements and
-backend replacement require a fresh snapshot. A ref is not a CSS selector.
+Wait and navigation `timeout` values are milliseconds, default 10000, maximum 120000.
+Each text poll visits at most 1024 DOM nodes and 65536 characters; documents over the
+20000-node snapshot cap are refused with `page_text_limit`.
 
-| Tool                   | Arguments and result                                                                        |
-| ---------------------- | ------------------------------------------------------------------------------------------- |
-| `ace_browser_navigate` | `url`, optional `timeout`; HTTP(S), no URL credentials; returns browser state               |
-| `ace_browser_scroll`   | `x`, `y` are horizontal/vertical pixel distances, not target coordinates                    |
-| `ace_browser_evaluate` | `expression`, optional `mode: read-only / unrestricted`; bounded JSON                       |
-| `ace_browser_logs`     | optional kind, level, url substring, status, limit; returns bounded redacted inline entries |
-| `ace_browser_resize`   | `width`, `height`, 100–4096 CSS pixels                                                      |
-| `ace_browser_emulate`  | `width`, `height`, optional `deviceScaleFactor`, `mobile`, `touch`, `colorScheme`           |
-| `ace_browser_close`    | `{}`; closes the thread browser after agent control is restored                             |
+Refs look like `e3-41` (main frame) or `f1:e3-41` (a child frame). They stay valid
+across snapshots of an unchanged element until the document navigates, and they work
+for every DOM-backed node of the latest snapshot, including ones the budget left out.
+A ref is not a CSS selector.
+
+| Tool               | Arguments and result                                                                                            |
+| ------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `browser_logs`     | optional kind, level, url substring, status, limit; `requestId` reads one response body                         |
+| `browser_evaluate` | `expression`, optional `mode: read-only / unrestricted`; bounded JSON                                           |
+| `browser_history`  | no args: recent entries and back/forward; `direction`: back, forward, reload or stop                            |
+| `browser_settings` | `action`: resize/emulate (width, height, scale, mobile, touch, colour scheme), record_start, record_stop, close |
+| `browser_measure`  | optional interaction, observeMs, repeat, filmstrip; frame-timing metrics                                        |
 
 ## Sites and control
 
 An agent may open any `http(s)` address without URL credentials, in every
 permission mode, without a question to a person. Resources, redirects and
 WebSockets reach any `http(s)`/`ws(s)` origin. Other schemes such as `file:` and
-`chrome:` fail with `invalid_origin`.
+`chrome:` fail with `invalid_origin`. Read-only tools (snapshot, find, wait_for,
+screenshot, logs, history without direction) are annotated read-only; navigation and
+input are open-world but never destructive.
 
 Browser takeover and handback are authenticated human operations, not agent
 tools. A human lease blocks agent input and agent close. Takeover invalidates
 queued input even if the human hands control back before it dispatches. A click
 already dispatched cannot be undone. Shared disconnect returns browser control; refresh the snapshot before continuing. Private takeover returns `human_private` for agent reads as well as input. A private disconnect pauses until explicit human handback; the agent must wait.
 
-## Tabs, files and inspection
+## Files, dialogs and inspection
 
-`ace_browser_tabs({operation:"list"})` returns stable IDs and the active tab.
-Use operation open with optional url, or switch/close with tabId. The last tab
-requires ace_browser_close. Each thread has at most eight tabs; the daemon has
-at most 32. Popups are background tabs. Commands accept optional
-tabId to select their target; snapshot again after switching.
+`browser_act({action: "upload", ref, files: ["relative/workspace/file.txt"]})` sets a
+file input. Relative paths resolve against the workspace; absolute paths are uploaded
+too. Downloads are quarantined. Completed downloads announce an artifact with filename,
+size, MIME and executable/archive flags. Never execute or open a flagged file by default.
 
-`ace_browser_find({role:"button",name:"Save"})` returns matching snapshot nodes;
-exact defaults true. Hover/focus/check/uncheck take ref, drag takes ref and toRef,
-and select takes ref and option values. Frame-qualified refs target same-origin
-and cross-origin frame elements through their CDP sessions.
-
-`ace_browser_upload({ref,files:["relative/workspace/file.txt"]})` sets a file input.
-Relative paths resolve against the workspace; absolute paths are uploaded too.
-Downloads are quarantined. Completed downloads announce an artifact with filename, size,
-MIME and executable/archive flags. Never execute or open a flagged file by default.
-
-A tab may carry pending_dialog with dialogId, tabId, type and message. Answer with
-`ace_browser_dialog({dialogId,accept:true,promptText:"text"})`, or accept:false to
-dismiss. Agent-owned beforeunload is accepted automatically. Native permission
-prompts and file chooser windows do not grant capabilities.
+While a page dialog is open, every tool returns `pending_dialog` with dialogId and a
+hint. Answer with `browser_act({action: "dialog", dialogId, accept: true, promptText})`,
+or accept:false to dismiss. Agent-owned beforeunload is accepted automatically. Native
+permission prompts and file chooser windows do not grant capabilities.
 
 Evaluate defaults to unrestricted. Use mode read-only to read DOM in an isolated
 world with side-effect checking. It refuses mutation, navigation and network calls;
 it cannot read page-world variables and may refuse harmless operations.
 
-`ace_browser_network_body({requestId})` reads one completed bounded text response
-from a request ID in logs. Binary, incomplete, evicted or oversized bodies fail.
-Known secrets are redacted; arbitrary page text can still be sensitive.
-`ace_browser_record_start({})` and record_stop reuse the recording/artifact pipeline.
-Recording captures the active view; private frames are excluded. Recording is not replay.
+`browser_logs({requestId})` reads one completed bounded text response from a request ID
+in the logs. Binary, incomplete, evicted or oversized bodies fail. Known secrets are
+redacted; arbitrary page text can still be sensitive. `browser_settings` record_start
+and record_stop reuse the recording/artifact pipeline. Recording captures the active
+view; private frames are excluded.
 
 The [UI wire handoff](browser-parity-ui.md) defines tab/download/dialog state
 and private reconnect.
@@ -107,43 +102,30 @@ and private reconnect.
 
 A human turns computer use on and grants the helper's OS permissions. ace adds no
 per-app approval: the provider's own permission mode decides each call, using the tools'
-MCP annotations. Call `screen_open_app({bundleId})` to launch without activation and
-acquire a background session. A human can also start and delegate a session. Up to eight distinct macOS apps share one helper;
-`target_busy` identifies the existing holder. Session tools accept `sessionId`;
-include it whenever the agent controls multiple apps. Cross-agent selection fails.
+MCP annotations. `screen_open_app({bundleId})` launches without activation and acquires
+a background session, returning a `sessionId` and candidate windows. Call it again with
+`windowId` to switch window, `url` for a deep link, or `mode: "foreground"` for real
+cursor and keyboard input (only when the app ignores background input).
+`screen_windows({bundleId})` lists windows. Up to eight distinct macOS apps share one
+helper; `target_busy` identifies the existing holder. Pass `sessionId` when the agent
+controls several apps; cross-agent selection fails.
 
-Use `screen_ui_tree({})`, or
-`screen_ui_find({query: {name: "Name"}})`, then
-`screen_ui_act({ref: "…", action: "setValue", value: "Ada"})` or
-`screen_ui_act({ref: "…", action: "press"})`. Use only actions listed on the node.
-Action replies include mode, whether synthesized input was needed and a fresh settled snapshot. Nodes advertise named secondary actions; `selectText` accepts text or a range. Refresh expired refs.
-OS accessibility support varies; unsupported operations return an error.
+`screen_ui_tree({})` reads the bounded accessibility tree; with `role`, `name` or
+`text` it finds matching elements instead. `screen_ui_act({ref, action: "setValue",
+value: "Ada"})` or `screen_ui_act({menu: ["File", "New Window"]})` act semantically.
+Use only actions listed on the node. Action replies include mode, whether synthesized
+input was needed and a fresh settled snapshot.
 
-`screen_type({text: "Ada"})` uses AX selected text before process-posted keys.
-`screen_paste({text: "Ada"})` saves and restores clipboard representations.
-Secure text fields refuse typing, keys and paste without human session consent.
-`screen_key({key: "Enter"})` sends a named v2 key.
-`screen_click({x: 10, y: 20})` uses target-window points on v2.
-`screen_scroll({dx: 0, dy: 100})` scrolls, with optional target-window `x`, `y`.
-Legacy v1 MCP tools instead use pixels in the latest model screenshot, macOS
-`keyCode`, and `deltaX`/`deltaY`. ace maps model pixels back to the original capture
-for click and scroll positions, including Retina captures. A controller or capture
-geometry change requires a fresh screenshot before coordinate input. Viewer input
-keeps its original capture-pixel contract. Prefer semantic refs to coordinate input.
-
-`screen_screenshot({})` returns an inline JPEG and its pixels-per-target-point
-scale for v2. Divide screenshot coordinates by that scale before v2 input. For v1,
-pass pixels from the model image directly as described in its text block. Screen and
-device model images are capped at 1536 pixels and 1 MiB. Large images require
-ffmpeg on the daemon host for resizing; a missing encoder returns a typed remedy.
-Live-view frames retain their original resolution.
+`screen_input({action, …})` is the fallback: `click` (x, y), `type` and `paste` (text;
+paste restores the clipboard), `key` (named key plus modifiers) and `scroll` (dx, dy,
+optional x, y). Points are target-window points: divide screenshot pixels by the scale
+`screen_screenshot` reports. Secure text fields refuse typing, keys and paste without
+human session consent. `screen_screenshot` images are capped at 1536 pixels and 1 MiB;
+large images need ffmpeg on the daemon host.
 
 Background input never activates the app or uses HID input. `foreground_required`
-means the app needs foreground input; switch with `screen_request_foreground({sessionId})`. Unsupported background events
-are never silently retried in foreground. Every action waits for a bounded UI
-settle; agents do not need to sleep. Occluded windows can be captured; minimized
-or off-display windows report explicit errors. Locked-Mac compatibility needs a
-live check. Windows/Linux background input remains a follow-up.
+means reopen with `mode: "foreground"`. Every action waits for a bounded UI settle;
+agents do not need to sleep. Minimized or off-display windows report explicit errors.
 
 Human takeover removes screen delegation, and agent calls on that app are refused while
 the person holds it. Once they hand it back or release it, the agent resumes (or reacquires
@@ -151,34 +133,26 @@ it with `screen_open_app`). Ending the provider lease releases its delegated con
 switch stops all sessions and blocks reacquisition until enablement is renewed.
 See the [UI wire handoff](background-computer-use.md).
 
-## Device journey
+## Simulator journey
 
-A human turns devices on. `device_list({})` returns every device. All other device
-tools take `deviceId`, for example `"android:Pixel"` or `"ios:UUID"`. There is no
-per-device approval: `device_boot({deviceId})` and `device_start({deviceId})` take the
-device for the agent's thread and give it the controller lease, unless a person controls
-it or another agent holds it (`lease_required` / `busy`). A device idle after its last
-holder's lease expired moves to the new thread.
+`sim_*` tools drive the iOS simulators and Android emulators on the daemon host. They
+are unrelated to paired machines, which agents reach with `ace_machines` and
+`delegate_task`. A human turns the `devices` group on. `sim_list({})` returns every
+simulator with its `simId`, for example `"android:Pixel"` or `"ios:UUID"`.
 
-Call `device_boot({deviceId})` if needed, then `device_start({deviceId})` to start
-capture before `device_screenshot({deviceId})`. Use `device_ui_tree`,
-`device_find` with `query`, and `device_act` with `ref` and `action`, following the
-screen semantic contract. Android refreshes accessibility targets before input
-and reports adb input fallback. To type, focus the element then call `device_type`.
-`device_key` accepts `home`, `back`, `rotate`, `enter`, or `power`.
+`sim_start({simId})` takes the simulator for the agent's thread, boots it when needed
+(`boot` defaults to true) and starts capture, unless a person controls it or another
+agent holds it (`lease_required` / `busy`). Read with `sim_ui({simId})`, or pass `role`,
+`name` or `text` to find. `sim_act({simId, action: "ui", ref, uiAction})` acts through
+accessibility; `tap`, `long_press`, `swipe`, `type` and `key` (`home`, `back`, `rotate`,
+`enter`, `power`) are the coordinate and key fallbacks, in target points. `open_app`,
+`open_url`, `install`, `record_start` and `record_stop` cover apps and recordings;
+install paths are local to the daemon. `sim_screenshot` and `sim_logs` read, and
+`sim_stop` releases it.
 
-Coordinate tools are `device_tap`, with `x`, `y` and optional `durationMs`, and
-`device_swipe`, with `x`, `y`, `toX`, `toY`, and optional `durationMs`.
-Coordinates use target points, with screenshot scale reported in text.
-`device_open_app`, `device_open_url`, `device_install`, `device_logs`,
-`device_record_start`, `device_record_stop`, and `device_stop` use the same
-device. Installation paths are local to the daemon, not the agent's remote client.
-
-Input renews the 30-second device controller lease. Human takeover, lease expiry,
-disconnect, turning devices off and daemon restart invalidate queued agent input. After
-expiry or once the person hands it back, the agent takes it again with `device_start`.
-Viewing or taking a screenshot does not grant or renew input authority. Restart never
-restores control.
+Input renews the 30-second controller lease. Human takeover, lease expiry, disconnect,
+turning devices off and daemon restart invalidate queued agent input; the agent takes it
+again with `sim_start`. Viewing or taking a screenshot does not grant input authority.
 
 ## Errors and provider delivery
 

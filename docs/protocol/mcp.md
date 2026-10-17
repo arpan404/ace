@@ -713,7 +713,7 @@ Example:
 
 ## ace_machines
 
-List the other paired machines whose agent access is on: name, online or offline, access (read or operate), projects, tool groups and providers. Pass a machine's `machine` to delegate_task (with `project`) or to ace_browser_* tools to work there. Tokens and paths never leave their machine.
+List the other paired machines whose agent access is on: name, online or offline, access (read or operate), projects, tool groups and providers. Pass a machine's `machine` to delegate_task (with `project`) or to browser_* tools to work there. Tokens and paths never leave their machine.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 

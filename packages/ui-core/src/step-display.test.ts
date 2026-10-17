@@ -89,9 +89,11 @@ test("approval tools are named for what they do, never by a raw method", () => {
 });
 
 test("ace's own tools read as what they did, with their key argument", () => {
-  expect(
-    mcpToolLabel("ace", "ace_browser_open", { url: "https://www.youtube.com/" }),
-  ).toMatchObject({ verb: "Opened", target: "youtube.com", running: "Opening" });
+  expect(mcpToolLabel("ace", "browser_open", { url: "https://www.youtube.com/" })).toMatchObject({
+    verb: "Opened",
+    target: "youtube.com",
+    running: "Opening",
+  });
   expect(mcpToolLabel("ace", "delegate_task", { tasks: [{ task: "a" }, { task: "b" }] }).verb).toBe(
     "Delegated 2 tasks",
   );

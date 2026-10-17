@@ -45,7 +45,7 @@ function screenState(
   if (owned.length === 1) return owned[0];
   try {
     const id =
-      name === "screen_measure_interaction"
+      name === "screen_measure"
         ? manager.measurementSession(caller, args.success ? args.data.sessionId : undefined)
         : manager.agentSession(caller, args.success ? args.data.sessionId : undefined);
     return manager.state(id);

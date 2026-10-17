@@ -79,7 +79,7 @@ export function crossDevice(): Scenario {
             title: "GPU build review · Studio",
             stoppable: true,
           },
-          mcp("browse", "ace_browser_open", {
+          mcp("browse", "browser_open", {
             url: "https://staging.relay.dev/docs/0.9",
             machine: "studio",
           }),

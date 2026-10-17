@@ -83,11 +83,11 @@ plugin, OpenCode through its `skills` config paths, Pi through `--skill`, and Cu
 as copies in its private home's `.cursor/skills` (a skill the person has under the
 same name wins). Every provider, ACP included, can read the same text with
 `ace_guide { topic }`.
-Claude Code and Codex defer MCP tools behind tool search; only `ace_browser_open`
+Claude Code and Codex defer MCP tools behind tool search; only `browser_open`
 and `ace_html_render` ask to load upfront. OpenCode, Cursor, Pi and ACP load every
 listed tool upfront, so their injections send `X-Ace-Tools: core` and list only the
 entry points in `src/toolsets.ts` (about a dozen). Reading a guide, or using a
-family's entry point (`delegate_task`, `ace_browser_open`, `screen_open_app`), adds
+family's entry point (`delegate_task`, `browser_open`, `screen_open_app`), adds
 that family's tools for the session and announces a tool-list change. Unlisted
 tools stay callable, so no capability is lost. OpenCode's own tools are named in
 its session guidance (`packages/adapter-opencode/src/native-tools.ts`). Advertised input schemas omit bounds a

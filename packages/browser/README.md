@@ -174,13 +174,19 @@ the owner's merge-only policy. Runtime results and throughput need run at merge.
 
 ## Agent tools
 
-`browserToolkit(service)` registers `ace_browser_navigate`, `click`, `type`,
-`press`, `scroll`, `snapshot`, `screenshot`, `evaluate`, `wait_for`, `logs`,
-`resize` and `emulate`, each with the `ace_browser_` prefix. The daemon composes
-this toolkit before opening provider sessions. Arguments cannot override the
-credential's thread identity. The daemon adds `ace_browser_open` and `ace_browser_close`, deriving workspace
-identity from the attributed thread and automatically selecting the backend.
-Command registration lives in this package; the daemon supplies lazy opening.
+`browserToolkit(port)` registers eleven tools: `browser_open`, `browser_snapshot`,
+`browser_act`, `browser_wait_for`, `browser_find`, `browser_screenshot`,
+`browser_logs`, `browser_evaluate`, `browser_history`, `browser_settings` and
+`browser_measure` (`mcp.ts`, schemas in `mcp-schemas.ts`). The daemon supplies the
+port: lazy opening (workspace identity from the attributed thread, automatic backend
+choice), execution and close. Arguments cannot override the credential's thread identity.
+
+Snapshots are compacted by `snapshot-compact.ts` (a pure function over the CDP
+accessibility tree: ignored nodes, wrappers and repeated text vanish) and rendered as
+indented text by `snapshot-text.ts`. `maxNodes` (default 120, about 1.5k tokens) and a 48 KiB cap bound a
+snapshot; `ref` scopes it to a subtree and `interactiveOnly` keeps actionable nodes.
+Refs are registered for every DOM-backed node, so a ref from `browser_find` or a
+truncated snapshot stays actionable.
 
 MCP screenshots return bounded JPEG image content directly from the owned page.
 The client browser screenshot command still writes a PNG artifact. Human takeover
@@ -199,12 +205,10 @@ background operation explicitly and remains headless. Existing sessions keep the
 backend until closed. Agent use converts an agent-owned embedded session to a fresh
 headless context. Human ownership blocks that conversion.
 
-`ace_browser_tabs` accepts operation list/open/switch/close and optional tabId/url.
-`ace_browser_open` also accepts newTab. Stable tab IDs select pages without any
-visible desktop view. `ace_browser_upload`, `dialog`, `hover`, `drag`, `select`,
-`check`, `uncheck`, `focus`, `find`, `network_body`, `record_start` and `record_stop`
-join the existing MCP commands. Actions select the active tab by default; an
-optional tabId selects it explicitly. Tab switching expires the old snapshot.
+Agents work in the thread's active tab. The person may open more tabs in the desktop
+browser; `browser_open` lists them and `browser_open({tabId})` switches the shared page
+to one (the `tabs` command's `switch` operation). Agents never open tabs; popups reuse
+the thread's page. Tab switching expires the old snapshot.
 
 Downloads have a 64 MiB file cap, a 256 MiB session aggregate cap, and executable/archive flags.
 Completed downloads use the existing artifact sink. Uploads resolve workspace,
@@ -224,7 +228,7 @@ pixel latency in an isolated Chromium context. It prints encoded dimensions, mea
 bytes, delivered fps, median latency and starting host load. It excludes the daemon's
 command and viewer WebSocket routing. Run timing comparisons on an otherwise idle host.
 
-`ace_browser_measure_interaction` observes the current tab or dispatches an optional
+`browser_measure` observes the current tab or dispatches an optional
 `interaction` using the existing click/type/press/scroll/drag command shape. The
 recording window defaults to 2 seconds, is capped at 10 seconds, and `repeat` is
 1–5 with at most 20 seconds recorded in total. Observation uses read access;

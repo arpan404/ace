@@ -20,10 +20,11 @@ function fixture() {
   return feed;
 }
 it.each([
-  ["ace_screen_click", "screen_click"],
-  ["ace_ace_browser_open", "ace_browser_open"],
-  ["screen_click", "screen_click"],
-  ["device_screenshot", "device_screenshot"],
+  ["ace_screen_input", "screen_input"],
+  ["ace_browser_open", "browser_open"],
+  ["ace_sim_act", "sim_act"],
+  ["screen_input", "screen_input"],
+  ["sim_screenshot", "sim_screenshot"],
 ])("custom %s calls render as canonical ace MCP calls", (native, canonical) => {
   const feed = fixture();
   const events = feed({
@@ -60,10 +61,10 @@ it("later custom completion frames preserve the original arguments and another M
       type: "tool_call",
       call: {
         kind: "custom",
-        title: "ace_screen_click",
+        title: "ace_screen_input",
         detail: { kind: "custom" },
         raw: [
-          { type: "provider.call", data: { name: "ace_screen_click", input: { x: 12, y: 16 } } },
+          { type: "provider.call", data: { name: "ace_screen_input", input: { x: 12, y: 16 } } },
         ],
       },
     },
@@ -77,7 +78,7 @@ it("later custom completion frames preserve the original arguments and another M
       complete: true,
       call: {
         kind: "custom",
-        title: "ace_screen_click",
+        title: "ace_screen_input",
         detail: { kind: "custom" },
         status: "succeeded",
         raw: [{ type: "provider.result", data: { output: "Done" } }],
@@ -95,8 +96,8 @@ it("later custom completion frames preserve the original arguments and another M
       type: "tool_call",
       call: {
         kind: "mcp",
-        title: "screen_click",
-        detail: { kind: "mcp", server: "other", tool: "screen_click" },
+        title: "screen_input",
+        detail: { kind: "mcp", server: "other", tool: "screen_input" },
       },
     },
   });
@@ -114,11 +115,11 @@ it("measurement input text is redacted before native evidence can be stored", ()
       type: "tool_call",
       call: {
         kind: "mcp",
-        title: "screen_measure_interaction",
+        title: "screen_measure",
         detail: {
           kind: "mcp",
           server: "ace",
-          tool: "screen_measure_interaction",
+          tool: "screen_measure",
           arguments: { action: { kind: "text.type", text: "secret" } },
         },
         raw: [{ type: "provider.call", data: { text: "secret" } }],
@@ -146,7 +147,7 @@ it("approval previews redact ace input without redacting another server's reques
         kind: "approval",
         title: `Type ${text}`,
         description: `Type ${text}`,
-        target: { tool: "screen_type", input: { text }, access: "write" },
+        target: { tool: "screen_input", input: { action: "type", text }, access: "write" },
         mcpServer: { name: server ?? "", source: "test" },
         options: [{ id: "allow", label: "Allow", kind: "allow_once" }],
       },
@@ -171,18 +172,18 @@ it("custom input streams use completed argument JSON without treating result tex
       type: "tool_call",
       call: {
         kind: "custom",
-        title: "ace_screen_click",
+        title: "ace_screen_input",
         detail: { kind: "custom" },
         raw: [
           {
             type: "session.tool.called",
-            data: { type: "session.tool.called", data: { name: "ace_screen_click", input: {} } },
+            data: { type: "session.tool.called", data: { name: "ace_screen_input", input: {} } },
           },
           {
             type: "session.tool.input.ended",
             data: {
               type: "session.tool.input.ended",
-              data: { name: "ace_screen_click", text: '{"x":12,"y":16}' },
+              data: { name: "ace_screen_input", text: '{"x":12,"y":16}' },
             },
           },
         ],
@@ -201,7 +202,7 @@ it("custom input streams use completed argument JSON without treating result tex
       complete: true,
       call: {
         kind: "custom",
-        title: "ace_screen_click",
+        title: "ace_screen_input",
         detail: { kind: "custom" },
         raw: [
           {

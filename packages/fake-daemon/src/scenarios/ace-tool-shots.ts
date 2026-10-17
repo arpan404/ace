@@ -14,7 +14,7 @@ export const safariShot =
   "wAhYwAJGwAIWsIARsIAFDAgYEDAIGBAwIGAQsFsAAgYEDAgYBAwIGBAwIGAQMCBgQMAgYEDAgIABAYOAAQEDAgYEDAIGBAwI" +
   "GAQMCBgQMCBgEDAgYEDAgIBBwICAAQGDgAEBAwIGBAwCBgQMCBgEDAgYEDCw3AersomZxBmpEQAAAABJRU5ErkJggg==";
 
-/** A phone app's sign-in screen, as `device_screenshot` returns it. */
+/** A phone app's sign-in screen, as `sim_screenshot` returns it. */
 export const phoneShot =
   "iVBORw0KGgoAAAANSUhEUgAAAHgAAADwCAIAAABE5TcwAAABhklEQVR42u3aORXAIBBAQURECmWERUQk0mAiBU3SRAPHMv+t" +
   "gqlYIB3qUkIAGrRAgwYt0KAFelropi6BBg1aoEGDRgAatECDBi3QoAUaNGiBBi3QoEELNGiBBg1aoEELdDzo9z53G9CgQYMG" +
@@ -24,7 +24,7 @@ export const phoneShot =
   "aNACDVqgQYMWaNACDRq0QIMWaNCgBRq0QIMGLdCgBRo0aIEGLdCgQQs0aIEGDVqgQQs0aNACDVqgQYMWaNACDTp2H+16OTqI" +
   "nkb1AAAAAElFTkSuQmCC";
 
-/** A web sign-in page, as `ace_browser_screenshot` returns it. */
+/** A web sign-in page, as `browser_screenshot` returns it. */
 export const pageShot =
   "iVBORw0KGgoAAAANSUhEUgAAAUAAAADICAIAAAAWZq/8AAACfElEQVR42u3boQ2AMBRF0W6CwaCYgP0YD4frDFWEYGCKNv+H" +
   "83ImKFzXlnlZgaSKIwABAwIGBAwCBgQMCBgQMAgYEDAgYBAwIGBAwICAQcCAgAEBAwIGAQMCBgQMAgYEDAgYEDAIGAgY8HU/" +

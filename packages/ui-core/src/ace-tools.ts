@@ -70,12 +70,12 @@ export interface AceToolView {
   /** Images the tool answered with, as `data:` URLs. */
   images: string[];
   problem?: ToolProblem | undefined;
-  /** "ace · screen_key", for Details. */
+  /** "ace · screen_input", for Details. */
   tool: string;
 }
 
 const aceServer = /^ace$|^ace[-_]/;
-const measurementTools = new Set(["screen_measure_interaction", "ace_browser_measure_interaction"]);
+const measurementTools = new Set(["screen_measure", "browser_measure"]);
 const glyphs: Record<"agents" | "threads" | "ace", ToolMark> = {
   agents: { kind: "glyph", glyph: "agent" },
   threads: { kind: "glyph", glyph: "thread" },
@@ -89,7 +89,8 @@ const groupLabels: Partial<Record<AceToolFamily, string>> = {
 /** The spec for one of ace's tools, or undefined for anyone else's. */
 export function aceToolSpec(server: string, tool: string): AceToolSpec | undefined {
   const name = aceToolName(tool);
-  const ours = aceServer.test(server) || /^(ace_|screen_)/.test(name);
+  // Bare `browser_*` and `sim_*` names are common elsewhere (Playwright's), so the server decides.
+  const ours = aceServer.test(server) || /^(mcp__ace__|ace_|screen_)/.test(tool);
   if (!ours) return undefined;
   return (
     surfaceSpecs[name] ??
@@ -99,8 +100,8 @@ export function aceToolSpec(server: string, tool: string): AceToolSpec | undefin
 }
 
 /**
- * A tool's registry name, whatever the provider prefixed: Claude's `mcp__ace__screen_click`,
- * OpenCode's `ace_screen_click` and `ace_ace_browser_open` all read as ace's own name.
+ * A tool's registry name, whatever the provider prefixed: Claude's `mcp__ace__screen_input`,
+ * OpenCode's `ace_screen_input` and `ace_browser_open` all read as ace's own name.
  */
 export function aceToolName(tool: string): string {
   const name = tool.replace(/^mcp__ace__/, "");
@@ -115,9 +116,9 @@ const record = (value: unknown): Record<string, unknown> =>
     : {};
 
 /** "ios:…" ids are simulators; "android:…" emulators or phones. */
-function platformOf(deviceId: string | undefined): "ios" | "android" | undefined {
-  if (deviceId?.startsWith("ios:")) return "ios";
-  if (deviceId?.startsWith("android:")) return "android";
+function platformOf(simId: string | undefined): "ios" | "android" | undefined {
+  if (simId?.startsWith("ios:")) return "ios";
+  if (simId?.startsWith("android:")) return "android";
   return undefined;
 }
 
@@ -159,8 +160,8 @@ function subjectOf(
           };
     }
     case "device": {
-      const deviceId = str(args, "deviceId");
-      const platform = platformOf(deviceId);
+      const simId = str(args, "simId");
+      const platform = platformOf(simId);
       const fallback =
         platform === "ios"
           ? "the simulator"
@@ -172,7 +173,7 @@ function subjectOf(
       return {
         name,
         mark: { kind: "device", platform },
-        group: { key: `device:${deviceId ?? ""}`, label: `Used ${label}` },
+        group: { key: `device:${simId ?? ""}`, label: `Used ${label}` },
       };
     }
     default: {
@@ -266,7 +267,7 @@ function viewOf(spec: AceToolSpec, call: AceToolCall, context: AceToolContext): 
       family: spec.family,
       code,
       subject: subject.name,
-      input: spec.input,
+      input: typeof spec.input === "function" ? spec.input(args) : spec.input,
       mode: context.app?.mode,
       attempt: lowerFirst(words.target ? `${words.awaiting} ${words.target}` : words.awaiting),
       message:
@@ -353,25 +354,25 @@ const uiActions = new Set([
   "performSecondaryAction",
   "selectText",
 ]);
-const actionTools: Record<string, string> = {
-  "key.press": "screen_key",
-  key: "screen_key",
-  "text.type": "screen_type",
-  type: "screen_type",
-  "text.paste": "screen_paste",
-  "pointer.click": "screen_click",
-  "pointer.drag": "screen_click",
-  click: "screen_click",
-  scroll: "screen_scroll",
-  measure_interaction: "screen_measure_interaction",
+/** The `screen_input` action an audited input action came from. */
+const inputActions: Record<string, string> = {
+  "key.press": "key",
+  key: "key",
+  "text.type": "type",
+  type: "type",
+  "text.paste": "paste",
+  "pointer.click": "click",
+  "pointer.drag": "click",
+  click: "click",
+  scroll: "scroll",
 };
 
 /** The computer-use tools whose call an audited action belongs to. */
 export function screenStepTools(action: string): readonly string[] {
-  if (action === "scroll") return ["screen_scroll", "screen_ui_act"];
+  if (action === "scroll") return ["screen_input", "screen_ui_act"];
   if (uiActions.has(action)) return ["screen_ui_act"];
-  const tool = actionTools[action];
-  return tool ? [tool] : [];
+  if (action === "measure_interaction") return ["screen_measure"];
+  return inputActions[action] ? ["screen_input"] : [];
 }
 
 /** An audited action no call shows, as its own row: "Pressed a key in Safari". */
@@ -381,7 +382,12 @@ export function screenStepView(step: ScreenStep): AceToolView {
     ? { app: { bundleId: step.bundleId, mode: step.mode, outcome: step.outcome } }
     : {};
   const status = step.outcome === "completed" ? "succeeded" : "failed";
-  const args = uiActions.has(step.action) ? { action: step.action } : {};
+  const input = inputActions[step.action];
+  const args = uiActions.has(step.action)
+    ? { action: step.action }
+    : input
+      ? { action: input }
+      : {};
   const call = { server: "ace", tool: tool ?? "screen", args, status, raw: [] } as const;
   return viewOf((tool && surfaceSpecs[tool]) || usedApp, call, context);
 }

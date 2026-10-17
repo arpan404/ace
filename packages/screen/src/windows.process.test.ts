@@ -109,7 +109,7 @@ it("one host helper serves inspections, restarts and semantic tools with control
       { type: "text", text: expect.stringContaining('"name":"Save"') },
     ]);
     await tool("screen_ui_act", { ref: "save", action: "setValue", value: "你好 😀" });
-    expect((await tool("screen_ui_find", { query: { name: "Save" } })).content).toEqual([
+    expect((await tool("screen_ui_tree", { name: "Save" })).content).toEqual([
       { type: "text", text: expect.stringContaining("你好 😀") },
     ]);
     await manager.targets();
@@ -120,9 +120,9 @@ it("one host helper serves inspections, restarts and semantic tools with control
         data: Buffer.from("pixels:你好 😀").toString("base64"),
         mimeType: "image/jpeg",
       },
-      { type: "text", text: expect.stringContaining("1.5 pixels per target point") },
+      { type: "text", text: expect.stringContaining("scale 1.5") },
     ]);
-    await tool("screen_key", { key: "Enter", modifiers: ["control"] });
+    await tool("screen_input", { action: "key", key: "Enter", modifiers: ["control"] });
     expect(await manager.uiTree(session.sessionId, {}, "agent-a")).toMatchObject({
       root: { value: "control:Enter" },
     });
