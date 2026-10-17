@@ -59,13 +59,17 @@ export const annotationScenarios: ConformanceScenario[] = [
       );
       const human = person(page);
       await human.call({ type: "browser.subscribe" });
-      // Annotate mode is the person's (ADR 0082); they hold the page first.
-      await human.call({ type: "browser.takeover" });
+      // Annotate mode is the person's (ADR 0082), and nobody takes control for it: agents
+      // refuse to start it and keep working in the tab beside it (ADR 0067, Collaboration).
+      await expect(page.execute({ action: "annotate", operation: "start" })).rejects.toMatchObject({
+        code: "lease_required",
+      });
       await human.call({
         type: "browser.execute",
         command: { action: "annotate", operation: "start" },
       });
       await human.event("ready");
+      expect(await page.evaluate("document.title")).toBe("Annotate");
       const x = box.x + box.width / 2;
       const y = box.y + box.height / 2;
       await human.input({ kind: "mouse", event: "mouseMoved", x, y, button: "none" });

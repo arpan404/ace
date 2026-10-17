@@ -170,8 +170,13 @@ class ChromeTabPage {
     this.events.add(listener);
     return () => this.events.delete(listener);
   }
-  onBlockedInput(): () => void {
+  /** The person's own input never reaches a headless stand-in. */
+  onHumanInput(): () => void {
     return () => {};
+  }
+  /** Parked views have no picture, as the desktop's own unplaced views. */
+  async picture(): Promise<string | undefined> {
+    return undefined;
   }
   /** As Electron's `loadURL`: settles on the main frame's DOMContentLoaded or its failure. */
   async navigate(url: string, timeoutMs: number): Promise<string> {
