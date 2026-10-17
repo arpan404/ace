@@ -59,6 +59,27 @@ async function openComposer() {
   return { app, feed, message };
 }
 
+const pasteText = (target: HTMLElement, text: string) =>
+  fireEvent.paste(target, { clipboardData: { files: [], items: [], getData: () => text } });
+
+test("a long paste goes along as a text file, not into the message", async () => {
+  const { message } = await openComposer();
+  await userEvent.click(message);
+  const log = Array.from({ length: 60 }, (_, line) => `error at line ${line}`).join("\n");
+  pasteText(message, log);
+  const chips = await screen.findByRole("list", { name: "Attachments" });
+  expect(within(chips).getByRole("button", { name: "Remove Pasted 60 lines.txt" })).toBeTruthy();
+  expect(message.textContent).toBe("");
+});
+
+test("a short paste goes into the message as text", async () => {
+  const { message } = await openComposer();
+  await userEvent.click(message);
+  pasteText(message, "npm run build");
+  await waitFor(() => expect(message.textContent).toBe("npm run build"));
+  expect(screen.queryByRole("list", { name: "Attachments" })).toBeNull();
+});
+
 test("pasting an image preserves an attached file without sending until the person presses Send", async () => {
   const { app, message } = await openComposer();
   await userEvent.upload(
