@@ -22,14 +22,13 @@ describe.skipIf(!executablePath)("approval lifetime across threads", () => {
       });
       await f.navigate();
       await f.service.open({ threadId: "other", workspaceId: "other" });
-      const socketUrl = JSON.stringify(
-        f.url.replace("http:", "ws:").replace("127.0.0.1", "127.0.0.2"),
-      );
-      // Return before the approval deadline. Browser-side close notifications
-      // report when all 32 policy callers have actually timed out.
-      await f.evaluate(`let closed=0;for(let i=0;i<32;i++){
-        const ws=new WebSocket(${socketUrl}+'/'+i);
-        ws.onclose=()=>{if(++closed===32)fetch('http://127.0.0.1:${address.port}/closed')};
+      const frameUrl = JSON.stringify(f.url.replace("127.0.0.1", "127.0.0.2"));
+      // Return before the approval deadline. Each refused frame finishes loading only once
+      // its policy caller has actually timed out.
+      await f.evaluate(`let loaded=0;for(let i=0;i<32;i++){
+        const frame=document.createElement('iframe');
+        frame.onload=()=>{if(++loaded===32)fetch('http://127.0.0.1:${address.port}/closed')};
+        frame.src=${frameUrl}+'/'+i;document.body.append(frame);
       }void 0`);
       await closed.promise;
       expect(approvals).toBe(32);

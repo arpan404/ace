@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { rm } from "node:fs/promises";
 
 import {
   BrowserOpen,
@@ -138,7 +137,7 @@ export class BrowserService {
     const options: BrowserOpen = {
       ...requested,
       profile:
-        requested.profile ?? (await this.options.profilePreference?.(requested)) ?? "ephemeral",
+        requested.profile ?? (await this.options.profilePreference?.(requested)) ?? "persistent",
     };
     const preference = (await this.options.backendPreference?.(options)) ?? "auto";
     const lossPolicy = (await this.options.backendLoss?.(options)) ?? "pause";
@@ -148,10 +147,10 @@ export class BrowserService {
     );
     let backend = candidates[0] ?? this.headless;
     signal.throwIfAborted();
-    const profileLease = await this.profiles.acquire(options);
-    const { root, profile, dir, downloadDir } = profileLease;
+    const profileLease = await this.profiles.acquire();
+    const { profile, dir, downloadDir } = profileLease;
     let context: BrowserBackendSession | undefined;
-    let recoveryProfile: string | undefined;
+    let recoveryGeneration = 0;
     let session: BrowserSession | undefined;
     let released = false;
     let backendLost = false;
@@ -164,9 +163,7 @@ export class BrowserService {
       scope.abort();
       if (this.policyScopes.get(options.threadId) === scope)
         this.policyScopes.delete(options.threadId);
-      await profileLease.release();
       if (this.resumable.get(options.threadId) === resume) this.resumable.delete(options.threadId);
-      if (recoveryProfile) await rm(recoveryProfile, { recursive: true, force: true });
     };
     /** Reopen the last URL; use the same desktop profile whenever the desktop is available. */
     const resume = (): Promise<void> => {
@@ -179,25 +176,15 @@ export class BrowserService {
       const native = this.embedded;
       const recover = async () => {
         await owned.releaseLostBackend();
-        if (recoveryProfile) {
-          await rm(recoveryProfile, { recursive: true, force: true });
-          recoveryProfile = undefined;
-        }
-        let replacementProfile: string | undefined;
+        const generation = ++recoveryGeneration;
         if (!native)
           return recoverHeadless({
             request: recoveryRequest,
             backend: this.headless,
             session: owned,
-            root,
             url: owned.state.url,
-            profileCreated: (path) => {
-              recoveryProfile = path;
-              replacementProfile = path;
-            },
             lost: (reason) => {
-              if (signal.aborted || owned.state.closed || recoveryProfile !== replacementProfile)
-                return;
+              if (signal.aborted || owned.state.closed || recoveryGeneration !== generation) return;
               owned.suspend(reason);
               this.resumable.set(options.threadId, resume);
             },
@@ -374,12 +361,12 @@ export class BrowserService {
     return backend;
   }
   /**
-   * The thread was deleted: close its browser and drop its persistent profile here and, when a
-   * desktop is registered, its native partition. `desktop` says whether the desktop purged.
+   * The thread was deleted: close its browser and, when a desktop is registered, drop its native
+   * partition. ace's own browser profile is shared by every thread and stays (ADR 0083).
+   * `desktop` says whether the desktop purged.
    */
   async forgetThread(threadId: string, workspaceId: string): Promise<{ desktop: boolean }> {
     await this.closeThread(threadId);
-    await this.profiles.forget(workspaceId, threadId);
     const embedded = this.embedded;
     if (!embedded) return { desktop: false };
     await embedded.purge(threadId, workspaceId);
@@ -509,6 +496,7 @@ export class BrowserService {
       this.sessions.clear();
       this.policyScopes.clear();
       this.subscriptions.clear();
+      await this.acquisition.close();
       const failed = results.find((result) => result.status === "rejected");
       if (failed?.status === "rejected") throw failed.reason;
     })();

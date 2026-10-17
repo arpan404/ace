@@ -1,4 +1,3 @@
-import { chromium } from "playwright-core";
 import { describe, expect, it, vi } from "vitest";
 import type { BrowserFrame } from "@ace/protocol";
 import { executablePath, fixture } from "./test-support.ts";
@@ -22,19 +21,14 @@ describe.skipIf(!executablePath)("capture adaptation in real Chromium", () => {
     let clock = 0;
     const f = await fixture({
       now: () => clock,
-      launchContext: async (profile, options) => {
-        const context = await chromium.launchPersistentContext(profile, options);
-        const createSession = context.newCDPSession.bind(context);
-        context.newCDPSession = async (page) => {
-          const session = await createSession(page);
+      chrome: {
+        intercept: {
           // Advance only on incoming Chrome frames, before capture receives them.
           // Interval clock reads cannot fabricate gaps in delivered timestamps.
-          session.on("Page.screencastFrame", () => {
-            clock += 100;
-          });
-          return session;
-        };
-        return context;
+          event: (method) => {
+            if (method === "Page.screencastFrame") clock += 100;
+          },
+        },
       },
     });
     await f.navigate();

@@ -12,8 +12,7 @@ interface Download {
   createReadStream(): Promise<Readable | null>;
 }
 import type { BrowserDownload } from "@ace/protocol";
-import type { BackendOpen, BrowserCdp } from "./backend.ts";
-import { z } from "zod";
+import type { BackendOpen } from "./backend.ts";
 import { PolicyGate } from "./policy-call.ts";
 
 export function downloadFlags(filename: string, mimeType: string): BrowserDownload["flags"] {
@@ -69,20 +68,6 @@ export class HeadlessDownloads {
   response(url: string, mime: string): void {
     if (this.mime.size >= 256) this.mime.delete(this.mime.keys().next().value ?? "");
     this.mime.set(url, mime.split(";")[0]?.slice(0, 256) || "application/octet-stream");
-  }
-  async progress(cdp: BrowserCdp): Promise<void> {
-    const limit = this.request.maxDownloadBytes ?? 64 * 1024 * 1024;
-    cdp.on("Browser.downloadProgress", (raw) => {
-      const parsed = z.object({ guid: z.string(), receivedBytes: z.number() }).safeParse(raw);
-      if (parsed.success && parsed.data.receivedBytes > limit)
-        void cdp.send("Browser.cancelDownload", { guid: parsed.data.guid }).catch(() => {});
-    });
-    if (this.request.downloadDir)
-      await cdp.send("Browser.setDownloadBehavior", {
-        behavior: "allowAndName",
-        downloadPath: this.request.downloadDir,
-        eventsEnabled: true,
-      });
   }
   async accept(download: Download, tabId: string): Promise<void> {
     const directory = this.request.downloadDir;
