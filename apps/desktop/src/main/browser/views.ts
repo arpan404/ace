@@ -22,6 +22,7 @@ import { PlacementBook, toWindowBounds } from "./placement.ts";
 import { EmbeddedPage } from "./page.ts";
 import { EmbeddedPageGroup } from "./page-group.ts";
 import { clearPartition } from "./partition-cleanup.ts";
+import { requestKind } from "./request-schemes.ts";
 
 /** The app window whose renderer asked to place a view, and that renderer's page zoom. */
 export interface PlacementHost {
@@ -54,11 +55,6 @@ const relayoutEvents = [
   "restore",
 ] as const;
 const relayoutSettleMs = 100;
-
-/** Schemes a view may load. http(s) requests are approved by the daemon through CDP Fetch. */
-const passive = new Set(["about:", "data:", "blob:", "devtools:"]);
-const fetched = new Set(["http:", "https:"]);
-const sockets = new Set(["ws:", "wss:"]);
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex").slice(0, 32);
 /** One persistent partition per thread, never shared with another thread or the app. */
@@ -131,6 +127,8 @@ export class EmbeddedViews implements ViewHost {
             webviewTag: false,
             backgroundThrottling: false,
             spellcheck: false,
+            // Chromium's built-in PDF viewer: a PDF opens in the tab instead of downloading.
+            plugins: true,
           },
         });
         view.setVisible(false);
@@ -440,15 +438,10 @@ export class EmbeddedViews implements ViewHost {
       void partitionSession.clearStorageData({ storages: ["serviceworkers"] }).catch(() => {});
     });
     partitionSession.webRequest.onBeforeRequest((details, callback) => {
-      let url: URL;
-      try {
-        url = new URL(details.url);
-      } catch {
-        return callback({ cancel: true });
-      }
-      if (url.username || url.password) return callback({ cancel: true });
+      const kind = requestKind(details.url);
+      if (kind === "refused") return callback({ cancel: true });
       if (
-        fetched.has(url.protocol) &&
+        kind === "fetched" &&
         details.webContentsId !== undefined &&
         (this.popupContents.has(details.webContentsId) ||
           this.byContents.get(details.webContentsId)?.isRestarting())
@@ -457,8 +450,7 @@ export class EmbeddedViews implements ViewHost {
         if (!owner) return callback({ cancel: true });
         return owner.checkPopupRequest(details.url, (allowed) => callback({ cancel: !allowed }));
       }
-      if (passive.has(url.protocol) || fetched.has(url.protocol)) return callback({});
-      if (sockets.has(url.protocol)) {
+      if (kind === "socket") {
         const owner =
           details.webContentsId === undefined
             ? undefined
@@ -466,7 +458,7 @@ export class EmbeddedViews implements ViewHost {
         if (!owner) return callback({ cancel: true });
         return owner.checkSocket(details.url, (allowed) => callback({ cancel: !allowed }));
       }
-      callback({ cancel: true });
+      callback({});
     });
     return partitionSession;
   }
