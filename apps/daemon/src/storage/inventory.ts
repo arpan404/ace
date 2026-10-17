@@ -1,10 +1,10 @@
 import { ManagedWorktrees } from "../managed-worktrees.ts";
 import { createHash } from "node:crypto";
-import { ThreadId, type StorageReason } from "@ace/protocol";
+import { ThreadId, type StorageKind, type StorageReason } from "@ace/protocol";
 import type { OwnedStorageCandidate, StorageOwner, StorageTarget } from "./types.ts";
 import { StorageFiles, storageId } from "./files.ts";
 import { storageProtections, storageTree } from "./ownership.ts";
-import { transcriptBytes } from "./transcript.ts";
+import { transcriptBytes, transcriptQueries } from "./transcript.ts";
 
 const fingerprint = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -17,8 +17,18 @@ export class StorageInventory {
     this.files = new StorageFiles(owner);
     this.managed = new ManagedWorktrees(owner.store, owner.root);
   }
-  thread(id: ThreadId): OwnedStorageCandidate | undefined {
+  async thread(
+    id: ThreadId,
+    queries?: readonly string[],
+  ): Promise<OwnedStorageCandidate | undefined> {
     const { store } = this.owner;
+    // Measure first: it yields to the loop. Ownership and protections are read after the last
+    // await, so the candidate never carries protections older than its size.
+    const bytes = await transcriptBytes(
+      (sql) => store.statement(sql),
+      id,
+      queries ?? store.atomic((db) => transcriptQueries(db)),
+    );
     const thread = store.getThread(id);
     if (!thread) return undefined;
     const members = storageTree(store, id);
@@ -32,7 +42,6 @@ export class StorageInventory {
       })
     )
       protections.push("live_thread");
-    const bytes = store.atomic((db) => transcriptBytes(db, id));
     return {
       id: storageId("threads", id),
       kind: "threads",
@@ -180,21 +189,31 @@ export class StorageInventory {
         return this.worktree(target.repo, target.path);
     }
   }
-  async scan(): Promise<{ candidates: OwnedStorageCandidate[]; complete: boolean }> {
+  /**
+   * Candidates of the requested kinds only. `complete` speaks for those kinds: a checkout Git
+   * cannot inspect never makes a thread or log pass look unfinished. Thread sizes are measured
+   * one statement per macrotask, so a long history never holds the event loop for the scan.
+   */
+  async scan(
+    kinds: ReadonlySet<StorageKind>,
+  ): Promise<{ candidates: OwnedStorageCandidate[]; complete: boolean }> {
     const { store, services } = this.owner;
-    const files = this.files.inventory();
+    const files = this.files.inventory(kinds);
     const candidates = [...files.candidates];
     let complete = files.complete;
-    const threads = store
-      .statement(`SELECT id FROM threads WHERE NOT EXISTS(SELECT 1 FROM storage_purged p WHERE p.thread_id=threads.id)
-      ORDER BY COALESCE(archived_at,updated_at),id LIMIT 257`)
-      .all();
-    if (threads.length > 256) complete = false;
-    for (const row of threads.slice(0, 256)) {
-      const candidate = this.thread(ThreadId.parse(row.id));
-      if (candidate) candidates.push(candidate);
+    if (kinds.has("threads")) {
+      const threads = store
+        .statement(`SELECT id FROM threads WHERE NOT EXISTS(SELECT 1 FROM storage_purged p WHERE p.thread_id=threads.id)
+        ORDER BY COALESCE(archived_at,updated_at),id LIMIT 257`)
+        .all();
+      if (threads.length > 256) complete = false;
+      const queries = store.atomic((db) => transcriptQueries(db));
+      for (const row of threads.slice(0, 256)) {
+        const candidate = await this.thread(ThreadId.parse(row.id), queries);
+        if (candidate) candidates.push(candidate);
+      }
     }
-    if (services.context) {
+    if (kinds.has("attachments") && services.context) {
       const attachments = await services.context.uploads.cleanupInventory();
       complete &&= attachments.complete;
       for (const entry of attachments.entries) {
@@ -202,7 +221,7 @@ export class StorageInventory {
         if (candidate) candidates.push(candidate);
       }
     }
-    if (services.workspaceActions) {
+    if (kinds.has("worktrees") && services.workspaceActions) {
       const records = this.managed.list();
       if (records.length > 256) complete = false;
       for (const record of records.slice(0, 256)) {
