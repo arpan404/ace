@@ -152,7 +152,7 @@ export function GitDialog(props: {
   };
   return (
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
-      <DialogContent size={commit ? "md" : "sm"}>
+      <DialogContent>
         <form
           className="contents"
           onSubmit={(event) => {

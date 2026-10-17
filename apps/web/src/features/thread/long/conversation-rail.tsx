@@ -20,8 +20,9 @@ const reach = ["scale-x-100", "scale-x-[0.66]", "scale-x-[0.45]"] as const;
 /**
  * An outline of the conversation's turns down the transcript's left edge. It is never taller
  * than `height` and never scrolls: ticks spread evenly over the rail and close up as turns are
- * added. Moving along it previews each turn at once, the ticks nearest the pointer widening; a
- * click jumps. Shown only with a fine pointer: on touch the Turns panel reaches the same turns.
+ * added. The ticks nearest the pointer widen; a click jumps. Keyboard focus on a tick previews
+ * its turn; the pointer sweeping past never pops a card. Shown only with a fine pointer: on touch
+ * the Turns panel reaches the same turns.
  */
 export function ConversationRail(props: {
   markers: readonly ConversationMarker[];
@@ -34,8 +35,12 @@ export function ConversationRail(props: {
   className?: string;
 }) {
   const { markers } = props;
+  // The tick under the pointer, which only widens, and the keyboard-focused one, which previews.
   const [active, setActive] = useState<number>();
+  const [previewed, setPreviewed] = useState<number>();
   const [focused, setFocused] = useState<string>();
+  // Set by a press on a tick, so the focus that press brings doesn't preview.
+  const pressed = useRef(false);
   const nav = useRef<HTMLElement | null>(null);
   const { onWheel } = props;
   // Not passive, so a forwarded wheel can stop the page from scrolling as well.
@@ -60,12 +65,17 @@ export function ConversationRail(props: {
       Home: 0,
       End: last,
     };
+    if (event.key === "Escape" && previewed !== undefined) {
+      event.preventDefault();
+      setPreviewed(undefined);
+      return;
+    }
     const target = targets[event.key];
     if (target === undefined) return;
     event.preventDefault();
     nav.current?.querySelectorAll<HTMLButtonElement>("button")[target]?.focus();
   };
-  const shown = active === undefined ? undefined : markers[active];
+  const shown = previewed === undefined ? undefined : markers[previewed];
   return (
     <nav
       ref={attach}
@@ -74,11 +84,14 @@ export function ConversationRail(props: {
       style={{ height }}
       onPointerLeave={() => setActive(undefined)}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setActive(undefined);
+        if (event.currentTarget.contains(event.relatedTarget)) return;
+        setActive(undefined);
+        setPreviewed(undefined);
       }}
     >
       {markers.map((marker, index) => {
-        const distance = active === undefined ? undefined : Math.abs(index - active);
+        const near = active ?? previewed;
+        const distance = near === undefined ? undefined : Math.abs(index - near);
         return (
           <button
             key={marker.id}
@@ -91,10 +104,17 @@ export function ConversationRail(props: {
             onPointerEnter={() => setActive(index)}
             onFocus={() => {
               setFocused(marker.id);
-              setActive(index);
+              // A click focuses the tick too; it jumps, and only keyboard focus previews.
+              setPreviewed(pressed.current ? undefined : index);
+              pressed.current = false;
             }}
+            onPointerDown={() => (pressed.current = true)}
             onKeyDown={(event) => move(event, index)}
-            onClick={() => props.onJump(marker.id)}
+            onClick={() => {
+              // Some browsers don't focus a clicked button: the press ends here either way.
+              pressed.current = false;
+              props.onJump(marker.id);
+            }}
           >
             <span
               aria-hidden="true"
@@ -111,10 +131,10 @@ export function ConversationRail(props: {
           </button>
         );
       })}
-      {shown && active !== undefined && (
+      {shown && previewed !== undefined && (
         <TurnCard
-          top={at(active)}
-          edge={active === 0 ? "start" : active === last ? "end" : undefined}
+          top={at(previewed)}
+          edge={previewed === 0 ? "start" : previewed === last ? "end" : undefined}
         >
           {props.renderPreview(shown.id)}
         </TurnCard>
@@ -123,7 +143,7 @@ export function ConversationRail(props: {
   );
 }
 
-/** The hovered turn's preview, beside its tick, kept on the rail at either end. */
+/** The focused turn's preview, beside its tick, kept on the rail at either end. */
 function TurnCard(props: { top: number; edge: "start" | "end" | undefined; children: ReactNode }) {
   const material = useFloatingMaterial();
   return (

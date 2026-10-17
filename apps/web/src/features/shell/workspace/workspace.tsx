@@ -3,6 +3,7 @@ import { Activity, Suspense, useEffect, useRef, useState, type ReactNode } from 
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { crowdedQuery, overlayPanelsQuery, usePhone } from "@/lib/breakpoints.ts";
 import { useMediaQuery } from "@/lib/media.ts";
@@ -54,27 +55,40 @@ export function WhenKindsReady(props: {
   }, [ready, definition]);
   if (ready) return props.children;
   if (!props.visible) return null;
+  if (!error)
+    return (
+      // The panel's shape while its tools load: a row of tabs over a few lines.
+      <div
+        role="status"
+        aria-label="Loading tools"
+        className="absolute inset-y-0 right-0 z-20 flex w-72 flex-col gap-4 border-l bg-panel p-3"
+      >
+        <span className="flex gap-1.5">
+          <Skeleton className="h-6 w-20 rounded-sm" />
+          <Skeleton className="h-6 w-16 rounded-sm" />
+        </span>
+        <SkeletonText lines={3} className="px-1" />
+      </div>
+    );
   return (
     <div
-      role={error ? "alert" : "status"}
+      role="alert"
       className="absolute inset-y-0 right-0 z-20 flex w-72 flex-col items-center justify-center gap-3 border-l bg-panel p-4 text-sm"
     >
-      {error ? "Tools couldn't load." : "Loading tools…"}
-      {error && (
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={() => {
-            setFailed(undefined);
-            void definition.load().then(
-              () => invalidate((value) => value + 1),
-              () => setFailed(definition),
-            );
-          }}
-        >
-          Try again
-        </Button>
-      )}
+      Tools couldn't load.
+      <Button
+        size="sm"
+        variant="secondary"
+        onClick={() => {
+          setFailed(undefined);
+          void definition.load().then(
+            () => invalidate((value) => value + 1),
+            () => setFailed(definition),
+          );
+        }}
+      >
+        Try again
+      </Button>
     </div>
   );
 }

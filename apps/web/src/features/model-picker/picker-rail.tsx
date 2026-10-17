@@ -60,7 +60,7 @@ export function PickerRail({
       aria-label="Model sources"
       aria-orientation="vertical"
       onKeyDown={onKey}
-      className="flex min-h-0 w-10 shrink-0 flex-col items-center gap-1 overflow-x-hidden overflow-y-auto overscroll-contain border-r border-border py-1.5 [scrollbar-width:none] pointer-coarse:w-11 [&::-webkit-scrollbar]:hidden"
+      className="flex min-h-0 w-10 shrink-0 flex-col items-center gap-1 overflow-x-hidden overflow-y-auto overscroll-contain border-r border-border py-1.5 scroll-quiet pointer-coarse:w-11"
     >
       {props.entries.map((entry) => {
         const selected = !props.searching && props.selected === entry.id;
