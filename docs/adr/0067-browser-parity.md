@@ -174,8 +174,8 @@ together, no need of taking over or handing back." The rules now are:
   `human_active` ("snapshot again, then retry or use another tab"). Reads (snapshot,
   screenshot, evaluate, logs, find, waits) never wait. The desktop reports the person's own
   input on its native view as `ace.humanInput` (at most every 250 ms); the daemon sees the
-  screencast's input directly. Use my Chrome reports no input of the person's, so agent input
-  there does not wait.
+  screencast's input directly; Use my Chrome reports it from a watcher in the page (see "Sharing
+  a tab safely" below).
 - **The view follows an agent's new tab** only while the person has neither picked a tab nor
   used the one they view within `followAfterMs` (30 s); otherwise the new tab joins the strip
   without taking focus.
@@ -209,6 +209,18 @@ The audit found ways an agent could still trip over the person. The rules above 
   it was the person's own, within Chromium's five-second activation. Input the daemon relays
   (an agent's, or the person's from another device) activates the page for popups but not for
   the clipboard, so a page cannot replace what the person copied after an agent clicks it.
+- **All of the person's input counts.** The desktop view counts every key event (key up and IME
+  composition included) and every mouse event (moves included), not only key down, click and
+  wheel (`human-input.ts`). A pressed button keeps the person active, reported every 250 ms,
+  until it is released, so an agent never acts in the middle of their drag; a release lost to a
+  native drag-and-drop ends at the next move without a button, or after 30 s. In Use my Chrome
+  the extension's debugger never sees real input, so the daemon installs, over that debugger, a
+  listener in its own isolated world (`ace-person-input`) in every document of each controlled
+  tab, including the page a shared tab already shows. It reports trusted pointer, key, IME,
+  touch and drag events through a binding only that world can call; no content script and no
+  extension change is needed. Agent input is trusted too, so reports while one of the tab's
+  `Input.*` commands runs, and for 300 ms after, are ignored. Out-of-process iframes are not
+  watched.
 
 ## Private takeover and recording (superseded by Collaboration above)
 

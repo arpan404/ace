@@ -9,6 +9,7 @@ import { modelScreenshot } from "./model-screenshot.ts";
 import { pageStatus } from "./page-status.ts";
 import { countingDomNodes } from "./user-chrome-dom-counters.ts";
 import { userTabFrames } from "./user-chrome-frames.ts";
+import { personInputWatch } from "./person-input-watch.ts";
 import type { UserChromeLink } from "./user-chrome-link.ts";
 
 const Navigated = z.object({
@@ -70,7 +71,12 @@ export async function userTabSession(
   platform: NodeJS.Platform,
 ): Promise<UserTabSession> {
   const tabCdp = link.tab(tab.tabId);
-  const cdp: typeof tabCdp = { ...tabCdp, send: countingDomNodes(tabCdp.send) };
+  // The extension's debugger sees no real input: a watcher in the page reports the person's.
+  const person = personInputWatch(() => link.clock.now());
+  const cdp: typeof tabCdp = {
+    ...tabCdp,
+    send: person.agentInput(countingDomNodes(tabCdp.send)),
+  };
   const lifetime = new AbortController();
   const signal = AbortSignal.any([request.signal, lifetime.signal]);
   let url = tab.url;
@@ -79,6 +85,7 @@ export async function userTabSession(
   let closing: Promise<void> | undefined;
   let dialog: UserTabDialog | undefined;
   let dialogs = 0;
+  let stopWatching: (() => void) | undefined;
   const stopDetached = cdp.onDetached((reason) => {
     if (closing) return;
     lifetime.abort(new Error(lossReasons[reason] ?? "Your browser tab is gone"));
@@ -146,6 +153,7 @@ export async function userTabSession(
     (closing ??= (async () => {
       lifetime.abort(new Error("Browser session closed"));
       stopDetached();
+      stopWatching?.();
       status.close();
       frames.close();
       cdp.dispose();
@@ -160,6 +168,7 @@ export async function userTabSession(
   try {
     for (const domain of ["Page.enable", "Runtime.enable", "Network.enable"])
       await cdp.send(domain);
+    stopWatching = await person.install(cdp, () => request.humanInput?.());
     // The page may have committed before the debugger came (a popup the page just opened).
     const tree = FrameTree.safeParse(await cdp.send("Page.getFrameTree"));
     if (tree.success && mainFrame === undefined) {

@@ -81,6 +81,100 @@ describe.skipIf(!executable || process.platform === "win32")("Use my Chrome end 
     );
   }, 120_000);
 
+  test("an agent's click waits while the person moves the mouse in their own Chrome", async () => {
+    const browser = await connectedBrowser(executable ?? "", cleanups);
+    const site = await fixtureSite();
+    const quietMs = 2_500;
+    const service = new BrowserService({
+      dataDir: join(browser.root, "service"),
+      headlessBackend: new UserChromeBackend(browser.hub, process.platform),
+      backendPreference: () => "headless",
+      collaboration: { quietMs, maxWaitMs: 10_000, inUseMs: 1_000, followAfterMs: 1_000 },
+    });
+    cleanups.push(() => service.close());
+    await service.open({ threadId: "thread", workspaceId: "workspace" });
+    await service.execute("thread", { action: "navigate", url: `${site}/agent` });
+    const button = ref(await service.execute("thread", { action: "snapshot" }), "Press me");
+    // The person's own pointer in their browser: real input the extension's debugger never sees.
+    const page = (await browser.chrome.targets()).find((t) => t.url === `${site}/agent`);
+    const { sessionId } = z.object({ sessionId: z.string() }).parse(
+      await browser.chrome.send("Target.attachToTarget", {
+        targetId: page?.targetId,
+        flatten: true,
+      }),
+    );
+    for (const x of [10, 20, 30])
+      await browser.chrome.send(
+        "Input.dispatchMouseEvent",
+        { type: "mouseMoved", x, y: 200 },
+        sessionId,
+      );
+    const moved = Date.now();
+    // The report travels page, extension, host, daemon: give it a moment to arrive.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await service.execute("thread", { action: "click", ref: button });
+    expect(Date.now() - moved).toBeGreaterThanOrEqual(quietMs - 200);
+    expect(
+      await service.execute("thread", {
+        action: "evaluate",
+        expression: "document.getElementById('out').textContent",
+      }),
+    ).toBe("Clicked");
+    // The agent's own click is not mistaken for the person: the next input runs at once.
+    const started = Date.now();
+    await service.execute("thread", { action: "click", ref: button });
+    expect(Date.now() - started).toBeLessThan(quietMs - 500);
+  }, 120_000);
+
+  test("a shared tab reports the person's own input in their Chrome, never an agent's", async () => {
+    const browser = await connectedBrowser(executable ?? "", cleanups);
+    const site = await fixtureSite();
+    const backend = new UserChromeBackend(browser.hub, process.platform);
+    const { targetId } = z
+      .object({ targetId: z.string() })
+      .parse(await browser.chrome.send("Target.createTarget", { url: `${site}/mine` }));
+    const findTab = () =>
+      browser.asPerson(
+        `chrome.tabs.query({}).then((tabs) => tabs.find((tab) => (tab.url ?? "").endsWith("/mine"))?.id ?? -1)`,
+      );
+    await until(async () => (await findTab()) !== -1, "the person's tab to load");
+    const tabId = z.number().parse(await findTab());
+    await browser.asPerson(`chrome.runtime.sendMessage({ kind: "share", tabId: ${tabId} })`);
+    await until(() => backend.sharedTabs().length === 1, "the shared tab to reach ace");
+    const connectionId = backend.sharedTabs()[0]?.connectionId ?? "";
+    const lifetime = new AbortController();
+    cleanups.push(async () => lifetime.abort());
+    let reports = 0;
+    const session = await backend.claim(
+      {
+        options: BrowserOpen.parse({ threadId: "shared-thread", workspaceId: "workspace" }),
+        profileDir: browser.root,
+        signal: lifetime.signal,
+        allowed: async () => true,
+        humanInput: () => reports++,
+        navigation: () => {},
+        log: () => {},
+        lost: () => {},
+      },
+      { connectionId, tabId },
+    );
+    // An agent clicks and types: none of it is the person's.
+    await session.click(20, 20);
+    await session.insertText("agent");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(reports).toBe(0);
+    // The person types in the page they had open before sharing it.
+    const { sessionId } = z
+      .object({ sessionId: z.string() })
+      .parse(await browser.chrome.send("Target.attachToTarget", { targetId, flatten: true }));
+    await browser.chrome.send(
+      "Input.dispatchKeyEvent",
+      { type: "keyDown", key: "a", text: "a" },
+      sessionId,
+    );
+    await until(() => reports > 0, "the person's key press to reach ace");
+  }, 120_000);
+
   test("only a tab the person shared can be claimed, cookies stay out of reach, and un-sharing ends control", async () => {
     const browser = await connectedBrowser(executable ?? "", cleanups);
     const site = await fixtureSite();
