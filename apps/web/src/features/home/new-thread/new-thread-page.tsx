@@ -122,6 +122,8 @@ function useDraftThreadRef(
  */
 
 export function NewThreadPage(props: {
+  /** Restore a recovered start on boot; later visits keep the editor open. */
+  recoverStart: boolean;
   project?: string | undefined;
   base?: string | undefined;
   skill?: string | undefined;
@@ -182,6 +184,7 @@ export function NewThreadPage(props: {
 }
 
 function PreparationPage(props: {
+  recoverStart: boolean;
   host: string;
   project: string;
   base?: string | undefined;
@@ -451,6 +454,7 @@ function PreparationPage(props: {
       !metadataSaveRefused.current &&
       !preparationSaveFailed(storage, draftKey),
     draftKey,
+    props.recoverStart,
   );
   const settlePreparation = useEffectEvent(() => {
     const saved = preparation(storage, props.host, draftKey);

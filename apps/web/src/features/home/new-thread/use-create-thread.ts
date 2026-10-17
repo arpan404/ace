@@ -109,6 +109,7 @@ export function useCreateThread(
   canNavigate?: (() => boolean) | undefined,
   /** The composer's draft key: only its own recovered start opens its thread. */
   draftKey?: string | undefined,
+  recoverStart = true,
 ): {
   /** Resolves false when the composer must keep its draft, including uncertain worker delivery. */
   create(request: CreateRequest): Promise<boolean>;
@@ -149,7 +150,7 @@ export function useCreateThread(
     draftKey,
     onError: setError,
     onRecovered,
-    canNavigate,
+    canNavigate: () => recoverStart && canNavigate?.() !== false,
   });
 
   const submit = useCallback(

@@ -224,7 +224,9 @@ export function withLocalSends(
     shown.add(itemId);
     added.push({ kind: "user", key: itemId, itemId });
   };
-  for (const send of local.pending) add(send.commandId);
+  // A delivered message belongs to canonical history. If it leaves the loaded window,
+  // loading earlier messages brings it back; it must never become a new tail bubble.
+  for (const send of local.pending) if (send.state !== "delivered") add(send.commandId);
   for (const send of local.staged) add(send.commandId);
   return added.length ? [...kept, ...added] : kept;
 }

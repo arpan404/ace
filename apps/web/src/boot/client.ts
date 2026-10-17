@@ -13,6 +13,7 @@ export function browserClientOptions(options: {
   transport(): Transport;
   credential(): Promise<Credential>;
   storage: Storage;
+  readSnapshots?: ClientOptions["readSnapshots"];
   /** The desktop's own daemon: the identity its current home names (`localHostId`). */
   expectedHostId?: string | undefined;
 }): ClientOptions {
@@ -22,6 +23,7 @@ export function browserClientOptions(options: {
     transport: options.transport,
     credential: options.credential,
     storage: options.storage,
+    ...(options.readSnapshots ? { readSnapshots: options.readSnapshots } : {}),
     scheduler: {
       set(delayMs, callback) {
         const timer = setTimeout(callback, delayMs);

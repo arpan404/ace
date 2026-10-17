@@ -101,6 +101,9 @@ export interface ClientApi {
   reconnectNow(): void;
   thread(id: string): Lease<ThreadSource>;
   threads(): Lease<SidebarSource>;
+  /** Stale local views for the first render; taking a lease still reconciles them. */
+  cachedThread?(id: string): ThreadSource | undefined;
+  cachedThreads?(): SidebarSource | undefined;
   threadsWindow(input: {
     project?: string | undefined;
     archived?: boolean | undefined;
@@ -178,11 +181,12 @@ export interface ConnectionControl {
 export interface ThreadExport {
   syncing?: boolean;
   error: { code: ClientError["code"]; message: string } | undefined;
-  view: Omit<ThreadView, "itemSeqs" | "kind"> | undefined;
+  view: Omit<ThreadView, "kind"> | undefined;
   truncated: string[];
   deleted?: string[];
 }
 export interface SidebarExport {
+  syncing?: boolean;
   loaded?: boolean | undefined;
   homeWindow?: import("@ace/protocol").ThreadListWindow | undefined;
   error: { code: ClientError["code"]; message: string } | undefined;

@@ -12,6 +12,7 @@ import type { Item } from "@ace/protocol";
 export interface ThreadWindow {
   items: readonly Item[];
   before: number | null;
+  itemSeqs?: ReadonlyMap<string, number>;
   /** Deletions retained by the window owner across joining, detachment and source replacement. */
   deleted?: Set<string>;
   /**
@@ -30,6 +31,8 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
   for (const item of window.items) items.set(item.id, item);
   const own = window.items.map((item) => item.id);
   const joined = window.joined === true;
+  const lastId = own.at(-1);
+  const lastSeq = lastId ? window.itemSeqs?.get(lastId) : undefined;
   // A joined order follows the tail's; it is rebuilt only when the tail's order changes.
   const deleted = window.deleted ?? new Set<string>();
   const isDeleted = (id: string) => {
@@ -44,7 +47,13 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
   const currentOrder = () => {
     if (live.order === tailOrder) return order;
     tailOrder = live.order;
-    const newer = joined ? tailOrder.filter((id) => !items.has(id)) : [];
+    const newer = joined
+      ? tailOrder.filter((id) => {
+          if (items.has(id)) return false;
+          const seq = live.itemSequence?.(id);
+          return lastSeq === undefined || seq === undefined || seq > lastSeq;
+        })
+      : [];
     const kept = own.filter((id) => !isDeleted(id));
     order = newer.length ? [...kept, ...newer] : kept;
     return order;
@@ -54,6 +63,9 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
   const source: ThreadSource = {
     get error() {
       return live.error;
+    },
+    get syncing() {
+      return live.syncing ?? false;
     },
     get thread() {
       return live.thread;
@@ -78,6 +90,7 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
     interactionIds: () => live.interactionIds(),
     taskIds: () => live.taskIds(),
     item,
+    itemSequence: (id) => live.itemSequence?.(id) ?? window.itemSeqs?.get(id),
     deleted: isDeleted,
     agent: (id) => live.agent(id),
     run: (id) => live.run(id),

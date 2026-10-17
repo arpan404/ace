@@ -69,6 +69,8 @@ class SidebarIndex<T> {
     this.store = store;
     this.pick = pick;
     this.equal = equal;
+    // Seed the first snapshot: getSnapshot runs before subscribe on mount.
+    this.update("all");
   }
   get = (): readonly T[] | undefined => this.snapshot;
   subscribe = (listener: () => void): (() => void) => {

@@ -1,5 +1,5 @@
-import { LoadingRegion, SkeletonText } from "@/components/ui/skeleton.tsx";
 import type { ReactNode } from "react";
+import { LoadingRegion, SkeletonText } from "@/components/ui/skeleton.tsx";
 
 /** Show live text immediately; reserve wrapped lines while preparing settled messages. */
 export function MarkdownLoading(props: {

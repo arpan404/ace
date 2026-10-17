@@ -68,3 +68,43 @@ with the normal backoff, whose attempt count resets only once a connection stays
 frame the client's schemas reject (another build's message, or a welcome for another protocol
 version) is reported as `ClientError("version_mismatch")` until a good welcome. Transports pass
 the close reason, and `ConnectionInfo.lastClose` keeps the last `{code, reason, at}`.
+
+## Persisted read previews (#801)
+
+`ClientOptions.readSnapshots` optionally injects a bounded, identity-scoped read cache. The
+SDK restores version-1 records through the protocol view schemas. Thread records retain
+creation cursors and truncation markers; sidebar keys include the project/archive filter.
+A store binding fences asynchronous hydration after any live data change, filter change,
+eviction or close. Hydrated data remains syncing until an authoritative snapshot lands.
+Cache failures are misses and never prevent subscribing or sending commands.
+
+Cold previews always request a fresh snapshot, rather than replaying from a persisted cursor.
+The daemon can lose its uncommitted live tail on a crash (ADR 0076), and page hydration can
+contain data newer than a subscription cursor. An authoritative cold snapshot may therefore
+replace a higher cached cursor. A new wire accepts its first authoritative snapshot even for
+a warm view with a higher cursor; wire identity and the snapshot-acceptance window reject
+late old-wire and duplicate frames. Warm in-memory thread stores retain their existing replay
+path and are immediately readable while catching up. Windowed sidebars always refresh their
+server-owned window; persisted rows never establish current permissions or command admission.
+
+The web shared worker, machine worker and page fallback use the existing IndexedDB cache,
+with a separate global budget of 32 records and 16 MiB including keys and conservative string
+accounting. Pruning commits in the same transaction as each write, including concurrent
+writers; oversized records are skipped. Endpoint, host/home identity, device, paired account
+identity and token participate in a SHA-256 scope key. Tokens are never persisted by this
+cache. Different authenticated scopes share the budget but cannot read one another's records.
+
+Notifications only mark a binding dirty. An injected scheduler captures the latest bounded
+view after one second, with at most one write in flight and one pending dirty marker. Export,
+JSON encoding and IndexedDB writes happen at that boundary, never for every streaming delta.
+Bindings stop on eviction, filter change and close, capturing a final dirty checkpoint before
+releasing the source. Client close awaits the current write and then its newer checkpoint in
+order, so an older delayed write cannot replace the final view. Inactive SDK thread stores
+also have a separate 16 MiB accounting budget: measure their view, entity/map overhead and
+bounded page journal only at release/hydration boundaries, and evict the oldest inactive
+stores. Active leases stay pinned. `cachedThread` and `cachedThreads` expose retained readers
+without starting subscriptions; React still takes a lease when subscribing.
+
+This is disposable derived data, separate
+from the durable outbox and daemon home format; unsupported versions are misses, with no
+migration and no daemon data-format bump.
