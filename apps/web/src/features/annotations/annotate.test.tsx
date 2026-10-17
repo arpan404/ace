@@ -270,3 +270,47 @@ test("keys typed at the page never reach the composer, even once the page stops 
   expect(message.textContent).toBe("");
   expect(userMessages(app).length).toBe(before);
 });
+
+/** A page element as a region record names it. */
+const contained = (tag: string, text: string) => ({
+  tag,
+  text,
+  selector: `#${tag}`,
+  xpath: `/html/body/${tag}`,
+  box: { x: 0, y: 0, width: 10, height: 10 },
+});
+
+test("a dragged-out region joins the draft as a region that lists what it holds", async () => {
+  const { panel, browser } = await annotating();
+  await userEvent.click(annotateButton(panel));
+  await waitFor(() => expect(browser.view(threadId)?.annotation?.owner).toBeTruthy());
+  act(() =>
+    browser.annotations.emit(threadId, {
+      kind: "saved",
+      annotation: {
+        id: "region-1",
+        kind: "region",
+        number: 1,
+        documentId: "doc",
+        url: "http://localhost:5173/settings/devices",
+        title: "Devices",
+        point: { x: 0.5, y: 0.5 },
+        comment: "Too cramped",
+        element: contained("section", "Pair a device"),
+        region: {
+          box: { x: 40, y: 80, width: 400, height: 200 },
+          elements: [contained("button", "Get started"), contained("p", "Cancel any time")],
+        },
+        styles: [],
+        viewport: { width: 760, height: 900, devicePixelRatio: 2, scrollX: 0, scrollY: 0 },
+      },
+    }),
+  );
+  await userEvent.click(await screen.findByRole("button", { name: "Show 1 annotation" }));
+  const list = await screen.findByRole("list", { name: "Annotations" });
+  expect(within(list).getByText("region")).toBeTruthy();
+  expect(within(list).getByText("button “Get started”, p “Cancel any time”")).toBeTruthy();
+  expect(within(list).getByText("Too cramped")).toBeTruthy();
+  // The section around the region is context for the agent, not the row's text.
+  expect(within(list).queryByText("Pair a device")).toBeNull();
+});

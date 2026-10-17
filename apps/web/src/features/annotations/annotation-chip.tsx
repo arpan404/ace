@@ -11,6 +11,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import type { AnnotationItem, DraftAnnotationsState } from "./draft-annotations.ts";
 import { MarkerNumber, TagBadge } from "./marker.tsx";
+import { badgeFor, regionContents } from "./region-summary.ts";
 import { useSessionPort, type AnnotationSessionPort } from "./store.ts";
 
 export const annotationCount = (count: number) =>
@@ -97,6 +98,9 @@ function Row(props: {
   const { annotation } = props.item;
   const { number, element } = annotation;
   const changes = changeSummary(annotation.styles.length, !!annotation.text);
+  // A region lists what it holds; its thumbnail is the area's crop.
+  const excerpt =
+    annotation.kind === "region" ? regionContents(annotation.region?.elements ?? []) : element.text;
   const editReason = !props.session
     ? "Open the Browser to edit it"
     : props.session.url() !== annotation.url
@@ -108,11 +112,11 @@ function Row(props: {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <MarkerNumber number={number} />
-          <TagBadge tag={element.tag} />
+          <TagBadge tag={badgeFor(annotation.kind, element.tag)} />
         </div>
-        {element.text && (
+        {excerpt && (
           <p className="mt-1 line-clamp-2 text-xs wrap-break-word text-muted-foreground">
-            {element.text}
+            {excerpt}
           </p>
         )}
         {annotation.comment && (
@@ -144,7 +148,7 @@ function Row(props: {
   );
 }
 
-/** The element's crop: this page's own copy while it has one, else the daemon's thumbnail. */
+/** The element's or region's crop: this page's own copy while it has one, else the daemon's thumbnail. */
 function Thumbnail(props: { item: AnnotationItem; threadId: string | undefined }) {
   const ready = props.item.crop?.ready;
   const source: ImageSource | undefined = props.item.preview

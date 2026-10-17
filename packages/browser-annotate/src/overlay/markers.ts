@@ -1,14 +1,18 @@
 import { h, place } from "./dom.ts";
+import type { Box } from "./region.ts";
 
-export interface Anchor {
-  element: Element;
-}
+/** What a marker is pinned to: a page element, or a region in document coordinates. */
+export type Anchor =
+  | { element: Element; region?: undefined }
+  | { region: Box; element?: undefined };
 
 export interface MarkerPlace {
   x: number;
   y: number;
   top: number;
   bottom: number;
+  /** A region's marker sits at its bottom-right corner, so its editor lines up to the right. */
+  end?: boolean;
 }
 
 /** Marker diameter in CSS px; see `.marker` in theme.ts. */
@@ -28,8 +32,20 @@ export function markerCentre(rect: DOMRect): { x: number; y: number } {
     y: outsideY ? rect.top - half : rect.top + half,
   };
 }
-interface Marker extends Anchor {
+/** A region's marker centre: on its bottom-right corner, clear of the area's content. */
+export function regionMarkerCentre(rect: { right: number; bottom: number }): {
+  x: number;
+  y: number;
+} {
+  return { x: rect.right, y: rect.bottom };
+}
+
+interface Marker {
+  element?: Element | undefined;
+  region?: Box | undefined;
   node: HTMLElement;
+  /** A region's dashed outline. */
+  frame?: HTMLElement | undefined;
 }
 
 /**
@@ -62,10 +78,22 @@ export function createMarkers(parent: HTMLElement, onOpen: (id: string) => void)
   let frame = 0;
   let afterUpdate: () => void = noop;
 
-  /** The marker's centre and its element's top and bottom edges, in viewport px. */
+  /** The marker's centre and its anchor's top and bottom edges, in viewport px. */
   function position(id: string): MarkerPlace | null {
     const marker = markers.get(id);
-    if (!marker?.element.isConnected) return null;
+    if (!marker) return null;
+    if (marker.region) {
+      const { x, y, width, height } = marker.region;
+      const top = y - scrollY;
+      const bottom = top + height;
+      return {
+        ...regionMarkerCentre({ right: x - scrollX + width, bottom }),
+        top,
+        bottom,
+        end: true,
+      };
+    }
+    if (!marker.element?.isConnected) return null;
     const rect = marker.element.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) return null;
     return { ...markerCentre(rect), top: rect.top, bottom: rect.bottom };
@@ -76,6 +104,12 @@ export function createMarkers(parent: HTMLElement, onOpen: (id: string) => void)
       const at = position(id);
       marker.node.classList.toggle("lost", !at);
       if (at) place(marker.node, { translate: `${at.x}px ${at.y}px` });
+      if (marker.frame && marker.region)
+        place(marker.frame, {
+          translate: `${marker.region.x - scrollX}px ${marker.region.y - scrollY}px`,
+          width: `${marker.region.width}px`,
+          height: `${marker.region.height}px`,
+        });
     }
     afterUpdate();
   }
@@ -91,29 +125,50 @@ export function createMarkers(parent: HTMLElement, onOpen: (id: string) => void)
         event.preventDefault();
         onOpen(id);
       });
-      marker = { ...anchor, node };
+      marker = { node };
       markers.set(id, marker);
       container.append(node);
-    } else if (marker.element !== anchor.element) {
-      resize.unobserve(marker.element);
+    } else if (marker.element && marker.element !== anchor.element) {
+      unobserve(marker.element, id);
     }
-    marker.element = anchor.element;
-    resize.observe(anchor.element);
-    marker.node.className = number === undefined ? "marker pending" : "marker";
+    if (anchor.element) {
+      marker.element = anchor.element;
+      marker.region = undefined;
+      marker.frame?.remove();
+      marker.frame = undefined;
+      resize.observe(anchor.element);
+    } else {
+      marker.element = undefined;
+      marker.region = anchor.region;
+      marker.frame ??= h("div", { class: "region" });
+      // Frames sit below every marker, so a number is never under another region's border.
+      if (!marker.frame.isConnected) container.prepend(marker.frame);
+      marker.frame.classList.toggle("pending", number === undefined);
+    }
+    marker.node.className = `marker${number === undefined ? " pending" : ""}${anchor.region ? " corner" : ""}`;
     marker.node.textContent = number === undefined ? "" : String(number);
     marker.node.setAttribute(
       "aria-label",
-      number === undefined ? "New annotation" : `Annotation ${number}`,
+      number === undefined
+        ? anchor.region
+          ? "New region annotation"
+          : "New annotation"
+        : `Annotation ${number}`,
     );
     schedule();
+  }
+  /** Stop watching an element once no other marker is pinned to it. */
+  function unobserve(element: Element, except: string): void {
+    for (const [id, other] of markers) if (id !== except && other.element === element) return;
+    resize.unobserve(element);
   }
   function remove(id: string): void {
     const marker = markers.get(id);
     if (!marker) return;
     markers.delete(id);
     marker.node.remove();
-    if (![...markers.values()].some((other) => other.element === marker.element))
-      resize.unobserve(marker.element);
+    marker.frame?.remove();
+    if (marker.element) unobserve(marker.element, id);
   }
   return {
     set,
@@ -121,7 +176,11 @@ export function createMarkers(parent: HTMLElement, onOpen: (id: string) => void)
     position,
     schedule,
     has: (id: string) => markers.has(id),
-    anchor: (id: string): Anchor | undefined => markers.get(id),
+    anchor(id: string): Anchor | undefined {
+      const marker = markers.get(id);
+      if (marker?.element) return { element: marker.element };
+      return marker?.region ? { region: marker.region } : undefined;
+    },
     hidden(value: boolean): void {
       container.classList.toggle("hidden", value);
     },

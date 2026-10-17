@@ -20,6 +20,10 @@
       "minLength": 1,
       "type": "string"
     },
+    "kind": {
+      "$ref": "https://ace.local/protocol/v1/BrowserAnnotationKind.json",
+      "default": "element"
+    },
     "number": {
       "maximum": 99,
       "minimum": 1,
@@ -43,6 +47,9 @@
         "y"
       ],
       "type": "object"
+    },
+    "region": {
+      "$ref": "https://ace.local/protocol/v1/BrowserAnnotationRegion.json"
     },
     "styles": {
       "default": [],

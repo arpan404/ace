@@ -60,16 +60,41 @@ export const BrowserAnnotationViewport = z.object({
 });
 export type BrowserAnnotationViewport = z.infer<typeof BrowserAnnotationViewport>;
 
+/** What the person marked: one element they clicked, or an area they dragged out. */
+export const BrowserAnnotationKind = z.enum(["element", "region"]);
+export type BrowserAnnotationKind = z.infer<typeof BrowserAnnotationKind>;
+/** Most elements a region names for the agent. */
+export const browserAnnotationRegionElementLimit = 8;
+
+/**
+ * A dragged area. `box` is in CSS px from the document's top-left (the viewport box is `box`
+ * less the record's `viewport` scroll). `elements` are the page elements mostly inside it,
+ * outermost first in document order, at most eight.
+ */
+export const BrowserAnnotationRegion = z.looseObject({
+  box: BrowserAnnotationBox,
+  elements: z.array(BrowserAnnotationElement).max(browserAnnotationRegionElementLimit).default([]),
+});
+export type BrowserAnnotationRegion = z.infer<typeof BrowserAnnotationRegion>;
+
 export const BrowserAnnotation = z.looseObject({
   id,
   number: z.number().int().min(1).max(99),
   documentId: id,
   url: z.string().max(8192),
   title: z.string().max(1024),
+  /** Records written before regions existed are element annotations. */
+  kind: BrowserAnnotationKind.default("element"),
   /** Where the person clicked, as a fraction of the element's box (markers sit at its corner). */
   point: z.object({ x: fraction, y: fraction }),
   comment: z.string().max(4000),
+  /**
+   * The clicked element; for a region, the smallest element containing the whole area, so the
+   * agent knows where in the page it sits.
+   */
   element: BrowserAnnotationElement,
+  /** Present exactly when `kind` is `region`. */
+  region: BrowserAnnotationRegion.optional(),
   styles: z.array(BrowserAnnotationStyleChange).max(24).default([]),
   text: BrowserAnnotationTextChange.optional(),
   viewport: BrowserAnnotationViewport,
@@ -149,7 +174,9 @@ export type BrowserAnnotationPageCommand = z.infer<typeof BrowserAnnotationPageC
 export const BrowserAnnotationCaptureTarget = z.discriminatedUnion("kind", [
   /** The visible page with markers, without the bar or an open editor. */
   z.object({ kind: z.literal("page") }),
-  /** The annotated element with an 8 px margin, long edge at most 1024 px. */
+  /**
+   * The annotated element with an 8 px margin, or a region exactly; long edge at most 1024 px.
+   */
   z.object({ kind: z.literal("annotation"), id }),
 ]);
 export type BrowserAnnotationCaptureTarget = z.infer<typeof BrowserAnnotationCaptureTarget>;

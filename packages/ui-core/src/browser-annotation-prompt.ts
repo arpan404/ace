@@ -1,4 +1,4 @@
-import type { BrowserAnnotation } from "@ace/protocol";
+import type { BrowserAnnotation, BrowserAnnotationElement } from "@ace/protocol";
 
 /*
  * The agent-facing form of browser annotations (ADR 0082, version 1): one text block after the
@@ -24,7 +24,14 @@ const preamble = [
   "source code that renders the element, not by injecting CSS.",
 ];
 
+/** Said only when a block holds a region, so element-only blocks stay as they were. */
+const regionNote =
+  "A Region is an area the person dragged out; its Elements are the page elements mostly inside it.";
+
 const excerptLimit = 160;
+/** The region's heading line names this many elements, with shorter excerpts. */
+const headlineElements = 4;
+const headlineExcerpt = 40;
 
 /** Page and person text can never open or close the block it sits in. */
 function neutral(value: string): string {
@@ -36,9 +43,17 @@ function oneLine(value: string): string {
 function quoted(value: string): string {
   return neutral(JSON.stringify(value));
 }
-function excerpt(text: string): string {
+function excerpt(text: string, limit = excerptLimit): string {
   const collapsed = text.replace(/\s+/g, " ").trim();
-  return collapsed.length > excerptLimit ? `${collapsed.slice(0, excerptLimit - 1)}…` : collapsed;
+  return collapsed.length > limit ? `${collapsed.slice(0, limit - 1)}…` : collapsed;
+}
+function tagName(element: BrowserAnnotationElement): string {
+  return element.tag.toLowerCase().replace(/[^a-z0-9-]/g, "") || "element";
+}
+/** `<button> "Get started"`: an element as the agent reads it in a list. */
+function named(element: BrowserAnnotationElement, limit: number): string {
+  const text = excerpt(element.text, limit);
+  return `<${tagName(element)}>${text ? ` ${quoted(text)}` : ""}`;
 }
 const px = (value: number) => String(Math.round(value));
 const ratio = (value: number) => String(Math.round(value * 100) / 100);
@@ -66,17 +81,47 @@ export function annotationPages(
   return [...pages].map(([url, list]) => ({ url, annotations: list }));
 }
 
-function describe(annotation: BrowserAnnotation): string[] {
+/** "[3] Region 120,340 480×200 containing: <button> "Get started", <p> …" and its details. */
+function describeRegion(
+  annotation: BrowserAnnotation,
+  region: NonNullable<BrowserAnnotation["region"]>,
+): string[] {
+  const { box, elements } = region;
+  const shown = elements.slice(0, headlineElements).map((item) => named(item, headlineExcerpt));
+  if (elements.length > headlineElements) shown.push("…");
+  const lines = [
+    `[${annotation.number}] Region ${px(box.x)},${px(box.y)} ${px(box.width)}×${px(box.height)}${shown.length ? ` containing: ${shown.join(", ")}` : ""}`,
+    `Box: x=${px(box.x)} y=${px(box.y)} width=${px(box.width)} height=${px(box.height)} (CSS px from the document's top-left)`,
+  ];
   const { element } = annotation;
-  const tag = element.tag.toLowerCase().replace(/[^a-z0-9-]/g, "") || "element";
-  const text = excerpt(element.text);
-  const lines = [`[${annotation.number}] <${tag}>${text ? ` ${quoted(text)}` : ""}`];
+  if (element.selector) lines.push(`Inside: <${tagName(element)}> ${oneLine(element.selector)}`);
+  if (elements.length) {
+    lines.push("Elements:");
+    for (const item of elements)
+      lines.push(
+        `  ${named(item, excerptLimit)}${item.selector ? ` at ${oneLine(item.selector)}` : ""}`,
+      );
+  }
+  return lines;
+}
+
+function describeElement(annotation: BrowserAnnotation): string[] {
+  const { element } = annotation;
+  const lines = [`[${annotation.number}] ${named(element, excerptLimit)}`];
   if (element.selector) lines.push(`Selector: ${oneLine(element.selector)}`);
   if (element.xpath) lines.push(`XPath: ${oneLine(element.xpath)}`);
   const box = element.box;
   lines.push(
     `Box: x=${px(box.x)} y=${px(box.y)} width=${px(box.width)} height=${px(box.height)} (CSS px from the document's top-left)`,
   );
+  return lines;
+}
+
+function describe(annotation: BrowserAnnotation): string[] {
+  const lines =
+    annotation.kind === "region" && annotation.region
+      ? describeRegion(annotation, annotation.region)
+      : describeElement(annotation);
   // A style-only annotation has no comment, and says nothing it doesn't have.
   const comment = neutral(annotation.comment.trim());
   if (comment) {
@@ -105,6 +150,7 @@ export function formatBrowserAnnotations(
 ): BrowserAnnotationBlock | undefined {
   if (!annotations.length) return undefined;
   const lines = [`${browserAnnotationsOpen} count="${annotations.length}">`, ...preamble];
+  if (annotations.some((annotation) => annotation.kind === "region")) lines.push(regionNote);
   const images: BrowserAnnotationImage[] = [];
   const captions: string[] = [];
   for (const page of annotationPages(annotations)) {

@@ -53,6 +53,15 @@ events inside the overlay are handled by the overlay and stopped before page lis
 shortcuts cannot swallow typing. Page listeners registered on `window` in the capture phase
 before the overlay still run first; this is a known limit of injecting into a loaded page.
 
+A primary press that moves 4 px or more before release is a drag instead of a click: a dashed
+marquee follows it, and release makes a region annotation (below); the click that ends a drag
+picks nothing. While Space is held with focus on the page (not in a page text field, not in the
+overlay's editor), pointer input passes through to the page untouched: no outline, no picking,
+no drag, frames take input again, and markers let clicks through. The Space key events are kept
+from the page, so it neither scrolls nor activates a focused control. Releasing Space, or the
+window losing focus, resumes annotating; a press that began while Space was held still delivers
+its release to the page.
+
 **Markers.** A marker sits just outside its element's top-left corner, so it never covers the
 start of the element's text; an element at the very top or left of the document has no room
 there and gets its marker just inside. `point` records where the person clicked, not where the
@@ -60,6 +69,19 @@ marker is drawn. The comment editor opens below the element (else above its mark
 it) so live previews stay visible. Deleting an annotation closes the gap: later numbers move
 down by one and each renumbered record is reported with `saved`. The client's draft keeps the
 same rule, and after removing a record on its side sends `renumber` and the next number.
+
+**Regions.** A record's `kind` is `element` (the default, so older records read unchanged) or
+`region`. A region carries `region.box`, the dragged area in document CSS px, and
+`region.elements`: up to eight page elements whose boxes are at least 60% inside it, outermost
+first in document order; when that is a single wrapper its children are named instead. Subtrees
+whose box misses the area are not walked. `element` is the smallest element containing the
+whole area, for context. The region keeps a dashed outline and its marker sits on its
+bottom-right corner; both are placed from document coordinates, so they follow page scrolling
+but not scrolling inside inner containers. A drag thinner than 8 px picks the element where it
+started. A region's crop is the area exactly, without the element margin. The style inspector
+is element-only: its button is disabled for a region and says why. The agent reads a region as
+`[3] Region x,y w×h containing: <button> "Get started", …` followed by its box, the element
+holding it and one line per contained element with its selector.
 
 **Style inspector and live edits.** The editor's sliders button opens an inspector for the
 element: text (only for an element without child elements, so no markup is lost), colours,

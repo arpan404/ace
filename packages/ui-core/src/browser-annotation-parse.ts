@@ -14,8 +14,16 @@ import type { DraftAnnotations } from "./composer-drafts.ts";
  * card and for Edit on a failed message. Lenient: a block this version can't read stays text.
  */
 
+/** An element a region names: its tag, page text excerpt and selector. */
+export interface ParsedRegionElement {
+  tag: string;
+  text: string;
+  selector: string;
+}
+
 export interface ParsedBrowserAnnotation {
   number: number;
+  kind: "element" | "region";
   url: string;
   title: string;
   tag: string;
@@ -28,6 +36,8 @@ export interface ParsedBrowserAnnotation {
   styles: BrowserAnnotationStyleChange[];
   textChange?: BrowserAnnotationTextChange | undefined;
   viewport?: BrowserAnnotationViewport | undefined;
+  /** A region's elements; for a region `tag` and `selector` are the element holding it. */
+  elements?: ParsedRegionElement[] | undefined;
 }
 
 export type ParsedAnnotationImage =
@@ -65,6 +75,10 @@ const viewportLine =
 const boxLine = /^Box: x=(-?[\d.]+) y=(-?[\d.]+) width=([\d.]+) height=([\d.]+)/;
 const itemLine = /^\[(\d{1,2})\] <([a-z0-9-]+)>(?: (".*"))?$/;
 const textChangeLine = /^Text change: (".*") → (".*")$/;
+const regionLine =
+  /^\[(\d{1,2})\] Region (-?[\d.]+),(-?[\d.]+) ([\d.]+)×([\d.]+)(?: containing: .*)?$/;
+const insideLine = /^Inside: <([a-z0-9-]+)> (.*)$/;
+const regionElementLine = /^<([a-z0-9-]+)>(?: ("(?:[^"\\]|\\.)*"))?(?: at (.*))?$/;
 
 /** The block's annotations and images, or undefined when it isn't a version 1 block. */
 export function parseBrowserAnnotations(block: string): ParsedBrowserAnnotations | undefined {
@@ -75,12 +89,20 @@ export function parseBrowserAnnotations(block: string): ParsedBrowserAnnotations
   const images: ParsedAnnotationImage[] = [];
   let page: { url: string; title: string; viewport?: BrowserAnnotationViewport } | undefined;
   let item: ParsedBrowserAnnotation | undefined;
-  let mode: "comment" | "styles" | "images" | undefined;
+  let mode: "comment" | "styles" | "elements" | "images" | undefined;
   for (const line of lines.slice(1, -1)) {
     if (line.startsWith("  ") && mode) {
       const body = line.slice(2);
       if (mode === "comment" && item) item.comment += `\n${body}`;
-      else if (mode === "styles" && item) {
+      else if (mode === "elements" && item) {
+        const match = regionElementLine.exec(body);
+        if (match)
+          (item.elements ??= []).push({
+            tag: match[1] ?? "element",
+            text: match[2] ? (json(match[2]) ?? "") : "",
+            selector: match[3] ?? "",
+          });
+      } else if (mode === "styles" && item) {
         const [property = "", values = ""] = splitOnce(body, ": ");
         const [before = "", after = ""] = splitOnce(values, " → ");
         if (property) item.styles.push({ property, before, after });
@@ -114,6 +136,7 @@ export function parseBrowserAnnotations(block: string): ParsedBrowserAnnotations
         number: Number(match?.[1]),
         url: page.url,
         title: page.title,
+        kind: "element",
         tag: match?.[2] ?? "element",
         text: match?.[3] ? (json(match[3]) ?? "") : "",
         selector: "",
@@ -123,7 +146,34 @@ export function parseBrowserAnnotations(block: string): ParsedBrowserAnnotations
         viewport: page.viewport,
       };
       items.push(item);
-    } else if (item && line.startsWith("Selector: ")) item.selector = line.slice(10);
+    } else if (regionLine.test(line) && page) {
+      const match = regionLine.exec(line);
+      item = {
+        number: Number(match?.[1]),
+        kind: "region",
+        url: page.url,
+        title: page.title,
+        tag: "body",
+        text: "",
+        selector: "",
+        xpath: "",
+        box: {
+          x: Number(match?.[2]),
+          y: Number(match?.[3]),
+          width: Number(match?.[4]),
+          height: Number(match?.[5]),
+        },
+        comment: "",
+        styles: [],
+        viewport: page.viewport,
+        elements: [],
+      };
+      items.push(item);
+    } else if (item && line.startsWith("Inside: ")) {
+      const match = insideLine.exec(line);
+      if (match) [item.tag, item.selector] = [match[1] ?? "body", match[2] ?? ""];
+    } else if (item && line === "Elements:") mode = "elements";
+    else if (item && line.startsWith("Selector: ")) item.selector = line.slice(10);
     else if (item && line.startsWith("XPath: ")) item.xpath = line.slice(7);
     else if (item && line.startsWith("Box: ")) {
       const match = boxLine.exec(line);
@@ -208,8 +258,25 @@ export function returnedAnnotations(
 }
 
 function rebuilt(item: ParsedBrowserAnnotation): BrowserAnnotation {
+  const box = item.box ?? { x: 0, y: 0, width: 0, height: 0 };
+  const none = { x: 0, y: 0, width: 0, height: 0 };
+  const region =
+    item.kind === "region"
+      ? {
+          box,
+          elements: (item.elements ?? []).map(({ tag, text, selector }) => ({
+            tag,
+            text,
+            selector,
+            xpath: "",
+            box: none,
+          })),
+        }
+      : undefined;
   return {
     id: `returned-${item.number}`,
+    kind: item.kind,
+    ...(region ? { region } : {}),
     number: item.number,
     documentId: "returned",
     url: item.url,
@@ -221,7 +288,7 @@ function rebuilt(item: ParsedBrowserAnnotation): BrowserAnnotation {
       selector: item.selector,
       xpath: item.xpath,
       text: item.text,
-      box: item.box ?? { x: 0, y: 0, width: 0, height: 0 },
+      box,
     },
     styles: item.styles,
     ...(item.textChange ? { text: item.textChange } : {}),

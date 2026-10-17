@@ -30,7 +30,18 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 .marker:hover { transform: scale(1.08); }
 .marker.pending { cursor: default; }
 .marker.lost { display: none; }
-.markers.hidden .marker:not(.pending) { display: none; }
+.markers.hidden .marker:not(.pending), .markers.hidden .region:not(.pending) { display: none; }
+.region {
+  position: fixed; left: 0; top: 0; pointer-events: none; border-radius: 2px;
+  outline: 1.5px dashed var(--mark); outline-offset: 0; background: transparent;
+  opacity: 0.7;
+}
+.region.pending, .region.marquee {
+  opacity: 1; background: var(--wash);
+  box-shadow: 0 0 0 1px var(--ring), inset 0 0 0 1px var(--ring);
+}
+.layer.using .marker, .layer.using .region { pointer-events: none; opacity: 0.45; }
+.layer.using .outline { display: none; }
 .glass {
   background: var(--glass); border: 1px solid var(--edge);
   -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6);

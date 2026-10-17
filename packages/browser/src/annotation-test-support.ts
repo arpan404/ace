@@ -54,6 +54,22 @@ export const pages: Record<string, { headers?: Record<string, string>; body: str
  srcdoc="<body style='margin:0;height:100%'><script>window.frameClicks=0;addEventListener('click',()=>frameClicks++)</script></body>"></iframe>
 </body>`,
   },
+  "/region": {
+    body: `<!doctype html><title>Region</title>
+<body style="margin:0;font:16px/20px sans-serif;background:#fff;height:3000px">
+<section id="card" style="position:absolute;left:100px;top:100px;width:400px;height:200px">
+<h2 id="heading" style="position:absolute;left:20px;top:20px;margin:0;font-size:20px">Plans</h2>
+<button id="start" style="position:absolute;left:20px;top:70px;width:120px;height:32px">Get started</button>
+<p id="copy" style="position:absolute;left:20px;top:130px;margin:0;width:300px">Cancel any time</p>
+</section>
+<p id="outside" style="position:absolute;left:100px;top:420px;margin:0">Outside text</p>
+<script>window.pageClicks=0;window.pageDowns=0;window.buttonClicks=0;
+document.addEventListener('click',()=>pageClicks++);
+document.addEventListener('pointerdown',()=>pageDowns++);
+document.addEventListener('mousedown',()=>pageDowns++);
+document.getElementById('start').addEventListener('click',()=>buttonClicks++);</script>
+</body>`,
+  },
   "/next": {
     body: `<!doctype html><title>Next</title><body><h2>Another document</h2>
 <script>window.pageClicks=0;document.addEventListener('click',()=>window.pageClicks++);</script></body>`,
@@ -185,6 +201,43 @@ export async function annotationFixture(desktop?: DesktopStandIn) {
       /** One mouse button event without the hover move, e.g. to hold a button down. */
       async mouse(event: "mousePressed" | "mouseReleased", x: number, y: number) {
         await call({ type: "browser.input", input: { kind: "mouse", event, x, y } });
+      },
+      /** A pointer move; with the left button it continues a press into a drag. */
+      async move(x: number, y: number, button: "none" | "left") {
+        await call({
+          type: "browser.input",
+          input: { kind: "mouse", event: "mouseMoved", x, y, button },
+        });
+      },
+      /** Press, move in steps and release: a drag as a person's mouse makes it. */
+      async drag(from: { x: number; y: number }, to: { x: number; y: number }, steps = 6) {
+        await call({
+          type: "browser.input",
+          input: { kind: "mouse", event: "mouseMoved", ...from, button: "none" },
+        });
+        await call({
+          type: "browser.input",
+          input: { kind: "mouse", event: "mousePressed", ...from },
+        });
+        for (let step = 1; step <= steps; step++)
+          await call({
+            type: "browser.input",
+            input: {
+              kind: "mouse",
+              event: "mouseMoved",
+              x: from.x + ((to.x - from.x) * step) / steps,
+              y: from.y + ((to.y - from.y) * step) / steps,
+              button: "left",
+            },
+          });
+        await call({
+          type: "browser.input",
+          input: { kind: "mouse", event: "mouseReleased", ...to },
+        });
+      },
+      /** One key event, e.g. to hold Space down across other input. */
+      async key(event: "keyDown" | "keyUp", key: string, code = key) {
+        await call({ type: "browser.input", input: { kind: "key", event, key, code } });
       },
       async scroll(x: number, y: number, deltaY: number) {
         await call({
