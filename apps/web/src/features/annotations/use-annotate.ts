@@ -17,6 +17,16 @@ export interface AnnotatablePage {
   features?: readonly string[] | undefined;
 }
 
+/**
+ * How annotate mode is used, for the Annotate button's tooltip while it can start. The overlay
+ * implements each part: click pins an element, a drag selects an area, Space lends the page.
+ */
+export const annotateHint = {
+  text: "Click anywhere to annotate, or drag to select an area. Hold Space to temporarily use the webpage.",
+  /** The key the hint names, for drawing it as a key cap. */
+  key: "Space",
+} as const;
+
 /** Why the person can't annotate this page now, in words for the button's tooltip. */
 export function annotateUnavailable(input: {
   driver: AnnotationDriver | undefined;
