@@ -344,6 +344,26 @@ test("Back traverses a failed navigation that replaced the document and clears t
   expect(address(panel).getAttribute("value")).toBe("docs.example.com/guide");
 });
 
+test("a failure reported after the page committed doesn't hide the page", async () => {
+  const { panel, browser } = await openBrowser();
+  await agentPage(panel);
+  await goTo(panel, "docs.example.com/guide");
+  await waitFor(() => expect(address(panel).getAttribute("value")).toBe("docs.example.com/guide"));
+  // The page committed the address, but the daemon's wait for it ran out.
+  const navigate = browser.navigate.bind(browser);
+  vi.spyOn(browser, "navigate").mockImplementationOnce((...args) => {
+    navigate(...args);
+    throw new Error("Tool operation timed out");
+  });
+  await goTo(panel, "example.org/slow");
+  await waitFor(() => expect(within(panel).queryByRole("button", { name: "Stop" })).toBeNull());
+  expect(
+    await within(panel).findByRole("img", { name: "Live view of https://example.org/slow" }),
+  ).toBeTruthy();
+  expect(within(panel).queryByRole("alert")).toBeNull();
+  expect(address(panel).getAttribute("value")).toBe("example.org/slow");
+});
+
 test("text that isn't an address is refused instead of searched", async () => {
   const { panel, browser } = await openBrowser();
   await agentPage(panel);

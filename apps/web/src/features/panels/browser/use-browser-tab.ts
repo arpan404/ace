@@ -1,4 +1,9 @@
-import { describeBrowserFailure, type AddressSuggestion, type BrowserFailure } from "@ace/ui-core";
+import {
+  describeBrowserFailure,
+  samePage,
+  type AddressSuggestion,
+  type BrowserFailure,
+} from "@ace/ui-core";
 import { useEffect, useState } from "react";
 import {
   findTab,
@@ -18,9 +23,37 @@ import { reason } from "./use-browser-features.ts";
 type Phase =
   | { phase: "idle" }
   | { phase: "loading"; tabId: string | undefined; url: string }
-  | { phase: "failed"; tabId: string | undefined; url: string; failure: BrowserFailure };
+  | {
+      phase: "failed";
+      tabId: string | undefined;
+      url: string;
+      failure: BrowserFailure;
+      /** The tab's address when the navigation began, and whether the tab was still loading
+       * when the failure came. They tell a later commit from the page before. */
+      attempt: { from: string | undefined; loading: boolean };
+    };
 
 const idle: Phase = { phase: "idle" };
+
+const web = (url: string | undefined): url is string => !!url && /^https?:\/\//i.test(url);
+
+/**
+ * A failure the page has outlived: the navigation reported an error that isn't Chromium's own
+ * load error (a timeout, a cancelled wait), yet the tab has since committed a web document of
+ * its own (its address moved on, or the asked-for page finished loading) with no load error.
+ * The live page is what the person should see, not a card over it.
+ */
+function outlived(
+  state: Phase,
+  tab: { url: string; loading?: boolean | undefined } | undefined,
+  loadError: string | undefined,
+): boolean {
+  if (state.phase !== "failed" || state.failure.code) return false;
+  if (!tab || loadError || !web(tab.url)) return false;
+  if (tab.url !== state.attempt.from) return true;
+  // The same address as before: only the asked-for page, loaded since, outlives the failure.
+  return state.attempt.loading && !tab.loading && samePage(tab.url, state.url);
+}
 
 /**
  * The page in the tab the person views: its address, Back, Forward, Reload and Stop, always in
@@ -39,9 +72,17 @@ export function useBrowserTab(
   const toast = useToast();
   const visitedStore = useVisitedStore();
   const visited = useVisited(threadId);
-  const [state, setState] = useState<Phase>(idle);
+  const [reported, setState] = useState<Phase>(idle);
   const data = browserTabData(tab);
   const { live, shown, shownId, online } = tabs;
+  // Once the tab has committed past a failure, the failure is over for good (adjusted while
+  // rendering, so the card is never drawn over the page).
+  const superseded =
+    reported.phase === "failed" &&
+    (reported.tabId === undefined || reported.tabId === shownId) &&
+    outlived(reported, shown, live?.loadError);
+  const state: Phase = superseded ? idle : reported;
+  if (superseded) setState(idle);
   const frame = live ? source.frame(threadId) : undefined;
 
   /** Merge into the panel tab's data as it is now (a navigation spans several renders). */
@@ -84,7 +125,15 @@ export function useBrowserTab(
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [liveUrl, agent]);
 
+  /** The tab's page as the daemon reports it now (`tabId` undefined: the shown one). */
+  const tabNow = (tabId: string | undefined) => {
+    const view = source.view(threadId);
+    const id = tabId ?? view?.activeTabId;
+    return view?.tabs?.find((each) => each.tabId === id);
+  };
+
   const run = async (tabId: string | undefined, url: string, work: () => Promise<unknown>) => {
+    const from = tabNow(tabId)?.url;
     setLoading(threadId, tab.key, true);
     setState({ phase: "loading", tabId, url });
     try {
@@ -92,7 +141,14 @@ export function useBrowserTab(
       setState(idle);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setState({ phase: "failed", tabId, url, failure: describeBrowserFailure(message, url) });
+      const now = tabNow(tabId);
+      setState({
+        phase: "failed",
+        tabId,
+        url,
+        failure: describeBrowserFailure(message, url),
+        attempt: { from, loading: !!now?.loading },
+      });
     } finally {
       setLoading(threadId, tab.key, false);
     }

@@ -568,16 +568,24 @@ export class EmbeddedPage implements ViewPage {
     const contents = this.contents;
     return new Promise((resolve, reject) => {
       let settled = false;
+      /** The reply's ERR_ABORTED: another navigation took over, or loading was stopped. */
+      let superseded: string | undefined;
       const finish = (error?: Error) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
         contents.off("dom-ready", ready);
         contents.off("did-fail-load", failed);
+        contents.off("did-stop-loading", stopped);
         if (error) reject(error);
         else resolve(contents.getURL());
       };
+      // Any main-frame document counts: the one asked for, or one that replaced it.
       const ready = () => finish();
+      // Nothing took over and nothing committed (Stop, a 204, a download).
+      const stopped = () => {
+        if (superseded) finish(new Error(superseded));
+      };
       const failed = (
         _event: unknown,
         code: number,
@@ -592,11 +600,16 @@ export class EmbeddedPage implements ViewPage {
       const timer = setTimeout(() => finish(new Error("Navigation timed out")), timeoutMs);
       contents.on("dom-ready", ready);
       contents.on("did-fail-load", failed);
+      contents.on("did-stop-loading", stopped);
       this.send("Page.navigate", { url })
         .then((result) => {
           if (typeof result !== "object" || result === null) return;
-          if ("errorText" in result && typeof result.errorText === "string" && result.errorText)
-            finish(new Error(result.errorText));
+          const errorText =
+            "errorText" in result && typeof result.errorText === "string" ? result.errorText : "";
+          if (errorText === "net::ERR_ABORTED") {
+            superseded = errorText;
+            if (!contents.isLoading()) stopped();
+          } else if (errorText) finish(new Error(errorText));
           // No loader: a same-document navigation, which fires no DOMContentLoaded.
           else if (!("loaderId" in result) || !result.loaderId) finish();
         })
