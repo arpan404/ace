@@ -92,6 +92,11 @@ export const requests = {
   "browser.place": { request: BrowserPlacement, result: BrowserPlacementReceipt },
   /** The new lease arrives as a `browser.controller` event once the daemon grants it. */
   "browser.control": { request: BrowserControlRequest, result: None },
+  /**
+   * The page focused one of its own fields (the address bar): the OS focus leaves any native
+   * browser view, and keys typed there since a ⌘L or ⌘F are typed into the field.
+   */
+  "browser.focus-app": { request: None, result: None },
   "updates.check": { request: None, result: UpdateStatus },
 } as const;
 export type RequestChannel = keyof typeof requests;

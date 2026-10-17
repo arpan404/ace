@@ -9,6 +9,11 @@ export class FakePage implements ViewPage {
   closed = false;
   /** CDP results by method; the default is `{}`. */
   results = new Map<string, unknown>([["Page.captureScreenshot", { data: "AA==" }]]);
+  /** CDP methods that never answer, as a page stuck in a long task. */
+  hung = new Set<string>();
+  /** The daemon link dropped while this page lived (`orphan`), and adoptions since. */
+  orphaned = false;
+  adoptions = 0;
   private events = new Set<(method: string, params: unknown) => void>();
   private blocked = new Set<() => void>();
   private navigationSequence = 0;
@@ -17,6 +22,7 @@ export class FakePage implements ViewPage {
     // As Electron's debugger does once its WebContents is destroyed.
     if (this.closed) throw new Error("Browser view closed");
     this.calls.push({ method, params: params ?? {} });
+    if (this.hung.has(method) || this.hung.has("*")) return new Promise(() => {});
     if (method === "Page.getFrameTree")
       return { frameTree: { frame: { id: "main", url: this.address } } };
     if (method === "Page.navigate") {
@@ -52,6 +58,14 @@ export class FakePage implements ViewPage {
   }
   url(): string {
     return this.address;
+  }
+  orphan(): void {
+    this.orphaned = true;
+  }
+  async readopt(): Promise<void> {
+    if (this.closed) throw new Error("Browser view closed");
+    this.orphaned = false;
+    this.adoptions++;
   }
   async close(): Promise<void> {
     this.closed = true;

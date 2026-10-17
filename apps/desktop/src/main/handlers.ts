@@ -192,6 +192,10 @@ export function createHandlers(options: {
       background.browserControl(request.threadId, request.controller);
       return undefined;
     },
+    "browser.focus-app": (_request, sender) => {
+      if (sender) background.focusApp(sender.id);
+      return undefined;
+    },
     // The release feed check pulls in @ace/service and tar; load them only when asked.
     "updates.check": async () =>
       (await import("./os/updates.ts")).checkForUpdate(options.info.version),
