@@ -18,6 +18,7 @@ import { installOriginGuard } from "./origin-guard.ts";
 import { Screencast } from "./cdp.ts";
 import { navigateCdp } from "./cdp-navigation.ts";
 import type { NavigationClock } from "./navigation.ts";
+import { CommandSlots } from "./command-slots.ts";
 
 /** Navigations keep the full wait budget plus the policy approval reserve (65 s). */
 const navigationDeadlineMs = browserWaitLimitMs + 65_000;
@@ -79,6 +80,8 @@ export class EmbeddedBackend implements BrowserBackend {
   private sessions = new Map<string, RemoteSession>();
   private pending = new Map<string, Waiter>();
   private sequence = 0;
+  /** ADR 0055: at most 128 unsettled relay requests; the excess waits for a slot. */
+  private slots = new CommandSlots(128, 4096);
   private closed = false;
   private lost: () => void;
   private clock: NavigationClock;
@@ -113,13 +116,19 @@ export class EmbeddedBackend implements BrowserBackend {
     operation: BrowserBackendOperation,
     signal?: AbortSignal,
   ): Promise<unknown> {
+    return this.slots.run(() => this.dispatch(sessionId, operation, signal), signal);
+  }
+  private dispatch(
+    sessionId: string,
+    operation: BrowserBackendOperation,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     if (signal?.aborted) return Promise.reject(signal.reason);
     if (this.closed) return Promise.reject(new Error("Desktop browser backend lost"));
     const session = this.sessions.get(sessionId);
     if (session?.lost) return Promise.reject(new Error("Desktop browser session lost"));
     if (!session && operation.kind !== "purge")
       return Promise.reject(new Error("Desktop browser session closed"));
-    if (this.pending.size >= 128) return Promise.reject(new Error("Browser relay request limit"));
     const id = String(++this.sequence);
     const message: BrowserBackendRequest = {
       type: "browser.backend.request",
