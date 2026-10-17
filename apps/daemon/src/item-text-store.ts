@@ -163,7 +163,8 @@ export class ItemTextStore {
     for (const row of this.statement(
       "SELECT substr(bytes, 1, ? - offset) AS bytes FROM item_source_chunks WHERE stream_id = ? AND offset < ? ORDER BY offset",
     ).iterate(end, source.streamId, end)) {
-      if (!(row.bytes instanceof Uint8Array)) throw new Error("Invalid text chunk");
+      // Checked by its internal slot, not instanceof: a host realm (a jsdom test) has its own Uint8Array.
+      if (!ArrayBuffer.isView(row.bytes)) throw new Error("Invalid text chunk");
       pieces.push(Buffer.from(row.bytes.buffer, row.bytes.byteOffset, row.bytes.byteLength));
     }
     return Buffer.concat(pieces).toString("utf16le");

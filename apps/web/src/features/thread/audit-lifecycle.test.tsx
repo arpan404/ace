@@ -460,9 +460,11 @@ test("Continue uses the live restart reason while an older queue page remains on
   expect(page.queue.paused).toBe(false);
 });
 
-test("Stop names the active root even after a reload retains only child output", async () => {
+test("Stop names the active root even when a reload's window holds only child output", async () => {
   const { facts } = await import("@ace/fake-daemon");
-  const made = harness({ snapshotItems: 200 });
+  // A window keeps the root's share of its items (ADR 0062), so only a one-item window can
+  // hold child output alone: the newest item is all that fits.
+  const made = harness({ snapshotItems: 1 });
   made.play(replayCursor()).runThrough("finding");
   made.daemon.apply("thread-replay-cursor", [
     facts.subagent("cursor", "busy-child", "Child", "search"),
