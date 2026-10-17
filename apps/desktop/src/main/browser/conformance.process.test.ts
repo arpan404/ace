@@ -19,14 +19,6 @@ const noChrome: BrowserBackend = {
 defineBrowserConformance({
   name: "desktop native view (embedded)",
   unavailable: executablePath ? undefined : "no Chromium to stand in for Electron's views",
-  knownFailures: {
-    // TODO(browser): EmbeddedTabs pauses the thread's browser ("Browser view closed") when the
-    // shown native tab closes, instead of showing another tab.
-    tabs: "closing the shown tab pauses the whole browser",
-    // TODO(browser): EmbeddedTabs never turns relayed `ace.tabs.event` console and network
-    // events into log entries; only the single-page relay path logs them.
-    logs: "console and network logs stay empty for native tabs",
-  },
   async start({ options, cleanup }) {
     const cleanups: (() => unknown)[] = [];
     cleanup(async () => {

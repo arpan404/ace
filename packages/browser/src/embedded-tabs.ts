@@ -9,6 +9,7 @@ import type { BackendOpen, BrowserCdp } from "./backend.ts";
 import { installOriginGuard } from "./origin-guard.ts";
 import { BrowserInspection } from "./inspection.ts";
 import { removeStaleOverlays } from "./annotation-install.ts";
+import { consoleEntry } from "./console-entry.ts";
 
 const TabEvent = z.object({ tabId: z.string(), method: z.string(), params: z.unknown() });
 const Crashed = z.object({ crashes: z.number().int().optional(), reason: z.string().optional() });
@@ -83,6 +84,9 @@ export class EmbeddedTabs {
         tab.revived.clear();
       })().catch(() => this.request.lost("The page could not reconnect after it crashed"));
     }
+    // Each tab's console and uncaught errors, as the single-page relay logs its page's.
+    const entry = consoleEntry(method, params);
+    if (entry) this.request.log({ ...entry, tabId: tab.state.tabId });
     if (method === "Page.fileChooserOpened") {
       this.request.log({
         kind: "console",
@@ -231,6 +235,7 @@ export class EmbeddedTabs {
           detach: (child) => this.inspection.detach(child),
         });
         await cdp.send("Page.enable");
+        await cdp.send("Runtime.enable");
         // A kept page may still show the overlay of the session that lost its link.
         if (adopted) await removeStaleOverlays(cdp);
         await this.inspection.attach(cdp, item.tabId);

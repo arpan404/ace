@@ -258,13 +258,18 @@ export class BrowserSession {
    */
   private recapture(failure: string): void {
     const token = ++this.captureToken;
+    let target: string | undefined;
     this.capturing = this.capturing
       .then(async () => {
         if (token !== this.captureToken || this.closed || this.paused) return;
+        target = this.tabs.viewedId();
         await this.live.replace(this.viewedPage().cdp);
         if (token === this.captureToken) this.emit();
       })
       .catch((error: unknown) => {
+        // A shown tab closing under its capture is not a lost browser: the next shown tab
+        // takes the capture once the backend reports it (`changed`).
+        if (target !== undefined && this.tabs.leaving(target)) return;
         if (token === this.captureToken && !this.closed)
           this.suspend(error instanceof Error ? error.message : failure);
       });

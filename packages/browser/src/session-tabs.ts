@@ -26,6 +26,8 @@ export class SessionTabs {
   /** When the person last picked the tab they view; agent tabs leave the view alone a while. */
   private pickedAt = -Infinity;
   private lock: Promise<unknown> = Promise.resolve();
+  /** Tabs being closed: work on them may fail on the way out without anything being wrong. */
+  private closingIds = new Set<string>();
   private host: TabHost;
   private backend: () => BrowserBackendSession;
   /** Metadata for tabs the backend has not reported yet (restored or being opened). */
@@ -243,9 +245,18 @@ export class SessionTabs {
     const runtime = this.get(tabId);
     if (tabs.list().length <= 1)
       throw new BrowserActionError("not_supported", "Close the browser to close its last tab");
-    await tabs.close(tabId);
+    this.closingIds.add(tabId);
+    try {
+      await tabs.close(tabId);
+    } finally {
+      this.closingIds.delete(tabId);
+    }
     this.reconcile();
     void runtime.close();
+  }
+  /** Whether the tab is gone or on its way out. */
+  leaving(tabId: string): boolean {
+    return this.closingIds.has(tabId) || !this.find(tabId);
   }
   private picked(): void {
     this.pickedAt = this.host.options.navigationClock.now();
