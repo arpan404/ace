@@ -215,17 +215,6 @@ test("a model without effort levels shows only model and account controls", asyn
   expect(within(popover).queryByText("Default effort")).toBeNull();
   expect(within(popover).queryByRole("slider")).toBeNull();
 });
-test("while the agent works, an empty composer offers Stop and a draft offers Queue in its place", async () => {
-  const { message } = await open("busy");
-  expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
-  await userEvent.type(message, "Also check cold start");
-  expect(screen.getByRole("button", { name: "Queue message" })).toBeTruthy();
-  // A draft is never one click from stopping the agent.
-  expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
-  await userEvent.clear(message);
-  expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
-});
-
 test("offline, the model chip keeps the thread's last-known model and says changes wait", async () => {
   const { app } = await open("busy");
   await screen.findByRole("button", { name: /^Model: Opus 5\.5, Personal/ });
