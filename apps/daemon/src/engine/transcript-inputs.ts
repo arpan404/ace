@@ -1,4 +1,5 @@
-import type { Command, CommandId, ThreadId } from "@ace/protocol";
+import type { Command, CommandId, EventPayload, RunId, ThreadId } from "@ace/protocol";
+import type { ThreadState } from "@ace/core";
 import type { EngineRepository } from "./repository.ts";
 import { provisionalTitle } from "./thread-title.ts";
 import { inputOrigin } from "./input-journal.ts";
@@ -36,7 +37,12 @@ export function syntheticInput(
   );
 }
 
-export function admitInput(
+/**
+ * A send the daemon accepts: it may name the thread, and the journal learns its origin. Its
+ * transcript item waits for delivery (`admitInput`), so a message queued behind a run joins the
+ * transcript where it leaves the queue, never where it was typed (ADR 0065).
+ */
+export function acceptInput(
   repo: EngineRepository,
   command: Command,
   id: ThreadId,
@@ -58,7 +64,48 @@ export function admitInput(
       at,
     );
   repo.inputs.register(id, key, p.input, origin);
+}
+
+/**
+ * The engine takes an accepted send out of the queue to deliver it. Its user item is created
+ * here, at this point in the thread, and belongs to `run` when the delivery steers into that
+ * running turn. Otherwise it has no run until a run consumes it (`bindStartedRun`). An item left
+ * by an earlier attempt keeps its place and is bound afresh.
+ */
+export function admitInput(
+  repo: EngineRepository,
+  command: Command,
+  id: ThreadId,
+  run: RunId | undefined,
+  at: number,
+): void {
+  const p = command.payload;
+  if (p.type !== "thread.create" && p.type !== "thread.send") return;
+  const key = `input:${command.id}`;
+  const origin = repo.inputs.origin(id, key) ?? inputOrigin(command);
+  repo.inputs.attachRun(id, key, run);
   if (origin.kind === "subagent_result" && repo.aceInputs.get(id, command.id)) return;
+  if (!repo.requireState(id).items[key]) upsertInput(repo, command, id, at);
+  const state = repo.requireState(id);
+  const update = bindItemRun(state, key, run);
+  if (update) repo.save(state, [update], at);
+}
+
+/** A queued message the person edits: a bubble left by an earlier attempt shows the new text. */
+export function reviseInput(
+  repo: EngineRepository,
+  command: Command,
+  id: ThreadId,
+  at: number,
+): void {
+  if (repo.requireState(id).items[`input:${command.id}`]) upsertInput(repo, command, id, at);
+}
+
+function upsertInput(repo: EngineRepository, command: Command, id: ThreadId, at: number): void {
+  const p = command.payload;
+  if (p.type !== "thread.create" && p.type !== "thread.send") return;
+  const key = `input:${command.id}`;
+  const origin = repo.inputs.origin(id, key) ?? inputOrigin(command);
   repo.apply(
     id,
     [
@@ -79,6 +126,37 @@ export function admitInput(
     ],
     at,
   );
+}
+
+/**
+ * A root run started in session `generation`: it consumed every input that session was handed
+ * and no run has taken yet (one, or several the provider took as one turn). Each joins the run,
+ * so the transcript groups it with the turn answering it.
+ */
+export function bindStartedRun(
+  repo: EngineRepository,
+  state: ThreadState,
+  run: RunId,
+  generation: number | undefined,
+): EventPayload[] {
+  return repo.inputs.bindSent(state.threadId, run, generation).flatMap((key) => {
+    const update = bindItemRun(state, key, run);
+    return update ? [update] : [];
+  });
+}
+
+function bindItemRun(
+  state: ThreadState,
+  key: string,
+  run: RunId | undefined,
+): EventPayload | undefined {
+  const item = state.items[key];
+  const root = state.agents[state.rootKey ?? ""]?.agent.id;
+  if (item?.type !== "message" || item.agentId !== root || item.runId === run) return undefined;
+  const { runId: _previous, ...rest } = item;
+  const updated = run === undefined ? rest : { ...rest, runId: run };
+  state.items[key] = updated;
+  return { type: "item.updated", item: updated };
 }
 
 /**

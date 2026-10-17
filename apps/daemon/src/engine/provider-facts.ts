@@ -8,6 +8,7 @@ import type { TransitionReadiness } from "./transition-readiness.ts";
 import { coalesceFacts } from "./delta-batch.ts";
 import { capFact } from "./raw.ts";
 import { retireEndedTurnInputs } from "./stale-inputs.ts";
+import { bindStartedRun } from "./transcript-inputs.ts";
 import { shapeProviderError, structuredError } from "./provider-errors.ts";
 export interface FactPorts {
   ids: IdSource;
@@ -234,29 +235,22 @@ export function foldProviderFacts(
           (rootStarted ? repo.pending.uncertainContinuation(id) : undefined))
         : undefined;
     const commandId =
-      event.type === "input.admitted"
-        ? (event.commandId ?? pending?.commandId)
-        : event.type === "run.started" && event.run.agentId === root
-          ? pending?.commandId
-          : undefined;
+      event.type === "input.admitted" ? (event.commandId ?? pending?.commandId) : undefined;
     const key = commandId ? `input:${commandId}` : undefined;
     const item = key ? state.items[key] : undefined;
     if (
       key &&
       item?.type === "message" &&
       item.agentId === root &&
-      (event.type === "run.started" || event.type === "input.admitted")
+      event.type === "input.admitted"
     ) {
-      const updated = {
-        ...item,
-        ...(event.type === "run.started"
-          ? { runId: event.run.id }
-          : { nativeId: event.nativeInputId }),
-      };
+      const updated = { ...item, nativeId: event.nativeInputId };
       state.items[key] = updated;
-      if (updated.runId) repo.inputs.attachRun(id, key, updated.runId);
       inputUpdates.push({ type: "item.updated", item: updated });
     }
+    // The run takes what the engine handed this session and no run has taken yet.
+    if (rootStarted && event.type === "run.started")
+      inputUpdates.push(...bindStartedRun(repo, state, event.run.id, generation));
     const admitted = event.type === "input.admitted" && event.agentId === root && !ports.opening;
     if (admitted) ports.admission.mark.run(id);
     const started = rootStarted && !ports.admission.has.get(id);

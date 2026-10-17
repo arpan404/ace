@@ -179,9 +179,6 @@ export async function executeIntent(
         generation,
       );
       repo.pending.submit(intent, generation);
-      const activeInputRun = state.agents[state.rootKey ?? ""]?.activeRun;
-      if (activeInputRun)
-        repo.inputs.attachRun(actor.id, `input:${intent.command.id}`, activeInputRun);
       await session.send(
         input,
         p.type === "thread.send" && p.delivery === "steer" && capabilities.steer

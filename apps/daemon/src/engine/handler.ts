@@ -473,7 +473,7 @@ export function engineHandler(
           );
         }
         repo.add(admitted, threadId, resolutionId);
-        repo.admitInput(admitted, threadId, now());
+        repo.acceptInput(admitted, threadId, now());
         if (p.type === "thread.create" || p.type === "thread.send") {
           repo.notifyNamingPrompt(admitted, threadId);
           repo.queue.set(threadId, {}, now());

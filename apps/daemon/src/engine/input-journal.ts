@@ -110,10 +110,20 @@ export class InputJournal {
         .run(thread, nativeId, commandId);
     });
   }
-  attachRun(thread: ThreadId, key: string, run: string): void {
+  /** The run a delivery hands this input to; none until a run consumes it. */
+  attachRun(thread: ThreadId, key: string, run: string | undefined): void {
     this.store
       .statement("UPDATE engine_inputs SET run_id=? WHERE thread_id=? AND item_key=?")
-      .run(run, thread, key);
+      .run(run ?? null, thread, key);
+  }
+  /** Inputs session `generation` was handed that no run has taken yet now belong to `run`. */
+  bindSent(thread: ThreadId, run: string, generation: number | undefined): string[] {
+    return this.store
+      .statement(
+        "UPDATE engine_inputs SET run_id=? WHERE thread_id=? AND sent=1 AND run_id IS NULL AND generation IS ? RETURNING item_key",
+      )
+      .all(run, thread, generation ?? null)
+      .map((row) => z.string().parse(row.item_key));
   }
   inRuns(thread: ThreadId, runs: Iterable<string>): string[] {
     return [...runs].flatMap((run) =>

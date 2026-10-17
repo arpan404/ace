@@ -2,8 +2,9 @@
 
 Date: 2026-10-04. Status: accepted.
 
-The daemon creates a complete user transcript item when it accepts a send, before
-opening a provider. Its stable ID is `input:<commandId>`. Clients can display a
+The daemon creates a complete user transcript item when it delivers a send, before
+opening a provider (see the 2026-10-17 amendment: not when it accepts it). Its stable
+ID is `input:<commandId>`. Clients can display a
 pending send under that same ID and replace it when the daemon item arrives.
 Transport loss leaves durable commands pending until a receipt or definite refusal.
 
@@ -87,3 +88,27 @@ failed draft the person can edit or send again under a new command ID.
 A `delivery_uncertain` notice is not a failed draft. The input may have run, so
 the client offers no plain resend for it; recovery goes through `queue.resend`
 as above, after the client explains possible duplicate execution.
+
+## Amendment 2026-10-17: a message joins the transcript where it is delivered
+
+Issue #895: a finished reply showed above the three prompts it answered. Every send was
+written to the transcript when the daemon accepted it, so a message queued behind a
+running turn took its creation place in the middle of that turn, and the running turn's
+ID as its run. It moved to its real run only if a later run start guessed it (the oldest
+awaiting send, at most one per run), and the web client reordered asks at render time to
+hide the difference. The guess missed sends the provider took together and could pick up
+continuation runs.
+
+Accepting a send now only names the thread and records its origin in the input journal.
+Its `input:<commandId>` item is created in the transaction that takes it out of the queue
+for delivery, so its place in the thread (its creation sequence) is where it was delivered.
+A queued message waits in the queue, outside the transcript, until then. A steer belongs to
+the run it steers into, bound at that moment. Any other delivery has no run until a root run
+starts in the session it was handed to: that run takes every input the session was given that
+no run has taken yet, one or several the provider took as one turn. A message that returns to
+the queue keeps the item and place of its first delivery attempt and is bound afresh when it is
+delivered again; a queue edit updates such an item, and is otherwise only a queue change.
+
+Clients order the transcript purely by daemon creation sequence. The web client's render-time
+`executionOrder` reordering is removed. A client's own unadmitted send still shows as its
+pending bubble until the item arrives.

@@ -49,8 +49,8 @@ export function recoverEngine(
       const unsent = repo.pending.undelivered(state.threadId);
       if (unsent) {
         repo.pending.defer(unsent);
+        // Back in the queue; the bubble its claim created keeps its place.
         repo.queue.track(unsent.id, state.threadId, unsent.command);
-        repo.admitInput(unsent.command, state.threadId, clock.now());
         repo.queue.set(state.threadId, { paused: true, reason: "not_sent" }, clock.now());
       }
       const queue = repo.queue.get(state.threadId);
