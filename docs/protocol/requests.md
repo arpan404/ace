@@ -2646,43 +2646,25 @@ Example:
 }
 ```
 
-### browser.takeover
+### browser.tabs.private
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | requestId | yes | string | {"minLength":1,"maxLength":256} |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| type | yes | `"browser.takeover"` |  |
-| mode | no | ["shared","private"] | {"default":"shared"} |
-| tabId | no | string | {"minLength":1,"maxLength":256} |
+| type | yes | `"browser.tabs.private"` |  |
+| tabId | yes | string | {"minLength":1,"maxLength":256} |
+| private | yes | boolean |  |
 
 Example:
 
 ```json
 {
+  "private": false,
   "requestId": "example",
   "tabId": "example",
   "threadId": "example",
-  "type": "browser.takeover"
-}
-```
-
-### browser.handback
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| requestId | yes | string | {"minLength":1,"maxLength":256} |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| type | yes | `"browser.handback"` |  |
-| tabId | no | string | {"minLength":1,"maxLength":256} |
-
-Example:
-
-```json
-{
-  "requestId": "example",
-  "threadId": "example",
-  "type": "browser.handback"
+  "type": "browser.tabs.private"
 }
 ```
 
@@ -2701,10 +2683,10 @@ Example:
 ```json
 {
   "input": {
-    "event": "mouseMoved",
+    "event": "mousePressed",
     "kind": "mouse",
-    "x": 8,
-    "y": 9
+    "x": 0,
+    "y": 0
   },
   "requestId": "example",
   "threadId": "example",
@@ -2777,11 +2759,6 @@ Example:
 
 ```json
 {
-  "filter": {
-    "installationId": "example",
-    "instanceId": "example",
-    "provider": "claude"
-  },
   "requestId": "example",
   "type": "models.refresh"
 }
@@ -2801,11 +2778,13 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "acpAgentId": "example",
-    "instanceId": "example",
-    "role": "example",
-    "selection": "strongest",
-    "tier": "example"
+    "effort": "example",
+    "installationId": "example",
+    "instance": "example",
+    "model": "example",
+    "preferenceOrder": [],
+    "provider": "codex",
+    "role": "example"
   },
   "type": "models.resolve"
 }
@@ -2823,8 +2802,8 @@ Example:
 
 ```json
 {
-  "inputAgeMs": 8,
-  "threadId": "example",
+  "inputAgeMs": 5,
+  "threadId": null,
   "type": "presence.update"
 }
 ```
@@ -2842,9 +2821,11 @@ Example:
 ```json
 {
   "device": {
-    "channel": "websocket",
-    "platform": "phone"
+    "channel": "fcm",
+    "platform": "phone",
+    "token": "example"
   },
+  "requestId": "example",
   "type": "notification.register"
 }
 ```
@@ -2877,13 +2858,7 @@ Example:
 ```json
 {
   "preferences": {
-    "agentSays": true,
-    "includePreview": false,
-    "quietHours": {
-      "endMinute": 2,
-      "startMinute": 7,
-      "timeZone": "UTC"
-    }
+    "includePreview": false
   },
   "type": "notification.preferences"
 }
@@ -2903,7 +2878,7 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 9
+  "until": 4
 }
 ```
 
@@ -2926,7 +2901,7 @@ Example:
 {
   "deviceId": "example",
   "protocolVersion": 1,
-  "token": "example",
+  "ticket": "example",
   "type": "hello"
 }
 ```
@@ -2945,9 +2920,10 @@ Example:
 
 ```json
 {
-  "afterSeq": 8,
+  "paced": true,
   "scope": {
-    "kind": "threads"
+    "kind": "thread",
+    "threadId": "example"
   },
   "subscriptionId": "example",
   "type": "subscribe"
@@ -2985,15 +2961,9 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "actionId": "example",
-      "repository": {
-        "forge": "gitlab",
-        "host": "oC2zY9Fs1Ai",
-        "name": "d",
-        "owner": "OOzzWZOO/oGHcJx28/b4U0ZjCM/W_z5WGlUX/233Qo/rV/c4poWhMzT"
-      },
-      "type": "forge.issue.reconcile",
-      "workspaceId": "example"
+      "pinned": true,
+      "threadId": "example",
+      "type": "thread.pin"
     }
   },
   "type": "command"
@@ -3014,8 +2984,8 @@ Example:
 
 ```json
 {
-  "limit": 6,
-  "offset": 1,
+  "limit": 4,
+  "offset": 2,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -3036,8 +3006,8 @@ Example:
 
 ```json
 {
-  "before": 7,
-  "limit": 9,
+  "before": 10,
+  "limit": 7,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -3059,9 +3029,9 @@ Example:
 
 ```json
 {
-  "before": 6,
-  "collection": "runs",
-  "limit": 7,
+  "before": 10,
+  "collection": "agents",
+  "limit": 3,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"
@@ -3082,7 +3052,7 @@ Example:
 ```json
 {
   "before": {
-    "at": 4,
+    "at": 5,
     "id": "example"
   },
   "requestId": "example",

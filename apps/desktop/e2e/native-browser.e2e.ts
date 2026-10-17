@@ -125,10 +125,8 @@ await import('./app/${mainEntry}');`,
         )
         .toBe("embedded");
       await daemon.browser.execute(thread.id, { action: "navigate", url: testUrl });
-      const leaseOwner = "e2e-renderer";
-      daemon.browser.takeover(thread.id, leaseOwner);
       await renderer.evaluate(
-        async ({ threadId, owner }) => {
+        async ({ threadId }) => {
           const ace: unknown = Reflect.get(globalThis, "ace");
           if (typeof ace !== "object" || ace === null || !("browser" in ace))
             throw new Error("No desktop bridge");
@@ -141,10 +139,10 @@ await import('./app/${mainEntry}');`,
           )
             throw new Error("No native placement bridge");
           await Reflect.apply(browser.place, browser, [
-            { threadId, bounds: { x: 200, y: 180, width: 600, height: 400 }, visible: true, owner },
+            { threadId, bounds: { x: 200, y: 180, width: 600, height: 400 }, visible: true },
           ]);
         },
-        { threadId: thread.id, owner: leaseOwner },
+        { threadId: thread.id },
       );
       const native = await app.evaluate(async ({ BrowserWindow, webContents }, pageUrl) => {
         const contents = webContents.getAllWebContents().find((page) => page.getURL() === pageUrl);

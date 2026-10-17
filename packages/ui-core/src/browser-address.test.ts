@@ -108,9 +108,6 @@ test("browser failures read as what happened and what to do", () => {
   expect(describeBrowserFailure("net::ERR_SSL_PROTOCOL_ERROR", "https://x.dev/").code).toBe(
     "ERR_SSL_PROTOCOL_ERROR",
   );
-  expect(describeBrowserFailure("Browser controller mismatch", "https://x.dev/").needsControl).toBe(
-    true,
-  );
   expect(describeBrowserFailure("Something odd", "https://x.dev/").detail).toBe(
     "Check the address and connection, then reload the page.",
   );

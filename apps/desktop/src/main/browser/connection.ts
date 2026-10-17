@@ -49,7 +49,7 @@ const capabilities = {
   targets: true,
   permissions: true,
   downloads: true,
-  controllerLease: true,
+  humanInput: true,
 } as const;
 
 /**
@@ -109,14 +109,6 @@ export class BackendConnection {
     if (!this.wanted || this.socket) return;
     this.attempt = 0;
     void this.connect();
-  }
-
-  /** The person asked for control of a thread's view from this app. */
-  takeover(threadId: string): void {
-    this.sendBrowser("browser.takeover", threadId);
-  }
-  handback(threadId: string): void {
-    this.sendBrowser("browser.handback", threadId);
   }
 
   /** Quit: unregister and close every view; resolves once they are closed. */
@@ -269,12 +261,6 @@ export class BackendConnection {
   private clearRetry(): void {
     this.cancelRetry?.();
     this.cancelRetry = undefined;
-  }
-
-  private sendBrowser(type: "browser.takeover" | "browser.handback", threadId: string): void {
-    const socket = this.registered;
-    if (!socket || socket.readyState !== WebSocket.OPEN) return;
-    socket.send(JSON.stringify({ type, requestId: this.ports.id(), threadId }));
   }
 
   private setState(state: BackendState): void {

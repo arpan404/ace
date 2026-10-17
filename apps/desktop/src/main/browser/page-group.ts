@@ -22,7 +22,7 @@ type GroupPage = Pick<
   EmbeddedPage,
   | "cdp"
   | "onEvent"
-  | "onBlockedInput"
+  | "onHumanInput"
   | "navigate"
   | "press"
   | "resize"
@@ -34,6 +34,7 @@ type GroupPage = Pick<
   | "place"
   | "placementReady"
   | "isShown"
+  | "picture"
 > &
   Partial<Pick<EmbeddedPage, "orphan" | "readopt" | "evacuate">>;
 
@@ -44,12 +45,12 @@ interface Tab {
   url: string;
   mainFrame?: string;
   stop(): void;
-  blocked(): void;
+  stopInput(): void;
 }
 
 /**
- * A thread's native tabs: one `WebContentsView` each, sharing the thread's partition and its
- * controller lease. Only the selected tab is placed in the Browser panel; the others stay
+ * A thread's native tabs: one `WebContentsView` each, sharing the thread's partition. Only the
+ * selected tab is placed in the Browser panel and takes the person's input; the others stay
  * alive unseen, and render in the parking window while an agent drives them (see `throttle.ts`).
  * Commands without a tab go to the selected tab; `ace.tabs.*` commands address any tab.
  */
@@ -59,11 +60,11 @@ export class EmbeddedPageGroup implements ViewPage {
   private sequence = 0;
   private opening = 0;
   private input = false;
-  private agent = true;
+  private agent = false;
   private closed = false;
   private closing: Promise<void> | undefined;
   private listeners = new Set<(method: string, params: unknown) => void>();
-  private blocked = new Set<() => void>();
+  private humanInput = new Set<(tabId?: string) => void>();
   private target: {
     window: BaseWindow | undefined;
     bounds: Rect | undefined;
@@ -123,12 +124,19 @@ export class EmbeddedPageGroup implements ViewPage {
         await page.close();
         throw new Error("Browser closed");
       }
-      const tab: Tab = { id, page, title: "", url: page.url(), stop: () => {}, blocked: () => {} };
+      const tab: Tab = {
+        id,
+        page,
+        title: "",
+        url: page.url(),
+        stop: () => {},
+        stopInput: () => {},
+      };
       this.tabs.set(id, tab);
       if (!this.active || options.select) this.active = id;
       tab.stop = page.onEvent((method, params) => this.tabEvent(tab, method, params));
-      tab.blocked = page.onBlockedInput(() => {
-        if (id === this.active) for (const notify of this.blocked) notify();
+      tab.stopInput = page.onHumanInput(() => {
+        for (const notify of this.humanInput) notify(id);
       });
       this.apply();
       this.changed();
@@ -194,9 +202,10 @@ export class EmbeddedPageGroup implements ViewPage {
   }
 
   /**
-   * Only the selected tab is placed, takes the person's input and follows the lease the daemon
-   * sends (the shown tab's, ADR 0085). The person cannot reach an unseen tab, so it is always
-   * the agents': it renders while driven and intercepts its file choosers.
+   * Only the selected tab is placed and takes the person's input; whether an agent uses it
+   * comes from the daemon (the shown tab's, ADR 0085). The person cannot reach an unseen tab,
+   * so it is always treated as the agents': it renders while driven and intercepts its file
+   * choosers.
    */
   private apply() {
     for (const [id, tab] of this.tabs) {
@@ -209,6 +218,11 @@ export class EmbeddedPageGroup implements ViewPage {
 
   async placementReady(): Promise<void> {
     await this.tabs.get(this.active)?.page.placementReady();
+  }
+
+  /** The shown tab's picture, held in its place while an app overlay covers it. */
+  picture(): Promise<string | undefined> {
+    return this.tabs.get(this.active)?.page.picture() ?? Promise.resolve(undefined);
   }
 
   isShown(): boolean {
@@ -256,7 +270,7 @@ export class EmbeddedPageGroup implements ViewPage {
     const tab = this.tab(id);
     this.tabs.delete(id);
     tab.stop();
-    tab.blocked();
+    tab.stopInput();
     await tab.page.close();
     if (this.active === id) this.active = this.tabs.keys().next().value ?? "";
     this.apply();
@@ -270,9 +284,10 @@ export class EmbeddedPageGroup implements ViewPage {
     return () => this.listeners.delete(listener);
   }
 
-  onBlockedInput(listener: () => void) {
-    this.blocked.add(listener);
-    return () => this.blocked.delete(listener);
+  /** The person used a tab directly; reports which one. */
+  onHumanInput(listener: (tabId?: string) => void) {
+    this.humanInput.add(listener);
+    return () => this.humanInput.delete(listener);
   }
 
   navigate(url: string, timeout: number) {
@@ -325,7 +340,7 @@ export class EmbeddedPageGroup implements ViewPage {
     await Promise.all(
       [...this.tabs.values()].map(async (tab) => {
         tab.stop();
-        tab.blocked();
+        tab.stopInput();
         await tab.page.close();
       }),
     );

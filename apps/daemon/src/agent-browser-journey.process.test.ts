@@ -153,12 +153,13 @@ it("an agent completes a form navigation, reads results, rejects stale refs and 
   expect(await call("ace_browser_logs")).toMatchObject({ entries: expect.any(Array) });
   const browser = f.daemon.browser;
   if (!browser) throw new Error("Browser missing");
-  browser.takeover(thread.id, "person");
+  const tabId = browser.state(thread.id).activeTabId ?? "page";
+  browser.setPrivate(thread.id, tabId, true);
   expect(
     Result.parse(await (await invoke(connection, "ace_browser_close", {})).json()).result,
   ).toMatchObject({
     isError: true,
-    content: [{ text: expect.stringContaining("controlled by human") }],
+    content: [{ text: expect.stringContaining("human_private") }],
   });
   expect(
     Result.parse(
@@ -166,9 +167,9 @@ it("an agent completes a form navigation, reads results, rejects stale refs and 
     ).result,
   ).toMatchObject({
     isError: true,
-    content: [{ text: expect.stringContaining("controlled by human") }],
+    content: [{ text: expect.stringContaining("human_private") }],
   });
-  browser.handback(thread.id, "person");
+  browser.setPrivate(thread.id, tabId, false);
   await call("ace_browser_navigate", { url: f.browserUrl });
   await call("ace_browser_close");
   lease.end();

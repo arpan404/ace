@@ -6,7 +6,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
 import { AddressBar } from "../browser/address-bar.tsx";
 import { setLoading } from "../browser/loading.ts";
-import { PageNav, PageToolbar, toolbarButton } from "../browser/page-toolbar.tsx";
+import { PageNav, PageToolbar, ToolPill, toolbarButton } from "../browser/page-toolbar.tsx";
 import { OpenOutside, type FramePhase } from "./dev-server-frame.tsx";
 import { forwardFailure } from "./preview-errors.ts";
 import { OpenPreviewOutside, PreviewFrame, previewUrl } from "./preview-frame.tsx";
@@ -85,7 +85,7 @@ function PortView(props: { threadId: string; port: number; tabKey: string }) {
         }
         address={<AddressBar url={url} loading={loading} readOnly />}
         actions={
-          <>
+          <ToolPill>
             {server?.source === "listener" && (
               <IconButton
                 icon={StopIcon}
@@ -106,7 +106,7 @@ function PortView(props: { threadId: string; port: number; tabKey: string }) {
             ) : (
               <OpenOutside url={url} />
             )}
-          </>
+          </ToolPill>
         }
         progress={loading ? `Loading ${url}` : undefined}
       />

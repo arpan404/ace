@@ -44,8 +44,14 @@ test("an address typed in the new tab's toolbar opens the Browser in its place",
   const address = await within(panel).findByRole("combobox", { name: "Address" });
   expect(address.getAttribute("placeholder")).toBe("Search or enter a URL");
   await userEvent.type(address, "localhost:4321{Enter}");
-  expect(await within(panel).findByRole("tab", { name: /localhost/, selected: true })).toBeTruthy();
-  expect(within(panel).queryByRole("tab", { name: "New tab" })).toBeNull();
+  // The Browser takes the new tab's place, with the address in a browser tab of its own.
+  expect(await within(panel).findByText("This site can't be reached")).toBeTruthy();
+  expect(within(panel).queryByRole("list", { name: "Tools" })).toBeNull();
+  expect(
+    within(within(panel).getByRole("tablist", { name: "Browser tabs" })).getByRole("tab", {
+      selected: true,
+    }),
+  ).toBeTruthy();
 });
 
 test("opening a new tab puts the cursor in its address", async () => {

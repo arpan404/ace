@@ -45,7 +45,7 @@ async function annotating() {
   await screen.findByRole("feed", { name: "Transcript" });
   await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await within(panel).findByText("is browsing", { exact: false });
+  await within(panel).findByRole("tablist", { name: "Browser tabs" });
   const browser = app.daemon.browser;
   // The agent is on a web page of the project's dev server.
   act(() => browser.drive(threadId, { url: "http://localhost:5173/settings/devices" }));
@@ -90,8 +90,8 @@ test("pinned comments join the draft with their crops, and the page's Send sends
 
   await userEvent.click(annotateButton(panel));
   await waitFor(() => expect(browser.view(threadId)?.annotation?.owner).toBeTruthy());
-  // Annotating takes the page from the agent for as long as it lasts.
-  expect(browser.view(threadId)?.controller).toBe("human");
+  // Annotating takes nothing from the agent: it keeps working in the tab.
+  expect(browser.tab(threadId)?.inUse).toMatchObject({ kind: "agent" });
   expect(annotateButton(panel).getAttribute("aria-pressed")).toBe("true");
 
   act(
@@ -132,9 +132,8 @@ test("pinned comments join the draft with their crops, and the page's Send sends
     "annotation-2.png",
   ]);
 
-  // Sending leaves annotate mode, hands the page back and empties the composer.
+  // Sending leaves annotate mode and empties the composer.
   await waitFor(() => expect(browser.view(threadId)?.annotation).toBeUndefined());
-  await waitFor(() => expect(browser.view(threadId)?.controller).toBe("agent"));
   expect(screen.queryByRole("button", { name: /^Show \d+ annotation/ })).toBeNull();
   expect(message.textContent).toBe("");
 
@@ -191,7 +190,7 @@ test("the bar's screenshot copies the page with its markers and says so on the p
   expect(clipboard[0]?.type).toBe("image/png");
 });
 
-test("closing annotate mode from the page hands the page back and keeps the annotations in the draft", async () => {
+test("closing annotate mode from the page ends it and keeps the annotations in the draft", async () => {
   const { panel, browser } = await annotating();
   await userEvent.click(annotateButton(panel));
   await waitFor(() => expect(browser.view(threadId)?.annotation?.owner).toBeTruthy());
@@ -199,7 +198,7 @@ test("closing annotate mode from the page hands the page back and keeps the anno
   await screen.findByRole("button", { name: "Show 1 annotation" });
 
   act(() => browser.annotations.emit(threadId, { kind: "close" }));
-  await waitFor(() => expect(browser.view(threadId)?.controller).toBe("agent"));
+  await waitFor(() => expect(browser.view(threadId)?.annotation).toBeUndefined());
   await waitFor(() => expect(annotateButton(panel).getAttribute("aria-pressed")).toBe("false"));
   expect(screen.getByRole("button", { name: "Show 1 annotation" })).toBeTruthy();
 });
@@ -261,9 +260,9 @@ test("keys typed at the page never reach the composer, even once the page stops 
   await screen.findByRole("button", { name: "Show 1 annotation" });
   expect(browser.inputs.filter((entry) => entry.input.kind === "key").length).toBeGreaterThan(0);
 
-  // Annotate mode ends from the page and the agent has it back while the person is at it.
+  // Annotate mode ends from the page while the person is at it.
   act(() => browser.annotations.emit(threadId, { kind: "close" }));
-  await waitFor(() => expect(browser.view(threadId)?.controller).toBe("agent"));
+  await waitFor(() => expect(browser.view(threadId)?.annotation).toBeUndefined());
   await userEvent.keyboard("Rounder");
   await userEvent.click(within(panel).getByRole("img", { name: /Live view/ }));
   await userEvent.keyboard("corners{Enter}");

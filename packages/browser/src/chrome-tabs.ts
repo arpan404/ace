@@ -45,8 +45,8 @@ interface Tab {
   id: string;
   cdp: TabCdp;
   viewport: { width: number; height: number };
-  /** The person or agent holding this tab: agents never get popups or beforeunload prompts. */
-  controller: "agent" | "human" | "none";
+  /** An agent uses this tab: its popups reuse the page and beforeunload never prompts. */
+  agent: boolean;
   /** Bumped each time the tab gets a new target, so a popup from an old target is refused. */
   binding: number;
   target?: AttachedTarget | undefined;
@@ -227,10 +227,10 @@ export class ChromeTabs {
     tab.dialog = undefined;
     this.request.changed?.();
   }
-  /** One tab's holder; without an id, the shown tab's. */
-  lease(controller: "agent" | "human" | "none", id = this.activeId): void {
+  /** Whether an agent uses this tab (ADR 0067, collaboration). */
+  agentUse(id: string, active: boolean): void {
     const tab = this.tabs.get(id);
-    if (tab) tab.controller = controller;
+    if (tab) tab.agent = active;
   }
   async frames(
     id = this.activeId,
@@ -299,7 +299,7 @@ export class ChromeTabs {
     if (
       this.stopped ||
       !host ||
-      opener.controller === "agent" ||
+      opener.agent ||
       reuse === true ||
       this.tabs.size + this.starting >= this.maxTabs
     ) {
@@ -314,7 +314,7 @@ export class ChromeTabs {
       return;
     }
     const tab = this.track(release);
-    tab.controller = opener.controller;
+
     this.starting++;
     void this.bind(tab, target)
       .then(() => {
@@ -337,7 +337,7 @@ export class ChromeTabs {
       id,
       cdp,
       viewport: { ...this.viewport },
-      controller: "agent",
+      agent: false,
       binding: 0,
       status: pageStatus(cdp, () => this.request.changed?.()),
       title: "",
@@ -351,7 +351,7 @@ export class ChromeTabs {
     on("Page.javascriptDialogOpening", (raw) => {
       const parsed = Dialog.safeParse(raw);
       if (!parsed.success) return;
-      if (parsed.data.type === "beforeunload" && tab.controller === "agent") {
+      if (parsed.data.type === "beforeunload" && tab.agent) {
         void cdp.send("Page.handleJavaScriptDialog", { accept: true }).catch(() => {});
         return;
       }
@@ -411,7 +411,7 @@ export class ChromeTabs {
     const popup = WindowOpen.safeParse(raw);
     if (!popup.success) return;
     const reuse =
-      tab.controller === "agent" ||
+      tab.agent ||
       ((!popup.data.windowName || popup.data.windowName.startsWith("_")) &&
         !popup.data.windowFeatures?.length);
     if (tab.popupKinds.length < 8) tab.popupKinds.push(reuse);

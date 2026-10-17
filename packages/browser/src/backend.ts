@@ -1,10 +1,4 @@
-import type {
-  BrowserOpen,
-  BrowserControllerLease,
-  BrowserTab,
-  BrowserDownload,
-  BrowserDialog,
-} from "@ace/protocol";
+import type { BrowserOpen, BrowserTab, BrowserDownload, BrowserDialog } from "@ace/protocol";
 
 /** Opaque CDP results are parsed by their owning operation before use. */
 export interface BrowserCdp {
@@ -48,8 +42,10 @@ export interface BackendOpen {
   allowed(url: string, context?: { navigation?: boolean; human?: boolean }): Promise<boolean>;
   /** A page event submits navigation through the session owner before asking for approval. */
   popup?(url: string, target: PopupTarget): Promise<void>;
-  /** Initiating actor of active work, otherwise the current lease owner. */
+  /** Whether work without its own initiator (a page's own navigation) counts as the person's. */
   initiator?(): boolean;
+  /** The person used a tab directly, in a view the daemon does not route (the desktop's). */
+  humanInput?(tabId?: string): void;
   navigation(tabId?: string): void;
   /** A renderer (with `tabId`) or the whole browser (without) came back; re-arm its pages. */
   restarted?(tabId?: string): void;
@@ -126,10 +122,10 @@ export interface BrowserBackendSession extends BrowserBackendPage {
   readonly adopted?: boolean;
   privateMode?(enabled: boolean): void;
   /**
-   * Must apply the generation before resolving, reject obsolete generations. With `tabId` the
-   * lease is that tab's; without, it is the active tab's.
+   * An agent started or stopped using this tab. Optional: a backend may treat agent-used tabs
+   * differently (the desktop intercepts file choosers and keeps an unseen view rendering).
    */
-  controller(lease: BrowserControllerLease, tabId?: string): Promise<void>;
+  agentUse?(tabId: string, active: boolean): Promise<void>;
   /** Agent-visible extensions, read-only. */
   extensions?(): Promise<{ id: string; name: string; version?: string; enabled: boolean }[]>;
   close(): Promise<void>;

@@ -15,6 +15,7 @@ import { TabRuntime, type TabHost } from "./tab-runtime.ts";
 import { executeDownloads, executeTabs } from "./session-structure.ts";
 import { freezeIdleTabs, wakeTab } from "./session-lifecycle.ts";
 import { tabCommand } from "./session-commands.ts";
+import { collaborationTiming } from "./collaboration.ts";
 
 import type { Actor, SessionOptions } from "./session-options.ts";
 export type { Actor, SessionOptions } from "./session-options.ts";
@@ -50,19 +51,32 @@ export class BrowserSession {
   private stopLifecycle = () => {};
   get evictable(): boolean {
     return (
-      this.tabs
-        .all()
-        .every((tab) => tab.ownership.controller === "agent" && !tab.private && !tab.busy) &&
+      this.tabs.all().every((tab) => !tab.private && !tab.busy) &&
       this.options.now() - this.lastActivity >= 30_000 &&
       !this.recordings.active &&
       !this.options.backend.tabs?.dialog()
     );
   }
+  /** The tab the person views is one they keep agents out of. */
+  get viewedPrivate(): boolean {
+    return this.tabs.viewed()?.private ?? false;
+  }
   get navigationTask(): NavigationTask | undefined {
     return this.policies.task;
   }
   initiatingHuman(): boolean {
-    return this.policies.task?.human ?? this.tabs.viewed()?.ownership.controller === "human";
+    return this.policies.task?.human ?? this.personDrives(this.tabs.viewed());
+  }
+  /**
+   * Whether work in a tab with no command behind it (a page's own navigation or popup) is the
+   * person's: unless an agent uses the tab and the person has not touched it more recently.
+   */
+  private personDrives(tab: TabRuntime | undefined): boolean {
+    if (!tab?.inUse()) return true;
+    return tab.humanWithin(this.timing.quietMs);
+  }
+  private get timing() {
+    return this.options.collaboration ?? collaborationTiming;
   }
   blockedNavigation(blocked: BrowserOriginBlock, navigation?: NavigationTask): void {
     // A cancelled policy may settle after the next queued navigation starts.
@@ -85,6 +99,7 @@ export class BrowserSession {
         openedBy: record.openedBy,
         label: record.label,
         lastActiveAt: record.lastActiveAt,
+        private: record.private,
       });
     this.tabs.reconcile();
     this.captured = this.tabs.viewedId();
@@ -93,12 +108,12 @@ export class BrowserSession {
       options.now,
       (frame, epoch) => {
         const viewed = this.tabs.viewed();
-        if (viewed && !viewed.private && epoch === viewed.ownership.epoch)
+        if (viewed && !viewed.private && epoch === viewed.access.epoch)
           this.recordings.accept(frame);
       },
       () => {
-        const ownership = this.tabs.viewed()?.ownership;
-        return { epoch: ownership?.epoch ?? 0, since: ownership?.since ?? -Infinity };
+        const access = this.tabs.viewed()?.access;
+        return { epoch: access?.epoch ?? 0, since: access?.since ?? -Infinity };
       },
       () => this.viewedPage().viewport(),
       () => (this.options.backend.tabs ? this.captured : undefined),
@@ -116,6 +131,7 @@ export class BrowserSession {
       logs: this.logs,
       policies: this.policies,
       budget: this.budget,
+      timing: this.timing,
       page: (tabId) => this.tabs.page(tabId),
       flags: () => ({
         closed: this.closed,
@@ -136,18 +152,9 @@ export class BrowserSession {
       },
       state: () => this.state,
       emit: () => this.emit(),
-      suspend: (reason) => this.suspend(reason),
-      resumeIntact: () => {
-        if (this.paused && !this.pageStateLost && !this.reattaching) {
-          this.paused = false;
-          this.reason = undefined;
-        }
-      },
-      privatePaused: () => this.options.privatePaused?.(),
       privacyChanged: () => {
-        const anyPrivate = this.tabs.all().some((tab) => tab.private);
-        this.options.backend.privateMode?.(anyPrivate);
-        if (!anyPrivate) this.options.privateResumed?.();
+        this.options.backend.privateMode?.(this.tabs.all().some((tab) => tab.private));
+        this.persist();
       },
       wake: async (tabId) => {
         const runtime = this.tabs.find(tabId);
@@ -162,7 +169,6 @@ export class BrowserSession {
   get state(): BrowserState {
     const viewed = this.tabs.viewed();
     return browserState(this.options, {
-      viewed: viewed?.ownership,
       tabs: this.options.backend.tabs ? this.tabs.list() : undefined,
       activeTabId: this.options.backend.tabs ? this.tabs.viewedId() : undefined,
       paused: this.paused,
@@ -182,7 +188,7 @@ export class BrowserSession {
     const records = this.tabs.records();
     // Activity times alone do not warrant a write.
     const signature = JSON.stringify(
-      records.map((tab) => [tab.tabId, tab.url, tab.title, tab.label, tab.openedBy]),
+      records.map((tab) => [tab.tabId, tab.url, tab.title, tab.label, tab.openedBy, tab.private]),
     );
     if (signature === this.persisted) return;
     this.persisted = signature;
@@ -198,6 +204,7 @@ export class BrowserSession {
     if (tab ? tab.private : this.tabs.all().some((candidate) => candidate.private)) return;
     this.logs.append(entry.kind, { ...entry, at: this.options.now() });
   }
+  /** The backend lost the pages: pause, and report their state gone. */
   suspend(reason: string): void {
     if (this.closed || this.paused) return;
     this.pause(reason);
@@ -302,16 +309,15 @@ export class BrowserSession {
     for (const tab of this.tabs.all()) tab.annotation.end("restart");
     await this.options.backend.close().catch(() => {});
     signal?.throwIfAborted();
-    // The person's control of the page they were viewing carries over to the new page.
-    const carried = this.tabs.viewed()?.ownership;
+    // A private page the person was viewing stays private on its replacement.
+    const carried = { private: this.tabs.viewed()?.private ?? false };
     this.options.backend = backend;
     this.options.backendKind = kind;
-    backend.privateMode?.(carried?.mode === "private");
+    backend.privateMode?.(carried.private);
     const { removed } = this.tabs.reconcile(carried);
     for (const tab of removed) void tab.close();
     for (const tab of this.tabs.all()) tab.rebind();
-    await Promise.all(this.tabs.all().map((tab) => tab.syncLease()));
-    signal?.throwIfAborted();
+    backend.privateMode?.(this.tabs.all().some((tab) => tab.private));
     this.captured = this.tabs.viewedId();
     // Supersede any view change queued against the old backend.
     this.captureToken++;
@@ -321,45 +327,26 @@ export class BrowserSession {
     this.paused = false;
     this.reattaching = false;
   }
-  /** The tab a takeover, handback or input names; omitted, the tab the person views. */
+  /** The tab an input or privacy change names; omitted, the tab the person views. */
   private tab(tabId?: string): TabRuntime {
     if (this.closed) throw new BrowserActionError("browser_closed");
     return tabId === undefined
       ? this.tabs.resolve({ kind: "human", connectionId: "" })
       : this.tabs.get(tabId);
   }
-  restorePrivate(): void {
-    this.tab().restorePrivate();
-    this.paused = true;
-    this.reason = "Private browser interrupted; explicit handback required";
-    this.emit();
-  }
-  takeover(
-    connectionId: string,
-    mode: "shared" | "private" = "shared",
-    tabId?: string,
-  ): BrowserState {
-    this.tab(tabId).takeover(connectionId, mode);
-    this.emit();
+  /** "Keep agents out of this tab", or let them back in. */
+  setPrivate(tabId: string, value: boolean): BrowserState {
+    if (this.tab(tabId).setPrivate(value)) this.emit();
     return this.state;
   }
-  handback(connectionId: string, tabId?: string): BrowserState {
-    this.tab(tabId).handback(connectionId);
-    this.emit();
-    return this.state;
+  /** The person used a tab in a view the daemon does not route (the desktop's native view). */
+  humanActivity(tabId?: string): void {
+    if (this.closed) return;
+    (tabId === undefined ? this.tabs.viewed() : this.tabs.find(tabId))?.humanActivity();
   }
   disconnect(connectionId: string): void {
-    let waiting = false,
-      held = false;
-    for (const tab of this.tabs.all()) {
-      held ||= tab.ownership.owner === connectionId || tab.annotation.owner === connectionId;
-      waiting = tab.disconnect(connectionId) || waiting;
-    }
-    if (waiting) {
-      this.paused = true;
-      this.reason = "Private takeover disconnected; explicit handback required";
-    }
-    if (held) this.emit();
+    for (const tab of this.tabs.all())
+      if (tab.annotation.owner === connectionId) tab.annotation.end("disconnect");
   }
   /** The backend's tabs, dialogs or view changed. */
   changed(): void {
@@ -368,18 +355,18 @@ export class BrowserSession {
     const viewed = this.tabs.viewed();
     const { added, removed } = this.tabs.reconcile();
     for (const tab of removed) void tab.close();
-    // A popup opened while a person holds the page is theirs too.
-    const holder = viewed?.ownership;
+    // A popup of a private page is private too.
     for (const tab of added)
-      if (tab.openedBy?.kind === "page" && holder?.controller === "human" && holder.owner)
-        tab.takeover(holder.owner, holder.mode);
+      if (tab.openedBy?.kind === "page" && viewed?.private) tab.setPrivate(true);
     const viewedId = this.tabs.viewedId();
     if (viewedId !== this.captured && !this.paused) {
       this.tabs.find(this.captured ?? "")?.annotation.end("tab");
       this.captured = viewedId;
       this.recapture("Tab capture failed");
-      // A backend that applies one lease to what it shows (the desktop) needs the new tab's.
-      if (this.options.backend.tabs) void this.tabs.viewed()?.syncLease();
+      // A backend that treats only the shown view specially (the desktop) relearns it.
+      const shown = this.tabs.viewed();
+      if (shown)
+        void this.options.backend.agentUse?.(shown.id, shown.inUse() !== undefined).catch(() => {});
     }
     this.persist();
     this.emit();
@@ -393,8 +380,8 @@ export class BrowserSession {
       (target.tabId === undefined ? undefined : this.tabs.find(target.tabId)) ?? this.tabs.viewed();
     if (!runtime) throw new BrowserActionError("backend_changed");
     const actor: Actor =
-      (this.policies.task?.human ?? runtime.ownership.controller === "human")
-        ? { kind: "human", connectionId: runtime.ownership.owner ?? "" }
+      (this.policies.task?.human ?? this.personDrives(runtime))
+        ? { kind: "human", connectionId: "" }
         : { kind: "agent" };
     await runtime.submit(tabCommand({ action: "navigate", url }), actor, undefined, target);
   }
@@ -485,24 +472,12 @@ export class BrowserSession {
   }
   closeBy(actor: Actor, signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
-    const tabs = this.tabs.all();
-    if (actor.kind === "agent") {
-      for (const tab of tabs) tab.readCheck(actor);
-      if (tabs.some((tab) => tab.ownership.controller === "human" || tab.ownership.owner))
-        throw new BrowserActionError(
-          "human_controlled",
-          "Browser controlled by human",
-          "Wait for handback before closing.",
-        );
-    }
-    if (
-      actor.kind === "human" &&
-      tabs.some(
-        (tab) => tab.ownership.owner !== undefined && tab.ownership.owner !== actor.connectionId,
-      )
-    )
-      throw new Error("Browser controller mismatch");
-    this.options.privateResumed?.();
+    // An agent never closes a browser holding a private tab or one the person is busy in.
+    if (actor.kind === "agent")
+      for (const tab of this.tabs.all()) {
+        tab.readCheck(actor);
+        if (tab.humanWithin(this.timing.quietMs)) throw new BrowserActionError("human_active");
+      }
     this.options.forgetTabs?.();
     return this.close();
   }
@@ -511,14 +486,14 @@ export class BrowserSession {
   }
   startRecording(): Promise<void> {
     const viewed = this.tab();
-    const epoch = viewed.ownership.epoch;
+    const epoch = viewed.access.epoch;
     return viewed.serialize(() =>
       this.recordings.start(() => viewed.readCheck({ kind: "agent" }, epoch)),
     );
   }
   stopRecording(actor: Actor = { kind: "agent" }): Promise<BrowserArtifact> {
     const viewed = this.tab();
-    const epoch = viewed.ownership.epoch;
+    const epoch = viewed.access.epoch;
     return viewed.serialize(() => {
       viewed.readCheck(actor, epoch);
       return this.recordings.stop();
@@ -537,8 +512,7 @@ export class BrowserSession {
         this.tabs.viewedId(),
         this.options.now(),
         lifecycle.policy,
-        (tab) =>
-          dialogs.has(tab.id) || tab.ownership.controller !== "agent" || this.recordings.active,
+        (tab) => dialogs.has(tab.id) || this.recordings.active,
       )
         .then((changed) => {
           if (changed) this.emit();
@@ -553,10 +527,6 @@ export class BrowserSession {
       this.lastUrl = this.options.backend.url();
       this.closed = true;
       this.options.cancelPolicy();
-      for (const tab of this.tabs.all()) {
-        tab.ownership.controller = "none";
-        tab.ownership.owner = undefined;
-      }
       this.emit();
       await closeSession(
         this.options,

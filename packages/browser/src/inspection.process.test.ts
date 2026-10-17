@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { z } from "zod";
 import { setup, executablePath } from "./parity-test-support.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 it.skipIf(!executablePath)(
   "inspection returns filtered inline entries and redacts completed responses",
   async () => {
@@ -79,8 +80,8 @@ it.skipIf(!executablePath)(
           ).entries.length,
       )
       .toBeGreaterThan(0);
-    f.service.takeover("thread", "person", "private");
-    f.service.handback("thread", "person");
+    keepAgentsOut(f.service, "thread");
+    keepAgentsOut(f.service, "thread", false);
     await expect(
       f.execute({ action: "network_body", requestId: response?.requestId }),
     ).rejects.toThrow(/unavailable/);

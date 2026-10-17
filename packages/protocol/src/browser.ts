@@ -43,7 +43,7 @@ const commandBase = z.object({
 });
 const [click, type, press, scroll, drag] = BrowserInteractionAction.options;
 const annotate = commandBase.extend({ action: z.literal("annotate") });
-/** Annotate mode belongs to the person holding the page's control lease (ADR 0082). */
+/** Annotate mode belongs to the person's connection that started it (ADR 0082). */
 const BrowserAnnotateCommand = z.discriminatedUnion("operation", [
   annotate.extend({
     operation: z.literal("start"),
@@ -240,8 +240,6 @@ export const BrowserOriginBlock = z.object({
 export type BrowserOriginBlock = z.infer<typeof BrowserOriginBlock>;
 export const BrowserState = z.object({
   threadId: ThreadId,
-  controller: z.enum(["agent", "human", "none"]),
-  owner: short.optional(),
   url: z.string().max(8192),
   closed: z.boolean(),
   /** `user`: the person's own browser through the ace extension (ADR 0084). */
@@ -259,7 +257,6 @@ export const BrowserState = z.object({
   tabs: BrowserTabList.optional(),
   downloads: z.array(BrowserDownload).max(128).optional(),
   pending_dialog: BrowserDialog.optional(),
-  takeoverMode: z.enum(["shared", "private"]).optional(),
   /** Set while a connection has annotate mode open on this page. */
   annotation: z.object({ owner: short }).optional(),
   /** Optional page features this daemon supports, such as `annotate`. Unknown names are kept. */
@@ -314,13 +311,8 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
   base.extend({ type: z.literal("browser.capture"), viewport: BrowserCaptureViewport }),
   base.extend({ type: z.literal("browser.unsubscribe"), subscriberId: short.optional() }),
   base.extend({ type: z.literal("browser.ack"), sequence: z.number().int().nonnegative() }),
-  /** Control leases are per tab; omitted `tabId` means the tab the person is viewing. */
-  base.extend({
-    type: z.literal("browser.takeover"),
-    mode: z.enum(["shared", "private"]).default("shared"),
-    tabId: short.optional(),
-  }),
-  base.extend({ type: z.literal("browser.handback"), tabId: short.optional() }),
+  /** "Keep agents out of this tab": agents can neither read nor drive a private tab. */
+  base.extend({ type: z.literal("browser.tabs.private"), tabId: short, private: z.boolean() }),
   base.extend({ type: z.literal("browser.input"), input: BrowserInput, tabId: short.optional() }),
   base.extend({ type: z.literal("browser.recording.start") }),
   base.extend({ type: z.literal("browser.recording.stop") }),

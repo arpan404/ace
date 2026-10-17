@@ -3,7 +3,6 @@ import { BrowserActionError } from "./action-error.ts";
 import { AgentCursors } from "./agent-cursors.ts";
 import type { BrowserBackendPage, BrowserBackendSession } from "./backend.ts";
 import type { Actor } from "./session-options.ts";
-import type { SessionOwnership } from "./session-ownership.ts";
 import { TabRuntime, type TabHost, type TabMeta } from "./tab-runtime.ts";
 import { tabOpenRefusal } from "./tab-limits.ts";
 import type { BrowserTabRecord } from "./tab-store.ts";
@@ -24,8 +23,8 @@ export function tabActor(actor: Actor): BrowserTabActor {
 export class SessionTabs {
   private runtimes = new Map<string, TabRuntime>();
   readonly cursors = new AgentCursors();
-  /** The person picked the tab they view; agent tabs stop taking the view. */
-  private pinned = false;
+  /** When the person last picked the tab they view; agent tabs leave the view alone a while. */
+  private pickedAt = -Infinity;
   private lock: Promise<unknown> = Promise.resolve();
   private host: TabHost;
   private backend: () => BrowserBackendSession;
@@ -69,10 +68,10 @@ export class SessionTabs {
     this.pending.set(tabId, meta);
   }
   /**
-   * Mirror the backend's tab list. New tabs get a runtime (the first one may carry an
-   * ownership forward from a replaced backend); vanished tabs are closed and lose their cursors.
+   * Mirror the backend's tab list. New tabs get a runtime (the first one may carry the viewed
+   * tab's privacy forward from a replaced backend); vanished tabs are closed and lose cursors.
    */
-  reconcile(carried?: SessionOwnership): { added: TabRuntime[]; removed: TabRuntime[] } {
+  reconcile(carried?: { private: boolean }): { added: TabRuntime[]; removed: TabRuntime[] } {
     const tabs = this.backend().tabs;
     const listed = tabs ? tabs.list() : [];
     const ids = tabs ? listed.map((tab) => tab.tabId) : [soleTab];
@@ -84,7 +83,7 @@ export class SessionTabs {
         this.cursors.forget(id);
         removed.push(runtime);
       }
-    let ownership = carried;
+    let carry = carried;
     const ordered = new Map<string, TabRuntime>();
     for (const id of ids) {
       let runtime = this.runtimes.get(id);
@@ -95,8 +94,8 @@ export class SessionTabs {
           (reported ? { openedBy: reported } : undefined) ??
           this.opening ?? { openedBy: { kind: "page" as const } };
         if (!this.pending.delete(id) && !reported) this.opening = undefined;
-        runtime = new TabRuntime(this.host, id, meta, ownership);
-        ownership = undefined;
+        runtime = new TabRuntime(this.host, id, carry?.private ? { ...meta, private: true } : meta);
+        carry = undefined;
         added.push(runtime);
       }
       ordered.set(id, runtime);
@@ -134,9 +133,13 @@ export class SessionTabs {
       const runtime = this.runtimes.get(tab.tabId);
       if (!runtime) return tab;
       const entry: BrowserTab & { current?: boolean } = Object.assign({}, tab, {
-        lease: runtime.lease(),
         lifecycle: runtime.crashed() ? "crashed" : runtime.lifecycle,
       });
+      if (runtime.private) entry.private = true;
+      const inUse = runtime.inUse();
+      if (inUse) entry.inUse = inUse;
+      const pointer = runtime.pointer();
+      if (pointer) entry.pointer = pointer;
       if (runtime.openedBy) entry.openedBy = runtime.openedBy;
       if (runtime.drivenBy) entry.drivenBy = runtime.drivenBy;
       if (runtime.label) entry.label = runtime.label;
@@ -167,6 +170,7 @@ export class SessionTabs {
               title: tab.title,
               ...(runtime.label ? { label: runtime.label } : {}),
               ...(runtime.openedBy ? { openedBy: runtime.openedBy } : {}),
+              ...(runtime.private ? { private: true } : {}),
               lastActiveAt: runtime.lastActiveAt,
             },
           ]
@@ -181,7 +185,7 @@ export class SessionTabs {
   }
   /**
    * Opens a tab for `actor`. The person's view moves to it when they opened it, or when an
-   * agent opened it and the person has not picked a tab of their own.
+   * agent opened it and the person has not picked or used a tab lately.
    */
   async open(actor: Actor, options: { label?: string | undefined }): Promise<TabRuntime> {
     const tabs = this.backend().tabs;
@@ -215,7 +219,7 @@ export class SessionTabs {
     if (options.label) runtime.label = options.label;
     if (actor.kind === "agent") this.cursors.set(actor.agentId, id);
     if (follow && tabs.active() !== id) await tabs.switch(id);
-    if (actor.kind === "human") this.pinned = true;
+    if (actor.kind === "human") this.picked();
     return runtime;
   }
   async select(actor: Actor, tabId: string): Promise<TabRuntime> {
@@ -224,7 +228,7 @@ export class SessionTabs {
     if (actor.kind === "agent") {
       this.cursors.set(actor.agentId, tabId);
       if (!this.follows() || !tabs) return runtime;
-    } else this.pinned = true;
+    } else this.picked();
     if (tabs && tabs.active() !== tabId) await tabs.switch(tabId);
     return runtime;
   }
@@ -239,16 +243,21 @@ export class SessionTabs {
     const runtime = this.get(tabId);
     if (tabs.list().length <= 1)
       throw new BrowserActionError("not_supported", "Close the browser to close its last tab");
-    if (this.viewedId() === tabId) this.pinned = false;
     await tabs.close(tabId);
     this.reconcile();
     void runtime.close();
   }
-  /** Agent tabs take the view while the person has not picked one and is not holding it. */
+  private picked(): void {
+    this.pickedAt = this.host.options.navigationClock.now();
+  }
+  /**
+   * Agent tabs take the view only while the person has neither picked a tab nor used the one
+   * they view within `followAfterMs`: an agent never pulls the page out from under them.
+   */
   private follows(): boolean {
-    if (this.pinned) return false;
-    const viewed = this.viewed();
-    return !viewed || viewed.ownership.controller === "agent";
+    const window = this.host.timing.followAfterMs;
+    if (this.host.options.navigationClock.now() - this.pickedAt < window) return false;
+    return !this.viewed()?.humanWithin(window);
   }
   clear(): void {
     this.runtimes.clear();

@@ -85,11 +85,6 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await expect.poll(async () => (await geometry()).native?.visible ?? false).toBe(false);
       await p.getByRole("button", { name: "Right panel", exact: true }).click();
       await expect.poll(exact).toBe(true);
-      // The page left the person's view with the panel, which ends a shared hold: the agent
-      // drives again until the person takes over.
-      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.controller).toBe("agent");
-      await p.getByRole("button", { name: "Take over", exact: true }).click();
-      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.controller).toBe("human");
       const resize = p.getByRole("separator", { name: "Resize thread panel" });
       const grip = await resize.boundingBox();
       if (!grip) throw new Error("Splitter missing");
@@ -297,14 +292,17 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await p.getByRole("button", { name: "Browser options" }).click();
       await p.getByRole("menuitem", { name: "Record the page", exact: true }).click();
       await click("#click");
-      await p.getByRole("button", { name: "Make private", exact: true }).click();
-      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.takeoverMode).toBe("private");
       await p.getByRole("button", { name: "Browser options" }).click();
       await p.getByRole("menuitem", { name: "Stop recording", exact: true }).click();
       await p.getByText("Recording saved to this thread", { exact: true }).waitFor();
-      await p.getByRole("button", { name: "Hand back", exact: true }).click();
-      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.controller).toBe("agent");
-      await p.getByRole("button", { name: "Take over", exact: true }).click();
+      await p.getByRole("button", { name: "Browser options" }).click();
+      await p.getByRole("menuitemcheckbox", { name: "Keep agents out of this tab" }).click();
+      await expect
+        .poll(() => {
+          const state = s.daemon.browser.state(s.thread.id);
+          return state.tabs?.find((tab) => tab.tabId === state.activeTabId)?.private;
+        })
+        .toBe(true);
       await p.keyboard.press("Control+Shift+B");
       await expect.poll(async () => (await geometry()).native?.visible).toBe(false);
       await p.keyboard.press("Control+Shift+B");
@@ -312,7 +310,6 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await p.getByRole("button", { name: "Show sidebar", exact: true }).click();
       await p.getByRole("link", { name: /Other fixture/ }).click();
       await expect.poll(async () => !!(await geometry()).native?.visible).toBe(false);
-      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.controller).toBe("agent");
       await s.daemon.browser.closeThread(s.thread.id, { kind: "agent" });
       for (const thread of [s.thread, s.other]) {
         await s.daemon.browser.open({
@@ -396,11 +393,6 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
         .toBe("Clicked 1");
       expect(await native.placed()).toBe(true);
 
-      const started = performance.now();
-      await p.getByRole("button", { name: "Take over", exact: true }).click();
-      await expect.poll(() => s.daemon.browser.state(threadId).controller).toBe("human");
-      const takeoverMs = performance.now() - started;
-      console.log(`[native-takeover] control changed hands in ${takeoverMs.toFixed(0)} ms`);
       // The same live page, never reloaded: the agent's click is still on it.
       expect(await native.contentsId()).toBe(page);
       expect(await native.read("document.querySelector('#click').textContent")).toBe("Clicked 1");
@@ -411,12 +403,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await expect
         .poll(() => native.read("document.querySelector('#click').textContent"))
         .toBe("Clicked 2");
-      await expect(
-        s.daemon.browser.execute(threadId, { action: "click", ref: marker }, agent),
-      ).rejects.toThrow(/controlled by human/);
-
-      await p.getByRole("button", { name: "Hand back", exact: true }).first().click();
-      await expect.poll(() => s.daemon.browser.state(threadId).controller).toBe("agent");
+      // The person and the agent share the page: the agent clicks again once they pause.
       const again = z
         .object({ nodes: z.array(z.object({ name: z.string(), ref: z.string().optional() })) })
         .parse(await s.daemon.browser.execute(threadId, { action: "snapshot" }, agent))

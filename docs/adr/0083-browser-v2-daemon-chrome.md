@@ -140,22 +140,23 @@ Phase 3 revisits this with measured per-viewer frame sizes.
 A thread's browser holds ordered tabs on whichever backend serves it.
 
 - **TabRuntime** per tab (`tab-runtime.ts`): its own page surface, command queue (32 pending,
-  128 across a thread), element refs, annotate mode, control lease (shared or private takeover is
-  per tab) and lifecycle. Commands on different tabs run concurrently; a dialog holds only its own
+  128 across a thread), element refs, annotate mode, privacy ("Keep agents out") and lifecycle.
+  People and agents share it (ADR 0067, Collaboration, amended for H4). Commands on different tabs run concurrently; a dialog holds only its own
   tab. Logs and downloads stay thread-wide and carry the tab id.
 - **Routing** (`session-tabs.ts`): an explicit `tabId`, else the calling agent's own tab (its
   cursor, keyed by the MCP scope's `agentId`: the last tab it opened or selected), else the tab
   the person views. An identified agent whose fallback would land on another agent's tab gets a
   tab of its own. Only open, close and select take a short per-thread lock.
 - **The person's view** is the backend's active tab. Agent commands, screenshots included, never
-  move it. An agent's opened or selected tab takes the view only while the person has not picked
-  a tab and is not holding the viewed one. Live capture and recording follow the viewed tab;
+  move it. An agent's opened or selected tab takes the view only while the person has neither
+  picked a tab nor used the viewed one in the last 30 seconds. Live capture and recording follow the viewed tab;
   frames carry `tabId`.
-- **Tabs** report `openedBy`, `drivenBy`, `label`, `lease`, `lifecycle` and `loading`. A backend
+- **Tabs** report `openedBy`, `drivenBy`, `label`, `inUse` (the agent working there), `pointer`
+  (where it last pointed), `private`, `lifecycle` and `loading`. A backend
   may report who opened a tab (the person's shared tabs in their own Chrome, ADR 0084).
   `lifecycle` is `crashed` while a desktop tab's renderer stays down (ADR 0085).
-- **Desktop tabs** follow the contract in ADR 0085: the lease, native keys and the panel size are
-  the shown tab's; every other tab is driven through `ace.tabs.cdp`.
+- **Desktop tabs** follow the contract in ADR 0085: whether an agent uses the tab (`agentUse`),
+  native keys and the panel size are the shown tab's; every other tab is driven through `ace.tabs.cdp`.
 - **Limits**: 16 tabs per thread (popups included), 8 open per agent, 48 live across the daemon.
 - **Lifecycle** (`tab-lifecycle.ts`, pure, injected clock): an unviewed, idle, unpinned tab
   freezes after 15 minutes (`Page.setWebLifecycleState`) and wakes before its next command. The
@@ -233,7 +234,7 @@ failing at its deadline while later commands run; a stopped (`SIGSTOP`) browser 
 key chords; the shared profile surviving a browser restart while a private context sees none of
 it. Tab tests (`tabs.process.test.ts`, daemon `browser-tabs.process.test.ts`) drive real Chrome
 with local fixtures: two agents typing in their own tabs at once, a slow tab not holding up
-another, a screenshot of one tab leaving the view alone, a held or private tab blocking agents
-only there, the per-agent and daemon limits, freeze and wake, MCP routing by tab id and cursor,
+another, a screenshot of one tab leaving the view alone, a private tab blocking agents only
+there, the person busy in one tab never slowing an agent in another, the per-agent and daemon limits, freeze and wake, MCP routing by tab id and cursor,
 and a daemon restart restoring tab ids, labels and cookies through SQLite. CI installs the pinned Chrome for Testing with the same acquisition code and points the
 suites at it.

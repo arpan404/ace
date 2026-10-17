@@ -94,12 +94,12 @@ export class BrowserService {
     const existing = this.sessions.get(options.threadId);
     if (existing && !existing.state.closed) {
       // Every client and the agent share the thread's one page, on whichever backend it runs.
-      if (!options.background || agentResumes(existing.state)) {
+      if (!options.background || agentResumes(existing.state, existing.viewedPrivate)) {
         // A replacement can be lost immediately after publishing ready, while its
         // installation promise is still unwinding. Retry after that work settles.
         await this.recoveries.get(options.threadId);
         const retry = this.resumable.get(options.threadId);
-        if (!options.background || agentResumes(existing.state)) {
+        if (!options.background || agentResumes(existing.state, existing.viewedPrivate)) {
           // Another opener may have consumed the callback during our await.
           // Join its installed recovery promise instead of returning paused.
           await (retry ? retry() : this.recoveries.get(options.threadId));
@@ -227,7 +227,7 @@ export class BrowserService {
         try {
           if (replacement.adopted) await owned.readopt(replacement);
           else {
-            replacement.privateMode?.(owned.state.takeoverMode === "private");
+            replacement.privateMode?.(owned.viewedPrivate);
             if (url !== "about:blank") await replacement.navigate(url, 10_000);
             await owned.replace(replacement, "embedded");
             // A fresh view: the pages are gone, whether or not the grace had said so yet.
@@ -285,6 +285,7 @@ export class BrowserService {
             ? session.popup(url, target)
             : Promise.reject(new Error("Browser session not ready")),
         initiator: () => session?.initiatingHuman() ?? false,
+        humanInput: (tabId) => session?.humanActivity(tabId),
         navigation: (tabId) => session?.navigation(tabId),
         restarted: (tabId) => session?.restarted(tabId),
         log: (entry) => session?.log(entry),
@@ -354,8 +355,7 @@ export class BrowserService {
         id: this.id,
         navigationClock: this.navigationClock,
         cancelPolicy: () => scope.abort(),
-        privatePaused: () => this.options.onPrivatePaused?.(options.threadId),
-        privateResumed: () => this.options.onPrivateResumed?.(options.threadId),
+        ...(this.options.collaboration ? { collaboration: this.options.collaboration } : {}),
         ...(this.options.spawn ? { spawn: this.options.spawn } : {}),
         ...(ffmpeg ? { ffmpeg } : {}),
         ...policies.session,
@@ -391,7 +391,6 @@ export class BrowserService {
           : {}),
         ...(backend.kind === "headless" ? this.lifecycle() : {}),
       });
-      if (this.options.isPrivatePaused?.(options.threadId)) session.restorePrivate();
       await session.live.start();
       this.sessions.set(options.threadId, session);
       this.generations.set(session, ++this.sequence);
@@ -516,16 +515,9 @@ export class BrowserService {
   input(threadId: string, input: unknown, connectionId: string, tabId?: string): Promise<void> {
     return this.get(threadId).input(input, connectionId, tabId);
   }
-  takeover(
-    threadId: string,
-    connectionId: string,
-    mode: "shared" | "private" = "shared",
-    tabId?: string,
-  ): BrowserState {
-    return this.get(threadId).takeover(connectionId, mode, tabId);
-  }
-  handback(threadId: string, connectionId: string, tabId?: string): BrowserState {
-    return this.get(threadId).handback(connectionId, tabId);
+  /** "Keep agents out of this tab" (a person's choice), or let them back in. */
+  setPrivate(threadId: string, tabId: string, value: boolean): BrowserState {
+    return this.get(threadId).setPrivate(tabId, value);
   }
   disconnect(connectionId: string): void {
     for (const session of this.sessions.values()) session.disconnect(connectionId);
@@ -588,10 +580,7 @@ export class BrowserService {
     await this.recoveries.get(threadId);
     const session = this.sessions.get(threadId) ?? (await this.opening.get(threadId));
     if (session) {
-      await session.closeBy(
-        actor ?? { kind: "human", connectionId: session.state.owner ?? "" },
-        signal,
-      );
+      await session.closeBy(actor ?? { kind: "human", connectionId: "" }, signal);
       this.sessions.delete(threadId);
     }
     // A closed browser starts fresh next time; a daemon restart is not a close.

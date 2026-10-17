@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { backendFixture } from "./backend-test-support.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 import { z } from "zod";
 
 it("an aborted drag releases the pointer it pressed in the same document and lease", async () => {
@@ -34,7 +35,7 @@ it("an aborted drag releases the pointer it pressed in the same document and lea
   ).rejects.toThrow("cancelled drag");
   expect(pressed).toBe(false);
 });
-it("an interrupted drag leaves subsequent pointer ownership to a new controller", async () => {
+it("a drag interrupted by the person keeping agents out leaves the pointer to the person", async () => {
   const f = await backendFixture({ backendPreference: () => "headless" });
   await f.open();
   const page = f.headless.pages[0];
@@ -49,7 +50,7 @@ it("an interrupted drag leaves subsequent pointer ownership to a new controller"
   page.cdp.send = async (method, params) => {
     if (method === "Input.dispatchMouseEvent" && params?.["type"] === "mousePressed") {
       pressed = true;
-      f.service.takeover("thread", "person");
+      keepAgentsOut(f.service);
     }
     if (method === "Input.dispatchMouseEvent" && params?.["type"] === "mouseReleased")
       pressed = false;
@@ -57,7 +58,7 @@ it("an interrupted drag leaves subsequent pointer ownership to a new controller"
   };
   await expect(
     f.service.execute("thread", { action: "drag", ref, toRef: ref }),
-  ).rejects.toMatchObject({ code: "human_controlled" });
+  ).rejects.toMatchObject({ code: "human_private" });
   expect(pressed).toBe(true);
   await f.service.input(
     "thread",

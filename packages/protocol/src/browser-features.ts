@@ -17,13 +17,16 @@ export const BrowserTabActor = z.object({
   agentId: id.optional(),
 });
 export type BrowserTabActor = z.infer<typeof BrowserTabActor>;
-/** One tab's control lease: agents act unless a person holds it; `private` hides it from agents. */
-export const BrowserTabLease = z.object({
-  controller: z.enum(["agent", "human", "none"]),
-  owner: id.optional(),
-  mode: z.enum(["shared", "private"]),
+/**
+ * Where an agent last pointed in a tab (a click, hover or drag), in CSS pixels of the tab's
+ * viewport. `sequence` rises with every new point, so a repeat at the same spot still shows.
+ */
+export const BrowserAgentPointer = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  sequence: z.number().int().nonnegative(),
 });
-export type BrowserTabLease = z.infer<typeof BrowserTabLease>;
+export type BrowserAgentPointer = z.infer<typeof BrowserAgentPointer>;
 /**
  * `frozen` keeps the page but stops its scripts; `discarded` dropped it and reopens on use;
  * `crashed` lost its renderer and stays down until a reload or navigation brings it back.
@@ -40,7 +43,15 @@ export const BrowserTab = z.object({
   drivenBy: BrowserTabActor.optional(),
   /** A short name an agent gave the tab when it opened it, such as "checkout". */
   label: z.string().max(64).optional(),
-  lease: BrowserTabLease.optional(),
+  /**
+   * The person kept agents out of this tab: agents can neither read nor drive it. People and
+   * agents otherwise share every tab (ADR 0067, collaboration).
+   */
+  private: z.boolean().optional(),
+  /** The agent using this tab now: one of its commands runs, or ran in the last few seconds. */
+  inUse: BrowserTabActor.optional(),
+  /** Where the agent using this tab last pointed. */
+  pointer: BrowserAgentPointer.optional(),
   lifecycle: BrowserTabLifecycle.optional(),
   loading: z.boolean().optional(),
   favicon: z.string().max(8192).optional(),

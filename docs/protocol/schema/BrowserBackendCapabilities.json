@@ -6,11 +6,11 @@
       "const": true,
       "type": "boolean"
     },
-    "controllerLease": {
+    "downloads": {
       "const": true,
       "type": "boolean"
     },
-    "downloads": {
+    "humanInput": {
       "const": true,
       "type": "boolean"
     },
@@ -28,7 +28,7 @@
     "targets",
     "permissions",
     "downloads",
-    "controllerLease"
+    "humanInput"
   ],
   "type": "object"
 }

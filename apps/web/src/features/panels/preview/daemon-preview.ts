@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ClientApi } from "@ace/client";
 import {
   BrowserState,
+  BrowserTabsResult,
   ThreadId,
   WorkspaceId,
   type BrowserInput,
@@ -10,6 +11,7 @@ import {
 } from "@ace/protocol";
 import type {
   BrowserDownload,
+  BrowserExtensionView,
   BrowserView,
   ForwardedInput,
   PreviewLink,
@@ -21,7 +23,6 @@ import { schedule as defaultSchedule, type Schedule } from "../schedule.ts";
 import { documentVisibility, type PageVisibility } from "@/lib/page-visibility.ts";
 import { daemonAnnotate } from "./daemon-annotate.ts";
 import { decodeFrame, type FrameDecoder } from "./frames.ts";
-import { previewControl } from "./preview-control.ts";
 import { SuggestionStore } from "./preview-suggestions.ts";
 
 /** How often a watched thread without a browser asks again, and re-reads its dev servers. */
@@ -35,8 +36,6 @@ const clamp = (value: number) => Math.min(4096, Math.max(100, Math.round(value))
 
 const view = (state: BrowserState): BrowserView => ({
   threadId: state.threadId,
-  controller: state.controller,
-  owner: state.owner,
   url: state.url,
   closed: state.closed,
   status: state.status,
@@ -47,6 +46,13 @@ const view = (state: BrowserState): BrowserView => ({
     tabId: tab.tabId,
     url: tab.url,
     title: tab.title,
+    favicon: tab.favicon,
+    loading: tab.loading,
+    label: tab.label,
+    openedBy: tab.openedBy,
+    inUse: tab.inUse,
+    pointer: tab.pointer,
+    private: tab.private,
     pendingDialog: tab.pending_dialog,
   })),
   activeTabId: state.activeTabId,
@@ -55,7 +61,6 @@ const view = (state: BrowserState): BrowserView => ({
   permissionDenied: state.permissionDenied,
   downloads: state.downloads,
   pendingDialog: state.pending_dialog,
-  takeoverMode: state.takeoverMode,
   annotation: state.annotation,
   features: state.features,
 });
@@ -73,6 +78,19 @@ const wireInput = (input: ForwardedInput): BrowserInput => {
     ...(input.text ? { text: input.text } : {}),
   };
 };
+
+const Extensions = z.object({
+  extensions: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        version: z.string().optional(),
+        enabled: z.boolean(),
+      }),
+    )
+    .max(256),
+});
 
 /** The address a navigation reached, from its `browser.result` (the page's state). */
 function reached(result: unknown, fallback: string): string {
@@ -112,8 +130,8 @@ export interface PreviewOptions {
  * The thread's browser through the daemon's browser relay (ADR 0055) and its dev servers through
  * the preview gateway. Frames are ACKed one at a time once decoded, so the daemon never sends a
  * viewer more than it can draw; while the page is hidden nothing is ACKed or polled, so the
- * stream pauses until it is shown. Taking control is a lease on this connection; leaving the
- * thread workspace (or losing the connection) hands it back.
+ * stream pauses until it is shown. People and agents share every tab: nothing is taken or
+ * handed back, and the person's commands name the tab they act in.
  */
 export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): PreviewSource {
   const lifetime = new AbortController();
@@ -159,30 +177,39 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   };
   const requestId = () => `browser-${++requests}`;
   const call = async (
-    type:
-      | "browser.subscribe"
-      | "browser.unsubscribe"
-      | "browser.takeover"
-      | "browser.handback"
-      | "browser.close",
+    type: "browser.subscribe" | "browser.unsubscribe" | "browser.close",
     threadId: string,
-    mode?: "shared" | "private",
   ) => {
     if (disposed) throw new Error("preview_disposed");
-    const reply =
-      type === "browser.takeover" && mode
-        ? await request({ type, threadId: ThreadId.parse(threadId), mode })
-        : await request({ type, threadId: ThreadId.parse(threadId) });
+    const reply = await request({ type, threadId: ThreadId.parse(threadId) });
+    if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
+    return reply.result;
+  };
+  /** A person's browser command, in the tab it names (else the one shown). */
+  const execute = async (
+    threadId: string,
+    command: Extract<Parameters<ClientApi["request"]>[0], { type: "browser.execute" }>["command"],
+    timeoutMs?: number,
+  ) => {
+    const reply = await request(
+      { type: "browser.execute", threadId: ThreadId.parse(threadId), command },
+      timeoutMs === undefined ? undefined : { timeoutMs },
+    );
+    if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
+    return reply.result;
+  };
+  const tabs = async (
+    message:
+      | { type: "browser.tabs.open"; url?: string }
+      | { type: "browser.tabs.select" | "browser.tabs.close"; tabId: string },
+    threadId: string,
+  ) => {
+    const reply = await request({ ...message, threadId: ThreadId.parse(threadId) });
     if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
     return reply.result;
   };
   const annotate = daemonAnnotate(client, request);
   stops.push(annotate.dispose);
-  const control = previewControl({
-    call,
-    view: (threadId) => views.get(threadId),
-    watching: (threadId) => watches.has(threadId),
-  });
   const previews = async (
     threadId: string,
     operation: { op: "list"; suggestions: true } | { op: "forward" | "unforward"; port: number },
@@ -310,7 +337,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     if (message.type === "browser.state") {
       const state = message.state;
       const watch = watches.get(state.threadId);
-      if (!watch && !control.tracked(state.threadId)) return;
+      if (!watch) return;
       const previous = views.get(state.threadId);
       if (
         watch &&
@@ -328,7 +355,6 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           });
       }
       views.set(state.threadId, view(state));
-      control.observe(state);
       changed(state.threadId);
       return;
     }
@@ -363,9 +389,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     stops.push(
       client.connectionState().subscribe(() => {
         const ready = client.state === "ready";
-        control.reset();
         for (const [threadId, watch] of watches) {
-          // The daemon dropped this connection's subscriptions and control leases.
+          // The daemon dropped this connection's subscriptions.
           watch.subscribed = false;
           invalidate(threadId, watch);
           watch.cancel?.();
@@ -400,7 +425,6 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       servers.clear();
       suggestions.clear();
       unwatched.clear();
-      control.reset();
       listeners.clear();
       download = undefined;
     },
@@ -480,69 +504,78 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         changed();
       });
       if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
+      const state = BrowserState.safeParse(reply.result);
       const watch = watches.get(threadId);
       if (watch) {
+        if (state.success) {
+          views.set(threadId, view(state.data));
+          changed(threadId);
+        }
         watch.cancel?.();
         poll(threadId);
       }
+      return state.success ? view(state.data) : undefined;
     },
-    async navigate(threadId, url) {
-      const reply = await request(
-        {
-          type: "browser.execute",
-          threadId: ThreadId.parse(threadId),
-          command: { action: "navigate", url, timeout: 30_000 },
-        },
+    async navigate(threadId, url, tabId) {
+      const result = await execute(
+        threadId,
+        { action: "navigate", url, timeout: 30_000, ...(tabId ? { tabId } : {}) },
         // The daemon waits up to the command's timeout for the page; wait a little longer.
-        { timeoutMs: 35_000 },
+        35_000,
       );
-      if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
-      return reached(reply.result, url);
+      return reached(result, url);
     },
-    async navigationHistory(threadId) {
+    async navigationHistory(threadId, tabId) {
+      return z
+        .object({ back: z.boolean(), forward: z.boolean() })
+        .parse(
+          await execute(threadId, { action: "navigation_history", ...(tabId ? { tabId } : {}) }),
+        );
+    },
+    async navigateHistory(threadId, direction, tabId) {
+      await execute(threadId, { action: "history", direction, ...(tabId ? { tabId } : {}) });
+    },
+    findText(threadId, text, forward, tabId) {
+      return execute(threadId, { action: "find_text", text, forward, ...(tabId ? { tabId } : {}) });
+    },
+    async emulate(threadId, emulation, tabId) {
+      await execute(threadId, {
+        action: "emulate",
+        width: clamp(emulation.width),
+        height: clamp(emulation.height),
+        deviceScaleFactor: emulation.deviceScaleFactor,
+        mobile: emulation.mobile,
+        touch: emulation.touch,
+        colorScheme: "no-preference",
+        ...(tabId ? { tabId } : {}),
+      });
+    },
+    async openTab(threadId, url) {
+      const result = BrowserTabsResult.parse(
+        await tabs({ type: "browser.tabs.open", ...(url ? { url } : {}) }, threadId),
+      );
+      if ("pending_dialog" in result) throw new Error("A page is waiting for an answer");
+      return result.tabId ?? result.activeTabId;
+    },
+    async selectTab(threadId, tabId) {
+      await tabs({ type: "browser.tabs.select", tabId }, threadId);
+    },
+    async closeTab(threadId, tabId) {
+      await tabs({ type: "browser.tabs.close", tabId }, threadId);
+    },
+    async keepPrivate(threadId, tabId, value) {
       const reply = await request({
-        type: "browser.execute",
+        type: "browser.tabs.private",
         threadId: ThreadId.parse(threadId),
-        command: { action: "navigation_history" },
+        tabId,
+        private: value,
       });
       if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
-      return z.object({ back: z.boolean(), forward: z.boolean() }).parse(reply.result);
     },
-    async navigateHistory(threadId, direction) {
-      const reply = await request({
-        type: "browser.execute",
-        threadId: ThreadId.parse(threadId),
-        command: { action: "history", direction },
-      });
-      if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
-    },
-    async findText(threadId, text, forward) {
-      const reply = await request({
-        type: "browser.execute",
-        threadId: ThreadId.parse(threadId),
-        command: { action: "find_text", text, forward },
-      });
-      if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
-      return reply.result;
-    },
-    async emulate(threadId, emulation) {
-      const reply = await request({
-        type: "browser.execute",
-        threadId: ThreadId.parse(threadId),
-        command: {
-          action: "emulate",
-          width: clamp(emulation.width),
-          height: clamp(emulation.height),
-          deviceScaleFactor: emulation.deviceScaleFactor,
-          mobile: emulation.mobile,
-          touch: emulation.touch,
-          colorScheme: "no-preference",
-        },
-      });
-      if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
+    async extensions(threadId): Promise<readonly BrowserExtensionView[]> {
+      return Extensions.parse(await execute(threadId, { action: "extensions" })).extensions;
     },
     async close(threadId) {
-      control.forget(threadId);
       const watch = watches.get(threadId);
       if (watch) {
         invalidate(threadId, watch);
@@ -551,29 +584,19 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       }
       await call("browser.close", threadId);
     },
-    takeover: control.takeover,
-    heldAs: control.heldAs,
-    handback: control.handback,
-    releaseSharedControl: control.releaseSharedControl,
-    temporaryControl: control.temporaryControl,
     annotate,
-    input(threadId, input) {
+    input(threadId, input, tabId) {
       return request({
         type: "browser.input",
         threadId: ThreadId.parse(threadId),
         input: wireInput(input),
+        ...(tabId ? { tabId } : {}),
       })
         .then(() => {})
         .catch(() => {});
     },
-    async selection(threadId) {
-      const reply = await request({
-        type: "browser.execute",
-        threadId: ThreadId.parse(threadId),
-        command: { action: "selection" },
-      });
-      if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
-      const result = reply.result;
+    async selection(threadId, tabId) {
+      const result = await execute(threadId, { action: "selection", ...(tabId ? { tabId } : {}) });
       return typeof result === "object" &&
         result !== null &&
         "text" in result &&

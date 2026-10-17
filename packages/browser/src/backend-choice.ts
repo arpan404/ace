@@ -22,16 +22,9 @@ export function backendCandidates(
 }
 
 /**
- * Agent work resumes headlessly on a session paused by the loss of its desktop view, unless a
- * person holds the page (shared or private): their lease keeps it paused until they act.
+ * Agent work resumes headlessly on a session paused by the loss of its desktop view, unless the
+ * page the person views is private: that stays paused until they act.
  */
-export function agentResumes(state: BrowserState): boolean {
-  return (
-    !state.closed &&
-    state.status === "paused" &&
-    state.controller !== "human" &&
-    // A paused page reports no controller; a person's retained ownership shows as its owner.
-    state.owner === undefined &&
-    state.takeoverMode !== "private"
-  );
+export function agentResumes(state: BrowserState, viewedPrivate: boolean): boolean {
+  return !state.closed && state.status === "paused" && !viewedPrivate;
 }

@@ -36,9 +36,10 @@ test.each([
 
   act(() => app.daemon.apply(threadId, [call]));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  const tab = await within(panel).findByRole("tab", { selected: true });
-  expect(tab.textContent).toMatch(/localhost|youtube|Browser/i);
-  expect(await within(panel).findByText("is browsing", { exact: false })).toBeTruthy();
+  const strip = await within(panel).findByRole("tablist", { name: "Browser tabs" });
+  // The agent's tab shows, marked with the agent cursor.
+  expect(within(strip).getByRole("tab", { selected: true })).toBeTruthy();
+  expect(within(strip).getByRole("img", { name: /is using this tab$/ })).toBeTruthy();
 });
 
 test("an agent's other browser steps never pull the panel open", async () => {

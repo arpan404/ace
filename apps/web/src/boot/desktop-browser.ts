@@ -19,12 +19,6 @@ export interface NativeViewPlacement {
       }
     | undefined;
   visible: boolean;
-  /**
-   * The daemon connection through which this page holds the thread's page, as its take-control
-   * reply named it. The desktop lets the person's clicks and keys through only while the
-   * daemon's lease is that connection's.
-   */
-  owner?: string | undefined;
 }
 
 export type BrowserAccelerator =
@@ -40,10 +34,10 @@ export interface DesktopBrowserViews {
   onShortcut(listener: (threadId: string, accelerator: BrowserAccelerator) => void): () => void;
   place(placement: NativeViewPlacement): Promise<"shown" | "hidden" | "unavailable" | "superseded">;
   /**
-   * The person clicked or typed on a page they don't control; take control for them. Returns
-   * an unsubscribe.
+   * The thread's shown view as a still picture (a `data:` URL), to hold in its place while a
+   * menu covers it; undefined when nothing shows it or the app can't capture.
    */
-  onWantsControl(listener: (threadId: string) => void): () => void;
+  snapshot(threadId: string): Promise<string | undefined>;
   /**
    * This page focused one of its own fields: the OS focus leaves any native view now, and keys
    * typed there since a native ⌘L or ⌘F land in the field.
@@ -67,9 +61,9 @@ export function desktopBrowserViews(scope: object = globalThis): DesktopBrowserV
       ? browser.place
       : undefined;
   if (typeof place !== "function") return undefined;
-  const onWants =
-    typeof browser === "object" && browser !== null && "onWantsControl" in browser
-      ? browser.onWantsControl
+  const snapshot =
+    typeof browser === "object" && browser !== null && "snapshot" in browser
+      ? browser.snapshot
       : undefined;
   const onShortcut =
     typeof browser === "object" && browser !== null && "onShortcut" in browser
@@ -140,22 +134,12 @@ export function desktopBrowserViews(scope: object = globalThis): DesktopBrowserV
       if (receipt === "shown" || receipt === "hidden" || receipt === "superseded") return receipt;
       return receipt === true ? "shown" : "unavailable";
     },
-    onWantsControl: (listener) => {
-      if (typeof onWants !== "function") return () => {};
-      const stop: unknown = Reflect.apply(onWants, browser, [
-        (event: unknown) => {
-          if (
-            typeof event === "object" &&
-            event !== null &&
-            "threadId" in event &&
-            typeof event.threadId === "string"
-          )
-            listener(event.threadId);
-        },
-      ]);
-      return () => {
-        if (typeof stop === "function") stop();
-      };
+    snapshot: async (threadId) => {
+      if (typeof snapshot !== "function") return undefined;
+      const picture: unknown = await Promise.resolve(
+        Reflect.apply(snapshot, browser, [{ threadId }]),
+      ).catch(() => undefined);
+      return typeof picture === "string" && picture.startsWith("data:image/") ? picture : undefined;
     },
   };
 }

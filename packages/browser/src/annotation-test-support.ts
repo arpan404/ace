@@ -137,8 +137,6 @@ export async function annotationFixture(desktop?: DesktopStandIn) {
       execute: (command: BrowserCommand | Record<string, unknown>) =>
         call({ type: "browser.execute", command }),
       subscribe: () => call({ type: "browser.subscribe" }),
-      takeover: () => call({ type: "browser.takeover" }),
-      handback: () => call({ type: "browser.handback" }),
       evaluate: (expression: string) =>
         call({ type: "browser.execute", command: { action: "evaluate", expression } }),
       async event<K extends BrowserAnnotationEvent["kind"]>(kind: K, after = 0) {
@@ -196,11 +194,10 @@ export async function annotationFixture(desktop?: DesktopStandIn) {
       },
     };
   }
-  /** A person who has subscribed, taken control and started annotate mode. */
+  /** A person who has subscribed and started annotate mode. */
   async function annotating(connectionId = "person") {
     const person = connect(connectionId);
     await person.subscribe();
-    await person.takeover();
     await person.execute({ action: "annotate", operation: "start", config: { theme: "dark" } });
     await person.event("ready");
     return person;

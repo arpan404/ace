@@ -4,6 +4,7 @@ import { CredentialRegistry, ToolRegistry, nodeScheduler } from "@ace/mcp-server
 import { McpScope } from "@ace/protocol";
 import { browserToolkit } from "./index.ts";
 import { executablePath, fixture, ref } from "./test-support.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 const content = z.object({
   content: z.array(z.object({ type: z.literal("text"), text: z.string() })),
@@ -62,7 +63,7 @@ it("browser reads have read-only approval actions while scripts and input remain
   }
 });
 describe.skipIf(!executablePath)("authorized agent browser MCP", () => {
-  it("edits the caller's browser by semantic ref and respects human takeover", async () => {
+  it("edits the caller's browser by semantic ref and stays out of a private tab", async () => {
     const f = await fixture();
     const registry = new ToolRegistry({ scheduler: nodeScheduler });
     browserToolkit(f.service).register(registry);
@@ -107,7 +108,7 @@ describe.skipIf(!executablePath)("authorized agent browser MCP", () => {
       expect(Buffer.from(screenshot.data, "base64").subarray(0, 2)).toEqual(
         Buffer.from([255, 216]),
       );
-      f.service.takeover("thread", "human");
+      keepAgentsOut(f.service);
       expect(await call("type", { ref: nameRef, text: "must not type" })).toHaveProperty(
         "isError",
         true,

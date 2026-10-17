@@ -16,14 +16,15 @@ import { useComputerUse, type ComputerUse } from "./use-computer-use.ts";
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 /**
- * The sidebar indicator shows every active app session and any agent-held or private browser.
+ * The sidebar indicator shows every active app session and any browser an agent works in or
+ * the person keeps private.
  * Its popover lists each with Take over and Stop, and opens the live sessions.
  */
 export default function ComputerUseIndicator() {
   const use = useComputerUse();
   const sessions = indicatorSessions(use.snapshot.states);
   const browsers = [...useBrowserControls().values()].filter(
-    (control) => control.controller === "agent" || control.private,
+    (control) => control.agent || control.private,
   );
   if (sessions.length === 0 && browsers.length === 0) return null;
   const parts = [
@@ -133,7 +134,7 @@ function BrowserRow(props: { control: BrowserControl }) {
       <div className="min-w-0 flex-1">
         <p className="truncate text-ui">{addressHost(control.url) ?? "Browser"}</p>
         <p className="truncate text-xs text-subtle-foreground">
-          {control.private ? "Private: agents can't see this page" : "An agent is using this page"}
+          {control.private ? "Agents are kept out of this tab" : "An agent is using this page"}
         </p>
       </div>
       <Link

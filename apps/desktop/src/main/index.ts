@@ -178,7 +178,6 @@ function main(target: DaemonTarget): void {
     open: (link) => open(link),
     quitAll: () => app.quit(),
     log: (message) => log("warn", message),
-    onController: (state) => emit(contents(), "browser.controller", state),
   });
 
   /** Show the window (creating it if needed) and follow a deep link. */

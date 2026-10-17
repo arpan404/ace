@@ -29,7 +29,7 @@ export function changeSummary(styles: number, text: boolean): string | undefined
 /**
  * The draft's browser annotations as one chip above the message: its count opens a list of
  * them (crop, element, page text, comment) where each can be reopened in the page or removed;
- * ✕ removes them all. Markers on the page follow.
+ * its close button removes them all. Markers on the page follow.
  */
 export function AnnotationChip(props: {
   /** The thread whose browser holds the markers; none for a new thread's draft. */

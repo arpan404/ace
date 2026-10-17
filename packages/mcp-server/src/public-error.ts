@@ -34,8 +34,7 @@ export const PublicToolCode = z.enum([
   "access_unavailable",
   "effort_unavailable",
   "stale_ref",
-  "controller_changed",
-  "human_controlled",
+  "human_active",
   "human_private",
   "browser_paused",
   "browser_closed",
@@ -208,21 +207,17 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
     message: "Stale or unknown element ref",
     hint: "Refresh ace_browser_snapshot, screen_ui_tree or device_ui_tree for the affected tool and use a current ref.",
   },
-  controller_changed: {
-    message: "Browser control changed while the action was queued",
-    hint: "Take a fresh snapshot and retry after control is handed back.",
+  human_active: {
+    message: "The person kept using this tab",
+    hint: "They are working in it right now. Take a fresh snapshot, then retry in a moment or use another tab.",
   },
   human_private: {
-    message: "Browser is private while a human has control",
-    hint: "Wait for explicit human handback. A disconnect does not restore agent access.",
-  },
-  human_controlled: {
-    message: "Browser controlled by human",
-    hint: "Wait for handback before input or closing.",
+    message: "The person keeps agents out of this tab",
+    hint: "Use another tab, or ask the person to let agents into this one.",
   },
   browser_paused: {
     message: "Browser backend paused",
-    hint: "Ask the user to restore the browser backend or close it after handback.",
+    hint: "Ask the user to restore the browser backend or close it.",
   },
   browser_closed: {
     message: "Browser closed",

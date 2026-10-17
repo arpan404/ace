@@ -156,8 +156,6 @@ export interface BrowserFailure {
   detail: string;
   /** Chromium's own code when there is one (ERR_CONNECTION_REFUSED), for searching. */
   code?: string;
-  /** Taking control again (or once) would let the person retry. */
-  needsControl?: boolean;
 }
 
 const netErrors: Record<string, (host: string) => Omit<BrowserFailure, "code">> = {
@@ -189,8 +187,7 @@ const netErrors: Record<string, (host: string) => Omit<BrowserFailure, "code">> 
 
 /**
  * A browser command's failure as a person reads it: Chromium's net errors by name, the browser
- * service's refusals (control held elsewhere) in plain words, and
- * unknown failures with a recovery step.
+ * service's refusals in plain words, and unknown failures with a recovery step.
  */
 export function describeBrowserFailure(message: string, url: string): BrowserFailure {
   const host = addressHost(url) ?? url;
@@ -201,17 +198,6 @@ export function describeBrowserFailure(message: string, url: string): BrowserFai
       ? { ...known(host), code: net }
       : { title: "This page couldn't load", detail: `${host} didn't load.`, code: net };
   }
-  if (/another connection/i.test(message))
-    return {
-      title: "Another device is using this page",
-      detail: "Someone took control of the thread's page from another device.",
-    };
-  if (/controller mismatch|controlled by/i.test(message))
-    return {
-      title: "The agent has the page",
-      detail: "An agent took the page back. Take control to browse again.",
-      needsControl: true,
-    };
   if (/browser closed/i.test(message))
     return { title: "The page was closed", detail: "Open the address again to start a new page." };
   if (/paused/i.test(message))

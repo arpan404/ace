@@ -4,6 +4,7 @@ import { backendFixture } from "./backend-test-support.ts";
 import { connectBrowser } from "./index.ts";
 import { BrowserBackendRequest } from "@ace/protocol";
 import type { NavigationClock } from "./navigation.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 function clock() {
   const timers = new Set<{ ms: number; run(): void }>();
@@ -55,18 +56,18 @@ async function native(options: Parameters<typeof backendFixture>[0] = {}) {
   return { ...f, sessionId, page, event, response, barrier };
 }
 
-it("embedded private response ids remain unavailable after handback, while new shared bodies can be read", async () => {
+it("embedded private response ids stay unavailable once agents are let back in, while new bodies can be read", async () => {
   const f = await native();
   f.response("400.1");
   await f.barrier();
   expect(
     await f.service.execute("thread", { action: "network_body", requestId: "native-tab:400.1" }),
   ).toMatchObject({ body: "body-400.1" });
-  f.service.takeover("thread", "person", "private");
+  keepAgentsOut(f.service, "thread");
   await f.barrier();
   f.response("400.2");
   await f.barrier();
-  f.service.handback("thread", "person");
+  keepAgentsOut(f.service, "thread", false);
   await f.barrier();
   for (const id of ["400.1", "400.2"])
     await expect(
@@ -79,7 +80,7 @@ it("embedded private response ids remain unavailable after handback, while new s
   ).toMatchObject({ body: "body-400.3" });
 });
 
-it("a body read already in flight cannot cross a private takeover", async () => {
+it("a body read already in flight cannot cross into a private tab", async () => {
   const f = await native();
   f.response("400.1");
   await f.barrier();
@@ -92,7 +93,7 @@ it("a body read already in flight cannot cross a private takeover", async () => 
   const rejected = expect(body).rejects.toThrow(/unavailable|human_private/);
   const [raw] = await sent;
   const request = BrowserBackendRequest.parse(raw);
-  f.service.takeover("thread", "person", "private");
+  keepAgentsOut(f.service, "thread");
   f.reply(request, { body: "private-marker", base64Encoded: false });
   await rejected;
 });
@@ -117,14 +118,13 @@ it("SPA navigation updates the URL given to agents and people", async () => {
   expect(f.service.state("thread").url).toBe("http://localhost:3000/second#part");
 });
 
-it("Find reads the page while the agent keeps control", async () => {
+it("the person's Find leaves the agent free to keep typing", async () => {
   const f = await native();
   await f.service.execute(
     "thread",
     { action: "find_text", text: "marker" },
     { kind: "human", connectionId: "person" },
   );
-  expect(f.service.state("thread").controller).toBe("agent");
   await f.service.execute("thread", { action: "press", key: "a" });
 });
 
@@ -143,11 +143,10 @@ it("a legacy new-tab request navigates the existing page", async () => {
   });
 });
 
-it("Reopen restores a lost native page with its thread profile and human lease", async () => {
+it("Reopen restores a lost native page with its thread profile", async () => {
   const f = await backendFixture({ profilePreference: () => "persistent" });
   await f.open();
   await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/last" });
-  f.service.takeover("thread", "person");
   await f.service.input("thread", { kind: "key", event: "char", key: "x" }, "person");
   const id = [...f.pages.keys()][0];
   if (!id) throw new Error("Missing page");
@@ -162,8 +161,6 @@ it("Reopen restores a lost native page with its thread profile and human lease",
     status: "ready",
     backend: "embedded",
     url: "http://localhost:3000/last",
-    controller: "human",
-    owner: "person",
   });
   await f.service.input("thread", { kind: "key", event: "char", key: "y" }, "person");
   expect([...f.pages.values()].at(-1)?.text).toBe("y");
@@ -173,7 +170,6 @@ it("Reopen restores a lost native page with its thread profile and human lease",
 it("an unanswered dialog preserves the session beyond the input relay deadline", async () => {
   const time = clock();
   const f = await native({ navigationClock: time.port });
-  f.service.takeover("thread", "person");
   await f.service.input("thread", { kind: "key", event: "char", key: "x" }, "person");
   f.hold("Input.insertText");
   const sent = once(f.requests, "Input.insertText");
@@ -197,17 +193,16 @@ it("an unanswered dialog preserves the session beyond the input relay deadline",
   expect(f.service.state("thread").pending_dialog).toBeUndefined();
 });
 
-it("capacity evicts the oldest idle shared page and preserves human and private pages", async () => {
+it("capacity evicts the oldest idle shared page and preserves private pages", async () => {
   let now = 0;
   const f = await backendFixture({ maxSessions: 2, now: () => ++now });
   await f.open("old");
   await f.open("held");
-  f.service.takeover("held", "person", "private");
+  keepAgentsOut(f.service, "held");
   now += 30_000;
   await f.open("new");
   expect(() => f.service.state("old")).toThrow(/not open/);
-  expect(f.service.state("held").takeoverMode).toBe("private");
-  f.service.takeover("new", "person");
+  expect(f.service.state("held").closed).toBe(false);
   await expect(f.open("another")).rejects.toThrow(/All browser pages are in use/);
 });
 
@@ -303,7 +298,6 @@ it("a read-only paired viewer can Find and read selection without taking control
       });
       expect(result).toMatchObject({ ok: true });
     }
-    expect(f.service.state("thread").controller).toBe("agent");
     await channel.handle({
       type: "browser.execute",
       requestId: "write",

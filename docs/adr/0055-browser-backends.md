@@ -49,7 +49,8 @@ host-token hello and the credential's device id, then sends:
 
 - `browser.backend.register`: `requestId`, `credential`, `version: 1`, and
   `capabilities`. All version-1 capabilities are required: `cdp`, `targets`,
-  `permissions`, `downloads`, `controllerLease`.
+  `permissions`, `downloads`, `humanInput` (amended 2026-10-17: was `controllerLease`; see
+  ADR 0067, Collaboration).
 - `browser.backend.registered`: matching `requestId`, `backendId`, `connectionId`.
 
 The second credential is desktop-scoped, checked against the authenticated
@@ -62,7 +63,7 @@ Daemon sends `browser.backend.request` with `backendId`, unique `id`,
 `sessionId`, and `operation`. Desktop responds `browser.backend.response` with
 the same identifiers and either `result` or `error`. Supported operations:
 
-- `open`: thread/workspace/profile, viewport, and a daemon controller lease.
+- `open`: thread/workspace/profile and viewport.
   Create an ace-only WebContentsView partition. Persistent partitions belong
   exclusively to the workspace; ephemeral partitions are removed on close.
   Return `{url}`. Install deny-all permission handlers and deny downloads,
@@ -80,12 +81,10 @@ the same identifiers and either `result` or `error`. Supported operations:
   recovery use this URL.
 - `press`: Playwright-compatible keyboard key/chord string.
 - `resize`: width/height. Resize the actual view and CDP viewport.
-- `controller`: monotonically increasing `generation`, controller and optional
-  human connection owner. Return after applying the lease. Native view input
-  is enabled only when `controller` is `human` and `owner` equals the registered
-  `connectionId`; another device's human lease keeps native input disabled.
-  Native take-control uses the existing
-  browser.takeover connection; local pointer input follows that lease.
+- `agentUse`: `active`, whether an agent uses the shown view (amended 2026-10-17;
+  replaces the controller lease). The person's native input always reaches the
+  view; the desktop reports it as the event `ace.humanInput` (`{tabId?}`, at most
+  every 250 ms) so agent input in that tab waits for the person (ADR 0067).
 - `close`: destroy the view, detach CDP, remove ephemeral partition data.
 
 Screenshots, accessibility, ref actions, evaluation, mouse/text/touch input,

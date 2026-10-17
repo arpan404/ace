@@ -1,7 +1,7 @@
 import type { BrowserBackend, BackendOpen } from "./backend.ts";
 import type { BrowserSession } from "./session.ts";
 
-/** A fresh private page in ace's browser; only its URL and daemon-owned controller lease survive. */
+/** A fresh private page in ace's browser; only its URL and the tab's privacy survive. */
 export async function recoverHeadless(options: {
   request: BackendOpen;
   backend: BrowserBackend;
@@ -25,7 +25,7 @@ export async function recoverHeadless(options: {
   });
   try {
     signal.throwIfAborted();
-    replacement.privateMode?.(session.state.takeoverMode === "private");
+    replacement.privateMode?.(session.viewedPrivate);
     if (url !== "about:blank") {
       if (!(await request.allowed(url))) throw new Error("Browser recovery origin refused");
       signal.throwIfAborted();

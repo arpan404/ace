@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { BrowserFrame, BrowserState } from "@ace/protocol";
+import type { BrowserFrame } from "@ace/protocol";
 import { executablePath, fixture, ref } from "./test-support.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 
-describe.skipIf(!executablePath)("live Chromium and controller ownership", () => {
+describe.skipIf(!executablePath)("live Chromium shared by people and agents", () => {
   it("delivers JPEG frames to two viewers while the slow viewer skips intermediate frames", async () => {
     const f = await fixture();
     await f.navigate();
@@ -52,39 +53,23 @@ describe.skipIf(!executablePath)("live Chromium and controller ownership", () =>
     }
   }, 60_000);
 
-  it("blocks agent input during human control and binds human input and hand-back to its owner", async () => {
+  it("the person and an agent type into the same page without handing control around", async () => {
     const f = await fixture();
     await f.navigate();
     const name = ref(await f.execute({ action: "snapshot" }), "Name");
-    const states: BrowserState[] = [];
-    const stop = f.service.subscribe("thread", "owner", { send: () => false }, (state) =>
-      states.push(state),
-    );
-    f.service.takeover("thread", "owner");
-    await expect(f.execute({ action: "type", ref: name, text: "agent" })).rejects.toThrow(
-      "controlled by human",
-    );
-    await expect(
-      f.service.input("thread", { kind: "key", event: "char", key: "x", text: "x" }, "other"),
-    ).rejects.toThrow("mismatch");
-    expect(() => f.service.handback("thread", "other")).toThrow("mismatch");
     await f.service.execute(
       "thread",
       { action: "type", ref: name, text: "human" },
       { kind: "human", connectionId: "owner" },
     );
-    await f.service.input("thread", { kind: "key", event: "char", key: "!", text: "!" }, "owner");
-    f.service.disconnect("owner");
+    await f.service.input("thread", { kind: "key", event: "char", key: "!", text: "!" }, "other");
     expect(await f.evaluate("document.querySelector('input').value")).toBe("human!");
     await f.execute({ action: "type", ref: name, text: "returned" });
     expect(await f.evaluate("document.querySelector('input').value")).toBe("returned");
-    expect(states.map((state) => state.controller)).toEqual(["agent", "human", "agent"]);
     await f.service.closeThread("thread");
-    expect(states.at(-1)?.controller).toBe("none");
-    stop();
   }, 60_000);
 
-  it("rejects queued agent input when take-over happens before dispatch", async () => {
+  it("rejects queued agent input when the person keeps agents out before dispatch", async () => {
     const { promise: gate, resolve: release } = Promise.withResolvers<boolean>();
     const { promise: seen, resolve: entered } = Promise.withResolvers<void>();
     const f = await fixture({
@@ -96,15 +81,15 @@ describe.skipIf(!executablePath)("live Chromium and controller ownership", () =>
     await f.navigate();
     const name = ref(await f.execute({ action: "snapshot" }), "Name");
     const active = f.evaluate("1");
-    const activeFailure = expect(active).rejects.toMatchObject({ code: "human_controlled" });
+    const activeFailure = expect(active).rejects.toMatchObject({ code: "human_private" });
     await seen;
     const queued = f.execute({ action: "type", ref: name, text: "queued" });
-    const queuedFailure = expect(queued).rejects.toMatchObject({ code: "human_controlled" });
-    f.service.takeover("thread", "human");
+    const queuedFailure = expect(queued).rejects.toMatchObject({ code: "human_private" });
+    keepAgentsOut(f.service);
     release(true);
     await activeFailure;
     await queuedFailure;
-    f.service.handback("thread", "human");
+    keepAgentsOut(f.service, "thread", false);
     expect(await f.evaluate("document.querySelector('input').value")).toBe("");
   }, 60_000);
 });

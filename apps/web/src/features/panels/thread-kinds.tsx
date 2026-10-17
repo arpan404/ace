@@ -17,6 +17,8 @@ import { cn } from "@/lib/cn.ts";
 import { PullRequestGlyph } from "@/components/pull-request-state.tsx";
 import { LoadingBadge } from "./browser/loading-badge.tsx";
 import { setLoading } from "./browser/loading.ts";
+import { browserTabData } from "./browser/browser-data.ts";
+import { closeBrowserTabs } from "./browser/browser-closers.ts";
 import { QuickOpenOverlay } from "./files/quick-open-overlay.tsx";
 import { quickOpen } from "./files/quick-open-store.ts";
 import { fileTabId } from "./files/tab-id.ts";
@@ -90,8 +92,9 @@ export const filesKind = defineTabKind({
 });
 
 /**
- * The thread's single browser page. Addresses, links and agent navigation reuse its panel
- * tab and document history.
+ * The thread's browser: one panel tab holding the strip of the thread's daemon tabs, which the
+ * person and agents share. An address opened from the launcher or a link opens in a new tab of
+ * it (`open`), never over the page someone is looking at.
  */
 export const browserKind = defineTabKind({
   kind: "browser",
@@ -113,12 +116,17 @@ export const browserKind = defineTabKind({
   title: (tab) => addressHost(field(tab.data, "url") ?? "") ?? "Browser",
   Badge: LoadingBadge,
   load: () => import("./browser/browser-tab.tsx"),
-  fromUrl: (url) => ({
+  fromUrl: (url, workspace) => ({
     kind: "browser",
-    data: { url, go: true },
+    data: {
+      ...browserTabData(workspace.tabs.find((tab) => tab.kind === "browser")),
+      open: url,
+    },
   }),
   onClose: (scope, tab) => {
     setLoading(scope, tab.key, false);
+    // Closing the panel tab closes the person's own tabs; agents keep theirs.
+    closeBrowserTabs(scope);
   },
 });
 
