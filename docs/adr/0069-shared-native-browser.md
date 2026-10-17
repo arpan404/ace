@@ -1,7 +1,9 @@
 # 0069: Agents drive the desktop's native browser
 
-Date: 2026-10-07. Status: accepted. Amends [ADR 0055](0055-browser-backends.md) and
+Date: 2026-10-07. Status: superseded by ADR 0083. Amends [ADR 0055](0055-browser-backends.md) and
 [ADR 0067](0067-browser-parity.md).
+
+Superseded 2026-10-17 by [ADR 0083](0083-browser-v2-daemon-chrome.md): agents use the daemon's own Chrome, and all threads share one ace profile, with private contexts on request.
 
 ## Context
 

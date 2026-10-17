@@ -2,6 +2,8 @@
 
 Date: 2026-10-02. Status: accepted.
 
+Amended 2026-10-17 by [ADR 0083](0083-browser-v2-daemon-chrome.md): one Chrome for Testing per profile driven over a pipe without Playwright, only document requests intercepted, service workers allowed.
+
 Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provider-native (owner decision). Site approval, origin grants and the approval hook described below no longer gate agents: any http(s) origin opens without asking. Human control (takeover, private mode, leases) is unchanged.
 
 Tab, file, inspection, profile and private-control behavior is superseded by
