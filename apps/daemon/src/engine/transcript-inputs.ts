@@ -63,6 +63,14 @@ export function acceptInput(
       [{ type: "thread.updated", title: provisionalTitle(p.input), titleSource: "provisional" }],
       at,
     );
+  // The person's send makes the thread a task now, even while it waits in a held queue: a thread
+  // whose only message is queued or failed must stay listed, never read as an empty draft.
+  if ((origin.kind === "person" || origin.kind === "queue") && !thread?.hasSentMessage)
+    repo.store.appendEvents(
+      id,
+      [{ type: "thread.client.updated", changes: { hasSentMessage: true } }],
+      at,
+    );
   repo.inputs.register(id, key, p.input, origin);
 }
 
