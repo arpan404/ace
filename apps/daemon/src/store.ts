@@ -122,6 +122,7 @@ export class Store {
   private readonly threadReads: ThreadReads;
   private readonly navigation: LongThreadQueries;
   private readonly sidebarReads: SidebarReads;
+  private sidebarSnapshotSeq = 0;
   private readonly receipts: CommandReceipts;
   private readonly eventWriter: EventWriter;
   private publications: Event[][] = [];
@@ -152,7 +153,10 @@ export class Store {
       inTransaction: () => this.transactionEvents !== undefined,
       generationChanged: () => this.threadReads.invalidateViews(),
     });
-    this.sidebarReads = new SidebarReads(this.db, (sql) => this.statement(sql));
+    this.sidebarReads = new SidebarReads({
+      statement: (sql) => this.statement(sql),
+      snapshot: (read) => this.sidebarSnapshot(read),
+    });
     this.receipts = new CommandReceipts({
       statement: (sql) => this.statement(sql),
       atomic: (run) => this.atomic(run),
@@ -790,6 +794,19 @@ export class Store {
     reuse?: Parameters<SidebarReads["sidebarPage"]>[2],
   ) {
     return this.sidebarReads.sidebarPage(options, before, reuse);
+  }
+  /** Store owns all SQLite savepoints; SidebarReads owns only its page caches. */
+  private sidebarSnapshot<T>(read: () => T): T {
+    const name = `sidebar_read_${++this.sidebarSnapshotSeq}`;
+    this.db.exec(`SAVEPOINT ${name}`);
+    try {
+      return read();
+    } catch (error) {
+      this.db.exec(`ROLLBACK TO ${name}`);
+      throw error;
+    } finally {
+      this.db.exec(`RELEASE ${name}`);
+    }
   }
   listThreads(): Thread[] {
     return this.statement("SELECT * FROM threads ORDER BY updated_at DESC, id")

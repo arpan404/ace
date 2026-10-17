@@ -1,12 +1,16 @@
-import type { DatabaseSync, StatementSync } from "node:sqlite";
+import type { StatementSync } from "node:sqlite";
 import { BoundedCache } from "@ace/provider-kit/bounded-cache";
 import { sidebarPageStorage } from "./sidebar-page-storage.ts";
 import { SidebarPageWeight } from "./sidebar-page-weight.ts";
 import { decodeThreadRow } from "./thread-row.ts";
+interface SidebarReadSource {
+  statement(sql: string): StatementSync;
+  /** Store-owned SQLite snapshot; SidebarReads owns only its caches. */
+  snapshot<T>(read: () => T): T;
+}
 /** Sidebar reads pin membership and payloads to one SQLite snapshot and revision. */
 export class SidebarReads {
   private sidebarRevision = "";
-  private sidebarReads = 0;
   private readonly sidebarPageWeight = new SidebarPageWeight();
   private readonly sidebarRowRevisions = new WeakMap<
     import("@ace/protocol").ThreadListEntry,
@@ -20,11 +24,9 @@ export class SidebarReads {
     string,
     Pick<import("@ace/protocol").ThreadListWindow, "total" | "counts">
   >(16, 256 * 1024);
-  private readonly db: DatabaseSync;
-  private readonly statement: (sql: string) => StatementSync;
-  constructor(db: DatabaseSync, statement: (sql: string) => StatementSync) {
-    this.db = db;
-    this.statement = statement;
+  private readonly source: SidebarReadSource;
+  constructor(source: SidebarReadSource) {
+    this.source = source;
   }
   invalidate(): void {
     this.sidebarPages.clear();
@@ -38,20 +40,12 @@ export class SidebarReads {
       changed: ReadonlySet<string>;
     },
   ) {
-    return this.readSidebar(() => this.loadSidebarPage(options, before, reuse));
-  }
-  private readSidebar<T>(read: () => T): T {
-    const name = `sidebar_read_${++this.sidebarReads}`;
-    this.db.exec(`SAVEPOINT ${name}`);
     try {
-      return read();
+      return this.source.snapshot(() => this.loadSidebarPage(options, before, reuse));
     } catch (error) {
-      this.db.exec(`ROLLBACK TO ${name}`);
       this.sidebarPages.clear();
       this.sidebarSummaries.clear();
       throw error;
-    } finally {
-      this.db.exec(`RELEASE ${name}`);
     }
   }
   private loadSidebarPage(
@@ -63,9 +57,11 @@ export class SidebarReads {
     },
   ) {
     // Covers direct writes through atomic(), including imports and rollback invalidation.
-    const revisionRow = this.statement(
-      "SELECT total_changes() AS writes, (SELECT data_version FROM pragma_data_version) AS external, (SELECT revision FROM sidebar_thread_revisions LIMIT 1) AS snapshot_anchor",
-    ).get();
+    const revisionRow = this.source
+      .statement(
+        "SELECT total_changes() AS writes, (SELECT data_version FROM pragma_data_version) AS external, (SELECT revision FROM sidebar_thread_revisions LIMIT 1) AS snapshot_anchor",
+      )
+      .get();
     const revision = `${revisionRow?.writes}:${revisionRow?.external}`;
     if (revision !== this.sidebarRevision) {
       this.sidebarPages.clear();
@@ -81,7 +77,7 @@ export class SidebarReads {
     const cached = this.sidebarPages.get(key);
     if (cached) return cached;
     const page = sidebarPageStorage(
-      (sql) => this.statement(sql),
+      (sql) => this.source.statement(sql),
       (row) => {
         const entry = decodeThreadRow(row);
         this.sidebarRowRevisions.set(entry, Number(row.sidebar_revision));
