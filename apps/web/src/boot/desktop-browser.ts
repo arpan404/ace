@@ -44,6 +44,11 @@ export interface DesktopBrowserViews {
    * an unsubscribe.
    */
   onWantsControl(listener: (threadId: string) => void): () => void;
+  /**
+   * This page focused one of its own fields: the OS focus leaves any native view now, and keys
+   * typed there since a native ⌘L or ⌘F land in the field.
+   */
+  focusApp(): void;
 }
 
 /**
@@ -74,7 +79,15 @@ export function desktopBrowserViews(scope: object = globalThis): DesktopBrowserV
     typeof browser === "object" && browser !== null && "onVisibility" in browser
       ? browser.onVisibility
       : undefined;
+  const focusApp =
+    typeof browser === "object" && browser !== null && "focusApp" in browser
+      ? browser.focusApp
+      : undefined;
   return {
+    focusApp: () => {
+      if (typeof focusApp !== "function") return;
+      void Promise.resolve(Reflect.apply(focusApp, browser, [])).catch(() => {});
+    },
     onVisibility: (listener) => {
       if (typeof onVisibility !== "function") return () => {};
       const stop: unknown = Reflect.apply(onVisibility, browser, [

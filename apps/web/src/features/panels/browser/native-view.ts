@@ -15,6 +15,8 @@ interface Size {
 
 /** The space a device-sized page keeps around it, as the picture's `p-6` does. */
 const devicePadding = 24;
+/** How long after a window's last resize event the page area is measured again. */
+const resizeSettleMs = 150;
 
 const intersects = (a: PageBox, b: PageBox) =>
   a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
@@ -183,14 +185,23 @@ export function useNativeView(
     };
     for (const type of ["transitionrun", "transitionend", "transitioncancel"] as const)
       document.addEventListener(type, transition);
-    addEventListener("resize", schedule);
+    // A window resize can settle the layout a frame or more after its last event (panel sizes
+    // clamp to the new width in an effect): measure once more after it goes quiet.
+    let settle: ReturnType<typeof setTimeout> | undefined;
+    const resized = () => {
+      schedule();
+      clearTimeout(settle);
+      settle = setTimeout(schedule, resizeSettleMs);
+    };
+    addEventListener("resize", resized);
     document.addEventListener("scroll", schedule, true);
     measure();
     const stopRect = () => {
       cancelAnimationFrame(frame);
+      clearTimeout(settle);
       resize?.disconnect();
       mutations.disconnect();
-      removeEventListener("resize", schedule);
+      removeEventListener("resize", resized);
       document.removeEventListener("scroll", schedule, true);
       for (const type of ["transitionrun", "transitionend", "transitioncancel"] as const)
         document.removeEventListener(type, transition);

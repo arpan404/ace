@@ -5,6 +5,11 @@ Date: 2026-10-07. Status: superseded by ADR 0083. Amends [ADR 0055](0055-browser
 
 Superseded 2026-10-17 by [ADR 0083](0083-browser-v2-daemon-chrome.md): agents use the daemon's own Chrome, and all threads share one ace profile, with private contexts on request.
 
+Amended 2026-10-17 by [ADR 0085](0085-desktop-native-view-lifecycle.md): under the hybrid the
+native view stays the in-app renderer. Views outlive app windows and lost links, a thread holds
+several native tabs, and whether a windowless app quits is decided by `appLifetime`, not by the
+parking window.
+
 ## Context
 
 ADR 0067 sent every agent browser session to the daemon's headless Chromium, even with the

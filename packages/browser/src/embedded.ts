@@ -21,6 +21,8 @@ import { navigateCdp } from "./cdp-navigation.ts";
 import type { NavigationClock } from "./navigation.ts";
 import { CommandSlots } from "./command-slots.ts";
 
+/** How long the desktop has to answer a liveness ping after a command timed out. */
+const pingDeadlineMs = 5_000;
 /** Navigations keep the full wait budget plus the policy approval reserve (65 s). */
 const navigationDeadlineMs = browserWaitLimitMs + 65_000;
 function relayDeadline(operation: BrowserBackendOperation): number {
@@ -53,6 +55,8 @@ interface RemoteSession {
   pending: Set<string>;
   mainFrame?: string | undefined;
   lost?: boolean;
+  /** A liveness ping in flight after a command timed out. */
+  probing?: boolean;
   cleanup(): void;
 }
 interface Waiter {
@@ -113,10 +117,52 @@ export class EmbeddedBackend implements BrowserBackend {
   ): Promise<unknown> {
     return this.slots.run(() => this.dispatch(sessionId, operation, signal), signal);
   }
+  /**
+   * A command got no answer in time. It fails alone: a slow page (a long script, a dialog, a
+   * busy renderer) is not a lost one. Only when the desktop also misses a liveness ping is the
+   * view lost, and closed so the daemon can recover the thread.
+   */
+  private timedOut(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.lost || session.probing || this.closed) return;
+    session.probing = true;
+    this.dispatch(sessionId, { kind: "cdp", method: "ace.ping" }, undefined, {
+      deadlineMs: pingDeadlineMs,
+      timedOut: () => this.unresponsive(sessionId),
+    }).then(
+      () => {
+        session.probing = false;
+      },
+      (error: unknown) => {
+        session.probing = false;
+        // Any answer but "no such session" (an older desktop's unknown method too) is alive.
+        if (error instanceof Error && error.message === "Unknown browser session")
+          this.unresponsive(sessionId);
+      },
+    );
+  }
+  private unresponsive(sessionId: string): void {
+    this.loseSession(sessionId, "Desktop browser command timed out");
+    try {
+      this.send({
+        type: "browser.backend.request",
+        backendId: this.id,
+        sessionId,
+        id: String(++this.sequence),
+        operation: { kind: "close" },
+      });
+    } catch {
+      /* Transport loss already closes sessions. */
+    }
+  }
   private dispatch(
     sessionId: string,
     operation: BrowserBackendOperation,
     signal?: AbortSignal,
+    deadline: { deadlineMs: number; timedOut(): void } = {
+      deadlineMs: relayDeadline(operation),
+      timedOut: () => this.timedOut(sessionId),
+    },
   ): Promise<unknown> {
     if (signal?.aborted) return Promise.reject(signal.reason);
     if (this.closed) return Promise.reject(new Error("Desktop browser backend lost"));
@@ -135,25 +181,13 @@ export class EmbeddedBackend implements BrowserBackend {
     return new Promise((resolve, reject) => {
       let cancelTimer = noop;
       const armTimer = () => {
-        cancelTimer = this.clock.set(relayDeadline(operation), () => {
+        cancelTimer = this.clock.set(deadline.deadlineMs, () => {
           signal?.removeEventListener("abort", abort);
           this.pending.delete(id);
           session?.pending.delete(id);
           reject(new Error("Desktop browser command timed out"));
-          if (!session) return;
           // Uncertain work belongs to this session, never to its siblings.
-          this.loseSession(sessionId, "Desktop browser command timed out");
-          try {
-            this.send({
-              type: "browser.backend.request",
-              backendId: this.id,
-              sessionId,
-              id: String(++this.sequence),
-              operation: { kind: "close" },
-            });
-          } catch {
-            /* Transport loss already closes sessions. */
-          }
+          if (session) deadline.timedOut();
         });
       };
       armTimer();
@@ -391,10 +425,18 @@ export class EmbeddedBackend implements BrowserBackend {
       cleanup() {},
     };
     this.sessions.set(sessionId, remote);
-    const call = (operation: BrowserBackendOperation) =>
-      closing && operation.kind !== "close"
+    /**
+     * The desktop handed back the thread's existing page (it kept it through a lost link) at
+     * this URL. Recovery's navigation to the same URL is then already done: skipping it keeps
+     * the page's state instead of reloading it. Any other command first ends the window.
+     */
+    let adoptedUrl: string | undefined;
+    const call = (operation: BrowserBackendOperation) => {
+      adoptedUrl = undefined;
+      return closing && operation.kind !== "close"
         ? Promise.reject(new Error("Desktop browser session closed"))
         : this.call(sessionId, operation);
+    };
     const cdp = {
       send: (method: string, params?: Record<string, unknown>) =>
         method === "Page.screencastFrameAck"
@@ -446,6 +488,7 @@ export class EmbeddedBackend implements BrowserBackend {
           activeTabId: z.string().optional(),
           // Decoded leniently by EmbeddedTabs: one odd tab must not fail the whole open.
           tabs: z.array(z.unknown()).optional(),
+          adopted: z.boolean().catch(false).optional(),
         })
         .parse(
           await call({
@@ -465,6 +508,7 @@ export class EmbeddedBackend implements BrowserBackend {
       await cdp.send("Page.enable");
       await cdp.send("Runtime.enable");
       await cdp.send("Network.enable");
+      if (opened.adopted) adoptedUrl = opened.url;
       return {
         pageStatus: () => tabs?.pageStatus() ?? status.read(),
         privateMode: (enabled) => {
@@ -484,6 +528,9 @@ export class EmbeddedBackend implements BrowserBackend {
           : {}),
         url: () => tabs?.list().find((tab) => tab.tabId === tabs?.active())?.url ?? remote.url,
         navigate: async (url, _timeout, signal) => {
+          const adopted = adoptedUrl;
+          adoptedUrl = undefined;
+          if (adopted !== undefined && adopted === url) return;
           const navigationSignal = signal ?? request.signal;
           await navigateCdp(
             {

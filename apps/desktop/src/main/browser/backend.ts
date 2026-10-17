@@ -40,6 +40,14 @@ export interface ViewPage {
   setAgentControl?(agent: boolean): void;
   snapshot?(): { activeTabId: string; tabs: { tabId: string; url: string; title: string }[] };
   url(): string;
+  /** The daemon link dropped: keep the page alive, refusing what only the daemon decides. */
+  orphan?(): void;
+  /**
+   * A reconnected daemon adopts the page: a fresh CDP session over the same document, with
+   * nothing paused, captured or emulated from before. Throws when the page is not worth
+   * keeping (it crashed); the backend then opens a new one.
+   */
+  readopt?(): Promise<void>;
   /** Destroy the view, detach CDP and drop ephemeral partition data. */
   close(): Promise<void>;
 }
@@ -73,6 +81,9 @@ export interface ControllerState {
 }
 
 export interface BackendOptions {
+  /** How long a page outlives a lost daemon link, waiting to be adopted again. */
+  orphanGraceMs?: number;
+  timers?: { set(delayMs: number, callback: () => void): () => void };
   onController?(state: ControllerState): void;
   /** The person tried to use a view they do not control: ask the daemon for control. */
   onTakeover?(threadId: string): void;
@@ -94,9 +105,27 @@ interface PendingOpen {
   finish(): void;
 }
 
+/** A page whose daemon link dropped, kept for the daemon to adopt when it is back. */
+interface Orphan {
+  options: BrowserOpen;
+  page: ViewPage;
+  /** Stop waiting: the page is adopted or closed. */
+  release(): void;
+}
+
+/** Ten minutes: a daemon restart or a laptop lid closing for a while. */
+const defaultOrphanGraceMs = 10 * 60_000;
+const defaultTimers = {
+  set(delayMs: number, callback: () => void) {
+    const timer = setTimeout(callback, delayMs);
+    return () => clearTimeout(timer);
+  },
+};
+
 interface Session {
   id: string;
   threadId: string;
+  options: BrowserOpen;
   page: ViewPage;
   lease: BrowserControllerLease;
   stops: (() => void)[];
@@ -112,12 +141,19 @@ interface Session {
  * with the same ids. CDP events are forwarded at once. Screencast frames keep one in flight
  * and one replaceable latest frame per session, released by the daemon's `frameAck`.
  * Controller leases decide whether the person's own input reaches a view.
+ *
+ * A dropped link does not close the views. Each stays alive, refusing loads only the daemon may
+ * approve, for `orphanGraceMs`; a daemon that opens a session for the same thread and profile
+ * again gets the existing page back (`adopted: true` in the open result), not a new one it
+ * would have to navigate. Quit (`closeAll`) closes everything.
  */
 export class BrowserBackend {
   private sessions = new Map<string, Session>();
   /** Renderers' claims to hold each thread's page (by thread id). */
   private claims = new Map<string, RendererClaim>();
   private opening = new Map<string, PendingOpen>();
+  /** Pages of a lost link, by thread, until adopted or expired. */
+  private orphans = new Map<string, Orphan>();
   private purging = new Set<string>();
   private link: BackendLink | undefined;
   private host: ViewHost;
@@ -135,13 +171,92 @@ export class BrowserBackend {
   }
 
   /**
-   * The connection is gone. The daemon has already dropped every session of this backend
-   * and never reuses their ids, so the views close here too.
+   * The connection is gone. The daemon has already dropped every session of this backend and
+   * never reuses their ids; the pages wait, orphaned, for it to adopt them again.
    */
   detach(): void {
     this.link = undefined;
     for (const pending of this.opening.values()) pending.canceled = true;
-    for (const session of this.sessions.values()) void this.dispose(session);
+    for (const session of this.sessions.values()) {
+      this.sessions.delete(session.id);
+      for (const stop of session.stops.splice(0)) stop();
+      this.keepOrphan(session.options, session.page);
+    }
+  }
+
+  /**
+   * Quit: every view closes, orphaned or not. Resolves once they are gone; Electron does not
+   * finish quitting while a view's page is still alive.
+   */
+  async closeAll(): Promise<void> {
+    this.link = undefined;
+    for (const pending of this.opening.values()) pending.canceled = true;
+    await Promise.all([
+      ...[...this.sessions.values()].map((session) => this.dispose(session)),
+      ...[...this.orphans.keys()].map((threadId) => this.closeOrphan(threadId)),
+    ]);
+  }
+
+  /** Threads whose page waits for a daemon to adopt it. */
+  orphaned(): string[] {
+    return [...this.orphans.keys()];
+  }
+
+  private keepOrphan(options: BrowserOpen, page: ViewPage): void {
+    const threadId = options.threadId;
+    page.orphan?.();
+    const forget = () => {
+      if (this.orphans.get(threadId) === orphan) void this.closeOrphan(threadId);
+    };
+    const cancel = (this.options.timers ?? defaultTimers).set(
+      this.options.orphanGraceMs ?? defaultOrphanGraceMs,
+      forget,
+    );
+    // A page that dies while it waits has nothing left to adopt.
+    const stop = page.onEvent((method) => {
+      if (method === "Inspector.detached") forget();
+    });
+    const orphan: Orphan = {
+      options,
+      page,
+      release: () => {
+        cancel();
+        stop();
+      },
+    };
+    this.orphans.set(threadId, orphan);
+  }
+
+  /** The thread's orphaned page, removed from waiting; undefined when there is none. */
+  private takeOrphan(threadId: string): Orphan | undefined {
+    const orphan = this.orphans.get(threadId);
+    if (!orphan) return undefined;
+    this.orphans.delete(threadId);
+    orphan.release();
+    return orphan;
+  }
+
+  private async closeOrphan(threadId: string): Promise<void> {
+    const orphan = this.takeOrphan(threadId);
+    await orphan?.page.close().catch((error: unknown) => this.options.log(String(error)));
+  }
+
+  /** The orphaned page for this open, adopted with a fresh CDP session; undefined if none fits. */
+  private async adopt(options: BrowserOpen): Promise<ViewPage | undefined> {
+    const orphan = this.takeOrphan(options.threadId);
+    if (!orphan) return undefined;
+    const fits =
+      orphan.options.workspaceId === options.workspaceId &&
+      orphan.options.profile === options.profile &&
+      orphan.page.readopt !== undefined;
+    try {
+      if (!fits) throw new Error("A different browser profile was asked for");
+      await orphan.page.readopt?.();
+      return orphan.page;
+    } catch {
+      await orphan.page.close().catch((error: unknown) => this.options.log(String(error)));
+      return undefined;
+    }
   }
 
   /**
@@ -209,6 +324,7 @@ export class BrowserBackend {
         for (const entry of pending) entry.canceled = true;
         const open = this.byThread(operation.threadId);
         if (open) await this.dispose(open);
+        await this.closeOrphan(operation.threadId);
         await Promise.all(pending.map((entry) => entry.settled));
         if (!this.host.purge) throw new Error("Browser partition purge unavailable");
         await this.host.purge({ threadId: operation.threadId, workspaceId: operation.workspaceId });
@@ -265,20 +381,27 @@ export class BrowserBackend {
     };
     this.opening.set(sessionId, pending);
     try {
-      const page = await this.host.open({
-        sessionId,
-        downloadDir: operation.downloadDir,
-        options: operation.options,
-        viewport: operation.viewport,
-      });
+      const adopted = await this.adopt(operation.options);
+      const page =
+        adopted ??
+        (await this.host.open({
+          sessionId,
+          downloadDir: operation.downloadDir,
+          options: operation.options,
+          viewport: operation.viewport,
+        }));
       if (pending.canceled || this.link !== link) {
         // The connection dropped while the view was being made; the daemon forgot the session.
-        await page.close().catch(() => {});
+        // An adopted page goes back to waiting for the next connection.
+        if (adopted && !this.purging.has(operation.options.threadId))
+          this.keepOrphan(operation.options, adopted);
+        else await page.close().catch(() => {});
         throw new Error("Desktop browser open canceled");
       }
       const session: Session = {
         id: sessionId,
         threadId: operation.options.threadId,
+        options: operation.options,
         page,
         lease: { generation: -1, controller: "none" },
         stops: [],
@@ -293,7 +416,7 @@ export class BrowserBackend {
         }),
       );
       this.applyLease(session, operation.lease);
-      return { url: page.url(), ...page.snapshot?.() };
+      return { url: page.url(), ...page.snapshot?.(), ...(adopted ? { adopted: true } : {}) };
     } finally {
       this.opening.delete(sessionId);
       pending.finish();

@@ -39,15 +39,29 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 
-async function relayDaemon() {
+/**
+ * The relay's own deadlines, a thousand times shorter: a 30 s command deadline passes in 30 ms
+ * and the 5 s liveness ping in 5 ms.
+ */
+const fastClock = {
+  now: () => performance.now(),
+  set(delayMs: number, work: () => void) {
+    const timer = setTimeout(work, delayMs / 1000);
+    return () => clearTimeout(timer);
+  },
+};
+
+async function relayDaemon(clock?: typeof fastClock) {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await new Promise((resolve) => server.once("listening", resolve));
   const address = server.address();
   if (typeof address !== "object" || !address) throw new Error("no address");
   const relays: EmbeddedBackend[] = [];
   const takeovers: string[] = [];
+  const sockets: ServerSocket[] = [];
   let connections = 0;
   server.on("connection", (socket) => {
+    sockets.push(socket);
     const connectionId = `connection-${++connections}`;
     let relay: EmbeddedBackend | undefined;
     const reply = (message: unknown) => socket.send(JSON.stringify(message));
@@ -80,6 +94,7 @@ async function relayDaemon() {
             close: (reason) => socket.close(4009, reason.slice(0, 120)),
           },
           () => {},
+          clock,
         );
         relays.push(relay);
         return reply({
@@ -94,11 +109,13 @@ async function relayDaemon() {
     socket.on("close", () => relay?.disconnect("Desktop app disconnected"));
   });
   cleanups.push(() => new Promise((resolve) => server.close(resolve)));
-  return { url: `ws://127.0.0.1:${address.port}/`, relays, takeovers };
+  /** The link blips: the daemon's end of the newest socket drops without a goodbye. */
+  const drop = () => sockets.at(-1)?.terminate();
+  return { url: `ws://127.0.0.1:${address.port}/`, relays, takeovers, drop };
 }
 
-async function setup() {
-  const daemon = await relayDaemon();
+async function setup(clock?: typeof fastClock) {
+  const daemon = await relayDaemon(clock);
   const home = await mkdtemp(join(tmpdir(), "ace-desktop-relay-"));
   cleanups.push(() => rm(home, { recursive: true, force: true }));
   await writeFile(join(home, "browser-desktop.json"), JSON.stringify(credential));
@@ -126,18 +143,21 @@ async function setup() {
   const relay = daemon.relays.at(-1);
   if (!relay) throw new Error("not registered");
   const lost: string[] = [];
-  const abort = new AbortController();
-  cleanups.push(() => abort.abort());
-  const session = await relay.open({
-    options: BrowserOpen.parse({ threadId: "t-1", workspaceId: "w-1", profile: "ephemeral" }),
-    profileDir: home,
-    signal: abort.signal,
-    allowed: async () => true,
-    navigation: () => {},
-    log: () => {},
-    lost: (reason: string) => lost.push(reason),
-  });
-  return { daemon, views, connection, relay, session, lost, page: views.only() };
+  const open = (into: EmbeddedBackend) => {
+    const abort = new AbortController();
+    cleanups.push(() => abort.abort());
+    return into.open({
+      options: BrowserOpen.parse({ threadId: "t-1", workspaceId: "w-1", profile: "ephemeral" }),
+      profileDir: home,
+      signal: abort.signal,
+      allowed: async () => true,
+      navigation: () => {},
+      log: () => {},
+      lost: (reason: string) => lost.push(reason),
+    });
+  };
+  const session = await open(relay);
+  return { daemon, views, connection, relay, session, lost, open, page: views.only() };
 }
 
 describe("embedded backend against the daemon relay", () => {
@@ -191,12 +211,35 @@ describe("embedded backend against the daemon relay", () => {
     expect(page.acks()).toBe(4);
   });
 
-  it("closing the last window tells the daemon its sessions are gone and closes the views", async () => {
+  it("Quit tells the daemon its sessions are gone and closes the views", async () => {
     const { connection, lost, page } = await start();
-    connection.setAvailable(false);
+    connection.close();
     await eventually(() => expect(lost).toHaveLength(1));
     expect(page.closed).toBe(true);
     expect(connection.state()).toBe("off");
+  });
+
+  it("a backend reconnect re-adopts views without navigating", async () => {
+    const { daemon, connection, session, open, page, views } = await start();
+    await session.navigate("http://localhost:5173/app", 5_000);
+    const navigations = () => page.calls.filter((call) => call.method === "Page.navigate").length;
+    expect(navigations()).toBe(1);
+    daemon.drop();
+    await eventually(() => expect(daemon.relays).toHaveLength(2));
+    await eventually(() => expect(connection.state()).toBe("registered"));
+    expect(page).toMatchObject({ closed: false, orphaned: true });
+    const relay = daemon.relays[1];
+    if (!relay) throw new Error("not registered again");
+    // What the daemon's recovery does: open the thread again, then go back to its last URL.
+    const adopted = await open(relay);
+    await adopted.navigate("http://localhost:5173/app", 5_000);
+    expect(views.opened).toHaveLength(1);
+    expect(page).toMatchObject({ closed: false, orphaned: false, adoptions: 1 });
+    expect(navigations()).toBe(1);
+    expect(adopted.url()).toBe("http://localhost:5173/app");
+    expect(await adopted.cdp.send("Page.captureScreenshot", { format: "png" })).toEqual({
+      data: "AA==",
+    });
   });
 
   it("a view that dies on its own is reported lost to the daemon", async () => {
@@ -204,6 +247,32 @@ describe("embedded backend against the daemon relay", () => {
     page.emit("Inspector.detached", { reason: "Render process gone" });
     await eventually(() => expect(lost).toEqual(["Desktop browser view closed"]));
   });
+});
+
+it("a slow command fails alone without losing the page", async () => {
+  const { session, page, lost } = await setup(fastClock);
+  page.hung.add("Runtime.evaluate");
+  await expect(
+    session.cdp.send("Runtime.evaluate", { expression: "while(true){}" }),
+  ).rejects.toThrow("Desktop browser command timed out");
+  // The desktop answered the liveness ping: the page and the session stay.
+  await eventually(() =>
+    expect(page.calls.filter((call) => call.method === "ace.ping")).toHaveLength(1),
+  );
+  expect(await session.cdp.send("Page.captureScreenshot", { format: "png" })).toEqual({
+    data: "AA==",
+  });
+  expect(lost).toEqual([]);
+  expect(page.closed).toBe(false);
+});
+
+it("a command times out and the view misses its liveness ping too: only then is the page lost", async () => {
+  const { session, page, lost } = await setup(fastClock);
+  page.hung.add("*");
+  await expect(session.cdp.send("Runtime.evaluate", { expression: "1" })).rejects.toThrow(
+    "Desktop browser command timed out",
+  );
+  await eventually(() => expect(lost).toEqual(["Desktop browser command timed out"]));
 });
 
 it("large trace batches cross the real desktop socket without losing target frame events", async () => {

@@ -4,6 +4,11 @@ Date: 2026-10-02. Status: superseded by ADR 0083. Amends ADR 0009.
 
 Superseded 2026-10-17 by [ADR 0083](0083-browser-v2-daemon-chrome.md): the daemon drives its own Chrome for Testing over a pipe without Playwright, and the embedded backend is removed in a later phase. The Chromium acquisition section below still applies.
 
+Amended 2026-10-17 by [ADR 0085](0085-desktop-native-view-lifecycle.md): the embedded backend
+stays as the in-app renderer. A lost link keeps the views for re-adoption (`adopted: true` in
+the open result), a timed-out command fails alone unless an `ace.ping` also fails, and
+`ace.tabs.*` carries several native tabs per thread.
+
 Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provider-native (owner decision). Evaluation and origin approval mentioned below are removed; scheme checks and request interception for non-http(s) URLs remain.
 
 The background backend default, tabs, files and private-control behavior is amended by
