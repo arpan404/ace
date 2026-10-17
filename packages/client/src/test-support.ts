@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile, rename, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, writeFile, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startDaemon, createDevThread, type CommandHandler } from "@ace/daemon";
@@ -131,7 +131,8 @@ export async function setup(
   devices?: import("@ace/daemon").DaemonOptions["devices"],
   projects?: import("@ace/daemon").DaemonOptions["projects"],
 ) {
-  const directory = await mkdtemp(join(tmpdir(), "ace-client-"));
+  // Sessions refuse symlinked workspaces; macOS tmpdir is under the /var symlink.
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "ace-client-")));
   const daemon = await startDaemon({
     config: {
       dataDir: directory,
