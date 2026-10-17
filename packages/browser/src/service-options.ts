@@ -38,7 +38,12 @@ export interface BrowserServiceOptions {
   ) => boolean | Promise<boolean>;
   artifactAllowed?: (threadId: string, path: string) => boolean | Promise<boolean>;
   workspaceRoot?: (threadId: string) => string | Promise<string>;
+  /** Live tabs across every thread; default 48 (ADR 0083). */
   maxTabs?: number;
+  /** Where thread tabs are kept for restore after a daemon restart; omitted, nowhere. */
+  tabStore?: import("./tab-store.ts").BrowserTabStore;
+  /** Idle-tab freezing in ace's Chrome; `false` turns it off. */
+  tabLifecycle?: import("./session-lifecycle.ts").LifecycleSchedule | false;
   maxDownloadBytes?: number;
   onArtifact?: (threadId: string, artifact: BrowserArtifact) => void | Promise<void>;
   onError?: (error: unknown) => void;

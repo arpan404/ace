@@ -352,6 +352,34 @@ export class FakeBrowser {
     entry.page = "site";
     this.paint(entry, entry.typed);
   }
+  /**
+   * A second tab beside the page, as an agent opens one in the real daemon (ADR 0083): its own
+   * id, address, opener and label. The person's view moves to it.
+   */
+  tabAdd(
+    threadId: string,
+    url: string,
+    options: { label?: string; agentId?: string } = {},
+  ): string {
+    const view = this.view(threadId);
+    if (!view || view.closed) throw new Error("Browser closed");
+    const tabId = `tab-${++this.tabSequence}`;
+    view.tabs = [
+      ...(view.tabs ?? []),
+      {
+        tabId,
+        url,
+        title: "Fixture page",
+        openedBy: options.agentId ? { kind: "agent", agentId: options.agentId } : { kind: "human" },
+        ...(options.label ? { label: options.label } : {}),
+        lease: { controller: "agent", mode: "shared" },
+        lifecycle: "live",
+      },
+    ];
+    this.history.visit(tabId, url);
+    this.tabSwitch(threadId, tabId);
+    return tabId;
+  }
   tabSwitch(threadId: string, tabId: string): void {
     const entry = this.entries.get(threadId),
       tab = entry?.view?.tabs?.find((candidate) => candidate.tabId === tabId);

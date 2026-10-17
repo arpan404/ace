@@ -8,6 +8,8 @@ import {
 } from "@ace/protocol";
 import { join } from "node:path";
 import { writeFile } from "node:fs/promises";
+import type { BrowserBackendPage } from "./backend.ts";
+import { pngScreenshot, printPdf, screenshotRegion } from "./page-capture.ts";
 import { BrowserActionError } from "./action-error.ts";
 import { waitForBrowser } from "./wait.ts";
 import { BrowserOriginError, browserOrigin } from "./policy.ts";
@@ -22,8 +24,25 @@ import type { SnapshotRefs } from "./refs.ts";
 import type { SessionLogs } from "./logs.ts";
 import type { NavigationPolicies } from "./policy-waits.ts";
 import type { Actor, SessionOptions } from "./session-options.ts";
+/** Commands that act on one tab; tab structure, downloads and extensions belong to the thread. */
+export type TabCommand = Exclude<BrowserCommand, { action: "tabs" | "downloads" | "extensions" }>;
+/** Parses a command that runs on a tab, such as a measured interaction or a popup navigation. */
+export function tabCommand(raw: unknown): TabCommand {
+  const command = BrowserCommand.parse(raw);
+  if (
+    command.action === "tabs" ||
+    command.action === "downloads" ||
+    command.action === "extensions"
+  )
+    throw new BrowserActionError("invalid_arguments");
+  return command;
+}
 interface CommandContext {
   options: SessionOptions;
+  /** The tab this command runs on, and its page. */
+  tabId: string;
+  page: BrowserBackendPage;
+  answer(dialogId: string, accept: boolean, promptText?: string): Promise<void>;
   beforeInput?: (() => void) | undefined;
   navigate?: (() => Promise<void>) | undefined;
   refs: SnapshotRefs;
@@ -41,10 +60,9 @@ interface CommandContext {
     signal: AbortSignal | undefined,
     generation: number,
   ): { prepare(): void; send(): void };
-  syncTab(): Promise<void>;
   emit(): void;
   run(
-    command: BrowserCommand,
+    command: TabCommand,
     actor: Actor,
     signal: AbortSignal | undefined,
     generation: number,
@@ -54,13 +72,14 @@ interface CommandContext {
   finishRecording(): Promise<BrowserArtifact>;
 }
 export async function executeBrowserCommand(
-  command: BrowserCommand,
+  command: TabCommand,
   actor: Actor,
   signal: AbortSignal | undefined,
   generation: number,
   context: CommandContext,
 ): Promise<unknown> {
-  const { backend: page, dir, id, evaluatePolicy, threadId } = context.options;
+  const { dir, id, evaluatePolicy, threadId } = context.options;
+  const page = context.page;
   const cdp = page.cdp;
   switch (command.action) {
     case "annotate":
@@ -77,11 +96,12 @@ export async function executeBrowserCommand(
         {
           threadId,
           backend: page,
+          tabId: context.tabId,
           clock: context.options.navigationClock,
           id,
           read: context.read,
           input: (interaction, measurementSignal, beforeInput) =>
-            context.run(interaction, actor, measurementSignal, generation, beforeInput),
+            context.run(tabCommand(interaction), actor, measurementSignal, generation, beforeInput),
         },
         signal,
       );
@@ -172,12 +192,12 @@ export async function executeBrowserCommand(
       }
     }
     case "snapshot":
-      return { tabId: page.tabs?.active(), ...(await context.refs.snapshot()) };
+      return { tabId: context.tabId, ...(await context.refs.snapshot()) };
     case "find": {
       const snapshot = await context.refs.snapshot();
       return {
         ...snapshot,
-        tabId: page.tabs?.active(),
+        tabId: context.tabId,
         nodes: snapshot.nodes.filter(
           (node) =>
             node.role === command.role &&
@@ -185,32 +205,9 @@ export async function executeBrowserCommand(
         ),
       };
     }
-    case "tabs": {
-      const tabs = page.tabs;
-      if (!tabs) throw new BrowserActionError("not_supported");
-      if (command.operation === "list") return { activeTabId: tabs.active(), tabs: tabs.list() };
-      context.check(actor, signal, generation);
-      // Keep legacy open callers compatible: the main browser has one page.
-      if (command.operation === "close")
-        throw new BrowserActionError("not_supported", "Close the browser to close its page");
-      if (command.operation === "switch" && command.tabId !== tabs.active())
-        throw new BrowserActionError("invalid_arguments");
-      await context.syncTab();
-      context.check(actor, signal, generation);
-      if (command.url)
-        await context.run(
-          BrowserCommand.parse({ action: "navigate", url: command.url }),
-          actor,
-          signal,
-          generation,
-        );
-      context.emit();
-      return { activeTabId: tabs.active(), tabs: tabs.list() };
-    }
     case "dialog":
       context.check(actor, signal, generation);
-      if (!page.tabs) throw new BrowserActionError("not_supported");
-      await page.tabs.answer(command.dialogId, command.accept, command.promptText);
+      await context.answer(command.dialogId, command.accept, command.promptText);
       return { ok: true };
     case "upload": {
       const dispatch = context.refDispatch(command.ref, actor, signal, generation);
@@ -301,13 +298,42 @@ export async function executeBrowserCommand(
     case "record_stop":
       return context.finishRecording();
     case "click": {
-      const dispatch = context.refDispatch(command.ref, actor, signal, generation);
-      const rect = await context.refs.bounds(command.ref, dispatch.prepare);
-      dispatch.send();
-      if (rect.width <= 0 || rect.height <= 0) throw new BrowserActionError("not_visible");
+      let point: { x: number; y: number };
+      if (command.ref !== undefined) {
+        if (command.x !== undefined || command.y !== undefined)
+          throw new BrowserActionError("invalid_arguments");
+        const dispatch = context.refDispatch(command.ref, actor, signal, generation);
+        const rect = await context.refs.bounds(command.ref, dispatch.prepare);
+        dispatch.send();
+        if (rect.width <= 0 || rect.height <= 0) throw new BrowserActionError("not_visible");
+        point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+      } else {
+        if (command.x === undefined || command.y === undefined)
+          throw new BrowserActionError("invalid_arguments");
+        context.check(actor, signal, generation);
+        point = { x: command.x, y: command.y };
+      }
       context.beforeInput?.();
-      await page.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
+      await clickAt(page, point, command);
       return { ok: true };
+    }
+    case "fill_form": {
+      // Each field is its own type step: a stale ref stops the form where it went stale.
+      for (const field of command.fields) {
+        const dispatch = context.refDispatch(field.ref, actor, signal, generation);
+        await context.refs.select(field.ref, dispatch.prepare);
+        dispatch.send();
+        context.beforeInput?.();
+        await page.insertText(field.value);
+      }
+      return { ok: true, filled: command.fields.length };
+    }
+    case "pdf": {
+      context.read();
+      const pdf = await printPdf(page, dir, id(), command);
+      context.read();
+      if (actor.kind === "human") await context.options.artifact(pdf);
+      return pdf;
     }
     case "type": {
       const dispatch = context.refDispatch(command.ref, actor, signal, generation);
@@ -357,7 +383,8 @@ export async function executeBrowserCommand(
       });
     case "screenshot": {
       const path = join(dir, `${id()}.png`);
-      const bytes = await page.screenshot("png");
+      const region = await screenshotRegion(command, context.refs, context.read);
+      const bytes = await pngScreenshot(page, region);
       context.read();
       await writeFile(path, bytes, { mode: 0o600 });
       // A person's capture is kept like a recording; agents read theirs as tool images.
@@ -404,4 +431,31 @@ export async function executeBrowserCommand(
         : evaluatePage(cdp, command.expression);
     }
   }
+}
+
+const modifierBits = { Alt: 1, Control: 2, Meta: 4, Shift: 8 } as const;
+/** A plain left click goes through the backend; other buttons and chords are raw CDP input. */
+async function clickAt(
+  page: BrowserBackendPage,
+  point: { x: number; y: number },
+  options: {
+    button?: "left" | "middle" | "right";
+    clickCount?: number;
+    modifiers?: readonly (keyof typeof modifierBits)[];
+  },
+): Promise<void> {
+  const button = options.button ?? "left",
+    clickCount = options.clickCount ?? 1,
+    modifiers = (options.modifiers ?? []).reduce((bits, name) => bits | modifierBits[name], 0);
+  if (button === "left" && clickCount === 1 && modifiers === 0) return page.click(point.x, point.y);
+  await page.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...point, modifiers });
+  for (let count = 1; count <= clickCount; count++)
+    for (const type of ["mousePressed", "mouseReleased"])
+      await page.cdp.send("Input.dispatchMouseEvent", {
+        type,
+        ...point,
+        button,
+        clickCount: count,
+        modifiers,
+      });
 }

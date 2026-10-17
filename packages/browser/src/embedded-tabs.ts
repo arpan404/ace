@@ -26,7 +26,6 @@ interface Tab {
 export class EmbeddedTabs {
   private entries = new Map<string, Tab>();
   private activeId = "";
-  private targetGeneration = 0;
   private stopped = false;
   private sequence = 0;
   private reservations = new Set<() => void>();
@@ -62,7 +61,7 @@ export class EmbeddedTabs {
         );
         await this.inspection.attach(tab.cdp, tab.state.tabId);
         await tab.cdp.send("ace.rendererReady");
-        this.request.restarted?.();
+        this.request.restarted?.(tab.state.tabId);
       })().catch(() => this.request.lost("The page could not reconnect after it crashed"));
     }
     if (method === "Page.fileChooserOpened") {
@@ -104,7 +103,7 @@ export class EmbeddedTabs {
       this.request.changed?.();
     }
     if (method === "Page.frameNavigated" || method === "Page.navigatedWithinDocument")
-      this.request.navigation();
+      this.request.navigation(event.data.tabId);
     if (method === "ace.webSocketRequested") {
       const check = z.object({ id: z.string(), url: z.string() }).safeParse(params);
       if (check.success)
@@ -154,15 +153,11 @@ export class EmbeddedTabs {
     if (!parsed.success || this.stopped) return;
     const id = parsed.data.tabId ?? this.activeId;
     const tab = this.entries.get(id);
-    if (!tab || id !== this.activeId) return;
-    const generation = this.targetGeneration;
+    if (!tab) return;
     void this.request
       .popup?.(parsed.data.url, {
-        current: () =>
-          !this.stopped &&
-          this.entries.get(id) === tab &&
-          this.activeId === id &&
-          this.targetGeneration === generation,
+        tabId: id,
+        current: () => !this.stopped && this.entries.get(id) === tab,
         navigate: async () => {
           await tab.cdp.send("Page.navigate", { url: parsed.data.url });
         },
@@ -218,11 +213,8 @@ export class EmbeddedTabs {
         await this.inspection.attach(cdp, item.tabId);
       })();
     }
-    const changed = this.activeId !== state.activeTabId;
-    if (changed) this.targetGeneration++;
     this.activeId = state.activeTabId;
     await Promise.all([...this.entries.values()].map((tab) => tab.ready));
-    if (changed) this.request.navigation();
     this.request.changed?.();
   }
   async start(raw: unknown) {
@@ -234,12 +226,15 @@ export class EmbeddedTabs {
     await this.read(raw);
   }
   current(): Tab {
-    const tab = this.entries.get(this.activeId);
+    return this.tab(this.activeId);
+  }
+  tab(id: string): Tab {
+    const tab = this.entries.get(id);
     if (!tab) throw new Error("Browser tab unavailable");
     return tab;
   }
-  pageStatus() {
-    return this.entries.get(this.activeId)?.status.read();
+  pageStatus(id = this.activeId) {
+    return this.entries.get(id)?.status.read();
   }
   active() {
     return this.activeId;
@@ -270,8 +265,20 @@ export class EmbeddedTabs {
       return () => {};
     }
   }
-  async open() {
-    return this.activeId;
+  /**
+   * Asks the desktop for another tab. A desktop that holds one tab per thread answers with the
+   * tab it has; the caller sees no new id and reports the tab limit.
+   */
+  async open(options: { background?: boolean } = {}) {
+    const before = new Set(this.entries.keys());
+    const raw = await this.root.send("ace.tabs.open", { background: options.background ?? false });
+    // A desktop without tab support answers with something else: it keeps its one page.
+    const state = decodeNativeTabs(raw)?.state;
+    if (!state) return this.activeId;
+    await this.update(state);
+    const opened = z.object({ openedTabId: z.string() }).safeParse(raw);
+    if (opened.success && this.entries.has(opened.data.openedTabId)) return opened.data.openedTabId;
+    return [...this.entries.keys()].find((id) => !before.has(id)) ?? this.activeId;
   }
   async switch(tabId: string) {
     await this.read(await this.root.send("ace.tabs.switch", { tabId }));
@@ -294,8 +301,8 @@ export class EmbeddedTabs {
     delete tab.dialog;
     this.request.changed?.();
   }
-  async frames() {
-    const tab = this.current();
+  async frames(id = this.activeId) {
+    const tab = this.tab(id);
     await tab.ready;
     await tab.guard?.ready();
     return pageFrames([tab.cdp, ...(tab.guard?.frameSessions() ?? [])]);

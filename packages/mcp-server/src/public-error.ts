@@ -41,6 +41,8 @@ export const PublicToolCode = z.enum([
   "browser_closed",
   "backend_changed",
   "queue_full",
+  "tab_not_found",
+  "tab_limit",
   "element_unavailable",
   "not_visible",
   "evaluate_approval_required",
@@ -231,6 +233,14 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   queue_full: {
     message: "Browser command queue full",
     hint: "Wait for the pending commands to finish before retrying.",
+  },
+  tab_not_found: {
+    message: "Browser tab not found",
+    hint: "Call ace_browser_tabs with operation list for current tab ids; the tab may have been closed.",
+  },
+  tab_limit: {
+    message: "Browser tab limit reached",
+    hint: "Close tabs you no longer need with ace_browser_close and its tabId, or reuse one of your tabs.",
   },
   element_unavailable: {
     message: "Browser element is detached or unavailable",

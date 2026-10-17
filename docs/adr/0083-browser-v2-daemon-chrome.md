@@ -1,9 +1,9 @@
 # 0083: The daemon owns one Chrome for every thread
 
-Date: 2026-10-17. Status: accepted. Supersedes [ADR 0055](0055-browser-backends.md) and
-[ADR 0069](0069-shared-native-browser.md). Amends [ADR 0009](0009-browser-service.md),
-[ADR 0054](0054-desktop-shell.md), [ADR 0067](0067-browser-parity.md) and
-[ADR 0082](0082-browser-annotation.md).
+Date: 2026-10-17. Status: accepted, revised the same day (see Hybrid). Amends
+[ADR 0055](0055-browser-backends.md), [ADR 0069](0069-shared-native-browser.md),
+[ADR 0009](0009-browser-service.md), [ADR 0054](0054-desktop-shell.md),
+[ADR 0067](0067-browser-parity.md) and [ADR 0082](0082-browser-annotation.md).
 
 ## Context
 
@@ -25,13 +25,32 @@ extensions work. The browser that shipped before this decision could not get the
 
 ## Decision
 
+### Hybrid (owner revision, 2026-10-17)
+
+The owner wants the in-app browser at the display's refresh rate (120 Hz). Headless Chrome on
+macOS is locked to 60 Hz and the CDP screencast caps at 100 fps, so the first version of this
+decision (one daemon Chrome as the only renderer) is revised:
+
+1. **The desktop's native Electron view stays the primary renderer** (ADRs 0055 and 0069 are
+   amended, not superseded). Its lifecycle is fixed in a later phase: views survive window close
+   and thread switches, and the desktop app stays alive while threads have tabs or working agents.
+2. **ace's own Chrome (below) is the background and fallback engine**: used when no desktop is
+   attached, so agents keep working, and for web and phone clients through the screencast. A page
+   moves between engines only when the desktop is genuinely gone.
+3. **"Use my Chrome"**, an ace extension plus native messaging host that lets agents claim and
+   drive tabs in the person's real browser, comes later as a third backend.
+
+The tab model below is therefore backend-agnostic: every backend reports a tab list and the tab
+the person is shown, and a backend that can hand out a page per tab (`tabs.page(tabId)`) gets
+concurrent tabs. A backend that still holds one tab keeps working: opening a tab reuses its page.
+
 ### Engine
 
 The daemon launches **Chrome for Testing** (the pinned 153.0.8010.12 build, downloaded and
 verified on first use by the acquisition described in ADR 0055, which this ADR keeps) as
 `--headless=new --remote-debugging-pipe`, and speaks CDP to it with its own client
-(`cdp-connection.ts` over `pipe-transport.ts`). No Playwright. The screencast becomes the single
-render path for desktop, web and phone (later phases).
+(`cdp-connection.ts` over `pipe-transport.ts`). No Playwright. Its screencast is the render path
+for web and phone clients, and for the desktop only while no native view is available.
 
 Rejected:
 
@@ -114,24 +133,35 @@ Phase 3 revisits this with measured per-viewer frame sizes.
 
 ### Tabs
 
-In this phase a thread still has one main page plus at most one human sign-in popup, and the
-`BrowserBackend` interface is unchanged. Each tab is its own top-level target, created in **its own
-window** with `Emulation.setFocusEmulationEnabled(true)`: the spike found that background tabs in a
-shared window render no frames. A tab's CDP surface (`TabCdp`) is stable across browser restarts,
-so refs, capture and annotation keep one object while the target behind it changes.
+A thread's browser holds ordered tabs on whichever backend serves it.
 
-The target model for the following phases:
+- **TabRuntime** per tab (`tab-runtime.ts`): its own page surface, command queue (32 pending,
+  128 across a thread), element refs, annotate mode, control lease (shared or private takeover is
+  per tab) and lifecycle. Commands on different tabs run concurrently; a dialog holds only its own
+  tab. Logs and downloads stay thread-wide and carry the tab id.
+- **Routing** (`session-tabs.ts`): an explicit `tabId`, else the calling agent's own tab (its
+  cursor, keyed by the MCP scope's `agentId`: the last tab it opened or selected), else the tab
+  the person views. An identified agent whose fallback would land on another agent's tab gets a
+  tab of its own. Only open, close and select take a short per-thread lock.
+- **The person's view** is the backend's active tab. Agent commands, screenshots included, never
+  move it. An agent's opened or selected tab takes the view only while the person has not picked
+  a tab and is not holding the viewed one. Live capture and recording follow the viewed tab;
+  frames carry `tabId`.
+- **Tabs** report `openedBy`, `drivenBy`, `label`, `lease`, `lifecycle` and `loading`.
+- **Limits**: 16 tabs per thread (popups included), 8 open per agent, 48 live across the daemon.
+- **Lifecycle** (`tab-lifecycle.ts`, pure, injected clock): an unviewed, idle, unpinned tab
+  freezes after 15 minutes (`Page.setWebLifecycleState`) and wakes before its next command. The
+  policy also marks tabs due for discard after 2 hours; this is not applied yet, so page state is
+  never dropped behind an agent's back. Freezing runs only in ace's Chrome.
+- **Restore**: tabs are kept in the daemon's SQLite `browser_tabs` table (thread, tab id,
+  position, URL, title, label, opener, last activity) behind the `BrowserTabStore` port. A
+  restarted daemon reopens them lazily, on the first viewer or tool call, with the same tab ids;
+  cookies survive in the profile. Closing the browser clears the records. Each tab is its own
+  top-level target in its own window with focus emulation: background tabs in a shared window
+  render no frames. A tab's CDP surface (`TabCdp`) survives browser restarts.
 
-- **ThreadBrowser** per thread, independent of clients and windows; **TabRuntime** per tab with
-  its own session, command queue, refs, logs, dialog, downloads, annotation, control lease and
-  capture (only while viewed or recording).
-- A SQLite `browser_tabs` table keeps thread, tab id, position, URL, title, who opened the tab
-  (kind and agent), lifecycle (`live`, `frozen`, `discarded`) and last activity. Tabs record who opened and who drives them; each agent has a tab
-  cursor. Unviewed, undriven tabs freeze after 15 minutes and are discarded after 2 hours or under
-  memory pressure, reopening with `pageStateLost`. Limits: 16 live tabs per thread, 48 per
-  daemon, 8 opened per agent.
-- Daemon restart restores tabs lazily (eagerly for a thread with a working agent) with the same
-  tab ids. A wall/monotonic clock jump after sleep pings the browser and restarts it if needed.
+Not yet built: eager restore for threads with a working agent, discarding, the sleep/wake
+browser ping, and per-viewer capture of different tabs.
 
 ## Spike evidence
 
@@ -165,26 +195,21 @@ headless profile directories and their exclusive lease, and the recovery profile
 Tests that wrapped Playwright now use the `chrome` service option (`args`, `spawn`,
 `intercept`) at the CDP wire.
 
-Deleted in later phases, once the screencast client passes Phase 3: the Electron embedded
-backend (`apps/desktop/src/main/browser/*` except what basic auth, credentials and dialogs still
-need; the browser parts of `background.ts`; `browser.place` and `wants-control` IPC),
-`embedded.ts`, `embedded-tabs.ts`, `embedded-downloads.ts`, `native-tabs.ts`, `backend-choice.ts`,
-the `browser.backend.*` relay in `bridge.ts` and its tests, `apps/daemon/src/browser-desktop.ts`,
-protocol `browser-backend.ts`, the web client's native view and placement code, and the
-`browser.backend` and `browser.backendLoss` settings. Annotation moves into TabRuntime and is
-reinstalled after a renderer crash; the overlay itself is unchanged.
+The embedded backend is kept (see Hybrid). Annotation now lives per tab and is reinstalled
+after a renderer crash; the overlay itself is unchanged.
 
 ## Relation to earlier ADRs
 
-- **0055** (superseded): the embedded/headless backend split and its desktop contract remain only
-  until the embedded backend is deleted. Its Chrome for Testing acquisition carries over.
-- **0069** (superseded): agents no longer drive the desktop's native view, and threads share one
-  profile instead of a partition and profile each.
+- **0055** (amended): the embedded/headless split and the desktop contract stay; the headless side
+  is now ace's Chrome over a pipe, and the desktop relay gains `ace.tabs.open` with
+  `{ background }`, answering with the tab list and `openedTabId`. Acquisition carries over.
+- **0069** (amended): agents still drive the desktop's native view when it is attached, in several
+  tabs; ace's Chrome shares one profile across threads instead of a profile each.
 - **0009** (amended): one Chrome per profile instead of one Chromium per thread; no Playwright;
   only document requests are intercepted; service workers run.
-- **0067** (amended): profile isolation per thread is replaced by the shared profile and private
-  contexts; the eight-page context model is replaced by the tab model above.
-- **0054** (amended): the "Embedded browser backend" section ends when that backend is deleted.
+- **0067** (amended): profile isolation per thread in ace's Chrome is replaced by the shared
+  profile and private contexts; the eight-page context model is replaced by the tab model above.
+- **0054** (amended): the embedded browser backend stays, with views that outlive their window.
 - **0082** (amended): the overlay is reinstalled after a renderer crash in ace's Chrome as it was
   after `ace.rendererRestarted` on the desktop.
 
@@ -197,5 +222,9 @@ a 300-image page whose only paused request is its document; a killed renderer br
 last URL; a killed browser restarted with the thread's page reopened; a command with no reply
 failing at its deadline while later commands run; a stopped (`SIGSTOP`) browser replaced; agent
 key chords; the shared profile surviving a browser restart while a private context sees none of
-it. CI installs the pinned Chrome for Testing with the same acquisition code and points the
+it. Tab tests (`tabs.process.test.ts`, daemon `browser-tabs.process.test.ts`) drive real Chrome
+with local fixtures: two agents typing in their own tabs at once, a slow tab not holding up
+another, a screenshot of one tab leaving the view alone, a held or private tab blocking agents
+only there, the per-agent and daemon limits, freeze and wake, MCP routing by tab id and cursor,
+and a daemon restart restoring tab ids, labels and cookies through SQLite. CI installs the pinned Chrome for Testing with the same acquisition code and points the
 suites at it.

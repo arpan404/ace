@@ -9,8 +9,9 @@ import { withoutSubtree } from "./snapshot-exclusion.ts";
 export class SnapshotRefs {
   private epoch = 0;
   private refs = new Map<string, { backendNodeId: number; cdp: BrowserCdp; frameId?: string }>();
+  /** Every frame's session; returns undefined when the page has no frame list (one session). */
   private frames:
-    | (() => Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]>)
+    | (() => Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]> | undefined)
     | undefined;
   private cdp: BrowserCdp;
   private frameSessions = new Map<string, BrowserFrameSession>();
@@ -18,7 +19,7 @@ export class SnapshotRefs {
   private excluded: () => Promise<number | undefined>;
   constructor(
     cdp: BrowserCdp,
-    frames?: () => Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]>,
+    frames?: () => Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]> | undefined,
     excluded: () => Promise<number | undefined> = async () => undefined,
   ) {
     this.frames = frames;
@@ -45,7 +46,8 @@ export class SnapshotRefs {
   }
   private async collect() {
     const epoch = this.epoch;
-    const frames = this.frames ? await this.frames() : [{ frameId: undefined, cdp: this.cdp }];
+    const listed = this.frames?.();
+    const frames = listed ? await listed : [{ frameId: undefined, cdp: this.cdp }];
     this.frameSessions = new Map(
       frames
         .filter((frame): frame is BrowserFrameSession => frame.frameId !== undefined)
