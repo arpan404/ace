@@ -220,8 +220,9 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     if (!parsed.success || parsed.data.thread.id !== threadId) return;
     try {
       this.snapshot(parsed.data);
-    } catch {
+    } catch (error) {
       // An over-limit cached view stays unhydrated; the live wire still snapshots.
+      if (!(error instanceof ClientError)) throw error;
       return;
     }
     this.#syncing = true;

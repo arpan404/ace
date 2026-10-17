@@ -173,6 +173,43 @@ test("sidebar filter changes fence a late cached list from the previous project"
   await f.client.close();
 });
 
+test("an archived filter persists only its half and an archive-only record still hydrates", async () => {
+  const m = memory();
+  m.values.set("sidebar:[null,true]", { version: 1, archive: list("Archived") });
+  const f = harness(m.storage);
+  const collection = f.client.threadsCollection();
+  const lease = collection.threads();
+  await collection.threadsWindow({ archived: true });
+  // Archive-only hydration marks the view loaded before any wire snapshot arrives.
+  await expect.poll(() => lease.store.loaded).toBe(true);
+  await f.start();
+  const wires = f.sent.filter(
+    (message) => message.type === "subscribe" && message.scope.kind === "threads",
+  );
+  if (wires.length !== 2 || wires[0]?.type !== "subscribe" || wires[1]?.type !== "subscribe")
+    throw new Error("Expected home and archive subscriptions");
+  f.deliver({
+    type: "snapshot",
+    subscriptionId: wires[0].subscriptionId,
+    seq: 5,
+    view: { kind: "threads", seq: 5, threads: {} },
+  });
+  f.deliver({
+    type: "snapshot",
+    subscriptionId: wires[1].subscriptionId,
+    seq: 6,
+    view: { kind: "threads", seq: 6, threads: { thread: { ...thread, title: "Archived" } } },
+  });
+  await expect.poll(() => lease.store.thread("thread")?.title).toBe("Archived");
+  f.flush();
+  await expect.poll(() => m.values.has("sidebar:[null,true]")).toBe(true);
+  const stored = m.values.get("sidebar:[null,true]") as Record<string, unknown>;
+  expect("home" in stored).toBe(false);
+  expect(m.values.has("sidebar:[null,false]")).toBe(false);
+  collection.close();
+  await f.client.close();
+});
+
 test("a late cached sidebar cannot replace a live window", async () => {
   const pending = new Map<string, (value: unknown) => void>();
   const f = harness({

@@ -37,26 +37,34 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
         this.observe((keys) => {
           if (keys === "all" || [...keys].some((key) => key !== "sync")) changed();
         }),
-      () => ({ version: 1, home: this.#home, archive: this.#archive }),
+      () => ({
+        version: 1,
+        // Persist only the half this filter shows: home and archive live under separate
+        // keys, so one filter's writes never duplicate the other half's view.
+        ...(this.#filter.archived ? { archive: this.#archive } : { home: this.#home }),
+      }),
       (value) => {
         if (
           typeof value !== "object" ||
           value === null ||
           !("version" in value) ||
           value.version !== 1 ||
-          !("home" in value)
+          (!("home" in value) && !("archive" in value))
         )
           return;
-        const home = ThreadListViewSchema.safeParse(value.home);
-        const archive = ThreadListViewSchema.safeParse(
-          "archive" in value ? value.archive : undefined,
-        );
-        if (!home.success || Object.keys(home.data.threads).length > this.#limits.entities) return;
-        if (archive.success && Object.keys(archive.data.threads).length > this.#limits.entities)
+        // Each half is fenced independently: a record may carry only the half its
+        // filter persisted, and a malformed half never blocks the other one.
+        const home = "home" in value ? ThreadListViewSchema.safeParse(value.home) : undefined;
+        const archive =
+          "archive" in value ? ThreadListViewSchema.safeParse(value.archive) : undefined;
+        if (
+          home &&
+          (!home.success || Object.keys(home.data.threads).length > this.#limits.entities)
+        )
           return;
         if (!this.#pending.size) this.#pending.add("hydrated");
-        if (!this.#home) this.#home = home.data;
-        if (!this.#archive && archive.success) this.#archive = archive.data;
+        if (!this.#home && home?.success) this.#home = home.data;
+        if (!this.#archive && archive?.success) this.#archive = archive.data;
         this.#merge();
         this.#notifications.emitAll();
       },
