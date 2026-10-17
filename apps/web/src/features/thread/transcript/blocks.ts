@@ -1,5 +1,4 @@
 import { chronologicalItemOrder, visibleHistoryOrder } from "@ace/projection";
-import { executionOrder } from "./execution-order.ts";
 import type { BackgroundTask, Item, Run } from "@ace/protocol";
 import {
   carriesOnStretch,
@@ -352,7 +351,7 @@ export function buildBlocks(input: BlockSource): Block[] {
     if (request.kind === "approval" && request.toolCallId)
       callApproval.set(request.toolCallId, request.id);
   let lastAnswer: string | undefined;
-  const order = visibleHistoryOrder(executionOrder(source), source.item);
+  const order = visibleHistoryOrder(source.order, source.item);
   const { stretchAt, lastWork } = lastWorkOf(order, source, anchors);
   const turns = new Map<string, TurnMark>();
   const ordered: TurnMark[] = [];

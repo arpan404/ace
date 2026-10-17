@@ -242,24 +242,6 @@ test("subagents that run in the background retain one launch card rather than se
   ]);
 });
 
-test("a message queued while the agent worked reads after the answer it waited for", () => {
-  // The daemon admitted the queued ask while the first turn still worked, so it sits between
-  // that turn's commentary and its answer; it was answered by the second turn.
-  const blocks = buildBlocks(
-    source(
-      [
-        { id: "hold", role: "user", run: "A" },
-        { id: "commentary", role: "assistant", run: "A" },
-        { id: "queued", role: "user", run: "B" },
-        { id: "hold-done", role: "assistant", run: "A" },
-        { id: "queued-done", role: "assistant", run: "B" },
-      ],
-      { A: ended("completed"), B: ended("completed") },
-    ),
-  );
-  expect(shown(blocks)).toEqual(["hold", "commentary", "hold-done", "queued", "queued-done"]);
-});
-
 test("a message steered into the running turn keeps its place", () => {
   const blocks = buildBlocks(
     source(
