@@ -311,7 +311,8 @@ export class StatusStore {
     if (policy) this.retention.set(view, policy);
     else this.seedRetention(view);
   }
-  snapshot(thread: Thread, seq: number): ThreadView {
+  snapshot(thread: Thread | undefined, seq: number): ThreadView {
+    if (!thread) throw new Error("Unknown thread");
     const input: Record<Collection, Record<string, unknown>> = {
       agents: {},
       runs: {},

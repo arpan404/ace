@@ -1,10 +1,11 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agent, Command, Thread, WorkspaceId, type Event } from "@ace/protocol";
+import { Agent, Command, Interaction, Thread, WorkspaceId, type Event } from "@ace/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { Store } from "./store.ts";
+import { message } from "./payload-test-support.ts";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 
 const cleanup: (() => void)[] = [];
@@ -89,21 +90,109 @@ it.each([false, true])(
 );
 
 describe("store", () => {
-  it("a snapshot inside a rejected transaction does not expose its changes to an acquired view", () => {
+  it.each(["transaction", "savepoint"])(
+    "a held view stays live after a snapshot in a rejected %s",
+    (boundary) => {
+      const { store, thread } = setup();
+      const view = store.acquireThread(thread.id);
+      const reject = () => {
+        expect(() =>
+          store.atomic(() => {
+            store.appendEvents(thread.id, [{ type: "thread.updated", title: "uncommitted" }]);
+            expect(store.snapshotThread(thread.id).thread.title).toBe("uncommitted");
+            expect(view.thread.title).toBe(thread.title);
+            throw new Error("rejected");
+          }),
+        ).toThrow("rejected");
+        expect(view.thread.title).toBe(thread.title);
+        expect(store.snapshotThread(thread.id).thread.title).toBe(thread.title);
+      };
+      if (boundary === "savepoint") store.atomic(reject);
+      else reject();
+      store.appendEvents(thread.id, [{ type: "thread.updated", title: "after rollback" }]);
+      expect(view.thread.title).toBe("after rollback");
+      expect(store.acquireThread(thread.id)).toBe(view);
+      store.releaseThread(thread.id);
+      store.releaseThread(thread.id);
+    },
+  );
+  it("a held pending approval still resolves after a snapshot transaction rolls back", () => {
     const { store, thread } = setup();
+    const approval = Interaction.parse({
+      id: "approval",
+      threadId: thread.id,
+      agentId: "root",
+      state: "pending",
+      createdAt: 1,
+      blocking: true,
+      request: { kind: "approval", title: "Continue?", options: [] },
+    });
+    store.appendEvents(thread.id, [{ type: "interaction.opened", interaction: approval }]);
     const view = store.acquireThread(thread.id);
+    const close = {
+      type: "interaction.closed",
+      interactionId: approval.id,
+      state: "resolved",
+      closedAt: 2,
+    } as const;
     expect(() =>
       store.atomic(() => {
-        store.appendEvents(thread.id, [{ type: "thread.updated", title: "uncommitted" }]);
-        expect(store.snapshotThread(thread.id).thread.title).toBe("uncommitted");
-        expect(view.thread.title).toBe(thread.title);
+        store.appendEvents(thread.id, [close]);
+        expect(store.snapshotThread(thread.id).interactions[approval.id]?.state).toBe("resolved");
+        expect(view.interactions[approval.id]?.state).toBe("pending");
         throw new Error("rejected");
       }),
     ).toThrow("rejected");
-    expect(view.thread.title).toBe(thread.title);
-    expect(store.snapshotThread(thread.id).thread.title).toBe(thread.title);
+    expect(view.interactions[approval.id]?.state).toBe("pending");
+    store.appendEvents(thread.id, [close]);
+    expect(view.interactions[approval.id]?.state).toBe("resolved");
+    expect(store.acquireThread(thread.id)).toBe(view);
+    store.releaseThread(thread.id);
     store.releaseThread(thread.id);
   });
+  it("transactional snapshots keep held views isolated until commit and live afterwards", () => {
+    const { store, thread } = setup();
+    const view = store.acquireThread(thread.id);
+    store.atomic(() => {
+      store.appendEvents(thread.id, [{ type: "thread.updated", title: "committed" }]);
+      expect(store.snapshotThread(thread.id).thread.title).toBe("committed");
+      expect(view.thread.title).toBe(thread.title);
+    });
+    expect(view.thread.title).toBe("committed");
+    store.appendEvents(thread.id, [{ type: "thread.updated", title: "after commit" }]);
+    expect(view.thread.title).toBe("after commit");
+    expect(store.acquireThread(thread.id)).toBe(view);
+    store.releaseThread(thread.id);
+    store.releaseThread(thread.id);
+  });
+  it.each(["other-thread", "item-only"])(
+    "a stale held view does not advance its cursor on an unrelated %s publication",
+    (publication) => {
+      const { store, thread, dbPath } = setup();
+      const other = createDevThread(store, store.createWorkspace("/other", "Other", 1));
+      const view = store.acquireThread(thread.id);
+      const cursor = view.seq;
+      const external = new DatabaseSync(dbPath);
+      try {
+        external.prepare("UPDATE threads SET title=? WHERE id=?").run("external", thread.id);
+      } finally {
+        external.close();
+      }
+      store.snapshotThread(other.id);
+      if (publication === "other-thread")
+        store.appendEvents(other.id, [{ type: "thread.updated", title: "other changed" }]);
+      else store.appendEvents(thread.id, [{ type: "item.created", item: message("new-item") }]);
+      expect(store.headSeq()).toBeGreaterThan(cursor);
+      expect(view.seq).toBe(cursor);
+      expect(view.thread.title).toBe(thread.title);
+      store.appendEvents(thread.id, [{ type: "thread.updated", status: thread.status }]);
+      expect(view.seq).toBe(store.headSeq());
+      expect(view.thread.title).toBe("external");
+      expect(store.acquireThread(thread.id)).toBe(view);
+      store.releaseThread(thread.id);
+      store.releaseThread(thread.id);
+    },
+  );
   it("snapshot and entity reads keep acquired status live across external writes", () => {
     const { store, thread, dbPath } = setup();
     const view = store.acquireThread(thread.id);

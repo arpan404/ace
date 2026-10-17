@@ -117,7 +117,9 @@ writes on the Store connection. A cursor past even the reserved high-water mark 
 as unsafe and falls back to a fresh snapshot rather than surfacing a replay error.
 Transactional reads bypass cache population; callers receive independent values. Acquired live status views keep their identity across read-cache generation changes; stale
 contents refresh in place before acquisition or the next status publication. Transactional
-reads retain their separate snapshot so rolled-back changes do not leak into held views.
+snapshots read a detached status view without changing live leases or the committed read-cache
+generation, so commit and rollback both preserve held-view identity and later updates.
+Unrelated or item-only publications leave an invalidated view's cursor unchanged until refresh.
 Read-cache pressure cannot evict pinned writes. Cache misses fall through to SQLite.
 
 Read-cache optimization remains a separate follow-up: with 1,000 awaited deltas, a local

@@ -33,13 +33,14 @@ export class ThreadReadCache {
   }
   read<T>(key: string, load: () => T): T {
     this.options.flush();
+    // Uncommitted reads neither consume cached values nor change the committed generation.
+    if (this.options.inTransaction()) return load();
     const version = this.options.version();
     if (version !== this.version) {
       this.version = version;
       this.invalidate();
       this.options.generationChanged();
     }
-    if (this.options.inTransaction()) return load();
     const cached = this.entries.get(key);
     if (cached !== undefined) {
       this.metrics.hits++;

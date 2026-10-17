@@ -177,8 +177,7 @@ export class Store {
         `${this.statement("PRAGMA data_version").get()?.data_version}:${this.statement("SELECT total_changes() AS n").get()?.n}`,
       inTransaction: () => this.transactionEvents !== undefined,
       generationChanged: () => {
-        if (this.transactionEvents) this.caches.clear();
-        else for (const { view } of this.caches.values()) this.status.invalidateCache(view);
+        for (const { view } of this.caches.values()) this.status.invalidateCache(view);
       },
     });
     this.sequences = new StreamSequences({
@@ -465,7 +464,8 @@ export class Store {
           try {
             if (changes.length && this.status.cacheInvalidated(view)) this.catchUp(view, id);
             else if (changes.length) this.status.updateCache(view, changes);
-            view.seq = Math.max(view.seq, batch.at(-1)?.seq ?? view.seq);
+            if (!this.status.cacheInvalidated(view))
+              view.seq = Math.max(view.seq, batch.at(-1)?.seq ?? view.seq);
           } catch (error) {
             this.caches.delete(id);
             try {
@@ -1212,9 +1212,7 @@ export class Store {
       cached.refs++;
       return cached.view;
     }
-    const thread = this.getThread(id);
-    if (!thread) throw new Error("Unknown thread");
-    const view = this.status.snapshot(thread, this.headSeq());
+    const view = this.status.snapshot(this.getThread(id), this.headSeq());
     this.caches.set(id, { view, refs: 1 });
     return view;
   }
@@ -1229,8 +1227,13 @@ export class Store {
   snapshotThread(id: ThreadId): ThreadView {
     return this.readCache.read(`snapshot:${id}`, () =>
       loadThreadSnapshot({
-        acquire: () => this.acquireThread(id),
-        release: () => this.releaseThread(id),
+        acquire: () =>
+          this.transactionEvents
+            ? this.status.snapshot(this.getThread(id), this.headSeq())
+            : this.acquireThread(id),
+        release: () => {
+          if (!this.transactionEvents) this.releaseThread(id);
+        },
         items: () => this.payloads.page(id, this.headSeq() + 1, 200, 1024 * 1024),
         retainAgents: (view) => this.status.retainItemAgents(view),
       }),

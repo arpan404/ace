@@ -91,6 +91,7 @@ test("an adapter awaiting each frame receives every live delta while persisted d
     expect(live.map((append) => JSON.parse(append).index)).toEqual(
       Array.from({ length: 100 }, (_, index) => index),
     );
+    // Batching bounds are covered by delta-batching.process.test.ts.
     const deltas = store
       .readEvents({ afterSeq: 0, limit: 1000 })
       .filter((event) => event.payload.type === "item.delta");
