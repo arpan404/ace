@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { ConversationRail } from "./conversation-rail.tsx";
@@ -52,17 +52,115 @@ test("keyboard traversal has one tab stop and Enter jumps the focused turn", asy
   expect(document.activeElement).toBe(first);
 });
 
-test("no turn is emphasized: every tick shares the same size and color at rest", () => {
+/** The classes that set a tick's size; emphasis must never touch them. */
+function sizeOf(button: HTMLElement): string[] {
+  const tick = button.querySelector("span");
+  return (tick?.getAttribute("class") ?? "")
+    .split(/\s+/)
+    .filter((name) => /^(w-|h-|scale|size-|min-|max-|ml-|mr-|mx-)/.test(name));
+}
+
+function colourOf(button: HTMLElement): string | undefined {
+  const tick = button.querySelector("span");
+  return (tick?.getAttribute("class") ?? "").split(/\s+/).find((name) => name.startsWith("bg-"));
+}
+
+test("the reader's turn draws brighter than the rest but the same size", () => {
+  render(
+    <ConversationRail
+      markers={markers}
+      height={400}
+      current="second"
+      onJump={() => {}}
+      renderPreview={preview}
+    />,
+  );
+  const [first, second, third] = screen.getAllByRole("button");
+  if (!first || !second || !third) throw new Error("expected three ticks");
+  expect(second.getAttribute("aria-current")).toBe("location");
+  expect(first.getAttribute("aria-current")).toBeNull();
+  expect(third.getAttribute("aria-current")).toBeNull();
+  expect(colourOf(second)).not.toBe(colourOf(first));
+  expect(colourOf(first)).toBe(colourOf(third));
+  expect(sizeOf(second)).toEqual(sizeOf(first));
+  expect(sizeOf(first).length).toBeGreaterThan(0);
+});
+
+test("hovering a tick brightens it without resizing any tick", async () => {
   render(<Rail />);
+  const user = userEvent.setup();
   const buttons = screen.getAllByRole("button");
-  expect(buttons).toHaveLength(3);
-  for (const button of buttons) expect(button.getAttribute("aria-current")).toBeNull();
-  const ticks = buttons.map((button) => button.querySelector("span"));
-  expect(ticks.every(Boolean)).toBe(true);
-  const classes = ticks.map((tick) => tick?.getAttribute("class"));
-  expect(new Set(classes).size).toBe(1);
-  expect(classes[0]).toContain("bg-foreground/30");
-  expect(classes[0]).toContain("scale-x-[0.45]");
+  const before = buttons.map(sizeOf);
+  const resting = buttons.map(colourOf);
+  const target = screen.getByRole("button", { name: "Fix retry" });
+  await user.hover(target);
+  expect(colourOf(target)).not.toBe(resting[1]);
+  expect(buttons.map(sizeOf)).toEqual(before);
+});
+
+/** A transcript whose scroll position and clock the test moves by hand. */
+function fakeTranscript() {
+  const element = document.createElement("div");
+  let top = 0;
+  Object.defineProperty(element, "scrollTop", { get: () => top });
+  let clock = 0;
+  let pending: { at: number; run: () => void } | undefined;
+  const time = {
+    now: () => clock,
+    after(ms: number, run: () => void) {
+      const timer = { at: clock + ms, run };
+      pending = timer;
+      return () => {
+        if (pending === timer) pending = undefined;
+      };
+    },
+  };
+  return {
+    ref: { current: element },
+    time,
+    scrollTo(position: number, at: number) {
+      clock = at;
+      top = position;
+      act(() => void element.dispatchEvent(new Event("scroll")));
+    },
+    wait(ms: number) {
+      clock += ms;
+      const timer = pending;
+      if (timer && timer.at <= clock) {
+        pending = undefined;
+        act(() => timer.run());
+      }
+    },
+  };
+}
+
+const marked = () =>
+  screen.getAllByRole("button").filter((button) => button.hasAttribute("aria-current"));
+
+test("no tick is marked while the transcript is flung, and the mark returns once it settles", () => {
+  const transcript = fakeTranscript();
+  render(
+    <ConversationRail
+      markers={markers}
+      height={400}
+      current="second"
+      scroller={transcript.ref}
+      time={transcript.time}
+      onJump={() => {}}
+      renderPreview={preview}
+    />,
+  );
+  expect(marked()).toHaveLength(1);
+  // 3000 px in 48 ms is a fling.
+  transcript.scrollTo(0, 0);
+  transcript.scrollTo(1000, 16);
+  transcript.scrollTo(2000, 32);
+  transcript.scrollTo(3000, 48);
+  expect(marked()).toHaveLength(0);
+  transcript.wait(50);
+  expect(marked()).toHaveLength(0);
+  transcript.wait(200);
+  expect(marked()).toHaveLength(1);
 });
 
 test("a one-turn conversation does not add an outline", () => {
