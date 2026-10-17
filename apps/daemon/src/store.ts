@@ -1,8 +1,6 @@
-import { loadThreadSnapshot } from "./thread-snapshot.ts";
 import { StreamSequences } from "./stream-sequences.ts";
 import { StoreStream } from "./store-stream.ts";
 import { closeStore } from "./store-shutdown.ts";
-import { ThreadReadCache } from "./thread-read-cache.ts";
 import { WalMaintenance } from "./wal-maintenance.ts";
 import {
   bufferScheduler,
@@ -20,14 +18,8 @@ import { ToolResultStore } from "./tool-result-store.ts";
 import { MeasurementStore } from "./measurement-store.ts";
 import { migrateProjects, decodeProjectRow } from "./project-storage.ts";
 import { LongThreadIndex } from "./long-thread/index.ts";
-import { readTurnSteps, stepSurface, type TurnStepsSource } from "./long-thread/steps.ts";
+import type { TurnStepsSource } from "./long-thread/steps.ts";
 import {
-  TurnsPageRequest,
-  ItemsWindowRequest,
-  ItemsWindowResponse,
-  ThreadSearchRequest,
-  ThreadCatchUpRequest,
-  TurnStepsRequest,
   type TurnStepsRequest as StepsQuery,
   type TurnsPageRequest as TurnsQuery,
   type ItemsWindowRequest as WindowQuery,
@@ -49,12 +41,11 @@ import { ThreadProviderMetadata } from "@ace/protocol";
 import { HistoryIndex } from "./history-index.ts";
 import { setImmediate } from "node:timers/promises";
 import type { ArchiveReader } from "@ace/history-import";
-import { installArchive, readHistoryBlob } from "./history-storage.ts";
+import { installArchive } from "./history-storage.ts";
 import { systemCredentials, type CredentialRuntime } from "./credential-runtime.ts";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync, type StatementSync, type SQLOutputValue } from "@ace/provider-kit/sqlite";
 import {
-  EntitiesPage,
   McpIntent,
   CommandResult,
   Event,
@@ -76,10 +67,10 @@ import { migrate } from "./migrations.ts";
 import { StatusStore } from "./status-store.ts";
 import { UsageReplay } from "./usage-replay.ts";
 import { PayloadStore } from "./payload-store.ts";
-
 import { SearchIndex, SearchQueries, type SearchWorkerFactory } from "@ace/search";
 import { createSearchMaintenance, scheduleSearch, type SearchScheduler } from "./search-runtime.ts";
 import { BoundedCache } from "@ace/provider-kit/bounded-cache";
+import { ThreadReads, type StoreThreadsHost } from "./store-threads-read.ts";
 import { StoreWriteGate, type StoreWriteGateOptions } from "./store-write-gate.ts";
 
 export interface StoreOptions extends Partial<CredentialRuntime> {
@@ -123,7 +114,7 @@ export class Store {
   private rolledBack = 0;
   private readonly streaming: StoreStream;
   private readonly sequences: StreamSequences;
-  private readonly readCache: ThreadReadCache;
+  readonly reads: ThreadReads;
   private readonly wal: WalMaintenance;
   private readonly optionsDelay: BufferScheduler["delay"];
   private transactions = 0;
@@ -134,7 +125,6 @@ export class Store {
   private historyWriter: (() => void) | undefined;
   private readonly writes: StoreWriteGate;
   private listeners = new Set<Listener>();
-  private caches = new Map<ThreadId, { view: ThreadView; refs: number }>();
   private sidebarRevision = "";
   private sidebarReads = 0;
   private readonly sidebarPageWeight = new SidebarPageWeight();
@@ -171,15 +161,6 @@ export class Store {
       exec: (sql) => this.db.exec(sql),
       report: (error) => this.onError(error),
     });
-    this.readCache = new ThreadReadCache({
-      flush: () => this.flushLiveWrites(),
-      version: () =>
-        `${this.statement("PRAGMA data_version").get()?.data_version}:${this.statement("SELECT total_changes() AS n").get()?.n}`,
-      inTransaction: () => this.transactionEvents !== undefined,
-      generationChanged: () => {
-        for (const { view } of this.caches.values()) this.status.invalidateCache(view);
-      },
-    });
     this.sequences = new StreamSequences({
       statement: (sql) => this.statement(sql),
       commit: (run) => this.atomic(run),
@@ -187,6 +168,7 @@ export class Store {
     this.nextId = options.nextId ?? randomUUID;
     this.now = options.now ?? Date.now;
     this.writes = new StoreWriteGate(options.writeGate);
+    this.reads = new ThreadReads(this.readHost());
     this.streaming = new StoreStream({
       scheduler: options.bufferScheduler ?? bufferScheduler,
       nextId: this.nextId,
@@ -303,7 +285,7 @@ export class Store {
         this.statements.clear();
         this.listeners.clear();
         this.usageListeners.clear();
-        this.caches.clear();
+        this.reads.clear();
         this.db.close();
       },
     }).then(finished.resolve, finished.reject);
@@ -362,12 +344,32 @@ export class Store {
       transactions: this.transactions,
       eventRows: this.eventRows,
       walBytes: this.wal.bytes(),
-      reads: { ...this.readCache.metrics },
+      reads: { ...this.reads.readCache.metrics },
     };
   }
   /** In-memory projections must reload after any rollback, including event-free saves. */
   rollbackGeneration(): number {
     return this.rolledBack;
+  }
+  /** The read path resolves the store's components lazily: it is built before the
+   *  constructor finishes opening them, and its own invalidation must never be undefined. */
+  private readHost(): StoreThreadsHost {
+    return {
+      db: () => this.db,
+      flushLiveWrites: () => this.flushLiveWrites(),
+      statement: (sql) => this.statement(sql),
+      headSeq: () => this.headSeq(),
+      atomic: (run) => this.atomic(run),
+      inTransaction: () => this.transactionEvents !== undefined,
+      getThread: (id) => this.getThread(id),
+      status: () => this.status,
+      payloads: () => this.payloads,
+      longThreads: () => this.longThreads,
+      stepSites: () => this.stepSites,
+      search: () => this.search,
+      history: () => this.history,
+      onError: (error) => this.onError(error),
+    };
   }
   private transaction<T>(run: () => T, committed?: () => void): T {
     if (!this.streaming.flushing) this.flushLiveWrites();
@@ -382,7 +384,7 @@ export class Store {
         return result;
       } catch (error) {
         this.db.exec(`ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
-        this.readCache.invalidate();
+        this.reads.readCache.invalidate();
         this.rolledBack++;
         this.sidebarPages.clear();
         this.sidebarSummaries.clear();
@@ -402,7 +404,7 @@ export class Store {
       events = this.transactionEvents;
       this.db.exec("COMMIT");
       this.transactions++;
-      this.readCache.invalidate();
+      this.reads.readCache.invalidate();
       this.wal.wake();
       this.eventRows += events.length;
     } catch (error) {
@@ -454,27 +456,7 @@ export class Store {
       let batch: Event[] | undefined;
       while ((batch = this.publications.shift())) {
         this.publishedSeq = Math.max(this.publishedSeq, batch.at(-1)?.seq ?? this.publishedSeq);
-        for (const [id, { view }] of this.caches) {
-          const changes = batch.filter(
-            (event) =>
-              event.seq > view.seq &&
-              event.threadId === view.thread.id &&
-              !event.payload.type.startsWith("item."),
-          );
-          try {
-            if (changes.length && this.status.cacheInvalidated(view)) this.catchUp(view, id);
-            else if (changes.length) this.status.updateCache(view, changes);
-            if (!this.status.cacheInvalidated(view))
-              view.seq = Math.max(view.seq, batch.at(-1)?.seq ?? view.seq);
-          } catch (error) {
-            this.caches.delete(id);
-            try {
-              this.onError(error);
-            } catch {
-              /* committed delivery must continue */
-            }
-          }
-        }
+        this.reads.applyToAcquiredViews(batch);
         const listeners = [...this.listeners];
         for (const listener of listeners) {
           try {
@@ -1204,40 +1186,12 @@ export class Store {
       return CommandResult.parse(JSON.parse(String(row.result)));
     });
   }
+  /** Thread reads live with their read-path owner; Store delegates to keep one surface. */
   acquireThread(id: ThreadId): ThreadView {
-    this.flushLiveWrites();
-    const cached = this.caches.get(id);
-    if (cached) {
-      this.catchUp(cached.view, id);
-      cached.refs++;
-      return cached.view;
-    }
-    const view = this.status.snapshot(this.getThread(id), this.headSeq());
-    this.caches.set(id, { view, refs: 1 });
-    return view;
-  }
-  private catchUp(view: ThreadView, id: ThreadId): void {
-    const head = this.headSeq();
-    if (view.seq < head || this.status.cacheInvalidated(view)) {
-      const thread = this.getThread(id);
-      if (!thread) throw new Error("Unknown thread");
-      this.status.replaceCache(view, this.status.snapshot(thread, head));
-    }
+    return this.reads.acquireThread(id);
   }
   snapshotThread(id: ThreadId): ThreadView {
-    return this.readCache.read(`snapshot:${id}`, () =>
-      loadThreadSnapshot({
-        acquire: () =>
-          this.transactionEvents
-            ? this.status.snapshot(this.getThread(id), this.headSeq())
-            : this.acquireThread(id),
-        release: () => {
-          if (!this.transactionEvents) this.releaseThread(id);
-        },
-        items: () => this.payloads.page(id, this.headSeq() + 1, 200, 1024 * 1024),
-        retainAgents: (view) => this.status.retainItemAgents(view),
-      }),
-    );
+    return this.reads.snapshotThread(id);
   }
   readEntityPage(
     threadId: ThreadId,
@@ -1245,39 +1199,16 @@ export class Store {
     before: number,
     limit: number,
   ) {
-    this.flushLiveWrites();
-    const thread = this.getThread(threadId);
-    if (!thread) throw new Error("Unknown thread");
-    return this.readCache.read(
-      JSON.stringify(["entities", threadId, collection, before, limit]),
-      () =>
-        EntitiesPage.parse({
-          ...this.status.page(thread, collection, before, limit),
-          seq: this.headSeq(),
-        }),
-    );
+    return this.reads.readEntityPage(threadId, collection, before, limit);
   }
   getInteraction(id: string) {
     return this.status.interaction(id);
   }
   readItems(threadId: ThreadId, before: number, limit: number) {
-    this.flushLiveWrites();
-    if (!this.getThread(threadId)) throw new Error("Unknown thread");
-    return this.readCache.read(JSON.stringify(["items", threadId, before, limit]), () => ({
-      ...this.payloads.page(threadId, before, limit),
-      seq: this.headSeq(),
-    }));
-  }
-  private readableThread(id: ThreadId): Thread {
-    this.flushLiveWrites();
-    const thread = this.getThread(id);
-    if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
-    return thread;
+    return this.reads.readItems(threadId, before, limit);
   }
   turnsPage(input: Omit<TurnsQuery, "type" | "requestId"> & { requestId?: string }) {
-    const query = TurnsPageRequest.parse({ type: "turns.page", requestId: "turns", ...input });
-    this.readableThread(query.threadId);
-    return this.longThreads.reader.page(query, this.headSeq());
+    return this.reads.turnsPage(input);
   }
   turnSteps(
     input: Omit<StepsQuery, "type" | "requestId" | "limit"> & {
@@ -1286,141 +1217,55 @@ export class Store {
     },
     cachedIcon?: TurnStepsSource["cachedIcon"],
   ) {
-    const query = TurnStepsRequest.parse({ type: "turn.steps", requestId: "steps", ...input });
-    this.readableThread(query.threadId);
-    return readTurnSteps(
-      {
-        data: this.longThreads.data,
-        item: (threadId, itemId) => this.payloads.stepItem(threadId, itemId),
-        sites: this.stepSites,
-        cachedIcon,
-      },
-      query,
-      this.headSeq(),
-    );
+    return this.reads.turnSteps(input, cachedIcon);
   }
   /** A recorded step's site or app, worked out by the daemon (`icons.resolve`). */
   stepSurface(threadId: ThreadId, itemId: string) {
-    this.readableThread(threadId);
-    return stepSurface(
-      {
-        data: this.longThreads.data,
-        item: (thread, id) => this.payloads.stepItem(thread, id),
-        sites: this.stepSites,
-      },
-      threadId,
-      itemId,
-    );
+    return this.reads.stepSurface(threadId, itemId);
   }
   itemsWindow(input: Omit<WindowQuery, "type" | "requestId"> & { requestId?: string }) {
-    const query = ItemsWindowRequest.parse({ type: "items.window", requestId: "window", ...input });
-    this.readableThread(query.threadId);
-    let target = query.aroundSeq;
-    if (query.itemId !== undefined) {
-      target = this.payloads.itemCreatedSeq(query.threadId, query.itemId);
-      if (target === undefined)
-        return ItemsWindowResponse.parse({
-          type: "items.window",
-          requestId: query.requestId,
-          threadId: query.threadId,
-          seq: this.headSeq(),
-          targetSeq: null,
-          items: [],
-          itemSeqs: {},
-          itemsBefore: null,
-          itemsAfter: null,
-        });
-    }
-    if (query.turnOrdinal !== undefined) {
-      const row = this.longThreads.data
-        .sql(
-          "SELECT MIN(i.created_seq) AS seq FROM long_items i JOIN item_heads h ON h.id=i.item_id AND h.thread_id=i.thread_id WHERE i.thread_id=? AND i.ordinal=?",
-        )
-        .get(query.threadId, query.turnOrdinal);
-      if (row?.seq == null) throw new Error("turn_target_unavailable");
-      target = Number(row.seq);
-    }
-    return ItemsWindowResponse.parse({
-      type: "items.window",
-      requestId: query.requestId,
-      seq: this.headSeq(),
-      ...this.payloads.window(query.threadId, target ?? 0, query.before, query.after, 1024 * 1024),
-    });
+    return this.reads.itemsWindow(input);
   }
   threadSearch(
     input: Omit<ThreadSearchQuery, "type" | "requestId"> & { requestId?: string },
     authorize: (id: ThreadId) => boolean = () => true,
   ) {
-    const query = ThreadSearchRequest.parse({
-      type: "thread.search",
-      requestId: "search",
-      ...input,
-    });
-    this.readableThread(query.threadId);
-    const threads =
-      query.scope === "tree"
-        ? this.longThreads.reader.descendantThreads(query.threadId)
-        : [query.threadId];
-    if (threads.some((id) => !authorize(ThreadId.parse(id)))) throw new Error("forbidden");
-    const response = this.search.threadQuery(query, {
-      headSeq: this.headSeq(),
-      threadIds: threads,
-      turnOrdinalForItem: (thread, item) => this.longThreads.reader.ordinal(thread, item),
-    });
-    const indexedSeq = Math.min(response.indexedSeq, this.longThreads.data.indexedSeq());
-    return { ...response, indexedSeq, ready: response.ready && indexedSeq >= response.headSeq };
+    return this.reads.threadSearch(input, authorize);
   }
   threadCatchUp(
     input: Omit<CatchUpQuery, "type" | "requestId"> & { requestId?: string },
     authorize: (id: ThreadId) => boolean = () => true,
   ) {
-    const query = ThreadCatchUpRequest.parse({
-      type: "thread.catchUp",
-      requestId: "catch-up",
-      ...input,
-    });
-    this.readableThread(query.threadId);
-    const family = this.longThreads.reader.descendantThreads(query.threadId);
-    if (family.some((id) => !authorize(ThreadId.parse(id)))) throw new Error("forbidden");
-    return this.longThreads.reader.catchUp(query, this.headSeq(), family);
+    return this.reads.threadCatchUp(input, authorize);
   }
   threadReadState(threadId: ThreadId, deviceId: DeviceId, requestId = "read-state") {
-    this.readableThread(threadId);
-    return this.longThreads.reader.readState(threadId, deviceId, requestId);
+    return this.reads.threadReadState(threadId, deviceId, requestId);
   }
   markThreadRead(threadId: ThreadId, deviceId: DeviceId, lastSeenSeq: number): void {
-    this.readableThread(threadId);
+    this.flushLiveWrites();
+    const thread = this.getThread(threadId);
+    if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
     this.atomic(() =>
       this.longThreads.reader.markRead(threadId, deviceId, lastSeenSeq, this.headSeq(), this.now()),
     );
   }
   outputThread(streamId: string) {
-    return this.payloads.liveStreamThread(streamId);
+    return this.reads.outputThread(streamId);
   }
   readItemPage(threadId: ThreadId, before: number, limit: number, byteLimit = 1024 * 1024) {
-    this.flushLiveWrites();
-    if (!this.getThread(threadId)) throw new Error("Unknown thread");
-    return this.readCache.read(
-      JSON.stringify(["wireItems", threadId, before, limit, byteLimit]),
-      () => ({
-        ...this.payloads.wirePage(threadId, before, limit, byteLimit),
-        seq: this.headSeq(),
-      }),
-    );
+    return this.reads.readItemPage(threadId, before, limit, byteLimit);
   }
   appendRawChunk(threadId: ThreadId, chunk: unknown): void {
     this.payloads.streamed.append(threadId, chunk);
   }
   readRawChunk(blobRef: string, offset: number, limit: number): Uint8Array {
-    return this.payloads.streamed.read(blobRef, offset, limit);
+    return this.reads.readRawChunk(blobRef, offset, limit);
   }
   historicalItemCount(threadId: ThreadId, through: number): number {
-    this.flushLiveWrites();
-    return this.history.count(threadId, through);
+    return this.reads.historicalItemCount(threadId, through);
   }
   historicalItemCompletion(threadId: ThreadId, itemId: ItemId) {
-    this.flushLiveWrites();
-    return this.history.completion(threadId, itemId);
+    return this.reads.historicalItemCompletion(threadId, itemId);
   }
   readHistoricalItemPage(
     threadId: ThreadId,
@@ -1429,9 +1274,7 @@ export class Store {
     limit: number,
     byteLimit = 1024 * 1024,
   ) {
-    this.flushLiveWrites();
-    if (!this.getThread(threadId)) throw new Error("Unknown thread");
-    return this.history.page(threadId, through, before, limit, byteLimit);
+    return this.reads.readHistoricalItemPage(threadId, through, before, limit, byteLimit);
   }
   readHistoricalStream(
     threadId: ThreadId,
@@ -1440,27 +1283,22 @@ export class Store {
     offset: number,
     limit: number,
   ) {
-    this.flushLiveWrites();
-    return this.history.readStream(threadId, streamId, through, offset, limit);
+    return this.reads.readHistoricalStream(threadId, streamId, through, offset, limit);
   }
   blobInfo(blobRef: string) {
-    return this.payloads.blobInfo(blobRef);
+    return this.reads.blobInfo(blobRef);
   }
   outputInfo(streamId: string) {
-    this.flushLiveWrites();
-    return this.payloads.outputInfo(streamId);
+    return this.reads.outputInfo(streamId);
   }
   readOutputBytes(streamId: string, offset: number, limit: number) {
-    this.flushLiveWrites();
-    return this.payloads.readLiveOutputBytes(streamId, offset, limit);
+    return this.reads.readOutputBytes(streamId, offset, limit);
   }
   readOutput(streamId: string, offset: number, limit: number) {
-    this.flushLiveWrites();
-    return this.payloads.readOutput(streamId, offset, limit);
+    return this.reads.readOutput(streamId, offset, limit);
   }
   readHistoryBlob(threadId: ThreadId, id: string, offset: number, limit: number) {
-    if (!this.getThread(threadId)) throw new Error("Unknown thread");
-    return readHistoryBlob(this.db, threadId, id, offset, limit);
+    return this.reads.readHistoryBlob(threadId, id, offset, limit);
   }
   private recordDataDeletion(id: ThreadId): void {
     const previousSeq = this.headSeq();
@@ -1480,7 +1318,7 @@ export class Store {
       this.recordDataDeletion(id);
       purgeTranscript(this.db, id);
     });
-    this.caches.delete(id);
+    this.reads.discard(id);
   }
   deleteThread(id: ThreadId): void {
     this.transaction(() => {
@@ -1489,10 +1327,9 @@ export class Store {
       this.statement("DELETE FROM events WHERE thread_id = ?").run(id);
       this.statement("DELETE FROM threads WHERE id = ?").run(id);
     });
-    this.caches.delete(id);
+    this.reads.discard(id);
   }
   releaseThread(id: ThreadId): void {
-    const cached = this.caches.get(id);
-    if (cached && --cached.refs === 0) this.caches.delete(id);
+    this.reads.releaseThread(id);
   }
 }
