@@ -21,8 +21,8 @@ export interface LandOptions {
 }
 
 /**
- * After a project is added, created or cloned: open it and say so. A folder inside a
- * repository offers the repository's root instead, which is added only if chosen. A project on
+ * After a project is added, created or cloned: open it. A folder inside a repository offers the
+ * repository's root instead, in a toast, which is added only if chosen. A project on
  * another machine is ready there; this window's screens show its own daemon, so it says that
  * instead of opening.
  */
@@ -55,6 +55,8 @@ export function useLandInProject(): (result: Added, verb?: string, options?: Lan
           void navigate({ to: "/", replace });
         } else void navigate({ to: "/new", search: { project: id }, replace });
         const root = added.suggestedRoot;
+        // Opening it is the confirmation; a toast only carries something to act on or know.
+        if (!root && !added.gitUnavailable) return;
         const toastId = toast.add({
           title: `${said} ${added.project.name}`,
           ...(added.gitUnavailable

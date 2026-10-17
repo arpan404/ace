@@ -40,6 +40,7 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
     ids: [
       "palette",
       "newThread",
+      "newThreadHere",
       "addProject",
       "settings",
       "back",

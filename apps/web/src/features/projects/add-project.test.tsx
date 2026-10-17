@@ -14,30 +14,22 @@ function firstRun(options: Parameters<typeof harness>[0] = {}) {
     { path: `${home}/code/mono`, git: true },
     { path: `${home}/code/mono/packages/web` },
     { path: `${home}/code/design-system`, git: true },
-    { path: `${home}/code/design-tokens` },
     { path: `${home}/.dotfiles` },
   ]);
   return made;
 }
 const registered = (made: ReturnType<typeof harness>) =>
   made.daemon.projects.list().workspaces.map((project) => project.path);
-const dialog = () => screen.findByRole("dialog", { name: "Add project" });
-const box = () => screen.findByRole("combobox", { name: "Search folders" });
+const palette = () => screen.findByRole("dialog", { name: "Add project" });
+const field = () => screen.findByRole<HTMLInputElement>("combobox", { name: "Folder path" });
 const folders = () => screen.findByRole("listbox", { name: "Folders" });
-const option = async (name: string) =>
-  within(await folders()).findByRole("option", { name: new RegExp(`^${name}`) });
-/** The option the search box points at for assistive tech. */
-const active = async () => {
-  const id = (await box()).getAttribute("aria-activedescendant");
+const option = async (name: string | RegExp) =>
+  within(await folders()).findByRole("option", { name });
+/** The option the field points at for assistive tech, if any. */
+const highlighted = async () => {
+  const id = (await field()).getAttribute("aria-activedescendant");
   return id ? document.getElementById(id) : null;
 };
-const names = (group: HTMLElement) =>
-  within(group)
-    .getAllByRole("option")
-    .map((each) => each.textContent?.match(/^[\w.-]+/)?.[0]);
-
-/** The selected tab's label. */
-const selected = () => screen.getByRole("dialog", { name: "Add project" }).textContent;
 
 /** A project registered before the app opens, as another device would have. */
 async function addProject(made: ReturnType<typeof harness>, input: { path: string }) {
@@ -46,261 +38,230 @@ async function addProject(made: ReturnType<typeof harness>, input: { path: strin
   return made.client.projects.add(input);
 }
 
-/** ⇧⌘O from Settings: Add project on Open folder. */
-async function openFolder(made: ReturnType<typeof harness>) {
-  await made.open("/settings");
+/** ⇧⌘O from Settings, then Local folder: the path field, emptied. */
+async function localFolder(made: ReturnType<typeof harness>, path = "/settings") {
+  await made.open(path);
   await screen.findByRole("heading", { level: 1 });
   await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
-  await dialog();
-  await userEvent.click(screen.getByRole("option", { name: "Local folder" }));
-  return box();
+  await palette();
+  await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
+  const input = await field();
+  await userEvent.clear(input);
+  return input;
 }
 
-test("Add project keeps focus: Tab cycles inside it and focus pulled behind it comes back", async () => {
+test("⇧⌘O opens Add project in the palette on its four sources, the field focused", async () => {
   const made = firstRun();
   await made.open("/settings");
   await screen.findByRole("heading", { level: 1 });
   await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
-  const card = await dialog();
-  const search = await screen.findByRole("combobox", { name: "Search project sources" });
+  const sheet = await palette();
+  const sources = within(sheet).getByRole("listbox", { name: "Project sources" });
+  expect(
+    within(sources)
+      .getAllByRole("option")
+      .map((each) => each.textContent),
+  ).toEqual(["Local folder", "New project", "Git URL", "GitHub repository"]);
+  const search = within(sheet).getByRole("combobox", { name: "Search project sources" });
   await waitFor(() => expect(document.activeElement).toBe(search));
-  // The sources are a list the search box steps through, not a Tab stop each.
-  for (let press = 0; press < 6; press++) {
-    await userEvent.tab();
-    expect(card.contains(document.activeElement)).toBe(true);
-  }
-  // Something behind the modal taking focus (a request card arriving, a row restoring) is undone.
-  const behind = screen.getAllByRole("link", { hidden: true }).find((link) => !card.contains(link));
-  if (!behind) throw new Error("Nothing focusable behind the dialog");
-  behind.focus();
-  await waitFor(() => expect(card.contains(document.activeElement)).toBe(true));
+  // The first source is highlighted and Enter takes it.
+  await userEvent.keyboard("{Enter}");
+  expect((await field()).value).toBe("~/");
 });
 
-test("the first run offers one Add project entry in each area, and a searched folder opens with Enter", async () => {
+test("the first run's Add a project leads to the folder field, and ⌘Enter adds the highlighted folder", async () => {
   const made = firstRun();
   await made.open("/");
   await screen.findByRole("heading", { level: 1, name: "Add your first project" });
-  const sidebar = screen.getByRole("complementary", { name: "Threads" });
-  expect(await within(sidebar).findAllByRole("button", { name: /^Add project/ })).toHaveLength(1);
-  const main = screen.getByRole("main");
-  expect(within(main).getAllByRole("button", { name: "Add a project" })).toHaveLength(1);
-  expect(within(main).getByText(/folder on this machine/)).toBeTruthy();
-  await userEvent.click(within(main).getByRole("button", { name: "Add a project" }));
+  await userEvent.click(
+    within(screen.getByRole("main")).getByRole("button", { name: "Add a project" }),
+  );
   await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
-
-  const search = await box();
-  expect(document.activeElement).toBe(search);
-  expect(screen.queryByRole("textbox", { name: "Icon URL" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Upload image" })).toBeNull();
-  await userEvent.type(search, "weath");
+  const input = await field();
+  expect(input.value).toBe("~/");
+  await userEvent.type(input, "code/wea");
   await option("weather");
-  expect((await active())?.textContent).toMatch(/^weather/);
-  await userEvent.keyboard("{Enter}");
+  // Nothing is highlighted until an arrow moves.
+  expect(await highlighted()).toBeNull();
+  await userEvent.keyboard("{ArrowDown}");
+  expect((await highlighted())?.textContent).toMatch(/^weather/);
+  await userEvent.keyboard("{Control>}{Enter}{/Control}");
 
-  // A project with no threads yet opens at New thread.
+  // Straight into a new thread draft in the project, with no extra step.
+  await screen.findByRole("button", { name: "Project: weather" });
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add project" })).toBeNull());
+  expect(registered(made)).toEqual([`${home}/code/weather`]);
+  expect(screen.queryByText("Added weather")).toBeNull();
+});
+
+test("Enter on a name that doesn't exist creates nothing; only its Create row makes the folder", async () => {
+  const made = firstRun();
+  const input = await localFolder(made);
+  await userEvent.type(input, "~/code/next");
+  const create = await option("Create ~/code/next and add");
+  // Offered, never highlighted on its own.
+  expect(create.getAttribute("aria-selected")).toBe("false");
+  await userEvent.keyboard("{Enter}");
+  expect(registered(made)).toEqual([]);
+  expect(await palette()).toBeTruthy();
+
+  // Chosen deliberately, it makes the folder and adds it.
+  await userEvent.keyboard("{ArrowUp}");
+  expect((await highlighted())?.getAttribute("aria-label")).toBe("Create ~/code/next and add");
+  await userEvent.keyboard("{Enter}");
+  await screen.findByRole("button", { name: "Project: next" });
+  expect(registered(made)).toEqual([`${home}/code/next`]);
+});
+
+test("Enter, → and a click go into a folder, .. goes up, and Enter with nothing highlighted adds the typed folder", async () => {
+  const made = firstRun();
+  const input = await localFolder(made);
+  await userEvent.type(input, "~/");
+  await option("code");
+  await userEvent.keyboard("{ArrowDown}");
+  expect((await highlighted())?.textContent).toBe("..");
+  await userEvent.keyboard("{ArrowDown}{Enter}");
+  await waitFor(() => expect(input.value).toMatch(/^~\/[^/]+\/$/));
+
+  await userEvent.clear(input);
+  await userEvent.type(input, "~/code/wea");
+  await option("weather");
+  await userEvent.keyboard("{ArrowDown}{ArrowRight}");
+  await waitFor(() => expect(input.value).toBe("~/code/weather/"));
+  expect(registered(made)).toEqual([]);
+
+  await userEvent.clear(input);
+  await userEvent.type(input, "~/code/");
+  await userEvent.click(await option("mono"));
+  await waitFor(() => expect(input.value).toBe("~/code/mono/"));
+  await userEvent.keyboard("{ArrowDown}{Enter}");
+  await waitFor(() => expect(input.value).toBe("~/code/"));
+  expect(registered(made)).toEqual([]);
+
+  await userEvent.type(input, "weather/");
+  // The footer names what Enter adds once the folder is known to exist.
+  await screen.findByText("~/code/weather");
+  await userEvent.keyboard("{Enter}");
   await screen.findByRole("button", { name: "Project: weather" });
   expect(registered(made)).toEqual([`${home}/code/weather`]);
-  expect(made.daemon.projects.list().workspaces[0]?.icon).toBeUndefined();
-});
-
-test("search ranks an exact name, then a prefix, then a name containing it, then scattered letters", async () => {
-  const made = harness();
-  made.daemon.projects.seedFolders(home, [
-    { path: `${home}/code/wide-eyed-bot` },
-    { path: `${home}/code/my-web` },
-    { path: `${home}/code/webapp` },
-    { path: `${home}/web` },
-  ]);
-  await userEvent.type(await openFolder(made), "web");
-  const list = await folders();
-  await waitFor(() =>
-    expect(names(within(list).getByRole("group", { name: "Folders on Fake machine" }))).toEqual([
-      "web",
-      "webapp",
-      "my-web",
-      "wide-eyed-bot",
-    ]),
-  );
-});
-
-test("a folder that is already a project is offered first, under Projects", async () => {
-  const made = firstRun();
-  await addProject(made, { path: `${home}/code/design-system` });
-  await userEvent.type(await openFolder(made), "design");
-  const list = await folders();
-  const projects = await within(list).findByRole("group", { name: "Projects" });
-  expect(names(projects)).toEqual(["design-system"]);
-  await waitFor(() =>
-    expect(names(within(list).getByRole("group", { name: /^Folders on/ }))).toEqual([
-      "design-tokens",
-    ]),
-  );
-});
-
-test("typing a path browses it: Tab completes, / goes in, Backspace and ⌘↑ go up, Enter opens it", async () => {
-  const made = firstRun();
-  const search = await openFolder(made);
-  await userEvent.type(search, "~/co");
-  await userEvent.keyboard("{Tab}");
-  // The only match: completed and entered.
-  await waitFor(() => expect(search).toHaveProperty("value", "~/code/"));
-  const path = screen.getByRole("navigation", { name: "Folder path" });
-  expect(within(path).getByRole("button", { name: "code" }).getAttribute("aria-current")).toBe(
-    "location",
-  );
-  await option("mono");
-
-  // Several matches complete to what they share.
-  await userEvent.type(search, "d");
-  await userEvent.keyboard("{Tab}");
-  await waitFor(() => expect(search).toHaveProperty("value", "~/code/design-"));
-  await userEvent.keyboard("{Control>}{ArrowUp}{/Control}");
-  expect(search).toHaveProperty("value", "~/code/");
-  await userEvent.keyboard("{Backspace}");
-  expect(search).toHaveProperty("value", "~/");
-  // Backspace stops at the home folder, an allowed root, and edits the text as usual.
-  await userEvent.keyboard("{Backspace}");
-  expect(search).toHaveProperty("value", "~");
-
-  // A breadcrumb goes straight to its folder.
-  await userEvent.clear(search);
-  await userEvent.type(search, "~/code/mono/packages/");
-  await userEvent.click(
-    within(screen.getByRole("navigation", { name: "Folder path" })).getByRole("button", {
-      name: "mono",
-    }),
-  );
-  expect(search).toHaveProperty("value", "~/code/mono/");
-  // The typed folder itself comes first, so Enter opens it.
-  await option("mono");
-  await userEvent.click(search);
-  await userEvent.keyboard("{Enter}");
-  await screen.findByRole("button", { name: "Project: mono" });
-  expect(registered(made)).toEqual([`${home}/code/mono`]);
-});
-
-test("arrows and Ctrl-N/P move the highlight, and Esc clears the box before closing", async () => {
-  const made = firstRun();
-  const search = await openFolder(made);
-  await userEvent.type(search, "~/code/");
-  await option("weather");
-  expect((await active())?.textContent).toMatch(/^code/);
-  await userEvent.keyboard("{ArrowDown}");
-  expect((await active())?.textContent).toMatch(/^design-system/);
-  await userEvent.keyboard("{Control>}n{/Control}");
-  expect((await active())?.textContent).toMatch(/^design-tokens/);
-  await userEvent.keyboard("{Control>}p{/Control}{ArrowUp}");
-  expect((await active())?.textContent).toMatch(/^code/);
-  // The highlighted folder's full path is shown and described to assistive tech.
-  await userEvent.keyboard("{ArrowDown}");
-  const described = document.getElementById(search.getAttribute("aria-describedby") ?? "");
-  expect(described?.textContent).toBe("~/code/design-system");
-
-  await userEvent.keyboard("{Escape}");
-  expect(search).toHaveProperty("value", "");
-  expect(screen.getByRole("dialog", { name: "Add project" })).toBeTruthy();
-  await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add project" })).toBeNull());
-});
-
-test("the search box and list read as a combobox with a listbox of grouped options", async () => {
-  const made = firstRun();
-  await addProject(made, { path: `${home}/code/weather` });
-  const search = await openFolder(made);
-  const list = await folders();
-  expect(search.getAttribute("aria-controls")).toBe(list.id);
-  expect(search.getAttribute("aria-expanded")).toBe("true");
-  expect(search.getAttribute("aria-autocomplete")).toBe("list");
-  await within(list).findByRole("group", { name: "Recent" });
-  expect(within(list).getByRole("group", { name: "In ~" })).toBeTruthy();
-  const options = within(list).getAllByRole("option");
-  expect(options.filter((each) => each.getAttribute("aria-selected") === "true")).toEqual([
-    await active(),
-  ]);
-  expect((await active())?.textContent).toMatch(/^weather.*~\/code\/weather.*Project/);
 });
 
 test("hidden folders show once the typed name starts with a dot", async () => {
   const made = firstRun();
-  const search = await openFolder(made);
-  await userEvent.type(search, "~/");
+  const input = await localFolder(made);
+  await userEvent.type(input, "~/");
   await option("code");
   expect(within(await folders()).queryByRole("option", { name: /dotfiles/ })).toBeNull();
-  await userEvent.type(search, ".");
+  await userEvent.type(input, ".");
   expect(await option(".dotfiles")).toBeTruthy();
 });
 
-test("a folder inside a repository offers the repository, added only when chosen", async () => {
+test("the field starts beside the most recent project", async () => {
   const made = firstRun();
-  const search = await openFolder(made);
-  await userEvent.type(search, "~/code/mono/packages/");
-  await option("web");
-  await userEvent.keyboard("{ArrowDown}");
-
-  const offer = await screen.findByRole("note");
-  expect(offer.textContent).toContain("web is inside the mono repository");
-  // Offered, not added.
-  expect(registered(made)).toEqual([]);
-  await userEvent.click(within(offer).getByRole("button", { name: "Add mono" }));
-  await screen.findByRole("button", { name: "Project: mono" });
-  expect(registered(made)).toEqual([`${home}/code/mono`]);
-});
-
-test("Enter opens a project with threads at its threads; ⌘Enter starts a new thread", async () => {
-  const made = firstRun();
-  const added = await addProject(made, { path: `${home}/code/weather` });
-  const projectId = added.workspace?.id ?? "";
-  createIdleTask(made.daemon, {
-    id: "thread-forecast",
-    workspaceId: projectId,
-    title: "Fix the forecast",
-    provider: "codex",
-  });
+  await addProject(made, { path: `${home}/code/weather` });
   await made.open("/settings");
   await screen.findByRole("heading", { level: 1 });
   await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
   await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
-  await box();
-  await option("weather");
-  await userEvent.keyboard("{Control>}{Enter}{/Control}");
-  await screen.findByRole("button", { name: "Project: weather" });
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add project" })).toBeNull());
+  const input = await field();
+  await waitFor(() => expect(input.value).toBe("~/code/"));
+  expect(await option("mono")).toBeTruthy();
+});
 
-  await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
-  await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
-  await option("weather");
+test("a folder that is already a project adds nothing and opens its latest thread", async () => {
+  const made = firstRun();
+  const added = await addProject(made, { path: `${home}/code/weather` });
+  createIdleTask(made.daemon, {
+    id: "thread-forecast",
+    workspaceId: added.workspace?.id ?? "",
+    title: "Fix the forecast",
+    provider: "codex",
+  });
+  const input = await localFolder(made);
+  await userEvent.type(input, "~/code/weather/");
+  await screen.findByText("~/code/weather");
   await userEvent.keyboard("{Enter}");
   expect(await screen.findByRole("heading", { level: 1, name: "Fix the forecast" })).toBeTruthy();
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add project" })).toBeNull());
-  expect(screen.queryByRole("button", { name: "Project: weather" })).toBeNull();
+  expect(await screen.findByText("weather is already a project")).toBeTruthy();
+  expect(registered(made)).toEqual([`${home}/code/weather`]);
 });
 
-test("⌘1–⌘3 switch tabs, and so do ← and → from an empty box", async () => {
+test("a project without threads that is added again opens a new thread draft in it", async () => {
   const made = firstRun();
-  await openFolder(made);
-  await userEvent.keyboard("{Control>}2{/Control}");
-  await waitFor(() => expect(selected()).toMatch(/New project/));
-  const name = await screen.findByRole("textbox", { name: "Name" });
-  await waitFor(() => expect(document.activeElement).toBe(name));
-  await userEvent.keyboard("{ArrowRight}");
-  await waitFor(() => expect(selected()).toMatch(/Clone/));
-  await userEvent.click(await screen.findByRole("textbox", { name: "Repository address" }));
-  await userEvent.keyboard("{ArrowLeft}");
-  await waitFor(() => expect(selected()).toMatch(/New project/));
-  // With text in the box the arrows move the caret instead.
-  await userEvent.type(await screen.findByRole("textbox", { name: "Name" }), "x{ArrowLeft}");
-  expect(selected()).toMatch(/New project/);
-  await userEvent.keyboard("{Control>}1{/Control}");
-  await waitFor(() => expect(selected()).toMatch(/Open folder/));
+  await addProject(made, { path: `${home}/code/mono` });
+  const input = await localFolder(made);
+  await userEvent.type(input, "~/code/mono/");
+  await screen.findByText("~/code/mono");
+  await userEvent.keyboard("{Enter}");
+  await screen.findByRole("button", { name: "Project: mono" });
+  expect(registered(made)).toEqual([`${home}/code/mono`]);
 });
 
-test("a new project's name is checked as you type, and it can start as a Git repository", async () => {
+test("a folder inside a repository is added, and the repository is offered in the toast", async () => {
+  const made = firstRun();
+  const input = await localFolder(made);
+  await userEvent.type(input, "~/code/mono/packages/web/");
+  await screen.findByText("~/code/mono/packages/web");
+  await userEvent.keyboard("{Enter}");
+  await screen.findByRole("button", { name: "Project: web" });
+  expect(await screen.findByText("It's inside the mono repository.")).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Use mono" }));
+  await screen.findByRole("button", { name: "Project: mono" });
+  expect(registered(made)).toEqual([`${home}/code/mono/packages/web`, `${home}/code/mono`]);
+});
+
+test("Backspace in an empty field goes back a step, and Esc clears before it closes", async () => {
+  const made = firstRun();
+  const input = await localFolder(made);
+  await userEvent.keyboard("{Backspace}");
+  const sources = await screen.findByRole("combobox", { name: "Search project sources" });
+  await userEvent.type(sources, "git");
+  await userEvent.keyboard("{Escape}");
+  expect(sources).toHaveProperty("value", "");
+  expect(await palette()).toBeTruthy();
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add project" })).toBeNull());
+  expect(input.isConnected).toBe(false);
+});
+
+test("with home outside projects.roots, the field starts at the first root", async () => {
+  const made = harness();
+  made.daemon.projects.seedFolders("/home/dev", [{ path: "/srv/www/site", git: true }], {
+    roots: ["/srv"],
+  });
+  await made.open("/");
+  await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
+  const input = await field();
+  await waitFor(() => expect(input.value).toBe("/srv/"));
+  expect(await option("www")).toBeTruthy();
+});
+
+test("a folder outside the allowed places is allowed in one click, and Undo takes it back", async () => {
+  const made = harness();
+  made.daemon.projects.seedFolders("/fake", [{ path: "/external/site", git: true }], {
+    roots: ["/fake", "/external"],
+  });
+  made.daemon.services.settings.seed({ "projects.roots": ["/fake"] });
+  const input = await localFolder(made);
+  await userEvent.type(input, "/external/");
+  await userEvent.click(await screen.findByRole("button", { name: "Allow this folder" }));
+  expect(await option("site")).toBeTruthy();
+  expect(made.daemon.services.settings.get("projects.roots")).toEqual(["/fake", "/external"]);
+  // No confirmation to get through, and the toast can undo it.
+  expect(screen.queryByRole("dialog", { name: "Allow this folder?" })).toBeNull();
+  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+  await waitFor(() =>
+    expect(made.daemon.services.settings.get("projects.roots")).toEqual(["/fake"]),
+  );
+});
+
+test("New project: the field is its name, checked as you type, and Enter creates a Git repository", async () => {
   const made = firstRun();
   await made.open("/new");
   await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
-  await userEvent.click(within(await dialog()).getByRole("option", { name: /^New project/ }));
-  await dialog();
-  const name = screen.getByRole("textbox", { name: "Name" });
+  await userEvent.click(await screen.findByRole("option", { name: "New project" }));
+  const name = await screen.findByRole("textbox", { name: "Project name" });
   await userEvent.type(name, "a/b");
   expect(await screen.findByText("A name can't contain / or \\.")).toBeTruthy();
   await userEvent.clear(name);
@@ -309,16 +270,12 @@ test("a new project's name is checked as you type, and it can start as a Git rep
   expect(await screen.findByText("There's already a folder named Code here.")).toBeTruthy();
   await userEvent.clear(name);
   await userEvent.type(name, "forecast");
-  expect(await screen.findByText("Creates ~/forecast")).toBeTruthy();
-  expect(screen.queryByRole("textbox", { name: "Icon URL" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Upload image" })).toBeNull();
+  expect(await screen.findByText("~/forecast")).toBeTruthy();
   await userEvent.type(screen.getByRole("textbox", { name: "Initial branch" }), "trunk");
-  await userEvent.click(screen.getByRole("button", { name: "Create project" }));
+  await userEvent.click(name);
+  await userEvent.keyboard("{Enter}");
 
   await screen.findByRole("button", { name: "Project: forecast" });
-  expect(
-    made.daemon.projects.list().workspaces.find((project) => project.name === "forecast")?.icon,
-  ).toBeUndefined();
   const inspected = await made.client.projects.inspect(`${home}/forecast`);
   expect(inspected.result).toMatchObject({
     kind: "inspection",
@@ -330,155 +287,33 @@ test("New project goes where the location search points, and ⌘Enter creates it
   const made = firstRun();
   await made.open("/new");
   await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
-  await userEvent.click(within(await dialog()).getByRole("option", { name: /^New project/ }));
-  await userEvent.type(await screen.findByRole("textbox", { name: "Name" }), "notes");
+  await userEvent.click(await screen.findByRole("option", { name: "New project" }));
+  await userEvent.type(await screen.findByRole("textbox", { name: "Project name" }), "notes");
   const location = screen.getByRole("combobox", { name: "Search for a location" });
   await userEvent.type(location, "cod");
   await within(
     await screen.findByRole("listbox", { name: "Folders for the new project" }),
   ).findByRole("option", { name: /^code/ });
   // Enter goes into the folder rather than creating.
-  await userEvent.keyboard("{Enter}");
+  await userEvent.keyboard("{ArrowDown}{Enter}");
   expect(location).toHaveProperty("value", "~/code/");
-  await screen.findByText("Creates ~/code/notes");
+  await screen.findByText("~/code/notes");
   await userEvent.click(screen.getByRole("switch", { name: "Initialise a Git repository" }));
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
   await screen.findByRole("button", { name: "Project: notes" });
   expect(registered(made)).toEqual([`${home}/code/notes`]);
 });
 
-test("while the daemon is away the dialog says so and adds nothing", async () => {
-  const made = firstRun();
-  await openFolder(made);
-  await option("code");
-  made.daemon.refuseConnections(true);
-  made.daemon.disconnectAll();
-  expect(await screen.findByText(/Reconnecting… Folders and actions/)).toBeTruthy();
-  await waitFor(() =>
-    expect(screen.getByRole("button", { name: "Select a folder" }).hasAttribute("disabled")).toBe(
-      true,
-    ),
-  );
-  expect(registered(made)).toEqual([]);
-});
-
-test("with home outside projects.roots, browsing opens the first root and adds from there", async () => {
-  const made = harness();
-  made.daemon.projects.seedFolders("/home/dev", [{ path: "/srv/www/site", git: true }], {
-    roots: ["/srv"],
-  });
-  await made.open("/");
-  await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
-  await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
-  const search = await box();
-  expect(within(await folders()).getByRole("group", { name: "In /srv" })).toBeTruthy();
-  await userEvent.type(search, "/srv/www/");
-  await option("site");
-  await userEvent.keyboard("{ArrowDown}{Enter}");
-
-  await screen.findByRole("button", { name: "Project: site" });
-  expect(registered(made)).toEqual(["/srv/www/site"]);
-});
-
-test("a home reached through a symlink still opens at home when a root holds its target", async () => {
-  const made = harness();
-  made.daemon.projects.seedFolders(
-    "/mnt/users/dev",
-    [{ path: "/mnt/users/dev/code/weather", git: true }, { path: "/srv/www" }],
-    { roots: ["/srv", "/mnt/users"], homeLink: "/home/dev" },
-  );
-  await made.open("/");
-  await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
-  await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
-  await dialog();
-  expect(await option("code")).toBeTruthy();
-  expect(within(await folders()).queryByRole("option", { name: /^www/ })).toBeNull();
-});
-
-test("Enter never opens a result still showing from the previous search", async () => {
-  const made = firstRun();
-  const search = await openFolder(made);
-  await userEvent.type(search, "weather");
-  const results = await within(await folders()).findByRole("group", { name: /^Folders on/ });
-  await within(results).findByRole("option", { name: /^weather/ });
-  // The next search is slow; the last one's rows stay in view meanwhile.
-  const release = made.daemon.projects.holdReads(
-    (operation) => operation.op === "fs.search" && operation.query === "weatherx",
-  );
-  await userEvent.type(search, "x");
-  const shown = within(results).getByRole("option", { name: /^weather/ });
-  expect(shown.getAttribute("aria-disabled")).toBe("true");
-  await userEvent.keyboard("{Enter}");
-  await userEvent.keyboard("{Control>}{Enter}{/Control}");
-  expect(screen.getByRole("button", { name: "Select a folder" }).hasAttribute("disabled")).toBe(
-    true,
-  );
-  release();
-  // Nothing matches once it answers: creating the typed name is all that's left.
-  expect(await screen.findByRole("option", { name: "Create weatherx and add" })).toBeTruthy();
-  expect(registered(made)).toEqual([]);
-  expect(screen.getByRole("dialog", { name: "Add project" })).toBeTruthy();
-});
-
-test("a folder whose later folders can't be read keeps the rest and reads again only on request", async () => {
-  const made = harness();
-  made.daemon.projects.seedFolders(
-    home,
-    Array.from({ length: 101 }, (_, index) => ({
-      path: `${home}/big/f${String(index).padStart(3, "0")}`,
-    })),
-  );
-  // The second page of ~/big fails until the test lets it through.
-  let refused = 0;
-  const allow = made.daemon.projects.refuseReads("directory_unavailable", (operation) => {
-    const second = operation.op === "fs.browse" && operation.after !== undefined;
-    if (second) refused++;
-    return second;
-  });
-  const search = await openFolder(made);
-  await userEvent.type(search, "~/big/");
-  expect(await option("f000")).toBeTruthy();
-  expect(await screen.findByText(/Couldn't read the rest of this folder/)).toBeTruthy();
-  // Nothing asks again on its own, however long it waits.
-  const repeats = (after: number) =>
-    waitFor(() => expect(refused).toBeGreaterThan(after), { timeout: 300 });
-  await expect(repeats(1)).rejects.toThrow();
-  expect(refused).toBe(1);
-  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
-  await waitFor(() => expect(refused).toBe(2));
-  await expect(repeats(2)).rejects.toThrow();
-
-  allow();
-  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
-  expect(await option("f100")).toBeTruthy();
-  expect(screen.queryByText(/Couldn't read the rest of this folder/)).toBeNull();
-});
-
-test("clicking a folder browses it and Add registers it once", async () => {
-  const made = firstRun();
-  const search = await openFolder(made);
-  await userEvent.type(search, "weather");
-  await userEvent.click(await option("weather"));
-  await waitFor(() => expect(search).toHaveProperty("value", "~/code/weather/"));
-  expect(registered(made)).toEqual([]);
-  await userEvent.click(screen.getByRole("button", { name: "Add weather" }));
-  await screen.findByRole("button", { name: "Project: weather" });
-  expect(registered(made)).toEqual([`${home}/code/weather`]);
-  expect(await screen.findAllByText("Added weather")).toHaveLength(1);
-});
-
-test("source search selects with arrows and Enter while left/right only move the caret", async () => {
+test("sources narrow as you type and Enter opens the highlighted one", async () => {
   const made = firstRun();
   await made.open("/");
   await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
   const search = await screen.findByRole("combobox", { name: "Search project sources" });
-  await userEvent.keyboard("{ArrowRight}{ArrowLeft}");
-  expect(document.activeElement).toBe(search);
   await userEvent.type(search, "git");
   await userEvent.keyboard("{Enter}");
   expect(await screen.findByRole("textbox", { name: "Repository address" })).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "Back to sources" }));
+  await userEvent.click(screen.getByRole("button", { name: "Back" }));
   await screen.findByRole("combobox", { name: "Search project sources" });
-  await userEvent.keyboard("{ArrowDown}{ArrowDown}{Enter}");
-  expect(await screen.findByRole("textbox", { name: "Name" })).toBeTruthy();
+  await userEvent.keyboard("{ArrowDown}{Enter}");
+  expect(await screen.findByRole("textbox", { name: "Project name" })).toBeTruthy();
 });

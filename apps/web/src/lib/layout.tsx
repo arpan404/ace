@@ -44,6 +44,25 @@ export interface ComposerActions {
   tuneEffort(): void;
 }
 
+/** A step of the palette it can open on, instead of its search. */
+export type PalettePage =
+  | "add-project"
+  | "add-local"
+  | "add-create"
+  | "add-clone"
+  | "add-github"
+  | "new-thread-in";
+
+/**
+ * How the palette opened: on its search (no page) or on a step. A new object for every opening,
+ * so the palette starts over each time. `attempt` is a folder that couldn't be added, shown in
+ * the Local folder step with why.
+ */
+export interface PaletteStart {
+  page?: PalettePage | undefined;
+  attempt?: { path: string; problem: string; canAllow?: boolean | undefined } | undefined;
+}
+
 interface LayoutValue {
   screenActions: ScreenActions | undefined;
   setScreenActions(actions: ScreenActions | undefined): void;
@@ -55,6 +74,10 @@ interface LayoutValue {
   setShortcutsOpen(open: boolean): void;
   paletteOpen: boolean;
   setPaletteOpen(open: boolean): void;
+  /** How the open palette started. */
+  paletteStart: PaletteStart;
+  /** Open the palette on one of its steps (Add project, New thread in…). */
+  openPalette(start: PaletteStart): void;
   /** The search dialog, open with the words it starts from; undefined while it is closed. */
   search: { query: string } | undefined;
   /** Open the search dialog over the current screen, optionally with words already in it. */
@@ -86,10 +109,19 @@ export function LayoutProvider(props: {
   const [composerActions, setComposerActions] = useState<ComposerActions>();
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [paletteOpen, setPaletteState] = useState(false);
+  const [paletteStart, setPaletteStart] = useState<PaletteStart>({});
   const [search, setSearch] = useState<{ query: string }>();
   const setPaletteOpen = useCallback((open: boolean) => {
-    if (open) setSearch(undefined);
+    if (open) {
+      setSearch(undefined);
+      setPaletteStart({});
+    }
     setPaletteState(open);
+  }, []);
+  const openPalette = useCallback((start: PaletteStart) => {
+    setSearch(undefined);
+    setPaletteStart({ ...start });
+    setPaletteState(true);
   }, []);
   // Stable, so a screen that opens search from an effect runs it once.
   const openSearch = useCallback(
@@ -130,6 +162,8 @@ export function LayoutProvider(props: {
       setShortcutsOpen,
       paletteOpen,
       setPaletteOpen,
+      paletteStart,
+      openPalette,
       search,
       openSearch,
       closeSearch,
@@ -149,6 +183,8 @@ export function LayoutProvider(props: {
       setShortcutsOpen,
       paletteOpen,
       setPaletteOpen,
+      paletteStart,
+      openPalette,
       search,
       openSearch,
       closeSearch,

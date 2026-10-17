@@ -13,11 +13,7 @@ import { useFolderSearch } from "./use-folder-search.ts";
  * where browsing starts. What was typed belongs to the machine it was typed for. Also the
  * folder names already there, for name checks.
  */
-export function useLocation(options: {
-  machine: Machine;
-  machines: readonly Machine[];
-  suggested?: string | undefined;
-}) {
+export function useLocation(options: { machine: Machine; suggested?: string | undefined }) {
   const { machine } = options;
   const [typed, setTyped] = useState<{ machine: string; text: string }>();
   const text =
@@ -26,7 +22,7 @@ export function useLocation(options: {
       : options.suggested
         ? `${options.suggested.replace(/\/+$/, "")}/`
         : "";
-  const search = useFolderSearch({ machine, machines: options.machines, text, mode: "location" });
+  const search = useFolderSearch({ machine, text });
   const location = search.query.kind === "path" ? search.query.directory : search.home?.start;
   const siblings = useFolderListing(machine, location, true).entries?.map((entry) => entry.name);
   return {
@@ -42,11 +38,7 @@ export function useLocation(options: {
 export type LocationState = ReturnType<typeof useLocation>;
 
 /** The location, and the search box that changes it. */
-export function LocationField(props: {
-  state: LocationState;
-  several: boolean;
-  disabled?: boolean;
-}) {
+export function LocationField(props: { state: LocationState; disabled?: boolean }) {
   const { state } = props;
   return (
     <div className="grid gap-1.5">
@@ -60,12 +52,10 @@ export function LocationField(props: {
       <FolderSearchBox
         label="Search for a location"
         listLabel="Folders for the new project"
-        placeholder="Search, or type a path: / ~ ./"
+        placeholder="Search, or a path: / ~ ./"
         search={state.search}
         text={state.text}
         onText={state.setText}
-        mode="location"
-        several={props.several}
         {...(props.disabled === undefined ? {} : { disabled: props.disabled })}
         listClassName="h-40"
       />

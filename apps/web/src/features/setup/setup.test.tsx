@@ -81,7 +81,7 @@ test("a first launch opens setup; signing in updates readiness, and Add a projec
   await toProject();
   await userEvent.click(screen.getByRole("button", { name: "Add a project" }));
   expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();
-  expect(await screen.findByRole("combobox", { name: "Search folders" })).toBeTruthy();
+  expect(await screen.findByRole("combobox", { name: "Search project sources" })).toBeTruthy();
   expect(await dismissedOnDaemon(app)).toBe(true);
 }, 30_000);
 
@@ -165,12 +165,14 @@ test("first launch is two steps and reaches the composer in four actions", async
   await screen.findByRole("heading", { level: 2, name: "Choose your first project" });
   // Skip for now stays where it was.
   expect(screen.getByRole("button", { name: "Skip for now" })).toBe(skip);
-  // 2. Add a project opens the folder browser itself.
+  // 2. Add a project opens its sources in the palette; Local folder is the first.
   await userEvent.click(screen.getByRole("button", { name: "Add a project" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
   const folders = await screen.findByRole("listbox", { name: "Folders" });
   // 3. The folder, 4. Add it: New thread's composer is ready for the first prompt.
-  await userEvent.click(await within(folders).findByRole("option", { name: /^weather/ }));
-  await userEvent.click(await screen.findByRole("button", { name: "Add weather" }));
+  await userEvent.click(await within(folders).findByRole("option", { name: "weather" }));
+  await screen.findByText("~/weather");
+  await userEvent.click(screen.getByRole("button", { name: "Add" }));
   expect(await screen.findByRole("button", { name: "Project: weather" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: /^Message$/ })).toBeTruthy();
 }, 30_000);

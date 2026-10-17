@@ -182,7 +182,7 @@ test("allowed project folders round-trip and removing one stops browsing it", as
   expect(refused.result.kind).toBe("error");
 });
 
-test("a refused folder can be reviewed and allowed without opening Settings", async () => {
+test("a refused folder can be allowed in one action without opening Settings", async () => {
   const app = harness();
   app.daemon.projects.seedFolders("/fake", [{ path: "/external/settings-project", git: true }], {
     roots: ["/fake", "/external"],
@@ -191,13 +191,10 @@ test("a refused folder can be reviewed and allowed without opening Settings", as
   await app.open("/new?folder=%2Fexternal%2Fsettings-project");
   await screen.findByRole("heading", { name: "Couldn't open settings-project" });
   await userEvent.click(await screen.findByRole("button", { name: "Choose another folder…" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Allow this folder…" }));
-
-  const review = await screen.findByRole("dialog", { name: "Allow this folder?" });
-  expect(within(review).getByText("/external")).toBeTruthy();
   expect(app.daemon.services.settings.get("projects.roots")).toEqual(["/fake"]);
-  await userEvent.click(within(review).getByRole("button", { name: "Allow folder" }));
-  expect(await screen.findByRole("option", { name: /^settings-project/ })).toBeTruthy();
+  // The folder it was in can't be listed; allowing it takes one click, no confirmation.
+  await userEvent.click(await screen.findByRole("button", { name: "Allow this folder" }));
+  expect(await screen.findByRole("option", { name: "settings-project" })).toBeTruthy();
   expect(app.daemon.services.settings.get("projects.roots")).toEqual(["/fake", "/external"]);
 });
 
