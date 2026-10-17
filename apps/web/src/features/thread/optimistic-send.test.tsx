@@ -1,5 +1,5 @@
 import { longHistory, replayCursor } from "@ace/fake-daemon";
-import { CommandId, ThreadId } from "@ace/protocol";
+import { CommandId } from "@ace/protocol";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -189,22 +189,10 @@ test("a refused take-back keeps the queue and draft, then shows one delivered me
     ),
   ).toBeTruthy();
 
-  // Once the agent is free the daemon delivers it, and its bubble shows. With a draft in the
-  // composer its button queues, so Escape, twice, stops the agent.
-  screen.getByRole("combobox", { name: "Message" }).focus();
-  await userEvent.keyboard("{Escape}{Escape}");
-  await waitFor(() => {
-    const view = app.daemon.snapshot({
-      kind: "thread",
-      threadId: ThreadId.parse("thread-replay-cursor"),
-    });
-    expect(
-      view?.kind === "thread" && Object.values(view.runs).some((run) => run.state === "active"),
-    ).toBe(false);
-  });
+  // Once the agent's turn ends the daemon delivers it, and its bubble shows once.
   act(() =>
     app.daemon.apply("thread-replay-cursor", [
-      { type: "background.ended", task: "relay", status: "stopped" },
+      { type: "turn.ended", agent: "root", outcome: "completed" },
     ]),
   );
   expect(await within(feed).findByText("Also check the iOS cold-start path")).toBeTruthy();

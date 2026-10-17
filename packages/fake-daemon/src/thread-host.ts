@@ -48,6 +48,8 @@ export class ThreadHost {
   queueDirty = false;
   nextSelection: { model?: string; options?: TurnOptions } | undefined;
   runOrdinal = 0;
+  /** The clock reading of the last folded fact: "now" for readiness rules between commands. */
+  foldedAt = 0;
   permissionParent: string | undefined;
   private counter = 0;
   constructor(thread: Thread, silenceMs?: number) {
@@ -98,6 +100,7 @@ export class ThreadHost {
           },
         };
     }
+    this.foldedAt = now;
     const events = apply(this.state, fact, {
       now,
       ids: {
