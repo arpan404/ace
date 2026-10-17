@@ -91,6 +91,8 @@ export interface ReturnedDraft {
   mentions: readonly string[];
   tokens?: readonly ComposerToken[] | undefined;
   attachments: readonly { sha256: string; name: string }[];
+  /** Browser annotations the message carried (ADR 0082). */
+  annotations?: import("@ace/ui-core").DraftAnnotations | undefined;
   options?: import("@ace/protocol").TurnOptions | undefined;
 }
 
