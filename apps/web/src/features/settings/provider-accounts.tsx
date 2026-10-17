@@ -140,6 +140,7 @@ function AccountItem(props: {
           <span className="flex min-w-0 items-center gap-2">
             <AccountBadge account={account} tooltip={false} />
             <Tip label={label}>
+              {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard */}
               <span tabIndex={0} className="truncate rounded-xs font-medium focus-ring">
                 {label}
               </span>

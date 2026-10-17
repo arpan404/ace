@@ -45,14 +45,40 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
       "back",
       "forward",
       "toggleSidebar",
+      "undo",
+      "contextMenu",
+    ],
+  },
+  {
+    label: "Focus",
+    ids: [
+      "nextRegion",
+      "previousRegion",
+      "focusThreadList",
+      "focusListSearch",
+      "focusComposer",
       "focusToasts",
     ],
   },
-  { label: "Go to", ids: ["goHome", "goAutomations", "goSkills"] },
+  {
+    label: "Go to",
+    ids: [
+      "goHome",
+      "goAutomations",
+      "goSkills",
+      "nextThread",
+      "previousThread",
+      "nextNeedsYou",
+      "jumpToThread",
+    ],
+  },
   {
     label: "Thread",
     ids: [
       "send",
+      "stopAgent",
+      "stopFromComposer",
+      "reorderQueued",
       "findInThread",
       "turns",
       "previousTurn",
@@ -65,14 +91,28 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
   },
   {
     label: "Panels & tabs",
-    ids: ["rightPanel", "fullView", "newTab", "closeTab", "reopenTab", "nextTab", "previousTab"],
+    ids: [
+      "rightPanel",
+      "fullView",
+      "newTab",
+      "closeTab",
+      "reopenTab",
+      "nextTab",
+      "previousTab",
+      "panel.closeTab",
+      "panel.moveTab",
+    ],
   },
+  { label: "File tree", ids: ["files.rename", "files.delete", "files.move"] },
   { label: "Tools", ids: ["changes", "agents", "files", "preview", "devices", "logs"] },
   {
     label: "Terminal & browser",
     ids: ["terminal", "newTerminal", "findInTerminal", "browser", "takeControl"],
   },
-  { label: "Thread list", ids: ["home.pin", "home.select", "home.move"] },
+  {
+    label: "Thread list",
+    ids: ["home.pin", "home.select", "home.move", "home.actions", "home.range", "home.ends"],
+  },
 ];
 const listed = new Set(groups.flatMap((group) => group.ids));
 const sections = [
@@ -84,6 +124,8 @@ const scopeChips: Record<Exclude<KeyScope, "global">, string> = {
   home: "In the thread list",
   thread: "In a thread",
   composer: "In the composer",
+  panel: "On a side panel tab",
+  files: "In the file tree",
   terminal: "In a terminal",
   notifications: "In notifications",
 };
@@ -351,6 +393,7 @@ function ShortcutRow(props: {
               .join(" · ")}
           >
             <span
+              // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
               tabIndex={0}
               aria-label={`${label} shortcut`}
               aria-disabled

@@ -333,6 +333,7 @@ function SearchBody(props: { initial: string; onClose(): void }) {
               )}
             >
               {hits.map((hit, index) => (
+                // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- keys pick through the combobox's aria-activedescendant
                 <li
                   key={hitKey(hit)}
                   id={`search-hit-${index}`}

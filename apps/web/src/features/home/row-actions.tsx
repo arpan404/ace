@@ -3,15 +3,11 @@ import type { ThreadRowFlags } from "@ace/ui-core";
 import type { ThreadListEntry } from "@ace/protocol";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import {
-  settleAction,
-  SnoozeItems,
-  ThreadActionItems,
-  useThreadActions,
-} from "@/features/organize/index.ts";
+import { settleAction, SnoozeItems, useThreadActions } from "@/features/organize/index.ts";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useState } from "react";
+import { RowItems, useRowDialogs } from "./row-menu-items.tsx";
 import { useRowMenuShortcuts } from "./use-row-menu-shortcuts.ts";
 
 /**
@@ -37,6 +33,7 @@ export function RowActions(props: {
         "absolute top-4.5 right-1.5 -translate-y-1/2 items-center gap-0.5",
         props.shown ? "flex" : "hidden has-[[data-popup-open]]:flex",
       )}
+      role="presentation"
       onPointerEnter={props.onHover}
       onClick={(event) => event.stopPropagation()}
       onPointerDown={(event) => event.stopPropagation()}
@@ -74,7 +71,7 @@ export function RowActions(props: {
   );
 }
 
-/** The row's ⋯ menu: every thread action, the same registry as the row's context menu. */
+/** The row's ⋯ menu: the same items as the row's context menu, Fork and pull requests too. */
 export function RowMoreMenu(props: {
   entry: ThreadListEntry;
   flags: ThreadRowFlags;
@@ -82,26 +79,31 @@ export function RowMoreMenu(props: {
 }) {
   const [open, setOpen] = useState(false);
   const onKeyDown = useRowMenuShortcuts({ ...props, onClose: () => setOpen(false) });
+  const dialogs = useRowDialogs(props.entry);
   return (
-    <Menu open={open} onOpenChange={setOpen}>
-      <MenuTrigger
-        render={
-          <IconButton
-            icon={DotsThreeIcon}
-            size="sm"
-            label={`Actions for ${props.entry.title}`}
-            tabIndex={-1}
-          />
-        }
-      />
-      <MenuContent align="end" onKeyDownCapture={onKeyDown}>
-        <ThreadActionItems
-          entry={props.entry}
-          flags={props.flags}
-          onRename={props.onRename}
-          fork={{ point: undefined, onFork: () => {} }}
+    <>
+      <Menu open={open} onOpenChange={setOpen}>
+        <MenuTrigger
+          render={
+            <IconButton
+              icon={DotsThreeIcon}
+              size="sm"
+              label={`Actions for ${props.entry.title}`}
+              tabIndex={-1}
+            />
+          }
         />
-      </MenuContent>
-    </Menu>
+        <MenuContent align="end" onKeyDownCapture={onKeyDown}>
+          <RowItems
+            entry={props.entry}
+            state={props.flags}
+            onRename={props.onRename}
+            onFork={dialogs.onFork}
+            onPr={dialogs.onPr}
+          />
+        </MenuContent>
+      </Menu>
+      {dialogs.dialogs}
+    </>
   );
 }

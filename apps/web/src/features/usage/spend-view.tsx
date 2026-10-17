@@ -54,6 +54,7 @@ export function SpendView(props: {
                 <span aria-hidden>·</span>
                 <Tip label={estimateNote}>
                   <span
+                    // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
                     tabIndex={0}
                     className="inline-flex items-center gap-1 rounded-xs focus-ring"
                   >

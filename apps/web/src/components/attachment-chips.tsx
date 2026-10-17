@@ -183,6 +183,7 @@ function Chip(props: {
         <>
           <Tip label={reason}>
             <span
+              // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
               tabIndex={0}
               className="focus-ring shrink-0 rounded-xs text-xs text-status-failed"
             >

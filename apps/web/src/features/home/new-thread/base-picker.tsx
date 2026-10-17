@@ -44,6 +44,7 @@ export function BasePicker(props: {
             const at = offset + index;
             const chosen = sameBase(option.base, props.base);
             return (
+              // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- keys pick through the combobox's aria-activedescendant
               <li
                 key={option.label}
                 id={optionId(at)}

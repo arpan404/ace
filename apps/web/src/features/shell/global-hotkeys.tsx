@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useHotkey } from "@/lib/hotkeys.ts";
+import { useToast } from "@/components/ui/toast.tsx";
+import { isEditable, useHotkey } from "@/lib/hotkeys.ts";
 import { useKeybindingsSync } from "@/lib/keybindings.ts";
 import { useHistoryNav } from "@/lib/history-nav.ts";
 import { keymap } from "@/lib/keymap.ts";
@@ -31,5 +32,13 @@ export function GlobalHotkeys(props: {
   useHotkey(keymap.goHome.keys, () => void navigate({ to: "/" }));
   useHotkey(keymap.goAutomations.keys, () => void navigate({ to: "/automations" }));
   useHotkey(keymap.goSkills.keys, () => void navigate({ to: "/skills" }));
+  // ⌘. stops the showing thread's agent tree from anywhere in it, as the composer's Stop does.
+  const stop = layout.composerActions?.stop;
+  useHotkey(keymap.stopAgent.keys, () => stop?.(), { id: "stopAgent", enabled: !!stop });
+  // ⌘Z takes back the latest list action while its Undo shows; a text field keeps its own.
+  const toast = useToast();
+  useHotkey(keymap.undo.keys, () => toast.undoLatest(), {
+    when: (event) => !isEditable(event.target),
+  });
   return null;
 }

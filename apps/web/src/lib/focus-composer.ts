@@ -3,6 +3,12 @@ const composerInput = '[data-slot="composer"] [role="combobox"][contenteditable=
 /** A sheet or modal still on screen (closing included): it hands focus back as it goes. */
 const overlay = '[role="dialog"], [role="alertdialog"]';
 
+/** The thread composer's message box on screen now, if it can take the caret. */
+export function findComposerInput(doc: Document = document): HTMLElement | null {
+  const input = doc.querySelector<HTMLElement>(composerInput);
+  return input && !input.closest('[inert], [aria-hidden="true"]') ? input : null;
+}
+
 /**
  * Put the caret in the thread's message box once a launcher that opened the thread (the palette,
  * search) has gone and the composer is on screen, so the person can type at once. Looks again

@@ -164,6 +164,19 @@ test("Delete moves a file to recovery and Undo restores its contents and row", a
   expect(await bytes(app, "README.md")).toBe(before);
 });
 
+test("a file's actions are a Tab away from its row, without a pointer or Shift+F10", async () => {
+  const { panel } = await openFiles();
+  const row = await within(panel).findByRole("treeitem", { name: "README.md" });
+  row.focus();
+  await userEvent.tab();
+  expect(document.activeElement).toBe(
+    within(panel).getByRole("button", { name: "Actions for README.md" }),
+  );
+  await userEvent.keyboard("{Enter}");
+  await userEvent.click(await screen.findByRole("menuitem", { name: /^Rename/ }));
+  expect(await screen.findByRole("dialog", { name: "Rename" })).toBeTruthy();
+});
+
 test("a row context menu deletes a folder and Recently deleted restores it without replacing a new file", async () => {
   const { app, panel } = await openFiles();
   await create(panel, "New folder", "drafts");

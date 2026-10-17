@@ -11,7 +11,7 @@ import { runningWork } from "./running-work.ts";
 import { useOrganizeOverlay } from "./overlay.ts";
 
 /** How long Undo stays on screen for reversible actions. */
-export const undoWindowMs = 6_000;
+export const undoWindowMs = 5_000;
 
 /** What an action needs of a thread: a Home list entry or the open thread's meta. */
 export interface ThreadTarget {
@@ -147,13 +147,10 @@ export function useThreadActions(): ThreadActions {
         title: done,
         ...waiting(),
         timeout: undoWindowMs,
-        actionProps: {
-          children: "Undo",
-          onClick: () => {
-            toast.close(toastId);
-            for (const step of steps) void act(step.entry, step.undo);
-            afterUndo?.();
-          },
+        // The button or ⌘Z (`undoLatest`), while the toast shows.
+        undo: () => {
+          for (const step of steps) void act(step.entry, step.undo);
+          afterUndo?.();
         },
       });
       return Promise.all(steps.map((step) => act(step.entry, step.action))).then((results) => {
