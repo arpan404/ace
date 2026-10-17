@@ -40,16 +40,15 @@ const theme = (): "light" | "dark" =>
   document.documentElement.dataset["scheme"] === "light" ? "light" : "dark";
 
 /**
- * Annotate mode for a thread's page (ADR 0082). Turning it on takes a temporary control hold
- * and starts the overlay; every pinned comment goes into the thread composer's draft with its
- * element crop, and the page's screenshot follows once the page settles. The bar's Send sends
- * the composer's message, its screenshot button copies the page, and leaving the mode (✕,
- * Send, the toggle, a navigation, losing control) hands the page back.
+ * Annotate mode for a thread's page (ADR 0082). Turning it on starts the overlay; every pinned
+ * comment goes into the thread composer's draft with its element crop, and the page's screenshot
+ * follows once the page settles. The bar's Send sends the composer's message, its screenshot
+ * button copies the page, and leaving the mode (its close button, Send, the toggle, a navigation, another
+ * device annotating) ends it. Nobody takes control: agents keep working beside it.
  */
 export function useAnnotate(options: {
   threadId: string;
   driver: AnnotationDriver | undefined;
-  temporaryControl(threadId: string): { ready: Promise<void>; release(): Promise<void> };
   /** The page shown now; `unavailable` says why annotating can't start. */
   url: string | undefined;
   unavailable: string | undefined;
@@ -58,7 +57,8 @@ export function useAnnotate(options: {
   const toast = useToast();
   const [mode, setMode] = useState<"off" | "starting" | "on">("off");
   const session = useRef<{
-    hold?: { release(): Promise<void> } | undefined;
+    /** This start's token, from Annotate until the mode ends. */
+    started?: object | undefined;
     url?: string | undefined;
     timer?: ReturnType<typeof setTimeout> | undefined;
     capture?: Promise<void> | undefined;
@@ -69,14 +69,8 @@ export function useAnnotate(options: {
   const finish = () => {
     const current = session.current;
     clearTimeout(current.timer);
-    const hold = current.hold;
     session.current = { live: false };
     setMode("off");
-    void hold
-      ?.release()
-      .catch((error: unknown) =>
-        toast.error({ title: "Couldn't hand back the page", description: reason(error) }),
-      );
   };
   const command = (input: Parameters<AnnotationDriver["command"]>[1]) =>
     driver?.command(threadId, input).catch(() => {});
@@ -120,12 +114,11 @@ export function useAnnotate(options: {
   };
 
   const start = async () => {
-    if (!driver || session.current.hold) return;
+    if (!driver || session.current.started) return;
     setMode("starting");
-    const hold = options.temporaryControl(threadId);
-    session.current.hold = hold;
+    const started = {};
+    session.current.started = started;
     try {
-      await hold.ready;
       const numbers =
         composerPorts
           .get(threadId)
@@ -138,15 +131,15 @@ export function useAnnotate(options: {
         ...(bar ? { bar } : {}),
       });
     } catch (error) {
-      if (session.current.hold !== hold) return;
+      if (session.current.started !== started) return;
       toast.error({ title: "Couldn't start annotating", description: reason(error) });
       finish();
     }
   };
   const stop = async () => {
-    if (!session.current.hold) return;
+    if (!session.current.started) return;
     await driver?.stop(threadId).catch(() => {});
-    if (session.current.hold) finish();
+    if (session.current.started) finish();
   };
 
   const onEvent = useEffectEvent((event: BrowserAnnotationEvent) => {
@@ -199,7 +192,7 @@ export function useAnnotate(options: {
         return;
       case "close":
       case "ended":
-        if (session.current.hold || session.current.live) finish();
+        if (session.current.started || session.current.live) finish();
         return;
     }
   });
@@ -246,11 +239,11 @@ export function useAnnotate(options: {
     });
   }, [driver, threadId]);
 
-  // Leaving the tab leaves annotate mode and hands the page back.
+  // Leaving the tab leaves annotate mode.
   const end = useEffectEvent(finish);
   useEffect(
     () => () => {
-      if (!session.current.hold) return;
+      if (!session.current.started) return;
       void driver?.stop(threadId).catch(() => {});
       end();
     },

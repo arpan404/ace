@@ -2,7 +2,6 @@ import { BrowserFeaturesClient } from "@ace/client";
 import { BrowserArtifact, ThreadId } from "@ace/protocol";
 import { useClient } from "@ace/client-react";
 import { useToast } from "@/components/ui/toast.tsx";
-import type { PreviewSource } from "../sources.ts";
 import { LocalStore } from "../store.ts";
 
 /** Threads whose page this window started recording (the daemon has no "is recording" read). */
@@ -13,19 +12,13 @@ export const reason = (error: unknown) =>
   error instanceof Error ? error.message : "ace refused it";
 
 /**
- * The browser's parity controls for one thread: its agent tabs, dialogs, downloads, private
- * takeover and recording. Each is a one-shot request, never replayed after a reconnect.
- * Tab changes and dialog answers need the person's control lease, so they take it first.
+ * The browser's parity controls for one thread: dialogs and recording. Each is a one-shot
+ * request, never replayed after a reconnect. The person needs no control to use them.
  */
-export function useBrowserFeatures(source: PreviewSource, threadId: string) {
+export function useBrowserFeatures(threadId: string) {
   const client = useClient();
   const toast = useToast();
   const features = new BrowserFeaturesClient(client);
-  const withControl = async () => {
-    if (source.heldAs(threadId)) return false;
-    await source.takeover(threadId);
-    return true;
-  };
   const attempt = async <T>(title: string, run: () => Promise<T>): Promise<T | undefined> => {
     try {
       return await run();
@@ -44,54 +37,12 @@ export function useBrowserFeatures(source: PreviewSource, threadId: string) {
     dialogId: string,
     accept: boolean,
     promptText?: string,
-  ) => {
-    await withControl();
-    return features.answerDialog(threadId, tabId, dialogId, accept, promptText);
-  };
-  const returnControl = async (release: () => Promise<void>) => {
-    try {
-      await release();
-    } catch (error) {
-      const id = toast.error({
-        title: "Couldn't hand back the page",
-        description: reason(error),
-        timeout: 0,
-        actionProps: {
-          children: "Hand back",
-          onClick: async () => {
-            try {
-              await release();
-              toast.close(id);
-            } catch (retryError) {
-              toast.update(id, { description: reason(retryError) });
-            }
-          },
-        },
-      });
-    }
-  };
+  ) => features.answerDialog(threadId, tabId, dialogId, accept, promptText);
   return {
     features,
     answerDialog: (tabId: string, dialogId: string, accept: boolean, promptText?: string) =>
       attempt("Couldn't answer the page", () => answerDialog(tabId, dialogId, accept, promptText)),
-    answerBackgroundDialog: (
-      retainControl: () => boolean,
-      tabId: string,
-      dialogId: string,
-      accept: boolean,
-      promptText?: string,
-    ) =>
-      attempt("Couldn't answer the page", async () => {
-        const control = source.temporaryControl(threadId);
-        let acquired = false;
-        try {
-          await control.ready;
-          acquired = true;
-          return await features.answerDialog(threadId, tabId, dialogId, accept, promptText);
-        } finally {
-          if (!acquired || !retainControl()) await returnControl(control.release);
-        }
-      }),
+
     startRecording: () =>
       attempt("Couldn't start recording", async () => {
         await recording("browser.recording.start");

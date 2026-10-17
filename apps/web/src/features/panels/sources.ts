@@ -45,8 +45,7 @@ export interface TerminalSource {
 
 export interface BrowserView {
   threadId: string;
-  controller: "agent" | "human" | "none";
-  owner?: string | undefined;
+  /** The address of the tab the person views. */
   url: string;
   closed: boolean;
   /** Set while the browser backend is recovering or paused, with the daemon's reason. */
@@ -59,15 +58,14 @@ export interface BrowserView {
   loading?: boolean | undefined;
   loadError?: string | undefined;
   permissionDenied?: { origin: string; permission: string } | undefined;
-  /** The agent's tabs in this thread's browser, by stable id (not by address). */
+  /** The thread's tabs, shared by the person and agents, by stable id (not by address). */
   tabs?: readonly BrowserTabView[] | undefined;
+  /** The tab the person views, on every device. */
   activeTabId?: string | undefined;
   /** Files the page downloaded into this thread's quarantine. */
   downloads?: readonly BrowserDownloadView[] | undefined;
   /** An alert, confirm or prompt waiting for an answer, on whichever tab raised it. */
   pendingDialog?: BrowserDialogView | undefined;
-  /** "private": a person holds the page and agents can't see or read it. */
-  takeoverMode?: "shared" | "private" | undefined;
   /** Set while a connection has annotate mode open on the page (ADR 0082). */
   annotation?: { owner: string } | undefined;
   /** Optional page features the daemon supports, such as `annotate`. */
@@ -80,10 +78,26 @@ export interface BrowserDialogView {
   message: string;
   defaultPrompt?: string | undefined;
 }
+/** Who opened or uses a tab: the person, an agent (by its agent id when known) or the page. */
+export interface BrowserActorView {
+  kind: "human" | "agent" | "page";
+  agentId?: string | undefined;
+}
 export interface BrowserTabView {
   tabId: string;
   url: string;
   title: string;
+  favicon?: string | undefined;
+  loading?: boolean | undefined;
+  /** A short name the agent gave the tab ("checkout"). */
+  label?: string | undefined;
+  openedBy?: BrowserActorView | undefined;
+  /** The agent working in this tab now; the strip marks it with the agent cursor. */
+  inUse?: BrowserActorView | undefined;
+  /** Where that agent last pointed, in the tab's CSS pixels (`sequence` rises each time). */
+  pointer?: { x: number; y: number; sequence: number } | undefined;
+  /** "Keep agents out of this tab": agents can neither read nor drive it. */
+  private?: boolean | undefined;
   pendingDialog?: BrowserDialogView | undefined;
 }
 export interface BrowserDownloadView {
@@ -96,6 +110,13 @@ export interface BrowserDownloadView {
   state: "pending" | "complete" | "denied" | "failed" | "too_large";
   /** Where the file is on the daemon's machine, once complete. */
   path?: string | undefined;
+}
+/** One extension a browser engine runs (BrowserCommand `extensions`). */
+export interface BrowserExtensionView {
+  id: string;
+  name: string;
+  version?: string | undefined;
+  enabled: boolean;
 }
 /** A device the page can pretend to be (BrowserCommand `emulate`). */
 export interface Emulation {
@@ -158,7 +179,6 @@ export type ForwardedInput =
     }
   | { kind: "scroll"; x: number; y: number; deltaX: number; deltaY: number };
 
-/** The agent-driven browser (live view, take-over) and detected dev servers of a thread. */
 /** How far the daemon's Chromium download has got (`browser.download.progress`). */
 export interface BrowserDownload {
   phase: "downloading" | "verifying" | "extracting";
@@ -178,8 +198,7 @@ export interface PreviewSource {
   subscribe(listener: () => void, threadId?: string): () => void;
   /**
    * Follow a thread's browser and dev servers while a view shows them: subscribes to frames
-   * (retrying until a browser opens) and reads the dev servers. Call the result to stop; a
-   * shared hold ends when the thread workspace or panel closes.
+   * (retrying until a browser opens) and reads the dev servers. Call the result to stop.
    */
   watch(threadId: string): () => void;
   view(threadId: string): BrowserView | undefined;
@@ -195,7 +214,7 @@ export interface PreviewSource {
    * Open a browser for the thread, for a person to drive or an agent to pick up. The daemon's
    * first browser downloads Chromium, which can take minutes; `download()` reports it meanwhile.
    */
-  open(threadId: string, workspaceId: string): Promise<void>;
+  open(threadId: string, workspaceId: string): Promise<BrowserView | undefined>;
   /** The daemon's Chromium download while one is in progress. */
   download(): BrowserDownload | undefined;
   /** False once the daemon says it runs no preview gateway, so ports can't be previewed. */
@@ -210,38 +229,41 @@ export interface PreviewSource {
    */
   link(threadId: string, port: number): Promise<PreviewLink>;
   /**
-   * Navigate the page, as the person holding control (BrowserCommand `navigate`). Resolves
-   * with the address the page reached; rejects with the daemon's reason (a Chromium net error,
-   * an origin awaiting approval, control held elsewhere).
+   * Navigate a tab as the person (BrowserCommand `navigate`): the tab named, else the one shown.
+   * Resolves with the address the page reached; rejects with the daemon's reason (a Chromium
+   * net error, an origin awaiting approval).
    */
-  navigate(threadId: string, url: string): Promise<string>;
-  navigationHistory?(threadId: string): Promise<{ back: boolean; forward: boolean }>;
+  navigate(threadId: string, url: string, tabId?: string): Promise<string>;
+  navigationHistory?(
+    threadId: string,
+    tabId?: string,
+  ): Promise<{ back: boolean; forward: boolean }>;
   navigateHistory?(
     threadId: string,
     direction: "back" | "forward" | "reload" | "stop",
+    tabId?: string,
   ): Promise<void>;
-  findText?(threadId: string, text: string, forward: boolean): Promise<unknown>;
-  /** Make the page a device's size and kind (`emulate`); needs control like navigation. */
-  emulate(threadId: string, emulation: Emulation): Promise<void>;
-  /** Close the thread's page (agents can open it again). */
+  findText?(threadId: string, text: string, forward: boolean, tabId?: string): Promise<unknown>;
+  /** Make a tab a device's size and kind (`emulate`). */
+  emulate(threadId: string, emulation: Emulation, tabId?: string): Promise<void>;
+  /** Close the thread's browser and all its tabs (agents can open it again). */
   close(threadId: string): Promise<void>;
-  /** Take control; `private` also hides the page from agents until you hand it back. */
-  takeover(threadId: string, mode?: "shared" | "private"): Promise<void>;
-  handback(threadId: string): Promise<void>;
-  /** Release this window's shared hold, including a pending or ambiguous takeover. */
-  releaseSharedControl(threadId: string): Promise<void>;
-  /** A scoped temporary acquisition; release cannot affect a later or preexisting hold. */
-  temporaryControl(threadId: string): { ready: Promise<void>; release(): Promise<void> };
-  /**
-   * The daemon connection through which this client holds the thread's page, while the page's
-   * current owner is that connection; undefined when it doesn't hold it (another device may).
-   */
-  heldAs(threadId: string): string | undefined;
-  input(threadId: string, input: ForwardedInput): void | Promise<void>;
+  /** A new tab, shown at once; at `url` when given. Resolves with its id. */
+  openTab(threadId: string, url?: string): Promise<string>;
+  /** Show this tab to the person (on every device); agents keep working where they are. */
+  selectTab(threadId: string, tabId: string): Promise<void>;
+  /** Close a tab; closing the last one closes the browser. */
+  closeTab(threadId: string, tabId: string): Promise<void>;
+  /** "Keep agents out of this tab", or let them back in. */
+  keepPrivate(threadId: string, tabId: string, value: boolean): Promise<void>;
+  /** Extensions the tab's engine runs, as its backend reports them (read-only). */
+  extensions?(threadId: string): Promise<readonly BrowserExtensionView[]>;
+  /** The person's own input; it lands at once, whoever else works in the tab. */
+  input(threadId: string, input: ForwardedInput, tabId?: string): void | Promise<void>;
   /** Annotate mode on the page (ADR 0082); absent where the client can't drive it. */
   annotate?: AnnotationDriver | undefined;
   /** Read the current page selection for local copy and cut. */
-  selection?(threadId: string): Promise<string>;
+  selection?(threadId: string, tabId?: string): Promise<string>;
   nativeShown?(threadId: string, shown: boolean): void;
   capture?(threadId: string, width: number, height: number, devicePixelRatio: number): void;
   /** Size the page to the pane in CSS pixels (100–4096). */

@@ -16,7 +16,7 @@ const verbs: Record<BrowserDialogView["type"], { accept: string; dismiss?: strin
 /**
  * A page's alert, confirm or prompt, waiting for an answer. Until it has one the page takes no
  * other command, from you or the agent. It may belong to a tab the page isn't showing; the
- * answer goes to that dialog by its own id, and taking control first is what the daemon needs.
+ * answer goes to that dialog by its own id.
  */
 export function PageDialog(props: {
   view: BrowserView;

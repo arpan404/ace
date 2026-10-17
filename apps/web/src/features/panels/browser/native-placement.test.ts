@@ -26,7 +26,7 @@ test("moving a shown page or changing its controller keeps it shown through pend
   await Promise.resolve();
   expect(shown).toBe(true);
   controller.place({ ...page, bounds: { ...page.bounds, x: 100 } });
-  controller.place({ ...page, bounds: { ...page.bounds, x: 120 }, owner: "person" });
+  controller.place({ ...page, bounds: { ...page.bounds, x: 120 } });
   controller.visibility("thread", true);
   expect(shown).toBe(true);
   controller.place({ ...page, bounds: { ...page.bounds, width: 350 } });

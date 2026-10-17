@@ -1,5 +1,6 @@
 import { ClockCounterClockwiseIcon, GlobeSimpleIcon } from "@phosphor-icons/react";
 import {
+  addressHost,
   displayAddress,
   parseAddress,
   suggestAddresses,
@@ -20,8 +21,8 @@ const reasons = {
 /**
  * The browser's address: shows the page at rest, edits in place, suggests addresses this thread
  * runs or visited as you type, and opens what you enter. Never searches the web for text that
- * isn't an address; it says so instead. Escape puts the page's address back. At rest the site
- * reads first and the rest of the address is muted; focused, the whole address is there to edit.
+ * isn't an address; it says so instead. Escape puts the page's address back. At rest the pill
+ * reads just the site, centred; focused, the whole address is there to edit.
  * `readOnly` is a preview's: the dev server's address, selectable to copy, in the same capsule.
  */
 export function AddressBar(props: {
@@ -31,17 +32,15 @@ export function AddressBar(props: {
   readOnly?: boolean;
   /** Why the address can't be changed right now, if it can't. */
   disabled?: string | undefined;
-  /** Shown as the field's description (typing an address takes control from an agent). */
+  /** Shown as the field's description. */
   hint?: string | undefined;
   autoFocus?: boolean;
   /** Opens what was entered; a read-only address has none. */
   onGo?: (url: string) => void;
   /** At the field's start in place of the globe (the site's security and access). */
   lead?: ReactNode;
-  /** At the field's end (Make private). */
+  /** At the field's end (a site permission the page was refused). */
   trail?: ReactNode;
-  /** A private page's field is tinted. */
-  tone?: "private" | undefined;
   /** The empty field's prompt; "Enter an address" by default. */
   placeholder?: string | undefined;
   className?: string;
@@ -61,7 +60,7 @@ export function AddressBar(props: {
   // At rest the field's own text is hidden under the same text with the site emphasised (the
   // overlay centres vertically as the wrapper's only flex item).
   const resting = !focused && !editing && text !== "";
-  const site = text.includes("://") ? text : text.split(/(?=[/?#])/)[0];
+  const site = addressHost(text) ?? text;
   const field = useRef<HTMLInputElement>(null);
   const go = (url: string) => {
     setDraft(undefined);
@@ -83,10 +82,8 @@ export function AddressBar(props: {
         className={cn(
           "flex h-8 min-w-0 items-center rounded-full transition-[background-color,box-shadow] duration-(--motion-fast)",
           props.lead ? "gap-1 px-1" : "gap-2 px-3",
-          props.tone === "private"
-            ? "bg-status-needs-you/9"
-            : // Focus lightens the capsule, never an accent ring.
-              "bg-foreground/5 hover:bg-foreground/8 focus-within:bg-foreground/10",
+          // Focus lightens the capsule, never an accent ring.
+          "bg-foreground/5 hover:bg-foreground/8 focus-within:bg-foreground/10",
           error && "shadow-[0_0_0_1px_var(--destructive)]",
         )}
       >
@@ -162,10 +159,9 @@ export function AddressBar(props: {
           {resting && (
             <span
               aria-hidden
-              className="pointer-events-none absolute inset-x-0 truncate text-ui text-subtle-foreground"
+              className="pointer-events-none absolute inset-x-0 truncate text-center text-ui text-foreground"
             >
-              <span className="text-foreground">{site}</span>
-              {text.slice(site?.length ?? 0)}
+              {site}
             </span>
           )}
         </span>

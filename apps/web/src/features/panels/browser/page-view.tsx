@@ -11,20 +11,30 @@ import { matchesChord, parseChord } from "@/lib/hotkeys.ts";
 import { bindingsFor, scopeOf, useResolvedKeymap } from "@/lib/keybindings.ts";
 import { keymapIds } from "@/lib/keymap.ts";
 import { cn } from "@/lib/cn.ts";
-import type { BrowserView, ForwardedInput, PreviewSource, ScreenFrame } from "../sources.ts";
+import type {
+  BrowserTabView,
+  BrowserView,
+  ForwardedInput,
+  PreviewSource,
+  ScreenFrame,
+} from "../sources.ts";
+import { AgentCursor } from "./agent-cursor.tsx";
 import { useCaptureSize } from "../preview/use-capture-size.ts";
 import { useViewportSync } from "../preview/use-viewport-sync.ts";
 
 /**
  * The page itself, edge to edge in the panel: the screencast frame on the panel's own surface,
- * never inside a pretend window. While this device holds control, pointer, wheel and keys go to
- * the page; otherwise it is a picture of what the agent sees. At "Fit the panel" the page is
- * sized to the pane so it renders 1:1; at a device size it is drawn whole, scaled to fit.
+ * never inside a pretend window. Pointer, wheel and keys go to the shown tab at once, whoever
+ * else works in it; an agent working there shows as a cursor gliding to where it points. At
+ * "Fit the panel" the page is sized to the pane so it renders 1:1; at a device size it is drawn
+ * whole, scaled to fit.
  */
 export function PageView(props: {
   source: PreviewSource;
   threadId: string;
   view: BrowserView;
+  /** The tab shown: input goes to exactly this tab. */
+  tab: BrowserTabView | undefined;
   frame: ScreenFrame;
   interactive: boolean;
   /** Native page acknowledged as visible; keep capture warm but do not paint a second copy. */
@@ -35,7 +45,11 @@ export function PageView(props: {
   dimmed?: boolean;
 }) {
   const { frame } = props;
+  const tabId = props.tab?.tabId;
+  /** The person's input, to the shown tab by name. */
+  const forward = (input: ForwardedInput) => props.source.input(props.threadId, input, tabId);
   const pane = useRef<HTMLDivElement>(null);
+  const picture = useRef<HTMLImageElement>(null);
   const keymap = useResolvedKeymap();
   const appChords = useMemo(
     () =>
@@ -61,7 +75,7 @@ export function PageView(props: {
   const send = (event: "mousePressed" | "mouseReleased") => (mouse: MouseEvent<HTMLElement>) => {
     if (mouse.button > 2) return;
     if (event === "mousePressed") mouse.currentTarget.focus();
-    props.source.input(props.threadId, {
+    forward({
       kind: "mouse",
       event,
       ...point(mouse),
@@ -82,11 +96,11 @@ export function PageView(props: {
     if (!scheduledMove.current)
       scheduledMove.current = requestAnimationFrame(() => {
         scheduledMove.current = 0;
-        if (move.current) props.source.input(props.threadId, move.current);
+        if (move.current) forward(move.current);
       });
   };
   const onWheel = (event: WheelEvent<HTMLElement>) => {
-    props.source.input(props.threadId, {
+    forward({
       kind: "scroll",
       ...point(event),
       deltaX: Math.round(event.deltaX),
@@ -104,13 +118,13 @@ export function PageView(props: {
         event.preventDefault();
         if (type === "keyDown" && props.source.selection && navigator.clipboard)
           void props.source
-            .selection(props.threadId)
+            .selection(props.threadId, tabId)
             .then(async (text) => {
               if (!text) return;
               await navigator.clipboard.writeText(text);
               if (key === "x")
                 for (const keyEvent of ["keyDown", "keyUp"] as const)
-                  props.source.input(props.threadId, {
+                  forward({
                     kind: "key",
                     event: keyEvent,
                     key: "Backspace",
@@ -122,7 +136,7 @@ export function PageView(props: {
       }
     }
     event.preventDefault();
-    props.source.input(props.threadId, {
+    forward({
       kind: "key",
       event: type,
       key: event.key,
@@ -139,6 +153,7 @@ export function PageView(props: {
   };
   const image = !props.nativeShown && (
     <img
+      ref={picture}
       src={frame.src}
       alt={`Live view of ${props.view.url}`}
       draggable={false}
@@ -166,7 +181,7 @@ export function PageView(props: {
     const text = event.clipboardData.getData("text");
     void (async () => {
       for (let index = 0; index < Math.min(text.length, 65536); index += 256)
-        await props.source.input(props.threadId, {
+        await forward({
           kind: "key",
           event: "char",
           key: "Paste",
@@ -193,6 +208,15 @@ export function PageView(props: {
       className={cn(className, "outline-none", live && "cursor-default focus-ring-inset")}
     >
       {image}
+      {image && props.tab?.inUse && props.tab.pointer && (
+        <AgentCursor
+          threadId={props.threadId}
+          agentId={props.tab.inUse.agentId}
+          pointer={props.tab.pointer}
+          page={{ width: frame.width, height: frame.height }}
+          picture={picture}
+        />
+      )}
     </div>
   );
 }

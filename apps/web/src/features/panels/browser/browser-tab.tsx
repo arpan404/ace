@@ -5,26 +5,27 @@ import { displayAddress, describeBrowserFailure } from "@ace/ui-core";
 import { useEffectEvent, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
-import { useHotkey } from "@/lib/hotkeys.ts";
-import { keymap } from "@/lib/keymap.ts";
 import { type TabViewProps } from "@/lib/workspace/index.ts";
 import { reportBrowserControl } from "@/lib/browser-control.ts";
 import { usePanelServices } from "../services.ts";
+import { useLocal } from "../store.ts";
 import { WithServices } from "../with-services.tsx";
 import { FindPage } from "./find-page.tsx";
 import { AddressBar } from "./address-bar.tsx";
-import { BrowserControl, controlState, PrivateToggle, useControl } from "./browser-control.tsx";
 import { PageDialog } from "./page-dialog.tsx";
 import { useBrowserFeatures } from "./use-browser-features.ts";
 import { BrowserActions } from "./browser-actions.tsx";
-import { PageNav, PageToolbar } from "./page-toolbar.tsx";
+import { DownloadsButton } from "./downloads.tsx";
+import { ExtensionsMenu, extensionsHidden } from "./extensions-menu.tsx";
+import { PageNav, PageToolbar, ToolPill } from "./page-toolbar.tsx";
+import { PageTabs } from "./page-tabs.tsx";
 import { AnnotateButton } from "./annotate-button.tsx";
 import { useNativeView } from "./native-view.ts";
-import { LoadFailed, Offline, Opening, Reopen, StartPage } from "./page-states.tsx";
+import { Disconnected, LoadFailed, Offline, Opening, StartPage } from "./page-states.tsx";
 import { PageView } from "./page-view.tsx";
 import { ConnectionMark } from "./connection-mark.tsx";
 import { useBrowserTab } from "./use-browser-tab.ts";
-import { usePageSync } from "./use-page-sync.ts";
+import { useBrowserTabs } from "./use-browser-tabs.ts";
 import { viewportById } from "./viewports.ts";
 
 const permissionLabel = (permission: string) =>
@@ -36,68 +37,54 @@ const permissionLabel = (permission: string) =>
   })[permission] ?? "a site permission";
 
 /**
- * A browser tab: one page of the thread's browser, with an editable address, Back, Forward,
- * Reload, who drives it (Take over, Hand back, Make private), device sizes and opening the page
- * in this device's own browser. The page fills the panel on ace's own surface; a failed load
- * keeps its address with Reload; a disconnected page has an explicit Reopen action.
+ * The thread's browser: the strip of its tabs (the person's and every agent's, the same on
+ * every device), the shown tab's toolbar and the page itself. The person and agents share every
+ * tab: anyone can click, type or navigate anywhere at any time, and an agent's work shows as its
+ * cursor on the tab and over the page. The page fills the panel on ace's own surface (or the
+ * desktop's native view); a failed load keeps its address with Reload.
  */
 function Browser(props: TabViewProps) {
   const [finding, setFinding] = useState(false);
   const threadId = props.scope;
   const { preview: source } = usePanelServices();
-  const browser = useBrowserFeatures(source, threadId);
-  const page = useBrowserTab(source, threadId, props.tab);
+  const browser = useBrowserFeatures(threadId);
+  const tabs = useBrowserTabs(source, threadId);
+  const page = useBrowserTab(source, threadId, props.tab, tabs);
   const toast = useToast();
-  const control = useControl(source, threadId, page.live);
-  usePageSync(threadId, page.live);
-  // The rail's indicator: an agent drives this page, or it is held privately.
-  const live = page.live;
-  const reported = live && {
-    threadId,
-    url: live.url,
-    controller: live.controller,
-    private: live.takeoverMode === "private",
-  };
-  const reportKey = reported
-    ? `${reported.url}|${reported.controller}|${String(reported.private)}`
-    : undefined;
+  const extensionsOff = useLocal(extensionsHidden, (value) => value);
+  const { live, shown, online } = tabs;
+
+  // The rail's indicator: an agent works in this thread's browser, or the shown tab is private.
+  const working = tabs.tabs.some((tab) => tab.inUse !== undefined);
+  const privately = shown?.private === true;
   useEffect(() => {
-    reportBrowserControl(threadId, reported || undefined);
-    // The key says when the report changed; the object is rebuilt every render.
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [threadId, reportKey]);
+    reportBrowserControl(
+      threadId,
+      live ? { threadId, url: live.url, agent: working, private: privately } : undefined,
+    );
+  }, [threadId, live, working, privately]);
   useEffect(() => () => reportBrowserControl(threadId, undefined), [threadId]);
-  const loading = page.state.phase === "loading" || !!page.live?.loading;
+
   const viewport = viewportById(page.data.viewport);
-  const shownUrl =
-    page.state.phase === "idle" ? (page.bound ? page.live?.url : page.data.url) : page.state.url;
-  const offline = page.online ? undefined : "ace is offline";
+  const shownUrl = page.shownUrl;
+  const blank = !shownUrl || shownUrl === "about:blank";
+  const offline = online ? undefined : "ace is offline";
   const external = shownUrl && /^https?:\/\//i.test(shownUrl) ? shownUrl : undefined;
-  useHotkey(keymap.takeControl.keys, control.toggle, { enabled: page.bound });
   // In the desktop app the page itself is a native view drawn over this tab's page area.
   const pageArea = useRef<HTMLDivElement>(null);
-  const nativeShown = useNativeView(
+  const native = useNativeView(
     threadId,
     pageArea,
-    page.bound &&
-      page.live?.backend === "embedded" &&
-      page.live.status !== "paused" &&
-      page.live.status !== "recovering" &&
-      page.online &&
+    !!live &&
+      !blank &&
+      live.backend === "embedded" &&
+      live.status !== "paused" &&
+      live.status !== "recovering" &&
+      online &&
       page.state.phase !== "failed",
-    {
-      device: viewport.emulation,
-      owner: page.heldAs,
-      // A blocked click offers an explicit take-over action; scrolling keeps the agent in control.
-      onWantsControl: () => {
-        if (page.live?.controller === "agent")
-          toast.add({
-            title: "Take over to use the page",
-            actionProps: { children: "Take over", onClick: control.toggle },
-          });
-      },
-    },
+    { device: viewport.emulation },
   );
+  const nativeShown = native.shown || native.frozen !== undefined;
 
   useEffect(() => {
     source.nativeShown?.(threadId, nativeShown);
@@ -121,18 +108,20 @@ function Browser(props: TabViewProps) {
     addEventListener("blur", release);
     return () => removeEventListener("blur", release);
   }, []);
+  const focusAddress = () =>
+    root.current?.querySelector<HTMLInputElement>('input[aria-label="Address"]')?.focus();
   const shortcut = (accelerator: BrowserAccelerator) => {
-    if (accelerator === "CmdOrCtrl+L")
-      root.current?.querySelector<HTMLInputElement>('input[aria-label="Address"]')?.focus();
+    if (accelerator === "CmdOrCtrl+L") focusAddress();
     else if (accelerator === "CmdOrCtrl+F") setFinding(true);
     else if (accelerator === "CmdOrCtrl+R") page.reload();
+    else if (accelerator === "CmdOrCtrl+T") void tabs.newTab().then(focusAddress);
     else if (accelerator === "CmdOrCtrl+[") page.back();
     else page.forward();
   };
   const nativeShortcut = useEffectEvent((id: string, accelerator: BrowserAccelerator) => {
     if (id === threadId) shortcut(accelerator);
   });
-  useEffect(() => desktopBrowserViews()?.onShortcut(nativeShortcut), [threadId]);
+  useEffect(() => desktopBrowserViews()?.onShortcut(nativeShortcut), []);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const mod = event.metaKey || event.ctrlKey;
@@ -151,14 +140,13 @@ function Browser(props: TabViewProps) {
 
   const setViewport = (id: string) => {
     const next = viewportById(id);
-    if (!page.live) {
+    if (!live || !shown) {
       page.save({ viewport: next.id });
       return;
     }
-    const apply = async () => {
-      if (!source.heldAs(threadId)) await source.takeover(threadId);
-      // Back to the panel's size: the viewport follows the pane again from the next layout.
-      await source.emulate(
+    // Back to the panel's size: the viewport follows the pane again from the next layout.
+    source
+      .emulate(
         threadId,
         next.emulation ?? {
           width: Math.max(100, Math.round(pageArea.current?.clientWidth ?? 800)),
@@ -167,92 +155,83 @@ function Browser(props: TabViewProps) {
           mobile: false,
           touch: false,
         },
+        shown.tabId,
+      )
+      .then(() => page.save({ viewport: next.id }))
+      .catch((error: unknown) =>
+        toast.error({
+          title: "Couldn't change the page size",
+          description: error instanceof Error ? error.message : undefined,
+        }),
       );
-      page.save({ viewport: next.id });
-    };
-    apply().catch((error: unknown) =>
-      toast.error({
-        title: "Couldn't change the page size",
-        description: error instanceof Error ? error.message : undefined,
-      }),
-    );
   };
 
   let content;
-  if (page.state.phase === "failed")
+  if (live?.status === "paused" && live.pageStateLost)
+    content = <Disconnected reason={live.reason} onReopen={tabs.reopen} />;
+  else if (page.state.phase === "failed")
     content = (
       <LoadFailed url={page.state.url} failure={page.state.failure} onReload={page.reload} />
     );
-  else if (page.bound && page.live?.loadError)
+  else if (live && shown && !blank && live.loadError && live.url === shown.url)
     content = (
       <LoadFailed
-        url={page.live.url}
-        failure={describeBrowserFailure(page.live.loadError, page.live.url)}
+        url={shown.url}
+        failure={describeBrowserFailure(live.loadError, shown.url)}
         onReload={page.reload}
       />
     );
-  else if (page.bound && page.live && page.frame)
+  else if (live && shown && !blank && page.frame)
     content = (
       <PageView
         source={source}
         threadId={threadId}
-        view={page.live}
+        view={live}
+        tab={shown}
         frame={page.frame}
-        interactive={!!page.heldAs && page.online}
+        interactive={online}
         nativeShown={nativeShown}
         fit={viewport.emulation === undefined}
-        dimmed={!page.online || page.live.status === "paused"}
+        dimmed={!online || live.status === "paused"}
       />
     );
-  else if (!page.online) content = <Offline />;
-  else if (loading || (page.bound && page.live && !page.frame))
+  else if (!online) content = <Offline />;
+  else if (page.loading || (live && shown && !blank && !page.frame))
     content = <Opening download={page.download} />;
-  else if (page.data.url && !page.bound)
-    content = (
-      <Reopen
-        url={page.data.url}
-        liveUrl={page.live?.url}
-        disabled={offline}
-        onReopen={() => page.data.url && page.go(page.data.url)}
-      />
-    );
   else content = <StartPage suggestions={page.suggestions} disabled={offline} onGo={page.go} />;
 
-  const held = page.bound ? page.live : undefined;
-  const privately = held?.takeoverMode === "private";
   return (
     <div ref={root} className="flex h-full min-h-0 flex-col" onKeyDownCapture={onKeyDown}>
+      {live && tabs.tabs.length > 0 && (
+        <PageTabs
+          threadId={threadId}
+          tabs={tabs.tabs}
+          shownId={tabs.shownId}
+          onSelect={tabs.select}
+          onClose={tabs.close}
+          onNew={() => void tabs.newTab().then(focusAddress)}
+        />
+      )}
       <PageToolbar
         nav={
           <PageNav
-            back={{
-              onClick: page.back,
-              keys: "mod+[",
-              disabled: !page.online || !page.canBack,
-            }}
+            back={{ onClick: page.back, keys: "mod+[", disabled: !online || !page.canBack }}
             forward={{
               onClick: page.forward,
               keys: "mod+]",
-              disabled: !page.online || !page.canForward,
+              disabled: !online || !page.canForward,
             }}
-            reload={{
-              onClick: page.reload,
-              keys: "mod+r",
-              disabled: !page.online || !shownUrl,
-            }}
-            stop={{
-              onClick: () => void source.navigateHistory?.(threadId, "stop"),
-              disabled: !page.heldAs,
-            }}
-            loading={loading}
+            reload={{ onClick: page.reload, keys: "mod+r", disabled: !online || blank }}
+            stop={{ onClick: page.stop, disabled: !shown }}
+            loading={page.loading}
             after={
               <AnnotateButton
                 source={source}
                 threadId={threadId}
-                online={page.online}
+                online={online}
                 page={
-                  page.bound && !loading && page.state.phase !== "failed" && !page.live?.loadError
-                    ? page.live
+                  live && shown && !blank && !page.loading && page.state.phase !== "failed"
+                    ? { ...live, url: shown.url }
                     : undefined
                 }
               />
@@ -261,94 +240,96 @@ function Browser(props: TabViewProps) {
         }
         address={
           <AddressBar
-            url={shownUrl}
+            url={blank ? undefined : shownUrl}
             known={page.suggestions}
-            loading={loading}
+            loading={page.loading}
             disabled={offline}
-            hint={
-              page.live?.controller === "agent"
-                ? "Going to an address takes control of the page from the agent"
-                : undefined
-            }
-            autoFocus={!props.tab.data}
+            placeholder="Search or enter a URL"
+            autoFocus={blank}
             onGo={page.go}
-            lead={<ConnectionMark url={shownUrl} />}
+            lead={<ConnectionMark url={blank ? undefined : shownUrl} />}
             trail={
-              <>
-                {page.live?.permissionDenied && (
-                  <Tip
-                    label={`Site access blocked: ${permissionLabel(page.live.permissionDenied.permission)}. Open the page in your browser to allow it.`}
+              live?.permissionDenied && (
+                <Tip
+                  label={`Site access blocked: ${permissionLabel(live.permissionDenied.permission)}. Open the page in your browser to allow it.`}
+                >
+                  <span
+                    role="status"
+                    aria-label={`Site access blocked: ${permissionLabel(live.permissionDenied.permission)}`}
+                    className="grid size-6 place-items-center text-muted-foreground"
                   >
-                    <span
-                      role="status"
-                      aria-label={`Site access blocked: ${permissionLabel(page.live.permissionDenied.permission)}`}
-                    >
-                      <WarningCircleIcon aria-hidden size={14} />
-                    </span>
-                  </Tip>
-                )}
-                {held && (
-                  <PrivateToggle
-                    view={held}
-                    heldHere={!!page.heldAs}
-                    busy={control.busy}
-                    onPrivate={control.takePrivately}
-                  />
-                )}
-              </>
+                    <WarningCircleIcon aria-hidden size={14} />
+                  </span>
+                </Tip>
+              )
             }
-            tone={privately ? "private" : undefined}
           />
         }
         actions={
           <>
-            {held && (
-              <BrowserControl
-                view={held}
-                heldHere={!!page.heldAs}
-                busy={control.busy}
-                onResume={page.reopen}
-                onToggle={control.toggle}
-                onPrivate={control.takePrivately}
-              />
-            )}
+            <ToolPill>
+              {!extensionsOff && (
+                <ExtensionsMenu
+                  source={source}
+                  threadId={threadId}
+                  backend={live?.backend}
+                  online={online}
+                />
+              )}
+              <DownloadsButton downloads={live?.downloads ?? []} />
+            </ToolPill>
             <BrowserActions
-              source={source}
               threadId={threadId}
-              shownUrl={shownUrl}
+              tab={shown}
+              shownUrl={blank ? undefined : shownUrl}
               external={external}
               viewport={viewport}
               onViewport={setViewport}
-              live={!!page.live}
-              online={page.online}
+              online={online}
               browser={browser}
               onFind={() => setFinding(true)}
-              downloads={page.live?.downloads ?? []}
-              privately={page.live?.takeoverMode === "private"}
-              onPrivate={
-                held && controlState(held, !!page.heldAs, undefined).canPrivate
-                  ? control.takePrivately
-                  : undefined
-              }
+              onKeepPrivate={(value) => shown && tabs.keepPrivate(shown.tabId, value)}
+              onCloseTab={() => shown && tabs.close(shown.tabId)}
             />
           </>
         }
-        agent={held?.controller === "agent"}
-        progress={loading ? `Loading ${displayAddress(shownUrl ?? "")}` : undefined}
+        progress={page.loading ? `Loading ${displayAddress(shownUrl ?? "")}` : undefined}
       />
-      {page.live && !page.live.closed && <PageDialog view={page.live} browser={browser} />}
-      {finding && page.live && (
-        <FindPage source={source} threadId={threadId} onClose={() => setFinding(false)} />
+      {live && !live.closed && <PageDialog view={live} browser={browser} />}
+      {finding && live && (
+        <FindPage
+          source={source}
+          threadId={threadId}
+          tabId={shown?.tabId}
+          onClose={() => setFinding(false)}
+        />
       )}
       <div
         ref={pageArea}
         data-browser-page=""
         className={cn(
           "relative min-h-0 flex-1 overflow-auto",
-          page.bound && page.frame && "overflow-hidden",
+          live && page.frame && "overflow-hidden",
         )}
       >
         {content}
+        {native.frozen && (
+          // The native page's picture, exactly where the page is, while a menu covers it.
+          <img
+            data-frozen-page=""
+            src={native.frozen.src}
+            alt=""
+            aria-hidden
+            draggable={false}
+            style={{
+              left: native.frozen.box.x,
+              top: native.frozen.box.y,
+              width: native.frozen.box.width,
+              height: native.frozen.box.height,
+            }}
+            className="pointer-events-none absolute max-w-none select-none"
+          />
+        )}
       </div>
     </div>
   );
