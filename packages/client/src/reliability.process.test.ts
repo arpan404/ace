@@ -22,7 +22,7 @@ test("deleting an item notifies its readers and an older page cannot resurrect i
     h.daemon.store.appendEvents(h.thread.id, [{ type: "item.deleted", itemId }]);
     await when(selected, (item) => item === undefined);
     page?.();
-    store.page(await loading);
+    store.page(await loading, Number.MAX_SAFE_INTEGER);
     expect(store.item(itemId)).toBeUndefined();
     expect(store.order).not.toContain(itemId);
   } finally {

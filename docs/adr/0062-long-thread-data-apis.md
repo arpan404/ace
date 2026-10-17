@@ -55,3 +55,26 @@ short window cannot page itself repeatedly. Newer slides mirror it: one request 
 downward scroll intent near the live end. The scroll handler only observes; scroll
 events with no gesture behind them (a jump landing, a keep-place restore) never page,
 so a settling page cannot chain into the next one.
+
+## Transcript order and the live tail (2026-10-17)
+
+Every transcript orders items by the daemon's creation sequence (the seq of an item's first
+upsert) and by nothing else. A snapshot's `itemOrder` is kept as the daemon sends it, a live
+`item.created` is appended (events arrive in sequence order), and pages and windows merge by
+sequence. `createdAt` is display-only: imported history keeps native timestamps and clocks
+step, so it may disagree with sequence. Renderers never re-sort.
+
+Paging never evicts the live tail. `ThreadStore.page` admits an older page only into the
+window's free capacity, newest page items first, and ignores a page read for a cursor the
+window has since left. A full window reads deeper history through the bounded `items.window`
+beside it, as the thread feed does; the subagent transcript does the same.
+
+The bounded window keeps the root agent's share: when it trims, the root's own items keep at
+least half of it (`retainedTail` in `@ace/projection`), so busy subagents cannot push the
+person's prompts and the root's replies out of the root transcript. Root items and other
+agents' items each stay one contiguous newest run. `itemsBefore` is the cursor from which
+every item is held; root items the window kept before it are deduplicated by id when history
+pages or a window overlaps them, and only a window reaching past the cursor joins the tail.
+The fake daemon's snapshot selects with the same rule. The real daemon's snapshot still sends
+the newest 200 items, so a resnapshot can drop root items the live window had kept until the
+daemon can select root items by agent without a full scan.
