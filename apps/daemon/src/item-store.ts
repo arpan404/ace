@@ -352,15 +352,22 @@ export class ItemStore {
       bytes += size;
       count++;
     }
+    // A newest item larger than the whole budget still shows, as its bounded text preview.
+    const newest = rows[0];
+    const oversized =
+      count === 0 && newest ? this.stepItem(threadId, String(newest.id)) : undefined;
+    if (oversized) count = 1;
     const oldestRow = rows[count - 1];
     const oldest = oldestRow ? Number(oldestRow.created_seq) : before;
-    const items = count
-      ? this.statement(
-          "SELECT id, item FROM items WHERE thread_id = ? AND created_seq >= ? AND created_seq < ? ORDER BY created_seq",
-        )
-          .all(threadId, oldest, before)
-          .map((row) => this.materialize(String(row.id), row.item))
-      : [];
+    const items = oversized
+      ? [oversized]
+      : count
+        ? this.statement(
+            "SELECT id, item FROM items WHERE thread_id = ? AND created_seq >= ? AND created_seq < ? ORDER BY created_seq",
+          )
+            .all(threadId, oldest, before)
+            .map((row) => this.materialize(String(row.id), row.item))
+        : [];
     return {
       threadId,
       items,
