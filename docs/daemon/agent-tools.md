@@ -62,10 +62,13 @@ permission mode, without a question to a person. Resources, redirects and
 WebSockets reach any `http(s)`/`ws(s)` origin. Other schemes such as `file:` and
 `chrome:` fail with `invalid_origin`.
 
-Browser takeover and handback are authenticated human operations, not agent
-tools. A human lease blocks agent input and agent close. Takeover invalidates
-queued input even if the human hands control back before it dispatches. A click
-already dispatched cannot be undone. Shared disconnect returns browser control; refresh the snapshot before continuing. Private takeover returns `human_private` for agent reads as well as input. A private disconnect pauses until explicit human handback; the agent must wait.
+People and agents share every tab; nobody takes over or hands back (ADR 0067,
+Collaboration). The person's input always lands at once. An agent's page input in a
+tab the person used within 1.5 s waits until they pause, up to 10 s, then fails with
+`human_active`: snapshot again, then retry or use another tab. Reads never wait. A
+tab the person marks "Keep agents out" refuses agent reads and input with
+`human_private`, and so does work that started before the tab turned private, even
+once agents are let back in. Refresh the snapshot before continuing.
 
 ## Tabs, files and inspection
 
@@ -187,7 +190,7 @@ Execution failures return MCP `isError: true` and text containing bounded JSON
 Only ace-authored public failure types expose fixed messages and remedies. Arbitrary
 backend messages, hints, stacks, strings and code-shaped objects become a fixed
 `execution_failed` response. Schema errors expose no private issue literals.
-Examples include `stale_ref`, `controller_changed`, `delegation_required`,
+Examples include `stale_ref`, `human_active`, `delegation_required`,
 `lease_required`, `denied`, and `invalid_arguments`. Malformed backend
 results return `invalid_data` so the agent is not told to change valid arguments. Allowlisted native screen
 error codes, including `target_gone` and `permission_denied`, are retained with

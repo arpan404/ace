@@ -13,9 +13,6 @@
           "const": "open",
           "type": "string"
         },
-        "lease": {
-          "$ref": "https://ace.local/protocol/v1/BrowserControllerLease.json"
-        },
         "options": {
           "$ref": "https://ace.local/protocol/v1/BrowserOpen.json"
         },
@@ -42,8 +39,7 @@
       "required": [
         "kind",
         "options",
-        "viewport",
-        "lease"
+        "viewport"
       ],
       "type": "object"
     },
@@ -139,17 +135,17 @@
     },
     {
       "properties": {
-        "kind": {
-          "const": "controller",
-          "type": "string"
+        "active": {
+          "type": "boolean"
         },
-        "lease": {
-          "$ref": "https://ace.local/protocol/v1/BrowserControllerLease.json"
+        "kind": {
+          "const": "agentUse",
+          "type": "string"
         }
       },
       "required": [
         "kind",
-        "lease"
+        "active"
       ],
       "type": "object"
     },

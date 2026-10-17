@@ -9,12 +9,12 @@
       "maxLength": 8192,
       "type": "string"
     },
+    "inUse": {
+      "$ref": "https://ace.local/protocol/v1/BrowserTabActor.json"
+    },
     "label": {
       "maxLength": 64,
       "type": "string"
-    },
-    "lease": {
-      "$ref": "https://ace.local/protocol/v1/BrowserTabLease.json"
     },
     "lifecycle": {
       "$ref": "https://ace.local/protocol/v1/BrowserTabLifecycle.json"
@@ -27,6 +27,12 @@
     },
     "pending_dialog": {
       "$ref": "https://ace.local/protocol/v1/BrowserDialog.json"
+    },
+    "pointer": {
+      "$ref": "https://ace.local/protocol/v1/BrowserAgentPointer.json"
+    },
+    "private": {
+      "type": "boolean"
     },
     "tabId": {
       "maxLength": 256,

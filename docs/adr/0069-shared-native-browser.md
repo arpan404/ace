@@ -32,12 +32,12 @@ interaction measurement) already goes through `BrowserBackendSession`, so the em
 session serves all of them through the existing relay. No remote debugging port is opened.
 
 **The person sees the agent's page natively.** When the thread's Browser panel shows the page,
-the view is drawn in the panel and the agent's input lands in it live. Takeover and handback
-change the existing controller lease (ADR 0009 fencing, generation checks before dispatch);
-the page is not reloaded or moved, so taking over is a lease round trip.
+the view is drawn in the panel and the agent's input lands in it live. The person can use it at
+any moment, beside the agent (amended 2026-10-17: there is no takeover; ADR 0067,
+Collaboration).
 
 **Unseen views keep rendering while an agent drives them.** Chromium produces no frames for a
-hidden view: screenshots and `requestAnimationFrame` stall. While the agent holds the lease and
+hidden view: screenshots and `requestAnimationFrame` stall. While an agent uses the view and
 has driven the view within 30 seconds, a view no panel shows is _parked_: moved, visible, into
 one hidden, never-focused desktop window. Idle views stop rendering and are throttled as before.
 A view the person drives is never parked; it renders only where they see it. The parking

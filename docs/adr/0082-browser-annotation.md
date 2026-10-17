@@ -78,16 +78,17 @@ script for new documents. A cross-document main-frame navigation (`Page.frameNav
 a parent) ends annotate mode. Same-document navigations keep it, and markers whose elements
 leave the DOM hide until the elements return.
 
-**Ownership.** Annotate mode belongs to the person holding the page's control lease. Starting,
-driving and capturing are `browser.execute` commands that need the lease (`operate` scope) and
-a human actor; agents get `lease_required` and no MCP tool exists for them. One connection owns
+**Ownership.** Annotate mode belongs to the person's connection that started it (amended
+2026-10-17: there is no control lease; ADR 0067, Collaboration). Starting, driving and capturing
+are `browser.execute` commands for a human actor (`operate` scope); agents get `lease_required`
+and no MCP tool exists for them. Agents keep working in the tab meanwhile. One connection owns
 a session: its events go only to that connection through its browser subscription. A session
 ends, with an `ended` event to its owner, when:
 
 | Reason       | Cause                                                                      |
 | ------------ | -------------------------------------------------------------------------- |
 | `navigated`  | The top document navigated.                                                |
-| `lease`      | The owner handed back control.                                             |
+| `lease`      | Another of the person's connections started annotate mode on the page.     |
 | `tab`        | The active tab changed.                                                    |
 | `restart`    | The backend was lost or replaced, or the overlay could not be reinstalled. |
 | `disconnect` | The owning connection went away.                                           |

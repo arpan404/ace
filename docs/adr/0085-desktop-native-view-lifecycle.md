@@ -80,7 +80,7 @@ other answer, including an older desktop's "unknown method" error, counts as ali
 ### Several native tabs per thread
 
 `EmbeddedPageGroup` holds up to 16 tabs (ADR 0083's per-thread limit), each its own
-`WebContentsView` in the thread's partition, sharing the controller lease. Only the selected
+`WebContentsView` in the thread's partition. Only the selected
 tab is placed in the panel or takes the person's input; the others render, unseen, in the
 parking window while an agent drives them (`backgroundThrottling: false`, ADR 0069's 30-second
 rule), and are hidden and throttled otherwise. Only the selected tab's screencast is relayed.
@@ -105,10 +105,11 @@ This is the one tab contract the desktop and the daemon's tab runtime (ADR 0083)
 - **Driving.** Every tab, shown or not, takes input, navigation, screenshots and printing through
   `ace.tabs.cdp`. Tab events arrive as `ace.tabs.event {tabId, method, params}`; popups as
   `ace.popupRequested {url, tabId}`, run in the opener's queue.
-- **The shown tab only.** The `controller` lease, native key presses (`press`) and the panel's
-  size apply to the selected tab. The daemon sends the shown tab's lease, and sends it again
-  whenever the shown tab changes; leases carry one rising generation per session on the wire
-  (each tab counts its own generations in the daemon). Unseen tabs always count as the agents':
+- **The shown tab only.** Whether an agent uses the tab (`agentUse`, amended 2026-10-17 for H4:
+  the controller lease is gone and the person's input always reaches the shown view; the view
+  reports it to the daemon as `ace.humanInput`), native key presses (`press`) and the panel's
+  size apply to the selected tab. The daemon says whether an agent uses the shown tab, and says
+  it again whenever the shown tab changes. Unseen tabs always count as the agents':
   the person cannot reach them. An unseen tab takes CDP key events and is sized with
   `ace.tabs.resize`.
 - **Closing.** Any tab but the last; the last goes with the browser.
@@ -138,13 +139,14 @@ replays the kept keys into it, in order. If the field never asks, the app takes 
 ## Verification
 
 Unit tests: `appLifetime`, `CrashBackoff`, `FocusHandoff`, `PausedRequests`, the page group's
-tab rules (the lease reaching only the shown tab), and the backend's orphan, adoption, expiry
+tab rules (agent use reaching only the shown tab, the person's input reported with its tab), and the backend's orphan, adoption, expiry
 and Quit paths. Process tests against the daemon's real relay over a local socket: a reconnect
 re-adopts the view without navigating; a slow command fails alone without losing the page; a
 command whose view also misses its ping loses the page; the daemon's whole tab runtime
 (`BrowserService`) drives two native tabs at once, a slow tab holding up neither the other nor
-the view, keys going natively to the shown tab and as CDP to the unseen one, and a person's
-lease on the shown tab stopping agents only there (`relay-tabs.process.test.ts`). Daemon
+the view, keys going natively to the shown tab and as CDP to the unseen one, and the shown
+view learning whether an agent uses it as the person moves between tabs
+(`relay-tabs.process.test.ts`). Daemon
 process tests: a dropped link waits for re-adoption before reporting the page lost; a re-adopted
 real Chrome page keeps its document, reports nothing lost and loses the stale overlay
 (`readoption.process.test.ts`); a crashed tab refuses work until a navigation revives it. Electron e2e (`ACE_E2E_ELECTRON=1`): closing the last window

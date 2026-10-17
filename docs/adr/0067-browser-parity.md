@@ -1,9 +1,13 @@
-# 0067: Background browser tabs and private human control
+# 0067: Background browser tabs, shared by people and agents
 
 Date: 2026-10-05. Status: accepted. Agent backend choice (MCP opens no longer force headless)
 is superseded by [ADR 0069](0069-shared-native-browser.md).
 
 Amended 2026-10-17 by [ADR 0083](0083-browser-v2-daemon-chrome.md): threads share one persistent ace profile (private contexts on request), and the tab model there replaces the eight-page context.
+
+Amended 2026-10-17 (H4, owner decision): nobody takes over or hands back. People and agents
+share every tab; the private takeover, its host gate and the control lease are removed. See
+"Collaboration" below, which replaces "Private takeover" wherever they disagree.
 
 Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provider-native (owner decision). Evaluate, download and upload approvals described below are removed; agents run them without a prompt. Private human control is unchanged.
 
@@ -149,7 +153,49 @@ responses fail. No response headers or request bodies are retained. URL credenti
 and sensitive query fields are removed. Redaction detects known patterns and keys;
 it cannot infer every secret in arbitrary prose.
 
-## Private takeover and recording
+## Collaboration (amendment, 2026-10-17)
+
+The owner tested take over / hand back and rejected it: "we must have proper human–AI working
+together, no need of taking over or handing back." The rules now are:
+
+- **The person's input always lands at once**, in any tab, whoever else works there. It never
+  queues behind agent commands (it has its own ordered lane per tab) and is never refused for
+  agent activity. Annotate mode belongs to whichever of the person's connections started it; a
+  second one starting replaces it (`ended` with reason `lease`).
+- **An agent marks the tab it uses.** A tab carries `inUse` (the agent, by `agentId`) while one
+  of its commands runs and for `inUseMs` (8 s) after, and `pointer`: where it last clicked,
+  hovered or dropped, in the tab's CSS pixels. Clients draw the agent cursor on the tab and over
+  the page. The backend hears about it (`agentUse`) so the desktop intercepts file choosers and
+  keeps an unseen view rendering for the agent.
+- **Agent input politely waits for the person.** An agent's page input (click, type, press,
+  scroll, drag, hover, select, check, uncheck, focus, fill_form, upload, navigate and history
+  except stop) in a tab where the person used the page within `quietMs` (1.5 s) waits until
+  they have paused that long, for at most `maxWaitMs` (10 s); past that it fails with
+  `human_active` ("snapshot again, then retry or use another tab"). Reads (snapshot,
+  screenshot, evaluate, logs, find, waits) never wait. The desktop reports the person's own
+  input on its native view as `ace.humanInput` (at most every 250 ms); the daemon sees the
+  screencast's input directly. Use my Chrome reports no input of the person's, so agent input
+  there does not wait.
+- **The view follows an agent's new tab** only while the person has neither picked a tab nor
+  used the one they view within `followAfterMs` (30 s); otherwise the new tab joins the strip
+  without taking focus.
+- **"Keep agents out of this tab"** (`browser.tabs.private`, per tab, a person's choice) is the
+  only remaining gate: agents can neither read nor drive the tab (`human_private`), its logs,
+  downloads and recording frames are withheld as before, and agents listing tabs see it as
+  `about:blank`. It invalidates refs. Agent work that started before the tab turned private
+  never resumes, even once agents are let back in (each command carries its privacy epoch). The
+  flag is kept with the tab records, so it survives a daemon restart; there is no host gate and
+  nothing pauses the thread. An agent may not close a browser holding a private tab, or one the
+  person used within `quietMs`.
+
+Rejected: a lease handed back automatically after idle (still a lock the person can trip over);
+cancelling an agent's in-flight command on the person's input (an input already dispatched into
+Chromium cannot be recalled, and the next agent command waits anyway).
+
+The timings are pure functions in `packages/browser/src/collaboration.ts`, injected through
+`collaboration` in the service options.
+
+## Private takeover and recording (superseded by Collaboration above)
 
 Takeover has shared and private modes. Shared takeover retains the existing
 agent-read behavior. Private takeover rejects every agent command and inline

@@ -378,13 +378,8 @@
     },
     {
       "properties": {
-        "mode": {
-          "default": "shared",
-          "enum": [
-            "shared",
-            "private"
-          ],
-          "type": "string"
+        "private": {
+          "type": "boolean"
         },
         "requestId": {
           "maxLength": 256,
@@ -400,41 +395,16 @@
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
         "type": {
-          "const": "browser.takeover",
+          "const": "browser.tabs.private",
           "type": "string"
         }
       },
       "required": [
         "requestId",
         "threadId",
-        "type"
-      ],
-      "type": "object"
-    },
-    {
-      "properties": {
-        "requestId": {
-          "maxLength": 256,
-          "minLength": 1,
-          "type": "string"
-        },
-        "tabId": {
-          "maxLength": 256,
-          "minLength": 1,
-          "type": "string"
-        },
-        "threadId": {
-          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
-        },
-        "type": {
-          "const": "browser.handback",
-          "type": "string"
-        }
-      },
-      "required": [
-        "requestId",
-        "threadId",
-        "type"
+        "type",
+        "tabId",
+        "private"
       ],
       "type": "object"
     },
