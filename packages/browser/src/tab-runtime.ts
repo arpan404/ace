@@ -80,6 +80,8 @@ export class TabRuntime {
   private closed = false;
   /** The person's own input runs in order, apart from agent commands. */
   private humanInput: Promise<unknown> = Promise.resolve();
+  /** The person's annotate-mode commands, in order, apart from agent commands and input. */
+  private annotating: Promise<unknown> = Promise.resolve();
   /** The agent using the tab, and how many of its commands are running. */
   private agent: BrowserTabActor | undefined;
   private agentAt = -Infinity;
@@ -100,6 +102,7 @@ export class TabRuntime {
     this.annotation = new AnnotationSession(
       (connectionId, event) => host.annotation(connectionId, event),
       () => host.emit(),
+      (delay, work) => host.options.navigationClock.set(delay, work),
     );
     // Resolved on use: a backend without per-tab pages can only reach the tab it shows.
     const cdp: BrowserCdp = {
@@ -320,9 +323,35 @@ export class TabRuntime {
       return Promise.reject(error);
     }
     this.touch(actor);
+    if (
+      actor.kind === "human" &&
+      (command.action === "annotate" || command.action === "annotate_capture")
+    )
+      return this.annotate(command, actor, signal);
     const end = this.beginAgent(actor);
     const work = this.submitted(command, actor, signal, target);
     void work.then(end, end);
+    return work;
+  }
+  /**
+   * Annotate mode is the person's (ADR 0082, ADR 0067 "Collaboration"): its commands never
+   * wait behind agent commands, which may themselves be waiting for the person to pause. They
+   * run in order, so the images the client asks for before stopping still see the markers.
+   */
+  private annotate(command: TabCommand, actor: Actor, signal?: AbortSignal): Promise<unknown> {
+    const generation = this.access.generation;
+    const work = this.annotating.then(async () => {
+      // Stopping always works: nothing may keep the overlay on the page.
+      if (command.action === "annotate" && command.operation === "stop")
+        return this.run(command, actor, signal, generation);
+      this.check(actor, signal, generation);
+      this.crashCheck(command);
+      const pending_dialog = this.host.dialog(this.id);
+      if (pending_dialog) return { pending_dialog };
+      await this.host.wake(this.id);
+      return this.run(command, actor, signal, generation);
+    });
+    this.annotating = work.catch(() => {});
     return work;
   }
   private submitted(

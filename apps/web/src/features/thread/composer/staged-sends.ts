@@ -86,14 +86,24 @@ let watchingClose = false;
 // Full payloads are a cached projection of the same backing records as recovery facts.
 let records: ReturnType<ReturnType<typeof heldSendStore>["get"]> | undefined;
 let parsed: readonly StagedSend[] = [];
+// This page's own changes (a file that arrived after its message was sent) show as well.
+const localListeners = new Set<() => void>();
+let localVersion = 0;
+let parsedVersion = 0;
 const all = {
   subscribe(listener: () => void) {
-    return heldSendStore(undefined).subscribe(listener);
+    const stop = heldSendStore(undefined).subscribe(listener);
+    localListeners.add(listener);
+    return () => {
+      stop();
+      localListeners.delete(listener);
+    };
   },
   get(): readonly StagedSend[] {
     const next = heldSendStore(undefined).get();
-    if (next !== records) {
+    if (next !== records || parsedVersion !== localVersion) {
       records = next;
+      parsedVersion = localVersion;
       parsed = next.flatMap((record) => {
         const result = Stored.safeParse(record.value);
         return result.success ? [result.data] : [];
@@ -202,6 +212,23 @@ export function unstage(commandId: string, keepPreviews = false): boolean {
   held.delete(commandId);
   if (local && !keepPreviews) for (const url of local.previews) if (url) URL.revokeObjectURL(url);
   return true;
+}
+
+/**
+ * A file of a held message arrived after it was sent (a browser annotation's screenshot):
+ * keep it for Retry and show its preview on the bubble.
+ */
+export function fileArrived(commandId: string, index: number, file: File): void {
+  const local = held.get(commandId);
+  if (!local) return;
+  const files = [...local.files];
+  const previews = [...local.previews];
+  files[index] = file;
+  if (previews[index] === undefined && typeof URL.createObjectURL === "function")
+    previews[index] = URL.createObjectURL(file);
+  held.set(commandId, { ...local, files, previews });
+  localVersion++;
+  for (const listener of localListeners) listener();
 }
 
 /** Whether this page can still finish (or retry) the held message's uploads. */

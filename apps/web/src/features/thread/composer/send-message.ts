@@ -3,7 +3,7 @@ import { type TurnOptions } from "@ace/protocol";
 import type { KeyValueStorage } from "@ace/ui-core";
 import type { Draft } from "./draft.ts";
 import { type StagedSend } from "./send-store.ts";
-import { sendWhenUploaded, stage, stagedSends } from "./staged-sends.ts";
+import { fileArrived, sendWhenUploaded, stage, stagedSends } from "./staged-sends.ts";
 import type { UploadClock } from "@/features/thread/composer/upload-interruption.ts";
 
 /*
@@ -43,6 +43,13 @@ export async function sendMessage(request: SendRequest): Promise<boolean> {
     )
   )
     return refuseStage(request);
+  // A screenshot still being taken joins the bubble when it arrives; its upload is in hand.
+  files.later?.forEach((later, index) => {
+    void later?.then(
+      (file) => file && fileArrived(commandId, index, file),
+      () => {},
+    );
+  });
   void sendWhenUploaded(client, commandId, files.outcomes, request.storage);
   return true;
 }

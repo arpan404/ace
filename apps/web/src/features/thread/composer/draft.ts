@@ -22,6 +22,11 @@ export interface Draft {
     outcomes: Promise<({ sha256: string; name: string } | { error: string })[]>;
     /** The files themselves, in `local`'s order, for an upload to be retried. */
     files: (File | undefined)[];
+    /**
+     * Files still being made when the message was sent (a browser annotation's screenshot),
+     * in `local`'s order; the bubble shows each once it arrives.
+     */
+    later?: (Promise<File | undefined> | undefined)[];
     release(): void;
     /** Return attachment ownership when the send handoff is refused. */
     restore?(): void;

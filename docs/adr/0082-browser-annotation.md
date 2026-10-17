@@ -114,12 +114,24 @@ ends, with an `ended` event to its owner, when:
 | `tab`        | The active tab changed.                                                    |
 | `restart`    | The backend was lost or replaced, or the overlay could not be reinstalled. |
 | `disconnect` | The owning connection went away.                                           |
-| `stopped`    | The owner stopped it, the page's ✕ closed it, or the browser closed.       |
+| `stopped`    | The owner stopped it, the page's ✕ closed it, Send, or the browser closed. |
 
 When the desktop recovers a crashed renderer (`ace.rendererRestarted`), the CDP session that
 held the world and binding is gone. The daemon reinstalls the overlay on the reloaded page; it
 reports `ready` again with a new `documentId`, and the client restores its markers with the
 `restore` command.
+
+**The person's lane.** A person's annotate commands (start, page commands, captures, stop)
+run in order on a lane of their own in the tab, never behind agent commands, which may be
+waiting for the person to pause (ADR 0067, Collaboration). Stop always runs, whatever the tab's
+state. Commands without a `tabId` go to the tab the connection is annotating.
+
+**Send.** The bar's Send leaves annotate mode. The client sends the message at once: the draft
+counts a page screenshot from the moment it is asked for, so one still being taken travels with
+the message and uploads behind its bubble, which shows each image's local preview as soon as
+its bytes exist. Then the client asks for stop; on the person's lane it runs after the captures
+already asked for, so they still show the markers. If the owner has not stopped within 3 s of
+`send`, the daemon ends the session itself.
 
 **The daemon keeps no records.** Annotation records are composer draft data on the person's
 device. The daemon installs the overlay, relays its events, runs page commands and captures
@@ -152,7 +164,8 @@ No daemon, engine or adapter change is involved.
   unknown kinds and fields; clients decode it with `BrowserAnnotationEvent`.
 - Page commands: `configure`, `edit`, `remove`, `clear`, `renumber`, `toast`, `restore`.
 - Overlay events: `ready`, `saved`, `removed`, `discard`, `screenshot`, `send`, `close`, `bar`.
-  The daemon adds `ended`. After relaying `close` it ends the session.
+  The daemon adds `ended`. After relaying `close` it ends the session; after `send`, within 3 s
+  unless the owner stops first.
 
 ## Consequences
 

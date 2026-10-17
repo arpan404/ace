@@ -7,6 +7,8 @@ export interface FilesHandOff<Local> {
   settled: Promise<{ sha256: string; name: string }[]>;
   outcomes: Promise<AnnotationOutcome[]>;
   files: (File | undefined)[];
+  /** Files still being made (an annotation image being captured), in `local`'s order. */
+  later?: (Promise<File | undefined> | undefined)[];
   release(): void;
   restore?(): void;
 }
@@ -34,6 +36,7 @@ export function withAnnotations<Local>(
       ]),
       outcomes: Promise.all([files.outcomes, images]).then(([own, extra]) => [...own, ...extra]),
       files: [...files.files, ...annotations.files],
+      later: [...(files.later ?? files.local.map(() => undefined)), ...annotations.later],
       restore: () => {
         files.restore?.();
         annotations.restore();
