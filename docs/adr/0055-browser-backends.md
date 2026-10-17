@@ -1,6 +1,8 @@
 # 0055: Embedded browser and daemon headless fallback
 
-Date: 2026-10-02. Status: proposed. Amends ADR 0009.
+Date: 2026-10-02. Status: superseded by ADR 0083. Amends ADR 0009.
+
+Superseded 2026-10-17 by [ADR 0083](0083-browser-v2-daemon-chrome.md): the daemon drives its own Chrome for Testing over a pipe without Playwright, and the embedded backend is removed in a later phase. The Chromium acquisition section below still applies.
 
 Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provider-native (owner decision). Evaluation and origin approval mentioned below are removed; scheme checks and request interception for non-http(s) URLs remain.
 

@@ -3,8 +3,8 @@ import { createServer } from "node:http";
 import { createReadStream } from "node:fs";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
-import { readFile, readdir } from "node:fs/promises";
-import { describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { executablePath, fixture } from "./test-support.ts";
 import type { BrowserArtifact } from "@ace/protocol";
@@ -41,39 +41,45 @@ describe.skipIf(!executablePath)("browser lifecycle and recordings", () => {
       "Name",
     );
   }, 60_000);
-  it("releases browser processes and ephemeral profiles on close", async () => {
-    const f = await fixture();
+  it("ace's browser exits once its last thread closes and the idle period passes", async () => {
+    const f = await fixture({ chrome: { idleMs: 0 } });
     await f.navigate();
-    const before = (await exec("ps", ["-axo", "pid,command"])).stdout;
-    expect(before).toContain(`--user-data-dir=${f.home}`);
+    expect((await exec("ps", ["-axo", "pid,command"])).stdout).toContain(
+      `--user-data-dir=${f.home}`,
+    );
     await f.service.closeThread("thread");
-    const after = (await exec("ps", ["-axo", "pid,command"])).stdout;
-    expect(after).not.toContain(`--user-data-dir=${f.home}`);
-    expect(
-      (await readdir(`${f.home}/browser`)).filter((name) => name.startsWith("ephemeral-")),
-    ).toEqual([]);
+    await vi.waitFor(
+      async () =>
+        expect((await exec("ps", ["-axo", "pid,command"])).stdout).not.toContain(
+          `--user-data-dir=${f.home}`,
+        ),
+      { timeout: 30_000, interval: 100 },
+    );
   }, 60_000);
 
-  it("keeps persistent thread storage isolated between parallel threads in one workspace", async () => {
-    const f = await fixture();
-    await f.service.closeThread("thread");
-    await f.service.open({ threadId: "thread", workspaceId: "workspace", profile: "persistent" });
+  it("persistent threads share ace's profile across browser restarts, private threads do not", async () => {
+    const f = await fixture({ chrome: { idleMs: 0 } });
     await f.navigate();
     await f.evaluate("localStorage.setItem('retained','yes')");
-    await f.service.open({ threadId: "second", workspaceId: "workspace", profile: "persistent" });
+    await f.service.open({ threadId: "second", workspaceId: "other", profile: "persistent" });
     await f.service.execute("second", { action: "navigate", url: f.url });
-    expect(
-      await f.service.execute("second", {
-        action: "evaluate",
-        expression: "localStorage.getItem('retained')",
-      }),
-    ).toBe(null);
-    await f.service.closeThread("second");
-    await f.service.closeThread("thread");
-    await f.service.open({ threadId: "thread", workspaceId: "workspace", profile: "persistent" });
+    const read = { action: "evaluate", expression: "localStorage.getItem('retained')" };
+    expect(await f.service.execute("second", read)).toBe("yes");
+    await f.service.open({ threadId: "private", workspaceId: "workspace", profile: "ephemeral" });
+    await f.service.execute("private", { action: "navigate", url: f.url });
+    expect(await f.service.execute("private", read)).toBe(null);
+    for (const thread of ["thread", "second", "private"]) await f.service.closeThread(thread);
+    await vi.waitFor(
+      async () =>
+        expect((await exec("ps", ["-axo", "pid,command"])).stdout).not.toContain(
+          `--user-data-dir=${f.home}`,
+        ),
+      { timeout: 30_000, interval: 100 },
+    );
+    await f.service.open({ threadId: "thread", workspaceId: "workspace" });
     await f.navigate();
     expect(await f.evaluate("localStorage.getItem('retained')")).toBe("yes");
-    // This exercises three real process lifetimes, including graceful shutdown.
+    // This exercises two real browser lifetimes, including graceful shutdown.
   }, 120_000);
 
   it("saves a timestamped frame manifest and a player and reports the recording artifact", async () => {
