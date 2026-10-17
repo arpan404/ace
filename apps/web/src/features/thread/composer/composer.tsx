@@ -10,6 +10,7 @@ import { MessageInput } from "./message-input.tsx";
 import { editorSelection, placeEditorCaret } from "./editor-dom.ts";
 import {
   editComposerTokens,
+  withTypedCommand,
   type ComposerToken,
   type AttachmentReader,
   type ComposerDraft,
@@ -555,7 +556,11 @@ function ComposerBody({
     if (blocked) return;
     const draft: Draft = {
       text,
-      ...composerContent({ ...current, attachments: attachments.ready }),
+      ...composerContent({
+        ...current,
+        tokens: withTypedCommand(text, tokens, suggestions.entries),
+        attachments: attachments.ready,
+      }),
       files: {
         ...attachments.handOff(),
         uploading: attachments.items.filter((file) => file.state === "uploading").length,

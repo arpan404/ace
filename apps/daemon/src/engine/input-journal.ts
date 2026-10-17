@@ -1,7 +1,8 @@
 import { requireEngineColumns } from "./schema-version.ts";
 import { withoutPortableHandoff } from "@ace/projection";
 import { piInput } from "@ace/adapter-pi/input";
-import { content as claudeInputContent } from "@ace/adapter-claude/input";
+import { admissions as claudeAdmissions } from "@ace/adapter-claude/input";
+import { nativeCommandInputs } from "@ace/commands/invocation";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
@@ -47,9 +48,11 @@ function providerInput(
   parts: ContentPart[],
   provider?: import("@ace/protocol").ProviderKind,
 ): ContentPart[] {
-  if (provider === "pi") return [{ type: "text", text: piInput(parts).message }];
+  // Selected commands become several admissions; the first one's echo stands for the message.
+  if (provider === "pi")
+    return [{ type: "text", text: piInput(nativeCommandInputs(parts)[0] ?? parts).message }];
   if (provider !== "claude") return parts;
-  const content = claudeInputContent(parts);
+  const content = claudeAdmissions(parts)[0] ?? "";
   if (typeof content === "string") return [{ type: "text", text: content }];
   return content.flatMap((part) =>
     part.type === "text" ? [{ type: "text" as const, text: part.text }] : [],
