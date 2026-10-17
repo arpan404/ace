@@ -61,10 +61,18 @@ test("the changed-files summary opens the turn's files in the Changes tab", asyn
   act(() => app.daemon.apply("thread-replay-cursor", [facts.endTurn("root")]));
   const summary = await within(feed).findByRole("group", { name: /^Changed 2 files/ });
   expect(within(feed).queryByText("apps/server/src/replay.ts")).toBeNull();
-  // Any file's chip opens the turn's changes.
-  const [chip] = within(summary).getAllByRole("button");
+  // A file's chip opens the turn's changes with that file selected.
+  const chip = within(summary).getAllByRole("button")[1];
   if (!chip) throw new Error("No changed-file chip");
+  const path = chip.title;
   await userEvent.click(chip);
+  await waitFor(() =>
+    expect(
+      within(screen.getByRole("region", { name: "Thread panel" }))
+        .getByRole("treeitem", { name: path })
+        .getAttribute("aria-selected"),
+    ).toBe("true"),
+  );
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(
     within(panel)

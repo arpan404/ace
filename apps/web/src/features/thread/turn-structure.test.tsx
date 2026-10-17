@@ -449,7 +449,7 @@ test("an open turn has a quiet work log that becomes timed history when the turn
   script.runThrough("spoke");
   await app.open("/t/thread-frozen");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  // The turn's live head sits at its top, inside the transcript, until the whole tree settles.
+  // The turn's live line ends its flow, inside the transcript, until the whole tree settles.
   expect(within(feed).getByRole("group", { name: "Turn in progress" }).textContent).toMatch(
     /^Working for/,
   );

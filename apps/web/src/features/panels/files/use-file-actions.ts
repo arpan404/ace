@@ -4,9 +4,8 @@ import { isCheckoutPath, pathParts } from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { DownloadError, saveDownload } from "@/lib/save-download.ts";
-import { launchEditor } from "@/boot/editor-launch.ts";
 import { useToast } from "@/components/ui/toast.tsx";
-import { useEditors } from "@/lib/editors.ts";
+import { useOpenInEditor } from "@/lib/open-in-editor.ts";
 import { checkoutError, fromCode, type CheckoutError } from "./checkout-source.ts";
 import { useCheckoutSource } from "./use-checkout.ts";
 
@@ -28,7 +27,12 @@ export function useFileActions(threadId: string, onUploaded: (path: string) => v
   const client = useClient();
   const toast = useToast();
   const queries = useQueryClient();
-  const { editors, current: editor, choose, unavailable: editorUnavailable } = useEditors();
+  const {
+    editors,
+    editor,
+    unavailable: editorUnavailable,
+    open: openInEditor,
+  } = useOpenInEditor(threadId);
   const [saving, setSaving] = useState<{ path: string; received: number } | undefined>();
   const [upload, setUpload] = useState<UploadState | undefined>();
   const cancel = useRef<AbortController | undefined>(undefined);
@@ -117,32 +121,6 @@ export function useFileActions(threadId: string, onUploaded: (path: string) => v
         return;
       }
       if (!(await send(file, path, null))) return;
-    }
-  };
-
-  const openInEditor = async (path: string, line?: number, editorId = editor?.id) => {
-    if (!editorId) return;
-    try {
-      const result = await client.command({
-        type: "workspace.editor.open",
-        threadId: ThreadId.parse(threadId),
-        editorId,
-      });
-      if (!result.ok || !result.editor) throw new Error(result.error ?? "editor_failed");
-      const root = result.editor.path.replace(/\/$/, "");
-      await launchEditor({
-        editorId: result.editor.editor.id,
-        editorName: result.editor.editor.name,
-        path: `${root}/${path}`,
-        line,
-      });
-      choose(result.editor.editor.id);
-    } catch {
-      toast.error({
-        title: "Couldn't open the editor",
-        description:
-          "Check that the editor is installed on the checkout's computer, then try again.",
-      });
     }
   };
 

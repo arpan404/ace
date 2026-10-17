@@ -45,8 +45,15 @@ test("a collapsed live group names its unfinished parallel step; the thought bef
   const group = await within(feed).findByRole("button", {
     name: /Running.*bun run slow.*2.*steps/,
   });
-  // The thought was in view before the steps arrived: they start their own group below it.
-  expect(within(feed).getByText("The slow build can run alongside the quick check.")).toBeTruthy();
+  // The thought was in view before the steps arrived: they start their own group below it. It
+  // stays one folded row until the reader opens it.
+  const thought = within(feed).getByRole("button", { name: /^Thought for/ });
+  expect(within(feed).queryByText("The slow build can run alongside the quick check.")).toBeNull();
+  await userEvent.click(thought);
+  expect(
+    await within(feed).findByText("The slow build can run alongside the quick check."),
+  ).toBeTruthy();
+  await userEvent.click(thought);
   await userEvent.click(group);
   expect(await within(feed).findByRole("button", { name: /bun run quick/ })).toBeTruthy();
   await userEvent.click(group);
