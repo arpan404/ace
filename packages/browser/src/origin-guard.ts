@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
 import { compactPolicyEvent } from "./policy-events.ts";
+import { CommandSlots } from "./command-slots.ts";
 
 const Paused = z.object({
   responseStatusCode: z.number().optional(),
@@ -54,9 +55,11 @@ export async function installOriginGuard(
   cdp.on("Page.frameNavigated", frameChanged);
   const children = new Map<
     string,
-    { send: Send; parent: Send; cdp: BrowserCdp; type: string; targetId: string }
+    { send: Send; forward: Send; parent: Send; cdp: BrowserCdp; type: string; targetId: string }
   >();
   const childEvents = new Map<string, EventEmitter>();
+  // Nested commands wait for a slot: a dropped Fetch decision would stall its request forever.
+  const slots = new CommandSlots(128, 4096);
   const pending = new Map<
     number,
     {
@@ -71,10 +74,18 @@ export async function installOriginGuard(
     stopped = false;
   let initializing: Promise<unknown> = Promise.resolve();
 
-  function sendChild(parent: Send, sessionId: string): Send {
+  /** `Target.closeTarget` on an out-of-process iframe closes its whole page in Chromium.
+   * A refused iframe is left paused before its first script instead: it stays blank and
+   * unguarded traffic never starts. Other refused targets are closed. */
+  function refuse(target: { targetId: string; type: string }): void {
+    if (target.type === "iframe") return;
+    void root("Target.closeTarget", { targetId: target.targetId }).catch(() => {});
+  }
+  /** Forwards without taking a slot: a nested command already holds one for its whole trip. */
+  function forwardChild(parent: Send, sessionId: string): Send {
     return (method, params) => {
-      if (stopped || !children.has(sessionId) || pending.size >= 128)
-        return Promise.reject(new Error("Browser target command limit"));
+      if (stopped || !children.has(sessionId))
+        return Promise.reject(new Error("Browser target detached"));
       const id = ++nextId;
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
@@ -135,10 +146,11 @@ export async function installOriginGuard(
     if (!parsed.success) return;
     const { sessionId, targetInfo } = parsed.data;
     if (stopped || children.size >= 64 || !["iframe", "worker"].includes(targetInfo.type)) {
-      void root("Target.closeTarget", { targetId: targetInfo.targetId }).catch(() => {});
+      refuse(targetInfo);
       return;
     }
-    const send = sendChild(parent, sessionId);
+    const forward = forwardChild(parent, sessionId);
+    const send: Send = (method, params) => slots.run(() => forward(method, params));
     const events = new EventEmitter();
     const childCdp: BrowserCdp = {
       send,
@@ -147,6 +159,7 @@ export async function installOriginGuard(
     };
     children.set(sessionId, {
       send,
+      forward,
       parent,
       cdp: childCdp,
       type: targetInfo.type,
@@ -167,7 +180,7 @@ export async function installOriginGuard(
         flatten: false,
       });
       await send("Runtime.runIfWaitingForDebugger");
-    })().catch(() => root("Target.closeTarget", { targetId: targetInfo.targetId }).catch(() => {}));
+    })().catch(() => refuse(targetInfo));
     initializing = Promise.all([initializing, init]).then(() => undefined);
   }
   function received(raw: unknown): void {
@@ -181,8 +194,9 @@ export async function installOriginGuard(
       if (Buffer.byteLength(event.message) > 1024 * 1024)
         throw new Error("Browser policy event payload limit");
     } catch {
-      // A paused request requires a decision. Destroy only its target if it cannot be decoded.
-      void root("Target.closeTarget", { targetId: child.targetId }).catch(() => {});
+      // A paused request requires a decision this guard cannot make. Stop serving the target:
+      // a worker is closed; an iframe keeps waiting on its requests while its page stays usable.
+      refuse(child);
       detached({ sessionId: envelope.data.sessionId });
       return;
     }
@@ -203,7 +217,7 @@ export async function installOriginGuard(
     }
     if (message.method) childEvents.get(event.sessionId)?.emit(message.method, message.params);
     if (message.method === "Fetch.requestPaused") paused(child.send, message.params);
-    if (message.method === "Target.attachedToTarget") attached(child.send, message.params);
+    if (message.method === "Target.attachedToTarget") attached(child.forward, message.params);
     if (message.method === "Target.receivedMessageFromTarget") received(message.params);
     if (message.method === "Target.detachedFromTarget") detached(message.params);
   }
@@ -216,7 +230,7 @@ export async function installOriginGuard(
       const owner = children.get(id);
       if (owner)
         for (const [childId, child] of children)
-          if (child.parent === owner.send) detachedIds.add(childId);
+          if (child.parent === owner.forward) detachedIds.add(childId);
     }
     for (const [id, waiter] of pending)
       if (detachedIds.has(waiter.sessionId)) {
