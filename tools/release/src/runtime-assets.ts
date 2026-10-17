@@ -9,7 +9,6 @@ import { z } from "zod";
 export const runtimePackages = [
   { name: "sharp", workspace: "packages/context" },
   { name: "koffi", workspace: "packages/files" },
-  { name: "playwright-core", workspace: "packages/browser" },
   { name: "@anthropic-ai/claude-agent-sdk", workspace: "packages/adapter-claude" },
   { name: "@cursor/sdk", workspace: "packages/adapter-cursor" },
 ];

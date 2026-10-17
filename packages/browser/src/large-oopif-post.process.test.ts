@@ -1,5 +1,4 @@
 import { createServer } from "node:http";
-import { chromium } from "playwright-core";
 import { expect, it, onTestFinished } from "vitest";
 import { z } from "zod";
 import { executablePath, fixture } from "./test-support.ts";
@@ -8,11 +7,11 @@ const Attached = z.object({ sessionId: z.string(), targetInfo: z.object({ type: 
 const Received = z.object({ sessionId: z.string(), message: z.string() });
 const Paused = z.object({
   method: z.literal("Fetch.requestPaused"),
-  params: z.object({ request: z.object({ url: z.string(), postData: z.string() }) }),
+  params: z.object({ request: z.object({ url: z.string() }) }),
 });
 
 it.skipIf(!executablePath)(
-  "a real out-of-process iframe completes a POST through an oversized nested policy envelope",
+  "a real out-of-process iframe sends a large POST straight to the network, never paused",
   async () => {
     let receivedBytes = 0;
     const server = createServer((request, response) => {
@@ -41,34 +40,25 @@ it.skipIf(!executablePath)(
     const origin = `http://localhost:${address.port}`;
     const frameUrl = `${origin}/frame`;
     const iframeSessions = new Set<string>();
-    const nestedPosts: { sessionId: string; bytes: number }[] = [];
+    const paused: string[] = [];
     const f = await fixture({
-      launchContext: async (profile, options) => {
-        const context = await chromium.launchPersistentContext(profile, {
-          ...options,
-          args: [...(options?.args ?? []), "--site-per-process"],
-        });
-        const attach = context.newCDPSession.bind(context);
-        context.newCDPSession = async (page) => {
-          const cdp = await attach(page);
-          cdp.on("Target.attachedToTarget", (raw: unknown) => {
-            const event = Attached.safeParse(raw);
-            if (event.success && event.data.targetInfo.type === "iframe")
-              iframeSessions.add(event.data.sessionId);
-          });
-          cdp.on("Target.receivedMessageFromTarget", (raw: unknown) => {
-            const event = Received.safeParse(raw);
-            if (!event.success) return;
-            const paused = Paused.safeParse(JSON.parse(event.data.message));
-            if (paused.success && paused.data.params.request.url === `${origin}/post`)
-              nestedPosts.push({
-                sessionId: event.data.sessionId,
-                bytes: Buffer.byteLength(event.data.message),
-              });
-          });
-          return cdp;
-        };
-        return context;
+      chrome: {
+        args: ["--site-per-process"],
+        intercept: {
+          event: (method, params) => {
+            const event = Attached.safeParse(params);
+            if (method === "Target.attachedToTarget" && event.success)
+              if (event.data.targetInfo.type === "iframe") iframeSessions.add(event.data.sessionId);
+            if (method === "Fetch.requestPaused") {
+              const direct = z.object({ request: z.object({ url: z.string() }) }).safeParse(params);
+              if (direct.success) paused.push(direct.data.request.url);
+            }
+            const envelope = Received.safeParse(params);
+            if (method !== "Target.receivedMessageFromTarget" || !envelope.success) return;
+            const nested = Paused.safeParse(JSON.parse(envelope.data.message));
+            if (nested.success) paused.push(nested.data.params.request.url);
+          },
+        },
       },
     });
     await f.navigate();
@@ -85,13 +75,11 @@ it.skipIf(!executablePath)(
     })`);
     expect(result).toBe("iframe-report");
     expect(receivedBytes).toBe(1_100_000);
-    // These are facts from the real public CDP transport, before compaction.
-    // A worker POST alone could have bypassed the capped nested envelope.
-    expect(
-      nestedPosts.some(
-        ({ sessionId, bytes }) => iframeSessions.has(sessionId) && bytes > 1024 * 1024,
-      ),
-    ).toBe(true);
+    // The frame's document load was checked; the POST from that real out-of-process
+    // iframe was not.
+    expect(iframeSessions.size).toBeGreaterThan(0);
+    expect(paused).toContain(frameUrl);
+    expect(paused).not.toContain(`${origin}/post`);
     expect(await f.evaluate("document.querySelector('button').textContent")).toBe("Save");
   },
   60_000,

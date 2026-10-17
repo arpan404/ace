@@ -1,5 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile, access } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, it, onTestFinished } from "vitest";
@@ -181,21 +180,18 @@ it("an exhausted orphan registry frees capacity for the next live browser artifa
   expect(await files.request("reader", { op: "artifacts.list" })).toMatchObject([{ id }]);
 });
 
-it("deleting a recording thread closes its browser and removes its persistent profile", async () => {
+it("deleting a recording thread closes its browser without publishing the recording", async () => {
   const f = await browserFixture();
   const files = new FilesWorkspaces(f.context);
   f.context.services.threadFiles = files;
   f.context.resources.own(() => files.close());
   await f.browser.startRecording(f.thread.id);
-  const key = createHash("sha256").update(`${f.thread.workspaceId}:${f.thread.id}`).digest("hex");
-  const profile = join(f.home, "browser", "profiles", key);
-  await access(profile);
   f.store.appendEvents(f.thread.id, [
     { type: "thread.client.updated", changes: { deletedAt: 1001 } },
   ]);
   // Share the real forget operation already triggered by the deletion listener.
   await f.browser.forgetThread(f.thread.id, f.thread.workspaceId);
-  await expect(access(profile)).rejects.toMatchObject({ code: "ENOENT" });
+  expect(() => f.browser.state(f.thread.id)).toThrow("not open");
   expect(
     f.store
       .readEvents({ afterSeq: 0, threadId: f.thread.id, limit: 100 })

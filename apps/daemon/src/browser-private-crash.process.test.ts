@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -176,16 +176,14 @@ it.skipIf(!executablePath).each(["SIGKILL", "SIGTERM"] as const)(
 );
 
 async function launchProfileHelper(home: string) {
-  const profiles = join(home, "browser", "profiles");
-  const [profile] = await readdir(profiles);
-  if (!profile) throw new Error("Missing private browser profile");
+  const profile = join(home, "browser", "profile");
   const helper = spawn(
     process.execPath,
     [
       "-e",
       "require('node:net').createServer().listen(0, '127.0.0.1', () => process.send('ready'));",
       "--",
-      `--user-data-dir=${join(profiles, profile)}`,
+      `--user-data-dir=${profile}`,
     ],
     { detached: true, stdio: ["ignore", "ignore", "ignore", "ipc"] },
   );

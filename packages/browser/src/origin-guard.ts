@@ -30,9 +30,22 @@ type Send = (
   method: Parameters<BrowserCdp["send"]>[0],
   params?: Record<string, unknown>,
 ) => Promise<unknown>;
+/**
+ * Only document loads and file URLs pause. Navigation policy and the human/agent initiator
+ * still see every top-level and frame navigation, including redirect hops, while ordinary
+ * http(s) subresources go straight to the network without a daemon round trip each.
+ */
+const guarded = {
+  patterns: [
+    { urlPattern: "*", resourceType: "Document", requestStage: "Request" },
+    { urlPattern: "file:*", requestStage: "Request" },
+  ],
+};
+/** Workers that outlive a page (service and shared workers) run unguarded and are released. */
+const released = new Set(["service_worker", "shared_worker"]);
 
 /** Fetch must be enabled on out-of-process frames and dedicated workers too.
- * Nested target sessions use the public CDP Target API, not Playwright internals. */
+ * Nested target sessions use the public CDP Target API. */
 export async function installOriginGuard(
   cdp: BrowserCdp,
   allowed: (url: string, context?: { navigation?: boolean; human?: boolean }) => Promise<boolean>,
@@ -145,6 +158,15 @@ export async function installOriginGuard(
     const parsed = Attached.safeParse(raw);
     if (!parsed.success) return;
     const { sessionId, targetInfo } = parsed.data;
+    if (released.has(targetInfo.type)) {
+      void parent("Target.sendMessageToTarget", {
+        sessionId,
+        message: JSON.stringify({ id: ++nextId, method: "Runtime.runIfWaitingForDebugger" }),
+      })
+        .then(() => parent("Target.detachFromTarget", { sessionId }))
+        .catch(() => {});
+      return;
+    }
     if (stopped || children.size >= 64 || !["iframe", "worker"].includes(targetInfo.type)) {
       refuse(targetInfo);
       return;
@@ -167,10 +189,9 @@ export async function installOriginGuard(
     });
     childEvents.set(sessionId, events);
     const init = (async () => {
-      await send("Fetch.enable", {
-        patterns: [{ urlPattern: "*", requestStage: "Request" }],
-      });
+      // A dedicated worker loads no documents and its requests use its frame's network.
       if (targetInfo.type === "iframe") {
+        await send("Fetch.enable", guarded);
         await send("Page.enable");
         await frameInspection?.attach(childCdp, targetInfo.targetId);
       }
@@ -253,9 +274,7 @@ export async function installOriginGuard(
   cdp.on("Target.attachedToTarget", rootAttached);
   cdp.on("Target.receivedMessageFromTarget", received);
   cdp.on("Target.detachedFromTarget", detached);
-  await root("Fetch.enable", {
-    patterns: [{ urlPattern: "*", requestStage: "Request" }],
-  });
+  await root("Fetch.enable", guarded);
   await root("Target.setAutoAttach", {
     autoAttach: true,
     waitForDebuggerOnStart: true,

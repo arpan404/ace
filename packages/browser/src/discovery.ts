@@ -1,9 +1,7 @@
 import { access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { delimiter, join } from "node:path";
-import { spawnProcess, type ProcessSpawner } from "./io.ts";
-import { createRequire } from "node:module";
-import { z } from "zod";
+import { chromiumArtifact } from "./chromium-manifest.ts";
 
 export async function detectChromium(
   options: {
@@ -11,7 +9,6 @@ export async function detectChromium(
     dataDir?: string;
     platform?: NodeJS.Platform;
     env?: NodeJS.ProcessEnv;
-    spawn?: ProcessSpawner;
   } = {},
 ): Promise<string | undefined> {
   const env = options.env ?? process.env;
@@ -39,17 +36,16 @@ export async function detectChromium(
       /* Try next installation. */
     }
   }
-  const { chromium } = await import("playwright-core");
-  const bundled = chromium.executablePath();
-  try {
-    await access(bundled, constants.X_OK);
-    return bundled;
-  } catch {
-    /* Try private cache. */
-  }
   if (options.dataDir) {
-    const path = await cacheExecutable(options.dataDir, options.spawn);
+    // ace's own pinned Chrome for Testing, if it was acquired into this data directory.
     try {
+      const artifact = chromiumArtifact(platform, process.arch);
+      const path = join(
+        options.dataDir,
+        "chromium",
+        `${artifact.version}-${artifact.checksum}`,
+        artifact.executable,
+      );
       await access(path, constants.X_OK);
       return path;
     } catch {
@@ -72,47 +68,6 @@ export async function detectFfmpeg(
     }
   }
   return undefined;
-}
-
-function cacheExecutable(dataDir: string, spawn: ProcessSpawner = spawnProcess): Promise<string> {
-  const require = createRequire(import.meta.url);
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      process.execPath,
-      [
-        "--input-type=module",
-        "-e",
-        "import { chromium } from 'playwright-core'; process.stdout.write(chromium.executablePath());",
-      ],
-      {
-        cwd: join(require.resolve("playwright-core/package.json"), ".."),
-        env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: join(dataDir, "chromium") },
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 10_000,
-      },
-    );
-    let output = "";
-    let overflow = false;
-    child.stdout?.setEncoding("utf8");
-    child.stdout?.on("data", (raw: unknown) => {
-      const chunk = z.string().max(8192).safeParse(raw);
-      if (!chunk.success || output.length + chunk.data.length > 8192) {
-        overflow = true;
-        child.kill();
-      } else output += chunk.data;
-    });
-    child.once("error", reject);
-    child.once("close", (code) => {
-      const path = z
-        .string()
-        .min(1)
-        .max(8192)
-        .refine((value) => !/[\0\r\n]/.test(value))
-        .safeParse(output);
-      if (code === 0 && !overflow && path.success) resolve(path.data);
-      else reject(new Error("Chromium cache lookup failed"));
-    });
-  });
 }
 
 /** Explicit install uses the same pinned acquisition as lazy headless startup. */

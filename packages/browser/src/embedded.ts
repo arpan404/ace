@@ -1,3 +1,4 @@
+import { consoleEntry } from "./console-entry.ts";
 import { pageStatus } from "./page-status.ts";
 import { mkdir } from "node:fs/promises";
 import { EmbeddedTabs } from "./embedded-tabs.ts";
@@ -40,12 +41,6 @@ const Navigation = z.object({
     url: z.string().max(8192),
     parentId: z.string().optional(),
   }),
-});
-const Console = z.object({
-  type: z.string(),
-  args: z
-    .array(z.object({ value: z.unknown().optional(), description: z.string().optional() }))
-    .max(128),
 });
 const noop = () => {};
 const Response = z.object({
@@ -315,29 +310,8 @@ export class EmbeddedBackend implements BrowserBackend {
         session.request.navigation();
       }
     }
-    if (message.method === "Runtime.consoleAPICalled") {
-      const parsed = Console.safeParse(message.params);
-      if (parsed.success)
-        session.request.log({
-          kind: "console",
-          type: parsed.data.type,
-          text: parsed.data.args
-            .map((arg) => String(arg.value ?? arg.description ?? "").slice(0, 8192))
-            .join(" ")
-            .slice(0, 8192),
-        });
-    }
-    if (message.method === "Runtime.exceptionThrown") {
-      const parsed = z
-        .object({ exceptionDetails: z.object({ text: z.string().max(8192) }) })
-        .safeParse(message.params);
-      if (parsed.success)
-        session.request.log({
-          kind: "console",
-          type: "pageerror",
-          text: parsed.data.exceptionDetails.text,
-        });
-    }
+    const entry = consoleEntry(message.method, message.params);
+    if (entry) session.request.log(entry);
     if (message.method === "Network.responseReceived") {
       const parsed = Response.safeParse(message.params);
       if (parsed.success)

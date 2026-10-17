@@ -3,6 +3,8 @@
 Date: 2026-10-17. Status: accepted. Amends [ADR 0009](0009-browser-service.md),
 [ADR 0055](0055-browser-backends.md) and [ADR 0069](0069-shared-native-browser.md).
 
+Amended 2026-10-17 by [ADR 0083](0083-browser-v2-daemon-chrome.md): in the daemon's Chrome the overlay is reinstalled after a renderer crash, and later moves into each tab's runtime.
+
 ## Context
 
 People reviewing a page in ace's Browser want to point at things: "this heading", "this

@@ -59,7 +59,7 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
     ).toBe("Save");
   }, 60_000);
 
-  it("queues a socket burst and cancels queued approvals on shutdown", async () => {
+  it("queues a frame burst and cancels queued approvals on shutdown", async () => {
     const full = Promise.withResolvers<void>();
     let approvals = 0;
     const pending = Promise.withResolvers<boolean>();
@@ -70,10 +70,10 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
       },
     });
     await f.navigate();
-    const socketUrl = JSON.stringify(
-      f.url.replace("http:", "ws:").replace("127.0.0.1", "127.0.0.2"),
+    const frameUrl = JSON.stringify(f.url.replace("127.0.0.1", "127.0.0.2"));
+    await f.evaluate(
+      `for(let i=0;i<40;i++){const frame=document.createElement('iframe');frame.src=${frameUrl}+'/'+i;document.body.append(frame)} void 0`,
     );
-    await f.evaluate(`for(let i=0;i<40;i++) new WebSocket(${socketUrl}+'/'+i); void 0`);
     await full.promise;
     await f.service.open({ threadId: "other", workspaceId: "other" });
     const navigation = f.service.execute("other", {

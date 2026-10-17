@@ -7,7 +7,8 @@ import type {
 import type { BrowserBackend } from "./backend.ts";
 import type { ChromiumAcquisitionOptions } from "./acquisition.ts";
 import type { OriginPolicy } from "./policy.ts";
-import type { ContextLauncher, ProcessSpawner } from "./io.ts";
+import type { ProcessSpawner } from "./io.ts";
+import type { ChromeCleanup, ChromeLaunch } from "./chrome-instance.ts";
 
 export interface BrowserServiceOptions {
   dataDir: string;
@@ -45,15 +46,21 @@ export interface BrowserServiceOptions {
   navigationClock?: import("./navigation.ts").NavigationClock;
   id?: () => string;
   maxSessions?: number;
-  launchContext?: ContextLauncher;
-  cleanup?: Partial<import("./chromium-close.ts").ChromiumCleanupRuntime>;
+  /** ace's own Chrome: launch flags, device scale, idle exit and the process edge. */
+  chrome?: Partial<ChromeLaunch>;
+  /** Browser shutdown deadline and its force-kill. */
+  cleanup?: Partial<ChromeCleanup>;
+  /** The recording encoder's process edge. */
   spawn?: ProcessSpawner;
   headlessBackend?: BrowserBackend;
   backendPreference?: (
     options: BrowserOpen,
   ) => "auto" | "embedded" | "headless" | Promise<"auto" | "embedded" | "headless">;
   backendLoss?: (options: BrowserOpen) => "pause" | "headless" | Promise<"pause" | "headless">;
-  /** The profile for an open that names none; the library default is `ephemeral`. */
+  /**
+   * The profile for an open that names none; the library default is `persistent`, ace's one
+   * shared browser profile. `ephemeral` is a private throwaway context inside it.
+   */
   profilePreference?: (
     options: BrowserOpen,
   ) => "persistent" | "ephemeral" | Promise<"persistent" | "ephemeral">;
