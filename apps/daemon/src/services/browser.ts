@@ -1,7 +1,8 @@
 import { settingsScope } from "../settings.ts";
 import { z } from "zod";
 import { privateBrowserOwnership, refusePrivateBrowserAnswer } from "../browser-private.ts";
-import { BrowserService } from "@ace/browser";
+import { join } from "node:path";
+import { BrowserService, UserChromeTabsBackend, type BrowserServiceOptions } from "@ace/browser";
 import {
   ItemId,
   ThreadId,
@@ -20,18 +21,43 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
   await desktopCredential(config.dataDir, store.devices, now);
   services.browserPrivateAnswers = (command) => refusePrivateBrowserAnswer(store, command);
   let forget: BrowserForget | undefined;
+  const workspaceRoot: BrowserServiceOptions["workspaceRoot"] =
+    options.browser?.workspaceRoot ??
+    ((threadId) => {
+      const binding = store.executionWorkspace(ThreadId.parse(threadId));
+      if (!binding.ready) throw new Error("workspace_preparing");
+      return binding.path;
+    });
+  const onArtifact: BrowserServiceOptions["onArtifact"] = async (rawThreadId, artifact) => {
+    const threadId = ThreadId.parse(rawThreadId);
+    const thread = store.getThread(threadId);
+    if (!thread || thread.deletedAt !== undefined) return;
+    const files = services.threadFiles;
+    const append = (artifactId?: string) =>
+      store.appendEvents(threadId, [
+        {
+          type: "item.created",
+          item: {
+            type: "artifact",
+            id: ItemId.parse(id()),
+            ...(thread.rootAgentId ? { agentId: thread.rootAgentId } : {}),
+            createdAt: now(),
+            complete: true,
+            source: "browser",
+            ...artifact,
+            ...(artifactId ? { artifactId } : {}),
+          },
+        },
+      ]);
+    if (files) await files.browserArtifacts.publish(threadId, artifact, append);
+    else append();
+  };
   const browser = new BrowserService({
     ...options.browser,
     dataDir: config.dataDir,
     ...privateBrowserOwnership(context),
     tabStore: options.browser?.tabStore ?? new SqliteBrowserTabStore((sql) => store.statement(sql)),
-    workspaceRoot:
-      options.browser?.workspaceRoot ??
-      ((threadId) => {
-        const binding = store.executionWorkspace(ThreadId.parse(threadId));
-        if (!binding.ready) throw new Error("workspace_preparing");
-        return binding.path;
-      }),
+    workspaceRoot,
     cleanup: {
       ...options.browser?.cleanup,
       onTimeout(message) {
@@ -80,32 +106,26 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
             )
           )?.value ?? "pause",
         )),
-    onArtifact: async (rawThreadId, artifact) => {
-      const threadId = ThreadId.parse(rawThreadId);
-      const thread = store.getThread(threadId);
-      if (!thread || thread.deletedAt !== undefined) return;
-      const files = services.threadFiles;
-      const append = (artifactId?: string) =>
-        store.appendEvents(threadId, [
-          {
-            type: "item.created",
-            item: {
-              type: "artifact",
-              id: ItemId.parse(id()),
-              ...(thread.rootAgentId ? { agentId: thread.rootAgentId } : {}),
-              createdAt: now(),
-              complete: true,
-              source: "browser",
-              ...artifact,
-              ...(artifactId ? { artifactId } : {}),
-            },
-          },
-        ]);
-      if (files) await files.browserArtifacts.publish(threadId, artifact, append);
-      else append();
-    },
+    onArtifact,
   });
   resources.own(() => browser.close());
+  const user = services.userBrowser;
+  if (user) {
+    // The person's own Chrome (ADR 0084): no desktop views, no restore, no fallback. A lost
+    // tab or browser closes the thread's session there; it never moves to ace's own browser.
+    const sessions = new BrowserService({
+      dataDir: join(config.dataDir, "user-browser", "threads"),
+      headlessBackend: new UserChromeTabsBackend(user.backend),
+      backendPreference: () => "headless",
+      tabLifecycle: false,
+      now,
+      id,
+      workspaceRoot,
+      onArtifact,
+    });
+    resources.own(() => sessions.close());
+    services.userBrowserSessions = sessions;
+  }
   forget = new BrowserForget(store, browser, (error) =>
     context.log.log("warn", `Browser cleanup for a deleted thread: ${String(error)}`),
   );

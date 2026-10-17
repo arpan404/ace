@@ -64,8 +64,14 @@ export const serviceFactories: readonly ServiceDefinition[] = [
   { name: "plugins", phase: "core", requires: [], after: [], start: startPlugins },
   { name: "activityReads", phase: "core", requires: [], after: [], start: startActivityReads },
   { name: "icons", phase: "core", requires: [], after: [], start: startIcons },
-  { name: "browser", phase: "core", requires: [], after: ["settings"], start: startBrowser },
   { name: "userBrowser", phase: "core", requires: [], after: [], start: startUserBrowser },
+  {
+    name: "browser",
+    phase: "core",
+    requires: [],
+    after: ["settings", "userBrowser"],
+    start: startBrowser,
+  },
   {
     name: "workspaceActions",
     phase: "core",

@@ -24,8 +24,11 @@ export const BrowserTabLease = z.object({
   mode: z.enum(["shared", "private"]),
 });
 export type BrowserTabLease = z.infer<typeof BrowserTabLease>;
-/** `frozen` keeps the page but stops its scripts; `discarded` dropped it and reopens on use. */
-export const BrowserTabLifecycle = z.enum(["live", "frozen", "discarded"]);
+/**
+ * `frozen` keeps the page but stops its scripts; `discarded` dropped it and reopens on use;
+ * `crashed` lost its renderer and stays down until a reload or navigation brings it back.
+ */
+export const BrowserTabLifecycle = z.enum(["live", "frozen", "discarded", "crashed"]);
 export type BrowserTabLifecycle = z.infer<typeof BrowserTabLifecycle>;
 export const BrowserTab = z.object({
   tabId: id,

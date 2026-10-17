@@ -110,10 +110,20 @@ export interface BrowserBackendPage {
   resize(width: number, height: number): Promise<void>;
   viewport(): { width: number; height: number };
   media(colorScheme: "light" | "dark" | "no-preference"): Promise<void>;
+  /**
+   * Why the page's renderer is down, while its backend has stopped bringing it back on its own
+   * (the desktop after repeated crashes, ADR 0085). Only a navigation or a reload revives it.
+   */
+  crashed?(): string | undefined;
 }
 /** A thread's browser in one backend; as a page it is the active tab. */
 export interface BrowserBackendSession extends BrowserBackendPage {
   tabs?: BrowserBackendTabs;
+  /**
+   * The backend handed back the thread's pages it kept through a lost link (a desktop
+   * re-adopting its views, ADR 0085): their documents and state survived.
+   */
+  readonly adopted?: boolean;
   privateMode?(enabled: boolean): void;
   /**
    * Must apply the generation before resolving, reject obsolete generations. With `tabId` the

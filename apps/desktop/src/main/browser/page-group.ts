@@ -193,12 +193,17 @@ export class EmbeddedPageGroup implements ViewPage {
     this.emit("ace.tabs.event", { tabId: id, method, params });
   }
 
-  /** Only the selected tab is placed and takes the person's input; every tab shares the lease. */
+  /**
+   * Only the selected tab is placed, takes the person's input and follows the lease the daemon
+   * sends (the shown tab's, ADR 0085). The person cannot reach an unseen tab, so it is always
+   * the agents': it renders while driven and intercepts its file choosers.
+   */
   private apply() {
     for (const [id, tab] of this.tabs) {
-      tab.page.place({ ...this.target, visible: this.target.visible && id === this.active });
-      tab.page.setNativeInput(this.input && id === this.active);
-      tab.page.setAgentControl(this.agent);
+      const shown = id === this.active;
+      tab.page.place({ ...this.target, visible: this.target.visible && shown });
+      tab.page.setNativeInput(this.input && shown);
+      tab.page.setAgentControl(shown ? this.agent : true);
     }
   }
 

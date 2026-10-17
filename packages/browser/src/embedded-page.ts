@@ -7,8 +7,8 @@ import { modelScreenshot } from "./model-screenshot.ts";
 
 /**
  * One desktop tab's page, driven through that tab's own CDP relay. The shown tab keeps the
- * desktop's native key presses and view sizing; a background tab uses CDP key events and
- * cannot be resized (its view has no place on screen).
+ * desktop's native key presses and the panel's size; a background tab uses CDP key events and
+ * is sized with `ace.tabs.resize` (its view has no place on screen).
  */
 export function embeddedTabPage(
   tabs: EmbeddedTabs,
@@ -30,8 +30,12 @@ export function embeddedTabPage(
     networkBody: (requestId) => tabs.inspection.body(requestId),
     frames: () => tabs.frames(id),
     url: () => tabs.list().find((tab) => tab.tabId === id)?.url ?? "about:blank",
+    crashed: () => tabs.crashed(id),
     navigate: async (url, _timeout, signal) => {
-      await navigateCdp(cdp(), url, signal ?? new AbortController().signal);
+      const navigation = signal ?? new AbortController().signal;
+      // A tab whose renderer the desktop stopped reloading comes back before it navigates.
+      await tabs.revive(id, navigation);
+      await navigateCdp(cdp(), url, navigation);
     },
     click: (x, y) => input.click(x, y),
     insertText: (text) => input.insertText(text),
@@ -48,8 +52,8 @@ export function embeddedTabPage(
       return Buffer.from(result.data, "base64");
     },
     resize: async (width, height) => {
-      if (!isShown()) throw new Error("Only the shown desktop tab can be resized");
-      await shown.resize(width, height);
+      if (isShown()) await shown.resize(width, height);
+      else await tabs.resize(id, width, height);
     },
     viewport: () => tabs.tab(id).viewport,
     media: async (colorScheme) => {

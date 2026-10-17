@@ -6094,7 +6094,7 @@ Example:
 
 [JSON Schema](schema/BrowserTabLifecycle.json), input validation.
 
-Type: ["live","frozen","discarded"]. See JSON Schema for constraints.
+Type: ["live","frozen","discarded","crashed"]. See JSON Schema for constraints.
 
 Example:
 

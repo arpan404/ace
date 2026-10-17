@@ -1,5 +1,6 @@
 import type { BrowserOpen } from "@ace/protocol";
 import type { ViewHost, ViewPage } from "./backend.ts";
+import { EmbeddedPageGroup } from "./page-group.ts";
 
 /** An embedded view without Electron: records CDP and lets tests emit events or input. */
 export class FakePage implements ViewPage {
@@ -11,6 +12,8 @@ export class FakePage implements ViewPage {
   results = new Map<string, unknown>([["Page.captureScreenshot", { data: "AA==" }]]);
   /** CDP methods that never answer, as a page stuck in a long task. */
   hung = new Set<string>();
+  /** CDP methods that wait for the test to release them, as a page busy for a while. */
+  private held = new Map<string, Promise<void>>();
   /** The daemon link dropped while this page lived (`orphan`), and adoptions since. */
   orphaned = false;
   adoptions = 0;
@@ -23,6 +26,7 @@ export class FakePage implements ViewPage {
     if (this.closed) throw new Error("Browser view closed");
     this.calls.push({ method, params: params ?? {} });
     if (this.hung.has(method) || this.hung.has("*")) return new Promise(() => {});
+    await this.held.get(method);
     if (method === "Page.getFrameTree")
       return { frameTree: { frame: { id: "main", url: this.address } } };
     if (method === "Page.navigate") {
@@ -71,6 +75,16 @@ export class FakePage implements ViewPage {
     this.closed = true;
   }
 
+  /** `method` answers only once the returned release runs. */
+  hold(method: string): () => void {
+    const gate = Promise.withResolvers<void>();
+    this.held.set(method, gate.promise);
+    return () => {
+      this.held.delete(method);
+      gate.resolve();
+    };
+  }
+
   emit(method: string, params: unknown): void {
     for (const listener of this.events) listener(method, params);
   }
@@ -115,4 +129,48 @@ export function fakeViews() {
 /** A CDP screencast frame as Chromium sends it. */
 export function screencastFrame(frameId: number, data: string) {
   return { sessionId: frameId, data, metadata: { deviceWidth: 1280, deviceHeight: 720 } };
+}
+
+/** One native tab's view: where its group last placed it and whether agents hold it. */
+export class TabPage extends FakePage {
+  shown = false;
+  agent = true;
+  viewport() {
+    return { width: 800, height: 600 };
+  }
+  place(target: { visible: boolean }) {
+    this.shown = target.visible;
+  }
+  async placementReady() {}
+  isShown() {
+    return this.shown;
+  }
+  setAgentControl(agent: boolean) {
+    this.agent = agent;
+  }
+}
+
+/** Views as the desktop makes them: each thread a page group that starts with one tab. */
+export function groupViews() {
+  const tabs = new Map<string, TabPage>();
+  const host: ViewHost = {
+    async open() {
+      const group = new EmbeddedPageGroup(
+        async (id) => {
+          const page = new TabPage();
+          tabs.set(id, page);
+          return page;
+        },
+        async () => {},
+      );
+      await group.openTab();
+      return group;
+    },
+  };
+  const tab = (id: string): TabPage => {
+    const page = tabs.get(id);
+    if (!page) throw new Error(`No native tab ${id}`);
+    return page;
+  };
+  return { host, tabs, tab };
 }

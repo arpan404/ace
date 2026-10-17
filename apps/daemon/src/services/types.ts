@@ -94,6 +94,8 @@ export interface Services {
   browser: BrowserService;
   /** "Use my Chrome" (ADR 0084): browsers connected through the ace extension. */
   userBrowser?: import("../user-browser.ts").UserBrowserService;
+  /** Threads' browsers in the person's own Chrome, for agent calls with `browser: "user"`. */
+  userBrowserSessions?: BrowserService;
   /** Refuses answers to a private-takeover hold; only handback releases it. */
   browserPrivateAnswers?: (
     command: import("@ace/protocol").Command,

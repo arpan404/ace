@@ -23,8 +23,7 @@ and read none of their code.
 ace ships an MV3 extension, **ace for Chrome**, and a native messaging host. The person installs
 both on purpose; together they give the daemon a third browser backend, kind **`user`**, that
 works only on tabs the person allows. The settings label is "Use my Chrome". Agents select it
-with `browser: "user"` on browser tool calls (H1 adds tab-level routing; see
-"Integration" below).
+with `browser: "user"` on browser tool calls (see "Integration" below).
 
 ### Trust model
 
@@ -170,18 +169,27 @@ the bundle is stale, and the daemon writes the unpacked directory from it withou
   attack the port, and the extension would need to store a daemon credential. Native messaging is
   reachable only from the extension ids the manifest names.
 
-## Integration (for the multi-tab runtime, H1)
+## Integration with the multi-tab runtime
 
 - The daemon starts one `UserBrowserService` (`apps/daemon/src/user-browser.ts`) as
   `services.userBrowser`; it owns `hub` (`UserChromeHub`) and `backend` (`UserChromeBackend`).
   The socket service `services/user-browser.ts` registers host links and answers Settings.
-- Route `browser: "user"` tool calls to `services.userBrowser.backend`: `open(request)` for a
-  new agent tab, `claim(request, { connectionId, tabId })` with a ref from `sharedTabs()` for a
-  tab the person shared. Both return an ordinary `BrowserBackendSession`.
-- On `lost` from a `user` session, close the session; never suspend it for recovery on another
-  backend (today `BrowserService` only closes on loss for `headless`).
-- List shared tabs in the agent's tab list with `openedBy: "person"`; agent tabs opened here
-  carry the opening agent like any other tab.
+- Threads' browsers in the person's Chrome run in a second `BrowserService`
+  (`services.userBrowserSessions`, data under `<dataDir>/user-browser/threads`) whose only backend
+  is `UserChromeTabsBackend`, kind `user`: the thread's tabs there, with the same tab runtime,
+  queues, refs and tools as ace's own browser. Its tabs are the agents' tabs (each
+  `backend.open`, in the ace window) and every tab the person shared (`sharedTabs()`), listed with
+  `openedBy: {kind: "human"}`. A shared tab is claimed (`backend.claim`) only by the first
+  command that uses it, so listing never attaches to the person's tab; closing it in ace only
+  detaches. ace's own viewers are shown an agent tab, never a shared one, and a thread there
+  always keeps one agent tab.
+- Every agent browser tool takes `browser: "user"` (MCP schema `browserChoiceInput`, explained
+  in the tool descriptions and the `ace-browser` skill) to act there; omitted or `"ace"` is ace's
+  browser. With no browser connected the call fails with `user_browser_unavailable`. `browser:
+"user"` never combines with `machine`.
+- On `lost` from a `user` tab: the tab leaves the list; when the thread's last agent tab, or the
+  link, is lost the thread's session there closes. It is never suspended for recovery and never
+  moves to ace's own browsers (`BrowserService` only recovers `embedded` sessions).
 - Extensions have no `Memory` domain; the session answers `Memory.getDOMCounters` (the snapshot
   and text-wait size guards) by counting nodes in the page.
 
@@ -198,3 +206,7 @@ pipe with `--enable-unsafe-extension-debugging`, loads the built extension with
 `Extensions.loadUnpacked`, registers the real host under `<user-data-dir>/NativeMessagingHosts`,
 connects it to a daemon-side `UserChromeHub` on a real WebSocket, and drives a local fixture page
 through `BrowserService` (navigate, snapshot, click by ref) via daemon → host → extension → page.
+A daemon process test drives the MCP tools with `browser: "user"` against a stand-in extension
+on a real link: the agent's tab opens in the person's browser, a shared tab is listed as the
+person's and attached only on first use, a lost browser closes the thread's session there, and
+ace's own browser is never opened.

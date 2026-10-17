@@ -151,7 +151,11 @@ A thread's browser holds ordered tabs on whichever backend serves it.
   move it. An agent's opened or selected tab takes the view only while the person has not picked
   a tab and is not holding the viewed one. Live capture and recording follow the viewed tab;
   frames carry `tabId`.
-- **Tabs** report `openedBy`, `drivenBy`, `label`, `lease`, `lifecycle` and `loading`.
+- **Tabs** report `openedBy`, `drivenBy`, `label`, `lease`, `lifecycle` and `loading`. A backend
+  may report who opened a tab (the person's shared tabs in their own Chrome, ADR 0084).
+  `lifecycle` is `crashed` while a desktop tab's renderer stays down (ADR 0085).
+- **Desktop tabs** follow the contract in ADR 0085: the lease, native keys and the panel size are
+  the shown tab's; every other tab is driven through `ace.tabs.cdp`.
 - **Limits**: 16 tabs per thread (popups included), 8 open per agent, 48 live across the daemon.
 - **Lifecycle** (`tab-lifecycle.ts`, pure, injected clock): an unviewed, idle, unpinned tab
   freezes after 15 minutes (`Page.setWebLifecycleState`) and wakes before its next command. The
@@ -205,8 +209,9 @@ after a renderer crash; the overlay itself is unchanged.
 ## Relation to earlier ADRs
 
 - **0055** (amended): the embedded/headless split and the desktop contract stay; the headless side
-  is now ace's Chrome over a pipe, and the desktop relay gains `ace.tabs.open` with
-  `{ background }`, answering with the tab list and `openedTabId`. Acquisition carries over.
+  is now ace's Chrome over a pipe, and the desktop relay gains the tab methods of ADR 0085
+  (`ace.tabs.open {select}` answering with the tab list and the new `tabId`, `ace.tabs.resize`,
+  `ace.tabs.cdp` for every tab). Acquisition carries over.
 - **0069** (amended): agents still drive the desktop's native view when it is attached, in several
   tabs; ace's Chrome shares one profile across threads instead of a profile each.
 - **0009** (amended): one Chrome per profile instead of one Chromium per thread; no Playwright;

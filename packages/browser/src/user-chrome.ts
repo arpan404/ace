@@ -26,6 +26,10 @@ export class UserChromeBackend implements BrowserBackend {
   available(): boolean {
     return this.hub.preferred() !== undefined;
   }
+  /** Browsers connected or left, or the tabs the person shared changed. */
+  onChange(listener: () => void): () => void {
+    return this.hub.onChange(listener);
+  }
   /** Tabs the person shared, in every connected browser. */
   sharedTabs(): (UserTabRef & { tab: UserBrowserTab })[] {
     return this.hub

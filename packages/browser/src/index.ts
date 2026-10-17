@@ -15,7 +15,12 @@ export type { NavigationClock } from "./navigation.ts";
 
 export type { ProcessSpawner } from "./io.ts";
 
-export { browserToolkit, browserMachineInput, type BrowserMachineRoute } from "./mcp.ts";
+export {
+  browserToolkit,
+  browserChoiceInput,
+  browserMachineInput,
+  type BrowserMachineRoute,
+} from "./mcp.ts";
 
 export { Recording as BrowserRecording } from "./recording.ts";
 export { ChromeBackend, type ChromeBackendOptions } from "./headless.ts";
@@ -39,4 +44,5 @@ export { chromiumArtifact, ChromiumArtifact } from "./chromium-manifest.ts";
 export { chromiumProcessKiller, type KillCommand } from "./chromium-process.ts";
 export { UserChromeHub, userChromeLinkLimit } from "./user-chrome-hub.ts";
 export { UserChromeBackend, type UserTabRef } from "./user-chrome.ts";
+export { UserChromeTabsBackend } from "./user-chrome-tabs.ts";
 export type { UserChromeLink, UserChromeTransport } from "./user-chrome-link.ts";

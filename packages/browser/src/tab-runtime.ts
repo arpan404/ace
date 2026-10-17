@@ -105,6 +105,21 @@ export class TabRuntime {
   get page(): BrowserBackendPage {
     return this.host.page(this.id);
   }
+  /** Why the tab's renderer is down for good, until a navigation or reload revives it. */
+  crashed(): string | undefined {
+    try {
+      return this.page.crashed?.();
+    } catch {
+      return undefined;
+    }
+  }
+  /** A crashed tab answers nothing; only a command that loads a page again may run on it. */
+  private crashCheck(command?: TabCommand): void {
+    const revives =
+      command?.action === "navigate" ||
+      (command?.action === "history" && command.direction === "reload");
+    if (!revives && this.crashed()) throw new BrowserActionError("tab_crashed");
+  }
   get busy(): boolean {
     return !this.queue.idle;
   }
@@ -269,6 +284,7 @@ export class TabRuntime {
       await this.host.wake(this.id);
       this.readCheck(actor, privateEpoch);
       if (mutatesBrowser(command)) this.check(actor, signal, submittedGeneration);
+      this.crashCheck(command);
       let result: unknown;
       try {
         result = await this.queue.untilDialog(() =>
@@ -294,6 +310,7 @@ export class TabRuntime {
     const privateEpoch = this.ownership.epoch;
     return this.enqueue(async () => {
       await this.host.wake(this.id);
+      this.crashCheck();
       return agentScreenshot(
         this.page,
         () => screenshotRegion(options, this.refs, () => this.readCheck(actor, privateEpoch)),

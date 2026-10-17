@@ -8,6 +8,7 @@ import {
   type BrowserFrame,
 } from "@ace/protocol";
 import { recoverHeadless } from "./recovery.ts";
+import { DesktopLoss } from "./desktop-loss.ts";
 import { detectFfmpeg } from "./discovery.ts";
 import { ownedHeadless } from "./owned-backend.ts";
 import { BrowserProfiles } from "./profiles.ts";
@@ -159,10 +160,12 @@ export class BrowserService {
     let session: BrowserSession | undefined;
     let released = false;
     let backendLost = false;
+    const loss = new DesktopLoss(this.navigationClock, this.options.desktopReadoptionGraceMs);
     let opening: BackendOpen | undefined;
     const release = async () => {
       if (released) return;
       released = true;
+      loss.finish();
       if (session && this.sessions.get(options.threadId) === session)
         this.sessions.delete(options.threadId);
       scope.abort();
@@ -170,20 +173,42 @@ export class BrowserService {
         this.policyScopes.delete(options.threadId);
       if (this.resumable.get(options.threadId) === resume) this.resumable.delete(options.threadId);
     };
+    /** Tells viewers the thread's pages are gone and why. */
+    const announce = (url: string, reason: string) => {
+      if (!session) return;
+      session.pagesLost();
+      const event: BrowserBackendLost = {
+        type: "browser.backend.lost",
+        threadId: options.threadId,
+        backend: "embedded",
+        recovery: lossPolicy,
+        url,
+        pageStateLost: true,
+        reason: reason.slice(0, 2048),
+      };
+      try {
+        this.options.onBackendLost?.(event);
+      } catch (error) {
+        this.options.onError?.(error);
+      }
+      this.subscriptions.backendLost(event);
+    };
     /** Reopen the last URL; use the same desktop profile whenever the desktop is available. */
     const resume = (): Promise<void> => {
       const owned = session;
       const running = this.recoveries.get(options.threadId);
       if (running) return running;
       if (!owned || !opening) return Promise.resolve();
+      // While the desktop may still hand its views back, only the desktop takes the page.
+      if (!this.embedded && loss.pending) return loss.settled().then(() => resume());
       const recoveryRequest = opening;
       this.resumable.delete(options.threadId);
       const native = this.embedded;
       const recover = async () => {
         await owned.releaseLostBackend();
         const generation = ++recoveryGeneration;
-        if (!native)
-          return recoverHeadless({
+        if (!native) {
+          await recoverHeadless({
             request: recoveryRequest,
             backend: this.headless,
             session: owned,
@@ -194,12 +219,21 @@ export class BrowserService {
               this.resumable.set(options.threadId, resume);
             },
           });
+          loss.finish();
+          return;
+        }
+        const url = owned.state.url;
         const replacement = await native.open(recoveryRequest);
         try {
-          replacement.privateMode?.(owned.state.takeoverMode === "private");
-          const url = owned.state.url;
-          if (url !== "about:blank") await replacement.navigate(url, 10_000);
-          await owned.replace(replacement, "embedded");
+          if (replacement.adopted) await owned.readopt(replacement);
+          else {
+            replacement.privateMode?.(owned.state.takeoverMode === "private");
+            if (url !== "about:blank") await replacement.navigate(url, 10_000);
+            await owned.replace(replacement, "embedded");
+            // A fresh view: the pages are gone, whether or not the grace had said so yet.
+            if (!loss.reported) announce(url, "The desktop opened a new page");
+          }
+          loss.finish();
           backend = native;
           backendLost = false;
         } catch (error) {
@@ -268,30 +302,32 @@ export class BrowserService {
           }),
         lost: (reason) => {
           if (!session || session.state.closed || signal.aborted) return;
-          if (backend.kind === "headless") {
+          // Only the desktop's views come back: ace's Chrome restarts its own pages, and the
+          // person's own browser must never be swapped for another (its logins would not follow).
+          if (backend.kind !== "embedded") {
             void session.close().catch((error) => this.options.onError?.(error));
             return;
           }
           if (backendLost) return;
           backendLost = true;
-          session.suspend(reason);
-          const event: BrowserBackendLost = {
-            type: "browser.backend.lost",
-            threadId: options.threadId,
-            backend: "embedded",
-            recovery: lossPolicy,
-            url: session.state.url,
-            pageStateLost: true,
-            reason: reason.slice(0, 2048),
+          const owned = session;
+          const url = owned.state.url;
+          this.resumable.set(options.threadId, resume);
+          const lose = () => {
+            if (owned.state.closed || signal.aborted) return;
+            announce(url, reason);
+            if (lossPolicy === "headless") void resume();
           };
-          try {
-            this.options.onBackendLost?.(event);
-          } catch (error) {
-            this.options.onError?.(error);
+          // A dropped link (the backend unregistered) keeps the desktop's views for re-adoption;
+          // a view that died with the link up is gone now.
+          if (this.embedded === backend) {
+            owned.suspend(reason);
+            loss.reported = true;
+            lose();
+            return;
           }
-          this.subscriptions.backendLost(event);
-          if (lossPolicy === "headless") void resume();
-          else this.resumable.set(options.threadId, resume);
+          owned.detach(reason);
+          loss.begin(lose);
         },
       };
       opening = request;
