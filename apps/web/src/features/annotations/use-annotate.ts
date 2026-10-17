@@ -4,7 +4,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { copyImageToClipboard } from "@/lib/clipboard-image.ts";
 import { captureFile } from "./capture-file.ts";
 import type { AnnotationDriver } from "./driver.ts";
-import { composerPorts, sessionPorts } from "./store.ts";
+import { barPositions, composerPorts, sessionPorts } from "./store.ts";
 
 /** How long the page settles after a change before its screenshot is taken again. */
 const pageSettleMs = 400;
@@ -62,7 +62,6 @@ export function useAnnotate(options: {
     url?: string | undefined;
     timer?: ReturnType<typeof setTimeout> | undefined;
     capture?: Promise<void> | undefined;
-    bar?: { x: number; y: number } | undefined;
     edit?: string | undefined;
     live: boolean;
   }>({ live: false });
@@ -71,7 +70,7 @@ export function useAnnotate(options: {
     const current = session.current;
     clearTimeout(current.timer);
     const hold = current.hold;
-    session.current = { live: false, bar: current.bar };
+    session.current = { live: false };
     setMode("off");
     void hold
       ?.release()
@@ -132,7 +131,7 @@ export function useAnnotate(options: {
           .get(threadId)
           ?.annotations()
           .map((item) => item.number) ?? [];
-      const bar = session.current.bar;
+      const bar = barPositions.get(threadId);
       await driver.start(threadId, {
         theme: theme(),
         nextNumber: Math.min(99, Math.max(0, ...numbers) + 1),
@@ -196,7 +195,7 @@ export function useAnnotate(options: {
         });
         return;
       case "bar":
-        session.current.bar = { x: event.x, y: event.y };
+        barPositions.set(threadId, { x: event.x, y: event.y });
         return;
       case "close":
       case "ended":
@@ -220,7 +219,20 @@ export function useAnnotate(options: {
       return void start();
     }
     if (!live) return;
-    if (action === "remove" && id) void command({ op: "remove", id });
+    if (action === "remove" && id) {
+      void command({ op: "remove", id });
+      // The draft closed ranks; the page's markers and its next number follow.
+      const rest = composerPorts.get(threadId)?.annotations() ?? [];
+      void command({
+        op: "renumber",
+        numbers: rest.map((annotation) => ({ id: annotation.id, number: annotation.number })),
+      });
+      void command({
+        op: "configure",
+        theme: theme(),
+        nextNumber: Math.min(99, rest.length + 1),
+      });
+    }
     if (action === "clear") void command({ op: "clear" });
     schedulePage();
   });

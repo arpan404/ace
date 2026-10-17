@@ -3,7 +3,9 @@ import { createOutline, createToast } from "./chrome.ts";
 import { createEditor } from "./editor.ts";
 import { createHost } from "./host.ts";
 import { randomId } from "./id.ts";
+import { createInspector } from "./inspector.ts";
 import { intercept } from "./intercept.ts";
+import { createLiveEdits, type EditSnapshot } from "./live-edits.ts";
 import { createMarkers, type Anchor } from "./markers.ts";
 import { describeElement, elementAt, pointIn } from "./pick.ts";
 import { resolveElement, visibleBox } from "./selector.ts";
@@ -22,7 +24,14 @@ const limit = 20;
 
 interface Pending extends Anchor {
   id: string;
+  point: { x: number; y: number };
   description: OverlayElement;
+}
+
+/** The element the open editor belongs to, and its edits when the editor opened. */
+interface EditSession {
+  element: Element;
+  snapshot: EditSnapshot;
 }
 
 /** Start annotate mode in this document. Every page-visible effect is undone by `teardown`. */
@@ -40,12 +49,18 @@ export function startOverlay(init: OverlayInit): OverlayHandle {
   let editing: string | undefined;
   let pointer: { x: number; y: number } | null = null;
   let capturing = false;
+  let session: EditSession | undefined;
+  // Previewed style and text edits stay while annotating and are undone by teardown.
+  const live = createLiveEdits();
 
   const theme = (name: "light" | "dark" | undefined) =>
-    applyPalette(layer, init.palettes[name ?? "dark"]);
+    applyPalette(layer, init.palettes[name ?? "dark"], name ?? "dark");
   theme(init.config.theme);
   const outline = createOutline(layer);
   const markers = createMarkers(layer, (id) => openExisting(id));
+  const inspector = createInspector(live, () =>
+    editor.edited(!!session && live.edited(session.element)),
+  );
   const editor = createEditor(layer, {
     save: (comment) => save(comment),
     cancel: () => closeEditor(),
@@ -56,7 +71,15 @@ export function startOverlay(init: OverlayInit): OverlayHandle {
       drop(id);
       emit({ kind: "removed", id });
     },
+    inspect: () => {
+      if (!session) return;
+      if (editor.expanded) return editor.expand(null);
+      inspector.show(session.element);
+      editor.expand(inspector.root);
+    },
+    ui: (event, focused) => inspector.ui(event, focused),
   });
+  editor.draggable(inspector.grip);
   const bar = createBar(layer, {
     screenshot: () => emit({ kind: "screenshot" }),
     markers: (hidden) => markers.hidden(hidden),
@@ -74,7 +97,18 @@ export function startOverlay(init: OverlayInit): OverlayHandle {
       emit({ kind: "close" });
     },
     moved: (x, y) => emit({ kind: "bar", x, y }),
+    original: {
+      hold: () => {
+        live.hold();
+        markers.schedule();
+      },
+      release: () => {
+        live.release();
+        markers.schedule();
+      },
+    },
   });
+  live.onChange(() => bar.originalAvailable(live.count > 0));
   const toast = createToast(layer, bar);
   if (init.config.markersHidden) bar.markersHidden(true);
   if (init.config.bar) bar.moveTo(init.config.bar);
@@ -82,20 +116,51 @@ export function startOverlay(init: OverlayInit): OverlayHandle {
   function count(): void {
     bar.count(records.size);
   }
+  /** Whether another record or the pending annotation still points at `element`. */
+  function shared(element: Element, except: string): boolean {
+    if (pending?.element === element) return true;
+    for (const id of records.keys())
+      if (id !== except && markers.anchor(id)?.element === element) return true;
+    return false;
+  }
+  /** Remove a record, undo its previews and close the gap in the numbering after it. */
   function drop(id: string): void {
+    const record = records.get(id);
+    const element = markers.anchor(id)?.element;
     records.delete(id);
     markers.remove(id);
+    if (element && !shared(element, id)) live.revert(element);
+    if (record) {
+      for (const other of [...records.values()].toSorted((a, b) => a.number - b.number)) {
+        if (other.number <= record.number) continue;
+        const anchor = markers.anchor(other.id);
+        const renumbered = { ...other, number: other.number - 1 };
+        records.set(other.id, renumbered);
+        if (anchor) markers.set(other.id, anchor, renumbered.number);
+        emit({ kind: "saved", annotation: renumbered });
+      }
+      if (record.number < nextNumber) nextNumber = Math.max(1, nextNumber - 1);
+    }
     count();
   }
   function clearAll(): void {
     records.clear();
     markers.clear();
+    live.revertAll();
+    nextNumber = 1;
     count();
+  }
+  function begin(element: Element): void {
+    session = { element, snapshot: live.snapshot(element) };
+    editor.edited(live.edited(element));
   }
   function activeId(): string | undefined {
     return pending?.id ?? editing;
   }
+  /** Close without saving: previews made since the editor opened are rolled back. */
   function closeEditor(): void {
+    if (session) live.rollback(session.element, session.snapshot);
+    session = undefined;
     if (pending) markers.remove(pending.id);
     pending = undefined;
     editing = undefined;
@@ -108,6 +173,8 @@ export function startOverlay(init: OverlayInit): OverlayHandle {
     else closeEditor();
   }
   function save(comment: string): void {
+    const changes = session ? live.diff(session.element) : { styles: [] };
+    session = undefined;
     if (pending) {
       const { id, element, point, description } = pending;
       const record: OverlayAnnotation = {
@@ -119,7 +186,8 @@ export function startOverlay(init: OverlayInit): OverlayHandle {
         point,
         comment: comment.slice(0, 4000),
         element: description,
-        styles: [],
+        styles: changes.styles,
+        ...(changes.text ? { text: changes.text } : {}),
         viewport: {
           width: innerWidth,
           height: innerHeight,
@@ -131,7 +199,7 @@ export function startOverlay(init: OverlayInit): OverlayHandle {
       nextNumber = Math.min(99, nextNumber + 1);
       pending = undefined;
       records.set(id, record);
-      markers.set(id, { element, point }, record.number);
+      markers.set(id, { element }, record.number);
       editor.hide();
       count();
       emit({ kind: "saved", annotation: record });
@@ -139,7 +207,13 @@ export function startOverlay(init: OverlayInit): OverlayHandle {
     }
     const record = editing ? records.get(editing) : undefined;
     if (!record) return closeEditor();
-    const updated = { ...record, comment: comment.slice(0, 4000) };
+    const updated: OverlayAnnotation = {
+      ...record,
+      comment: comment.slice(0, 4000),
+      styles: changes.styles,
+    };
+    if (changes.text) updated.text = changes.text;
+    else delete updated.text;
     records.set(record.id, updated);
     editing = undefined;
     editor.hide();
@@ -148,9 +222,12 @@ export function startOverlay(init: OverlayInit): OverlayHandle {
   function openExisting(id: string): void {
     const record = records.get(id);
     if (!record) return;
+    const element = markers.anchor(id)?.element;
+    if (!element) return;
     closeEditor();
     editing = id;
     editor.show("edit", record.comment, markers.position(id));
+    begin(element);
     markers.schedule();
   }
   function pick(x: number, y: number): void {
@@ -163,8 +240,9 @@ export function startOverlay(init: OverlayInit): OverlayHandle {
     }
     const point = pointIn(element, x, y);
     pending = { id: randomId(), element, point, description: describeElement(element) };
-    markers.set(pending.id, { element, point });
+    markers.set(pending.id, { element });
     editor.show("new", "", markers.position(pending.id));
+    begin(element);
     markers.schedule();
   }
   markers.onUpdate(() => {
@@ -207,7 +285,10 @@ export function startOverlay(init: OverlayInit): OverlayHandle {
       const element = resolveElement(annotation.element.selector, annotation.element.xpath);
       if (!element) continue;
       records.set(annotation.id, annotation);
-      markers.set(annotation.id, { element, point: annotation.point }, annotation.number);
+      markers.set(annotation.id, { element }, annotation.number);
+      // Previews come back with their markers, e.g. after the renderer restarted.
+      for (const change of annotation.styles) live.set(element, change.property, change.after);
+      if (annotation.text) live.setText(element, annotation.text.after);
       nextNumber = Math.min(99, Math.max(nextNumber, annotation.number + 1));
     }
     count();
@@ -295,6 +376,7 @@ export function startOverlay(init: OverlayInit): OverlayHandle {
     host: () => host,
     teardown() {
       stopIntercept();
+      live.revertAll();
       removeEventListener("scroll", reflow, listen);
       removeEventListener("resize", reflow, listen);
       visualViewport?.removeEventListener("resize", reflow);

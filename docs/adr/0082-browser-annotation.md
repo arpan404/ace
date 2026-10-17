@@ -51,6 +51,26 @@ events inside the overlay are handled by the overlay and stopped before page lis
 shortcuts cannot swallow typing. Page listeners registered on `window` in the capture phase
 before the overlay still run first; this is a known limit of injecting into a loaded page.
 
+**Markers.** A marker sits just outside its element's top-left corner, so it never covers the
+start of the element's text; an element at the very top or left of the document has no room
+there and gets its marker just inside. `point` records where the person clicked, not where the
+marker is drawn. The comment editor opens below the element (else above its marker, else beside
+it) so live previews stay visible. Deleting an annotation closes the gap: later numbers move
+down by one and each renumbered record is reported with `saved`. The client's draft keeps the
+same rule, and after removing a record on its side sends `renumber` and the next number.
+
+**Style inspector and live edits.** The editor's sliders button opens an inspector for the
+element: text (only for an element without child elements, so no markup is lost), colours,
+opacity, font family, size and weight, border, size, and padding and margin per side. Every
+change previews immediately as an inline `!important` declaration; the element's own inline
+value and priority are remembered and restored exactly. Text is edited in the element's existing
+text nodes, so frameworks holding those nodes keep working after a revert. Cancel rolls the
+element back to how it was when the editor opened. Save puts the computed value before the
+first edit and the computed value now into `styles`, and `{ before, after }` into `text`.
+Previews stay on the page while annotating, are undone when their annotation is deleted or
+annotate mode ends, and are reapplied by `restore`. The bar's "Hold to view original" (enabled
+while any preview exists) hides every preview while the pointer is held on it.
+
 **One-shot per document.** The overlay is installed into the current document only; there is no
 script for new documents. A cross-document main-frame navigation (`Page.frameNavigated` without
 a parent) ends annotate mode. Same-document navigations keep it, and markers whose elements
@@ -117,8 +137,7 @@ No daemon, engine or adapter change is involved.
   `Runtime.evaluate { contextId }` pass through `ace.tabs.cdp`, and `Runtime.bindingCalled`
   returns as an `ace.tabs.event`. A process test drives a real Chrome behind a stand-in desktop
   to keep this true, including the renderer-restart reinstall.
-- Same-origin and cross-origin iframes are not annotatable in this version: the click picks the
-  `<iframe>` element itself.
-- The style inspector and "hold to view original" (phase 3) attach to existing seams: the
-  editor's optional `inspect` callback, the bar's optional `original` hold, and the
-  `styles`/`text` fields already in `BrowserAnnotation`.
+- Iframes are not annotatable in this version. Pointer input over an iframe is delivered to
+  the iframe's own document, which the top-frame overlay does not listen to: a click there
+  reaches the framed page and pins nothing. Picking inside same-origin frames needs the
+  intercept installed per frame and frame-relative marker geometry; it is left for later.

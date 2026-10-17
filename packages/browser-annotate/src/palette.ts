@@ -38,6 +38,7 @@ export function overlayTokens(): OverlayTokens {
   const [a, b, c, d] = motion.easing.enter;
   return {
     font: `"${typography.family}", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`,
+    mono: `"${typography.monoFamily}", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`,
     radii: { small: radii.small, card: radii.card, pill: radii.pill },
     motion: {
       fast: motion.fast,

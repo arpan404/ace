@@ -2,16 +2,39 @@ import { h, place } from "./dom.ts";
 
 export interface Anchor {
   element: Element;
-  /** Fraction of the element's box. */
-  point: { x: number; y: number };
+}
+
+export interface MarkerPlace {
+  x: number;
+  y: number;
+  top: number;
+  bottom: number;
+}
+
+/** Marker diameter in CSS px; see `.marker` in theme.ts. */
+const size = 22;
+
+/**
+ * Where a marker's centre sits for an element box: just outside its top-left corner, so it
+ * never covers the start of the element's text. An element at the very top or left of the
+ * document has no room outside, so its marker steps inside on that axis to stay visible.
+ */
+export function markerCentre(rect: DOMRect): { x: number; y: number } {
+  const half = size / 2;
+  const outsideX = rect.left + scrollX >= size;
+  const outsideY = rect.top + scrollY >= size;
+  return {
+    x: outsideX ? rect.left - half : rect.left + half,
+    y: outsideY ? rect.top - half : rect.top + half,
+  };
 }
 interface Marker extends Anchor {
   node: HTMLElement;
 }
 
 /**
- * Numbered markers pinned to page elements. Positions are recomputed once per frame from the
- * element's box, so markers follow scrolling (inner containers included), resizes and reflows.
+ * Numbered markers pinned to the top-left corner of page elements. Positions are recomputed once
+ * per frame from the element's box, so markers follow scrolling (inner containers included), resizes and reflows.
  */
 export function createMarkers(parent: HTMLElement, onOpen: (id: string) => void) {
   const container = h("div", { class: "markers" });
@@ -39,15 +62,13 @@ export function createMarkers(parent: HTMLElement, onOpen: (id: string) => void)
   let frame = 0;
   let afterUpdate: () => void = noop;
 
-  function position(id: string): { x: number; y: number } | null {
+  /** The marker's centre and its element's top and bottom edges, in viewport px. */
+  function position(id: string): MarkerPlace | null {
     const marker = markers.get(id);
     if (!marker?.element.isConnected) return null;
     const rect = marker.element.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) return null;
-    return {
-      x: rect.left + marker.point.x * rect.width,
-      y: rect.top + marker.point.y * rect.height,
-    };
+    return { ...markerCentre(rect), top: rect.top, bottom: rect.bottom };
   }
   function update(): void {
     frame = 0;
@@ -77,7 +98,6 @@ export function createMarkers(parent: HTMLElement, onOpen: (id: string) => void)
       resize.unobserve(marker.element);
     }
     marker.element = anchor.element;
-    marker.point = anchor.point;
     resize.observe(anchor.element);
     marker.node.className = number === undefined ? "marker pending" : "marker";
     marker.node.textContent = number === undefined ? "" : String(number);

@@ -54,6 +54,8 @@ class Ports<T> {
 }
 
 export const composerPorts = new Ports<ComposerAnnotationPort>();
+/** Where the person last dragged each thread's annotate bar, for the next page they annotate. */
+export const barPositions = new Map<string, { x: number; y: number }>();
 export const sessionPorts = new Ports<AnnotationSessionPort>();
 
 export function useComposerPort(threadId: string): ComposerAnnotationPort | undefined {

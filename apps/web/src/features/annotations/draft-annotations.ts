@@ -73,6 +73,17 @@ const settle = (image: Image, outcome: AnnotationOutcome): Image =>
   "sha256" in outcome
     ? { ready: outcome, file: image.file }
     : { ...image, pending: undefined, failed: true };
+/** Numbers 1…n in their current order; an item keeps its object when its number holds. */
+function renumbered(items: AnnotationItem[]): AnnotationItem[] {
+  const order = items.toSorted((a, b) => a.annotation.number - b.annotation.number);
+  const numbers = new Map(order.map((item, index) => [item, index + 1]));
+  return items.map((item) => {
+    const number = numbers.get(item) ?? item.annotation.number;
+    return number === item.annotation.number
+      ? item
+      : { ...item, annotation: { ...item.annotation, number } };
+  });
+}
 const mimeOf = (name: string) => (/\.jpe?g$/i.test(name) ? "image/jpeg" : "image/png");
 
 /**
@@ -181,13 +192,16 @@ export function useDraftAnnotations(options: {
       pages: [...now.pages.filter((entry) => entry.url !== url), { url, pending, file }],
     }));
   };
-  /** Records leave; a page none of the rest is on loses its screenshot too. */
+  /**
+   * Records leave and the rest close ranks (1, 3 becomes 1, 2, as the page's markers do); a
+   * page none of the rest is on loses its screenshot too.
+   */
   const drop = (ids: ReadonlySet<string> | "all") => {
     const before = current.current;
     const gone = before.items.filter((item) => ids === "all" || ids.has(item.annotation.id));
     if (!gone.length) return;
     update((now) => {
-      const items = now.items.filter((item) => !gone.includes(item));
+      const items = renumbered(now.items.filter((item) => !gone.includes(item)));
       const urls = new Set(items.map((item) => item.annotation.url));
       return { items, pages: now.pages.filter((entry) => urls.has(entry.url)) };
     });

@@ -87,7 +87,14 @@ export class FakeAnnotations {
   /** Scripting: the person pins a comment on an element; returns the saved record. */
   pin(
     threadId: string,
-    pinned: { comment: string; tag?: string; text?: string; selector?: string },
+    pinned: {
+      comment: string;
+      tag?: string;
+      text?: string;
+      selector?: string;
+      styles?: { property: string; before: string; after: string }[];
+      textChange?: { before: string; after: string };
+    },
   ): BrowserAnnotation {
     const document = this.documents.get(threadId);
     const page = this.page(threadId);
@@ -109,6 +116,8 @@ export class FakeAnnotations {
         box: { x: 40, y: 120, width: 320, height: 24 },
       },
       viewport: { width: 760, height: 900, devicePixelRatio: 2, scrollX: 0, scrollY: 0 },
+      styles: pinned.styles ?? [],
+      ...(pinned.textChange ? { text: pinned.textChange } : {}),
     });
     this.emit(threadId, { kind: "saved", annotation });
     return annotation;

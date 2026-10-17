@@ -4,6 +4,7 @@ import {
   annotationFixture,
   executablePath,
   isMarkerBlue,
+  markerCentre,
   pixel,
 } from "./annotation-test-support.ts";
 
@@ -60,14 +61,10 @@ test("wheel input still scrolls an inner container and the marker follows its el
     async () => expect(await person.evaluate("scroller.scrollTop")).toBeGreaterThan(400),
     { timeout: 5_000 },
   );
-  const annotation = await f.pin(person, "#deep", "Deep item spacing");
+  await f.pin(person, "#deep", "Deep item spacing");
   // Over the marker itself, the wheel still scrolls the container underneath.
-  const deep = await person.box("#deep");
-  await person.scroll(
-    deep.x + annotation.point.x * deep.width,
-    deep.y + annotation.point.y * deep.height,
-    -60,
-  );
+  const marker = markerCentre(await person.box("#deep"));
+  await person.scroll(marker.x, marker.y, -60);
   await vi.waitFor(
     async () => expect(await person.evaluate("scroller.scrollTop")).toBeLessThan(500),
     { timeout: 5_000 },
@@ -78,15 +75,14 @@ test("wheel input still scrolls an inner container and the marker follows its el
   );
   const width = Number(await person.evaluate("innerWidth"));
   // Sample beside the digit, inside the 22 px marker at the element's new position.
-  const x = box.x + annotation.point.x * box.width - 7;
-  const y = box.y + annotation.point.y * box.height;
-  expect(isMarkerBlue(await pixel(page, width, x, y))).toBe(true);
+  const moved = markerCentre(box);
+  expect(isMarkerBlue(await pixel(page, width, moved.x - 7, moved.y))).toBe(true);
 }, 60_000);
 
 test("a page capture keeps the markers but leaves out the bar", async () => {
   const f = await annotationFixture();
   const person = await f.annotating();
-  const annotation = await f.pin(person, "p.lead", "Bigger");
+  await f.pin(person, "p.lead", "Bigger");
   const page = BrowserAnnotationCapture.parse(
     await person.execute({ action: "annotate_capture", target: { kind: "page" } }),
   );
@@ -94,11 +90,8 @@ test("a page capture keeps the markers but leaves out the bar", async () => {
   const width = Number(await person.evaluate("innerWidth"));
   const height = Number(await person.evaluate("innerHeight"));
   const box = await person.box("p.lead");
-  const marker = [
-    box.x + annotation.point.x * box.width - 7,
-    box.y + annotation.point.y * box.height,
-  ] as const;
-  expect(isMarkerBlue(await pixel(page, width, ...marker))).toBe(true);
+  const marker = markerCentre(box);
+  expect(isMarkerBlue(await pixel(page, width, marker.x - 7, marker.y))).toBe(true);
   // The bar is centred near the bottom; the capture shows the white page there instead.
   const barSpot = [width / 2, height - 37] as const;
   expect(Math.min(...(await pixel(page, width, ...barSpot)))).toBeGreaterThan(230);
@@ -160,10 +153,8 @@ test("reopening a marker edits its comment, and Escape closes it without a chang
   });
   const box = await person.box("p.lead");
   // Clicking the marker reopens the editor; Escape closes it without a change.
-  await person.click(
-    box.x + annotation.point.x * box.width,
-    box.y + annotation.point.y * box.height,
-  );
+  const marker = markerCentre(box);
+  await person.click(marker.x, marker.y);
   await person.press("Escape");
   expect(
     person

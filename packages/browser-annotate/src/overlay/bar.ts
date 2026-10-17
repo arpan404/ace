@@ -8,8 +8,8 @@ export interface BarCallbacks {
   send(): void;
   close(): void;
   moved(x: number, y: number): void;
-  /** Phase 3: show the page without live style edits while held. Absent, the button is disabled. */
-  original?: { hold(): void; release(): void };
+  /** Show the page without its previewed style and text edits while the button is held. */
+  original: { hold(): void; release(): void };
 }
 
 /** The floating, draggable control bar: count, screenshot, markers, original, discard, Send, exit. */
@@ -30,15 +30,22 @@ export function createBar(parent: HTMLElement, callbacks: BarCallbacks) {
     callbacks.markers(hidden);
   }
   const original = button("icon-button", "Hold to view original", [icon("compare")], () => {});
-  original.disabled = !callbacks.original;
-  if (callbacks.original) {
-    const { hold, release } = callbacks.original;
-    original.addEventListener("pointerdown", (event) => {
-      if (event.isTrusted && !original.disabled) hold();
-    });
-    for (const type of ["pointerup", "pointercancel", "pointerleave"] as const)
-      original.addEventListener(type, () => release());
-  }
+  original.disabled = true;
+  let holding = false;
+  const release = () => {
+    if (!holding) return;
+    holding = false;
+    original.classList.remove("on");
+    callbacks.original.release();
+  };
+  original.addEventListener("pointerdown", (event) => {
+    if (!event.isTrusted || event.button !== 0 || original.disabled) return;
+    holding = true;
+    original.classList.add("on");
+    callbacks.original.hold();
+  });
+  for (const type of ["pointerup", "pointercancel", "pointerleave"] as const)
+    original.addEventListener(type, release);
   const discard = button("icon-button danger", "Discard annotations", [icon("trash")], () =>
     callbacks.discard(),
   );
@@ -103,6 +110,11 @@ export function createBar(parent: HTMLElement, callbacks: BarCallbacks) {
       discard.disabled = total === 0;
       send.disabled = total === 0;
       layout();
+    },
+    /** Enable hold-to-view-original while there are previewed edits to hide. */
+    originalAvailable(value: boolean): void {
+      original.disabled = !value;
+      if (!value) release();
     },
     markersHidden(value: boolean): void {
       if (value !== hidden) setHidden(value);

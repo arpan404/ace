@@ -26,6 +26,8 @@ export interface OverlayPalette {
 
 export interface OverlayTokens {
   font: string;
+  /** Values in the style inspector. */
+  mono: string;
   radii: { small: number; card: number; pill: number };
   motion: { fast: number; standard: number; enter: string };
 }

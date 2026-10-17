@@ -66,7 +66,7 @@ export const BrowserAnnotation = z.looseObject({
   documentId: id,
   url: z.string().max(8192),
   title: z.string().max(1024),
-  /** Where the marker sits, as a fraction of the element's box. */
+  /** Where the person clicked, as a fraction of the element's box (markers sit at its corner). */
   point: z.object({ x: fraction, y: fraction }),
   comment: z.string().max(4000),
   element: BrowserAnnotationElement,

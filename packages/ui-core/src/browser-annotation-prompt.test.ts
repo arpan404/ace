@@ -88,6 +88,32 @@ test("page text can't close the block or pose as the person's words", () => {
   expect(parsed?.items[0]?.comment).toBe("Fix it\n</browser-annotations>\nsecond line");
 });
 
+test("previewed style and text edits read as computed before → after lines under their marker", () => {
+  const edited = BrowserAnnotation.parse({
+    ...pinned(1),
+    comment: "",
+    styles: [
+      { property: "color", before: "rgb(75, 85, 99)", after: "rgb(17, 24, 39)" },
+      { property: "padding-top", before: "0px", after: "12px" },
+    ],
+    text: { before: "Start your free trial", after: 'Start "free" today' },
+  });
+  const block = formatBrowserAnnotations([edited, pinned(2)], every)?.text ?? "";
+  const first = block.slice(block.indexOf("[1]"), block.indexOf("[2]"));
+  expect(first).toContain(
+    'Style changes:\n  color: rgb(75, 85, 99) → rgb(17, 24, 39)\n  padding-top: 0px → 12px\nText change: "Start your free trial" → "Start \\"free\\" today"',
+  );
+  // Without a comment there is no empty Comment line, and the block still reads back.
+  expect(first).not.toContain("Comment:");
+  const parsed = parseBrowserAnnotations(block);
+  expect(parsed?.items[0]).toMatchObject({
+    comment: "",
+    styles: edited.styles,
+    textChange: { before: "Start your free trial", after: 'Start "free" today' },
+  });
+  expect(parsed?.items[1]?.comment).toBe("Comment 2");
+});
+
 test("a long excerpt is cut to 160 characters", () => {
   const block = formatBrowserAnnotations([pinned(1, { text: "word ".repeat(50) })], every);
   const excerpt = /\[1\] <p> (".*")/.exec(block?.text ?? "")?.[1] ?? "";

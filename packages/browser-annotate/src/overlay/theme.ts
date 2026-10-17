@@ -10,7 +10,9 @@ export function overlaySheet(tokens: OverlayTokens): CSSStyleSheet {
   position: fixed; inset: 0; pointer-events: none; color: var(--text);
   font: 500 13px/18px ${tokens.font}; letter-spacing: 0; text-align: left;
   -webkit-font-smoothing: antialiased; direction: ltr; cursor: default;
+  -webkit-user-select: none; user-select: none;
 }
+input, textarea { -webkit-user-select: text; user-select: text; }
 .outline {
   position: fixed; left: 0; top: 0; display: none; pointer-events: none;
   border: 2px solid var(--mark); border-radius: 3px; background: var(--wash);
@@ -94,6 +96,74 @@ button:disabled { opacity: 0.38; cursor: default; }
   align-items: center; border-radius: ${radii.pill}px; pointer-events: none;
   font: 500 13px/1 ${tokens.font}; animation: enter ${motion.standard}ms ${motion.enter};
 }
+.editor.wide { width: 344px; }
+.slot:empty { display: none; }
+.inspector {
+  display: flex; flex-direction: column; margin: 2px -4px 0 -2px;
+  border-top: 1px solid var(--edge);
+}
+.inspector-head {
+  display: flex; align-items: center; justify-content: space-between; height: 32px;
+  padding: 0 2px 0 10px; border-bottom: 1px solid var(--edge);
+}
+.inspector-tag { font: 500 12px/16px ${tokens.mono}; color: var(--muted); }
+.inspector-body {
+  max-height: min(312px, calc(100vh - 200px)); overflow-y: auto; overscroll-behavior: contain;
+  padding: 0 8px 0 10px; scrollbar-width: thin; scrollbar-color: var(--edge) transparent;
+}
+.field {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 36px; border-bottom: 1px solid var(--edge);
+}
+.field-group { border-bottom: 1px solid var(--edge); }
+.field-group .field { border-bottom: 0; }
+.sides { padding-bottom: 4px; }
+.sides .field { min-height: 32px; }
+.inspector-body > :last-child { border-bottom: 0; }
+.field-label { flex: none; font: 400 12px/16px ${tokens.font}; color: var(--muted); }
+.field.side .field-label { padding-left: 18px; }
+.field.disabled .field-label { opacity: 0.6; }
+.field-note, .field-summary {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 400 12px/16px ${tokens.font}; color: var(--muted);
+}
+.field-summary { max-width: 152px; font-family: ${tokens.mono}; }
+.value, .control {
+  width: 152px; height: 26px; flex: none; border-radius: ${radii.small}px;
+  background: var(--hover); box-shadow: inset 0 0 0 1px var(--edge);
+  transition: box-shadow ${motion.fast}ms;
+}
+.value {
+  margin: 0; padding: 0 8px; border: 0; outline: 0; color: var(--text);
+  font: 400 12px/26px ${tokens.mono}; text-overflow: ellipsis;
+}
+input.value:focus, .control:focus-within { box-shadow: inset 0 0 0 1px var(--accent); }
+.value.invalid { box-shadow: inset 0 0 0 1px var(--danger); }
+.control { position: relative; display: flex; align-items: center; }
+.control .value { width: auto; flex: 1; min-width: 0; background: transparent; box-shadow: none; }
+.control.color { padding-left: 6px; }
+.control.color .value { padding-left: 6px; }
+.swatch {
+  position: relative; width: 16px; height: 16px; flex: none; border-radius: 50%;
+  overflow: hidden; cursor: pointer;
+  background: linear-gradient(var(--swatch), var(--swatch)),
+    repeating-conic-gradient(#c8c8c8 0 25%, #ffffff 0 50%) 0 0 / 8px 8px;
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+.picker {
+  position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0;
+  border: 0; opacity: 0; cursor: pointer;
+}
+select.value { appearance: none; padding-right: 26px; cursor: pointer; }
+.control.select .icon { position: absolute; right: 6px; pointer-events: none; color: var(--muted); }
+.disclosure {
+  display: inline-flex; align-items: center; gap: 2px; margin-left: -4px; padding: 2px 4px;
+  border-radius: ${radii.small}px; font: 400 12px/16px ${tokens.font}; color: var(--muted);
+}
+.disclosure:hover { color: var(--text); }
+.disclosure .icon { transform: rotate(-90deg); transition: transform ${motion.fast}ms; }
+.disclosure.open .icon { transform: none; }
+.editor .handle { width: 22px; height: 26px; }
 .concealed { visibility: hidden !important; }
 .capturing * { animation: none !important; transition: none !important; }
 [hidden] { display: none !important; }
@@ -107,7 +177,13 @@ button:disabled { opacity: 0.38; cursor: default; }
 }
 
 /** Theme switches are variable writes on the layer, never a new sheet. */
-export function applyPalette(layer: HTMLElement, palette: OverlayPalette): void {
+export function applyPalette(
+  layer: HTMLElement,
+  palette: OverlayPalette,
+  scheme: "light" | "dark",
+): void {
+  // Native controls (select menus, the colour picker) follow the overlay's theme.
+  layer.style.setProperty("color-scheme", scheme);
   const variables: Record<string, string> = {
     "--accent": palette.accent,
     "--on-accent": palette.onAccent,

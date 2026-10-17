@@ -16,6 +16,16 @@ import { useSessionPort, type AnnotationSessionPort } from "./store.ts";
 export const annotationCount = (count: number) =>
   `${count} ${count === 1 ? "annotation" : "annotations"}`;
 
+/** "2 style changes · text changed": the edits previewed on the element, if any. */
+export function changeSummary(styles: number, text: boolean): string | undefined {
+  const parts = [
+    ...(styles ? [`${styles} ${styles === 1 ? "style change" : "style changes"}`] : []),
+    ...(text ? ["text changed"] : []),
+  ];
+  const summary = parts.join(" · ");
+  return summary ? `${summary[0]?.toUpperCase() ?? ""}${summary.slice(1)}` : undefined;
+}
+
 /**
  * The draft's browser annotations as one chip above the message: its count opens a list of
  * them (crop, element, page text, comment) where each can be reopened in the page or removed;
@@ -86,6 +96,7 @@ function Row(props: {
 }) {
   const { annotation } = props.item;
   const { number, element } = annotation;
+  const changes = changeSummary(annotation.styles.length, !!annotation.text);
   const editReason = !props.session
     ? "Open the Browser to edit it"
     : props.session.url() !== annotation.url
@@ -109,6 +120,7 @@ function Row(props: {
             {annotation.comment}
           </p>
         )}
+        {changes && <p className="mt-1 text-xs text-subtle-foreground">{changes}</p>}
       </div>
       <div className="flex shrink-0 items-center gap-0.5">
         <IconButton

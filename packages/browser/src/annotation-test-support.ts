@@ -26,7 +26,7 @@ export const pages: Record<string, { headers?: Record<string, string>; body: str
 <main><section class="hero"><p class="lead" style="margin:40px;width:300px">Start your free trial</p>
 <p class="lead" style="margin:40px;width:300px">Second lead</p></section>
 <div id="scroller" style="margin:40px;height:200px;width:400px;overflow:auto">
-<div style="height:600px"></div><p id="deep" style="margin:0;width:200px;height:40px;background:#eee">Deep item</p>
+<div style="height:600px"></div><p id="deep" style="margin:0 0 0 40px;width:200px;height:40px;background:#eee">Deep item</p>
 <div style="height:600px"></div></div>
 <a href="/next">Next page</a></main>
 <script>window.pageClicks=0;document.addEventListener('click',()=>window.pageClicks++);</script>
@@ -39,6 +39,14 @@ export const pages: Record<string, { headers?: Record<string, string>; body: str
     },
     body: `<!doctype html><title>Locked</title><body><h1>Locked down</h1><p class="note">Strict page</p>
 <script>window.pageClicks=0;document.addEventListener('click',()=>window.pageClicks++);</script></body>`,
+  },
+  "/styles": {
+    body: `<!doctype html><title>Styles</title>
+<body style="margin:0;font:16px/20px sans-serif;background:#fff">
+<h1 id="title" style="margin:80px 60px 20px;font-size:28px;color:rgb(10, 20, 30)">Hello title</h1>
+<p id="lead" style="margin:20px 60px;width:400px;opacity:0.9 !important">Lead <b>bold</b> words</p>
+<p id="note" style="margin:20px 60px;width:400px">Note text</p>
+</body>`,
   },
   "/next": {
     body: `<!doctype html><title>Next</title><body><h2>Another document</h2>
@@ -162,9 +170,17 @@ export async function annotationFixture(desktop?: DesktopStandIn) {
       async type(text: string) {
         await call({ type: "browser.input", input: { kind: "key", event: "char", key: text } });
       },
-      async press(key: string) {
+      async press(key: string, options: { code?: string; modifiers?: number } = {}) {
+        const { code = key, modifiers = 0 } = options;
         for (const event of ["keyDown", "keyUp"])
-          await call({ type: "browser.input", input: { kind: "key", event, key, code: key } });
+          await call({
+            type: "browser.input",
+            input: { kind: "key", event, key, code, modifiers },
+          });
+      },
+      /** One mouse button event without the hover move, e.g. to hold a button down. */
+      async mouse(event: "mousePressed" | "mouseReleased", x: number, y: number) {
+        await call({ type: "browser.input", input: { kind: "mouse", event, x, y } });
       },
       async scroll(x: number, y: number, deltaY: number) {
         await call({
@@ -193,6 +209,11 @@ export async function annotationFixture(desktop?: DesktopStandIn) {
     return (await person.event("saved", before)).annotation;
   }
   return { service, origin, connect, annotating, pin };
+}
+
+/** Centre of an element's marker: just outside its top-left corner, clear of its text. */
+export function markerCentre(box: Box): { x: number; y: number } {
+  return { x: box.x - 11, y: box.y - 11 };
 }
 
 /** RGB of one CSS pixel in a JPEG/PNG capture of the viewport. */

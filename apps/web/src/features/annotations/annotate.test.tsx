@@ -147,19 +147,33 @@ test("pinned comments join the draft with their crops, and the page's Send sends
   expect(within(feed).getByText("Too much padding")).toBeTruthy();
 });
 
-test("the chip's list removes one annotation from the draft and its marker from the page; ✕ removes them all", async () => {
+test("the chip's list removes one annotation from the draft and its marker from the page, and the rest close ranks; ✕ removes them all", async () => {
   const { panel, browser, commands } = await annotating();
   await userEvent.click(annotateButton(panel));
   await waitFor(() => expect(browser.view(threadId)?.annotation?.owner).toBeTruthy());
   const first = browser.annotations.pin(threadId, { comment: "First note" });
-  act(() => void browser.annotations.pin(threadId, { comment: "Second note" }));
+  let second = first;
+  act(() => {
+    second = browser.annotations.pin(threadId, {
+      comment: "Second note",
+      styles: [{ property: "color", before: "rgb(0, 0, 0)", after: "rgb(200, 0, 0)" }],
+      textChange: { before: "Pair", after: "Pair now" },
+    });
+  });
 
   await userEvent.click(await screen.findByRole("button", { name: "Show 2 annotations" }));
   const list = await screen.findByRole("list", { name: "Annotations" });
   expect(within(list).getByText("First note")).toBeTruthy();
+  expect(within(list).getByText("1 style change · text changed")).toBeTruthy();
   await userEvent.click(within(list).getByRole("button", { name: "Remove annotation 1" }));
   await screen.findByRole("button", { name: "Show 1 annotation" });
   await waitFor(() => expect(commands).toContainEqual({ op: "remove", id: first.id }));
+  // The second note is now the first, in the draft and on the page.
+  expect(within(list).getByRole("button", { name: "Remove annotation 1" })).toBeTruthy();
+  await waitFor(() =>
+    expect(commands).toContainEqual({ op: "renumber", numbers: [{ id: second.id, number: 1 }] }),
+  );
+  expect(commands).toContainEqual(expect.objectContaining({ op: "configure", nextNumber: 2 }));
 
   await userEvent.click(screen.getByRole("button", { name: "Remove all annotations" }));
   expect(screen.queryByRole("button", { name: /^Show \d+ annotation/ })).toBeNull();

@@ -2,7 +2,7 @@ import type { ParsedBrowserAnnotations } from "@ace/ui-core";
 import { ChatTeardropTextIcon } from "@phosphor-icons/react";
 import { displayAddress } from "@ace/ui-core";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
-import { annotationCount } from "./annotation-chip.tsx";
+import { annotationCount, changeSummary } from "./annotation-chip.tsx";
 import { MarkerNumber, TagBadge } from "./marker.tsx";
 
 /**
@@ -47,6 +47,11 @@ export function AnnotationsCard(props: { annotations: ParsedBrowserAnnotations }
                       {item.comment && (
                         <span className="block whitespace-pre-wrap text-foreground">
                           {item.comment}
+                        </span>
+                      )}
+                      {(item.styles.length > 0 || item.textChange) && (
+                        <span className="block text-xs text-subtle-foreground">
+                          {changeSummary(item.styles.length, !!item.textChange)}
                         </span>
                       )}
                     </span>

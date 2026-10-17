@@ -77,8 +77,12 @@ function describe(annotation: BrowserAnnotation): string[] {
   lines.push(
     `Box: x=${px(box.x)} y=${px(box.y)} width=${px(box.width)} height=${px(box.height)} (CSS px from the document's top-left)`,
   );
-  const [first = "", ...rest] = neutral(annotation.comment.trim()).split(/\r?\n/);
-  lines.push(`Comment: ${first}`, ...rest.map((line) => `  ${line}`));
+  // A style-only annotation has no comment, and says nothing it doesn't have.
+  const comment = neutral(annotation.comment.trim());
+  if (comment) {
+    const [first = "", ...rest] = comment.split(/\r?\n/);
+    lines.push(`Comment: ${first}`, ...rest.map((line) => `  ${line}`));
+  }
   if (annotation.styles.length) {
     lines.push("Style changes:");
     for (const change of annotation.styles)

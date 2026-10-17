@@ -62,6 +62,33 @@ class RawPage {
   }
 }
 
+interface DomNode {
+  nodeId: number;
+  attributes?: string[] | undefined;
+  children?: DomNode[] | undefined;
+  shadowRoots?: DomNode[] | undefined;
+}
+const DomNode: z.ZodType<DomNode> = z.lazy(() =>
+  z.object({
+    nodeId: z.number(),
+    attributes: z.array(z.string()).optional(),
+    children: z.array(DomNode).optional(),
+    shadowRoots: z.array(DomNode).optional(),
+  }),
+);
+const BoxModel = z.object({ model: z.object({ border: z.array(z.number()).length(8) }) });
+
+function findLabelled(node: DomNode, label: string): DomNode | undefined {
+  const attributes = node.attributes ?? [];
+  for (let index = 0; index < attributes.length; index += 2)
+    if (attributes[index] === "aria-label" && attributes[index + 1] === label) return node;
+  for (const child of [...(node.shadowRoots ?? []), ...(node.children ?? [])]) {
+    const found = findLabelled(child, label);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 const Target = z.array(
   z.object({ id: z.string(), type: z.string(), webSocketDebuggerUrl: z.string().optional() }),
 );
@@ -214,6 +241,30 @@ export async function chromeDesktop(executablePath: string) {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
       event("ace.tabs.event", { tabId, method: "ace.rendererRestarted", params: {} });
+    },
+    /**
+     * The viewport box of the element labelled `label`, looked up the way DevTools does: through
+     * closed shadow roots, on a debugger session of its own. Undefined when absent or not shown.
+     */
+    async labelled(
+      label: string,
+    ): Promise<{ x: number; y: number; width: number; height: number } | undefined> {
+      const inspector = await connect();
+      try {
+        const { root } = z
+          .object({ root: DomNode })
+          .parse(await inspector.send("DOM.getDocument", { depth: -1, pierce: true }));
+        const node = findLabelled(root, label);
+        if (!node) return undefined;
+        const box = BoxModel.safeParse(
+          await inspector.send("DOM.getBoxModel", { nodeId: node.nodeId }).catch(() => ({})),
+        );
+        if (!box.success) return undefined;
+        const [x1 = 0, y1 = 0, x2 = 0, , , y3 = 0] = box.data.model.border;
+        return { x: x1, y: y1, width: x2 - x1, height: y3 - y1 };
+      } finally {
+        inspector.close();
+      }
     },
     async close(): Promise<void> {
       page.close();
