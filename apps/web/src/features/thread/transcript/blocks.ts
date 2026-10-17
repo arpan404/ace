@@ -168,6 +168,12 @@ export interface BlockSource {
   unsettledTail?: boolean | undefined;
   /** Filled with the runs and agents whose settling would change the blocks. */
   watch?: { runs: Set<string>; agents: Set<string> };
+  /**
+   * The key each turn's rows were first given, by turn id, kept across builds by the caller.
+   * A run keeps the key of the ask that started it once the tail trims that ask: no run records
+   * which input started it, so this memory is what survives the trim. Filled as turns are keyed.
+   */
+  turnKeys?: Map<string, string>;
 }
 
 const editKinds = new Set(["file.edit", "file.write", "file.delete", "file.move"]);
@@ -387,9 +393,14 @@ export function buildBlocks(input: BlockSource): Block[] {
   let mark: TurnMark | undefined;
   const keys = new Set<string>();
   const keyFor = (id: string, ask: string | undefined) => {
-    let key = ask !== undefined && !keys.has(ask) ? ask : id || "start";
+    const known = source.turnKeys?.get(id);
+    let key = known ?? (ask !== undefined && !keys.has(ask) ? ask : id || "start");
     while (keys.has(key)) key = `${key}+`;
     keys.add(key);
+    return key;
+  };
+  const remember = (id: string, key: string) => {
+    if (!isPseudoTurn(id)) source.turnKeys?.set(id, key);
     return key;
   };
   const markOf = (id: string, ask: string | undefined) => {
@@ -401,6 +412,7 @@ export function buildBlocks(input: BlockSource): Block[] {
       const admitted = ask === undefined ? undefined : turns.get(`ask:${ask}`);
       if (admitted && admitted === previous && !admitted.blocks.size) {
         admitted.id = id;
+        source.turnKeys?.set(id, admitted.key);
         turns.set(id, admitted);
         return admitted;
       }
@@ -410,7 +422,7 @@ export function buildBlocks(input: BlockSource): Block[] {
       }
       found = {
         id,
-        key: keyFor(id, ask),
+        key: remember(id, keyFor(id, ask)),
         askId: ask,
         edits: [],
         lastMessage: -1,
