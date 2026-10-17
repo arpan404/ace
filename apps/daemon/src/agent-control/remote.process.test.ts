@@ -423,6 +423,8 @@ test("sealed text and its truncation marker survive a cancellation race and miss
     error: "Files could not be imported",
   });
   f.remote.report("window", f.lease, { taskId: task.id, phase: "cancelled" });
+  // The result is a message to the parent; it joins the transcript when the engine delivers it.
+  await f.engine.flush();
   const messages = f.events.flatMap((event) =>
     event.payload.type === "item.created" && event.payload.item.type === "message"
       ? event.payload.item.parts
@@ -537,6 +539,7 @@ test("a sealed answer arriving after the cancellation deadline reaches the paren
     delivered: true,
     result: "Late sealed answer",
   });
+  await f.engine.flush();
   const text = f.events.flatMap((event) =>
     event.payload.type === "item.created" && event.payload.item.type === "message"
       ? event.payload.item.parts

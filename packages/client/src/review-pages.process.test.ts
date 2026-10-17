@@ -96,13 +96,9 @@ test("oversized text history is a bounded preview with lazy complete text reads"
   await ready(client);
   const { store } = client.thread(h.thread.id);
   await barrier(client, h.thread.id);
-  expect(store.order).toEqual([]);
-  const page = await client.itemsPage({
-    threadId: h.thread.id,
-    before: store.itemsBefore ?? undefined,
-    limit: 1,
-  });
-  const item = page.items[0];
+  // Over the snapshot budget, the newest item still shows, as its bounded preview.
+  expect(store.order).toEqual([message.item.id]);
+  const item = store.item(message.item.id);
   if (item?.type !== "message") throw new Error("message preview");
   const part = item.parts[0];
   if (part?.type !== "text" || !part.source) throw new Error("text source");
@@ -113,9 +109,6 @@ test("oversized text history is a bounded preview with lazy complete text reads"
     actual += chunk;
   }
   expect(actual).toBe(text);
-  if (typeof store.itemsBefore !== "number") throw new Error("history cursor");
-  store.page(page, store.itemsBefore);
-  expect(store.item(item.id)?.id).toBe(item.id);
   expect(store.truncated(item.id)).toBe(true);
   const previous = store.item(item.id);
   h.daemon.store.appendEvents(h.thread.id, [

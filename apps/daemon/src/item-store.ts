@@ -327,7 +327,8 @@ export class ItemStore {
    * A snapshot's transcript tail: the items the client's bounded window holds after its trim
    * (`retainedTail`, ADR 0062), whole, in creation order. Only the newest `limit + 1` heads and
    * the root's newest `limit / 2` can be chosen, so two indexed reads cover any thread length.
-   * If those items exceed `byteLimit`, the same rule picks a smaller window that fits.
+   * If those items exceed `byteLimit`, the same rule picks a smaller window that fits; a newest
+   * item larger than the whole budget still shows alone, as its bounded preview.
    */
   tail(
     threadId: ThreadId,
@@ -378,17 +379,22 @@ export class ItemStore {
       );
     let capacity = Math.min(limit, entries.length);
     let tail = retainedTail(entries, capacity);
-    while (capacity > 0 && bytes(tail.kept) > byteLimit) tail = retainedTail(entries, --capacity);
-    const items = tail.kept.map((entry) =>
-      this.materialize(
-        entry.id,
-        this.statement("SELECT item FROM items WHERE id = ?").get(entry.id)?.item,
-      ),
-    );
+    while (capacity > 1 && bytes(tail.kept) > byteLimit) tail = retainedTail(entries, --capacity);
+    // A newest item larger than the whole budget still shows, as its bounded text preview.
+    const preview = tail.kept.length === 1 && bytes(tail.kept) > byteLimit;
+    const kept = tail.kept.flatMap((entry) => {
+      const item = preview
+        ? this.stepItem(threadId, entry.id)
+        : this.materialize(
+            entry.id,
+            this.statement("SELECT item FROM items WHERE id = ?").get(entry.id)?.item,
+          );
+      return item ? [{ item, seq: entry.seq ?? 0 }] : [];
+    });
     return {
       threadId,
-      items,
-      itemSeqs: Object.fromEntries(tail.kept.map((entry) => [entry.id, entry.seq ?? 0])),
+      items: kept.map((entry) => entry.item),
+      itemSeqs: Object.fromEntries(kept.map((entry) => [entry.item.id, entry.seq])),
       itemsBefore: tail.before ?? null,
     };
   }
