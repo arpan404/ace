@@ -235,9 +235,10 @@ export class EmbeddedTabs {
           detach: (child) => this.inspection.detach(child),
         });
         await cdp.send("Page.enable");
-        await cdp.send("Runtime.enable");
-        // A kept page may still show the overlay of the session that lost its link.
+        // A kept page may still show the overlay of the session that lost its link. This
+        // enables Runtime (for the tab's console log) first, to find the old overlay's world.
         if (adopted) await removeStaleOverlays(cdp);
+        else await cdp.send("Runtime.enable");
         await this.inspection.attach(cdp, item.tabId);
       })();
     }

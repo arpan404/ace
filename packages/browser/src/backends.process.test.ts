@@ -97,7 +97,8 @@ it("the person's input is never refused or queued behind a busy agent command", 
   await f.service.input("thread", key("x"), "person");
   expect([...f.pages.values()][0]?.text).toBe("x");
   f.releaseHold();
-  f.reply(BrowserBackendRequest.parse(held), { errorText: "net::ERR_ABORTED" });
+  // Ends the held navigation (an aborted one would wait for the frame to stop loading).
+  f.reply(BrowserBackendRequest.parse(held), { errorText: "net::ERR_CONNECTION_REFUSED" });
   await navigating.catch(() => {});
 });
 it("an agent working in a tab marks it in use and tells the backend", async () => {
