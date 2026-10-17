@@ -1,4 +1,5 @@
-import type { ComposerDraft, KeyValueStorage } from "@ace/ui-core";
+import { withTypedCommand, type ComposerDraft, type KeyValueStorage } from "@ace/ui-core";
+import type { CatalogEntry } from "@ace/protocol";
 import { useEffectEvent } from "react";
 import type { useAttachments } from "./attachments.tsx";
 import type { Draft } from "./draft.ts";
@@ -23,6 +24,8 @@ const fingerprint = (draft: Partial<ComposerDraft> | undefined) =>
 export function useComposerSubmit(args: {
   blocked: string | undefined;
   current: ComposerDraft;
+  /** The current catalog, so a `/name` typed without the menu still goes as its mention. */
+  entries: readonly CatalogEntry[] | undefined;
   attachments: ReturnType<typeof useAttachments>;
   saved: ReturnType<typeof useDraftPersistence>;
   draftKey: string | undefined;
@@ -50,7 +53,11 @@ export function useComposerSubmit(args: {
     if (args.blocked) return;
     const draft: Draft = {
       text: current.text,
-      ...composerContent({ ...current, attachments: attachments.ready }),
+      ...composerContent({
+        ...current,
+        tokens: withTypedCommand(current.text, current.tokens ?? [], args.entries),
+        attachments: attachments.ready,
+      }),
       files: {
         ...attachments.handOff(),
         uploading: attachments.items.filter((file) => file.state === "uploading").length,

@@ -221,6 +221,7 @@ function ComposerBody({
   const submit = useComposerSubmit({
     blocked,
     current,
+    entries: suggestions.entries,
     attachments,
     saved: sync.saved,
     draftKey: props.draftKey,
