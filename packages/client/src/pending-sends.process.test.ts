@@ -254,11 +254,13 @@ test.each(["native", "run"] as const)(
     const notice = h.daemon.store.snapshotThread(h.thread.id).items[failure];
     if (!notice) throw new Error("Missing stored failure");
     h.daemon.store.appendEvents(h.thread.id, [
-      { type: "item.updated", item: { ...notice, createdAt: 11 } },
+      // createdAt is identity since 5729d3e9f and no longer moves on update; the
+      // stale write must still arrive without reviving the delivered send.
+      { type: "item.updated", item: { ...notice, text: "Still failing, updated" } },
     ]);
     await when(
-      lease.store.select([`item:${failure}`], (reader) => reader.item(failure)?.createdAt),
-      (at) => at === 11,
+      lease.store.select([`item:${failure}`], (reader) => reader.item(failure)?.text),
+      (text) => text === "Still failing, updated",
     );
     expect(selection.getSnapshot()[0]).toMatchObject({
       state: "delivered",
