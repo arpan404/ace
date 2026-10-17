@@ -53,54 +53,45 @@ export class LiveWriteBuffer {
     if (this.weight + bytes * 8 + 4096 > 8 * 1024 * 1024) this.options.flush();
     if (bytes * 8 + 4096 > 8 * 1024 * 1024) throw new Error("Store is busy");
   }
+  /** Admission was decided by prepare() before the reducer ran. The facts behind these events
+   * are already applied in memory, so refusing them here would make a mailbox retry apply them
+   * twice; the stream() size guard bounds the overshoot and full() drains it at once. */
   append(events: Event[], thread: ThreadId, snapshot: BufferedSnapshot): void {
-    const incoming = events.reduce(
-      (bytes, event) => bytes + Buffer.byteLength(JSON.stringify(event)) * 8 + 512,
-      0,
-    );
-    if (this.weight + incoming > 8 * 1024 * 1024) throw new Error("Store is busy");
     this.snapshots.set(thread, snapshot);
     for (const event of events) {
       const bytes = Buffer.byteLength(JSON.stringify(event));
       this.weight += bytes * 8 + 512;
       this.metrics.liveBytes += bytes;
-      const previous = this.events.at(-1);
-      const p = previous?.payload;
-      const next = event.payload;
-      if (
-        previous &&
-        p?.type === "item.delta" &&
-        next.type === "item.delta" &&
-        previous.threadId === event.threadId &&
-        p.itemId === next.itemId &&
-        p.agentId === next.agentId &&
-        p.field === next.field &&
-        Buffer.byteLength(p.append) + Buffer.byteLength(next.append) <= 4096
-      ) {
-        this.events[this.events.length - 1] = {
-          ...event,
-          payload: { ...next, append: p.append + next.append },
-        };
-      } else this.events.push(event);
+      this.events.push(event);
     }
     this.metrics.peakBytes = Math.max(this.metrics.peakBytes, this.weight);
     this.arm(75);
+  }
+  /** Buffered envelopes after `seq`, in order. */
+  after(seq: number): Event[] {
+    let start = this.events.length;
+    while (start > 0 && (this.events[start - 1]?.seq ?? 0) > seq) start--;
+    return this.events.slice(start);
   }
   full(): boolean {
     return this.weight >= 64 * 1024;
   }
   flush(
-    commit: (events: Event[], snapshots: Iterable<BufferedSnapshot>, done: () => void) => void,
+    commit: (
+      events: Event[],
+      snapshots: Iterable<BufferedSnapshot>,
+      done: (rows: number) => void,
+    ) => void,
   ): void {
     if (!this.snapshots.size) return;
     this.cancel?.();
     this.cancel = undefined;
     try {
-      commit(this.events, this.snapshots.values(), () => {
+      commit(this.events, this.snapshots.values(), (rows) => {
         for (const snapshot of this.snapshots.values()) snapshot.committed();
         this.failed = false;
         this.metrics.flushes++;
-        this.metrics.rows += this.events.length;
+        this.metrics.rows += rows;
         this.events = [];
         this.snapshots.clear();
         this.weight = 0;
@@ -126,4 +117,28 @@ export class LiveWriteBuffer {
     this.cancel?.();
     this.cancel = undefined;
   }
+}
+
+/** Adjacent deltas for the same thread, item, agent and field become one row of at most 4 KiB.
+ * The merged row keeps the final sequence of its span. Pure: inputs are never mutated. */
+export function compactDeltas(events: Event[]): Event[] {
+  const rows: Event[] = [];
+  for (const event of events) {
+    const previous = rows.at(-1);
+    const p = previous?.payload;
+    const next = event.payload;
+    if (
+      previous &&
+      p?.type === "item.delta" &&
+      next.type === "item.delta" &&
+      previous.threadId === event.threadId &&
+      p.itemId === next.itemId &&
+      p.agentId === next.agentId &&
+      p.field === next.field &&
+      Buffer.byteLength(p.append) + Buffer.byteLength(next.append) <= 4096
+    )
+      rows[rows.length - 1] = { ...event, payload: { ...next, append: p.append + next.append } };
+    else rows.push(event);
+  }
+  return rows;
 }
