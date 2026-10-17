@@ -219,3 +219,21 @@ test("with no icon chosen, this machine shows a laptop and a paired machine a se
   expect(await mark("This Mac")).toBe("laptop machine icon");
   expect(await mark("Build server")).toBe("server machine icon");
 });
+
+test("Enter in the machine name saves it", async () => {
+  const app = harness();
+  app.play(replayCursor()).runThrough("finding");
+  await app.open("/settings/remote");
+  await screen.findByText("Fake machine", { exact: true });
+  const edit = await screen.findByRole("button", { name: "Actions for Fake machine" });
+  await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
+  await userEvent.click(edit);
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
+  const dialog = await screen.findByRole("dialog");
+  const input = within(dialog).getByRole("textbox", { name: "Machine name" });
+  await userEvent.clear(input);
+  await userEvent.type(input, "Studio Mac{Enter}");
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  const machines = screen.getByRole("region", { name: "Machines" });
+  expect(await within(machines).findByText("Studio Mac")).toBeTruthy();
+});

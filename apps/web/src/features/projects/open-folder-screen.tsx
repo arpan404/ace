@@ -7,7 +7,7 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
+import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { useLandInProject } from "./land.ts";
 import { projectFailure, useProjectCommands } from "./project-commands.ts";
@@ -93,12 +93,14 @@ export function OpenFolderScreen(props: { folder: string }) {
           }
         />
       ) : (
+        // A page never loads behind a spinner: the empty state's shape until the folder opens.
         <div
           role="status"
-          className="flex h-full items-center justify-center gap-2 text-ui text-muted-foreground"
+          aria-label={ready ? `Opening ${displayPath(props.folder, undefined)}` : "Waiting for ace"}
+          className="flex h-full flex-col items-center justify-center gap-2 px-5 py-6"
         >
-          <Spinner />
-          {ready ? `Opening ${displayPath(props.folder, undefined)}…` : "Waiting for ace…"}
+          <Skeleton className="h-3.5 w-36" />
+          <Skeleton className="h-3 w-56 max-w-full" />
         </div>
       )}
     </Screen>

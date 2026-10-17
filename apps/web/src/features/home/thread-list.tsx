@@ -108,7 +108,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
       },
     );
   }, [pinned, active, recent, snoozed, settled, snoozedOpen, settledOpen, moving]);
-  const hold = useListHold();
+  const hold = useListHold(moving !== undefined);
   const held = useHeldRows(rows, hold.state, props.list.needsYou);
   const { rows: drawn, moving: sliding } = useListMotion(held, homeRowKey);
   const viewport = useRef<HTMLDivElement>(null);
@@ -310,16 +310,13 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
       <div
         ref={viewport}
         {...hold.handlers}
-        onPointerEnter={() => {
-          hold.handlers.onPointerEnter();
-          void loadDrag();
-        }}
+        onPointerEnter={() => void loadDrag()}
         data-virtual-viewport=""
         style={{
           maskImage:
             "linear-gradient(to bottom, transparent, black 8px, black calc(100% - 8px), transparent)",
         }}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4 [scrollbar-gutter:stable]"
       >
         <div
           ref={listRef}

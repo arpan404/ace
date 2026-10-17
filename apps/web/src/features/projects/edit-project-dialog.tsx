@@ -72,7 +72,7 @@ export function EditProjectDialog(props: {
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent size="md">
+      <DialogContent>
         <form
           noValidate
           className="grid gap-4"

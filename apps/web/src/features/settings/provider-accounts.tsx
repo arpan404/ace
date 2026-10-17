@@ -159,35 +159,29 @@ function AccountItem(props: {
           )}
         </div>
         <div className="flex items-center justify-end gap-2 ml-auto">
-          <span className="relative inline-flex items-center">
-            <span className={showDefault ? "inline-flex account-reading" : "inline-flex"}>
-              {state.canRun && account.windows[0] ? (
-                <span className="flex flex-col items-end gap-1">
-                  {headlineWindows(account.windows).map((window) => (
-                    <CompactWindow key={window.id} window={window} now={now} />
-                  ))}
-                </span>
-              ) : (
-                <StatusLine
-                  tone={state.tone}
-                  text={
-                    state.text === "Limit reached" &&
-                    accountLimit(account, now).resetsAt !== undefined
-                      ? `Limit reached · ${formatResets(accountLimit(account, now).resetsAt ?? now, now).toLowerCase()}`
-                      : state.text
-                  }
-                />
-              )}
-            </span>
-            {showDefault && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="absolute right-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100"
-                onClick={makeDefault}
-              >
-                Make default
-              </Button>
+          {/* The reading always shows; Make default sits beside it, never in its place. */}
+          {showDefault && (
+            <Button size="sm" variant="ghost" onClick={makeDefault}>
+              Make default
+            </Button>
+          )}
+          <span className="inline-flex items-center">
+            {state.canRun && account.windows[0] ? (
+              <span className="flex flex-col items-end gap-1">
+                {headlineWindows(account.windows).map((window) => (
+                  <CompactWindow key={window.id} window={window} now={now} />
+                ))}
+              </span>
+            ) : (
+              <StatusLine
+                tone={state.tone}
+                text={
+                  state.text === "Limit reached" &&
+                  accountLimit(account, now).resetsAt !== undefined
+                    ? `Limit reached · ${formatResets(accountLimit(account, now).resetsAt ?? now, now).toLowerCase()}`
+                    : state.text
+                }
+              />
             )}
           </span>
           {signIn && props.manageable && needsSignIn ? (

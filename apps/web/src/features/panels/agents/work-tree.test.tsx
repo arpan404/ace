@@ -248,7 +248,7 @@ test("a click on a nested agent's chevron folds its subagents without opening it
   expect(await screen.findByRole("heading", { level: 1, name: "resume-sweep" })).toBeTruthy();
 });
 
-test("Stop on an agent with subagents says how many go with it and asks first", async () => {
+test("Stop on an agent with subagents says how many go with it and asks first, Cancel focused", async () => {
   const app = harness();
   app.play(nested).runUntilBlocked();
   const panel = await openAgents(app, "/t/thread-nested");
@@ -258,6 +258,10 @@ test("Stop on an agent with subagents says how many go with it and asks first", 
   const stop = within(bar).getByRole("button", { name: "Stop resume-sweep and its 1 subagent" });
   await userEvent.click(stop);
   const ask = await screen.findByRole("dialog", { name: "Stop resume-sweep and its 1 subagent?" });
+  // A danger confirmation: focus starts on the safe answer.
+  await waitFor(() =>
+    expect(document.activeElement).toBe(within(ask).getByRole("button", { name: "Cancel" })),
+  );
   await userEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
   expect(await within(bar).findByRole("button", { name: /^Stop resume-sweep/ })).toBeTruthy();
 

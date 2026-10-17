@@ -87,11 +87,10 @@ test("a long thread shows every turn whole, with no folded turn rows", async () 
   expect(within(feed).queryByText(/^Turn \d+$/)).toBeNull();
 });
 
-test("hovering a turn on the rail previews its ask and the start of its reply", async () => {
-  const user = userEvent.setup();
+test("focusing a turn on the rail previews its ask and the start of its reply", async () => {
   await openLong(14, 200, undefined, 2);
   const rail = await screen.findByRole("navigation", { name: "Conversation turns" });
-  await user.hover(within(rail).getByRole("button", { name: "Turn 12" }));
+  act(() => within(rail).getByRole("button", { name: "Turn 12" }).focus());
   const card = await waitFor(() => {
     const open = document.querySelector<HTMLElement>("[data-slot='hover-card-content']");
     if (!open) throw new Error("Turn preview card missing");

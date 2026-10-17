@@ -27,18 +27,15 @@ function Rail({ single = false }: { single?: boolean }) {
   );
 }
 
-test("only the hovered turn mounts its preview, while click delegates the jump", async () => {
+test("hovering a tick never pops a preview, and a click jumps to its turn", async () => {
   render(<Rail />);
-  expect(screen.queryByText(/Preview/)).toBeNull();
   const user = userEvent.setup();
   const target = screen.getByRole("button", { name: "Fix retry" });
-  expect(target.getAttribute("aria-current")).toBeNull();
   await user.hover(target);
-  await screen.findByText("Preview second");
-  expect(screen.queryByText("Preview first")).toBeNull();
-  expect(screen.queryByText("Preview third")).toBeNull();
+  expect(screen.queryByText(/Preview/)).toBeNull();
   await user.click(target);
   expect(screen.getByLabelText("Selected turn").textContent).toBe("second");
+  expect(screen.queryByText(/Preview/)).toBeNull();
 });
 
 test("keyboard traversal has one tab stop and Enter jumps the focused turn", async () => {
@@ -73,15 +70,19 @@ test("a one-turn conversation does not add an outline", () => {
   expect(screen.queryByRole("navigation", { name: "Conversation turns" })).toBeNull();
 });
 
-test("moving along the rail previews each turn at once, one preview at a time", async () => {
+test("keyboard focus previews one turn at a time and Escape or leaving closes it", async () => {
   render(<Rail />);
   const user = userEvent.setup();
-  await user.hover(screen.getByRole("button", { name: "Audit login" }));
+  await user.tab();
   expect(screen.getByText("Preview first")).toBeTruthy();
-  await user.hover(screen.getByRole("button", { name: "Run tests" }));
+  await user.keyboard("{End}");
   expect(screen.getByText("Preview third")).toBeTruthy();
   expect(screen.queryByText("Preview first")).toBeNull();
-  await user.unhover(screen.getByRole("navigation", { name: "Conversation turns" }));
+  await user.keyboard("{Escape}");
+  expect(screen.queryByText(/Preview/)).toBeNull();
+  await user.keyboard("{Home}");
+  expect(screen.getByText("Preview first")).toBeTruthy();
+  await user.tab();
   expect(screen.queryByText(/Preview/)).toBeNull();
 });
 

@@ -34,7 +34,7 @@ export default function AddMcpServer(props: {
         if (!open && !busy) props.onClose();
       }}
     >
-      <DialogContent size="md">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Add MCP server</DialogTitle>
           <DialogDescription>
@@ -113,7 +113,7 @@ export default function AddMcpServer(props: {
               {error}
             </p>
           )}
-          <DialogFooter>
+          <DialogFooter submitHint>
             <Button variant="ghost" disabled={busy} onClick={props.onClose}>
               Cancel
             </Button>

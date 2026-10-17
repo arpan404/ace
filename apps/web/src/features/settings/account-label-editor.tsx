@@ -93,7 +93,7 @@ export function AccountLabelEditor(props: {
               {error}
             </p>
           )}
-          <DialogFooter>
+          <DialogFooter submitHint>
             <Button
               type="button"
               size="sm"
