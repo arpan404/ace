@@ -12,13 +12,19 @@ const reply = (item: string, text: string): Fact => ({
 
 type Harness = Awaited<ReturnType<typeof harness>>;
 
-/** Message texts in the order the daemon first created them: the transcript's order. */
+/** Message texts in the order of their daemon creation sequence: the transcript's order. */
 function creationOrder(h: Harness, id: ThreadId): string[] {
-  const texts: string[] = [];
-  for (const event of h.store.readEvents({ afterSeq: 0, threadId: id, limit: 1000 }))
-    if (event.payload.type === "item.created" && event.payload.item.type === "message")
-      for (const part of event.payload.item.parts) if (part.type === "text") texts.push(part.text);
-  return texts;
+  const shown = new Map<string, string[]>();
+  for (const { payload } of h.store.readEvents({ afterSeq: 0, threadId: id, limit: 1000 }))
+    if (payload.type === "item.deleted") shown.delete(payload.itemId);
+    else if (payload.type === "item.created" && payload.item.type === "message") {
+      shown.delete(payload.item.id);
+      shown.set(
+        payload.item.id,
+        payload.item.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])),
+      );
+    }
+  return [...shown.values()].flat();
 }
 
 /** The run of the message whose text is `text`, as stored. */
@@ -165,6 +171,151 @@ test("messages steered into a working run belong to it, where they were sent", a
     const first = runOf(h, id, "first");
     for (const ask of ["q1", "q2", "q3", "took all three in"])
       expect(runOf(h, id, ask)).toBe(first);
+  } finally {
+    await h.close();
+  }
+});
+
+/** Sends carry a native id the provider reports back, as Claude, Codex and Cursor sends do. */
+function identifyingSends(h: Harness): void {
+  const original = h.registry.get("codex").adapter;
+  h.registry.register(
+    {
+      ...original,
+      async openSession(ctx) {
+        const opened = await original.openSession(ctx);
+        return {
+          ...opened,
+          async send(input, delivery, commandId, origin) {
+            if (commandId) ctx.onInputMessage?.({ commandId, nativeId: `native:${commandId}` });
+            await opened.send(input, delivery, commandId, origin);
+          },
+        };
+      },
+    },
+    { installed: true, auth: "logged_in", loginHint: "unused" },
+  );
+}
+
+async function steeringHarness() {
+  const frames = scriptFrames();
+  const h = await harness(
+    [
+      { on: "send", frames: [frames.frame(start, reply("r1-a", "working on first"))] },
+      { on: "send" },
+    ],
+    frames,
+    { steer: true },
+  );
+  identifyingSends(h);
+  const id = await h.create();
+  const steer = h.command(
+    { type: "thread.send", threadId: id, delivery: "steer", input: [{ type: "text", text: "q1" }] },
+    "device",
+    "steer-q1",
+  );
+  expect(steer.ok).toBe(true);
+  await h.engine.flush();
+  expect(h.adapter.commands.at(-1)).toMatchObject({ type: "send", delivery: "steer" });
+  return { frames, h, id };
+}
+
+/** The provider finished the running turn without the steer. */
+async function turnEndsFirst(h: Harness, frames: ReturnType<typeof scriptFrames>) {
+  await session(h).onFrame(frames.frame(reply("r1-b", "first is done"), end));
+  await h.engine.flush();
+}
+
+function expectAnsweredByNextRun(h: Harness, id: ThreadId): void {
+  expect(creationOrder(h, id)).toEqual([
+    "first",
+    "working on first",
+    "first is done",
+    "q1",
+    "answer to q1",
+  ]);
+  const first = runOf(h, id, "first");
+  expect(runOf(h, id, "first is done")).toBe(first);
+  expect(runOf(h, id, "q1")).toBe(runOf(h, id, "answer to q1"));
+  expect(runOf(h, id, "q1")).not.toBe(first);
+  expect(
+    Object.values(h.store.snapshotThread(id).items).filter(
+      (item) => item.type === "message" && item.role === "user",
+    ),
+  ).toHaveLength(2);
+}
+
+const consumed: Fact = {
+  type: "input.consumed",
+  agent: "root",
+  nativeInputIds: ["native:steer-q1"],
+};
+
+test("a steer the provider reports consumed by the next turn moves to that turn", async () => {
+  const { frames, h, id } = await steeringHarness();
+  try {
+    await turnEndsFirst(h, frames);
+    await session(h).onFrame(frames.frame(start, consumed, reply("a1", "answer to q1"), end));
+    await h.engine.flush();
+    expectAnsweredByNextRun(h, id);
+  } finally {
+    await h.close();
+  }
+});
+
+test("a steer the provider delivers between turns joins the turn that starts after it", async () => {
+  const { frames, h, id } = await steeringHarness();
+  try {
+    await turnEndsFirst(h, frames);
+    await session(h).onFrame(frames.frame(consumed));
+    await session(h).onFrame(frames.frame(start, reply("a1", "answer to q1"), end));
+    await h.engine.flush();
+    expectAnsweredByNextRun(h, id);
+  } finally {
+    await h.close();
+  }
+});
+
+test.each([
+  ["its native id", { nativeId: "native:steer-q1" }],
+  ["its text alone", {}],
+])("a steer the provider echoes by %s in the next turn moves to that turn", async (_, echo) => {
+  const { frames, h, id } = await steeringHarness();
+  try {
+    await turnEndsFirst(h, frames);
+    await session(h).onFrame(
+      frames.frame(
+        start,
+        {
+          type: "item.upsert",
+          agent: "root",
+          item: "native-user-echo",
+          draft: {
+            type: "message",
+            role: "user",
+            parts: [{ type: "text", text: "q1" }],
+            complete: true,
+            ...echo,
+          },
+        },
+        reply("a1", "answer to q1"),
+        end,
+      ),
+    );
+    await h.engine.flush();
+    expectAnsweredByNextRun(h, id);
+  } finally {
+    await h.close();
+  }
+});
+
+test("a steer the running turn reports consuming stays where it was sent", async () => {
+  const { frames, h, id } = await steeringHarness();
+  try {
+    await session(h).onFrame(frames.frame(consumed, reply("r1-b", "took q1 in"), end));
+    await h.engine.flush();
+    expect(creationOrder(h, id)).toEqual(["first", "working on first", "q1", "took q1 in"]);
+    expect(runOf(h, id, "q1")).toBe(runOf(h, id, "first"));
   } finally {
     await h.close();
   }

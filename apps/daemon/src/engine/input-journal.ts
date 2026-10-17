@@ -116,6 +116,23 @@ export class InputJournal {
       .statement("UPDATE engine_inputs SET run_id=? WHERE thread_id=? AND item_key=?")
       .run(run ?? null, thread, key);
   }
+  /** The transcript key of the input whose send carried native id `nativeId`. */
+  keyFor(thread: ThreadId, nativeId: string): string | undefined {
+    const row = this.store
+      .statement("SELECT command_id FROM engine_input_identities WHERE thread_id=? AND native_id=?")
+      .get(thread, nativeId);
+    return row ? `input:${CommandId.parse(row.command_id)}` : undefined;
+  }
+  /** Whether session `generation` was handed this input: only its own deliveries bind runs. */
+  sentIn(thread: ThreadId, key: string, generation: number | undefined): boolean {
+    return Boolean(
+      this.store
+        .statement(
+          "SELECT 1 FROM engine_inputs WHERE thread_id=? AND item_key=? AND sent=1 AND generation IS ?",
+        )
+        .get(thread, key, generation ?? null),
+    );
+  }
   /** Inputs session `generation` was handed that no run has taken yet now belong to `run`. */
   bindSent(thread: ThreadId, run: string, generation: number | undefined): string[] {
     return this.store

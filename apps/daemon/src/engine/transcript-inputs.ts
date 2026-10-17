@@ -145,6 +145,40 @@ export function bindStartedRun(
   });
 }
 
+/**
+ * The provider says which run took a delivered input: the root's running turn, or with none
+ * running, the next one (`bindStartedRun` binds it when it starts). This corrects a steer that
+ * reached the provider just as its turn ended and ran as a new turn. An input that moves off a
+ * finished run was never that run's: it is created again here, at the point it was consumed, so
+ * it reads before the answer of the run that took it. Only inputs this session was handed move.
+ */
+export function bindConsumedInput(
+  repo: EngineRepository,
+  state: ThreadState,
+  key: string,
+  generation: number | undefined,
+  at: number,
+): EventPayload[] {
+  const item = state.items[key];
+  const root = state.agents[state.rootKey ?? ""];
+  if (item?.type !== "message" || item.agentId !== root?.agent.id) return [];
+  const run = root.activeRun;
+  if (item.runId === run || !repo.inputs.sentIn(state.threadId, key, generation)) return [];
+  if (item.runId !== undefined && state.runs[item.runId]?.state === "active") return [];
+  repo.inputs.attachRun(state.threadId, key, run);
+  if (item.runId === undefined) {
+    const update = run === undefined ? undefined : bindItemRun(state, key, run);
+    return update ? [update] : [];
+  }
+  const { runId: _previous, ...rest } = item;
+  const moved = { ...rest, createdAt: at, ...(run === undefined ? {} : { runId: run }) };
+  state.items[key] = moved;
+  return [
+    { type: "item.deleted", itemId: item.id },
+    { type: "item.created", item: moved },
+  ];
+}
+
 function bindItemRun(
   state: ThreadState,
   key: string,

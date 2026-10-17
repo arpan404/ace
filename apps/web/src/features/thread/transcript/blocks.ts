@@ -922,9 +922,10 @@ export function sameBlock(a: Block, b: Block): boolean {
 }
 
 /**
- * The daemon admits a queued message into the transcript as `input:<commandId>` when it accepts
- * it (ADR 0065); while it waits in the queue its pill shows it, so its bubble stays out of the
- * feed until it leaves the queue. So does an ending the transcript tied to it while it waited
+ * The daemon creates a message's `input:<commandId>` item when it delivers it (ADR 0065), so a
+ * message waiting in the queue has none. One that went back to the queue after a delivery attempt
+ * keeps its item; while it waits its pill shows it, so its bubble stays out of the feed until it
+ * leaves the queue again. So does an ending the transcript tied to it while it waited
  * (an agent that failed with the message last in line): that ending is the turn before's, which
  * becomes the newest in view again (QA-10). Returns `blocks` itself when nothing is hidden. Pure.
  */

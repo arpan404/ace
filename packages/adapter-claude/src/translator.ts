@@ -6,6 +6,7 @@ import type { Translator, Frame } from "@ace/engine-api";
 import { rateLimitFacts, clearRateLimit } from "./rate-limits.ts";
 import { ResultUsage } from "./result-usage.ts";
 import { NativeQueue } from "./native-queue.ts";
+import { ConsumedInputs } from "./consumed-inputs.ts";
 import { PendingTranscripts } from "./pending-transcripts.ts";
 import { MessageIndex } from "./blocks.ts";
 import { ClaudeState } from "./state.ts";
@@ -17,6 +18,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
   let state = new ClaudeState(init.rootKey);
   let accounting = new ResultUsage();
   let queue = new NativeQueue();
+  let consumed = new ConsumedInputs();
   const streams = new Map<string, StreamState>();
   const messages = new MessageIndex(init.rootKey);
   const pending = new PendingTranscripts();
@@ -207,6 +209,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         state = new ClaudeState(init.rootKey);
         accounting = new ResultUsage();
         queue = new NativeQueue();
+        consumed = new ConsumedInputs();
         streams.clear();
         messages.clear();
         pending.clear();
@@ -247,6 +250,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
           undefined,
         );
       }
+      consumed.observe(state, frame, data);
       const bindings = state.bindings;
       state.bindings = [];
       for (const spawn of bindings)

@@ -8,7 +8,7 @@ import type { TransitionReadiness } from "./transition-readiness.ts";
 import { coalesceFacts } from "./delta-batch.ts";
 import { capFact } from "./raw.ts";
 import { retireEndedTurnInputs } from "./stale-inputs.ts";
-import { bindStartedRun } from "./transcript-inputs.ts";
+import { bindConsumedInput, bindStartedRun } from "./transcript-inputs.ts";
 import { shapeProviderError, structuredError } from "./provider-errors.ts";
 export interface FactPorts {
   ids: IdSource;
@@ -61,6 +61,13 @@ export function foldProviderFacts(
           now,
         );
       return [];
+    }
+    if (input.type === "input.consumed") {
+      if (ports.opening || input.agent !== (state.rootKey ?? "root")) return [];
+      return input.nativeInputIds.flatMap((nativeId) => {
+        const key = repo.inputs.keyFor(id, nativeId);
+        return key ? bindConsumedInput(repo, state, key, generation, now) : [];
+      });
     }
     const queue = input.type === "turn.started" ? repo.queue.get(id) : undefined;
     if (
@@ -156,6 +163,18 @@ export function foldProviderFacts(
             }
           : {}),
       });
+      // The provider's own echo of an input arrives in the run that took it.
+      if (
+        !ports.opening &&
+        generation !== undefined &&
+        (fact.type === "item.upsert" || fact.type === "item.reconciled") &&
+        fact.item.startsWith("input:") &&
+        fact.agent === (state.rootKey ?? "root") &&
+        fact.draft.type === "message" &&
+        fact.draft.role === "user" &&
+        state.agents[fact.agent]?.activeRun
+      )
+        emitted.push(...bindConsumedInput(repo, state, fact.item, generation, now));
       const waiting = aceWaitFact(state, fact);
       if (waiting) emitted.push(...batch.apply(waiting, { now, ids: ports.ids }));
       repo.interactions.opened(state, fact, generation);
