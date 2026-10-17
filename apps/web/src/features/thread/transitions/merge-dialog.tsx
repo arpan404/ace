@@ -128,7 +128,7 @@ export function MergeDialog(props: { thread: ThreadRef; onClose(): void }) {
               {error}
             </p>
           )}
-          <DialogFooter>
+          <DialogFooter submitHint>
             <Button type="button" variant="ghost" disabled={sending} onClick={props.onClose}>
               Cancel
             </Button>

@@ -245,16 +245,6 @@
 }
 
 @layer components {
-  /* Make default replaces a reading without taking its place in the row's layout. */
-  .group:hover .account-reading,
-  .account-reading:has(+ button:focus) {
-    opacity: 0;
-  }
-  @media (pointer: coarse) {
-    .account-reading {
-      opacity: 0;
-    }
-  }
   /* Spinner ring in the current colour: the working blue unless a caller sets another. */
   .spin-ring {
     width: 11px;
@@ -344,12 +334,17 @@ body
   visibility: hidden;
 }
 
-/* Hide sidebar scroll tracks without changing native wheel, touch or keyboard scrolling. */
+/*
+ * A thin, quiet scroll track that is always there to see and grab: no hiding it until hover.
+ * `scroll-quiet` on one scroller; `.sidebar-scroll` for every scroller inside the sidebar. Pair
+ * with `[scrollbar-gutter:stable]` where the track appearing must not shift the content.
+ */
+@utility scroll-quiet {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--foreground) 16%, transparent) transparent;
+}
 .sidebar-scroll,
 .sidebar-scroll * {
-  scrollbar-width: none;
-}
-.sidebar-scroll::-webkit-scrollbar,
-.sidebar-scroll *::-webkit-scrollbar {
-  display: none;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--foreground) 16%, transparent) transparent;
 }

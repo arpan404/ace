@@ -12,6 +12,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import type { MoveRequest } from "./mover.ts";
 import { useThreadActions } from "./use-thread-actions.ts";
@@ -68,13 +69,13 @@ export function MoveDialog(props: { request: MoveRequest; open: boolean; onClose
           placeholder={`Move ${what} to…`}
           closeLabel="Close"
         />
-        <CommandEmpty>
-          {!directory.loaded
-            ? "Reading the projects…"
-            : none
-              ? "There is no other project. Add one first."
-              : "No projects match."}
-        </CommandEmpty>
+        {directory.loaded ? (
+          <CommandEmpty>
+            {none ? "There is no other project. Add one first." : "No projects match."}
+          </CommandEmpty>
+        ) : (
+          <ListSkeleton label="projects" shape="row" rows={3} className="px-3 py-1" />
+        )}
         <CommandList>
           {(group: { value: string; items: Choice[] }) => (
             <CommandGroup key={group.value} items={group.items}>

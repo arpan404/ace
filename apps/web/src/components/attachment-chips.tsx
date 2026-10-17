@@ -67,7 +67,7 @@ export function AttachmentChipRow(props: {
       <ul
         ref={list}
         aria-label="Attachments"
-        className="flex max-h-60 flex-wrap items-start gap-2 overflow-y-auto px-3 pt-3 [scrollbar-width:none]"
+        className="flex max-h-60 flex-wrap items-start gap-2 overflow-y-auto px-3 pt-3 scroll-quiet [scrollbar-gutter:stable]"
       >
         {shown.map((item) => (
           <Chip

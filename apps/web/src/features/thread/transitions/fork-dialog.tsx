@@ -100,7 +100,7 @@ export function ForkDialog(props: { thread: ThreadRef; point: ForkPoint; onClose
               {error}
             </p>
           )}
-          <DialogFooter>
+          <DialogFooter submitHint>
             <Button type="button" variant="ghost" disabled={sending} onClick={props.onClose}>
               Cancel
             </Button>

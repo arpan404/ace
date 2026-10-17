@@ -137,8 +137,8 @@ function CreationCard(props: {
           {title ?? worktreeHeadline(progress)}
         </span>
       </p>
-      <div className="group py-1 pr-2 pl-3.5">
-        <StepList rows={worktreeStepRows(progress)} times={open} />
+      <div className="py-1 pr-2 pl-3.5">
+        <StepList rows={worktreeStepRows(progress)} />
         {note && (
           <p role="alert" className="py-1 text-ui text-muted-foreground">
             {note}
@@ -218,9 +218,9 @@ const stepIcons = {
 
 /**
  * One line per step reached. The step in flight spins (checkout with its bar and percent); a
- * finished step's time shows on hover, and always once the details are open.
+ * finished step's time always shows beside it.
  */
-function StepList(props: { rows: readonly WorktreeStepRow[]; times: boolean }) {
+function StepList(props: { rows: readonly WorktreeStepRow[] }) {
   return (
     <ol aria-label="Steps" className="flex flex-col">
       {props.rows.map((row) => (
@@ -258,12 +258,7 @@ function StepList(props: { rows: readonly WorktreeStepRow[]; times: boolean }) {
             </span>
           ) : (
             row.state !== "running" && (
-              <span
-                className={cn(
-                  "ml-auto shrink-0 text-xs text-subtle-foreground tabular-nums",
-                  !props.times && "opacity-0 group-hover:opacity-100",
-                )}
-              >
+              <span className="ml-auto shrink-0 text-xs text-subtle-foreground tabular-nums">
                 {formatDuration(row.elapsedMs)}
               </span>
             )
@@ -297,7 +292,7 @@ function DetailsLog(props: { id?: string; lines: readonly string[] }) {
         const element = event.currentTarget;
         pinned.current = element.scrollTop + element.clientHeight >= element.scrollHeight - 8;
       }}
-      className="mt-1 mb-1.5 max-h-48 overflow-auto overscroll-contain rounded-sm bg-secondary px-2.5 py-2 font-mono text-xs whitespace-pre-wrap text-muted-foreground focus-ring"
+      className="mt-1 mb-1.5 max-h-48 overflow-auto rounded-sm bg-secondary px-2.5 py-2 font-mono text-xs whitespace-pre-wrap text-muted-foreground focus-ring"
     >
       {count ? props.lines.join("\n") : "Nothing logged yet."}
     </pre>

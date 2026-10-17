@@ -69,29 +69,19 @@ async function openHome() {
   return app;
 }
 
-test("rows keep their places while the pointer is on the list and move 600 ms after it leaves", async () => {
+test("rows reorder at once while the pointer rests on the list", async () => {
   const app = await openHome();
   await userEvent.hover(list());
   app.daemon.apply("thread-oldest", working);
-  // The row says what changed, in place.
-  await waitFor(() => expect(row(/^Oldest thread\. Working/)).toBeTruthy());
-  expect(order()).toEqual(["Newest", "Middle", "Oldest"]);
-
-  await userEvent.unhover(list());
-  expect(order()).toEqual(["Newest", "Middle", "Oldest"]);
   await waitFor(() => expect(order()).toEqual(["Oldest", "Newest", "Middle"]));
+  expect(row(/^Oldest thread\. Working/)).toBeTruthy();
 });
 
-test("a thread that needs you waits for the pointer to leave before it rises", async () => {
+test("a thread that needs you rises at once under a resting pointer", async () => {
   const app = await openHome();
   await userEvent.hover(list());
   app.daemon.apply("thread-middle", asks);
-  await waitFor(() => expect(row(/^Middle thread\. Waiting for your approval/)).toBeTruthy());
-  expect(order()).toEqual(["Newest", "Middle", "Oldest"]);
-
-  // Off the list it rises at once, ahead of the 600 ms the other rows wait.
-  await userEvent.unhover(list());
-  expect(order()).toEqual(["Middle", "Newest", "Oldest"]);
+  await waitFor(() => expect(order()).toEqual(["Middle", "Newest", "Oldest"]));
 });
 
 test("while the keyboard is in the list only a thread that needs you moves", async () => {

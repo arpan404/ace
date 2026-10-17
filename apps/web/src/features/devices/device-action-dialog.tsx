@@ -136,7 +136,7 @@ export function DeviceActionDialog(props: {
               </p>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter submitHint>
             <Button variant="ghost" type="button" onClick={props.close}>
               Cancel
             </Button>
