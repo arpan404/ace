@@ -290,3 +290,20 @@ test("a refused content write keeps the live preparation and shows that it is no
   expect((await message()).textContent).toBe("Keep this editor open");
   expect(drafts()).toBeNull();
 });
+
+test("New thread again for the same project returns to its one draft instead of starting another", async () => {
+  const made = app();
+  await made.open("/new?project=ace");
+  await project("relay");
+  await userEvent.type(await message(), "Half-written plan");
+  await screen.findByRole("link", { name: "Half-written plan. Draft, Project relay" });
+  for (let press = 0; press < 2; press++) {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    await userEvent.keyboard("{Meta>}n{/Meta}");
+    expect(await screen.findByRole("button", { name: "Project: relay" })).toBeTruthy();
+    await waitFor(async () => expect((await message()).textContent).toBe("Half-written plan"));
+  }
+  const list = drafts();
+  if (!list) throw new Error("no drafts list");
+  expect(within(list).getAllByRole("link", { name: /Draft, Project relay$/ })).toHaveLength(1);
+});

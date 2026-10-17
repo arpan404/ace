@@ -21,10 +21,10 @@ async function renameMachine(button: string, name: string, icon: string) {
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 }
 
-test("editing this machine updates Settings, the new-thread environment and the thread's details card", async () => {
+test("editing this machine updates Settings and the thread's details card", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
-  let view = await app.open("/settings/remote");
+  const view = await app.open("/settings/remote");
   await screen.findByText("Fake machine", { exact: true });
   await renameMachine("Actions for Fake machine", "Workshop Mac", "Desktop");
   const machines = screen.getByRole("region", { name: "Machines" });
@@ -34,12 +34,6 @@ test("editing this machine updates Settings, the new-thread environment and the 
     kind: "desktop",
     color: "green",
   });
-  view.unmount();
-  view = await app.open("/new");
-  // New thread names the machine in its environment strip, with a "Runs on" tooltip.
-  const strip = await screen.findByRole("region", { name: "Where this thread runs" });
-  await userEvent.hover(await within(strip).findByText("Workshop Mac"));
-  expect((await screen.findByRole("tooltip")).textContent).toContain("Runs on Workshop Mac");
   view.unmount();
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });

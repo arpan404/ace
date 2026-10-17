@@ -1,5 +1,5 @@
 import { workbench } from "@ace/fake-daemon";
-import { configure, screen, waitFor } from "@testing-library/react";
+import { cleanup, configure, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { fakeClient, harness } from "@/test/harness.tsx";
@@ -46,7 +46,7 @@ test("a provider that can't express a mode doesn't list it, and a default steps 
   );
 });
 
-test("a chosen mode starts the thread and becomes this daemon's default for new threads", async () => {
+test("a mode chosen for a draft starts its thread but leaves the default for new threads alone", async () => {
   const app = made();
   await app.open("/new?project=relay");
   await userEvent.click(await screen.findByRole("button", { name: "Access: Auto review" }));
@@ -59,7 +59,11 @@ test("a chosen mode starts the thread and becomes this daemon's default for new 
       effective: "ask",
     }),
   );
-  expect(app.daemon.services.settings.get("access.defaultMode")).toBe("ask");
+  expect(app.daemon.services.settings.get("access.defaultMode")).not.toBe("ask");
+  // The next draft starts from the default again: only Settings changes it.
+  cleanup();
+  await app.open("/new?project=ace");
+  expect(await screen.findByRole("button", { name: "Access: Auto review" })).toBeTruthy();
 });
 
 test("a project's default access comes before this daemon's", async () => {

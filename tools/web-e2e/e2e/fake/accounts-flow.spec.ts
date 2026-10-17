@@ -6,8 +6,8 @@ for (const width of [1440, 390]) {
   }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/new?project=ace");
-    const heading = page.getByRole("heading", { name: /^What should we work on in / });
-    await expect(heading).toBeVisible();
+    const projectChip = page.getByRole("button", { name: "Project: ace" });
+    await expect(projectChip).toBeVisible();
     const chip = page.getByRole("button", { name: /^Model: / });
     await expect(chip).toBeEnabled();
     await chip.click();
@@ -15,7 +15,9 @@ for (const width of [1440, 390]) {
     await dialog.getByRole("button", { name: /^Change model/ }).click();
     const search = dialog.getByRole("combobox", { name: "Search models" });
     await expect(search).toBeFocused();
-    await expect.poll(async () => (await heading.boundingBox())?.x ?? -1).toBeGreaterThanOrEqual(0);
+    await expect
+      .poll(async () => (await projectChip.boundingBox())?.x ?? -1)
+      .toBeGreaterThanOrEqual(0);
     const chipBox = await chip.boundingBox();
     if (!chipBox) throw new Error("Model choice is not visible");
     await expect
@@ -23,7 +25,9 @@ for (const width of [1440, 390]) {
       .toBeGreaterThanOrEqual(chipBox.y + chipBox.height);
     await search.fill("sonnet");
     await expect(dialog.getByRole("option").first()).toBeVisible();
-    await expect.poll(async () => (await heading.boundingBox())?.x ?? -1).toBeGreaterThanOrEqual(0);
+    await expect
+      .poll(async () => (await projectChip.boundingBox())?.x ?? -1)
+      .toBeGreaterThanOrEqual(0);
   });
 
   test(`at ${width}px the current limited account stays selected and reset recovery remains clickable`, async ({
