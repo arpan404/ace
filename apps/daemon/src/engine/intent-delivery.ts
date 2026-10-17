@@ -45,20 +45,26 @@ export class IntentDelivery {
     const editableSend = ["thread.create", "thread.send"].includes(candidate.kind);
     const continuation = ["thread.resume", "queue.resume", "thread.limit"].includes(candidate.kind);
     const holdToken = this.dependencies.repo.queue.get(actor.id).holdToken;
-    const intent = this.dependencies.repo.claim(candidate);
-    if (!intent) return;
-    if (send) this.dependencies.repo.queue.set(actor.id, {}, this.dependencies.clock.now());
-    if (send) {
-      const state = this.dependencies.repo.requireState(actor.id);
+    const repo = this.dependencies.repo;
+    // Leaving the queue and joining the transcript are one step: the message's place in the
+    // thread is where the engine delivers it, and a steer belongs to the run it steers into.
+    const intent = repo.store.atomic(() => {
+      const claimed = repo.claim(candidate);
+      if (!claimed || !send) return claimed;
+      const at = this.dependencies.clock.now();
+      repo.queue.set(actor.id, {}, at);
+      const state = repo.requireState(actor.id);
       const active = state.agents[state.rootKey ?? ""]?.activeRun;
-      const outstanding = this.dependencies.repo.pending.awaiting(actor.id);
-      const target = this.dependencies.isSteer(intent)
-        ? active
-          ? undefined
-          : (outstanding?.ackTarget ?? intent.id)
-        : intent.id;
-      this.dependencies.repo.beginSend(intent, target);
-    }
+      const outstanding = repo.pending.awaiting(actor.id);
+      const steer = this.dependencies.isSteer(claimed);
+      repo.beginSend(
+        claimed,
+        steer ? (active ? undefined : (outstanding?.ackTarget ?? claimed.id)) : claimed.id,
+      );
+      if (editableSend) repo.admitInput(claimed.command, actor.id, steer ? active : undefined, at);
+      return claimed;
+    });
+    if (!intent) return;
     actor.syncQueue();
     try {
       if (["thread.resume", "queue.resume", "thread.limit"].includes(intent.command.payload.type))

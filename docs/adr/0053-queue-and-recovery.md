@@ -22,6 +22,8 @@ An explicit send delivery overrides the setting. Clients can implement the
 opposite-default shortcut without duplicating the server queue. Steers bypass
 settled-turn gating only when the adapter advertises steer, the session is live,
 and no recovery/limit hold exists. Unsupported steering enters the ordered queue.
+A queued message is not in the transcript; the claim that delivers it creates its user item
+and binds its run (ADR 0065, 2026-10-17 amendment).
 
 The commit before provider I/O is the claim boundary. Exactly-once external
 delivery cannot be promised across a crash. Unacknowledged claimed messages

@@ -1,5 +1,4 @@
 import { visibleHistoryOrder } from "@ace/projection";
-import { executionOrder } from "./execution-order.ts";
 import type { BackgroundTask, Item, Run } from "@ace/protocol";
 import {
   carriesOnStretch,
@@ -348,7 +347,7 @@ export function buildBlocks(source: BlockSource): Block[] {
     if (request.kind === "approval" && request.toolCallId)
       callApproval.set(request.toolCallId, request.id);
   let lastAnswer: string | undefined;
-  const order = visibleHistoryOrder(executionOrder(source), source.item);
+  const order = visibleHistoryOrder(source.order, source.item);
   const { stretchAt, lastWork } = lastWorkOf(order, source, anchors);
   const turns = new Map<string, TurnMark>();
   const ordered: TurnMark[] = [];
@@ -919,9 +918,10 @@ export function sameBlock(a: Block, b: Block): boolean {
 }
 
 /**
- * The daemon admits a queued message into the transcript as `input:<commandId>` when it accepts
- * it (ADR 0065); while it waits in the queue its pill shows it, so its bubble stays out of the
- * feed until it leaves the queue. So does an ending the transcript tied to it while it waited
+ * The daemon creates a message's `input:<commandId>` item when it delivers it (ADR 0065), so a
+ * message waiting in the queue has none. One that went back to the queue after a delivery attempt
+ * keeps its item; while it waits its pill shows it, so its bubble stays out of the feed until it
+ * leaves the queue again. So does an ending the transcript tied to it while it waited
  * (an agent that failed with the message last in line): that ending is the turn before's, which
  * becomes the newest in view again (QA-10). Returns `blocks` itself when nothing is hidden. Pure.
  */

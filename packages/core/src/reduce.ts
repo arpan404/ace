@@ -173,6 +173,9 @@ function fold(
         ...(fact.commandId === undefined ? {} : { commandId: fact.commandId }),
       });
       break;
+    case "input.consumed":
+      // Run binding of transcript inputs belongs to the engine's input journal.
+      break;
     case "activity": {
       const record = ensureAgent(state, fact.agent, ctx, events);
       record.activity = fact.activity;
