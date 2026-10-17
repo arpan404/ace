@@ -90,7 +90,8 @@ export class ThreadReads {
         release: () => {
           if (!this.source.inTransaction()) this.releaseThread(id);
         },
-        items: () => this.source.payloads.page(id, this.source.headSeq() + 1, 200, 1024 * 1024),
+        items: (status) =>
+          this.source.payloads.tail(id, status.thread.rootAgentId, 200, 1024 * 1024),
         retainAgents: (view) => this.source.status.retainItemAgents(view),
       }),
     );

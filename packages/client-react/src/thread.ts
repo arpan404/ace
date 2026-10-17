@@ -1,7 +1,6 @@
-import { ClientError, type ThreadKey, type ThreadReader, type ThreadSource } from "@ace/client";
+import type { ClientError, ThreadKey, ThreadReader, ThreadSource } from "@ace/client";
 import type { Item } from "@ace/protocol";
-import { useCallback, useMemo, useRef, useState } from "react";
-import { useClient } from "./context.ts";
+import { useCallback, useMemo } from "react";
 import { useThreadStore } from "./leases.ts";
 import { arrayEqual, useSelection } from "./selection.ts";
 
@@ -78,36 +77,11 @@ export function useTaskIds(threadId: string | undefined) {
   return useThread(threadId, ["tasks"], readTaskIds, arrayEqual);
 }
 
-const readBefore = (reader: ThreadReader) => reader.itemsBefore;
+/** How a transcript reads older history: through a bounded window beside the live tail (ADR 0062). */
 export interface HistoryPager {
   /** True while older items exist on the daemon that are not in the loaded window. */
   hasOlder: boolean;
   loading: boolean;
   error: ClientError | undefined;
   loadOlder(): Promise<void>;
-}
-/** ADR 0006 paging: fetch the page before the window's cursor and merge it into the store. */
-export function useHistoryPager(threadId: string | undefined, pageSize = 50): HistoryPager {
-  const client = useClient();
-  const store = useThreadStore(threadId);
-  const before = useStoreSelect(store, ["history"], readBefore);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<ClientError>();
-  const inFlight = useRef(false);
-  const loadOlder = useCallback(async () => {
-    if (!store || !threadId || inFlight.current) return;
-    if (typeof store.itemsBefore !== "number") return;
-    inFlight.current = true;
-    setLoading(true);
-    setError(undefined);
-    try {
-      await client.loadOlder(threadId, pageSize);
-    } catch (caught) {
-      setError(caught instanceof ClientError ? caught : new ClientError("protocol"));
-    } finally {
-      inFlight.current = false;
-      setLoading(false);
-    }
-  }, [client, store, threadId, pageSize]);
-  return { hasOlder: typeof before === "number", loading, error, loadOlder };
 }

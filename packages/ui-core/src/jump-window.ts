@@ -154,15 +154,15 @@ export interface TailEdge {
 
 /**
  * Whether the window overlaps the live tail, so the tail's newer items can follow it without a
- * hole: they share an item, the tail starts at or before the window's end, or the tail holds
- * the whole thread.
+ * hole: the tail's whole run starts at or before the window's end, or the tail holds the whole
+ * thread. A tail may also keep older root items before its cursor; sharing one of those is no
+ * overlap, since the items between are missing. Without sequences, a shared item decides.
  */
 export function meetsTail(window: JumpWindow, tail: TailEdge): boolean {
   if (tail.before === null) return true;
   const last = window.items.at(-1);
   const lastSeq = last ? window.seqs.get(last.id) : undefined;
-  if (typeof tail.before === "number" && lastSeq !== undefined && lastSeq >= tail.before)
-    return true;
+  if (typeof tail.before === "number" && lastSeq !== undefined) return lastSeq >= tail.before;
   const ids = new Set(tail.order);
   return window.items.some((item) => ids.has(item.id));
 }
