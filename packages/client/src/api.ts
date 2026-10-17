@@ -151,7 +151,11 @@ export interface ClientApi {
     payload: { threadId: string; before?: number | undefined; limit: number },
     options?: RequestOptions,
   ): Promise<ItemsPage>;
-  /** Fetch the page before a leased thread's window and merge it into that thread's store. */
+  /**
+   * Fetch the page before a leased thread's window and merge it into that thread's store. Pages
+   * only fill the window's free capacity and never evict live items; a full window reads deeper
+   * history through `itemsWindow` instead (ADR 0062).
+   */
   loadOlder(threadId: string, limit: number, options?: RequestOptions): Promise<void>;
   outputRead(
     payload: { streamId: string; offset: number; limit: number },

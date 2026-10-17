@@ -78,24 +78,24 @@ it("keeps completed history complete when an earlier partial page is reapplied",
   expect(view.seq).toBe(100);
 });
 
-it("merges overlapping history in timestamp order with creation cursors breaking ties", () => {
+it("merges history by creation sequence whatever its timestamps say", () => {
   const view = createThreadView(thread, 100);
-  const newer = { ...message("newer"), createdAt: 30 };
-  view.items.newer = newer;
-  view.itemOrder = ["newer"];
+  view.items.retained = { ...message("retained"), createdAt: 1 };
+  view.items.newer = { ...message("newer"), createdAt: 1 };
+  view.itemOrder = ["retained", "newer"];
+  view.itemSeqs = { retained: 2, newer: 4 };
   const history: ItemsPage = {
     ...page([], null),
     items: [
-      { ...message("second"), createdAt: 20 },
-      { ...message("first"), createdAt: 10 },
-      { ...message("tie"), createdAt: 20 },
+      { ...message("first"), createdAt: 30 },
+      { ...message("third"), createdAt: 10 },
     ],
-    itemSeqs: { first: 1, tie: 2, second: 3 },
+    itemSeqs: { first: 1, third: 3 },
   };
   applyItemsPage(view, history);
-  expect(view.itemOrder).toEqual(["first", "tie", "second", "newer"]);
+  expect(view.itemOrder).toEqual(["first", "retained", "third", "newer"]);
   applyItemsPage(view, history);
-  expect(view.itemOrder).toEqual(["first", "tie", "second", "newer"]);
+  expect(view.itemOrder).toEqual(["first", "retained", "third", "newer"]);
 });
 
 it("paging equal-time history keeps live items after the known creation cursors", () => {

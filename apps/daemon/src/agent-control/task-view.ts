@@ -24,9 +24,7 @@ export function agentTaskView(
               ? record.outcome?.outcome === "cancelled"
                 ? "cancelled"
                 : "result_available"
-              : status === "working"
-                ? "working"
-                : "result_available";
+              : "working";
   return { threadId: thread.id, generation: record.generation, state };
 }
 

@@ -235,3 +235,25 @@ export function itemText(item: import("@ace/protocol").Item | undefined): string
         .join("")
     : "";
 }
+/** Thread snapshots arrive holding only their newest item, so an older page has room to land. */
+export function newestOnly(faults: Faults): void {
+  faults.incoming = (incoming, text, deliver) => {
+    if (incoming.type !== "snapshot" || incoming.view.kind !== "thread") return deliver(text);
+    const id = incoming.view.itemOrder.at(-1);
+    const item = id === undefined ? undefined : incoming.view.items[id];
+    const seq = id === undefined ? undefined : incoming.view.itemSeqs?.[id];
+    if (id === undefined || !item || seq === undefined) return deliver(text);
+    deliver(
+      JSON.stringify({
+        ...incoming,
+        view: {
+          ...incoming.view,
+          items: { [id]: item },
+          itemOrder: [id],
+          itemSeqs: { [id]: seq },
+          itemsBefore: seq,
+        },
+      }),
+    );
+  };
+}

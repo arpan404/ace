@@ -847,7 +847,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     if (!store) throw new ClientError("offline", "Thread is not leased");
     const before = store.itemsBefore;
     if (before === null || before === undefined) return;
-    store.page(await this.itemsPage({ threadId, before, limit }, options));
+    store.page(await this.itemsPage({ threadId, before, limit }, options), before);
   }
   outputRead(
     payload: { streamId: string; offset: number; limit: number },
