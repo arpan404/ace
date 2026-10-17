@@ -1,4 +1,5 @@
 import { MessageReferences } from "./message-references.tsx";
+import { messageActions } from "./message-actions.ts";
 import { userBubble } from "./user-bubble.ts";
 import { useItem } from "@ace/client-react";
 import { formatClock, withoutPortableHandoff, sanitizeUserText } from "@ace/ui-core";
@@ -7,6 +8,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useCopy } from "@/components/use-copy.ts";
 import { Suspense, useRef } from "react";
 import type { LocalAttachment } from "@/components/attachment-format.ts";
+import { cn } from "@/lib/cn.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { DeferredSendStatus } from "../composer/deferred-parts.tsx";
 import {
@@ -16,6 +18,7 @@ import {
   useLocalSendsView,
   type LocalSend,
 } from "../composer/send-store.ts";
+import { EditMessageButton, useEditPoint } from "../transitions/message-edits.tsx";
 
 const nothing: LocalSend = {};
 
@@ -56,17 +59,19 @@ function localFiles(local: LocalSend): readonly LocalAttachment[] | undefined {
 }
 
 /**
- * The person's message: a right-aligned bubble; its time shows on hover, keeping the column
- * quiet. The same bubble is drawn from the moment Enter is pressed (from the outbox, or held
- * while its files upload) until the daemon's item takes over under the same key, with a quiet
- * "Sending…" under it meanwhile and "Not sent" with Retry and Edit if it doesn't go. Attached
- * images show as thumbnails and files by name, never by a host path (AT-1).
+ * The person's message: a right-aligned bubble. Its time, Copy and Edit sit beside the bubble's
+ * foot on hover or focus (always on touch), so an idle message costs no height of its own. The
+ * same bubble is drawn from the moment Enter is pressed (from the outbox, or held while its files
+ * upload) until the daemon's item takes over under the same key, with a quiet "Sending…" under it
+ * meanwhile and "Not sent" with Retry and Edit if it doesn't go. Attached images show as
+ * thumbnails and files by name, never by a host path (AT-1).
  */
 export function UserMessage(props: { threadId: string; itemId: string }) {
   const content = useRef<HTMLDivElement>(null);
   const { copied, copy } = useCopy();
   const item = useItem(leasable(props.threadId), props.itemId);
   const local: LocalSend = useLocalSendsView(props.threadId)?.find(props.itemId) ?? nothing;
+  const editPoint = useEditPoint(props.threadId, props.itemId);
   const noticeId = local.noticeId;
   const message = item?.type === "message" ? item : undefined;
   if (!message && !local.send && !local.staged) return null;
@@ -91,59 +96,55 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
     (!message && localFiles(local)?.length)
       ? { images }
       : undefined;
-  if (!text && !files && !parts.some((part) => part.type === "mention")) return null;
+  const readable = !!text || parts.some((part) => part.type === "mention");
+  if (!readable && !files) return null;
   const saying =
     !!local.staged ||
     noticeId !== undefined ||
     local.send?.state === "saving" ||
     local.send?.state === "sent" ||
     local.send?.state === "failed";
-  const time = (
-    <span className="pr-1 text-xs text-subtle-foreground">
-      {message ? formatClock(message.createdAt) : " "}
-    </span>
-  );
   return (
     <div className="group/bubble flex flex-col items-end">
-      <div className={userBubble}>
-        {files && (
-          <Suspense fallback={<AttachmentsRoom images={files.images} />}>
-            <DeferredAttachments.Component
-              threadId={leasable(props.threadId)}
-              attachments={message?.attachments}
-              parts={message?.parts ?? local.send?.payload.input}
-              local={message ? undefined : localFiles(local)}
-              className={text ? "mb-2" : undefined}
-            />
-          </Suspense>
-        )}
-        <div ref={content}>{parts.length ? <MessageReferences parts={parts} /> : text}</div>
-      </div>
-      {/* One line under the bubble: how its sending goes, else its time on hover. Both are
-          the same height, so the row doesn't move when "Sending…" goes. */}
-      <div className="mt-1 flex min-h-6 items-center gap-2">
-        {saying ? (
-          <Suspense fallback={time}>
-            <DeferredSendStatus.Component
-              threadId={props.threadId}
-              itemId={props.itemId}
-              send={local.send}
-              staged={local.staged}
-              noticeId={noticeId}
-              otherwise={time}
-            />
-          </Suspense>
-        ) : (
-          time
-        )}
-        {(text || parts.some((part) => part.type === "mention")) && (
-          <div className="flex items-center gap-2 opacity-0 transition-opacity duration-(--motion-fast) group-hover/bubble:opacity-100 group-focus-within/bubble:opacity-100">
-            <IconButton
-              icon={copied ? CheckIcon : CopyIcon}
-              label={copied ? "Copied message" : "Copy message"}
-              size="sm"
-              onClick={() => copy(content.current?.textContent ?? text)}
-            />
+      {/* Touch: the actions under the bubble. A pointer: beside its foot, taking no height. */}
+      <div className="flex w-full min-w-0 flex-col items-end gap-1 pointer-fine:flex-row pointer-fine:items-end pointer-fine:justify-end pointer-fine:gap-2">
+        <div className={cn(userBubble, "pointer-fine:order-last")}>
+          {files && (
+            <Suspense fallback={<AttachmentsRoom images={files.images} />}>
+              <DeferredAttachments.Component
+                threadId={leasable(props.threadId)}
+                attachments={message?.attachments}
+                parts={message?.parts ?? local.send?.payload.input}
+                local={message ? undefined : localFiles(local)}
+                className={text ? "mb-2" : undefined}
+              />
+            </Suspense>
+          )}
+          <div ref={content}>{parts.length ? <MessageReferences parts={parts} /> : text}</div>
+        </div>
+        {message && !saying && (
+          <div className={cn(messageActions("bubble"), "shrink-0")}>
+            <time
+              dateTime={new Date(message.createdAt).toISOString()}
+              className="pr-1 text-xs text-subtle-foreground"
+            >
+              {formatClock(message.createdAt)}
+            </time>
+            {readable && (
+              <IconButton
+                icon={copied ? CheckIcon : CopyIcon}
+                label={copied ? "Copied message" : "Copy message"}
+                size="sm"
+                onClick={() => copy(content.current?.textContent ?? text)}
+              />
+            )}
+            {readable && editPoint && (
+              <EditMessageButton
+                threadId={props.threadId}
+                itemId={props.itemId}
+                point={editPoint}
+              />
+            )}
             {copied && (
               <span role="status" className="text-xs text-muted-foreground">
                 Copied
@@ -152,6 +153,21 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
           </div>
         )}
       </div>
+      {/* Only while it is on its way (or didn't go): how its sending goes, under the bubble. */}
+      {saying && (
+        <div className="mt-1 flex min-h-6 items-center gap-2">
+          <Suspense fallback={null}>
+            <DeferredSendStatus.Component
+              threadId={props.threadId}
+              itemId={props.itemId}
+              send={local.send}
+              staged={local.staged}
+              noticeId={noticeId}
+              otherwise={null}
+            />
+          </Suspense>
+        </div>
+      )}
     </div>
   );
 }

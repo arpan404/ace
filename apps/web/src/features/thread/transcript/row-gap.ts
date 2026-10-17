@@ -1,14 +1,15 @@
 import type { Block } from "./blocks.ts";
 import type { Row } from "./rows.ts";
 
-/* The room under each transcript row, by what it shows and what follows it. */
+/* The room under each transcript row, by what it shows. */
 
 const gap: Record<Block["kind"], string> = {
   user: "pb-4",
-  message: "pb-4",
+  // An answer's hover actions (its time, Copy, Fork) are laid over this room, so a finished
+  // answer gains no height when they come and nothing under it moves.
+  message: "pb-6",
   work: "pb-2.5",
   live: "pb-1.5",
-  thinking: "pb-2",
   files: "pb-4",
   subagents: "pb-1.5",
   background: "pb-2",
@@ -18,14 +19,7 @@ const gap: Record<Block["kind"], string> = {
   event: "pb-3",
   end: "pb-4",
 };
-/**
- * A progress note followed straight by another sits close to it; a turn's last answer doesn't.
- * An answer under its turn's "Worked for" keeps its time in its hover-actions row, so its
- * changed files sit close.
- */
-export function rowGap(row: Row, next: Row | undefined): string {
-  if (row.block.kind === "message" && next?.block.kind === "message") return "pb-1.5";
-  if (row.block.kind === "message" && row.block.headed && next?.block.kind === "files")
-    return "pb-1.5";
+
+export function rowGap(row: Row): string {
   return gap[row.block.kind];
 }

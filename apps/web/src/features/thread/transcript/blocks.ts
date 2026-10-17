@@ -62,10 +62,8 @@ export type Block =
       /** The completed turn's answer (every message after its last step), below its head. */
       answerIds?: string[] | undefined;
     }
-  /** The newest turn's live header, right under the ask that started it, until it settles. */
+  /** The newest turn's one live line ("Working for …"), at the end of its flow, until it settles. */
   | { kind: "live"; key: string; askId: string | undefined }
-  /** The end of the newest working turn's flow: "Thinking" while no step is in flight. */
-  | { kind: "thinking"; key: string }
   | { kind: "subagents"; key: string; itemIds: string[] }
   | {
       /** Background commands started one after another in a turn: one row, or one group. */
@@ -517,7 +515,6 @@ export function buildBlocks(source: BlockSource): Block[] {
     placed(blocks.length - 1, message);
   };
   const reviewsPlaced = new Map<string, number>();
-  const askAt = new Map<string, number>();
   for (const [index, id] of order.entries()) {
     const item = source.item(id);
     if (!item) continue;
@@ -568,7 +565,6 @@ export function buildBlocks(source: BlockSource): Block[] {
           if (item.synthetic) push({ kind: "event", key: id, itemId: id }, false);
           else if (person) {
             push({ kind: "user", key: id, itemId: id }, item.createdAt);
-            askAt.set(id, blocks.length - 1);
           } else {
             // Said between steps: it reads inside the log, in order. After the last step: the
             // answer, below the log. Which one it is only shows once the turn has settled, so
@@ -740,15 +736,9 @@ export function buildBlocks(source: BlockSource): Block[] {
       (!pseudo && !settled(source, turn, newestRun === turn))
     ) {
       for (const block of turn.work) block.ongoing = true;
-      // The newest turn says what it is doing right under the ask that started it.
-      if (newest === turn && source.heldTurn !== turn.id) {
-        const live: Block = { kind: "live", key: `live:${turn.key}`, askId: turn.askId };
-        const ask = turn.askId === undefined ? undefined : askAt.get(turn.askId);
-        const first = Math.min(...turn.blocks);
-        if (ask !== undefined) place(ask, live);
-        else if (Number.isFinite(first)) before.set(first, [live, ...(before.get(first) ?? [])]);
-        place(turn.lastBlock, { kind: "thinking", key: `thinking:${turn.key}` });
-      }
+      // The newest turn says what it is doing in one line at the end of its flow (DESIGN.md §8).
+      if (newest === turn && source.heldTurn !== turn.id)
+        place(turn.lastBlock, { kind: "live", key: `live:${turn.key}`, askId: turn.askId });
       // A pause shows while the turn waits on the limit, before anything settles.
       if (source.heldTurn === turn.id) {
         place(turn.lastBlock, endBlock(turn, "paused", newest === turn, ending?.runId));
@@ -950,7 +940,7 @@ export function blockItems(block: Block): readonly string[] {
     return [...new Set([...block.folded.flatMap((inner) => blockItems(inner)), ...block.itemIds])];
   if ("itemIds" in block) return block.itemIds ?? [];
   // A started thread's card repeats a step its work log already holds.
-  if (block.kind === "live" || block.kind === "thinking" || block.kind === "started") return [];
+  if (block.kind === "live" || block.kind === "started") return [];
   if (block.kind === "question") {
     const shown = block.itemId ?? block.anchorId;
     return shown === undefined ? [] : [shown];
