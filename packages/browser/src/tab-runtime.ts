@@ -23,7 +23,8 @@ import { sendHumanInput } from "./session-input.ts";
 import type { Actor, SessionOptions } from "./session-options.ts";
 import { SessionQueue, mutatesBrowser, type QueueBudget } from "./session-queue.ts";
 import { TabAccess } from "./tab-access.ts";
-import { agentInputDelay, waitsForPerson, type CollaborationTiming } from "./collaboration.ts";
+import { waitsForPerson, type CollaborationTiming } from "./collaboration.ts";
+import { AgentInputLane, personReturned } from "./agent-input-lane.ts";
 
 /** What a tab needs from the thread browser that holds it. */
 export interface TabHost {
@@ -76,6 +77,8 @@ export class TabRuntime {
   /** When the person last used this tab (collaboration clock); -Infinity: never. */
   humanAt = -Infinity;
   private queue: SessionQueue;
+  /** Agent input waiting for the person, outside the queue so reads never wait behind it. */
+  private lane: AgentInputLane;
   private host: TabHost;
   private closed = false;
   /** The person's own input runs in order, apart from agent commands. */
@@ -97,6 +100,7 @@ export class TabRuntime {
     this.lastActiveAt = meta.lastActiveAt ?? host.options.now();
     if (meta.private) this.access.setPrivate(true, host.options.now());
     this.queue = new SessionQueue(() => host.dialog(id), host.budget);
+    this.lane = new AgentInputLane(host.options.navigationClock, host.timing, () => this.humanAt);
     this.annotation = new AnnotationSession(
       (connectionId, event) => host.annotation(connectionId, event),
       () => host.emit(),
@@ -132,7 +136,7 @@ export class TabRuntime {
     if (!revives && this.crashed()) throw new BrowserActionError("tab_crashed");
   }
   get busy(): boolean {
-    return !this.queue.idle;
+    return !this.queue.idle || !this.lane.idle;
   }
   get private(): boolean {
     return this.access.private;
@@ -154,7 +158,7 @@ export class TabRuntime {
     return this.host.options.navigationClock.now() - this.humanAt < window;
   }
   settled(): Promise<unknown> {
-    return this.queue.settled();
+    return Promise.all([this.lane.settled(), this.queue.settled()]);
   }
   /** The page behind this tab changed (navigation, renderer restart, replaced backend). */
   invalidate(): void {
@@ -182,9 +186,10 @@ export class TabRuntime {
   }
   close(): Promise<unknown> {
     this.closed = true;
+    this.lane.close();
     this.stopInUse?.();
     this.annotation.end("stopped");
-    return this.queue.settled();
+    return this.settled();
   }
   /**
    * Whether `actor` may act now. `epoch` is the privacy epoch its command started in: agent
@@ -280,29 +285,6 @@ export class TabRuntime {
     };
     this.host.emit();
   }
-  /**
-   * An agent's page input waits while the person is busy in this tab: it runs once they have
-   * paused for `quietMs`, or fails with `human_active` after `maxWaitMs`.
-   */
-  private async personIdle(signal?: AbortSignal): Promise<void> {
-    const clock = this.host.options.navigationClock;
-    const since = clock.now();
-    for (;;) {
-      signal?.throwIfAborted();
-      const delay = agentInputDelay(clock.now(), this.humanAt, since, this.host.timing);
-      if (delay === "give_up") throw new BrowserActionError("human_active");
-      if (delay === 0) return;
-      await new Promise<void>((resolve) => {
-        const cancel = clock.set(delay, finish);
-        signal?.addEventListener("abort", finish, { once: true });
-        function finish() {
-          cancel();
-          signal?.removeEventListener("abort", finish);
-          resolve();
-        }
-      });
-    }
-  }
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
     if (this.closed || this.host.flags().closed)
       return Promise.reject(new BrowserActionError("browser_closed"));
@@ -346,7 +328,8 @@ export class TabRuntime {
         this.check(actor, signal, submittedGeneration);
         return this.run(command, actor, signal, submittedGeneration);
       })();
-    return this.enqueue(async () => {
+    const waits = actor.kind === "agent" && waitsForPerson(command);
+    const job = async () => {
       signal?.throwIfAborted();
       checkTarget();
       this.readCheck(actor, privateEpoch);
@@ -359,8 +342,9 @@ export class TabRuntime {
       const pending_dialog = this.host.dialog(this.id);
       if (pending_dialog) return { pending_dialog };
       await this.queue.drainDialog();
-      if (actor.kind === "agent" && waitsForPerson(command)) {
-        await this.personIdle(signal);
+      if (waits) {
+        // The person came back while this input waited for its turn: it waits again, outside.
+        if (!this.lane.quiet()) return personReturned;
         await this.agentSync;
       }
       await this.host.wake(this.id);
@@ -381,7 +365,10 @@ export class TabRuntime {
       if (after.paused || (generation !== this.access.generation && after.pageStateLost))
         throw new BrowserActionError("backend_changed");
       return result;
-    });
+    };
+    // An agent's input waits for the person in its own lane, so reads never queue behind it.
+    if (waits) return this.lane.run(signal, (step) => step(() => this.enqueue(job)));
+    return this.enqueue(job);
   }
   screenshot(
     actor: Actor,

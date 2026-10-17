@@ -195,6 +195,16 @@ Chromium cannot be recalled, and the next agent command waits anyway).
 The timings are pure functions in `packages/browser/src/collaboration.ts`, injected through
 `collaboration` in the service options.
 
+### Sharing a tab safely (amendment, 2026-10-17, browser audit)
+
+The audit found ways an agent could still trip over the person. The rules above now also mean:
+
+- **Reads never wait behind a waiting input.** An agent's input that waits for the person waits
+  in the tab's agent-input lane (`agent-input-lane.ts`), in arrival order, outside the tab's
+  command queue. Snapshot, find, screenshot and logs queued after it run at once. An input whose
+  queue turn comes while the person is busy again goes back to the lane, within the same
+  `maxWaitMs` budget.
+
 ## Private takeover and recording (superseded by Collaboration above)
 
 Takeover has shared and private modes. Shared takeover retains the existing
