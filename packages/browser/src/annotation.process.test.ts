@@ -164,3 +164,22 @@ test("reopening a marker edits its comment, and Escape closes it without a chang
   ).toHaveLength(1);
   expect(await person.evaluate("window.pageClicks")).toBe(0);
 }, 60_000);
+
+test("a click on an embedded frame pins the frame and never reaches the framed page", async () => {
+  const f = await annotationFixture();
+  const person = f.connect("person");
+  await person.subscribe();
+  await person.takeover();
+  await person.execute({ action: "navigate", url: `${f.origin}/framed` });
+  await person.execute({ action: "annotate", operation: "start" });
+  await person.event("ready");
+  const annotation = await f.pin(person, "#embed", "Taller frame");
+  expect(annotation.element).toMatchObject({ tag: "iframe", selector: "#embed" });
+  expect(await person.evaluate("document.querySelector('#embed').contentWindow.frameClicks")).toBe(
+    0,
+  );
+  await person.execute({ action: "annotate", operation: "stop" });
+  expect(
+    await person.evaluate("getComputedStyle(document.querySelector('#embed')).pointerEvents"),
+  ).toBe("auto");
+}, 60_000);

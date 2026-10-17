@@ -48,6 +48,12 @@ export const pages: Record<string, { headers?: Record<string, string>; body: str
 <p id="note" style="margin:20px 60px;width:400px">Note text</p>
 </body>`,
   },
+  "/framed": {
+    body: `<!doctype html><title>Framed</title><body style="margin:0">
+<iframe id="embed" style="margin:40px;width:300px;height:150px;border:0"
+ srcdoc="<body style='margin:0;height:100%'><script>window.frameClicks=0;addEventListener('click',()=>frameClicks++)</script></body>"></iframe>
+</body>`,
+  },
   "/next": {
     body: `<!doctype html><title>Next</title><body><h2>Another document</h2>
 <script>window.pageClicks=0;document.addEventListener('click',()=>window.pageClicks++);</script></body>`,

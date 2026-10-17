@@ -5,9 +5,23 @@ import type { OverlayElement } from "./types.ts";
 export function elementAt(x: number, y: number, host: Element): Element | null {
   for (const element of document.elementsFromPoint(x, y)) {
     if (element === host || host.contains(element)) continue;
-    return element;
+    return frameAt(x, y, element) ?? element;
   }
   return null;
+}
+
+/**
+ * Embedded frames ignore the pointer while annotating (see intercept), so hit testing passes
+ * through them to their container. The last frame inside that container under the point is the
+ * one drawn on top.
+ */
+function frameAt(x: number, y: number, container: Element): Element | undefined {
+  let found: Element | undefined;
+  for (const frame of container.querySelectorAll("iframe, frame, embed, object")) {
+    const box = frame.getBoundingClientRect();
+    if (x >= box.left && x < box.right && y >= box.top && y < box.bottom) found = frame;
+  }
+  return found;
 }
 
 const implicitRoles: Record<string, string> = {

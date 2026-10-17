@@ -137,7 +137,9 @@ No daemon, engine or adapter change is involved.
   `Runtime.evaluate { contextId }` pass through `ace.tabs.cdp`, and `Runtime.bindingCalled`
   returns as an `ace.tabs.event`. A process test drives a real Chrome behind a stand-in desktop
   to keep this true, including the renderer-restart reinstall.
-- Iframes are not annotatable in this version. Pointer input over an iframe is delivered to
-  the iframe's own document, which the top-frame overlay does not listen to: a click there
-  reaches the framed page and pins nothing. Picking inside same-origin frames needs the
-  intercept installed per frame and frame-relative marker geometry; it is left for later.
+- Content inside iframes is not annotatable in this version. While annotating, the overlay
+  adopts a stylesheet that sets `pointer-events: none` on `iframe`, `frame`, `embed` and
+  `object`, so pointer input never reaches an embedded document: a click pins the frame element
+  itself, and wheel input over a frame scrolls the embedding page. The sheet is removed when
+  annotate mode ends. Picking inside same-origin frames needs the intercept installed per frame
+  and frame-relative marker geometry; it is left for later.

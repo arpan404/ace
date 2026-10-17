@@ -74,12 +74,18 @@ export function intercept(host: Element, handlers: InterceptHandlers): () => voi
   const onOut = (event: PointerEvent) => {
     if (event.isTrusted && !event.relatedTarget) handlers.leave();
   };
+  // Embedded documents receive their own input, out of this world's reach. While annotating,
+  // pointer input goes to the embedding element instead, so a click pins the frame itself.
+  const frames = new CSSStyleSheet();
+  frames.replaceSync("iframe, frame, embed, object { pointer-events: none !important; }");
+  document.adoptedStyleSheets = [...document.adoptedStyleSheets, frames];
   const options = { capture: true, passive: false } as const;
   for (const type of swallowed) window.addEventListener(type, onPointer, options);
   for (const type of contained) window.addEventListener(type, onContained, options);
   window.addEventListener("pointermove", onMove, { capture: true, passive: true });
   document.addEventListener("pointerout", onOut, { capture: true, passive: true });
   return () => {
+    document.adoptedStyleSheets = document.adoptedStyleSheets.filter((sheet) => sheet !== frames);
     for (const type of swallowed) window.removeEventListener(type, onPointer, options);
     for (const type of contained) window.removeEventListener(type, onContained, options);
     window.removeEventListener("pointermove", onMove, { capture: true });
