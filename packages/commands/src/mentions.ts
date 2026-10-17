@@ -13,6 +13,15 @@ function append(parts: ContentPart[], part: ContentPart): void {
   if (part.type === "text" && last?.type === "text") last.text += part.text;
   else parts.push(part.type === "text" ? { ...part } : part);
 }
+/** Codex's documented app mention slug: ASCII alphanumerics lowercased, others as `-`. */
+function appSlug(name: string): string {
+  return (
+    name
+      .replace(/[^A-Za-z0-9]/g, "-")
+      .toLowerCase()
+      .replace(/^-+|-+$/g, "") || "app"
+  );
+}
 export function translateMentions(
   input: readonly ContentPart[],
   provider: ProviderKind,
@@ -51,6 +60,9 @@ export function translateMentions(
           invocation.type === "slash")) ||
       (provider === "codex" && (invocation.type === "skill" || invocation.type === "mention"))
     ) {
+      // Codex invokes an app when its `$<app-slug>` marker accompanies the app:// mention item.
+      if (provider === "codex" && invocation.type === "mention")
+        append(output, { type: "text", text: `$${appSlug(invocation.name)}` });
       output.push(selected);
       if (provider === "codex" && part.arguments)
         append(output, {

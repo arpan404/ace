@@ -50,7 +50,7 @@ describe("native attachment projection", () => {
       },
     ]);
   });
-  test.each(["claude", "codex", "opencode", "acp"] as const)(
+  test.each(["claude", "codex", "opencode"] as const)(
     "%s exposes every unsupported file by absolute path",
     (provider) => {
       const result = projectAttachments(
@@ -82,6 +82,52 @@ describe("native attachment projection", () => {
       expect(result.diagnostics).toEqual([]);
     },
   );
+  test("ACP agents without embedded context receive uninlined files as resource links", () => {
+    const result = projectAttachments(
+      [
+        pdf,
+        { path: "/files/binary.zip", name: "binary.zip", mimeType: "application/zip", bytes: 1024 },
+      ],
+      { ...capabilities("acp"), documents: [], embeddedContext: false },
+    );
+    expect(result.input).toEqual([
+      {
+        type: "resource_link",
+        uri: "file:///repo/report.pdf",
+        name: "report.pdf",
+        mimeType: "application/pdf",
+      },
+      {
+        type: "resource_link",
+        uri: "file:///files/binary.zip",
+        name: "binary.zip",
+        mimeType: "application/zip",
+      },
+    ]);
+    expect(result.deliveries).toEqual(["file_path", "file_path"]);
+  });
+  test("OpenCode reads a whole mentioned workspace file and a PDF itself by file URI", () => {
+    const whole = {
+      ...text,
+      name: "src/main.ts",
+      text: "File: src/main.ts\nall",
+      workspaceFile: true,
+    };
+    const result = projectAttachments([whole, text, { ...pdf, base64: undefined, bytes: 3 }], {
+      ...capabilities("opencode"),
+      embeddedContext: false,
+    });
+    expect(result.input).toEqual([
+      { type: "file", mime: "text/plain", filename: "src/main.ts", url: "file:///repo/main.ts" },
+      { type: "text", text: text.text },
+      {
+        type: "file",
+        mime: "application/pdf",
+        filename: "report.pdf",
+        url: "file:///repo/report.pdf",
+      },
+    ]);
+  });
   test("native aggregate limits fall back to the full file", () => {
     const result = projectAttachments([image, pdf], {
       ...capabilities("claude"),

@@ -50,6 +50,18 @@ export function content(input: ContentPart[]): SDKUserMessage["message"]["conten
             data: part.content.data,
           },
         };
+      // Text content is already bounded by the ContentPart schema; keep it with its path.
+      if (part.content?.encoding === "text")
+        return {
+          type: "document" as const,
+          title: part.name ?? part.path.split("/").at(-1) ?? "Attachment",
+          context: `Path: ${JSON.stringify(part.path)}`,
+          source: {
+            type: "text" as const,
+            media_type: "text/plain" as const,
+            data: part.content.data,
+          },
+        };
       return {
         type: "text" as const,
         text: `File (${part.mimeType ?? "application/octet-stream"}): ${JSON.stringify(part.path)}`,
