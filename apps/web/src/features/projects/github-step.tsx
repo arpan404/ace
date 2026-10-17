@@ -24,6 +24,13 @@ import {
   stepFieldKey,
 } from "@/components/ui/command-step.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import {
+  backHint,
+  escapeHint,
+  KeyHints,
+  navigateHint,
+  selectHint,
+} from "@/components/ui/key-hints.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Select } from "@/components/ui/select.tsx";
@@ -306,6 +313,13 @@ function RepositoryBrowser(props: {
           ))}
         </CommandStepList>
       )}
+      <KeyHints
+        hints={[
+          ...(rows.length ? [navigateHint, selectHint] : []),
+          ...(props.onBack ? [backHint] : []),
+          escapeHint(query),
+        ]}
+      />
     </>
   );
 }

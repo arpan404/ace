@@ -1,20 +1,17 @@
-import { ChatsIcon, FolderPlusIcon, NotePencilIcon } from "@phosphor-icons/react";
+import { ChatsIcon, NotePencilIcon } from "@phosphor-icons/react";
 import { useSidebar, useSidebarLoaded } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
 import { Suspense } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
-import { useNewThreadEntry, useProjectDialogs } from "@/features/projects/index.ts";
+import { useNewThreadEntry } from "@/features/projects/index.ts";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { formatKeys } from "@/lib/keymap.ts";
 import { ThreadsActions } from "./project-filter.tsx";
-import { ListSearch } from "./list-search.tsx";
-import { useListQuery } from "./list-query.ts";
 import { ThreadList } from "./thread-list.tsx";
 import { ThreadPagination } from "./thread-pagination.tsx";
 import { useHomeList } from "./use-home-threads.ts";
@@ -27,14 +24,13 @@ const StartedTitlePublisher = deferredComponent(() =>
 
 /**
  * Home's list in the sidebar: one list of tasks across projects, pinned first, then in the order
- * of what is owed, with Settled folded away at the end. The toolbar holds the project filter,
- * then Add project and New thread.
+ * of what is owed, with Settled folded away at the end. The toolbar holds the project filter
+ * (Add project lives in its menu) and New thread.
  */
 export function HomeSidebar() {
   const list = useHomeList();
   const settledTotal = useSidebar(["homeWindow"], (reader) => reader.homeWindow?.total);
   const { project, settledOpen } = useOrganizerState();
-  const query = useListQuery().trim();
   const organizer = useOrganizer();
   const loaded = useSidebarLoaded();
   const empty = [list.pinned, list.active, list.recent, list.snoozed, list.settled].every(
@@ -43,7 +39,6 @@ export function HomeSidebar() {
   const directory = useProjectDirectory();
   const keys = useResolvedKeymap();
   const noProjects = directory.loaded && directory.projects.length === 0;
-  const projects = useProjectDialogs();
   const entry = useNewThreadEntry();
   const only = directory.projects.length === 1 ? directory.projects[0] : undefined;
   return (
@@ -51,14 +46,6 @@ export function HomeSidebar() {
       <div className="flex h-9 shrink-0 items-center gap-0.5 px-2">
         <ThreadsActions />
         <span className="flex-1" />
-        <IconButton
-          icon={FolderPlusIcon}
-          label="Add project"
-          shortcut="addProject"
-          className="size-7 hover:bg-sidebar-accent"
-          onClick={() => projects.open({ kind: "add", tab: "sources" })}
-          onPointerEnter={projects.preload}
-        />
         <Tip label="New thread" shortcut="newThread">
           <Link
             to="/new"
@@ -86,11 +73,8 @@ export function HomeSidebar() {
             <StartedTitlePublisher.Component />
           </Suspense>
         )}
-        {loaded && !(empty && !query && !project) && <ListSearch list={list} />}
         {!loaded ? (
           <ListSkeleton label="threads" shape="thread" />
-        ) : empty && query ? (
-          <p className="shrink-0 px-4 pt-2 text-ui text-muted-foreground">No matching threads</p>
         ) : empty ? (
           <>
             <EmptyState

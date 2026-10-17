@@ -33,7 +33,7 @@ import {
   commandStepField,
   stepFieldKey,
 } from "@/components/ui/command-step.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
+import { backHint, escapeHint, navigateHint } from "@/components/ui/key-hints.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { applePlatform } from "@/lib/keymap.ts";
@@ -255,7 +255,24 @@ export function LocalFolderStep(props: {
           </Problem>
         </div>
       )}
-      <CommandStepFooter note={target ? displayPath(target, home?.path) : undefined}>
+      <CommandStepFooter
+        note={target ? displayPath(target, home?.path) : undefined}
+        hints={[
+          ...(rows.length ? [navigateHint] : []),
+          ...(creating
+            ? [{ keys: ["enter"], label: "Create and add" }]
+            : highlighted
+              ? [
+                  { keys: ["enter", "arrowright"], label: "Open" },
+                  { keys: ["mod+enter"], label: "Add" },
+                ]
+              : target
+                ? [{ keys: ["enter"], label: "Add" }]
+                : []),
+          ...(props.onBack ? [backHint] : []),
+          escapeHint(text),
+        ]}
+      >
         {native && (
           <Button
             variant="ghost"
@@ -281,14 +298,6 @@ export function LocalFolderStep(props: {
             : creating
               ? "Create and add"
               : "Add"}
-          {!added.adding && (
-            <Kbd
-              aria-hidden
-              keys={highlighted ? "mod+enter" : "enter"}
-              resolve={false}
-              variant="on-primary"
-            />
-          )}
         </Button>
       </CommandStepFooter>
     </>

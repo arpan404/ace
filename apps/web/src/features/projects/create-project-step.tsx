@@ -7,7 +7,7 @@ import {
   commandStepField,
   stepFieldKey,
 } from "@/components/ui/command-step.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
+import { backHint, escapeHint } from "@/components/ui/key-hints.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { applePlatform } from "@/lib/keymap.ts";
@@ -156,6 +156,11 @@ export function CreateProjectStep(props: {
         {problem && <Problem>{problem}</Problem>}
       </div>
       <CommandStepFooter
+        hints={[
+          { keys: ["enter"], label: "Create" },
+          ...(props.onBack ? [backHint] : []),
+          escapeHint(name),
+        ]}
         note={
           parent && name && !nameProblem
             ? displayPath(childFolder(parent, name), place.home?.path)
@@ -164,7 +169,6 @@ export function CreateProjectStep(props: {
       >
         <Button type="submit" variant="primary" disabled={creating || offline || !parent}>
           {creating ? "Creating…" : "Create project"}
-          {!creating && <Kbd aria-hidden keys="enter" resolve={false} variant="on-primary" />}
         </Button>
       </CommandStepFooter>
     </form>

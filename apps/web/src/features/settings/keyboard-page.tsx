@@ -52,14 +52,7 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
   },
   {
     label: "Focus",
-    ids: [
-      "nextRegion",
-      "previousRegion",
-      "focusThreadList",
-      "focusListSearch",
-      "focusComposer",
-      "focusToasts",
-    ],
+    ids: ["nextRegion", "previousRegion", "focusThreadList", "focusComposer", "focusToasts"],
   },
   {
     label: "Go to",

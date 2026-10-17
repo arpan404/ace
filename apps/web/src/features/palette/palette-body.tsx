@@ -14,7 +14,6 @@ import {
   Command,
   CommandCollection,
   CommandEmpty,
-  CommandFooter,
   CommandGroup,
   CommandGroupLabel,
   CommandInput,
@@ -22,6 +21,7 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command.tsx";
+import { closeHint, KeyHints, navigateHint, selectHint } from "@/components/ui/key-hints.tsx";
 import { usePhone } from "@/lib/breakpoints.ts";
 import { cn } from "@/lib/cn.ts";
 import { resolveKeys, useResolvedKeymap } from "@/lib/keybindings.ts";
@@ -183,7 +183,7 @@ export default function PaletteBody(props: { close(): void; push(page: PalettePa
           </CommandGroup>
         )}
       </CommandList>
-      {!phone && <CommandFooter />}
+      {!phone && <KeyHints hints={[navigateHint, selectHint, closeHint]} />}
     </Command>
   );
 }

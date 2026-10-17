@@ -46,9 +46,8 @@ test("the thread list is one Tab stop, and ↑ ↓ move between its rows", async
   await openApp();
   const list = screen.getByRole("list", { name: "Threads" });
   screen.getByRole("link", { name: "New thread" }).focus();
-  // Tab on through the sidebar's controls above the list until it lands in the list.
-  for (let press = 0; press < 6 && !list.contains(document.activeElement); press++)
-    await userEvent.tab();
+  // New thread is the last control above the list, so one Tab lands in it.
+  await userEvent.tab();
   const entered = document.activeElement;
   expect(rows()).toContain(entered);
   // One stop: the next Tab leaves the list rather than visiting each row and its actions.
