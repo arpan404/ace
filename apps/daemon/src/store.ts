@@ -1,4 +1,9 @@
-import { loadThreadSnapshot } from "./thread-snapshot.ts";
+import { ThreadReads } from "./thread-reads.ts";
+import { LongThreadQueries } from "./long-thread/queries.ts";
+import { SidebarReads } from "./sidebar-reads.ts";
+import { CommandReceipts } from "./command-receipts.ts";
+import { EventWriter } from "./event-writer.ts";
+import { decodeThreadRow } from "./thread-row.ts";
 import { StreamSequences } from "./stream-sequences.ts";
 import { StoreStream } from "./store-stream.ts";
 import { closeStore } from "./store-shutdown.ts";
@@ -12,22 +17,14 @@ import {
 import { purgeTranscript } from "./storage/transcript.ts";
 import { SearchReplay } from "./search-replay.ts";
 import { migrateSidebarRevisions } from "./sidebar-revisions.ts";
-import { sidebarPageStorage } from "./sidebar-page-storage.ts";
-import { SidebarPageWeight } from "./sidebar-page-weight.ts";
 import { seedSentMessages } from "./draft-migration.ts";
 import { NativeImageStore } from "./native-image-store.ts";
 import { ToolResultStore } from "./tool-result-store.ts";
 import { MeasurementStore } from "./measurement-store.ts";
 import { migrateProjects, decodeProjectRow } from "./project-storage.ts";
 import { LongThreadIndex } from "./long-thread/index.ts";
-import { readTurnSteps, stepSurface, type TurnStepsSource } from "./long-thread/steps.ts";
+import { type TurnStepsSource } from "./long-thread/steps.ts";
 import {
-  TurnsPageRequest,
-  ItemsWindowRequest,
-  ItemsWindowResponse,
-  ThreadSearchRequest,
-  ThreadCatchUpRequest,
-  TurnStepsRequest,
   type TurnStepsRequest as StepsQuery,
   type TurnsPageRequest as TurnsQuery,
   type ItemsWindowRequest as WindowQuery,
@@ -35,26 +32,17 @@ import {
   type ThreadCatchUpRequest as CatchUpQuery,
 } from "@ace/protocol";
 import { WorkspaceReservations } from "./workspace-reservations.ts";
-import { migrateRunClient, prepareRunClient } from "./run-client-storage.ts";
+import { migrateRunClient } from "./run-client-storage.ts";
 import { executionWorkspace } from "./workspace-root.ts";
-import {
-  migrateThreadClient,
-  seedThreadClient,
-  encodeThreadClient,
-  liveMetadataChange,
-} from "./thread-client-storage.ts";
-import { ThreadClientFields } from "@ace/protocol";
-import { ThreadTransitionView } from "@ace/protocol";
-import { ThreadProviderMetadata } from "@ace/protocol";
+import { migrateThreadClient, seedThreadClient } from "./thread-client-storage.ts";
 import { HistoryIndex } from "./history-index.ts";
 import { setImmediate } from "node:timers/promises";
 import type { ArchiveReader } from "@ace/history-import";
-import { installArchive, readHistoryBlob } from "./history-storage.ts";
+import { installArchive } from "./history-storage.ts";
 import { systemCredentials, type CredentialRuntime } from "./credential-runtime.ts";
 import { randomUUID } from "node:crypto";
-import { DatabaseSync, type StatementSync, type SQLOutputValue } from "@ace/provider-kit/sqlite";
+import { DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
 import {
-  EntitiesPage,
   McpIntent,
   CommandResult,
   Event,
@@ -69,7 +57,6 @@ import {
   WorkspaceId,
   WorkspaceFileChange,
 } from "@ace/protocol";
-import { updateThread } from "@ace/projection";
 import { McpData } from "./mcp-data.ts";
 import { Devices } from "./devices.ts";
 import { migrate } from "./migrations.ts";
@@ -112,8 +99,6 @@ export class Store {
   private readonly history: HistoryIndex;
   private readonly status: StatusStore;
   private readonly longThreads: LongThreadIndex;
-  /** The site each agent was on before a step, as `turn.steps` and icons work it out. */
-  private readonly stepSites = new Map<string, string | null>();
   private readonly nextId: () => string;
   private readonly now: () => number;
   private readonly mcp: McpData;
@@ -134,22 +119,11 @@ export class Store {
   private historyWriter: (() => void) | undefined;
   private readonly writes: StoreWriteGate;
   private listeners = new Set<Listener>();
-  private caches = new Map<ThreadId, { view: ThreadView; refs: number }>();
-  private sidebarRevision = "";
-  private sidebarReads = 0;
-  private readonly sidebarPageWeight = new SidebarPageWeight();
-  private readonly sidebarRowRevisions = new WeakMap<
-    import("@ace/protocol").ThreadListEntry,
-    number
-  >();
-  private readonly sidebarPages = new BoundedCache<string, ReturnType<typeof sidebarPageStorage>>(
-    16,
-    4 * 1024 * 1024,
-  );
-  private readonly sidebarSummaries = new BoundedCache<
-    string,
-    Pick<import("@ace/protocol").ThreadListWindow, "total" | "counts">
-  >(16, 256 * 1024);
+  private readonly threadReads: ThreadReads;
+  private readonly navigation: LongThreadQueries;
+  private readonly sidebarReads: SidebarReads;
+  private readonly receipts: CommandReceipts;
+  private readonly eventWriter: EventWriter;
   private publications: Event[][] = [];
   private deferredAfter: number | undefined;
   private notifyingHistory = false;
@@ -176,9 +150,13 @@ export class Store {
       version: () =>
         `${this.statement("PRAGMA data_version").get()?.data_version}:${this.statement("SELECT total_changes() AS n").get()?.n}`,
       inTransaction: () => this.transactionEvents !== undefined,
-      generationChanged: () => {
-        for (const { view } of this.caches.values()) this.status.invalidateCache(view);
-      },
+      generationChanged: () => this.threadReads.invalidateViews(),
+    });
+    this.sidebarReads = new SidebarReads(this.db, (sql) => this.statement(sql));
+    this.receipts = new CommandReceipts({
+      statement: (sql) => this.statement(sql),
+      atomic: (run) => this.atomic(run),
+      now: () => this.now(),
     });
     this.sequences = new StreamSequences({
       statement: (sql) => this.statement(sql),
@@ -232,6 +210,18 @@ export class Store {
       );
       this.history.initialize();
       this.status.initialize((id) => this.getThread(id));
+      this.threadReads = new ThreadReads({
+        db: this.db,
+        cache: this.readCache,
+        payloads: this.payloads,
+        history: this.history,
+        status: this.status,
+        flush: () => this.flushLiveWrites(),
+        headSeq: () => this.headSeq(),
+        getThread: (id) => this.getThread(id),
+        inTransaction: () => this.transactionEvents !== undefined,
+        report: (error) => this.onError(error),
+      });
       this.atomic(migrateRunClient);
       this.longThreads = new LongThreadIndex(this.db, (id) => {
         const thread = this.getThread(ThreadId.parse(id));
@@ -270,6 +260,33 @@ export class Store {
         },
         () => this.historyWriting || this.search.hasPendingWrites(),
       );
+      this.navigation = new LongThreadQueries({
+        index: this.longThreads,
+        payloads: this.payloads,
+        search: this.search,
+        getThread: (id) => this.getThread(id),
+        flush: () => this.flushLiveWrites(),
+        headSeq: () => this.headSeq(),
+        now: () => this.now(),
+        atomic: (run) => this.atomic(run),
+      });
+      this.eventWriter = new EventWriter({
+        db: this.db,
+        sequences: this.sequences,
+        payloads: this.payloads,
+        history: this.history,
+        status: this.status,
+        longThreads: this.longThreads,
+        mcp: this.mcp,
+        search: this.search,
+        toolResults: this.toolResults,
+        nativeImages: this.nativeImages,
+        measurements: this.measurements,
+        statement: (sql) => this.statement(sql),
+        getThread: (id) => this.getThread(id),
+        nextId: this.nextId,
+        wakeSearch: () => this.searchMaintenance.wake(),
+      });
     } catch (error) {
       this.db.close();
       throw error;
@@ -303,7 +320,7 @@ export class Store {
         this.statements.clear();
         this.listeners.clear();
         this.usageListeners.clear();
-        this.caches.clear();
+        this.threadReads.clearViews();
         this.db.close();
       },
     }).then(finished.resolve, finished.reject);
@@ -384,8 +401,7 @@ export class Store {
         this.db.exec(`ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
         this.readCache.invalidate();
         this.rolledBack++;
-        this.sidebarPages.clear();
-        this.sidebarSummaries.clear();
+        this.sidebarReads.invalidate();
         this.transactionEvents.length = length;
         throw error;
       } finally {
@@ -408,8 +424,7 @@ export class Store {
     } catch (error) {
       this.db.exec("ROLLBACK");
       this.rolledBack++;
-      this.sidebarPages.clear();
-      this.sidebarSummaries.clear();
+      this.sidebarReads.invalidate();
       throw error;
     } finally {
       this.transactionEvents = undefined;
@@ -454,27 +469,7 @@ export class Store {
       let batch: Event[] | undefined;
       while ((batch = this.publications.shift())) {
         this.publishedSeq = Math.max(this.publishedSeq, batch.at(-1)?.seq ?? this.publishedSeq);
-        for (const [id, { view }] of this.caches) {
-          const changes = batch.filter(
-            (event) =>
-              event.seq > view.seq &&
-              event.threadId === view.thread.id &&
-              !event.payload.type.startsWith("item."),
-          );
-          try {
-            if (changes.length && this.status.cacheInvalidated(view)) this.catchUp(view, id);
-            else if (changes.length) this.status.updateCache(view, changes);
-            if (!this.status.cacheInvalidated(view))
-              view.seq = Math.max(view.seq, batch.at(-1)?.seq ?? view.seq);
-          } catch (error) {
-            this.caches.delete(id);
-            try {
-              this.onError(error);
-            } catch {
-              /* committed delivery must continue */
-            }
-          }
-        }
+        this.threadReads.updateViews(batch);
         const listeners = [...this.listeners];
         for (const listener of listeners) {
           try {
@@ -627,8 +622,7 @@ export class Store {
     } catch (error) {
       this.db.exec("ROLLBACK");
       this.rolledBack++;
-      this.sidebarPages.clear();
-      this.sidebarSummaries.clear();
+      this.sidebarReads.invalidate();
       throw error;
     } finally {
       this.installingHistory = false;
@@ -719,7 +713,7 @@ export class Store {
     const row = this.statement(
       "SELECT * FROM threads WHERE json_extract(imported,'$.sourceId')=?",
     ).get(sourceId);
-    return row ? this.decodeThread(row) : undefined;
+    return row ? decodeThreadRow(row) : undefined;
   }
   createWorkspace(path: string, name: string, at = this.now()): WorkspaceId {
     return this.atomic(() => {
@@ -773,7 +767,7 @@ export class Store {
   getThread(id: ThreadId): Thread | undefined {
     const row = this.statement("SELECT * FROM threads WHERE id = ?").get(id);
     if (!row) return undefined;
-    return this.decodeThread(row);
+    return decodeThreadRow(row);
   }
   /** Live authorization checks do not need to deserialize a thread's historical payload. */
   hasLiveThread(id: ThreadId): boolean {
@@ -783,48 +777,6 @@ export class Store {
       ).get(id) !== undefined
     );
   }
-  private decodeThread(row: Record<string, SQLOutputValue>): Thread {
-    const metadata =
-      row.provider_metadata == null
-        ? {}
-        : Thread.pick({ backend: true }).parse(JSON.parse(String(row.provider_metadata)));
-    return Thread.parse({
-      ...(row.provider === "cursor" && metadata.backend !== "cursor-sdk"
-        ? {
-            continuation: {
-              state: "read_only",
-              reason: "cursor_cli_retired",
-              actionId: "thread.continue_new",
-            },
-          }
-        : {}),
-      ...(row.client == null ? {} : ThreadClientFields.parse(JSON.parse(String(row.client)))),
-      ...(row.transitions == null
-        ? {}
-        : ThreadTransitionView.parse(JSON.parse(String(row.transitions)))),
-      id: row.id,
-      workspaceId: row.workspace_id,
-      title: row.title,
-      provider: row.provider,
-      ...(row.provider_metadata == null
-        ? {}
-        : Thread.pick({
-            backend: true,
-            capabilities: true,
-            handoff: true,
-            permission: true,
-            titleSource: true,
-            queue: true,
-          }).parse(JSON.parse(String(row.provider_metadata)))),
-      ...(row.acp == null ? {} : ThreadProviderMetadata.parse(JSON.parse(String(row.acp)))),
-      status: JSON.parse(String(row.status)),
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      ...(row.archived_at === null ? {} : { archivedAt: row.archived_at }),
-      ...(row.imported == null ? {} : { imported: JSON.parse(String(row.imported)) }),
-      ...(row.root_agent_id === null ? {} : { rootAgentId: row.root_agent_id }),
-    });
-  }
   updateBlockers(): number {
     return Number(
       this.statement(
@@ -833,86 +785,16 @@ export class Store {
     );
   }
   sidebarPage(
-    options: { limit: number; project?: string | undefined; archived?: boolean | undefined },
-    before?: import("@ace/protocol").ThreadListCursor,
-    reuse?: {
-      entries: ReadonlyMap<string, import("@ace/protocol").ThreadListEntry>;
-      changed: ReadonlySet<string>;
-    },
+    options: Parameters<SidebarReads["sidebarPage"]>[0],
+    before?: Parameters<SidebarReads["sidebarPage"]>[1],
+    reuse?: Parameters<SidebarReads["sidebarPage"]>[2],
   ) {
-    return this.readSidebar(() => this.loadSidebarPage(options, before, reuse));
-  }
-  private readSidebar<T>(read: () => T): T {
-    const name = `sidebar_read_${++this.sidebarReads}`;
-    this.db.exec(`SAVEPOINT ${name}`);
-    try {
-      return read();
-    } catch (error) {
-      this.db.exec(`ROLLBACK TO ${name}`);
-      this.sidebarPages.clear();
-      this.sidebarSummaries.clear();
-      throw error;
-    } finally {
-      this.db.exec(`RELEASE ${name}`);
-    }
-  }
-  private loadSidebarPage(
-    options: { limit: number; project?: string | undefined; archived?: boolean | undefined },
-    before?: import("@ace/protocol").ThreadListCursor,
-    reuse?: {
-      entries: ReadonlyMap<string, import("@ace/protocol").ThreadListEntry>;
-      changed: ReadonlySet<string>;
-    },
-  ) {
-    // Covers direct writes through atomic(), including imports and rollback invalidation.
-    const revisionRow = this.statement(
-      "SELECT total_changes() AS writes, (SELECT data_version FROM pragma_data_version) AS external, (SELECT revision FROM sidebar_thread_revisions LIMIT 1) AS snapshot_anchor",
-    ).get();
-    const revision = `${revisionRow?.writes}:${revisionRow?.external}`;
-    if (revision !== this.sidebarRevision) {
-      this.sidebarPages.clear();
-      this.sidebarSummaries.clear();
-      this.sidebarRevision = revision;
-    }
-    const key = JSON.stringify([
-      options.limit,
-      options.project ?? null,
-      options.archived === true,
-      before ?? null,
-    ]);
-    const cached = this.sidebarPages.get(key);
-    if (cached) return cached;
-    const page = sidebarPageStorage(
-      (sql) => this.statement(sql),
-      (row) => {
-        const entry = this.decodeThread(row);
-        this.sidebarRowRevisions.set(entry, Number(row.sidebar_revision));
-        return entry;
-      },
-      options,
-      before,
-      reuse
-        ? {
-            ...reuse,
-            current: (entry, rowRevision) => this.sidebarRowRevisions.get(entry) === rowRevision,
-          }
-        : undefined,
-      (load) => {
-        const summaryKey = JSON.stringify([options.project ?? null, options.archived === true]);
-        const summaryHit = this.sidebarSummaries.get(summaryKey);
-        if (summaryHit) return summaryHit;
-        const summary = load();
-        this.sidebarSummaries.set(summaryKey, summary, Buffer.byteLength(JSON.stringify(summary)));
-        return summary;
-      },
-    );
-    this.sidebarPages.set(key, page, this.sidebarPageWeight.bytes(page));
-    return page;
+    return this.sidebarReads.sidebarPage(options, before, reuse);
   }
   listThreads(): Thread[] {
     return this.statement("SELECT * FROM threads ORDER BY updated_at DESC, id")
       .all()
-      .map((row) => this.decodeThread(row));
+      .map((row) => decodeThreadRow(row));
   }
   appendEvents(threadId: ThreadId, payloads: EventPayload[], at = this.now()): Event[] {
     return this.appendEventBatch(threadId, payloads, at);
@@ -924,144 +806,7 @@ export class Store {
     envelopes?: Event[],
   ): Event[] {
     return this.transaction(() => {
-      let seq = this.sequences.head();
-      const afterSeq = seq;
-      const events: Event[] = [];
-      let followup: EventPayload | undefined;
-      let inputIndex = 0;
-      while (followup || inputIndex < payloads.length) {
-        const payload = followup ?? payloads[inputIndex++];
-        followup = undefined;
-        if (!payload) break;
-        const previousSeq = seq;
-        const previous = this.getThread(threadId);
-        const prepared = previous ? prepareRunClient(this.db, previous, payload) : payload;
-        const event =
-          envelopes?.[inputIndex - 1] ??
-          Event.parse({
-            seq: (seq = this.sequences.next(seq)),
-            id: this.nextId(),
-            threadId,
-            at,
-            payload: this.toolResults.decorate(
-              threadId,
-              this.nativeImages.decorate(
-                threadId,
-                this.measurements.decorate(threadId, prepared, seq),
-              ),
-              seq,
-            ),
-          });
-        seq = event.seq;
-        if (!Number.isSafeInteger(seq)) throw new Error("Sequence exhausted");
-        let thread: Thread;
-        if (event.payload.type === "thread.created") {
-          thread = event.payload.thread;
-          if (
-            this.statement("SELECT 1 FROM workspace_unregistered WHERE workspace_id=?").get(
-              thread.workspaceId,
-            )
-          )
-            throw new Error("workspace_unregistered");
-          if (thread.id !== threadId || this.getThread(threadId))
-            throw new Error("Invalid thread creation");
-          this.statement(
-            "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at, imported) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-          ).run(
-            thread.id,
-            thread.workspaceId,
-            thread.title,
-            thread.provider,
-            JSON.stringify(thread.status),
-            thread.createdAt,
-            event.at,
-            thread.imported ? JSON.stringify(thread.imported) : null,
-          );
-        } else {
-          const existing = previous;
-          if (!existing) throw new Error("Unknown thread");
-          thread = existing;
-        }
-        const liveChange = liveMetadataChange(this.db, thread, event.payload, event.at);
-        if (liveChange) followup = liveChange;
-        updateThread(thread, event);
-        if (
-          event.payload.type === "thread.created" ||
-          event.payload.type === "thread.client.updated"
-        )
-          this.statement("UPDATE threads SET client=? WHERE id=?").run(
-            encodeThreadClient(thread),
-            thread.id,
-          );
-        if (event.payload.type !== "item.delta")
-          this.statement(
-            "UPDATE threads SET workspace_id = ?, title = ?, status = ?, updated_at = ?, archived_at = ?, root_agent_id = ?, provider = ?, transitions = ?, provider_metadata = ? WHERE id = ?",
-          ).run(
-            thread.workspaceId,
-            thread.title,
-            JSON.stringify(thread.status),
-            thread.updatedAt,
-            thread.archivedAt ?? null,
-            thread.rootAgentId ?? null,
-            thread.provider,
-            JSON.stringify({
-              lineage: thread.lineage,
-              delegatedBy: thread.delegatedBy,
-              execution: thread.execution,
-              switch: thread.switch,
-            }),
-            JSON.stringify({
-              backend: thread.backend,
-              capabilities: thread.capabilities,
-              handoff: thread.handoff,
-              permission: thread.permission,
-              titleSource: thread.titleSource,
-              queue: thread.queue,
-            }),
-            thread.id,
-          );
-        if (
-          event.payload.type === "thread.created" ||
-          (event.payload.type === "thread.updated" &&
-            (event.payload.effectiveCapabilities !== undefined ||
-              event.payload.acpSupport !== undefined))
-        ) {
-          this.statement("UPDATE threads SET acp = ? WHERE id = ?").run(
-            JSON.stringify(ThreadProviderMetadata.parse(thread)),
-            thread.id,
-          );
-        }
-        event.payload = this.payloads.cap(event.payload, threadId);
-        this.payloads.persist(event);
-        this.history.record(event);
-        this.status.persist(event, thread);
-        this.longThreads.append(event, thread, previousSeq);
-        this.statement("INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)").run(
-          seq,
-          event.id,
-          threadId,
-          at,
-          event.payload.type,
-          JSON.stringify(event.payload),
-        );
-        this.statement("UPDATE host_sequence SET seq = MAX(seq,?) WHERE id = 1").run(seq);
-        this.mcp.apply(event, thread);
-        events.push(event);
-      }
-      if (
-        events.some(
-          (event) =>
-            event.payload.type === "thread.created" ||
-            event.payload.type === "thread.updated" ||
-            event.payload.type === "thread.client.updated",
-        )
-      ) {
-        const current = this.getThread(threadId);
-        if (current?.deletedAt !== undefined) this.search.deleteThread(threadId);
-        else if (current) this.search.observeThread(current, seq);
-      }
-      this.search.appendCovered(events, afterSeq);
-      this.searchMaintenance.wake();
+      const events = this.eventWriter.append(threadId, payloads, at, envelopes);
       this.transactionEvents?.push(...events);
       return events;
     });
@@ -1143,101 +888,29 @@ export class Store {
     return this.usageReplay.read(options, this.headSeq());
   }
   recordCommand(commandId: CommandId, deviceId: DeviceId, run: () => CommandResult): CommandResult {
-    return this.transaction(() => {
-      const receipt = this.statement(
-        "SELECT result,device_id FROM command_receipts WHERE command_id = ?",
-      ).get(commandId);
-      if (receipt) {
-        if (DeviceId.parse(receipt.device_id) !== deviceId)
-          return { commandId, ok: false, error: "forbidden" };
-        return CommandResult.parse(JSON.parse(String(receipt.result)));
-      }
-      const result = CommandResult.parse(run());
-      if (result.commandId !== commandId) throw new Error("Command result id mismatch");
-      this.statement("INSERT INTO command_receipts VALUES (?, ?, ?, ?)").run(
-        commandId,
-        deviceId,
-        this.now(),
-        JSON.stringify(result),
-      );
-      return result;
-    });
+    return this.receipts.recordCommand(commandId, deviceId, run);
   }
   commandReceipt(commandId: CommandId, deviceId: DeviceId): CommandResult | undefined {
-    const row = this.statement(
-      "SELECT result FROM command_receipts WHERE command_id=? AND device_id=?",
-    ).get(commandId, deviceId);
-    return row ? CommandResult.parse(JSON.parse(String(row.result))) : undefined;
+    return this.receipts.commandReceipt(commandId, deviceId);
   }
   completeAsyncCommand(id: CommandId, input: CommandResult): CommandResult {
-    const result = CommandResult.parse(input);
-    if (result.commandId !== id) throw new Error("Command result id mismatch");
-    return this.atomic((db) => {
-      db.prepare(
-        "UPDATE command_receipts SET result=? WHERE command_id=? AND json_extract(result,'$.error')='client_action_pending'",
-      ).run(JSON.stringify(result), id);
-      const row = db.prepare("SELECT result FROM command_receipts WHERE command_id=?").get(id);
-      if (!row) throw new Error("Missing command reservation");
-      return CommandResult.parse(JSON.parse(String(row.result)));
-    });
+    return this.receipts.completeAsyncCommand(id, input);
   }
   releaseReviewCommand(commandId: CommandId, deviceId: DeviceId): void {
-    this.statement(
-      "DELETE FROM command_receipts WHERE command_id = ? AND device_id = ? AND json_extract(result, '$.error') = 'review_pending'",
-    ).run(commandId, deviceId);
+    this.receipts.releaseReviewCommand(commandId, deviceId);
   }
   completeReviewCommand(
     commandId: CommandId,
     deviceId: DeviceId,
     input: CommandResult,
   ): CommandResult {
-    const result = CommandResult.parse(input);
-    if (result.commandId !== commandId) throw new Error("Command result id mismatch");
-    return this.transaction(() => {
-      this.statement(
-        "UPDATE command_receipts SET result = ? WHERE command_id = ? AND device_id = ? AND json_extract(result, '$.error') = 'review_pending'",
-      ).run(JSON.stringify(result), commandId, deviceId);
-      const row = this.statement("SELECT result FROM command_receipts WHERE command_id = ?").get(
-        commandId,
-      );
-      if (!row) throw new Error("Missing review command reservation");
-      return CommandResult.parse(JSON.parse(String(row.result)));
-    });
+    return this.receipts.completeReviewCommand(commandId, deviceId, input);
   }
   acquireThread(id: ThreadId): ThreadView {
-    this.flushLiveWrites();
-    const cached = this.caches.get(id);
-    if (cached) {
-      this.catchUp(cached.view, id);
-      cached.refs++;
-      return cached.view;
-    }
-    const view = this.status.snapshot(this.getThread(id), this.headSeq());
-    this.caches.set(id, { view, refs: 1 });
-    return view;
-  }
-  private catchUp(view: ThreadView, id: ThreadId): void {
-    const head = this.headSeq();
-    if (view.seq < head || this.status.cacheInvalidated(view)) {
-      const thread = this.getThread(id);
-      if (!thread) throw new Error("Unknown thread");
-      this.status.replaceCache(view, this.status.snapshot(thread, head));
-    }
+    return this.threadReads.acquireThread(id);
   }
   snapshotThread(id: ThreadId): ThreadView {
-    return this.readCache.read(`snapshot:${id}`, () =>
-      loadThreadSnapshot({
-        acquire: () =>
-          this.transactionEvents
-            ? this.status.snapshot(this.getThread(id), this.headSeq())
-            : this.acquireThread(id),
-        release: () => {
-          if (!this.transactionEvents) this.releaseThread(id);
-        },
-        items: () => this.payloads.page(id, this.headSeq() + 1, 200, 1024 * 1024),
-        retainAgents: (view) => this.status.retainItemAgents(view),
-      }),
-    );
+    return this.threadReads.snapshotThread(id);
   }
   readEntityPage(
     threadId: ThreadId,
@@ -1245,39 +918,16 @@ export class Store {
     before: number,
     limit: number,
   ) {
-    this.flushLiveWrites();
-    const thread = this.getThread(threadId);
-    if (!thread) throw new Error("Unknown thread");
-    return this.readCache.read(
-      JSON.stringify(["entities", threadId, collection, before, limit]),
-      () =>
-        EntitiesPage.parse({
-          ...this.status.page(thread, collection, before, limit),
-          seq: this.headSeq(),
-        }),
-    );
+    return this.threadReads.readEntityPage(threadId, collection, before, limit);
   }
   getInteraction(id: string) {
-    return this.status.interaction(id);
+    return this.threadReads.getInteraction(id);
   }
   readItems(threadId: ThreadId, before: number, limit: number) {
-    this.flushLiveWrites();
-    if (!this.getThread(threadId)) throw new Error("Unknown thread");
-    return this.readCache.read(JSON.stringify(["items", threadId, before, limit]), () => ({
-      ...this.payloads.page(threadId, before, limit),
-      seq: this.headSeq(),
-    }));
-  }
-  private readableThread(id: ThreadId): Thread {
-    this.flushLiveWrites();
-    const thread = this.getThread(id);
-    if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
-    return thread;
+    return this.threadReads.readItems(threadId, before, limit);
   }
   turnsPage(input: Omit<TurnsQuery, "type" | "requestId"> & { requestId?: string }) {
-    const query = TurnsPageRequest.parse({ type: "turns.page", requestId: "turns", ...input });
-    this.readableThread(query.threadId);
-    return this.longThreads.reader.page(query, this.headSeq());
+    return this.navigation.turnsPage(input);
   }
   turnSteps(
     input: Omit<StepsQuery, "type" | "requestId" | "limit"> & {
@@ -1286,141 +936,50 @@ export class Store {
     },
     cachedIcon?: TurnStepsSource["cachedIcon"],
   ) {
-    const query = TurnStepsRequest.parse({ type: "turn.steps", requestId: "steps", ...input });
-    this.readableThread(query.threadId);
-    return readTurnSteps(
-      {
-        data: this.longThreads.data,
-        item: (threadId, itemId) => this.payloads.stepItem(threadId, itemId),
-        sites: this.stepSites,
-        cachedIcon,
-      },
-      query,
-      this.headSeq(),
-    );
+    return this.navigation.turnSteps(input, cachedIcon);
   }
   /** A recorded step's site or app, worked out by the daemon (`icons.resolve`). */
   stepSurface(threadId: ThreadId, itemId: string) {
-    this.readableThread(threadId);
-    return stepSurface(
-      {
-        data: this.longThreads.data,
-        item: (thread, id) => this.payloads.stepItem(thread, id),
-        sites: this.stepSites,
-      },
-      threadId,
-      itemId,
-    );
+    return this.navigation.stepSurface(threadId, itemId);
   }
   itemsWindow(input: Omit<WindowQuery, "type" | "requestId"> & { requestId?: string }) {
-    const query = ItemsWindowRequest.parse({ type: "items.window", requestId: "window", ...input });
-    this.readableThread(query.threadId);
-    let target = query.aroundSeq;
-    if (query.itemId !== undefined) {
-      target = this.payloads.itemCreatedSeq(query.threadId, query.itemId);
-      if (target === undefined)
-        return ItemsWindowResponse.parse({
-          type: "items.window",
-          requestId: query.requestId,
-          threadId: query.threadId,
-          seq: this.headSeq(),
-          targetSeq: null,
-          items: [],
-          itemSeqs: {},
-          itemsBefore: null,
-          itemsAfter: null,
-        });
-    }
-    if (query.turnOrdinal !== undefined) {
-      const row = this.longThreads.data
-        .sql(
-          "SELECT MIN(i.created_seq) AS seq FROM long_items i JOIN item_heads h ON h.id=i.item_id AND h.thread_id=i.thread_id WHERE i.thread_id=? AND i.ordinal=?",
-        )
-        .get(query.threadId, query.turnOrdinal);
-      if (row?.seq == null) throw new Error("turn_target_unavailable");
-      target = Number(row.seq);
-    }
-    return ItemsWindowResponse.parse({
-      type: "items.window",
-      requestId: query.requestId,
-      seq: this.headSeq(),
-      ...this.payloads.window(query.threadId, target ?? 0, query.before, query.after, 1024 * 1024),
-    });
+    return this.navigation.itemsWindow(input);
   }
   threadSearch(
     input: Omit<ThreadSearchQuery, "type" | "requestId"> & { requestId?: string },
     authorize: (id: ThreadId) => boolean = () => true,
   ) {
-    const query = ThreadSearchRequest.parse({
-      type: "thread.search",
-      requestId: "search",
-      ...input,
-    });
-    this.readableThread(query.threadId);
-    const threads =
-      query.scope === "tree"
-        ? this.longThreads.reader.descendantThreads(query.threadId)
-        : [query.threadId];
-    if (threads.some((id) => !authorize(ThreadId.parse(id)))) throw new Error("forbidden");
-    const response = this.search.threadQuery(query, {
-      headSeq: this.headSeq(),
-      threadIds: threads,
-      turnOrdinalForItem: (thread, item) => this.longThreads.reader.ordinal(thread, item),
-    });
-    const indexedSeq = Math.min(response.indexedSeq, this.longThreads.data.indexedSeq());
-    return { ...response, indexedSeq, ready: response.ready && indexedSeq >= response.headSeq };
+    return this.navigation.threadSearch(input, authorize);
   }
   threadCatchUp(
     input: Omit<CatchUpQuery, "type" | "requestId"> & { requestId?: string },
     authorize: (id: ThreadId) => boolean = () => true,
   ) {
-    const query = ThreadCatchUpRequest.parse({
-      type: "thread.catchUp",
-      requestId: "catch-up",
-      ...input,
-    });
-    this.readableThread(query.threadId);
-    const family = this.longThreads.reader.descendantThreads(query.threadId);
-    if (family.some((id) => !authorize(ThreadId.parse(id)))) throw new Error("forbidden");
-    return this.longThreads.reader.catchUp(query, this.headSeq(), family);
+    return this.navigation.threadCatchUp(input, authorize);
   }
   threadReadState(threadId: ThreadId, deviceId: DeviceId, requestId = "read-state") {
-    this.readableThread(threadId);
-    return this.longThreads.reader.readState(threadId, deviceId, requestId);
+    return this.navigation.threadReadState(threadId, deviceId, requestId);
   }
   markThreadRead(threadId: ThreadId, deviceId: DeviceId, lastSeenSeq: number): void {
-    this.readableThread(threadId);
-    this.atomic(() =>
-      this.longThreads.reader.markRead(threadId, deviceId, lastSeenSeq, this.headSeq(), this.now()),
-    );
+    return this.navigation.markThreadRead(threadId, deviceId, lastSeenSeq);
   }
   outputThread(streamId: string) {
-    return this.payloads.liveStreamThread(streamId);
+    return this.threadReads.outputThread(streamId);
   }
   readItemPage(threadId: ThreadId, before: number, limit: number, byteLimit = 1024 * 1024) {
-    this.flushLiveWrites();
-    if (!this.getThread(threadId)) throw new Error("Unknown thread");
-    return this.readCache.read(
-      JSON.stringify(["wireItems", threadId, before, limit, byteLimit]),
-      () => ({
-        ...this.payloads.wirePage(threadId, before, limit, byteLimit),
-        seq: this.headSeq(),
-      }),
-    );
+    return this.threadReads.readItemPage(threadId, before, limit, byteLimit);
   }
   appendRawChunk(threadId: ThreadId, chunk: unknown): void {
     this.payloads.streamed.append(threadId, chunk);
   }
   readRawChunk(blobRef: string, offset: number, limit: number): Uint8Array {
-    return this.payloads.streamed.read(blobRef, offset, limit);
+    return this.threadReads.readRawChunk(blobRef, offset, limit);
   }
   historicalItemCount(threadId: ThreadId, through: number): number {
-    this.flushLiveWrites();
-    return this.history.count(threadId, through);
+    return this.threadReads.historicalItemCount(threadId, through);
   }
   historicalItemCompletion(threadId: ThreadId, itemId: ItemId) {
-    this.flushLiveWrites();
-    return this.history.completion(threadId, itemId);
+    return this.threadReads.historicalItemCompletion(threadId, itemId);
   }
   readHistoricalItemPage(
     threadId: ThreadId,
@@ -1429,9 +988,7 @@ export class Store {
     limit: number,
     byteLimit = 1024 * 1024,
   ) {
-    this.flushLiveWrites();
-    if (!this.getThread(threadId)) throw new Error("Unknown thread");
-    return this.history.page(threadId, through, before, limit, byteLimit);
+    return this.threadReads.readHistoricalItemPage(threadId, through, before, limit, byteLimit);
   }
   readHistoricalStream(
     threadId: ThreadId,
@@ -1440,27 +997,22 @@ export class Store {
     offset: number,
     limit: number,
   ) {
-    this.flushLiveWrites();
-    return this.history.readStream(threadId, streamId, through, offset, limit);
+    return this.threadReads.readHistoricalStream(threadId, streamId, through, offset, limit);
   }
   blobInfo(blobRef: string) {
-    return this.payloads.blobInfo(blobRef);
+    return this.threadReads.blobInfo(blobRef);
   }
   outputInfo(streamId: string) {
-    this.flushLiveWrites();
-    return this.payloads.outputInfo(streamId);
+    return this.threadReads.outputInfo(streamId);
   }
   readOutputBytes(streamId: string, offset: number, limit: number) {
-    this.flushLiveWrites();
-    return this.payloads.readLiveOutputBytes(streamId, offset, limit);
+    return this.threadReads.readOutputBytes(streamId, offset, limit);
   }
   readOutput(streamId: string, offset: number, limit: number) {
-    this.flushLiveWrites();
-    return this.payloads.readOutput(streamId, offset, limit);
+    return this.threadReads.readOutput(streamId, offset, limit);
   }
   readHistoryBlob(threadId: ThreadId, id: string, offset: number, limit: number) {
-    if (!this.getThread(threadId)) throw new Error("Unknown thread");
-    return readHistoryBlob(this.db, threadId, id, offset, limit);
+    return this.threadReads.readHistoryBlob(threadId, id, offset, limit);
   }
   private recordDataDeletion(id: ThreadId): void {
     const previousSeq = this.headSeq();
@@ -1480,7 +1032,7 @@ export class Store {
       this.recordDataDeletion(id);
       purgeTranscript(this.db, id);
     });
-    this.caches.delete(id);
+    this.threadReads.forget(id);
   }
   deleteThread(id: ThreadId): void {
     this.transaction(() => {
@@ -1489,10 +1041,9 @@ export class Store {
       this.statement("DELETE FROM events WHERE thread_id = ?").run(id);
       this.statement("DELETE FROM threads WHERE id = ?").run(id);
     });
-    this.caches.delete(id);
+    this.threadReads.forget(id);
   }
   releaseThread(id: ThreadId): void {
-    const cached = this.caches.get(id);
-    if (cached && --cached.refs === 0) this.caches.delete(id);
+    return this.threadReads.releaseThread(id);
   }
 }

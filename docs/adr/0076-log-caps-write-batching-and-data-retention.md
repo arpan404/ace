@@ -125,12 +125,17 @@ Read-cache pressure cannot evict pinned writes. Cache misses fall through to SQL
 Read-cache optimization remains a separate follow-up: with 1,000 awaited deltas, a local
 single-writer run committed 42 transactions, while interleaving a snapshot read every four
 deltas committed 251 transactions with 250 cache misses and no hits. Reads currently drain
-the tail to preserve consistency. The next Store extraction should move snapshot, item-page
-and entity-page reads, their cache keys and generation checks into one read-path owner;
-Store will keep the flush barrier and write transaction ownership. This separates read-path
-work before Store reaches its 1,500-line limit. Shutdown now has its own small owner so a
-failed final flush cannot skip timer, worker or connection cleanup; its promise reports
-flush and cleanup failures after all cleanup has been attempted.
+the tail to preserve consistency. `ThreadReads` now owns acquired status leases, snapshot,
+item/entity-page and output/history reads and their cache keys. `ThreadReadCache` still
+fences generations; Store supplies the connection's version, transaction and flush barriers.
+`LongThreadQueries` owns validated navigation/search requests and step-site state;
+`SidebarReads` owns sidebar snapshot transactions and revision caches. `CommandReceipts`
+owns idempotency and pending-result transitions, `EventWriter` owns canonical folding and
+derived-table writes, and `decodeThreadRow` is the shared row-schema boundary. Store remains
+the connection/transaction and ordered-publication owner and composes these modules without
+changing its public API. Shutdown has its own small owner so a failed final flush cannot
+skip timer, worker or connection cleanup; its promise reports flush and cleanup failures
+after all cleanup has been attempted.
 
 WAL auto-checkpoint and the existing 16 MiB journal limit remain enabled. A bounded idle
 checkpoint timer tries TRUNCATE without waiting for other readers, at most once per five
