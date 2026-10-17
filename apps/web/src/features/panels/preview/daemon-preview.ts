@@ -19,6 +19,7 @@ import type {
 } from "../sources.ts";
 import { schedule as defaultSchedule, type Schedule } from "../schedule.ts";
 import { documentVisibility, type PageVisibility } from "@/lib/page-visibility.ts";
+import { daemonAnnotate } from "./daemon-annotate.ts";
 import { decodeFrame, type FrameDecoder } from "./frames.ts";
 import { previewControl } from "./preview-control.ts";
 import { SuggestionStore } from "./preview-suggestions.ts";
@@ -55,6 +56,8 @@ const view = (state: BrowserState): BrowserView => ({
   downloads: state.downloads,
   pendingDialog: state.pending_dialog,
   takeoverMode: state.takeoverMode,
+  annotation: state.annotation,
+  features: state.features,
 });
 
 const wireInput = (input: ForwardedInput): BrowserInput => {
@@ -173,6 +176,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
     return reply.result;
   };
+  const annotate = daemonAnnotate(client, request);
+  stops.push(annotate.dispose);
   const control = previewControl({
     call,
     view: (threadId) => views.get(threadId),
@@ -551,6 +556,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     handback: control.handback,
     releaseSharedControl: control.releaseSharedControl,
     temporaryControl: control.temporaryControl,
+    annotate,
     input(threadId, input) {
       return request({
         type: "browser.input",

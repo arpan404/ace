@@ -3,6 +3,7 @@ import { staleRef, BrowserActionError } from "./action-error.ts";
 import type { BrowserCdp } from "./backend.ts";
 import { AXTree, Bounds, CallResult, ResolvedNode, snapshotNodes } from "./cdp.ts";
 import { z } from "zod";
+import { withoutSubtree } from "./snapshot-exclusion.ts";
 
 /** One generation and one bounded snapshot; navigation cannot alias an old ref. */
 export class SnapshotRefs {
@@ -13,12 +14,16 @@ export class SnapshotRefs {
     | undefined;
   private cdp: BrowserCdp;
   private frameSessions = new Map<string, BrowserFrameSession>();
+  /** DOM node whose subtree snapshots omit: ace's annotate overlay in the top document. */
+  private excluded: () => Promise<number | undefined>;
   constructor(
     cdp: BrowserCdp,
     frames?: () => Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]>,
+    excluded: () => Promise<number | undefined> = async () => undefined,
   ) {
     this.frames = frames;
     this.cdp = cdp;
+    this.excluded = excluded;
   }
   replace(cdp: BrowserCdp): void {
     this.cdp = cdp;
@@ -57,8 +62,9 @@ export class SnapshotRefs {
     const refs = new Map<string, { backendNodeId: number; cdp: BrowserCdp; frameId?: string }>();
     let truncated = false,
       bytes = 0;
+    const excluded = await this.excluded();
     for (const frame of frames) {
-      const tree = AXTree.parse(
+      const raw = AXTree.parse(
         await frame.cdp
           .send("Accessibility.getFullAXTree", {
             depth: 20,
@@ -76,6 +82,7 @@ export class SnapshotRefs {
             throw error;
           }),
       );
+      const tree = "parentId" in frame && frame.parentId ? raw : withoutSubtree(raw, excluded);
       for (const node of snapshotNodes(tree, epoch)) {
         const backendNodeId = node.ref ? Number(node.ref.split("-")[1]) : undefined;
         const prefix = frame.frameId ? `${frame.frameId}:` : "";

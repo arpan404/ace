@@ -2,6 +2,12 @@ import { z } from "zod";
 import { BrowserTabList, BrowserDownload, BrowserDialog } from "./browser-features.ts";
 import { BrowserInteractionAction, BrowserMeasurementOptions } from "./interaction-measurement.ts";
 import { ThreadId, WorkspaceId } from "./ids.ts";
+import {
+  BrowserAnnotationCaptureTarget,
+  BrowserAnnotationConfig,
+  BrowserAnnotationMessage,
+  BrowserAnnotationPageCommand,
+} from "./browser-annotation.ts";
 
 const short = z.string().min(1).max(256);
 const dimension = z.number().int().min(100).max(4096);
@@ -28,6 +34,16 @@ export const BrowserOpen = z.object({
 export type BrowserOpen = z.infer<typeof BrowserOpen>;
 const commandBase = z.object({ tabId: short.optional() });
 const [click, type, press, scroll, drag] = BrowserInteractionAction.options;
+const annotate = commandBase.extend({ action: z.literal("annotate") });
+/** Annotate mode belongs to the person holding the page's control lease (ADR 0082). */
+const BrowserAnnotateCommand = z.discriminatedUnion("operation", [
+  annotate.extend({
+    operation: z.literal("start"),
+    config: BrowserAnnotationConfig.prefault({}),
+  }),
+  annotate.extend({ operation: z.literal("stop") }),
+  annotate.extend({ operation: z.literal("command"), command: BrowserAnnotationPageCommand }),
+]);
 export const BrowserCommand = z.discriminatedUnion("action", [
   commandBase.extend({ action: z.literal("navigation_history") }),
   commandBase.extend({ action: z.literal("selection") }),
@@ -131,6 +147,11 @@ export const BrowserCommand = z.discriminatedUnion("action", [
   commandBase.extend({ action: z.literal("network_body"), requestId: short }),
   commandBase.extend({ action: z.literal("record_start") }),
   commandBase.extend({ action: z.literal("record_stop") }),
+  BrowserAnnotateCommand,
+  commandBase.extend({
+    action: z.literal("annotate_capture"),
+    target: BrowserAnnotationCaptureTarget,
+  }),
 ]);
 export type BrowserCommand = z.infer<typeof BrowserCommand>;
 export const BrowserInput = z.discriminatedUnion("kind", [
@@ -192,6 +213,10 @@ export const BrowserState = z.object({
   downloads: z.array(BrowserDownload).max(128).optional(),
   pending_dialog: BrowserDialog.optional(),
   takeoverMode: z.enum(["shared", "private"]).optional(),
+  /** Set while a connection has annotate mode open on this page. */
+  annotation: z.object({ owner: short }).optional(),
+  /** Optional page features this daemon supports, such as `annotate`. Unknown names are kept. */
+  features: z.array(z.string().max(64)).max(32).optional(),
 });
 export type BrowserState = z.infer<typeof BrowserState>;
 export const BrowserFrame = z.object({
@@ -280,5 +305,6 @@ export const BrowserServerMessage = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("browser.state"), state: BrowserState }),
   z.object({ type: z.literal("browser.frame"), threadId: ThreadId, frame: BrowserFrame }),
+  BrowserAnnotationMessage,
 ]);
 export type BrowserServerMessage = z.infer<typeof BrowserServerMessage>;

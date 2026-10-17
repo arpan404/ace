@@ -22,6 +22,8 @@ const inputActions = new Set([
   "focus",
   "record_start",
   "record_stop",
+  "annotate",
+  "annotate_capture",
 ]);
 export function mutatesBrowser(command: BrowserCommand): boolean {
   if (command.action === "measure_interaction") return command.interaction !== undefined;

@@ -10,6 +10,11 @@ import type { ApprovalTarget } from "@ace/protocol";
 import { validateMeasurementBudget } from "@ace/interaction";
 import type { BrowserToolkit } from "@ace/mcp-server";
 import type { BrowserService } from "./service.ts";
+/** Browser actions only a person drives (ADR 0082). */
+type AgentAction = Exclude<BrowserCommand["action"], "annotate" | "annotate_capture">;
+function agentAction(action: BrowserCommand["action"]): action is AgentAction {
+  return action !== "annotate" && action !== "annotate_capture";
+}
 const actions = {
   measure_interaction: {
     riskClass: "external-effect",
@@ -135,7 +140,7 @@ const actions = {
     description: "Stop recording and announce a thread artifact.",
   },
 } satisfies Record<
-  BrowserCommand["action"],
+  AgentAction,
   { riskClass: NonNullable<ApprovalTarget["riskClass"]>; description: string }
 >;
 
@@ -171,7 +176,10 @@ export function browserToolkit(
     capability: "browser",
     register(registry) {
       for (const command of BrowserCommand.options) {
+        // Annotate mode is the person's (ADR 0082); agents get no tool for it.
+        if (!("shape" in command)) continue;
         const action = command.shape.action.value;
+        if (!agentAction(action)) continue;
         // The longest wait, its 65 s approval reserve, and headroom to report the result.
         const timeoutMs = Math.min(300_000, startupReserveMs + browserWaitLimitMs + 70_000);
         const name = `ace_browser_${action}`;

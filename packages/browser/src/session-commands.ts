@@ -16,6 +16,8 @@ import { evaluatePage, evaluateReadOnly } from "./evaluation.ts";
 import { measureBrowserInteraction } from "./measurement.ts";
 import { uploadPaths } from "./uploads.ts";
 import { dragRefs } from "./drag.ts";
+import { executeAnnotation } from "./annotation-commands.ts";
+import type { AnnotationSession } from "./annotation-session.ts";
 import type { SnapshotRefs } from "./refs.ts";
 import type { SessionLogs } from "./logs.ts";
 import type { NavigationPolicies } from "./policy-waits.ts";
@@ -25,6 +27,7 @@ interface CommandContext {
   beforeInput?: (() => void) | undefined;
   navigate?: (() => Promise<void>) | undefined;
   refs: SnapshotRefs;
+  annotation: AnnotationSession;
   logs: SessionLogs;
   policies: NavigationPolicies;
   state(): BrowserState;
@@ -60,6 +63,9 @@ export async function executeBrowserCommand(
   const { backend: page, dir, id, evaluatePolicy, threadId } = context.options;
   const cdp = page.cdp;
   switch (command.action) {
+    case "annotate":
+    case "annotate_capture":
+      return executeAnnotation(command, actor, cdp, context.annotation);
     case "measure_interaction":
       return measureBrowserInteraction(
         {

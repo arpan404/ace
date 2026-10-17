@@ -10,6 +10,7 @@ import {
   BrowserPlacement,
   BrowserWantsControl,
   BrowserShortcut,
+  ClipboardImage,
   DaemonConnection,
   DaemonStatus,
   DeepLink,
@@ -72,6 +73,8 @@ export const requests = {
    * person cancels. Nothing else about the folder crosses; the daemon checks it.
    */
   "dialog.openFolder": { request: None, result: AbsolutePath.nullable() },
+  /** Puts a PNG or JPEG on the system clipboard; the page needs no focus or user activation. */
+  "clipboard.writeImage": { request: ClipboardImage, result: None },
   "notify.show": { request: NotifyRequest, result: z.boolean() },
   "badge.set": { request: Count, result: None },
   "window.action": { request: WindowAction, result: WindowState },

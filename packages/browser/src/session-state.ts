@@ -13,6 +13,7 @@ export function browserState(
     pageStateLost: boolean;
     lastUrl?: string | undefined;
     blocked?: BrowserOriginBlock | undefined;
+    annotation?: string | undefined;
   },
 ): BrowserState {
   const tabs = options.backend.tabs;
@@ -29,6 +30,8 @@ export function browserState(
     ...(lifecycle.blocked ? { blocked: lifecycle.blocked } : {}),
     closed: lifecycle.closed,
     takeoverMode: ownership.mode,
+    features: ["annotate"],
+    ...(lifecycle.annotation ? { annotation: { owner: lifecycle.annotation } } : {}),
     ...(tabs
       ? {
           activeTabId: tabs.active(),

@@ -122,6 +122,10 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
         return parsed.success ? parsed.data : null;
       },
     },
+    clipboard: {
+      /** A PNG or JPEG (base64, at most 8 MiB) onto the system clipboard. */
+      writeImage: (image: RequestOf<"clipboard.writeImage">) => call("clipboard.writeImage", image),
+    },
     notifications: {
       show: (request: RequestOf<"notify.show">) => call("notify.show", request),
       setBadge: (count: number) => call("badge.set", count),

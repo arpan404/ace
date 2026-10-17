@@ -1,7 +1,14 @@
 import { MessageReferences } from "./message-references.tsx";
 import { userBubble } from "./user-bubble.ts";
 import { useItem } from "@ace/client-react";
-import { formatClock, withoutPortableHandoff, sanitizeUserText } from "@ace/ui-core";
+import {
+  formatClock,
+  withoutPortableHandoff,
+  sanitizeUserText,
+  splitAnnotationParts,
+  splitBrowserAnnotations,
+} from "@ace/ui-core";
+import { AnnotationsCard } from "@/features/annotations/index.ts";
 import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useCopy } from "@/components/use-copy.ts";
@@ -70,17 +77,23 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
   const noticeId = local.noticeId;
   const message = item?.type === "message" ? item : undefined;
   if (!message && !local.send && !local.staged) return null;
+  // Browser annotations travel as a block after the person's words; they show as a card.
   const text = sanitizeUserText(
-    message
-      ? inputText(message.parts)
-      : local.send
-        ? inputText(local.send.payload.input)
-        : (local.staged?.text ?? ""),
+    splitBrowserAnnotations(
+      message
+        ? inputText(message.parts)
+        : local.send
+          ? inputText(local.send.payload.input)
+          : (local.staged?.text ?? ""),
+    ).text,
+  );
+  const annotated = splitAnnotationParts(
+    withoutPortableHandoff(
+      message?.parts ?? local.send?.payload.input ?? local.staged?.input ?? [],
+    ),
   );
   // Most messages carry no files: only those load the thumbnails' code.
-  const parts = withoutPortableHandoff(
-    message?.parts ?? local.send?.payload.input ?? local.staged?.input ?? [],
-  );
+  const parts = annotated.parts;
   const images: { width?: number | undefined; height?: number | undefined }[] = [
     ...(message?.attachments ?? []).filter((file) => file.mimeType.startsWith("image/")),
     ...parts.flatMap((part) => (part.type === "image" ? [{}] : [])),
@@ -118,6 +131,7 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
           </Suspense>
         )}
         <div ref={content}>{parts.length ? <MessageReferences parts={parts} /> : text}</div>
+        {annotated.annotations && <AnnotationsCard annotations={annotated.annotations} />}
       </div>
       {/* One line under the bubble: how its sending goes, else its time on hover. Both are
           the same height, so the row doesn't move when "Sending…" goes. */}

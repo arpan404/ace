@@ -1,0 +1,33 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserAnnotationMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "event": {
+      "additionalProperties": {},
+      "properties": {
+        "kind": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "browser.annotation",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "threadId",
+    "event"
+  ],
+  "type": "object"
+}

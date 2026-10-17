@@ -21,12 +21,14 @@ import { SessionRecording } from "./session-recording.ts";
 import { sendHumanInput } from "./session-input.ts";
 import type { NavigationTask } from "./navigation.ts";
 import { executeBrowserCommand } from "./session-commands.ts";
+import { AnnotationSession } from "./annotation-session.ts";
 
 import type { Actor, SessionOptions } from "./session-options.ts";
 export type { Actor, SessionOptions } from "./session-options.ts";
 export class BrowserSession {
   readonly live: LiveCapture;
   private refs: SnapshotRefs;
+  private annotation: AnnotationSession;
   lastActivity: number;
   get evictable(): boolean {
     return (
@@ -89,6 +91,7 @@ export class BrowserSession {
   }
   suspend(reason: string): void {
     if (this.closed || this.paused) return;
+    this.annotation.end("restart");
     this.lastUrl = this.options.backend.url();
     this.paused = true;
     this.reason = reason.slice(0, 2048);
@@ -108,6 +111,7 @@ export class BrowserSession {
     await this.options.backend.close();
   }
   restarted(): void {
+    this.annotation.restarted(this.options.backend.cdp);
     this.refs.invalidate();
     void this.live.replace(this.options.backend.cdp).then(
       () => this.emit(),
@@ -131,6 +135,7 @@ export class BrowserSession {
       await backend.close();
       throw new Error("Browser closed during recovery");
     }
+    this.annotation.end("restart");
     await this.options.backend.close().catch(() => {});
     signal?.throwIfAborted();
     this.options.backend = backend;
@@ -152,9 +157,14 @@ export class BrowserSession {
     this.options = options;
     this.lastActivity = options.now();
     this.queue = new SessionQueue(() => options.backend.tabs?.dialog());
+    this.annotation = new AnnotationSession(
+      (connectionId, event) => options.annotation?.(connectionId, event),
+      () => this.emit(),
+    );
     this.refs = new SnapshotRefs(
       options.backend.cdp,
       options.backend.frames ? () => options.backend.frames?.() ?? Promise.resolve([]) : undefined,
+      () => this.annotation.hostNode(),
     );
     this.activeTabId = options.backend.tabs?.active();
     this.logs = new SessionLogs(options.dir);
@@ -179,6 +189,7 @@ export class BrowserSession {
       pageStateLost: this.pageStateLost,
       lastUrl: this.lastUrl,
       blocked: this.blocked,
+      annotation: this.annotation.owner,
     });
   }
 
@@ -210,6 +221,7 @@ export class BrowserSession {
     return this.state;
   }
   handback(connectionId: string): BrowserState {
+    if (this.ownership.owner === connectionId) this.annotation.end("lease");
     const wasPrivate = this.ownership.mode === "private";
     this.ownership.handback(connectionId, this.options.now());
     if (wasPrivate) this.refs.invalidate();
@@ -224,6 +236,7 @@ export class BrowserSession {
     return this.state;
   }
   disconnect(connectionId: string): void {
+    if (this.annotation.owner === connectionId) this.annotation.end("disconnect");
     if (this.ownership.owner !== connectionId) return;
     if (this.ownership.mode === "private") {
       this.ownership.owner = undefined;
@@ -253,6 +266,7 @@ export class BrowserSession {
   private async syncTab(): Promise<void> {
     const tabId = this.options.backend.tabs?.active();
     if (tabId === this.activeTabId) return;
+    this.annotation.end("tab");
     this.activeTabId = tabId;
     this.refs.replace(this.options.backend.cdp);
     await this.live.replace(this.options.backend.cdp);
@@ -405,6 +419,7 @@ export class BrowserSession {
       beforeInput,
       navigate,
       refs: this.refs,
+      annotation: this.annotation,
       logs: this.logs,
       policies: this.policies,
       state: () => this.state,
@@ -449,6 +464,7 @@ export class BrowserSession {
   }
   close(): Promise<void> {
     this.closing ??= (async () => {
+      this.annotation.end("stopped");
       this.lastUrl = this.options.backend.url();
       this.closed = true;
       this.options.cancelPolicy();

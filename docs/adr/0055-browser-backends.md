@@ -6,7 +6,9 @@ Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provi
 
 The background backend default, tabs, files and private-control behavior is amended by
 [ADR 0067](0067-browser-parity.md). Agent backend choice, unseen-view rendering, profiles and
-thread deletion are amended by [ADR 0069](0069-shared-native-browser.md).
+thread deletion are amended by [ADR 0069](0069-shared-native-browser.md). Annotate mode, an
+isolated-world overlay the relay carries unchanged, is added by
+[ADR 0082](0082-browser-annotation.md).
 
 ## Decision
 
