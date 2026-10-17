@@ -40,6 +40,8 @@ export class BrowserSession {
   private lastUrl: string | undefined;
   private reason: string | undefined;
   private pageStateLost = false;
+  /** Paused by a detached backend that may still return the same pages. */
+  private reattaching = false;
   /** The tab whose frames the live capture carries: the one the person views. */
   private captured: string | undefined;
   private persisted = "";
@@ -136,7 +138,7 @@ export class BrowserSession {
       emit: () => this.emit(),
       suspend: (reason) => this.suspend(reason),
       resumeIntact: () => {
-        if (this.paused && !this.pageStateLost) {
+        if (this.paused && !this.pageStateLost && !this.reattaching) {
           this.paused = false;
           this.reason = undefined;
         }
@@ -198,13 +200,34 @@ export class BrowserSession {
   }
   suspend(reason: string): void {
     if (this.closed || this.paused) return;
+    this.pause(reason);
+    this.pageStateLost = true;
+    this.emit();
+  }
+  /**
+   * The backend dropped but may hand the same pages back (a desktop re-adopting its views,
+   * ADR 0085). Paused like a loss, without claiming the pages are gone: `pagesLost` says so if
+   * they do not come back, and `readopt` resumes on them if they do.
+   */
+  detach(reason: string): void {
+    if (this.closed || this.paused) return;
+    this.pause(reason);
+    this.reattaching = true;
+    this.emit();
+  }
+  /** A detached backend did not come back in time: its pages count as lost. */
+  pagesLost(): void {
+    if (!this.reattaching || this.closed) return;
+    this.reattaching = false;
+    this.pageStateLost = true;
+    this.emit();
+  }
+  private pause(reason: string): void {
     for (const tab of this.tabs.all()) tab.lost();
     this.lastUrl = this.options.backend.url();
     this.paused = true;
     this.reason = reason.slice(0, 2048);
-    this.pageStateLost = true;
     this.live.detach();
-    this.emit();
   }
   recoveryFailed(reason: string): void {
     this.reason = `The page could not reopen: ${reason}`.slice(0, 2048);
@@ -239,9 +262,30 @@ export class BrowserSession {
           this.suspend(error instanceof Error ? error.message : failure);
       });
   }
+  /** The thread's pages were reopened on a new backend session; their state is gone. */
   async replace(
     backend: BrowserBackendSession,
     kind: "embedded" | "headless" = "headless",
+    signal?: AbortSignal,
+  ): Promise<void> {
+    await this.swap(backend, kind, signal);
+    this.pageStateLost = true;
+    this.reason = "The page was reopened after the browser disconnected";
+    this.emit();
+  }
+  /**
+   * The detached backend handed the same pages back (a desktop re-adoption): documents, scroll
+   * and form state survived, so nothing is reported lost.
+   */
+  async readopt(backend: BrowserBackendSession, signal?: AbortSignal): Promise<void> {
+    await this.swap(backend, "embedded", signal);
+    this.pageStateLost = false;
+    this.reason = undefined;
+    this.emit();
+  }
+  private async swap(
+    backend: BrowserBackendSession,
+    kind: "embedded" | "headless",
     signal?: AbortSignal,
   ): Promise<void> {
     signal?.throwIfAborted();
@@ -275,8 +319,7 @@ export class BrowserSession {
     signal?.throwIfAborted();
     this.lastUrl = undefined;
     this.paused = false;
-    this.reason = "The page was reopened after the browser disconnected";
-    this.emit();
+    this.reattaching = false;
   }
   /** The tab a takeover, handback or input names; omitted, the tab the person views. */
   private tab(tabId?: string): TabRuntime {
@@ -335,6 +378,8 @@ export class BrowserSession {
       this.tabs.find(this.captured ?? "")?.annotation.end("tab");
       this.captured = viewedId;
       this.recapture("Tab capture failed");
+      // A backend that applies one lease to what it shows (the desktop) needs the new tab's.
+      if (this.options.backend.tabs) void this.tabs.viewed()?.syncLease();
     }
     this.persist();
     this.emit();

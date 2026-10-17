@@ -9,6 +9,9 @@
       "$ref": "https://ace.local/protocol/v1/StorageResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/UserBrowserSettingsResult.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/RemoteDelegationResult.json"
     },
     {

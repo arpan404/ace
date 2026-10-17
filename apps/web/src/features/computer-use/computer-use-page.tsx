@@ -2,6 +2,7 @@ import { stopAllSummary, visibleSessions } from "@ace/ui-core/computer-use";
 import { SettingSection } from "@/components/setting-row.tsx";
 import { EnableRow, LiveSessions, Permissions, StopAllButton } from "./sections.tsx";
 import { useComputerUse } from "./use-computer-use.ts";
+import { UseMyChromeSettings } from "./use-my-chrome.tsx";
 
 /**
  * Settings › Computer use: on or off, the global stop, every live session and macOS's grants to
@@ -42,6 +43,7 @@ export function ComputerUseSettings() {
       <SettingSection label="macOS permissions">
         <Permissions use={use} />
       </SettingSection>
+      <UseMyChromeSettings />
     </>
   );
 }

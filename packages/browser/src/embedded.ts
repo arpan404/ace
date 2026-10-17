@@ -456,6 +456,10 @@ export class EmbeddedBackend implements BrowserBackend {
     let tabs: EmbeddedTabs | undefined;
     const currentCdp = () => tabs?.current().cdp ?? cdp;
     let viewport = { width: 1280, height: 720 };
+    /** The open sent generation 0; every lease after it rises on the wire. */
+    let leaseGeneration = 0;
+    /** Each tab's newest lease generation, so an older one is refused as the desktop would. */
+    const leases = new Map<string, number>();
     let closing: Promise<void> | undefined;
     let guard: Awaited<ReturnType<typeof installOriginGuard>> | undefined;
     const close = (): Promise<void> =>
@@ -509,13 +513,14 @@ export class EmbeddedBackend implements BrowserBackend {
       request.signal.throwIfAborted();
       if (opened.activeTabId !== undefined && opened.tabs) {
         tabs = new EmbeddedTabs(cdp, request);
-        await tabs.start({ activeTabId: opened.activeTabId, tabs: opened.tabs });
+        await tabs.start({ activeTabId: opened.activeTabId, tabs: opened.tabs }, opened.adopted);
       } else guard = await installOriginGuard(cdp, request.allowed, request.initiator);
       await cdp.send("Page.enable");
       await cdp.send("Runtime.enable");
       await cdp.send("Network.enable");
       if (opened.adopted) adoptedUrl = opened.url;
       return {
+        adopted: opened.adopted === true,
         pageStatus: () => tabs?.pageStatus() ?? status.read(),
         privateMode: (enabled) => {
           tabs?.inspection.privacy(enabled);
@@ -598,10 +603,15 @@ export class EmbeddedBackend implements BrowserBackend {
             features: [{ name: "prefers-color-scheme", value: colorScheme }],
           });
         },
-        // The desktop applies one lease to the view it shows: the shown tab's.
+        // The desktop applies one lease to the view it shows: the shown tab's. Each tab counts
+        // its own generations, so the wire carries one rising count for the whole session.
         controller: async (lease, tabId) => {
+          const owner = tabId ?? tabs?.active() ?? "";
+          if ((leases.get(owner) ?? -Infinity) > lease.generation)
+            throw new Error("Obsolete controller lease generation");
+          leases.set(owner, lease.generation);
           if (tabId !== undefined && tabs && tabId !== tabs.active()) return;
-          await call({ kind: "controller", lease });
+          await call({ kind: "controller", lease: { ...lease, generation: ++leaseGeneration } });
         },
         close,
       };

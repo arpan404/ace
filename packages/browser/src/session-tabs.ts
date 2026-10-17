@@ -74,7 +74,8 @@ export class SessionTabs {
    */
   reconcile(carried?: SessionOwnership): { added: TabRuntime[]; removed: TabRuntime[] } {
     const tabs = this.backend().tabs;
-    const ids = tabs ? tabs.list().map((tab) => tab.tabId) : [soleTab];
+    const listed = tabs ? tabs.list() : [];
+    const ids = tabs ? listed.map((tab) => tab.tabId) : [soleTab];
     const added: TabRuntime[] = [],
       removed: TabRuntime[] = [];
     for (const [id, runtime] of this.runtimes)
@@ -88,9 +89,12 @@ export class SessionTabs {
     for (const id of ids) {
       let runtime = this.runtimes.get(id);
       if (!runtime) {
+        // A backend may say who opened a tab (the person's own shared tabs, ADR 0084).
+        const reported = listed.find((tab) => tab.tabId === id)?.openedBy;
         const meta = this.pending.get(id) ??
+          (reported ? { openedBy: reported } : undefined) ??
           this.opening ?? { openedBy: { kind: "page" as const } };
-        if (!this.pending.delete(id)) this.opening = undefined;
+        if (!this.pending.delete(id) && !reported) this.opening = undefined;
         runtime = new TabRuntime(this.host, id, meta, ownership);
         ownership = undefined;
         added.push(runtime);
@@ -131,7 +135,7 @@ export class SessionTabs {
       if (!runtime) return tab;
       const entry: BrowserTab & { current?: boolean } = Object.assign({}, tab, {
         lease: runtime.lease(),
-        lifecycle: runtime.lifecycle,
+        lifecycle: runtime.crashed() ? "crashed" : runtime.lifecycle,
       });
       if (runtime.openedBy) entry.openedBy = runtime.openedBy;
       if (runtime.drivenBy) entry.drivenBy = runtime.drivenBy;

@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/UserBrowserIdentity.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "extensionVersion": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "family": {
+      "$ref": "https://ace.local/protocol/v1/UserBrowserFamily.json"
+    },
+    "profileId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "version": {
+      "maxLength": 64,
+      "type": "string"
+    }
+  },
+  "required": [
+    "family",
+    "version",
+    "profileId",
+    "extensionVersion"
+  ],
+  "type": "object"
+}

@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import type { BrowserBackendLost } from "@ace/protocol";
 import { backendFixture } from "./backend-test-support.ts";
 
@@ -95,4 +95,41 @@ it("desktop disconnection still emits loss and recovers after a controller lease
   });
   await f.service.input("thread", { kind: "key", event: "char", key: "x" }, "human");
   expect(f.headless.pages[0]?.text).toBe("x");
+});
+
+it("a dropped desktop link reports the page lost only once the desktop has had its chance to come back", async () => {
+  const f = await backendFixture({ backendLoss: () => "pause", desktopReadoptionGraceMs: 300 });
+  await f.open();
+  await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/page" });
+  const events: BrowserBackendLost[] = [];
+  f.service.subscribe(
+    "thread",
+    "viewer",
+    { send: () => true },
+    () => {},
+    (event) => {
+      if (event.type === "browser.backend.lost") events.push(event);
+    },
+  );
+  await f.disconnect();
+  // Paused, but nothing is said to be lost while the desktop may still hand the view back.
+  expect(f.service.state("thread")).toMatchObject({ status: "paused" });
+  expect(f.service.state("thread").pageStateLost).toBeUndefined();
+  expect(events).toEqual([]);
+  // An agent asking for the page meanwhile waits out the grace instead of moving the page.
+  const resumed = f.service.open({
+    threadId: "thread",
+    workspaceId: "workspace-thread",
+    background: true,
+  });
+  expect(f.headless.pages).toHaveLength(0);
+  await vi.waitFor(() => expect(events).toHaveLength(1), { timeout: 5_000 });
+  expect(events[0]).toMatchObject({ url: "http://localhost:3000/page", pageStateLost: true });
+  await resumed;
+  expect(f.service.state("thread")).toMatchObject({
+    backend: "headless",
+    status: "ready",
+    url: "http://localhost:3000/page",
+    pageStateLost: true,
+  });
 });

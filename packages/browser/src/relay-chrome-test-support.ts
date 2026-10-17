@@ -141,6 +141,8 @@ export async function chromeDesktop(executablePath: string) {
   let sessionId = "";
   const tabId = "native-tab";
   let url = "about:blank";
+  /** The next open hands back the kept page, as a desktop re-adopting its view does. */
+  let adopted = false;
   const deliver = (message: BrowserBackendClientMessage) => backend?.handle(message);
   const event = (method: string, params: unknown) =>
     deliver({
@@ -181,7 +183,9 @@ export async function chromeDesktop(executablePath: string) {
     try {
       if (operation.kind === "open") {
         sessionId = message.sessionId;
-        return reply({ url, ...tabs() });
+        const kept = adopted;
+        adopted = false;
+        return reply({ url, ...tabs(), ...(kept ? { adopted: true } : {}) });
       }
       if (operation.kind === "navigate") {
         await page.send("Page.navigate", { url: operation.url });
@@ -211,6 +215,21 @@ export async function chromeDesktop(executablePath: string) {
     },
     attach(registered: EmbeddedBackend) {
       backend = registered;
+    },
+    /**
+     * As a link blip does (ADR 0085): the daemon's relay loses the desktop, the page lives on
+     * and its old debugger session goes away, then the desktop registers again (`register`)
+     * and hands the same page back to the next open on a fresh debugger session.
+     */
+    async relink(register: () => EmbeddedBackend): Promise<void> {
+      const old = backend;
+      const stale = page;
+      page = await connect();
+      forward(page);
+      stale.close();
+      adopted = true;
+      old?.disconnect("Desktop app disconnected");
+      backend = register();
     },
     /**
      * As the desktop recovers a crashed renderer: crash it, attach a fresh debugger session,

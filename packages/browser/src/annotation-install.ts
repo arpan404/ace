@@ -129,3 +129,32 @@ export async function removeOverlay(cdp: BrowserCdp, contextId: number): Promise
   await evaluateInWorld(cdp, contextId, annotationTeardownExpression).catch(() => {});
   await cdp.send("Runtime.removeBinding", { name: annotationBindingName }).catch(() => {});
 }
+
+const ContextCreated = z.object({ context: z.object({ id: z.number().int(), name: z.string() }) });
+
+/**
+ * Tears down overlays an earlier CDP session left in the page. A desktop view re-adopted after a
+ * lost link keeps its document (ADR 0085), and with it any overlay that was showing: its world
+ * still swallows the person's clicks, and a new install would add a second one beside it. Runs
+ * on a fresh session before anything enables Runtime there: enabling it reports every live
+ * context, the old overlay worlds included.
+ */
+export async function removeStaleOverlays(cdp: BrowserCdp): Promise<void> {
+  const worlds: number[] = [];
+  const created = (raw: unknown) => {
+    const context = ContextCreated.safeParse(raw);
+    if (context.success && context.data.context.name === annotationWorldName)
+      worlds.push(context.data.context.id);
+  };
+  cdp.on("Runtime.executionContextCreated", created);
+  try {
+    await cdp.send("Runtime.enable");
+  } finally {
+    cdp.off("Runtime.executionContextCreated", created);
+  }
+  await Promise.all(
+    worlds.map((contextId) =>
+      evaluateInWorld(cdp, contextId, annotationTeardownExpression).catch(() => {}),
+    ),
+  );
+}

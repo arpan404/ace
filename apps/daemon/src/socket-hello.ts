@@ -18,7 +18,12 @@ export function helloActor(
     message.token !== undefined && isLocal && !auth.local(message.token)
       ? auth.deviceBearer(message.token)
       : undefined;
-  const desktop = bearer?.scopes.includes("desktop") ? bearer : undefined;
+  // Local-only credentials the daemon minted itself: the desktop app's, and the "Use my Chrome"
+  // native host's (ADR 0084), which authorizes nothing but registering a browser link.
+  const desktop =
+    bearer?.scopes.includes("desktop") || bearer?.scopes.includes("user-browser")
+      ? bearer
+      : undefined;
   const actor =
     message.ticket !== undefined
       ? auth.consume(message.ticket)

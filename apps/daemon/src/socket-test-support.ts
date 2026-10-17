@@ -57,9 +57,15 @@ export class Client {
 }
 export async function fixture(
   options: Partial<Omit<ServerOptions, "store" | "token" | "hostId" | "port">> = {},
+  /** Services that need the fixture's own store and home. */
+  withStore?: (
+    store: Store,
+    home: string,
+  ) => Partial<Omit<ServerOptions, "store" | "token" | "hostId" | "port">>,
 ) {
   const home = mkdtempSync(join(tmpdir(), "ace-socket-"));
   const store = new Store(join(home, "events.sqlite"));
+  options = { ...options, ...withStore?.(store, home) };
   const workspace = store.createWorkspace("/repo", "Repo");
   const thread = createDevThread(store, workspace);
   const handler: CommandHandler = options.handler ?? stubHandler({ development: true });

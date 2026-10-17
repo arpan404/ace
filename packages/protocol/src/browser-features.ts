@@ -24,23 +24,26 @@ export const BrowserTabLease = z.object({
   mode: z.enum(["shared", "private"]),
 });
 export type BrowserTabLease = z.infer<typeof BrowserTabLease>;
-/** `frozen` keeps the page but stops its scripts; `discarded` dropped it and reopens on use. */
-export const BrowserTabLifecycle = z.enum(["live", "frozen", "discarded"]);
+/**
+ * `frozen` keeps the page but stops its scripts; `discarded` dropped it and reopens on use;
+ * `crashed` lost its renderer and stays down until a reload or navigation brings it back.
+ */
+export const BrowserTabLifecycle = z.enum(["live", "frozen", "discarded", "crashed"]);
 export type BrowserTabLifecycle = z.infer<typeof BrowserTabLifecycle>;
 export const BrowserTab = z.object({
   tabId: id,
   url: z.string().max(8192),
   title: z.string().max(1024),
   pending_dialog: BrowserDialog.optional(),
-  openedBy: BrowserTabActor.optional().catch(undefined),
+  openedBy: BrowserTabActor.optional(),
   /** The actor whose command ran on this tab most recently. */
-  drivenBy: BrowserTabActor.optional().catch(undefined),
+  drivenBy: BrowserTabActor.optional(),
   /** A short name an agent gave the tab when it opened it, such as "checkout". */
-  label: z.string().max(64).optional().catch(undefined),
-  lease: BrowserTabLease.optional().catch(undefined),
-  lifecycle: BrowserTabLifecycle.optional().catch(undefined),
-  loading: z.boolean().optional().catch(undefined),
-  favicon: z.string().max(8192).optional().catch(undefined),
+  label: z.string().max(64).optional(),
+  lease: BrowserTabLease.optional(),
+  lifecycle: BrowserTabLifecycle.optional(),
+  loading: z.boolean().optional(),
+  favicon: z.string().max(8192).optional(),
 });
 export type BrowserTab = z.infer<typeof BrowserTab>;
 /** Wire bound on one browser's tab list: far above what a person keeps open, still bounded. */

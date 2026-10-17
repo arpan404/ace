@@ -72,3 +72,33 @@ it("an agent can give a navigation two minutes to load", async () => {
   );
   expect(z.object({ url: z.string() }).parse(state).url).toBe("http://localhost:3000/slow");
 });
+
+it("a tab the desktop stopped reloading after crashes refuses agent work until a navigation revives it", async () => {
+  const { f, sessionId } = await nativeSession();
+  await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/a" });
+  f.sendEvent(sessionId, "ace.tabs.event", {
+    tabId: "native-tab",
+    method: "ace.rendererCrashed",
+    params: { crashes: 3, reason: "crashed" },
+  });
+  await expect.poll(() => f.service.state("thread").tabs?.[0]?.lifecycle).toBe("crashed");
+  await expect(f.service.execute("thread", { action: "snapshot" })).rejects.toThrow(
+    "Browser tab crashed",
+  );
+  // Navigating asks the desktop for one more reload and waits for the restarted renderer.
+  const reloaded = new Promise<void>((resolve) => f.requests.once("Page.reload", () => resolve()));
+  const navigated = f.service.execute("thread", {
+    action: "navigate",
+    url: "http://localhost:3000/b",
+  });
+  await reloaded;
+  f.sendEvent(sessionId, "ace.tabs.event", {
+    tabId: "native-tab",
+    method: "ace.rendererRestarted",
+    params: {},
+  });
+  await navigated;
+  expect(f.service.state("thread")).toMatchObject({ url: "http://localhost:3000/b" });
+  expect(f.service.state("thread").tabs?.[0]?.lifecycle).toBe("live");
+  await f.service.execute("thread", { action: "snapshot" });
+});

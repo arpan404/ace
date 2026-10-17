@@ -59,9 +59,15 @@ The protocol is unchanged on the wire and stays lenient:
 - An older daemon ignores `adopted` and navigates as before; an older desktop never sends it.
   A crashed orphan, a different profile or an expired orphan gets a fresh view.
 
-The daemon still emits `browser.backend.lost` with `pageStateLost: true` when the link drops;
-after a re-adoption that is pessimistic. The daemon's tab runtime (H1) may report the adopted
-state instead.
+The daemon does not report a dropped link at once. The thread pauses (paused, no
+`pageStateLost`) and waits up to 10 seconds (`desktopReadoptionGraceMs`) for the desktop to come
+back; agent work that wants the page meanwhile waits too, instead of moving it to ace's Chrome.
+A re-adoption resumes the thread on the same pages with nothing reported lost. Only when the
+grace passes, or the desktop comes back with a fresh view, does the daemon emit
+`browser.backend.lost` with `pageStateLost: true` (and, under the `headless` loss policy, move
+the page). A view that dies while the link stays up is reported at once. Re-adopted tabs get a
+fresh CDP session, so the daemon removes any annotation overlay the lost link left in the page
+(found by its isolated world when Runtime is first enabled) before anything installs a new one.
 
 ### A slow command fails alone
 
@@ -80,6 +86,8 @@ parking window while an agent drives them (`backgroundThrottling: false`, ADR 00
 rule), and are hidden and throttled otherwise. Only the selected tab's screencast is relayed.
 The `cdp` operation's tab methods, for the daemon's tab runtime:
 
+This is the one tab contract the desktop and the daemon's tab runtime (ADR 0083) both keep:
+
 | Method            | Params                                     | Result                                 |
 | ----------------- | ------------------------------------------ | -------------------------------------- |
 | `ace.tabs.list`   | none                                       | `{activeTabId, tabs}`                  |
@@ -89,9 +97,21 @@ The `cdp` operation's tab methods, for the daemon's tab runtime:
 | `ace.tabs.resize` | `{tabId, width, height}` (100 to 4096)     | `{activeTabId, tabs}`                  |
 | `ace.tabs.cdp`    | `{tabId, method, params?}`                 | the CDP result of that tab             |
 
-A new tab never navigates on its own: the daemon installs its guard (seen through
-`ace.tabs.changed`) and then navigates it with `ace.tabs.cdp` `Page.navigate`. Tab events
-arrive as `ace.tabs.event {tabId, method, params}`.
+- **Opening.** The daemon sends `select: true` only when the new tab should take the person's
+  view (they opened it, or an agent did while they had not picked a tab). A new tab is blank and
+  never navigates on its own: the daemon installs its guard (seen through `ace.tabs.changed`)
+  before `ace.tabs.open` returns to the caller, then navigates it with `ace.tabs.cdp`
+  `Page.navigate`.
+- **Driving.** Every tab, shown or not, takes input, navigation, screenshots and printing through
+  `ace.tabs.cdp`. Tab events arrive as `ace.tabs.event {tabId, method, params}`; popups as
+  `ace.popupRequested {url, tabId}`, run in the opener's queue.
+- **The shown tab only.** The `controller` lease, native key presses (`press`) and the panel's
+  size apply to the selected tab. The daemon sends the shown tab's lease, and sends it again
+  whenever the shown tab changes; leases carry one rising generation per session on the wire
+  (each tab counts its own generations in the daemon). Unseen tabs always count as the agents':
+  the person cannot reach them. An unseen tab takes CDP key events and is sized with
+  `ace.tabs.resize`.
+- **Closing.** Any tab but the last; the last goes with the browser.
 
 ### Crashed renderers back off
 
@@ -99,7 +119,9 @@ A crashed renderer reloads at once, then after 2 seconds; a third crash within a
 the automatic reloads (`CrashBackoff`). The page then stays, crashed, and the desktop sends
 `ace.rendererCrashed {crashes, reason}` instead of `Inspector.detached`, so the daemon does not
 recreate and reload it into another crash. Commands to a crashed page fail at once, except
-`Page.reload`, which tries again.
+`Page.reload`, which tries again. The daemon lists the tab with lifecycle `crashed` and refuses
+agent work there with `tab_crashed`, except a reload or a navigation: a navigation first asks
+for the reload and waits for `ace.rendererRestarted` to re-arm the tab.
 
 ### Placement and focus
 
@@ -116,10 +138,16 @@ replays the kept keys into it, in order. If the field never asks, the app takes 
 ## Verification
 
 Unit tests: `appLifetime`, `CrashBackoff`, `FocusHandoff`, `PausedRequests`, the page group's
-tab rules, and the backend's orphan, adoption, expiry and Quit paths. Process tests against
-the daemon's real relay over a local socket: a reconnect re-adopts the view without
-navigating; a slow command fails alone without losing the page; a command whose view also
-misses its ping loses the page. Electron e2e (`ACE_E2E_ELECTRON=1`): closing the last window
+tab rules (the lease reaching only the shown tab), and the backend's orphan, adoption, expiry
+and Quit paths. Process tests against the daemon's real relay over a local socket: a reconnect
+re-adopts the view without navigating; a slow command fails alone without losing the page; a
+command whose view also misses its ping loses the page; the daemon's whole tab runtime
+(`BrowserService`) drives two native tabs at once, a slow tab holding up neither the other nor
+the view, keys going natively to the shown tab and as CDP to the unseen one, and a person's
+lease on the shown tab stopping agents only there (`relay-tabs.process.test.ts`). Daemon
+process tests: a dropped link waits for re-adoption before reporting the page lost; a re-adopted
+real Chrome page keeps its document, reports nothing lost and loses the stale overlay
+(`readoption.process.test.ts`); a crashed tab refuses work until a navigation revives it. Electron e2e (`ACE_E2E_ELECTRON=1`): closing the last window
 keeps the page alive and reopening shows it without a reload; placement after a resize matches
 the frame; a second tab renders while not selected; a reconnect re-adopts the page with a
 working fresh debugger; a page that keeps crashing stops reloading until reloaded by hand;

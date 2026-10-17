@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/UserBrowserRegistered.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "connectionId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "user_browser.registered",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "connectionId"
+  ],
+  "type": "object"
+}

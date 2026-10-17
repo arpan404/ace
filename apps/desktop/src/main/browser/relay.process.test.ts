@@ -1,39 +1,14 @@
 import { z } from "zod";
-import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { WebSocketServer, WebSocket as ServerSocket } from "ws";
-import { EmbeddedBackend } from "@ace/browser";
+import { afterEach, describe, expect, it } from "vitest";
+import type { EmbeddedBackend } from "@ace/browser";
 import { BrowserOpen } from "@ace/protocol";
-import { BrowserBackend } from "./backend.ts";
-import { BackendConnection } from "./connection.ts";
-import { readDesktopCredential } from "./credential.ts";
 import { fakeViews, screencastFrame } from "./test-support.ts";
+import { connectDesktop, eventually, relayDaemon, type RelayClock } from "./relay-test-support.ts";
 
 /**
  * The desktop backend against the daemon's own relay, `EmbeddedBackend` from `@ace/browser`,
- * over a real local socket. The socket server below only does what the daemon's socket
- * service does around the relay (hello, credential check, `registered`, routing); every
- * request, response, event and ack is the relay's own.
+ * over a real local socket (see `relay-test-support.ts`).
  */
-const token = "a".repeat(64);
-const credential = {
-  device: {
-    id: "desktop-browser",
-    name: "ace desktop browser",
-    scopes: ["desktop"],
-    createdAt: 1,
-    lastSeenAt: 1,
-    revokedAt: null,
-  },
-  token: "b".repeat(64),
-};
-
-/** Real sockets and a real daemon: give them time, then fail with the last assertion. */
-const eventually = (check: () => void) => vi.waitFor(check, { timeout: 10_000, interval: 20 });
-
 const cleanups: (() => unknown)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
@@ -43,7 +18,7 @@ afterEach(async () => {
  * The relay's own deadlines, a thousand times shorter: a 30 s command deadline passes in 30 ms
  * and the 5 s liveness ping in 5 ms.
  */
-const fastClock = {
+const fastClock: RelayClock = {
   now: () => performance.now(),
   set(delayMs: number, work: () => void) {
     const timer = setTimeout(work, delayMs / 1000);
@@ -51,95 +26,10 @@ const fastClock = {
   },
 };
 
-async function relayDaemon(clock?: typeof fastClock) {
-  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
-  await new Promise((resolve) => server.once("listening", resolve));
-  const address = server.address();
-  if (typeof address !== "object" || !address) throw new Error("no address");
-  const relays: EmbeddedBackend[] = [];
-  const takeovers: string[] = [];
-  const sockets: ServerSocket[] = [];
-  let connections = 0;
-  server.on("connection", (socket) => {
-    sockets.push(socket);
-    const connectionId = `connection-${++connections}`;
-    let relay: EmbeddedBackend | undefined;
-    const reply = (message: unknown) => socket.send(JSON.stringify(message));
-    socket.on("message", (data) => {
-      const message: unknown = JSON.parse(String(data));
-      if (typeof message !== "object" || message === null || !("type" in message)) return;
-      if (message.type === "hello") {
-        const valid =
-          "token" in message &&
-          message.token === token &&
-          "deviceId" in message &&
-          message.deviceId === credential.device.id;
-        if (!valid) return socket.close();
-        return reply({ type: "welcome", hostId: "host", protocolVersion: 1, headSeq: 0 });
-      }
-      if (message.type === "ping") return reply({ type: "pong" });
-      if (message.type === "browser.takeover" && "threadId" in message)
-        return void takeovers.push(String(message.threadId));
-      if (message.type === "browser.backend.register") {
-        if (!("credential" in message) || message.credential !== credential.token)
-          return reply({ type: "error", code: "browser_backend_denied", message: "denied" });
-        relay = new EmbeddedBackend(
-          `backend-${connections}`,
-          {
-            send: (outgoing, serialized) => {
-              if (socket.readyState !== ServerSocket.OPEN) return false;
-              socket.send(serialized ?? JSON.stringify(outgoing));
-              return true;
-            },
-            close: (reason) => socket.close(4009, reason.slice(0, 120)),
-          },
-          () => {},
-          clock,
-        );
-        relays.push(relay);
-        return reply({
-          type: "browser.backend.registered",
-          requestId: "requestId" in message ? message.requestId : "",
-          backendId: `backend-${connections}`,
-          connectionId,
-        });
-      }
-      if (String(message.type).startsWith("browser.backend.")) relay?.handle(message);
-    });
-    socket.on("close", () => relay?.disconnect("Desktop app disconnected"));
-  });
-  cleanups.push(() => new Promise((resolve) => server.close(resolve)));
-  /** The link blips: the daemon's end of the newest socket drops without a goodbye. */
-  const drop = () => sockets.at(-1)?.terminate();
-  return { url: `ws://127.0.0.1:${address.port}/`, relays, takeovers, drop };
-}
-
-async function setup(clock?: typeof fastClock) {
-  const daemon = await relayDaemon(clock);
-  const home = await mkdtemp(join(tmpdir(), "ace-desktop-relay-"));
-  cleanups.push(() => rm(home, { recursive: true, force: true }));
-  await writeFile(join(home, "browser-desktop.json"), JSON.stringify(credential));
+async function setup(clock?: RelayClock) {
+  const daemon = await relayDaemon(cleanups, { clock });
   const views = fakeViews();
-  const backend = new BrowserBackend(views.host, {
-    onTakeover: (threadId) => connection.takeover(threadId),
-    log: () => {},
-  });
-  const connection = new BackendConnection(backend, {
-    daemon: async () => ({ url: daemon.url, token }),
-    credential: () => readDesktopCredential(home),
-    socket: (url) => new WebSocket(url),
-    timers: {
-      set(delayMs, callback) {
-        const timer = setTimeout(callback, delayMs);
-        return () => clearTimeout(timer);
-      },
-    },
-    id: randomUUID,
-    log: () => {},
-  });
-  cleanups.push(() => connection.close());
-  connection.setAvailable(true);
-  await eventually(() => expect(connection.state()).toBe("registered"));
+  const { home, connection } = await connectDesktop(cleanups, daemon, views.host);
   const relay = daemon.relays.at(-1);
   if (!relay) throw new Error("not registered");
   const lost: string[] = [];

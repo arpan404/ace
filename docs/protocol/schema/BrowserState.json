@@ -23,7 +23,8 @@
     "backend": {
       "enum": [
         "embedded",
-        "headless"
+        "headless",
+        "user"
       ],
       "type": "string"
     },

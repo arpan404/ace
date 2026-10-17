@@ -1,5 +1,6 @@
 import { CliRequest, CliResult } from "./cli-control.ts";
 import { StorageRequest, StorageResult } from "./storage.ts";
+import { UserBrowserSettings, UserBrowserSettingsResult } from "./user-browser.ts";
 import { HostedRepositoriesRequest, HostedRepositoriesResult } from "./hosted-repositories.ts";
 import { SourceControlRequest, SourceControlResult } from "./source-control.ts";
 import { RemoteDelegationClient, RemoteDelegationResult } from "./remote-delegation.ts";
@@ -182,6 +183,7 @@ import {
 export const ClientMessage = z.discriminatedUnion("type", [
   CliRequest,
   StorageRequest,
+  UserBrowserSettings,
   ...RemoteDelegationClient.options,
   WorktreeCreationRequest,
   TurnsPageRequest,
@@ -258,6 +260,7 @@ export type ClientMessage = z.infer<typeof ClientMessage>;
 export const ServerMessage = z.discriminatedUnion("type", [
   CliResult,
   StorageResult,
+  UserBrowserSettingsResult,
   RemoteDelegationResult,
   WorktreeCreationEvent,
   WorktreeCreationResult,
