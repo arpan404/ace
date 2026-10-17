@@ -153,6 +153,8 @@ export class SessionTabs {
       if (runtime.openedBy) entry.openedBy = runtime.openedBy;
       if (runtime.drivenBy) entry.drivenBy = runtime.drivenBy;
       if (runtime.label) entry.label = runtime.label;
+      if (runtime.view.zoom !== 1) entry.zoom = runtime.view.zoom;
+      if (runtime.view.emulation) entry.emulation = runtime.view.emulation;
       const status = this.statusOf(tab.tabId);
       if (status) entry.loading = status.loading;
       if (cursor === tab.tabId) entry.current = true;

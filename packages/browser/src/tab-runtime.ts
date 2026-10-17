@@ -18,6 +18,7 @@ import { BrowserOriginError } from "./policy.ts";
 import type { NavigationPolicies } from "./policy-waits.ts";
 import { SnapshotRefs } from "./refs.ts";
 import { executeBrowserCommand, type TabCommand } from "./session-commands.ts";
+import type { TabView } from "./page-tools.ts";
 import { agentScreenshot } from "./session-images.ts";
 import { sendHumanInput } from "./session-input.ts";
 import type { Actor, SessionOptions } from "./session-options.ts";
@@ -73,6 +74,8 @@ export class TabRuntime {
   readonly access = new TabAccess();
   readonly refs: SnapshotRefs;
   readonly annotation: AnnotationSession;
+  /** The device the tab emulates and its zoom, as the last command set them. */
+  readonly view: TabView = { emulation: undefined, zoom: 1 };
   /** When the person last used this tab (collaboration clock); -Infinity: never. */
   humanAt = -Infinity;
   private queue: SessionQueue;
@@ -461,6 +464,7 @@ export class TabRuntime {
       navigate,
       refs: this.refs,
       annotation: this.annotation,
+      view: this.view,
       logs: host.logs,
       policies: host.policies,
       state: () => host.state(),

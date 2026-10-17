@@ -19,11 +19,14 @@ import { measureBrowserInteraction } from "./measurement.ts";
 import { uploadPaths } from "./uploads.ts";
 import { dragRefs } from "./drag.ts";
 import { executeAnnotation } from "./annotation-commands.ts";
+import { emulateDevice, executePageTool, resizePage, type TabView } from "./page-tools.ts";
 import type { AnnotationSession } from "./annotation-session.ts";
 import type { SnapshotRefs } from "./refs.ts";
 import type { SessionLogs } from "./logs.ts";
 import type { NavigationPolicies } from "./policy-waits.ts";
 import type { Actor, SessionOptions } from "./session-options.ts";
+/** The largest screenshot a person's request gets back inline (base64), besides the file. */
+const inlineScreenshotBytes = 3 * 1024 * 1024;
 /** Commands that act on one tab; tab structure, downloads and extensions belong to the thread. */
 export type TabCommand = Exclude<BrowserCommand, { action: "tabs" | "downloads" | "extensions" }>;
 /** Parses a command that runs on a tab, such as a measured interaction or a popup navigation. */
@@ -47,6 +50,8 @@ interface CommandContext {
   navigate?: (() => Promise<void>) | undefined;
   refs: SnapshotRefs;
   annotation: AnnotationSession;
+  /** The tab's device and zoom, kept on the tab and listed with it. */
+  view: TabView;
   logs: SessionLogs;
   policies: NavigationPolicies;
   state(): BrowserState;
@@ -391,32 +396,39 @@ export async function executeBrowserCommand(
       context.read();
       await writeFile(path, bytes, { mode: 0o600 });
       // A person's capture is kept like a recording; agents read theirs as tool images.
-      if (actor.kind === "human")
+      if (actor.kind === "human") {
         await context.options.artifact({ path, mimeType: "image/png", bytes: bytes.byteLength });
+        // Small enough to send back, the picture comes too, so the person can copy it.
+        if (bytes.byteLength <= inlineScreenshotBytes)
+          return { path, mimeType: "image/png", data: bytes.toString("base64") };
+      }
       return { path, mimeType: "image/png" };
     }
     case "logs":
       await context.logs.flush();
       return context.logs.read(command);
-    case "resize":
-      context.check(actor, signal, generation);
-      await page.resize(command.width, command.height);
+    case "resize": {
+      const before = context.view.emulation;
+      await resizePage(command, actor, page, context.view, () =>
+        context.check(actor, signal, generation),
+      );
+      if (before !== context.view.emulation) context.emit();
       return { ok: true };
+    }
     case "emulate":
-      context.check(actor, signal, generation);
-      await page.resize(command.width, command.height);
-      context.check(actor, signal, generation);
-      await cdp.send("Emulation.setDeviceMetricsOverride", {
-        width: command.width,
-        height: command.height,
-        deviceScaleFactor: command.deviceScaleFactor,
-        mobile: command.mobile,
-      });
-      context.check(actor, signal, generation);
-      await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: command.touch });
-      context.check(actor, signal, generation);
-      await page.media(command.colorScheme);
+      await emulateDevice(command, actor, page, context.view, () =>
+        context.check(actor, signal, generation),
+      );
+      context.emit();
       return { ok: true };
+    case "zoom":
+    case "clear_data":
+    case "page_source":
+      return executePageTool(command, actor, page, context.view, {
+        check: () => context.check(actor, signal, generation),
+        read: context.read,
+        changed: () => context.emit(),
+      });
     case "evaluate": {
       const document = context.refs.documentGuard();
       if (

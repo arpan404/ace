@@ -1,0 +1,47 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserTabEmulation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "by": {
+      "enum": [
+        "human",
+        "agent"
+      ],
+      "type": "string"
+    },
+    "deviceScaleFactor": {
+      "maximum": 4,
+      "minimum": 0.5,
+      "type": "number"
+    },
+    "height": {
+      "maximum": 4096,
+      "minimum": 100,
+      "type": "integer"
+    },
+    "mobile": {
+      "type": "boolean"
+    },
+    "touch": {
+      "type": "boolean"
+    },
+    "userAgent": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "width": {
+      "maximum": 4096,
+      "minimum": 100,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "width",
+    "height",
+    "deviceScaleFactor",
+    "mobile",
+    "touch",
+    "by"
+  ],
+  "type": "object"
+}

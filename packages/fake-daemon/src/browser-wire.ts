@@ -182,8 +182,36 @@ export function fakeBrowserSession(
           else if (command.action === "selection") result = { text: "" };
           else if (command.action === "find_text") result = { matches: 1, active: 1 };
           else if (command.action === "type") browser.type(id, command.text, tabId);
-          else if (command.action === "resize") browser.resize(id, command.width, command.height);
-          else if (command.action === "emulate") browser.resize(id, command.width, command.height);
+          else if (command.action === "resize") {
+            browser.resize(id, command.width, command.height);
+            browser.tabView(id, tabId, { emulation: undefined });
+          } else if (command.action === "emulate") {
+            browser.resize(id, command.width, command.height);
+            const { width, height, deviceScaleFactor, mobile, touch, userAgent } = command;
+            browser.tabView(id, tabId, {
+              emulation: {
+                width,
+                height,
+                deviceScaleFactor,
+                mobile,
+                touch,
+                ...(userAgent ? { userAgent } : {}),
+                by: "human",
+              },
+            });
+          } else if (command.action === "zoom") {
+            browser.tabView(id, tabId, { zoom: command.factor === 1 ? undefined : command.factor });
+            result = { zoom: command.factor };
+          } else if (command.action === "clear_data") result = { ok: true };
+          else if (command.action === "page_source")
+            result = {
+              url: browser.view(id)?.url ?? "about:blank",
+              source: "<!doctype html>\n<title>Synthetic fixture page</title>\n",
+              truncated: false,
+              live: false,
+            };
+          else if (command.action === "pdf")
+            result = { path: "/fixture/page.pdf", mimeType: "application/pdf", bytes: 1024 };
           else if (command.action === "snapshot") result = { text: "Synthetic fixture page" };
           else if (command.action === "screenshot") result = browser.frame(id);
           else if (command.action === "logs") result = { entries: [], limit: command.limit };

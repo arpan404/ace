@@ -135,6 +135,11 @@ export const BrowserCommand = z.discriminatedUnion("action", [
     mobile: z.boolean().default(false),
     touch: z.boolean().default(false),
     colorScheme: z.enum(["light", "dark", "no-preference"]).default("light"),
+    userAgent: z
+      .string()
+      .max(1024)
+      .optional()
+      .describe("A user agent string to send and report. Omitted: the browser's own."),
   }),
   commandBase.extend({
     action: z.literal("tabs"),
@@ -194,6 +199,12 @@ export const BrowserCommand = z.discriminatedUnion("action", [
   commandBase.extend({ action: z.literal("record_start") }),
   commandBase.extend({ action: z.literal("record_stop") }),
   BrowserAnnotateCommand,
+  /** Person-only: page zoom for the tab, as a factor of 1 (100%). Agents get no tool for it. */
+  commandBase.extend({ action: z.literal("zoom"), factor: z.number().min(0.25).max(5) }),
+  /** Person-only: clear cookies, cache and site storage of the tab's browser profile. */
+  commandBase.extend({ action: z.literal("clear_data") }),
+  /** Person-only: the tab's document source as the server sent it (bounded). */
+  commandBase.extend({ action: z.literal("page_source") }),
   commandBase.extend({
     action: z.literal("annotate_capture"),
     target: BrowserAnnotationCaptureTarget,

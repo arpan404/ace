@@ -5,6 +5,9 @@
     "drivenBy": {
       "$ref": "https://ace.local/protocol/v1/BrowserTabActor.json"
     },
+    "emulation": {
+      "$ref": "https://ace.local/protocol/v1/BrowserTabEmulation.json"
+    },
     "favicon": {
       "maxLength": 8192,
       "type": "string"
@@ -46,6 +49,11 @@
     "url": {
       "maxLength": 8192,
       "type": "string"
+    },
+    "zoom": {
+      "maximum": 5,
+      "minimum": 0.25,
+      "type": "number"
     }
   },
   "required": [

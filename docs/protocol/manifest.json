@@ -469,8 +469,8 @@
       "sha256": "853a0e225cb759241fcf98c764e19809a3e76413d668b1ec8ac35f0ec5ab7d92"
     },
     "schema/BrowserCommand.json": {
-      "bytes": 26788,
-      "sha256": "fc54df1dd1e343f9de6cf94ed5e13b5c0f72ba29e118016575ba438e24139fc9"
+      "bytes": 28329,
+      "sha256": "40b2e6d16da33adff8b70c23cdff2ad7c6001c571bbb812df2dedbeddd636f88"
     },
     "schema/BrowserDialog.json": {
       "bytes": 724,
@@ -517,12 +517,16 @@
       "sha256": "b97b90e0c60e13c30bd8cd48297ffc48a2ce7fbb2b299172975755d70266c5f6"
     },
     "schema/BrowserTab.json": {
-      "bytes": 1247,
-      "sha256": "55f7df408d4836cab1f4083ca24abbb724954faed13686ccd30b8d636a02374a"
+      "bytes": 1431,
+      "sha256": "c92d5b02581c89b76204181b507ad3da6bd06dace1eb8a2528655a7c1c047b47"
     },
     "schema/BrowserTabActor.json": {
       "bytes": 412,
       "sha256": "f84fbf5185b8d6f82980fc5336628824f3399cf9da7ef60c9a92714932cd7059"
+    },
+    "schema/BrowserTabEmulation.json": {
+      "bytes": 831,
+      "sha256": "b71030209144bf206d4426a199db66fad286f634add588d8eff03440d86d0ca9"
     },
     "schema/BrowserTabLifecycle.json": {
       "bytes": 225,
@@ -3845,10 +3849,10 @@
       "sha256": "eadd796e5214ab35199731ca1c2f0faa3dd65dab3d6150142a57acda545ef06d"
     },
     "types.md": {
-      "bytes": 797205,
-      "sha256": "cbecda06c0c99e335b2302880333a7a0942656d04bc22c0e21df20e6076c4fab"
+      "bytes": 801061,
+      "sha256": "bb45b8fe115bf86ccfa04b1ed82299dab43e641be62b0f59747c43cff72dc9f4"
     }
   },
-  "input": "699341e01526b16edebe2a6a9498f27b4977ac5be5d1f0ae713977b3a430725e",
+  "input": "180fbb6a6454fb2e81d0eed31dacf8f78e25a6db60440e1083e31b616ff32008",
   "version": 1
 }

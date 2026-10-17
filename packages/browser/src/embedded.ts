@@ -597,7 +597,7 @@ export class EmbeddedBackend implements BrowserBackend {
         },
         async screenshot(format) {
           if (format === "jpeg") return modelScreenshot(currentCdp());
-          const result = z.object({ data: z.string().max(768 * 1024) }).parse(
+          const result = z.object({ data: z.string().max(32 * 1024 * 1024) }).parse(
             await currentCdp().send("Page.captureScreenshot", {
               format,
             }),
@@ -609,6 +609,12 @@ export class EmbeddedBackend implements BrowserBackend {
           viewport = { width, height };
         },
         viewport: () => tabs?.current().viewport ?? viewport,
+        zoom: async (factor) => {
+          await currentCdp().send("ace.zoom", { factor });
+        },
+        clearData: async () => {
+          await currentCdp().send("ace.clearData");
+        },
         media: async (colorScheme) => {
           await currentCdp().send("Emulation.setEmulatedMedia", {
             features: [{ name: "prefers-color-scheme", value: colorScheme }],

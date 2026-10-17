@@ -12,6 +12,7 @@ import type { ChromeCleanup, ChromeLaunch } from "./chrome-instance.ts";
 import { chromeInput } from "./chrome-input.ts";
 import { ChromeTabs, type TabHost } from "./chrome-tabs.ts";
 import { modelScreenshot } from "./model-screenshot.ts";
+import { clearHeadlessData } from "./browsing-data.ts";
 
 export interface ChromeBackendOptions {
   executable(signal: AbortSignal): Promise<string>;
@@ -172,6 +173,9 @@ export class ChromeBackend implements BrowserBackend {
           return Buffer.from(data, "base64");
         },
         resize: (width, height) => tabs.resize(width, height, tabId()),
+        emulate: (device) => tabs.emulate(device, tabId()),
+        zoom: (factor) => tabs.zoom(factor, tabId()),
+        clearData: () => clearHeadlessData(cdp(), tabs.origins()),
         viewport: () => tabs.viewportSize(tabId()),
         media: async (colorScheme) => {
           await cdp().send("Emulation.setEmulatedMedia", {

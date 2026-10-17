@@ -344,6 +344,21 @@ export class FakeBrowser {
     }
     return { ok: true };
   }
+  /** A tab's zoom and emulated device, as the daemon lists them (undefined clears). */
+  tabView(
+    threadId: string,
+    tabId: string | undefined,
+    view: Partial<Pick<BrowserTab, "zoom" | "emulation">>,
+  ): void {
+    const tab = this.tab(threadId, tabId);
+    if (!tab) throw new Error("Browser tab unavailable");
+    for (const key of ["zoom", "emulation"] as const)
+      if (key in view) {
+        if (view[key] === undefined) delete tab[key];
+        else Object.assign(tab, { [key]: view[key] });
+      }
+    this.changed();
+  }
   tabsList(threadId: string): BrowserTab[] {
     return this.view(threadId)?.tabs ?? [];
   }

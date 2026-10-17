@@ -28,6 +28,7 @@ function requiredAccess(message: BrowserClientMessage): BrowserAccess {
       "navigation_history",
       "find_text",
       "selection",
+      "page_source",
     ].includes(message.command.action)
   )
     return "read";

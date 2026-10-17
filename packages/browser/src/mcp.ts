@@ -11,10 +11,17 @@ import { validateMeasurementBudget } from "@ace/interaction";
 import type { BrowserToolkit } from "@ace/mcp-server";
 import { PublicToolError } from "@ace/mcp-server/errors";
 import type { BrowserService } from "./service.ts";
-/** Browser actions only a person drives (ADR 0082). */
-type AgentAction = Exclude<BrowserCommand["action"], "annotate" | "annotate_capture">;
+/** Browser actions only a person drives: annotate mode (ADR 0082) and the page's own controls. */
+const personActions = [
+  "annotate",
+  "annotate_capture",
+  "zoom",
+  "clear_data",
+  "page_source",
+] as const;
+type AgentAction = Exclude<BrowserCommand["action"], (typeof personActions)[number]>;
 function agentAction(action: BrowserCommand["action"]): action is AgentAction {
-  return action !== "annotate" && action !== "annotate_capture";
+  return !personActions.some((each) => each === action);
 }
 const actions = {
   measure_interaction: {

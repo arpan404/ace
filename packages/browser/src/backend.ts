@@ -116,6 +116,20 @@ export interface BrowserBackendPage {
   viewport(): { width: number; height: number };
   media(colorScheme: "light" | "dark" | "no-preference"): Promise<void>;
   /**
+   * Take a device's size and scale (`emulate`) in a way the backend keeps with its own sizing
+   * and zoom. Absent: the page is resized, then given the device metrics over CDP.
+   */
+  emulate?(device: {
+    width: number;
+    height: number;
+    deviceScaleFactor: number;
+    mobile: boolean;
+  }): Promise<void>;
+  /** Page zoom (1 is 100%), as a browser's zoom. Absent: the backend cannot zoom. */
+  zoom?(factor: number): Promise<void>;
+  /** Clear cookies, cache and site storage of the page's profile. Absent: not supported. */
+  clearData?(): Promise<void>;
+  /**
    * Why the page's renderer is down, while its backend has stopped bringing it back on its own
    * (the desktop after repeated crashes, ADR 0085). Only a navigation or a reload revives it.
    */
