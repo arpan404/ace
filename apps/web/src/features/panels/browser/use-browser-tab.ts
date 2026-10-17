@@ -50,7 +50,34 @@ function usePage(source: PreviewSource, threadId: string) {
 type Phase =
   | { phase: "idle" }
   | { phase: "loading"; url: string }
-  | { phase: "failed"; url: string; failure: BrowserFailure };
+  | {
+      phase: "failed";
+      url: string;
+      failure: BrowserFailure;
+      /** For a typed navigation: the page's address when it began, and whether the page was
+       * still loading when the failure came. They tell a later commit from the page before. */
+      attempt?: { from: string | undefined; loading: boolean } | undefined;
+    };
+
+const web = (url: string | undefined): url is string => !!url && /^https?:\/\//i.test(url);
+
+/**
+ * A failure that the page has outlived: the navigation reported an error that isn't
+ * Chromium's own load error (a timeout, a cancelled wait), yet the page has since committed a
+ * web document of its own (its address moved on, or the asked-for page finished loading) with
+ * no load error.
+ * The live page is what the person should see, not a card over it.
+ */
+function outlived(
+  state: Phase,
+  live: { url: string; loading?: boolean | undefined; loadError?: string | undefined } | undefined,
+): boolean {
+  if (state.phase !== "failed" || !state.attempt || state.failure.code) return false;
+  if (!live || live.loadError || !web(live.url)) return false;
+  if (live.url !== state.attempt.from) return true;
+  // The same address as before: only the asked-for page, loaded since, outlives the failure.
+  return state.attempt.loading && !live.loading && samePage(live.url, state.url);
+}
 
 /**
  * The thread's one browser page, with its address and history. Going somewhere opens the thread's browser if there is none (downloading Chromium the
@@ -66,11 +93,16 @@ export function useBrowserTab(source: PreviewSource, threadId: string, tab: Work
   const online = useConnectionState() === "ready";
   const visitedStore = useVisitedStore();
   const visited = useVisited(threadId);
-  const [state, setState] = useState<Phase>({ phase: "idle" });
+  const [reported, setState] = useState<Phase>({ phase: "idle" });
   const data = browserTabData(tab);
   const history = tabHistory(data);
   const live = page.view && !page.view.closed ? page.view : undefined;
   const bound = live !== undefined;
+  const superseded = outlived(reported, live);
+  const state: Phase = superseded ? { phase: "idle" } : reported;
+  // Once the page has committed past a failure, the failure is over for good (adjusted while
+  // rendering, so the card is never drawn over the page).
+  if (superseded) setState({ phase: "idle" });
 
   /** Merge into the tab's data as it is now (a navigation spans several renders). */
   const save = (patch: Partial<BrowserTabData>) => {
@@ -129,6 +161,7 @@ export function useBrowserTab(source: PreviewSource, threadId: string, tab: Work
   }, [liveUrl]);
 
   const go = async (url: string, next = visitPage(history, url)) => {
+    const from = liveUrl;
     setLoading(threadId, tab.key, true);
     setState({ phase: "loading", url });
     save({ url, go: false });
@@ -155,7 +188,13 @@ export function useBrowserTab(source: PreviewSource, threadId: string, tab: Work
       setState({ phase: "idle" });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setState({ phase: "failed", url, failure: describeBrowserFailure(message, url) });
+      const now = source.view(threadId);
+      setState({
+        phase: "failed",
+        url,
+        failure: describeBrowserFailure(message, url),
+        attempt: { from, loading: !!now?.loading },
+      });
       // The address stays, and so does where Back goes.
       save({ url, history: next, go: false });
     } finally {

@@ -216,6 +216,10 @@ export async function chromeDesktop(executablePath: string) {
     attach(registered: EmbeddedBackend) {
       backend = registered;
     },
+    /** The desktop navigates its own view (its address bar, a restored page), not through ace. */
+    async navigateView(to: string): Promise<void> {
+      await page.send("Page.navigate", { url: to });
+    },
     /**
      * As a link blip does (ADR 0085): the daemon's relay loses the desktop, the page lives on
      * and its old debugger session goes away, then the desktop registers again (`register`)
