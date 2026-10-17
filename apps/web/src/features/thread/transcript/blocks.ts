@@ -167,6 +167,12 @@ export interface BlockSource {
   unsettledTail?: boolean | undefined;
   /** Filled with the runs and agents whose settling would change the blocks. */
   watch?: { runs: Set<string>; agents: Set<string> };
+  /**
+   * The key each turn's rows were first given, by turn id, kept across builds by the caller.
+   * A run keeps the key of the ask that started it once the tail trims that ask: no run records
+   * which input started it, so this memory is what survives the trim. Filled as turns are keyed.
+   */
+  turnKeys?: Map<string, string>;
 }
 
 const editKinds = new Set(["file.edit", "file.write", "file.delete", "file.move"]);
@@ -210,6 +216,11 @@ function anchorQuestions(source: BlockSource): Map<string, string[]> {
 /** What the blocks remember of one turn while building. */
 interface TurnMark {
   id: string;
+  /**
+   * What its rows are keyed by for their whole life: the ask that started it (which the run
+   * adopts once it starts), else its run. Never changes as history pages in or the run starts.
+   */
+  key: string;
   /** The person's message that started it. */
   askId: string | undefined;
   edits: string[];
@@ -288,7 +299,7 @@ function lastWorkOf(
   order: readonly string[],
   source: BlockSource,
   anchors: ReadonlyMap<string, readonly string[]>,
-): { stretchAt: Int32Array; lastWork: Map<number, number> } {
+): { stretchAt: Int32Array; lastWork: Map<number, number>; lastStretch: number } {
   const stretchAt = new Int32Array(order.length);
   const lastWork = new Map<number, number>();
   let stretch = 0;
@@ -315,7 +326,22 @@ function lastWorkOf(
       anchors.has(id) && item.type === "tool_call" && item.call.detail.kind === "ask_user";
     if (!question && joinsWork(item, source)) lastWork.set(stretch, index);
   }
-  return { stretchAt, lastWork };
+  return { stretchAt, lastWork, lastStretch: stretch };
+}
+
+const isPseudoTurn = (id: string) => id === "" || id.startsWith("ask:");
+
+/**
+ * Whether a turn is still working, decided before its blocks are placed. It never says a turn
+ * works that the settled pass below calls settled: a pseudo turn (no run known) works only in
+ * the transcript's last stretch while the owner is active, and a real one by the canonical
+ * settlement, else by its run.
+ */
+function stillWorking(source: BlockSource, turn: string, lastStretch: boolean): boolean {
+  if (isPseudoTurn(turn)) return lastStretch && !!source.unsettledTail;
+  if (source.turnSettled) return !source.turnSettled(turn);
+  const run = source.run?.(turn);
+  return !run || run.state === "active";
 }
 
 /**
@@ -348,7 +374,7 @@ export function buildBlocks(source: BlockSource): Block[] {
       callApproval.set(request.toolCallId, request.id);
   let lastAnswer: string | undefined;
   const order = visibleHistoryOrder(source.order, source.item);
-  const { stretchAt, lastWork } = lastWorkOf(order, source, anchors);
+  const { stretchAt, lastWork, lastStretch } = lastWorkOf(order, source, anchors);
   const turns = new Map<string, TurnMark>();
   const ordered: TurnMark[] = [];
   let stretch: { work?: { block: WorkBlock; at: number } } = {};
@@ -360,16 +386,38 @@ export function buildBlocks(source: BlockSource): Block[] {
   let turnId: string | undefined;
   let askId: string | undefined;
   let mark: TurnMark | undefined;
+  const keys = new Set<string>();
+  const keyFor = (id: string, ask: string | undefined) => {
+    const known = source.turnKeys?.get(id);
+    let key = known ?? (ask !== undefined && !keys.has(ask) ? ask : id || "start");
+    while (keys.has(key)) key = `${key}+`;
+    keys.add(key);
+    return key;
+  };
+  const remember = (id: string, key: string) => {
+    if (!isPseudoTurn(id)) source.turnKeys?.set(id, key);
+    return key;
+  };
   const markOf = (id: string, ask: string | undefined) => {
     let found = turns.get(id);
     if (!found) {
       const previous = ordered.at(-1);
+      // The run the daemon started for an admitted ask (SY-1) adopts the ask's turn, keys and all,
+      // while that turn has nothing of its own yet.
+      const admitted = ask === undefined ? undefined : turns.get(`ask:${ask}`);
+      if (admitted && admitted === previous && !admitted.blocks.size) {
+        admitted.id = id;
+        source.turnKeys?.set(id, admitted.key);
+        turns.set(id, admitted);
+        return admitted;
+      }
       if (previous && carriesOnStretch(source.run?.(id)?.trigger)) {
         turns.set(id, previous);
         return previous;
       }
       found = {
         id,
+        key: remember(id, keyFor(id, ask)),
         askId: ask,
         edits: [],
         lastMessage: -1,
@@ -447,7 +495,14 @@ export function buildBlocks(source: BlockSource): Block[] {
     }
     let open = stretch.work;
     if (!open) {
-      const block: WorkBlock = { kind, key: `${kind}:${id}`, itemIds: [] };
+      // A turn's first log is keyed by the turn; a later one (after a launch card) by its first
+      // step, which stays its first however much older history pages in above it.
+      const key = !mark
+        ? `work:${id}`
+        : mark.work.length
+          ? `work:${mark.key}:${id}`
+          : `work:${mark.key}`;
+      const block: WorkBlock = { kind, key, itemIds: [] };
       open = stretch.work = { block, at: blocks.push(block) - 1 };
       workAt.set(block, open.at);
       mark?.work.push(block);
@@ -516,9 +571,14 @@ export function buildBlocks(source: BlockSource): Block[] {
             askAt.set(id, blocks.length - 1);
           } else {
             // Said between steps: it reads inside the log, in order. After the last step: the
-            // answer, below the log.
+            // answer, below the log. Which one it is only shows once the turn has settled, so
+            // while it works the row is decided by what came before it alone: after a step it
+            // stays in that log, before any it is its own row. A later step never moves a row
+            // that is already on screen.
+            const at = stretchAt[index] ?? -1;
+            const working = !!mark && stillWorking(source, mark.id, at === lastStretch);
             const between =
-              !launchNarration && (lastWork.get(stretchAt[index] ?? -1) ?? -1) > index;
+              !launchNarration && (working ? !!stretch.work : (lastWork.get(at) ?? -1) > index);
             if (between) group("work", id);
             else
               push(
@@ -668,7 +728,7 @@ export function buildBlocks(source: BlockSource): Block[] {
   };
   for (const turn of ordered) {
     if (turn.lastBlock < 0) continue;
-    const pseudo = turn.id === "" || turn.id.startsWith("ask:");
+    const pseudo = isPseudoTurn(turn.id);
     const facts = pseudo ? undefined : source.run?.(turn.id);
     const startedAt = source.turnStartedAt?.(turn.id) ?? facts?.startedAt;
     const ending =
@@ -682,12 +742,12 @@ export function buildBlocks(source: BlockSource): Block[] {
       for (const block of turn.work) block.ongoing = true;
       // The newest turn says what it is doing right under the ask that started it.
       if (newest === turn && source.heldTurn !== turn.id) {
-        const live: Block = { kind: "live", key: `live:${turn.id}`, askId: turn.askId };
+        const live: Block = { kind: "live", key: `live:${turn.key}`, askId: turn.askId };
         const ask = turn.askId === undefined ? undefined : askAt.get(turn.askId);
         const first = Math.min(...turn.blocks);
         if (ask !== undefined) place(ask, live);
         else if (Number.isFinite(first)) before.set(first, [live, ...(before.get(first) ?? [])]);
-        place(turn.lastBlock, { kind: "thinking", key: `thinking:${turn.id}` });
+        place(turn.lastBlock, { kind: "thinking", key: `thinking:${turn.key}` });
       }
       // A pause shows while the turn waits on the limit, before anything settles.
       if (source.heldTurn === turn.id) {
@@ -723,7 +783,7 @@ export function buildBlocks(source: BlockSource): Block[] {
       } else {
         const summary: WorkBlock = {
           kind: "work",
-          key: `work:turn:${turn.id}`,
+          key: `work:${turn.key}`,
           itemIds: [],
           startedAt,
           idle: source.turnIdle?.(turn.id),
@@ -766,7 +826,7 @@ export function buildBlocks(source: BlockSource): Block[] {
     if (turn.edits.length)
       place(turn.lastMessage >= 0 ? turn.lastMessage : turn.lastBlock, {
         kind: "files",
-        key: `files:${turn.id || turn.askId || "start"}`,
+        key: `files:${turn.key}`,
         itemIds: turn.edits,
       });
     const quota = ending?.failedOn === "quota";
@@ -848,7 +908,7 @@ function endBlock(
 ): Extract<Block, { kind: "end" }> {
   return {
     kind: "end",
-    key: `${ending === "paused" ? "pause" : "end"}:${turn.id}`,
+    key: `${ending === "paused" ? "pause" : "end"}:${turn.key}`,
     ending,
     runId,
     askId: turn.askId,

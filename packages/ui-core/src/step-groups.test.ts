@@ -173,6 +173,15 @@ it("thoughts count with the tools around them; a finished thought with no words 
   expect(groups[0]?.summary).toBe("Ran 2 commands and thought 2 times");
 });
 
+it("a thought in view on its own stays its own row when steps follow it", () => {
+  const steps = [thought("plan", "Read the router first."), read("a"), shell("b", "bun test")];
+  const alone = groupSteps(facts(steps.slice(0, 1)));
+  const grown = groupSteps(facts(steps), alone);
+  expect(grown.groups.map((group) => group.ids)).toEqual([["plan"], ["a", "b"]]);
+  // The thought's row is the same object: appending steps did not rebuild it.
+  expect(grown.groups[0]).toBe(alone.groups[0]);
+});
+
 it("a mixed group names two kinds as a sentence: commands and a file read", () => {
   expect(
     groupSummary(

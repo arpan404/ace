@@ -120,13 +120,13 @@ test.each([true, false])(
       background: new Map(),
     });
     expect(shown(blocks)).toEqual([
-      "work:work:mcp-first",
+      "work:work:start",
       "subagents:subagents:first",
-      "work:work:mcp-second",
+      "work:work:start:mcp-second",
       "narration",
-      "work:work:mcp-third",
+      "work:work:start:mcp-third",
       "subagents:subagents:third",
-      "work:work:later-work",
+      "work:work:start:later-work",
     ]);
     const work = blocks.filter((block) => block.kind === "work");
     expect(work.map((block) => block.itemIds)).toEqual([
@@ -347,7 +347,7 @@ test("rows follow the daemon's creation order even when timestamps run backwards
       return item && { ...item, createdAt: 100 - item.createdAt };
     },
   });
-  expect(shown(blocks)).toEqual(["earlier", "ask", "work:work:tool", "answer"]);
+  expect(shown(blocks)).toEqual(["earlier", "ask", "work:work:ask", "answer"]);
   expect(blocks.filter((block) => block.kind === "work")).toMatchObject([
     { outcome: "completed", itemIds: ["tool"] },
   ]);

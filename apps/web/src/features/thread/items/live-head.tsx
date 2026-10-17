@@ -129,11 +129,15 @@ function readThinking(reader: ThreadReader): Watched<boolean> {
   };
 }
 
-/** "Thinking", closing the working turn's flow, while no step is in flight. */
+/**
+ * "Thinking", closing the working turn's flow, while no step is in flight. Its room stays for the
+ * whole turn, so the end of the flow holds still as steps start and finish.
+ */
 export function TailThinking(props: { threadId: string }) {
   const activity = useTurnActivity(props.threadId);
   const thought = useWatched(props.threadId, orderKeys, readThinking, Object.is) ?? false;
-  if (activity?.tone !== "working" || activity.current || thought) return null;
+  if (activity?.tone !== "working" || activity.current || thought)
+    return <div aria-hidden className="min-h-8" />;
   return (
     <ul aria-label="Working" className="flex flex-col">
       <ThinkingRow />

@@ -1,7 +1,7 @@
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import type { Row } from "../transcript/rows.ts";
-import type { Anchor } from "../transcript/scroll.ts";
+import type { TopRow } from "../transcript/use-feed-scroll.ts";
 import type { ThreadNav } from "./nav.tsx";
 
 /** Where each turn starts among the rows. */
@@ -23,16 +23,17 @@ function turnStarts(rows: readonly Row[]): { index: number; ordinal: number }[] 
  */
 export function TurnKeys(props: {
   rows: readonly Row[];
-  anchor: { current: Anchor | undefined };
+  /** The first row in view, and how far its top sits from the viewport's. */
+  top: { current: TopRow | undefined };
   nav: ThreadNav;
   scrollTo(index: number): void;
   toLive(): void;
 }) {
-  const { rows, anchor, nav } = props;
+  const { rows, top: reading, nav } = props;
   const actions = props;
   const step = (direction: 1 | -1) => {
     const starts = turnStarts(rows);
-    const top = anchor.current?.index ?? 0;
+    const top = reading.current?.index ?? 0;
     const current = nav.currentTurn.get();
     if (direction === 1) {
       const next = starts.find((start) => start.index > top);
@@ -44,7 +45,7 @@ export function TurnKeys(props: {
       return actions.toLive();
     }
     const here = starts.findLast((start) => start.index <= top);
-    const offset = anchor.current?.offset ?? 0;
+    const offset = reading.current?.offset ?? 0;
     if (here && (here.index < top || offset < -8)) return actions.scrollTo(here.index);
     const previous = starts.findLast((start) => start.index < (here?.index ?? top));
     if (previous) return actions.scrollTo(previous.index);

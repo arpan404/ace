@@ -116,10 +116,14 @@ function admit(store: ThreadStore, seq: number, payload: EventPayload) {
     events: [Event.parse({ id: `event-${seq}`, seq, at: seq, threadId: thread.id, payload })],
   });
 }
-/** What the root transcript shows, as the thread screen builds it from the store. */
+/** Root items in transcript order, as the thread screen builds them; a live log holds its replies. */
 function rootRows(store: ThreadStore): string[] {
   return createBlockReader()(store).value.flatMap((block) =>
-    "itemId" in block && block.itemId !== undefined ? [block.itemId] : [],
+    "itemId" in block && block.itemId !== undefined
+      ? [block.itemId]
+      : block.kind === "work"
+        ? block.itemIds
+        : [],
   );
 }
 
