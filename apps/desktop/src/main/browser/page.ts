@@ -1,6 +1,7 @@
 import { RendererRecovery } from "./renderer-recovery.ts";
 import { NativeBasicAuth } from "./basic-auth.ts";
 import { NativePopups } from "./popups.ts";
+import { popupNavigation, UserActivation } from "./popup-navigation.ts";
 import { PageMetrics } from "./page-metrics.ts";
 import { findNativeText } from "./find.ts";
 import { NativeDialogs } from "./dialogs.ts";
@@ -68,6 +69,7 @@ export class EmbeddedPage implements ViewPage {
   private target: { bounds: Rect; zoom: number; device?: NativeDevice | undefined } | undefined;
   private downloads: NativeDownloads;
   private popups: NativePopups;
+  private activation = new UserActivation(() => Date.now());
   private auth: NativeBasicAuth;
   private dialogs: NativeDialogs;
   private closing: Promise<void> | undefined;
@@ -100,7 +102,14 @@ export class EmbeddedPage implements ViewPage {
       allowed: () => this.nativeInput,
       emit: (method, params) => this.emit(method, params),
       remember: (popup) => options.rememberPopup?.(popup) ?? (() => {}),
-      navigate: (url) => this.emit("ace.popupRequested", { url: url.slice(0, 8192) }),
+      navigate: (url) => {
+        const target = popupNavigation({
+          url,
+          current: contents.getURL(),
+          activated: this.activation.active(),
+        });
+        if (target) this.emit("ace.popupRequested", { url: target.slice(0, 8192) });
+      },
     });
     contents.on("page-title-updated", (_event, title) =>
       this.emit("ace.title", { title: title.slice(0, 1024) }),
@@ -147,11 +156,17 @@ export class EmbeddedPage implements ViewPage {
         if (input.type === "keyDown" && !input.isAutoRepeat) options.forward(chord);
         return;
       }
-      if (this.allowInput()) return;
+      if (this.allowInput()) {
+        if (input.type === "keyDown") this.activation.note();
+        return;
+      }
       event.preventDefault();
     });
     contents.on("before-mouse-event", (event, mouse) => {
-      if (this.allowInput()) return;
+      if (this.allowInput()) {
+        if (mouse.type === "mouseDown") this.activation.note();
+        return;
+      }
       event.preventDefault();
       if (mouse.type === "mouseDown") this.reportBlocked();
     });
