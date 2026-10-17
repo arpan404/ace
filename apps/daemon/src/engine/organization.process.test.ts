@@ -10,7 +10,10 @@ test("settlement and deletion follow real human interaction and background execu
   try {
     const id = await h.create();
     const client = await h.connect("device");
-    const command = async (type: "thread.settle" | "thread.delete", commandId: string) => {
+    const command = async (
+      type: "thread.settle" | "thread.unsettle" | "thread.delete",
+      commandId: string,
+    ) => {
       client.send({
         type: "command",
         command: Command.parse({
@@ -23,9 +26,10 @@ test("settlement and deletion follow real human interaction and background execu
     };
     expect(h.store.getThread(id)?.status.state).toBe("needs_you");
     expect(await command("thread.settle", "waiting-human")).toMatchObject({
-      ok: false,
-      error: "thread_not_done",
+      ok: true,
     });
+    expect(h.store.getThread(id)?.settledAt).toBeDefined();
+    await command("thread.unsettle", "unsettled-human");
     h.store.appendEvents(
       id,
       [
@@ -37,7 +41,10 @@ test("settlement and deletion follow real human interaction and background execu
       h.clock.now(),
     );
     await organizer.sweep();
-    expect(h.store.getThread(id)?.settledAt).toBeUndefined();
+    expect(h.store.getThread(id)).toMatchObject({
+      settledReason: "pr_merged",
+    });
+    await command("thread.unsettle", "unsettled-merged");
     const context = h.contexts[0];
     if (!context) throw new Error("Missing provider boundary");
     context.onFrame(
@@ -56,8 +63,14 @@ test("settlement and deletion follow real human interaction and background execu
       ok: false,
       error: "thread_busy",
     });
+    expect(await command("thread.settle", "waiting-background")).toMatchObject({
+      ok: true,
+    });
+    await command("thread.unsettle", "unsettled-background");
     await organizer.sweep();
-    expect(h.store.getThread(id)?.settledAt).toBeUndefined();
+    expect(h.store.getThread(id)).toMatchObject({
+      settledReason: "pr_merged",
+    });
     context.onFrame(frames.frame({ type: "background.ended", task: "shell", status: "completed" }));
     await h.engine.flush();
     await organizer.sweep();

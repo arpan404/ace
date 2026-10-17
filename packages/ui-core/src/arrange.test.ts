@@ -116,15 +116,15 @@ test.each(["not_sent", "uncertain"])(
   },
 );
 
-test("threads the daemon settled go to Settled, except one that needs you again", () => {
+test("threads the daemon settled stay in Settled in every non-working status", () => {
   const entries = [
     entry("settled", { state: "done" }, now - 2 * hour, { settledAt: now - hour }),
     entry("fresh", { state: "done" }, now - hour),
     entry("asks", { state: "needs_you", interactions: 1 }, now, { settledAt: now - hour }),
   ];
   const result = arrange(entries, state(), now);
-  expect(result.settled).toEqual(["settled"]);
-  expect(result.active).toEqual(["asks"]);
+  expect(result.settled).toEqual(["asks", "settled"]);
+  expect(result.active).toEqual([]);
   expect(result.recent).toEqual(["fresh"]);
 });
 

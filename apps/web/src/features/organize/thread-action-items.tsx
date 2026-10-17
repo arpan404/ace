@@ -156,8 +156,9 @@ export function threadActions(
 }
 
 /**
- * Settle a finished thread, or Unsettle a settled one; nothing while work continues, since the
- * daemon settles only finished work. The menus and the Home row's hover action share it.
+ * Settle any thread that is not working, or Unsettle a settled one; nothing while work
+ * continues, since the daemon settles only non-working threads. The menus and the Home row's
+ * hover action share it.
  */
 export function settleAction(
   entry: ThreadListEntry,
@@ -172,7 +173,7 @@ export function settleAction(
       section: "settle",
       run: () => actions.unsettle(entry),
     };
-  if (entry.status.state !== "done") return undefined;
+  if (entry.status.state === "working") return undefined;
   return {
     id: "settle",
     label: "Settle",

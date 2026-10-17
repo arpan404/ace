@@ -733,7 +733,7 @@ test("fake catch-up counts an approval answer after the cursor and preserves bac
     const summary = await client.threadCatchUp({ threadId: "background", sinceSeq });
     expect(summary).toMatchObject({
       status: { state: "waiting", on: "background_task" },
-      turnsCompleted: 0,
+      turnsCompleted: 1,
       digest: {
         approvalsAsked: 0,
         approvalsAnswered: 1,

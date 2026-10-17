@@ -18,7 +18,7 @@ export class CommandRefused extends Error {
 
 const refusals: Record<string, string> = {
   thread_not_found: "The thread is gone.",
-  thread_not_done: "Only a finished thread can settle.",
+  thread_not_done: "Only a working thread cannot settle.",
   thread_busy: "Stop its agents and close its terminals first.",
   thread_deleting: "It's already being stopped and deleted.",
   thread_cleanup_pending: "Its agents haven't stopped yet. ace will finish deleting it.",

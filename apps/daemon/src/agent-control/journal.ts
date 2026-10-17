@@ -243,7 +243,7 @@ export class DelegationJournal {
   /** Recovery also restores ownership of provider work committed just before a crash. */
   revived() {
     return this.sql(`SELECT record FROM delegated_threads JOIN threads ON threads.id=child_id
-      WHERE phase='settled' AND json_extract(threads.status,'$.state') NOT IN ('done','failed','new')
+      WHERE phase='settled' AND json_extract(threads.status,'$.state')='working'
       AND json_extract(threads.client,'$.deletedAt') IS NULL ORDER BY child_id LIMIT 10001`)
       .all()
       .map((row) => this.decode(row.record));

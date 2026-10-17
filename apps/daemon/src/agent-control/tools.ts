@@ -433,11 +433,7 @@ export function createAgentControlPort(
             ? extensions.pr(caller, operation, signal)
             : { ok: false, code: "unsupported" };
         case "thread.settle": {
-          if (
-            !["done", "failed", "new"].includes(
-              store.getThread(operation.threadId)?.status.state ?? "",
-            )
-          )
+          if (store.getThread(operation.threadId)?.status.state === "working")
             return { ok: false, code: "not_ready" };
           const result = service.command(
             controlCommandId(operation.threadId, "settle", operation.op),

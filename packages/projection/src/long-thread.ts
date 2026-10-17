@@ -152,7 +152,7 @@ export function turnActivityStatus(
 }
 
 export function turnIsSettled(status: ThreadStatus): boolean {
-  return status.state === "done" || status.state === "failed" || status.state === "new";
+  return status.state !== "working";
 }
 
 export function approvalAutoReviewed(approval: Pick<Interaction, "autoReviewed">): boolean {
