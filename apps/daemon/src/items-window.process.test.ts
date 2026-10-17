@@ -16,6 +16,18 @@ async function setup() {
   return f;
 }
 
+/** Over the snapshot budget, the newest item still shows alone, as its bounded text preview. */
+function expectPreviewOnly(view: { itemOrder: string[]; items: Record<string, Item> }, id: string) {
+  expect(view.itemOrder).toEqual([id]);
+  const item = view.items[id];
+  if (item?.type !== "message") throw new Error("Expected message preview");
+  const texts = item.parts.flatMap((part) => (part.type === "text" ? [part] : []));
+  expect(texts.length).toBeGreaterThan(0);
+  for (const part of texts) {
+    expect(part.source).toBeDefined();
+    expect(part.text.length).toBeLessThanOrEqual(4096);
+  }
+}
 function completeMessage(store: Store, item: Item) {
   if (item.type !== "message") throw new Error("Expected message");
   return {
@@ -159,11 +171,12 @@ it("keeps snapshots within the item byte budget and permits paging a single over
   f.store.appendEvents(f.thread.id, [
     { type: "item.created", item: message("huge", "x".repeat(2 * 1024 * 1024)) },
   ]);
-  const empty = f.store.snapshotThread(f.thread.id);
-  expect(empty.itemOrder).toEqual([]);
-  expect(empty.itemsBefore).toBe(f.store.headSeq() + 1);
-  const page = f.store.readItems(f.thread.id, empty.itemsBefore!, 1);
-  expect(page.items[0]?.id).toBe("huge");
+  const shown = f.store.snapshotThread(f.thread.id);
+  expectPreviewOnly(shown, "huge");
+  expect(shown.itemsBefore).toBe(f.store.headSeq());
+  expect(f.store.readItems(f.thread.id, f.store.headSeq() + 1, 1).items[0]?.id).toBe("huge");
+  const page = f.store.readItems(f.thread.id, shown.itemsBefore!, 1);
+  expect(page.items[0]?.id).toBe("item-99");
   expect(page.itemsBefore).not.toBeNull();
 });
 it("pages several oversized messages one at a time over the socket without skipping history", async () => {
@@ -175,11 +188,11 @@ it("pages several oversized messages one at a time over the socket without skipp
     items.map((item) => ({ type: "item.created", item })),
   );
   const snapshot = f.store.snapshotThread(f.thread.id);
-  expect(snapshot.itemOrder).toEqual([]);
+  expectPreviewOnly(snapshot, "huge-3");
   let before = snapshot.itemsBefore;
   const c = await f.connect();
   await c.next();
-  for (let i = items.length - 1; i >= 0; i--) {
+  for (let i = items.length - 2; i >= 0; i--) {
     const item = items[i];
     const event = events[i];
     if (!item || !event || before === null) throw new Error("History ended too early");
@@ -355,7 +368,7 @@ it("budgets appended message text including a newly created text part and JSON e
       append: "x".repeat(1024 * 1024 - initialBytes - 1),
     },
   ]);
-  expect(f.store.snapshotThread(f.thread.id).itemOrder).toEqual([]);
+  expectPreviewOnly(f.store.snapshotThread(f.thread.id), "m");
   const text = "\0".repeat((1024 * 1024) / 8);
   f.store.appendEvents(f.thread.id, [
     { type: "item.updated", item: message("m", "") },
@@ -376,7 +389,7 @@ it("budgets appended message text including a newly created text part and JSON e
   f.store.appendEvents(f.thread.id, [
     { type: "item.delta", itemId: item.id, agentId: item.agentId, field: "text", append: text },
   ]);
-  expect(f.store.snapshotThread(f.thread.id).itemOrder).toEqual([]);
+  expectPreviewOnly(f.store.snapshotThread(f.thread.id), "m");
   expect(f.store.readItems(f.thread.id, f.store.headSeq() + 1, 1).items[0]).toMatchObject({
     parts: [{ text: text + text }],
   });
