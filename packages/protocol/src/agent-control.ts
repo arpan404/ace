@@ -1,3 +1,4 @@
+import { OffshiftRequest } from "./offshift.ts";
 import { ForgePrWorktree } from "./forge-worktree.ts";
 import { RemoteContextSelection } from "./remote-context.ts";
 import { AccessRequest } from "./permissions.ts";
@@ -342,6 +343,7 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     until: Timestamp.nullable(),
   }),
   z.strictObject({ op: z.literal("automation.manage"), request: AutomationRequest }),
+  z.strictObject({ op: z.literal("offshift"), request: OffshiftRequest }),
   z.strictObject({ op: z.literal("project.read"), workspaceId: WorkspaceId }),
   z.strictObject({
     op: z.literal("project.rename"),

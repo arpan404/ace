@@ -1,0 +1,87 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftRun.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "blocker": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "createdAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "criteria": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/OffshiftCriterion.json"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "type": "array",
+      "x-ace-constraint": "Criterion IDs must be unique."
+    },
+    "endpoint": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/OffshiftEvidence.json"
+      },
+      "maxItems": 320,
+      "type": "array"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "note": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "outcome": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "phase": {
+      "$ref": "https://ace.local/protocol/v1/OffshiftPhase.json"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "updatedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "version": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "id",
+    "threadId",
+    "outcome",
+    "endpoint",
+    "criteria",
+    "phase",
+    "version",
+    "blocker",
+    "note",
+    "evidence",
+    "createdAt",
+    "updatedAt"
+  ],
+  "type": "object"
+}

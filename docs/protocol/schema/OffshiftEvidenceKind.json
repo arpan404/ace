@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/OffshiftEvidenceKind.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "automated",
+    "source",
+    "ui",
+    "human",
+    "manual"
+  ],
+  "type": "string"
+}

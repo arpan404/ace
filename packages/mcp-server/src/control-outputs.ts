@@ -1,3 +1,4 @@
+import { OffshiftView, OffshiftRun } from "@ace/protocol/offshift";
 import { z } from "zod";
 import {
   AccessMode,
@@ -67,6 +68,17 @@ const Catalog = z.looseObject({
 
 type Op = AgentControlOperation["op"];
 const data: Partial<Record<Op, z.ZodType>> = {
+  offshift: z.union([
+    OffshiftView,
+    z
+      .array(
+        OffshiftRun.pick({ id: true, outcome: true, phase: true }).extend({
+          outcome: z.string().max(256),
+          outcomeTruncated: z.boolean(),
+        }),
+      )
+      .max(32),
+  ]),
   "threads.list": SearchPage,
   "thread.search": SearchPage,
   "agents.catalog": Catalog,

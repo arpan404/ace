@@ -1130,6 +1130,23 @@
       "additionalProperties": false,
       "properties": {
         "op": {
+          "const": "offshift",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "https://ace.local/protocol/v1/OffshiftRequest.json"
+        }
+      },
+      "required": [
+        "op",
+        "request"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
           "const": "project.read",
           "type": "string"
         },

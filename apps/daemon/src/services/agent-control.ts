@@ -1,3 +1,4 @@
+import { createOffshift } from "../agent-control/offshift.ts";
 import { pruneRemoteRows } from "../agent-control/remote-retention.ts";
 import { RemotePublications } from "../agent-control/remote-publication.ts";
 import { RemoteReturns } from "../agent-control/remote-return.ts";
@@ -157,6 +158,7 @@ export function startAgentControl(context: ServiceContext): void {
   resources.onShutdown(() => remote?.close());
   delegations.onRemoteCancel = (thread) => remote?.cancelTree(thread);
   const owners = createAgentOwners(context, delegations);
+  const offshift = createOffshift(context, delegations);
   const port = createAgentControlPort(store, delegations, {
     ...options.agentControl?.extensions,
     delegateWorkspace: createWorkspaceDelegations(context, delegations),
@@ -195,6 +197,7 @@ export function startAgentControl(context: ServiceContext): void {
       );
     },
     execute: async (caller, operation, signal) => {
+      if (operation.op === "offshift") return offshift(caller, operation.request, signal);
       const result = await owners.execute(caller, operation, signal);
       return result.code === "unsupported" && options.agentControl?.extensions?.execute
         ? options.agentControl.extensions.execute(caller, operation, signal)

@@ -90,6 +90,7 @@
         "@ace/mcp-server": "workspace:*",
         "@ace/models": "workspace:*",
         "@ace/notify": "workspace:*",
+        "@ace/offshift": "workspace:*",
         "@ace/orchestrator": "workspace:*",
         "@ace/plugins": "workspace:*",
         "@ace/preview": "workspace:*",
@@ -679,6 +680,14 @@
         "zod": "^4.1.12",
       },
     },
+    "packages/offshift": {
+      "name": "@ace/offshift",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/orchestrator": {
       "name": "@ace/orchestrator",
       "dependencies": {
@@ -1042,6 +1051,8 @@
     "@ace/native-session": ["@ace/native-session@workspace:packages/native-session"],
 
     "@ace/notify": ["@ace/notify@workspace:packages/notify"],
+
+    "@ace/offshift": ["@ace/offshift@workspace:packages/offshift"],
 
     "@ace/orchestrator": ["@ace/orchestrator@workspace:packages/orchestrator"],
 

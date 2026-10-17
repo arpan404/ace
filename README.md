@@ -14,27 +14,28 @@ Each agent CLI owns its credentials. ace can start its login or hand a pasted AP
 
 ## Repository layout
 
-| Path                      | Purpose                                                                 |
-| ------------------------- | ----------------------------------------------------------------------- |
-| `apps/relay`              | Self-hosted WebSocket relay with encrypted outbound host/client streams |
-| `packages/secure-channel` | Portable Noise XX handshake, ordered transport and static identity      |
-| `apps/daemon`             | Local SQLite event store and authenticated WebSocket server             |
-| `apps/ios`                | Native SwiftUI/JavaScriptCore spike; Phase 1 held by ADR 0074           |
-| `apps/web`                | React web client; the same bundle runs in the desktop app               |
-| `apps/desktop`            | Electron shell: daemon supervision, notifications, in-app browser       |
-| `packages/projection`     | Pure shared event folds for thread and sidebar views                    |
-| `packages/git`            | Local Git worktrees, checkpoints, diffs and safe restore                |
-| `packages/orchestrator`   | Multi-provider fan-out, races, pipelines and coordinator lanes          |
-| `packages/review`         | Local diff comments, persistent anchors and structured agent fixes      |
-| `packages/protocol`       | Canonical protocol: Zod schemas and types, no runtime logic             |
-| `packages/agent-registry` | Official ACP catalog, approved local installations and source profiles  |
-| `packages/provider-kit`   | Supervised provider processes, JSON-RPC, SSE and local CLI discovery    |
-| `packages/workspace`      | Workspace file listing, reads, search and change subscriptions          |
-| `packages/files`          | Streamed transfers, atomic workspace mutations, trash and artifacts     |
-| `tools/recorder`          | Records raw provider sessions as fixtures for adapter contract tests    |
-| `tools/dev`               | The development process runner behind `bun run dev`                     |
-| `docs/adr`                | Architecture decision records                                           |
-| `docs/research`           | Primary-source research behind the decisions                            |
+| Path                      | Purpose                                                                  |
+| ------------------------- | ------------------------------------------------------------------------ |
+| `apps/relay`              | Self-hosted WebSocket relay with encrypted outbound host/client streams  |
+| `packages/secure-channel` | Portable Noise XX handshake, ordered transport and static identity       |
+| `apps/daemon`             | Local SQLite event store and authenticated WebSocket server              |
+| `apps/ios`                | Native SwiftUI/JavaScriptCore spike; Phase 1 held by ADR 0074            |
+| `apps/web`                | React web client; the same bundle runs in the desktop app                |
+| `apps/desktop`            | Electron shell: daemon supervision, notifications, in-app browser        |
+| `packages/projection`     | Pure shared event folds for thread and sidebar views                     |
+| `packages/git`            | Local Git worktrees, checkpoints, diffs and safe restore                 |
+| `packages/offshift`       | Durable coding workflow, acceptance criteria and revision-bound evidence |
+| `packages/orchestrator`   | Multi-provider fan-out, races, pipelines and coordinator lanes           |
+| `packages/review`         | Local diff comments, persistent anchors and structured agent fixes       |
+| `packages/protocol`       | Canonical protocol: Zod schemas and types, no runtime logic              |
+| `packages/agent-registry` | Official ACP catalog, approved local installations and source profiles   |
+| `packages/provider-kit`   | Supervised provider processes, JSON-RPC, SSE and local CLI discovery     |
+| `packages/workspace`      | Workspace file listing, reads, search and change subscriptions           |
+| `packages/files`          | Streamed transfers, atomic workspace mutations, trash and artifacts      |
+| `tools/recorder`          | Records raw provider sessions as fixtures for adapter contract tests     |
+| `tools/dev`               | The development process runner behind `bun run dev`                      |
+| `docs/adr`                | Architecture decision records                                            |
+| `docs/research`           | Primary-source research behind the decisions                             |
 
 The [agent browser and computer tool contract](docs/daemon/agent-tools.md) documents
 scoped MCP calls, navigation waits and control handback.
@@ -46,6 +47,8 @@ and cancellation.
 The [headless CLI](docs/daemon/cli.md) exposes thread and delegated-task control.
 
 Agents can publish [HTML visualizations](docs/daemon/html-visualizations.md) through dedicated MCP tools. Pages replay with the thread and run in an offline sandbox. Claude Code and Codex sessions receive the bundled `visualize` skill.
+
+Agents can use the bundled `offshift` skill and `ace_offshift` tool to track a coding outcome through verification and delivery. See [the native workflow contract](packages/offshift/README.md).
 
 The generated [protocol reference](docs/protocol/README.md) covers WebSocket messages, canonical events and built-in MCP tools. Regenerate it with `bun run docs:protocol`.
 

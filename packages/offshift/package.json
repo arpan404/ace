@@ -1,0 +1,17 @@
+{
+  "name": "@ace/offshift",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "node ../../scripts/typecheck.ts --workspace"
+  },
+  "dependencies": {
+    "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

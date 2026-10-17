@@ -32,6 +32,7 @@ const entryPoints: ReadonlyMap<string, string> = new Map([
 
 /** The guide topic whose toolset a tool belongs to. Every ace tool belongs to exactly one. */
 export function toolsetOf(name: string): string {
+  if (name === "ace_offshift") return "offshift";
   if (name.startsWith("ace_browser_")) return "ace-browser";
   if (name.startsWith("screen_") || name.startsWith("device_")) return "ace-computer-use";
   if (
