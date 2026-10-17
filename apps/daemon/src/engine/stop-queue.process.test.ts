@@ -51,10 +51,8 @@ test("interrupt keeps one queued send paused after Stop, including after reload"
     await recovered.close();
     reopened.close();
   }
-  expect(h.store.snapshotThread(id).items["input:queued"]).toMatchObject({
-    parts: [{ type: "text", text: "queued" }],
-  });
-  expect(h.store.snapshotThread(id).items["input:queued"]).not.toHaveProperty("notAnswered");
+  // It never reached the stopped run: it waits in the queue, not in that run's transcript.
+  expect(h.store.snapshotThread(id).items["input:queued"]).toBeUndefined();
 });
 test("a Stop for an ended run refuses to interrupt a later run", async () => {
   const frames = scriptFrames();
@@ -102,9 +100,7 @@ test("Stop before provider startup pauses the admitted input without opening a p
     reason: "stopped",
     messages: [{ id: "early-create" }],
   });
-  expect(h.store.snapshotThread(receipt.threadId).items["input:early-create"]).toMatchObject({
-    parts: [{ type: "text", text: "first request" }],
-  });
+  expect(h.store.snapshotThread(receipt.threadId).items["input:early-create"]).toBeUndefined();
 });
 
 test("Stop during checkpoint preparation returns claimed but unsent input to the stopped queue", async () => {

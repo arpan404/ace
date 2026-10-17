@@ -143,14 +143,12 @@ export function sendFacts(
   host.queueDirty = true;
   return {
     ok: true,
-    facts: [
-      ...admissionFacts(host, commandId, payload.input, payload.attachments),
-      { type: "queue.changed", count: host.queued.length },
-    ],
+    // Like the daemon, a queued message joins the transcript when it is delivered.
+    facts: [{ type: "queue.changed", count: host.queued.length }],
   };
 }
 
-/** Once the root agent is free, the oldest queued message starts the next turn. */
+/** A free root agent takes the oldest queued message: it joins the transcript and starts a turn. */
 export function drainQueue(host: ThreadHost): Fact[] {
   const root = host.state.rootKey;
   if (root === undefined || busy(host) || host.queue.paused) return [];
@@ -163,6 +161,7 @@ export function drainQueue(host: ThreadHost): Fact[] {
   };
   return [
     { type: "queue.changed", count: host.queued.length },
+    ...admissionFacts(host, next.key, next.input, next.attachments),
     ...startTurn(host, next.key, next.text),
   ];
 }

@@ -175,9 +175,8 @@ export class Store {
       sequences: this.sequences,
       blocked: () => this.writes.isHeld() || this.historyWriting,
       transaction: (run, committed) => this.transaction(run, committed),
-      persist: (event) => {
-        this.appendEventBatch(event.threadId, [event.payload], event.at, [event]);
-      },
+      persist: (event) => this.appendEventBatch(event.threadId, [event.payload], event.at, [event]),
+      append: (event) => this.appendEventBatch(event.threadId, [event.payload], event.at),
       publish: (events) => this.publish(events),
       report: (error) => this.onError(error),
     });
@@ -355,7 +354,7 @@ export class Store {
     };
   }
   headSeq(): number {
-    return this.streaming.buffer.head ?? this.sequences.head();
+    return this.streaming.head();
   }
   liveWriteBlocked(): boolean {
     return this.streaming.buffer.failed;
@@ -433,8 +432,8 @@ export class Store {
     } finally {
       this.transactionEvents = undefined;
     }
-    // The live buffer publishes original envelopes after commit; persisted envelopes may
-    // contain compacted prefixes that subscribers have already received.
+    // The live buffer publishes its own commits: stored rows may compact a prefix that
+    // subscribers have already received.
     if (committed) committed();
     else this.publish(events.filter((event) => event.seq > this.publishedSeq));
     for (const listener of this.usageListeners) {

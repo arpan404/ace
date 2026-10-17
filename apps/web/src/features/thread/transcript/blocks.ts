@@ -1,5 +1,4 @@
-import { chronologicalItemOrder, visibleHistoryOrder } from "@ace/projection";
-import { executionOrder } from "./execution-order.ts";
+import { visibleHistoryOrder } from "@ace/projection";
 import type { BackgroundTask, Item, Run } from "@ace/protocol";
 import {
   carriesOnStretch,
@@ -130,13 +129,13 @@ export type RunFacts = Pick<Run, "state" | "trigger" | "endedAt"> & {
 };
 
 export interface BlockSource {
+  /** Items in daemon creation order, as the store holds them; never re-sorted here. */
   order: readonly string[];
   /** Related agents contribute file summaries, without adding transcript rows. */
   relatedOrder?: readonly string[] | undefined;
   /** Latest root run when this loaded window contains none of its output. */
   emptyTurn?: string | undefined;
   item(id: string): Item | undefined;
-  creationSeq?(id: string): number | undefined;
   /** Tool call id → background task id, for calls that outlived their turn. */
   background: ReadonlyMap<string, string>;
   /** Interactions that render inline (questions), oldest first. */
@@ -352,11 +351,7 @@ function stillWorking(source: BlockSource, turn: string, lastStretch: boolean): 
  * questions, injected messages and other events show inline without ending it. A turn's files
  * card and ending wait until its whole tree has settled (ADR 0062).
  */
-export function buildBlocks(input: BlockSource): Block[] {
-  const source = {
-    ...input,
-    order: chronologicalItemOrder(input.order, input.item, input.creationSeq),
-  };
+export function buildBlocks(source: BlockSource): Block[] {
   const blocks: Block[] = [];
   const workAt = new Map<WorkBlock, number>();
   const anchors = anchorQuestions(source);
@@ -378,7 +373,7 @@ export function buildBlocks(input: BlockSource): Block[] {
     if (request.kind === "approval" && request.toolCallId)
       callApproval.set(request.toolCallId, request.id);
   let lastAnswer: string | undefined;
-  const order = visibleHistoryOrder(executionOrder(source), source.item);
+  const order = visibleHistoryOrder(source.order, source.item);
   const { stretchAt, lastWork, lastStretch } = lastWorkOf(order, source, anchors);
   const turns = new Map<string, TurnMark>();
   const ordered: TurnMark[] = [];
@@ -983,9 +978,10 @@ export function sameBlock(a: Block, b: Block): boolean {
 }
 
 /**
- * The daemon admits a queued message into the transcript as `input:<commandId>` when it accepts
- * it (ADR 0065); while it waits in the queue its pill shows it, so its bubble stays out of the
- * feed until it leaves the queue. So does an ending the transcript tied to it while it waited
+ * The daemon creates a message's `input:<commandId>` item when it delivers it (ADR 0065), so a
+ * message waiting in the queue has none. One that went back to the queue after a delivery attempt
+ * keeps its item; while it waits its pill shows it, so its bubble stays out of the feed until it
+ * leaves the queue again. So does an ending the transcript tied to it while it waited
  * (an agent that failed with the message last in line): that ending is the turn before's, which
  * becomes the newest in view again (QA-10). Returns `blocks` itself when nothing is hidden. Pure.
  */
