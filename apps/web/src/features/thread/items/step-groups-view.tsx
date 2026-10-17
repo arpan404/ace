@@ -27,6 +27,7 @@ import {
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import { memo, useId, useMemo, useState } from "react";
+import { OpenStepsContext, useGroupOpen, useOpenSteps, useStepOpen } from "./step-open.ts";
 import { Icon } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useAceLog } from "./ace-steps.tsx";
@@ -154,6 +155,7 @@ export function GroupedSteps(props: {
   );
   const log = useStepItemsSelect(props.threadId, shown, readLog, sameReading) ?? nothing;
   const groups = useGroups(log.facts);
+  const opened = useOpenSteps();
   const rows = groups.map((group, index) => (
     <GroupView
       key={group.key}
@@ -166,14 +168,18 @@ export function GroupedSteps(props: {
       retried={log.retried}
     />
   ));
-  return props.rail ? (
-    <StepRail id={props.id} label="Steps">
-      {rows}
-    </StepRail>
-  ) : (
-    <ul id={props.id} aria-label="Steps" className="flex flex-col">
-      {rows}
-    </ul>
+  return (
+    <OpenStepsContext value={opened}>
+      {props.rail ? (
+        <StepRail id={props.id} label="Steps">
+          {rows}
+        </StepRail>
+      ) : (
+        <ul id={props.id} aria-label="Steps" className="flex flex-col">
+          {rows}
+        </ul>
+      )}
+    </OpenStepsContext>
   );
 }
 
@@ -216,7 +222,7 @@ function ThoughtRow(props: { threadId: string; itemId: string }) {
   const item = useStepItem(props.threadId, props.itemId);
   const answer = useAnswerText(item);
   const streaming = useStreaming(props.threadId, item);
-  const [toggled, setOpen] = useState<boolean>();
+  const [toggled, setOpen] = useStepOpen(props.itemId);
   const open = toggled ?? streaming;
   if (item?.type !== "reasoning") return null;
   const text = answer.text.trim();
@@ -264,7 +270,7 @@ const GroupView = memo(function GroupView(props: {
   retried: ReadonlySet<string>;
 }) {
   const { group } = props;
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useGroupOpen(group.key, group.ids);
   const panel = useId();
   const step = (id: string) => (
     <GroupStep

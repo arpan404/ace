@@ -120,13 +120,13 @@ test.each([true, false])(
       background: new Map(),
     });
     expect(shown(blocks)).toEqual([
-      "work:work:mcp-first",
+      "work:work:start",
       "subagents:subagents:first",
-      "work:work:mcp-second",
+      "work:work:start:mcp-second",
       "narration",
-      "work:work:mcp-third",
+      "work:work:start:mcp-third",
       "subagents:subagents:third",
-      "work:work:later-work",
+      "work:work:start:later-work",
     ]);
     const work = blocks.filter((block) => block.kind === "work");
     expect(work.map((block) => block.itemIds)).toEqual([
@@ -365,7 +365,7 @@ test("a settled work header stays below earlier asks after history arrives out o
     },
   };
   const blocks = buildBlocks(input);
-  expect(shown(blocks)).toEqual(["earlier", "ask", "work:work:tool", "answer"]);
+  expect(shown(blocks)).toEqual(["earlier", "ask", "work:work:ask", "answer"]);
   expect(blocks.filter((block) => block.kind === "work")).toMatchObject([
     { outcome: "completed", itemIds: ["tool"] },
   ]);
@@ -394,7 +394,7 @@ test("equal-time asks use creation sequence before a settled work header", () =>
         creationSeq: (id) => seqs[id],
       }),
     ),
-  ).toEqual(["first", "ask", "work:work:tool"]);
+  ).toEqual(["first", "ask", "work:work:ask"]);
 });
 
 test("an admitted first ask stays ahead of intervening earlier messages while awaiting output", () => {

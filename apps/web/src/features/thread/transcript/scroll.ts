@@ -1,10 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
+import { useEffect, type RefObject } from "react";
 import { scrollToEnd as glideToEnd } from "@/lib/motion.ts";
 
 /*
  * The transcript viewport's scroll behaviour: staying at the live end through resizes, the
- * scrollbar gutter the composer shares, and keeping the reader's row in place when rows are
- * added or removed above it (older history paging in, a jumped window sliding).
+ * scrollbar gutter the composer shares. Which row holds still as rows change is
+ * `use-feed-scroll.ts`'s.
  */
 
 /**
@@ -14,7 +14,7 @@ import { scrollToEnd as glideToEnd } from "@/lib/motion.ts";
  */
 export function useStayPinned(
   viewport: RefObject<HTMLDivElement | null>,
-  pinned: RefObject<boolean>,
+  following: () => boolean,
   glidingUntil: RefObject<number>,
 ) {
   useEffect(() => {
@@ -32,7 +32,7 @@ export function useStayPinned(
       height = next;
       width = nextWidth;
       clearance = nextClearance;
-      if (!pinned.current) return;
+      if (!following()) return;
       // The glide's own scroll events must not read as the reader scrolling away.
       glidingUntil.current = performance.now() + 800;
       glideToEnd(el, true);
@@ -42,25 +42,26 @@ export function useStayPinned(
     // deferred mount). Padding sits outside the content box a default observer watches.
     if (content) observer.observe(content, { box: "border-box" });
     return () => observer.disconnect();
-  }, [viewport, pinned, glidingUntil]);
+  }, [viewport, following, glidingUntil]);
 }
 
 /** Pending messages change the live end without moving an older reading position. */
 export function useDockShift(
   dock: RefObject<HTMLElement | null>,
   viewport: RefObject<HTMLElement | null>,
-  pinned: RefObject<boolean>,
+  following: () => boolean,
+  toEnd: (view: HTMLElement) => void,
 ) {
   useEffect(() => {
     const el = dock.current;
     const view = viewport.current;
     if (!el || !view || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      if (pinned.current) view.scrollTop = view.scrollHeight - view.clientHeight;
+      if (following()) toEnd(view);
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [dock, viewport, pinned]);
+  }, [dock, viewport, following, toEnd]);
 }
 
 /**
@@ -86,50 +87,4 @@ export function useGutter(viewport: RefObject<HTMLDivElement | null>) {
       root.style.removeProperty("--transcript-gutter");
     };
   }, [viewport]);
-}
-
-/** The row at the top of the viewport and how far its top sits from the viewport's. */
-export interface Anchor {
-  key: string | number;
-  index: number;
-  offset: number;
-  /** The row's measured top when recorded; the keep-place shift is the move since. */
-  start: number;
-  /** An item the row shows, to find it again if its row's key changes. */
-  itemId?: string | undefined;
-}
-
-/**
- * Keep the anchored row where the reader saw it when rows change above it: older history
- * prepended, or a jumped window sliding newer (its oldest rows leave) or older. The view
- * moves by exactly how far the anchor's measured top moved: no per-row sizes, no estimates,
- * so forgotten measurements can't overshoot it. Row resizes are the virtualizer's own job
- * (it compensates measurements above the fold itself); an absolute re-placement here would
- * count the same growth twice and teleport a fast scroll backwards. A row that is gone
- * (left the window) leaves the scroll as it is.
- */
-export function useKeepPlace(
-  keys: readonly (string | number)[],
-  anchorRef: RefObject<Anchor | undefined>,
-  pinnedRef: RefObject<boolean>,
-  shift: (delta: number) => void,
-  rowOfItem: (itemId: string) => number,
-  startOf: (index: number) => number | undefined,
-) {
-  const previous = useRef(keys);
-  useLayoutEffect(() => {
-    const before = previous.current;
-    previous.current = keys;
-    const at = anchorRef.current;
-    if (before === keys || pinnedRef.current || !at) return;
-    if (keys[at.index] === at.key) return;
-    let index = keys.indexOf(at.key);
-    if (index < 0 && at.itemId !== undefined) index = rowOfItem(at.itemId);
-    if (index < 0) return;
-    const start = startOf(index);
-    if (start === undefined) return;
-    anchorRef.current = { ...at, index, key: keys[index] ?? at.key, start };
-    const delta = start - at.start;
-    if (delta !== 0) shift(delta);
-  }, [keys, anchorRef, pinnedRef, shift, rowOfItem, startOf]);
 }
