@@ -5,6 +5,8 @@
   "type": "module",
   "exports": {
     "./permission-modes": "./src/permission-modes.ts",
+    "./cli-versions": "./src/cli-versions.ts",
+    "./cli-requirements": "./src/cli-requirements.ts",
     "./access-modes": "./src/access-modes.ts",
     "./payload": "./src/payload.ts",
     "./process": "./src/process.ts",

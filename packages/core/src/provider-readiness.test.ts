@@ -105,3 +105,24 @@ test.each(["opencode", "pi"] as const)(
     );
   },
 );
+
+test("a CLI older than ace's minimum needs an update and is never ready, even signed in", () => {
+  const old: ProviderStatus = {
+    ...row,
+    auth: "logged_in",
+    version: "0.158.0",
+    versionCheck: { status: "too_old", installed: "0.158.0", required: "0.159.1" },
+  };
+  expect(providerReadiness(old).readiness).toBe("needs_update");
+  expect(onboardingChecklist([old]).ready).toEqual([]);
+  const current: ProviderStatus = {
+    ...old,
+    versionCheck: { status: "ok", installed: "0.160.0", required: "0.159.1" },
+  };
+  expect(providerReadiness(current).readiness).toBe("signed_in");
+  const unreadable: ProviderStatus = {
+    ...old,
+    versionCheck: { status: "unreadable", required: "0.159.1" },
+  };
+  expect(providerReadiness(unreadable).readiness).toBe("signed_in");
+});

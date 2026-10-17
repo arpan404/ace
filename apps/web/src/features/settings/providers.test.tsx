@@ -124,6 +124,35 @@ test("disconnecting one service confirms that service without claiming the provi
   expect(screen.queryByText("Signed out of OpenCode")).toBeNull();
 }, 30_000);
 
+test("a CLI older than ace supports says so, offers Update, and clears once it is updated", async () => {
+  const app = harness();
+  stage(app, "claude", {
+    version: "2.1.200",
+    updateAvailable: false,
+    versionCheck: { status: "too_old", installed: "2.1.200", required: "2.1.286" },
+  });
+  await app.open("/settings/providers");
+  const row = await rowOf("Claude Code");
+  expect(await within(row).findByText("Update needed")).toBeTruthy();
+  expect(within(row).getByRole("button", { name: "Update" })).toBeTruthy();
+  expect(within(row).queryByRole("button", { name: /Sign in/ })).toBeNull();
+  await userEvent.click(within(row).getByRole("link", { name: "Open Claude Code" }));
+  expect(
+    await screen.findByText(
+      "Claude Code 2.1.200 is older than 2.1.286, the oldest version ace supports. Update Claude Code, then refresh.",
+    ),
+  ).toBeTruthy();
+  await userEvent.click(screen.getByRole("link", { name: "Back to Providers" }));
+  stage(app, "claude", {
+    version: "2.1.290",
+    versionCheck: { status: "ok", installed: "2.1.290", required: "2.1.286" },
+  });
+  await userEvent.click(screen.getByRole("button", { name: "Check again" }));
+  await waitFor(async () =>
+    expect(within(await rowOf("Claude Code")).queryByText("Update needed")).toBeNull(),
+  );
+}, 30_000);
+
 test("Check again reads fresh discovery: a CLI signed in meanwhile reads signed in", async () => {
   const app = harness();
   stage(app, "codex", { auth: "logged_out", updateAvailable: false });

@@ -1,6 +1,12 @@
 import type { ModelInstanceStatus, ModelSource, ProviderKind, ProviderStatus } from "@ace/protocol";
 import { providerNames } from "./providers.ts";
 import { modelsAvailableWithoutAuth } from "@ace/models/availability";
+import {
+  cliTooOldMessage,
+  cliUpdateHint,
+  cliRequirements,
+  providerCli,
+} from "@ace/provider-kit/cli-requirements";
 
 /*
  * A provider's readiness (`providers.request { operation: "readiness" }`) in words, with what
@@ -23,6 +29,8 @@ export type ReadinessState =
   | "unconfirmed"
   | "signed_out"
   | "attention"
+  /** Installed, but older than the oldest version ace supports: sessions are refused. */
+  | "needs_update"
   | "checking"
   | "not_installed"
   | "off";
@@ -44,8 +52,11 @@ export interface ReadinessView {
   /** Why it needs attention or how to get it, in the daemon's safe words; for its own page. */
   detail?: string | undefined;
   tone: ReadinessTone;
-  /** The one prominent action: Sign in while signed out, Reconnect while it needs attention. */
-  primary?: "sign_in" | "reconnect" | undefined;
+  /**
+   * The one prominent action: Sign in while signed out, Reconnect while it needs attention,
+   * Update while its CLI is older than ace supports.
+   */
+  primary?: "sign_in" | "reconnect" | "update" | undefined;
   /** Quieter actions, for the provider's own page. */
   more: readonly ReadinessAction[];
   /** Signing in connects a service (OpenCode, Pi): the CLI's choices list them. */
@@ -181,6 +192,20 @@ export function readinessView(row: ProviderStatus, catalog?: CatalogSignal): Rea
   const name = providerNames[row.provider];
   if (row.installed === false) return quiet("not_installed", "Not installed", row.installHint);
   if (row.enabled === false) return quiet("off", "Turned off");
+  if (row.installed === true && row.versionCheck?.status === "too_old") {
+    const cli = providerCli(row.provider);
+    const product = cli ? cliRequirements[cli].name : name;
+    return {
+      state: "needs_update",
+      ready: false,
+      label: "Update needed",
+      summary: "Update needed",
+      detail: `${cliTooOldMessage(product, row.versionCheck.installed, row.versionCheck.required)} ${cliUpdateHint(product)}`,
+      tone: "action",
+      primary: "update",
+      more: [],
+    };
+  }
   const readiness =
     row.readiness ?? (row.auth === "logged_out" ? "installed_signed_out" : "signed_in");
   if (
@@ -238,6 +263,7 @@ export function readinessView(row: ProviderStatus, catalog?: CatalogSignal): Rea
       return signedOut(`Sign in to ${name} to use it.`);
     case "installed_signed_out":
       return signedOut();
+    case "needs_update":
     case "needs_attention":
       if (row.installed === null) return quiet("checking", "Checking…");
       if (row.auth === "logged_out") return signedOut(row.authDetail ?? row.error);

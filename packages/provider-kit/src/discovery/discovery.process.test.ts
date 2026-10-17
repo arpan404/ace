@@ -15,6 +15,39 @@ const healthy = {
 };
 
 describe("provider discovery", () => {
+  it.each([
+    [
+      "claude",
+      "2.1.200 (Claude Code)",
+      { status: "too_old", installed: "2.1.200", required: "2.1.286" },
+    ],
+    [
+      "claude",
+      "2.1.286 (Claude Code)",
+      { status: "ok", installed: "2.1.286", required: "2.1.286" },
+    ],
+    [
+      "codex",
+      "codex-cli 0.158.0",
+      { status: "too_old", installed: "0.158.0", required: "0.159.1" },
+    ],
+    ["codex", "codex-cli 0.159.1", { status: "ok", installed: "0.159.1", required: "0.159.1" }],
+  ] as const)(
+    "%s reporting %s is checked against ace's minimum",
+    async (provider, output, versionCheck) => {
+      const root = await directory();
+      const path = await binary(root, provider, healthy);
+      const result = await discoverProvider(provider, {
+        overrides: { [provider]: path },
+        probe: async (_path, args) => ({
+          code: 0,
+          stderr: "",
+          stdout: args[0] === "--version" ? output : '{"loggedIn":true}',
+        }),
+      });
+      expect(result).toMatchObject({ installed: true, versionCheck });
+    },
+  );
   it("OpenCode uses an injected standalone auth probe and cancellation reaches both probes", async () => {
     const root = await directory();
     const path = await binary(root, "opencode", healthy);
@@ -87,6 +120,7 @@ describe("provider discovery", () => {
       installed: true,
       path,
       version: "2.3.4",
+      versionCheck: { status: "ok", installed: "2.3.4", required: "2.1.286" },
       auth: "logged_out",
       loginHint: "claude, then /login",
     });
@@ -104,6 +138,7 @@ describe("provider discovery", () => {
       installed: true,
       path,
       version: "4.5.6",
+      versionCheck: { status: "ok", installed: "4.5.6", required: "0.159.1" },
       auth: "logged_in",
       authDetail: "ChatGPT",
       loginHint: "codex login",
@@ -160,6 +195,7 @@ describe("provider discovery", () => {
       installed: true,
       path,
       version: "0.159.1",
+      versionCheck: { status: "ok", installed: "0.159.1", required: "0.159.1" },
       auth: "logged_in",
       authDetail: "ChatGPT",
       loginHint: "codex login",

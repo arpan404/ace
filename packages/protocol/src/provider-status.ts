@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AccessModeOffer, NativePermissionMode } from "./permissions.ts";
 import { ApiKeySupport, AccountAuthMethod } from "./account-auth.ts";
 import { ProviderKind } from "./provider.ts";
+import { CliVersionCheck } from "./cli-version.ts";
 
 /** Local runtime discovery is independent of ace's account registry and adapter capabilities. */
 export const ProviderStatus = z.object({
@@ -16,6 +17,7 @@ export const ProviderStatus = z.object({
       "signed_in",
       "needs_attention",
       "not_configured",
+      "needs_update",
     ])
     .optional(),
   installHint: z.string().max(1024).optional(),
@@ -28,6 +30,8 @@ export const ProviderStatus = z.object({
   enabled: z.boolean().optional(),
   path: z.string().min(1).max(4096).optional(),
   version: z.string().min(1).max(256).optional(),
+  /** The installed version against ace's minimum; `too_old` refuses new sessions. */
+  versionCheck: CliVersionCheck.optional(),
   auth: z.enum(["logged_in", "logged_out", "unknown"]),
   authMethod: AccountAuthMethod.optional(),
   apiKey: ApiKeySupport.optional(),
