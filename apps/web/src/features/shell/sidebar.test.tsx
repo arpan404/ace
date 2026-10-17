@@ -271,7 +271,6 @@ test("with no project yet, the sidebar, ⌘N and the palette all lead to Add pro
   const add = await within(
     await screen.findByRole("complementary", { name: "Threads" }),
   ).findByRole("button", { name: /^Add project/ });
-  expect(screen.queryByRole("button", { name: /^Project filter:/ })).toBeNull();
   expect(within(appNav()).queryByRole("link", { name: /^New thread/ })).toBeNull();
   await userEvent.click(add);
   expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();

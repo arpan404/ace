@@ -185,8 +185,7 @@ export function SetupScreen() {
                 onClick={() => {
                   if (step === 0) return setStep(1);
                   leave();
-                  // Straight to the folder browser: a first project is most often a folder here.
-                  projects.open({ kind: "add", tab: "open" });
+                  projects.open({ kind: "add", tab: "sources" });
                 }}
                 onPointerEnter={step === 1 ? projects.preload : undefined}
               >

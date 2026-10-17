@@ -11,9 +11,12 @@ const wallClock = () => Date.now();
 const load = () => import("./palette-dialog.tsx");
 const PaletteDialog = deferredComponent(() => load().then((module) => module.default));
 
-/** ⌘K. Focus moves to the search field on open and returns to the opener on close. */
+/**
+ * ⌘K, and Add project and New thread in… as its steps. Focus moves to the field on open and
+ * returns to the opener on close.
+ */
 export function CommandPalette() {
-  const { paletteOpen, setPaletteOpen, storage } = useLayout();
+  const { paletteOpen, setPaletteOpen, paletteStart, storage } = useLayout();
   useRecordRecentThreads(storage, wallClock);
   const close = useCallback(() => setPaletteOpen(false), [setPaletteOpen]);
   const [loaded, setLoaded] = useState(false);
@@ -37,7 +40,12 @@ export function CommandPalette() {
   if (!loaded && !paletteOpen) return null;
   return (
     <Suspense fallback={null}>
-      <PaletteDialog.Component open={paletteOpen} onOpenChange={setPaletteOpen} close={close} />
+      <PaletteDialog.Component
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        close={close}
+        start={paletteStart}
+      />
     </Suspense>
   );
 }

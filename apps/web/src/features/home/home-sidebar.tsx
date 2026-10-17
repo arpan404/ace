@@ -1,10 +1,12 @@
-import { ChatsIcon, NotePencilIcon } from "@phosphor-icons/react";
+import { ChatsIcon, FolderPlusIcon, NotePencilIcon } from "@phosphor-icons/react";
 import { useSidebar, useSidebarLoaded } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
 import { Suspense } from "react";
-import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import { useNewThreadEntry, useProjectDialogs } from "@/features/projects/index.ts";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
@@ -23,8 +25,8 @@ const StartedTitlePublisher = deferredComponent(() =>
 
 /**
  * Home's list in the sidebar: one list of tasks across projects, pinned first, then in the order
- * of what is owed, with Settled folded away at the end. The toolbar pairs the project filter
- * with New thread, or offers Add project while there are none.
+ * of what is owed, with Settled folded away at the end. The toolbar holds the project filter,
+ * then Add project and New thread.
  */
 export function HomeSidebar() {
   const list = useHomeList();
@@ -38,21 +40,42 @@ export function HomeSidebar() {
   const directory = useProjectDirectory();
   const keys = useResolvedKeymap();
   const noProjects = directory.loaded && directory.projects.length === 0;
+  const projects = useProjectDialogs();
+  const entry = useNewThreadEntry();
+  const only = directory.projects.length === 1 ? directory.projects[0] : undefined;
   return (
     <>
-      <div className="flex h-9 shrink-0 items-center justify-between gap-2 px-2">
+      <div className="flex h-9 shrink-0 items-center gap-0.5 px-2">
         <ThreadsActions />
-        {!noProjects && (
-          <Tip label="New thread" shortcut="newThread">
-            <Link
-              to="/new"
-              aria-label="New thread"
-              className="relative grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground"
-            >
-              <Icon icon={NotePencilIcon} />
-            </Link>
-          </Tip>
-        )}
+        <span className="flex-1" />
+        <IconButton
+          icon={FolderPlusIcon}
+          label="Add project"
+          shortcut="addProject"
+          className="size-7 hover:bg-sidebar-accent"
+          onClick={() => projects.open({ kind: "add", tab: "sources" })}
+          onPointerEnter={projects.preload}
+        />
+        <Tip label="New thread" shortcut="newThread">
+          <Link
+            to="/new"
+            {...(only ? { search: { project: only.id } } : {})}
+            aria-label="New thread"
+            className="relative grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground focus-ring touch-hit touch-hit-lg hover:bg-sidebar-accent hover:text-foreground"
+            onClick={(event) => {
+              // Shift skips the question (the current project); several projects ask which.
+              if (event.shiftKey) {
+                event.preventDefault();
+                entry.here();
+              } else if (!only) {
+                event.preventDefault();
+                entry.start();
+              }
+            }}
+          >
+            <Icon icon={NotePencilIcon} />
+          </Link>
+        </Tip>
       </div>
       <nav aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
         {loaded && (

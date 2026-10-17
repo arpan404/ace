@@ -1,9 +1,5 @@
-import { ProjectImage } from "@/components/project-image.tsx";
-import { MachineLabel } from "@/components/ui/machine-label.tsx";
 import {
-  ArrowElbowDownLeftIcon,
   FolderOpenIcon,
-  FolderPlusIcon,
   FolderSimpleIcon,
   FolderSimpleStarIcon,
   GitBranchIcon,
@@ -22,18 +18,17 @@ import { cn } from "@/lib/cn.ts";
 import { applePlatform } from "@/lib/keymap.ts";
 import { AllowFolder } from "./allow-folder.tsx";
 import { Badge, Notice, RefusedNotice, offlineIcon } from "./folder-notices.tsx";
-import type { FolderRow, FolderSearch, SearchMode } from "./use-folder-search.ts";
+import type { FolderRow, FolderSearch } from "./use-folder-search.ts";
 
 /** Rows of a folder this long and longer mount only near the viewport. */
 const virtualAbove = 120;
 const mod = (event: KeyboardEvent) => (applePlatform ? event.metaKey : event.ctrlKey);
 
 /**
- * The search box over a daemon's folders, as a combobox: letters search, `/`, `~` and `./`
- * browse a path. ↑/↓ (and Ctrl-N/P) move, Tab completes a path (or goes into the highlighted
- * folder), Backspace on an empty segment and ⌘↑ go up, Esc clears. In `open` mode Enter opens
- * the highlighted folder and ⌘Enter opens it in a new thread; in `location` mode Enter goes into
- * it and ⌘Enter is left to the form.
+ * The location box over a daemon's folders, as a combobox: letters search, `/`, `~` and `./`
+ * browse a path. ↑/↓ (and Ctrl-N/P) move, Enter or Tab goes into the highlighted folder (Tab
+ * completes a typed path), Backspace on an empty segment and ⌘↑ go up, Esc clears. ⌘Enter is
+ * left to the form.
  */
 export function FolderSearchBox(props: {
   label: string;
@@ -42,23 +37,17 @@ export function FolderSearchBox(props: {
   search: FolderSearch;
   text: string;
   onText(text: string): void;
-  mode: SearchMode;
-  /** Badges name each row's machine when there is more than one. */
-  several: boolean;
-  onChoose?(row: FolderRow, how: { newThread: boolean }): void;
-  onHighlight?(row: FolderRow | undefined): void;
   autoFocus?: boolean;
   disabled?: boolean;
   trailing?: ReactNode;
   listClassName?: string;
 }) {
-  const { search, text, onText, mode } = props;
+  const { search, text, onText } = props;
   const { query, rows, sections, home } = search;
   const listId = useId();
-  // Undefined until a row is pointed at: then the search's own pick (creating, when nothing
-  // else fits what was typed) is highlighted, or nothing while it can't tell yet.
+  // Nothing is highlighted until a row is pointed at.
   const [active, setActive] = useState<number>();
-  const chosen = active ?? search.preferred;
+  const chosen = active;
   const current = Math.min(chosen ?? 0, Math.max(0, rows.length - 1));
   // Rows still cached from before the machine went away, or from a folder now refused, stay
   // out of reach.
@@ -83,8 +72,6 @@ export function FolderSearchBox(props: {
     return () => completing.current?.abort();
   }, [machineId]);
 
-  const { onHighlight } = props;
-  useEffect(() => onHighlight?.(highlighted), [onHighlight, highlighted]);
   // Keep the highlighted folder in view; one in a long folder may need mounting first.
   useEffect(() => {
     const element = document.getElementById(optionId(current));
@@ -101,10 +88,8 @@ export function FolderSearchBox(props: {
     setActive(undefined);
   };
   const browse = (path: string) => type(pathInput(path, home?.path));
-  const choose = (row: FolderRow | undefined, newThread: boolean) => {
-    if (!row) return;
-    if (mode === "location") browse(row.path);
-    else props.onChoose?.(row, { newThread });
+  const choose = (row: FolderRow | undefined) => {
+    if (row) browse(row.path);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -122,14 +107,13 @@ export function FolderSearchBox(props: {
     } else if (key === "ArrowUp" || (event.ctrlKey && key === "p"))
       setActive(count ? (current - 1 + count) % count : 0);
     else if (key === "Enter") {
-      if (mode === "location" && mod(event)) return;
-      choose(highlighted, mod(event));
+      if (mod(event)) return;
+      choose(highlighted);
     } else if (key === "Tab" && !event.shiftKey && !event.altKey && !mod(event)) {
       if (query.kind === "path") {
         // The daemon completes. Its reply applies only to the same text on the same machine.
         const typed = { text, machine: search.machineId };
-        const fallback =
-          highlighted && !highlighted.self && query.segment ? highlighted : undefined;
+        const fallback = highlighted && query.segment ? highlighted : undefined;
         completing.current?.abort();
         const controller = new AbortController();
         completing.current = controller;
@@ -174,7 +158,12 @@ export function FolderSearchBox(props: {
         onRetry={search.retry}
         allow={
           search.failure.canAllow && query.kind === "path" ? (
-            <AllowFolder client={search.client} path={query.directory} onAllowed={search.retry} />
+            <AllowFolder
+              client={search.client}
+              path={query.directory}
+              roots={roots}
+              onAllowed={search.retry}
+            />
           ) : undefined
         }
       />
@@ -189,7 +178,7 @@ export function FolderSearchBox(props: {
             ? `No folders in ${displayPath(query.directory, home?.path)} start with “${query.segment}”.`
             : `${displayPath(query.directory, home?.path)} has no folders inside.`
           : text
-            ? `No folders match “${text}”. Type a path, like ~/ or /, to browse.`
+            ? `No folders match “${text}”.`
             : "No folders here yet."}
       </Notice>
     );
@@ -267,22 +256,16 @@ export function FolderSearchBox(props: {
                 id={optionId(first + at)}
                 row={row}
                 active={first + at === current}
-                several={props.several && (section.id === "recent" || section.id === "projects")}
                 home={home?.path}
                 onPoint={() => setActive(first + at)}
-                onPick={() =>
-                  row.project || row.self || row.create ? choose(row, false) : browse(row.path)
-                }
+                onPick={() => browse(row.path)}
               />
             );
             return (
               <div key={section.id} role="group" aria-labelledby={`${listId}-${section.id}`}>
                 <div
                   id={`${listId}-${section.id}`}
-                  className={cn(
-                    "px-2 pt-2 pb-1 text-xs font-medium text-subtle-foreground",
-                    section.id === "create" && "sr-only",
-                  )}
+                  className="px-2 pt-2 pb-1 text-xs font-medium text-subtle-foreground"
                 >
                   {section.label}
                 </div>
@@ -317,22 +300,20 @@ export function FolderSearchBox(props: {
       )}
       <div className="flex min-h-5 min-w-0 flex-wrap items-center gap-3 text-xs text-subtle-foreground">
         <span id={`${listId}-path`} className="min-w-0 flex-1 truncate font-mono text-xs">
-          {highlighted
-            ? `${displayPath(highlighted.path, home?.path)}${props.several ? ` · ${highlighted.machine.name}` : ""}`
-            : ""}
+          {highlighted ? displayPath(highlighted.path, home?.path) : ""}
         </span>
-        <KeyHints mode={mode} />
+        <KeyHints />
       </div>
     </div>
   );
 }
 
-function KeyHints(props: { mode: SearchMode }) {
+function KeyHints() {
   return (
     <span aria-hidden className="hidden shrink-0 items-center gap-2.5 sm:flex">
       <span className="inline-flex items-center gap-1">
         <Kbd>↵</Kbd>
-        {props.mode === "open" ? "open" : "go in"}
+        go in
       </span>
       <span className="inline-flex items-center gap-1">
         <Kbd>tab</Kbd>
@@ -367,37 +348,11 @@ function FolderOption(props: {
   id: string;
   row: FolderRow;
   active: boolean;
-  several: boolean;
   home: string | undefined;
   onPoint(): void;
   onPick(): void;
 }) {
   const { row } = props;
-  if (row.create)
-    return (
-      <div
-        id={props.id}
-        role="option"
-        aria-selected={props.active}
-        aria-label={`Create ${row.name} and add`}
-        tabIndex={-1}
-        onPointerMove={props.active ? undefined : props.onPoint}
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={props.onPick}
-        className={cn(
-          "flex h-[30px] cursor-default items-center gap-2 rounded-sm px-2 text-ui text-foreground select-none",
-          props.active && "bg-accent",
-        )}
-      >
-        <Icon icon={FolderPlusIcon} size={14} className="shrink-0 text-primary" />
-        <span className="max-w-[60%] shrink-0 truncate">
-          Create <b className="font-semibold">{row.name}</b> and add
-        </span>
-        <span className="min-w-0 flex-1 truncate font-mono text-xs text-subtle-foreground">
-          {displayPath(row.path, props.home)}
-        </span>
-      </div>
-    );
   return (
     <div
       id={props.id}
@@ -414,15 +369,10 @@ function FolderOption(props: {
         row.stale && "opacity-60",
       )}
     >
-      <ProjectImage
-        icon={row.icon}
-        fallback={
-          <Icon
-            icon={row.self ? FolderOpenIcon : row.project ? FolderSimpleStarIcon : FolderSimpleIcon}
-            size={14}
-            className="text-muted-foreground"
-          />
-        }
+      <Icon
+        icon={row.project ? FolderSimpleStarIcon : FolderSimpleIcon}
+        size={14}
+        className="text-muted-foreground"
       />
       <span className="max-w-[60%] shrink-0 truncate text-foreground">
         <Name name={row.name} positions={row.positions} />
@@ -430,16 +380,8 @@ function FolderOption(props: {
       <span className="min-w-0 flex-1 truncate font-mono text-xs text-subtle-foreground">
         {props.active ? displayPath(row.path, props.home) : ""}
       </span>
-      {row.self && <Badge icon={ArrowElbowDownLeftIcon}>Open</Badge>}
-      {row.project && !row.self && <Badge>Project</Badge>}
+      {row.project && <Badge>Project</Badge>}
       {row.git && <Badge icon={GitBranchIcon}>Git</Badge>}
-      {props.several && (
-        <MachineLabel
-          name={row.machine.name}
-          icon={row.machine.icon}
-          className="text-xs text-subtle-foreground"
-        />
-      )}
     </div>
   );
 }

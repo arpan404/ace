@@ -5,6 +5,7 @@ import {
   GitMergeIcon,
   ListNumbersIcon,
   MagnifyingGlassIcon,
+  NotePencilIcon,
   PaperclipIcon,
   PushPinIcon,
   PushPinSlashIcon,
@@ -20,12 +21,12 @@ import { arrange, isSettled, threadRowFlags, projectTint } from "@ace/ui-core";
 import {
   useHomeSelection,
   useHomeSelectionState,
-  useOrganizer,
   useOrganizerState,
   useThreadActions,
   useThreadMover,
   threadActions,
 } from "@/features/organize/index.ts";
+import { useOpenProject } from "@/features/projects/index.ts";
 import { focusComposerSoon } from "@/lib/focus-composer.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { keymap } from "@/lib/keymap.ts";
@@ -44,13 +45,13 @@ const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
 
 /**
  * Threads from every project in Home order (pinned first, settled last), each with its project's
- * name and branch, then the projects themselves by name, then actions on the threads picked in
- * Home and on the open thread. Mounted only while the palette is open, so the whole-list
- * subscription is short-lived.
+ * name, branch and pull request; the projects themselves by name (each opens its latest thread)
+ * and "New thread in" each of them; then actions on the threads picked in Home and on the open
+ * thread. Mounted only while the palette is open, so the whole-list subscription is short-lived.
  */
 export function useThreadCommands(close: () => void, query = ""): PaletteGroup[] {
   const navigate = useNavigate();
-  const organizer = useOrganizer();
+  const openProject = useOpenProject();
   const state = useOrganizerState();
   const actions = useThreadActions();
   const mover = useThreadMover();
@@ -96,12 +97,16 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
       const entry = byId.get(id);
       if (!entry) return [];
       const branch = entry.details?.branch;
+      const pr = entry.details?.linkedPrs?.[0]?.number ?? entry.details?.linkedPr?.number;
       return [
         {
           id: `thread-${id}`,
           label: entry.title,
           detail: projectName(entry.workspaceId),
           ...(branch ? { more: branch } : {}),
+          ...(pr === undefined ? {} : { keywords: `#${pr} pr ${pr}` }),
+          kind: "thread",
+          at: entry.updatedAt,
           icon: "thread",
           run: run(() => openThread(id)),
         },
@@ -116,6 +121,8 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
         id,
         label: hit.threadTitle,
         detail: projectName(hit.workspaceId),
+        kind: "thread",
+        at: hit.createdAt,
         icon: "thread",
         run: run(() => openThread(hit.threadId)),
       });
@@ -123,16 +130,21 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
     const projects = directory.projects.map((project): PaletteCommand => ({
       id: `project-${project.id}`,
       label: projectName(project.id),
+      kind: "project",
       icon: "project",
       tint: projectTint(project.id),
-      run: run(() => {
-        organizer.setProject(project.id);
-        void navigate({ to: "/" });
-      }),
+      run: run(() => openProject(project.id)),
+    }));
+    const newIn = directory.projects.map((project): PaletteCommand => ({
+      id: `new-in-${project.id}`,
+      label: `New thread in ${projectName(project.id)}`,
+      icon: NotePencilIcon,
+      run: run(() => void navigate({ to: "/new", search: { project: project.id } })),
     }));
     const groups: PaletteGroup[] = [
       { value: "Threads", items: threads },
       { value: "Projects", items: projects },
+      { value: "New thread", items: newIn },
     ];
     const chosen = picked.flatMap((id) => byId.get(id) ?? []);
     if (chosen.length) {
@@ -266,7 +278,7 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
     current,
     close,
     navigate,
-    organizer,
+    openProject,
     actions,
     mover,
     selection,
