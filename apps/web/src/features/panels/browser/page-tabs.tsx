@@ -138,7 +138,8 @@ function PageTab(props: {
 
 /**
  * The thread's browser tabs, as the daemon keeps them: the person's and every agent's, the
- * same on every device. Picking one shows it; ✕ or a middle-click closes it; + opens a new one.
+ * same on every device. Picking one shows it; its close button or a middle-click closes it; +
+ * opens a new one.
  * A tab an agent works in leads with the agent cursor. Once the tabs no longer fit they
  * scroll, and a menu lists them all.
  */
