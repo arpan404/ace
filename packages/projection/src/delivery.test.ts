@@ -175,7 +175,7 @@ it("restores sibling trees and keeps subsequent reparenting consistent", () => {
   expect(view.agentChildren.__proto__).toHaveLength(19_999);
 });
 
-it("delivers late-created items chronologically and keeps equal timestamps in creation order", () => {
+it("delivers created items in creation-sequence order whatever their timestamps say", () => {
   const view = createThreadView(thread);
   const events = [30, 10, 20, 20].map((createdAt, index) =>
     Event.parse({
@@ -198,7 +198,7 @@ it("delivers late-created items chronologically and keeps equal timestamps in cr
     }),
   );
   expect(applyDelivery(view, batch(0, 4, events)).kind).toBe("applied");
-  expect(view.itemOrder).toEqual(["item-1", "item-2", "item-3", "item-0"]);
+  expect(view.itemOrder).toEqual(["item-0", "item-1", "item-2", "item-3"]);
   expect(applyDelivery(view, batch(0, 4, events)).kind).toBe("ignored");
-  expect(view.itemOrder).toEqual(["item-1", "item-2", "item-3", "item-0"]);
+  expect(view.itemOrder).toEqual(["item-0", "item-1", "item-2", "item-3"]);
 });

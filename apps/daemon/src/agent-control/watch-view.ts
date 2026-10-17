@@ -41,7 +41,6 @@ export function watchedState(
   if (thread.status.state === "failed") return "failed";
   if (thread.status.state === "done")
     return thread.queue?.lastFailure?.code === "cancelled" ? "cancelled" : "done";
-  if (thread.status.state !== "working") return "done";
   return "working";
 }
 

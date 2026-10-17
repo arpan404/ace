@@ -7,7 +7,7 @@ import { exploreAction } from "./explore-command.ts";
  * A work log's steps as rows: consecutive tool calls by one agent group into one summary row
  * ("Edited 2 files · ran 1 command"), exploration alone into "Explored 3 files · 2 searches".
  * What the agent says between steps and an image it showed stand alone
- * and end the group before them. Appending a step regroups only the last group, so a live log
+ * and end the group before them; so does a thought that starts a group. Appending a step regroups only the last group, so a live log
  * costs what changed, not its history. Pure.
  */
 
@@ -283,9 +283,14 @@ function makeGroup(facts: readonly StepFact[]): StepGroup {
   };
 }
 
-/** Whether `fact` joins the group holding `facts`. */
+/**
+ * Whether `fact` joins the group holding `facts`. A thought standing as a row of its own shows
+ * its words, so a step after it starts a new group rather than folding them away: appending to
+ * a log never hides what was already in view.
+ */
 function joins(facts: readonly StepFact[], fact: StepFact): boolean {
   const last = facts.at(-1);
+  if (facts.length === 1 && last?.kind === "think") return false;
   return !!last && !last.alone && !fact.alone && last.agentId === fact.agentId;
 }
 

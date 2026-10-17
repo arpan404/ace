@@ -33,6 +33,9 @@ test("subscriber-free command and enqueue sends retain only a bounded newest cac
       ).toBe("delivered"),
     );
     expect(remote.pendingSends().getSnapshot().length).toBeLessThanOrEqual(2);
+    // Each send runs its own turn. A send made while a turn runs waits in the queue, outside
+    // the transcript, so end this one before the next send (ADR 0065).
+    daemon.apply(script.threadId, [{ type: "turn.ended", agent: "root", outcome: "completed" }]);
   }
   expect(remote.intent("bounded-0").getSnapshot()).toBeUndefined();
   expect(remote.intent("bounded-18").getSnapshot()).toMatchObject({ state: "acked" });

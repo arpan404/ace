@@ -365,6 +365,9 @@ export class PayloadStore {
   window(threadId: ThreadId, aroundSeq: number, before: number, after: number, byteLimit: number) {
     return this.items.window(threadId, aroundSeq, before, after, byteLimit);
   }
+  tail(threadId: ThreadId, rootAgentId: string | undefined, limit: number, byteLimit: number) {
+    return this.items.tail(threadId, rootAgentId, limit, byteLimit);
+  }
   page(threadId: ThreadId, before: number, limit: number, byteLimit?: number) {
     return this.items.page(threadId, before, limit, byteLimit);
   }
