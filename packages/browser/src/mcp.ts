@@ -118,7 +118,7 @@ const actions = {
   tabs: {
     riskClass: "external-effect",
     description:
-      "Tabs of this thread's ace browser. list: every tab with tabId, url, title, label, openedBy, drivenBy, lease, lifecycle, loading, pending_dialog; current marks yours. open: a new tab (optional url and label) that becomes your current tab. select: make tabId your current tab. close: close tabId. Parallel agents: each open a labelled tab and pass its tabId to every browser tool.",
+      "Tabs of this thread's ace browser. list: every tab with tabId, url, title, label, openedBy, drivenBy, inUse (the agent working there), private (the person keeps agents out), lifecycle, loading, pending_dialog; current marks yours. open: a new tab (optional url and label) that becomes your current tab. select: make tabId your current tab. close: close tabId. Parallel agents: each open a labelled tab and pass its tabId to every browser tool.",
   },
   upload: {
     riskClass: "external-effect",
@@ -154,7 +154,7 @@ const actions = {
   record_start: {
     riskClass: "external-effect",
     description:
-      "Start recording the tab the person is viewing, using the artifact pipeline. Private takeover excludes frames.",
+      "Start recording the tab the person is viewing, using the artifact pipeline. A private tab records no frames.",
   },
   record_stop: {
     riskClass: "external-effect",
@@ -200,7 +200,7 @@ export const browserChoiceInput = {
     ),
 };
 
-/** Agents act in the thread's browser; a person's takeover still pauses them until handback. */
+/** Agents share the thread's browser with the person; private tabs are the person's alone. */
 export function browserToolkit(
   service: Pick<BrowserService, "execute" | "screenshot">,
   startupReserveMs = 0,

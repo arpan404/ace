@@ -10,7 +10,6 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
     await f.navigate();
     const name = ref(await f.execute({ action: "snapshot" }), "Name");
     await f.execute({ action: "type", ref: name, text: "abc" });
-    f.service.takeover("thread", "owner");
     const press = async (key: string, code = key) => {
       for (const event of ["keyDown", "keyUp"])
         await f.service.input("thread", { kind: "key", event, key, code }, "owner");

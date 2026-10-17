@@ -60,6 +60,8 @@ interface CommandContext {
     signal: AbortSignal | undefined,
     generation: number,
   ): { prepare(): void; send(): void };
+  /** An agent pointed at this spot (CSS pixels); viewers draw its cursor there. */
+  point?(point: { x: number; y: number }): void;
   emit(): void;
   run(
     command: TabCommand,
@@ -247,11 +249,9 @@ export async function executeBrowserCommand(
       const dispatch = context.refDispatch(command.ref, actor, signal, generation);
       const rect = await context.refs.bounds(command.ref, dispatch.prepare);
       dispatch.send();
-      await cdp.send("Input.dispatchMouseEvent", {
-        type: "mouseMoved",
-        x: rect.x + rect.width / 2,
-        y: rect.y + rect.height / 2,
-      });
+      const point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+      context.point?.(point);
+      await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...point });
       return { ok: true };
     }
     case "drag": {
@@ -260,6 +260,7 @@ export async function executeBrowserCommand(
       const document = context.refs.documentGuard();
       const start = await context.refs.bounds(command.ref, from.prepare),
         end = await context.refs.bounds(command.toRef, to.prepare);
+      context.point?.({ x: end.x + end.width / 2, y: end.y + end.height / 2 });
       await dragRefs(
         cdp,
         { x: start.x + start.width / 2, y: start.y + start.height / 2 },
@@ -283,6 +284,7 @@ export async function executeBrowserCommand(
       if ((await context.refs.checked(command.ref, dispatch.prepare)) !== desired) {
         const rect = await context.refs.bounds(command.ref, dispatch.prepare);
         dispatch.send();
+        context.point?.({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
         await page.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
         if ((await context.refs.checked(command.ref, dispatch.prepare)) !== desired)
           throw new BrowserActionError("element_unavailable");
@@ -314,6 +316,7 @@ export async function executeBrowserCommand(
         point = { x: command.x, y: command.y };
       }
       context.beforeInput?.();
+      context.point?.(point);
       await clickAt(page, point, command);
       return { ok: true };
     }

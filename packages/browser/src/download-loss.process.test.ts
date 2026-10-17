@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import type { BrowserArtifact, BrowserBackendLost } from "@ace/protocol";
 import { backendFixture } from "./backend-test-support.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 it("failed private download cancellation exposes browser loss, removes bytes, and leaves a sibling usable", async () => {
   const artifacts: BrowserArtifact[] = [];
@@ -27,7 +28,7 @@ it("failed private download cancellation exposes browser loss, removes bytes, an
   const guid = "native-11111111-1111-1111-1111-111111111111";
   await writeFile(join(directory, guid), "private bytes");
   await f.open("sibling");
-  f.service.takeover("thread", "owner", "private");
+  keepAgentsOut(f.service);
   await f.service.input("thread", { kind: "key", event: "char", key: "x" }, "owner");
   // The real relay refuses the cancellation command at its transport boundary.
   f.pressure();
@@ -47,8 +48,6 @@ it("failed private download cancellation exposes browser loss, removes bytes, an
       closed: false,
       pageStateLost: true,
       reason: "Desktop browser transport backpressure",
-      owner: "owner",
-      takeoverMode: "private",
     }),
   );
   await vi.waitFor(async () => expect(await readdir(directory)).toEqual([]));

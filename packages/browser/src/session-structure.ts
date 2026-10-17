@@ -23,9 +23,12 @@ interface StructureContext {
 function visibleTabs(context: StructureContext, actor: Actor) {
   const listed = context.tabs.list(actor);
   if (actor.kind === "human") return listed;
-  return listed.map((tab) =>
-    tab.lease?.mode === "private" ? Object.assign({}, tab, { url: "about:blank", title: "" }) : tab,
-  );
+  return listed.map((tab) => {
+    if (!tab.private) return tab;
+    const hidden = Object.assign({}, tab, { url: "about:blank", title: "" });
+    delete hidden.favicon;
+    return hidden;
+  });
 }
 function result(context: StructureContext, actor: Actor, tabId?: string) {
   return {
@@ -61,6 +64,7 @@ export async function executeTabs(
     case "switch": {
       const tabId = command.tabId ?? (actor.kind === "agent" ? undefined : tabs.viewedId());
       if (tabId === undefined) throw new BrowserActionError("invalid_arguments");
+      tabs.get(tabId).readCheck(actor);
       const runtime = await tabs.structural(() => tabs.select(actor, tabId));
       context.changed();
       if (command.url) await context.navigate(runtime, command.url, actor, signal);
@@ -68,12 +72,8 @@ export async function executeTabs(
     }
     case "close": {
       const runtime = tabs.resolve(actor, command.tabId);
+      // People close any tab; agents any tab but a private one.
       if (actor.kind === "agent") runtime.check(actor, signal);
-      else if (
-        runtime.ownership.owner !== undefined &&
-        runtime.ownership.owner !== actor.connectionId
-      )
-        throw new Error("Browser controller mismatch");
       if (tabs.last(runtime.id)) {
         await context.closeBrowser(actor, signal);
         return { closed: true };

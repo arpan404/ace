@@ -26,7 +26,6 @@ async function stylesPage() {
   const f = await annotationFixture(desktop);
   const person = f.connect("person");
   await person.subscribe();
-  await person.takeover();
   await person.execute({ action: "navigate", url: `${f.origin}/styles` });
   await person.execute({ action: "annotate", operation: "start", config: { theme: "dark" } });
   await person.event("ready");

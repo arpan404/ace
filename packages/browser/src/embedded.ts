@@ -321,6 +321,12 @@ export class EmbeddedBackend implements BrowserBackend {
       }
       return;
     }
+    if (message.method === "ace.humanInput") {
+      // The person used the shown view directly; agent input in that tab waits for a pause.
+      const input = z.object({ tabId: z.string().max(256).optional() }).safeParse(message.params);
+      if (input.success) session.request.humanInput?.(input.data.tabId);
+      return;
+    }
     if (message.method === "ace.downloadDenied") {
       const result = z
         .object({ url: z.string().max(8192), suggestedFilename: z.string().max(256) })
@@ -456,10 +462,16 @@ export class EmbeddedBackend implements BrowserBackend {
     let tabs: EmbeddedTabs | undefined;
     const currentCdp = () => tabs?.current().cdp ?? cdp;
     let viewport = { width: 1280, height: 720 };
-    /** The open sent generation 0; every lease after it rises on the wire. */
-    let leaseGeneration = 0;
-    /** Each tab's newest lease generation, so an older one is refused as the desktop would. */
-    const leases = new Map<string, number>();
+    /** Tabs an agent uses; the desktop hears about the shown one (ADR 0085). */
+    const agentTabs = new Set<string>();
+    let agentShown: boolean | undefined;
+    const showAgent = async () => {
+      // Without tabs the thread browser calls its one page "page".
+      const shown = agentTabs.has(tabs?.active() ?? "page");
+      if (shown === agentShown) return;
+      agentShown = shown;
+      await call({ kind: "agentUse", active: shown });
+    };
     let closing: Promise<void> | undefined;
     let guard: Awaited<ReturnType<typeof installOriginGuard>> | undefined;
     const close = (): Promise<void> =>
@@ -506,7 +518,6 @@ export class EmbeddedBackend implements BrowserBackend {
             options: request.options,
             ...(request.downloadDir ? { downloadDir: request.downloadDir } : {}),
             viewport,
-            lease: { generation: 0, controller: "agent" },
           }),
         );
       remote.url = opened.url;
@@ -603,15 +614,11 @@ export class EmbeddedBackend implements BrowserBackend {
             features: [{ name: "prefers-color-scheme", value: colorScheme }],
           });
         },
-        // The desktop applies one lease to the view it shows: the shown tab's. Each tab counts
-        // its own generations, so the wire carries one rising count for the whole session.
-        controller: async (lease, tabId) => {
-          const owner = tabId ?? tabs?.active() ?? "";
-          if ((leases.get(owner) ?? -Infinity) > lease.generation)
-            throw new Error("Obsolete controller lease generation");
-          leases.set(owner, lease.generation);
-          if (tabId !== undefined && tabs && tabId !== tabs.active()) return;
-          await call({ kind: "controller", lease: { ...lease, generation: ++leaseGeneration } });
+        // The desktop treats every unshown view as an agent's; only the shown one varies.
+        agentUse: async (tabId, active) => {
+          if (active) agentTabs.add(tabId);
+          else agentTabs.delete(tabId);
+          await showAgent();
         },
         close,
       };

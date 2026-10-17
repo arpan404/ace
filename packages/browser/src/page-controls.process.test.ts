@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { setup, executablePath } from "./parity-test-support.ts";
 import { ref } from "./test-support.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 it.skipIf(!executablePath)(
   "a fixture load wait keeps document refs stable when iframe responses arrive after the URL wait",
@@ -83,7 +84,6 @@ it.skipIf(!executablePath)(
   async () => {
     const f = await setup();
     await f.execute({ action: "focus", ref: ref(await f.execute({ action: "snapshot" }), "Name") });
-    f.service.takeover("thread", "viewer");
     for (const key of "abc") {
       await f.service.input(
         "thread",
@@ -133,7 +133,7 @@ it.skipIf(!executablePath)(
   async () => {
     const f = await setup();
     await f.service.startRecording("thread");
-    f.service.takeover("thread", "viewer", "private");
+    keepAgentsOut(f.service, "thread");
     await expect(f.service.stopRecording("thread")).rejects.toMatchObject({
       code: "human_private",
     });

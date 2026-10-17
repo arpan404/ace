@@ -1,11 +1,11 @@
 ---
 name: ace-browser
-description: Open, test or debug a web page in ace's browser, which the person watches and can take over. Use before ace_browser_* tools, for localhost dev servers, UI checks and console or network evidence.
+description: Open, test or debug a web page in ace's browser, which the person watches and uses alongside you. Use before ace_browser_* tools, for localhost dev servers, UI checks and console or network evidence.
 ---
 
 # ace's browser
 
-Each thread has a browser with tabs inside ace. The person sees one tab at a time in the app and can take any tab over at any moment. It sits beside any browser or computer-use tool you have natively. Pick it when the person should watch the page, or when you need its console, network, timing or recording tools.
+Each thread has a browser with tabs inside ace, shared by you and the person. They see one tab at a time and can click, type or navigate in any tab at any moment, including yours. It sits beside any browser or computer-use tool you have natively. Pick it when the person should watch the page, or when you need its console, network, timing or recording tools.
 
 ## Drive a page
 
@@ -21,9 +21,9 @@ Each thread has a browser with tabs inside ace. The person sees one tab at a tim
 Every page tool takes an optional `tabId`. Without one, a tool acts in your current tab: the last tab you opened or selected.
 
 - `ace_browser_open` with `newTab: true` and a `label` opens a tab of your own and returns its `tabId`.
-- `ace_browser_tabs`: `list` (each tab's `tabId`, url, title, label, who opened and drives it, its lease, `pending_dialog`; `current` marks yours), `open`, `select`, `close`.
+- `ace_browser_tabs`: `list` (each tab's `tabId`, url, title, label, who opened and drives it, `inUse` for the agent working there, `private`, `pending_dialog`; `current` marks yours), `open`, `select`, `close`.
 - `ace_browser_close` with `tabId` closes that tab. Close the tabs you opened when you are done.
-- Commands in different tabs run at the same time; a dialog or a person's takeover holds only its own tab.
+- Commands in different tabs run at the same time; a dialog holds only its own tab.
 
 **Parallel agents and subagents** share one browser. Each must open its own labelled tab (`ace_browser_open` with `newTab` and `label`) and pass that `tabId` to every browser tool, so no two agents drive the same page. Subagents of one provider can share an identity, so do not rely on the current tab there.
 
@@ -40,9 +40,12 @@ Every page tool takes an optional `tabId`. Without one, a tool acts in your curr
 
 `ace_browser_resize`, `ace_browser_emulate` (device, touch, colour scheme), `ace_browser_history` (back, forward, reload) and `ace_browser_dialog` (answer an alert or prompt). `ace_browser_close` without `tabId` closes the whole browser.
 
-## The person in control
+## Working beside the person
 
-When the person takes over a tab, tools in that tab pause with `human_controlled` or `human_private`; your other tabs keep working. Wait for their handback, then snapshot again.
+The person never has to take over or hand back. While you work in a tab it is marked as yours, and they can still use it.
+
+- When they are typing, clicking or scrolling in your tab, your clicks, typing, keys, scrolls and navigation there wait until they pause. If they keep going, the tool fails with `human_active`: snapshot again (the page may have changed), then retry or use another tab. Reads (snapshot, screenshot, evaluate, logs) never wait.
+- A tab the person marks "Keep agents out" is theirs alone: tools there fail with `human_private`. Use another tab.
 
 ## Another machine
 

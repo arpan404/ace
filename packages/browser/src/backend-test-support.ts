@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import { afterEach } from "vitest";
 import { installOriginGuard } from "./origin-guard.ts";
-import { BrowserBackendServerMessage, type BrowserControllerLease } from "@ace/protocol";
+import { BrowserBackendServerMessage } from "@ace/protocol";
 import {
   BrowserService,
   type BrowserServiceOptions,
@@ -23,7 +23,8 @@ export class FakePage {
   url = "about:blank";
   text = "";
   effects: string[] = [];
-  lease: BrowserControllerLease = { generation: 0, controller: "agent" };
+  /** Whether the backend was told an agent uses the page. */
+  agent = false;
   events = new EventEmitter();
   readonly cdp = {
     send: (method: string, params?: Record<string, unknown>) =>
@@ -97,8 +98,8 @@ export class FakeHeadless implements BrowserBackend {
       },
       viewport: () => viewport,
       media: async () => {},
-      controller: async (lease: BrowserControllerLease) => {
-        page.lease = lease;
+      agentUse: async (_tabId: string, active: boolean) => {
+        page.agent = active;
       },
       close: async () => {},
     };
@@ -204,7 +205,6 @@ export async function backendFixture(
   const requests = new EventEmitter();
   let hold: string | undefined;
   let redirectUrl: string | undefined;
-  let controllerError: string | undefined;
   let openError: string | undefined;
   const sendEvent = (sessionId: string, method: string, params: unknown) =>
     desktop.send(
@@ -286,7 +286,7 @@ export async function backendFixture(
           });
       }
     }
-    if (op.kind === "controller" && !controllerError) page.lease = op.lease;
+    if (op.kind === "agentUse") page.agent = op.active;
     if (op.kind === "navigate") {
       page.url = redirectUrl ?? op.url;
       result = { url: page.url };
@@ -299,7 +299,7 @@ export async function backendFixture(
         backendId: backend.id,
         sessionId: message.sessionId,
         id: message.id,
-        ...(op.kind === "controller" && controllerError ? { error: controllerError } : { result }),
+        result,
       }),
     );
   });
@@ -324,9 +324,6 @@ export async function backendFixture(
     },
     failOpen(reason: string) {
       openError = reason;
-    },
-    failController(reason: string) {
-      controllerError = reason;
     },
     pressure() {
       pressured = true;

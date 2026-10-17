@@ -15,10 +15,8 @@ export interface BrowserServiceOptions {
   executablePath?: string;
   ffmpeg?: string;
   originPolicy?: OriginPolicy;
-  isPrivatePaused?: (threadId: string) => boolean;
-  /** Called before granting a private lease, as well as on its disconnect. */
-  onPrivatePaused?: (threadId: string) => void;
-  onPrivateResumed?: (threadId: string) => void;
+  /** How people and agents share tabs; omitted, `collaborationTiming`. */
+  collaboration?: import("./collaboration.ts").CollaborationTiming;
   evaluatePolicy?: (
     threadId: string,
     url: string,

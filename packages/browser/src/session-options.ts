@@ -20,9 +20,8 @@ export interface SessionOptions {
   ffmpeg?: string;
   spawn?: ProcessSpawner;
   cancelPolicy: () => void;
-  /** Persist private ownership before takeover, and retain it through disconnect. */
-  privatePaused?: () => void;
-  privateResumed?: () => void;
+  /** How people and agents share tabs; omitted, `collaborationTiming`. */
+  collaboration?: import("./collaboration.ts").CollaborationTiming;
   navigatePolicy: (url: string, actor: Actor, signal?: AbortSignal) => Promise<boolean>;
   evaluatePolicy?: (
     threadId: string,

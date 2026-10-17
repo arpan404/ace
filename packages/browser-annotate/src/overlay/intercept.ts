@@ -42,15 +42,40 @@ const contained = [
   "focusout",
 ] as const;
 
+/** Holding Space hands the page back for a moment, unless it is typed into a field. */
+const holdsSpace = (event: KeyboardEvent) =>
+  event.code === "Space" && !event.ctrlKey && !event.metaKey && !event.altKey;
+const editable = (target: EventTarget | null) =>
+  target instanceof HTMLElement &&
+  (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
+
 /**
  * Capture-phase listeners on `window`, the earliest point an isolated world can reach after the
  * page has loaded. Synthetic events (`isTrusted === false`) are the page's own business and pass
- * untouched; only real input from the person is redirected.
+ * untouched; only real input from the person is redirected. While the person holds Space, the
+ * page gets its input back (to scroll a carousel, open a menu) and annotating resumes on release.
  */
 export function intercept(host: Element, handlers: InterceptHandlers): () => void {
   const inside = (event: Event) => event.composedPath().includes(host);
+  let passing = false;
+  const pass = (on: boolean) => {
+    if (passing === on) return;
+    passing = on;
+    document.adoptedStyleSheets = on
+      ? document.adoptedStyleSheets.filter((sheet) => sheet !== frames)
+      : [...document.adoptedStyleSheets, frames];
+    if (on) handlers.leave();
+  };
+  const onSpace = (event: KeyboardEvent) => {
+    if (!event.isTrusted || inside(event) || !holdsSpace(event) || editable(event.target)) return;
+    // The page never sees the Space itself: holding it must not scroll or press a button.
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    pass(event.type === "keydown");
+  };
+  const onBlur = () => pass(false);
   const onPointer = (event: Event) => {
-    if (!event.isTrusted || inside(event)) return;
+    if (!event.isTrusted || inside(event) || passing) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     if (event.type === "click" && event instanceof MouseEvent && event.button === 0)
@@ -67,7 +92,7 @@ export function intercept(host: Element, handlers: InterceptHandlers): () => voi
     event.stopImmediatePropagation();
   };
   const onMove = (event: PointerEvent) => {
-    if (!event.isTrusted) return;
+    if (!event.isTrusted || passing) return;
     if (inside(event)) handlers.leave();
     else handlers.hover(event.clientX, event.clientY);
   };
@@ -80,12 +105,18 @@ export function intercept(host: Element, handlers: InterceptHandlers): () => voi
   frames.replaceSync("iframe, frame, embed, object { pointer-events: none !important; }");
   document.adoptedStyleSheets = [...document.adoptedStyleSheets, frames];
   const options = { capture: true, passive: false } as const;
+  window.addEventListener("keydown", onSpace, options);
+  window.addEventListener("keyup", onSpace, options);
+  window.addEventListener("blur", onBlur);
   for (const type of swallowed) window.addEventListener(type, onPointer, options);
   for (const type of contained) window.addEventListener(type, onContained, options);
   window.addEventListener("pointermove", onMove, { capture: true, passive: true });
   document.addEventListener("pointerout", onOut, { capture: true, passive: true });
   return () => {
     document.adoptedStyleSheets = document.adoptedStyleSheets.filter((sheet) => sheet !== frames);
+    window.removeEventListener("keydown", onSpace, options);
+    window.removeEventListener("keyup", onSpace, options);
+    window.removeEventListener("blur", onBlur);
     for (const type of swallowed) window.removeEventListener(type, onPointer, options);
     for (const type of contained) window.removeEventListener(type, onContained, options);
     window.removeEventListener("pointermove", onMove, { capture: true });

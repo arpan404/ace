@@ -9,7 +9,7 @@ import type { BrowserDownloadProgress } from "@ace/protocol";
 
 // Deliberately unskipped. Merge needs the pinned artifact and host Chromium dependencies;
 // absence is a setup failure, rather than silent fallback to a personal installation.
-it("an ace-owned first-use headless browser preserves the public policy, ref, screenshot, log and lease contract", async () => {
+it("an ace-owned first-use headless browser preserves the public policy, ref, screenshot and log contract", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-owned-browser-"));
   const server = createServer((_request, response) => {
     response.setHeader("content-type", "text/html");
@@ -58,16 +58,11 @@ it("an ace-owned first-use headless browser preserves the public policy, ref, sc
         expression: "document.querySelector('input').value",
       }),
     ).toBe("agent");
-    service.takeover("thread", "human");
-    await expect(service.execute("thread", { action: "scroll", x: 0, y: 1 })).rejects.toThrow(
-      "controlled by human",
-    );
     await service.input(
       "thread",
       { kind: "key", event: "char", text: " human", key: " " },
       "human",
     );
-    service.handback("thread", "human");
     expect(
       await service.execute("thread", {
         action: "evaluate",

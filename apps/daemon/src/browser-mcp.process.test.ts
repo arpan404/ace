@@ -58,7 +58,7 @@ it.each(["codex", "opencode", "cursor", "antigravity", "acp"] as const)(
       url: "http://localhost:3000/agent",
       backend: "headless",
     });
-    f.browser.takeover(f.thread.id, "human");
+    f.browser.setPrivate(f.thread.id, f.browser.state(f.thread.id).activeTabId ?? "page", true);
     const rejected = Result.parse(
       await (await invoke(connection, "ace_browser_scroll", { x: 0, y: 1 })).json(),
     );

@@ -1,8 +1,8 @@
 import { expect, it } from "vitest";
 import { backendFixture } from "./backend-test-support.ts";
 
-it.each(["shared", "private", "handback", "close", "disconnect"])(
-  "popup approval cannot navigate after %s changes its submitting page or lease",
+it.each(["close", "disconnect"])(
+  "popup approval cannot navigate after %s changes its submitting page",
   async (transition) => {
     const started = Promise.withResolvers<void>();
     const approval = Promise.withResolvers<boolean>();
@@ -30,24 +30,15 @@ it.each(["shared", "private", "handback", "close", "disconnect"])(
       url: "https://popup.example/late",
     });
     await started.promise;
-    if (transition === "private") f.service.takeover("thread", "person", "private");
-    else if (transition === "shared" || transition === "handback") {
-      f.service.takeover("thread", "person");
-      if (transition === "handback") f.service.handback("thread", "person");
-    } else if (transition === "close") await f.service.closeThread("thread");
+    if (transition === "close") await f.service.closeThread("thread");
     else await f.disconnect();
     approval.resolve(true);
-    // A fresh public command is a barrier behind the admitted popup intent.
-    if (transition !== "close" && transition !== "disconnect") {
-      await f.service
-        .execute("thread", { action: "snapshot" }, { kind: "human", connectionId: "person" })
-        .catch(() => {});
-    } else await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
     expect(navigations).toBe(0);
   },
 );
 
-it("an approved popup with an unchanged lease navigates the page that requested it", async () => {
+it("an approved popup navigates the page that requested it", async () => {
   const f = await backendFixture({ originPolicy: () => true }, { nativeTabs: true });
   await f.open();
   const sessionId = f.pages.keys().next().value;

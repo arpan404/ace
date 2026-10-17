@@ -214,8 +214,8 @@ export class ChromeBackend implements BrowserBackend {
         tabs.inspection.privacy(enabled);
         tabs.downloads.transfers.privacy(enabled);
       },
-      controller: async (controller, tabId) => {
-        tabs.lease(controller.controller, tabId);
+      agentUse: async (tabId, active) => {
+        tabs.agentUse(tabId, active);
       },
       close,
     };

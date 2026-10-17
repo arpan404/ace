@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import type { BrowserBackendRequest } from "@ace/protocol";
 import { backendFixture } from "./backend-test-support.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 const agentOpen = (threadId = "thread") => ({
   threadId,
@@ -67,10 +68,10 @@ it("agent work resumes headlessly at the last URL after the desktop goes away", 
   expect(f.headless.pages.map((page) => page.url)).toEqual(["http://localhost:3000/work"]);
 });
 
-it("a page a person holds stays paused after desktop loss until they act", async () => {
+it("a page the person keeps private stays paused after desktop loss until they act", async () => {
   const f = await backendFixture({ onError: () => {} });
   await f.service.open(agentOpen());
-  f.service.takeover("thread", "person");
+  keepAgentsOut(f.service);
   await f.disconnect();
   expect(await f.service.open(agentOpen())).toMatchObject({ status: "paused" });
   expect(f.headless.pages).toHaveLength(0);

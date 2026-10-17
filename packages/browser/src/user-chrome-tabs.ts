@@ -241,8 +241,6 @@ class UserTabs {
       resize: (width, height) => current().resize(width, height),
       viewport: () => current().viewport(),
       media: (scheme) => current().media(scheme),
-      // The person controls their own browser directly; there is no lease to hand over.
-      controller: async () => {},
       close: () => this.close(),
     };
   }

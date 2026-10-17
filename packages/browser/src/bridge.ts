@@ -161,11 +161,8 @@ export function connectBrowser(
             await service.input(threadId, message.input, options.connectionId, message.tabId);
             respond(null);
             break;
-          case "browser.takeover":
-            respond(service.takeover(threadId, options.connectionId, message.mode, message.tabId));
-            break;
-          case "browser.handback":
-            respond(service.handback(threadId, options.connectionId, message.tabId));
+          case "browser.tabs.private":
+            respond(service.setPrivate(threadId, message.tabId, message.private));
             break;
           case "browser.subscribe": {
             const subscriber = message.subscriberId ?? "legacy";

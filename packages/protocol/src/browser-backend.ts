@@ -7,18 +7,13 @@ export const browserSessionLimit = 32;
 export const BrowserBackendKind = z.enum(["embedded", "headless", "user"]);
 export const BrowserBackendPreference = z.enum(["auto", "embedded", "headless"]);
 export const BrowserBackendLossPolicy = z.enum(["pause", "headless"]);
-export const BrowserControllerLease = z.object({
-  generation: z.number().int().nonnegative(),
-  controller: z.enum(["agent", "human", "none"]),
-  owner: id.optional(),
-});
-export type BrowserControllerLease = z.infer<typeof BrowserControllerLease>;
 export const BrowserBackendCapabilities = z.object({
   cdp: z.literal(true),
   targets: z.literal(true),
   permissions: z.literal(true),
   downloads: z.literal(true),
-  controllerLease: z.literal(true),
+  /** The desktop reports the person's own input on its views (`ace.humanInput` events). */
+  humanInput: z.literal(true),
 });
 export const BrowserBackendRegister = z.object({
   type: z.literal("browser.backend.register"),
@@ -33,7 +28,6 @@ export const BrowserBackendOperation = z.discriminatedUnion("kind", [
     options: BrowserOpen,
     downloadDir: z.string().min(1).max(8192).optional(),
     viewport: z.object({ width: z.number().int(), height: z.number().int() }),
-    lease: BrowserControllerLease,
   }),
   z.object({
     kind: z.literal("cdp"),
@@ -51,7 +45,11 @@ export const BrowserBackendOperation = z.discriminatedUnion("kind", [
     width: z.number().int().min(100).max(4096),
     height: z.number().int().min(100).max(4096),
   }),
-  z.object({ kind: z.literal("controller"), lease: BrowserControllerLease }),
+  /**
+   * An agent is (or stopped) using the shown tab: the view then intercepts file choosers for
+   * it and keeps rendering while unseen. People and agents share the view either way.
+   */
+  z.object({ kind: z.literal("agentUse"), active: z.boolean() }),
   z.object({ kind: z.literal("close") }),
   /**
    * The thread was deleted: drop its persistent partition, closing its view first. Not tied

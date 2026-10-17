@@ -96,10 +96,6 @@ export interface Services {
   userBrowser?: import("../user-browser.ts").UserBrowserService;
   /** Threads' browsers in the person's own Chrome, for agent calls with `browser: "user"`. */
   userBrowserSessions?: BrowserService;
-  /** Refuses answers to a private-takeover hold; only handback releases it. */
-  browserPrivateAnswers?: (
-    command: import("@ace/protocol").Command,
-  ) => import("@ace/protocol").CommandResult | undefined;
   context: ContextService;
   settings: SettingsService;
   models: ModelCatalog;

@@ -8,6 +8,8 @@ export interface BrowserTabRecord {
   title: string;
   label?: string | undefined;
   openedBy?: BrowserTabActor | undefined;
+  /** The person keeps agents out of this tab; it stays so after a restart. */
+  private?: boolean | undefined;
   lastActiveAt: number;
 }
 /**

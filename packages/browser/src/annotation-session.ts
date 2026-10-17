@@ -30,6 +30,8 @@ interface Active {
  */
 export class AnnotationSession {
   private active: Active | undefined;
+  /** The last overlay's removal, still unbinding. */
+  private removing: Promise<void> = Promise.resolve();
   private deliver: (connectionId: string, event: BrowserAnnotationEvent) => void;
   private changed: () => void;
   constructor(
@@ -67,6 +69,8 @@ export class AnnotationSession {
     }
   }
   private async install(active: Active): Promise<{ documentId: string }> {
+    // A previous overlay's removal unbinds by name: let it finish before binding again.
+    await this.removing;
     const installed = await installOverlay(active.cdp, active.config, {
       event: (payload) => {
         if (this.active === active) this.receive(active, payload);
@@ -130,7 +134,8 @@ export class AnnotationSession {
     if (!active) return;
     this.active = undefined;
     active.detach();
-    if (active.contextId !== undefined) void removeOverlay(active.cdp, active.contextId);
+    if (active.contextId !== undefined)
+      this.removing = removeOverlay(active.cdp, active.contextId).catch(() => {});
     this.deliver(active.owner, { kind: "ended", reason });
     this.changed();
   }

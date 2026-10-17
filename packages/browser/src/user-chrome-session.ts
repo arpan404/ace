@@ -177,8 +177,6 @@ export async function userTabSession(
         features: [{ name: "prefers-color-scheme", value: colorScheme }],
       });
     },
-    // The person controls their own browser directly; ace's control lease has nothing to hand over.
-    controller: async () => {},
     close,
   };
 }

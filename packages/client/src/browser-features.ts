@@ -31,17 +31,32 @@ export class BrowserFeaturesClient {
       options,
     );
   }
-  switchTab(threadId: string, tabId: string, options?: RequestOptions) {
+  /** Show this tab to the person; agent tabs leave the view alone while they use it. */
+  selectTab(threadId: string, tabId: string, options?: RequestOptions) {
     return this.read(
-      { type: "browser.tabs.switch", threadId: ThreadId.parse(threadId), tabId },
+      { type: "browser.tabs.select", threadId: ThreadId.parse(threadId), tabId },
       BrowserTabsResult,
       options,
     );
   }
+  /** Closing the last tab closes the browser (`closed`). */
   closeTab(threadId: string, tabId: string, options?: RequestOptions) {
     return this.read(
       { type: "browser.tabs.close", threadId: ThreadId.parse(threadId), tabId },
-      BrowserTabsResult,
+      z.union([BrowserTabsResult, z.object({ closed: z.literal(true) })]),
+      options,
+    );
+  }
+  /** "Keep agents out of this tab", or let them back in. */
+  keepPrivate(threadId: string, tabId: string, value: boolean, options?: RequestOptions) {
+    return this.read(
+      {
+        type: "browser.tabs.private",
+        threadId: ThreadId.parse(threadId),
+        tabId,
+        private: value,
+      },
+      BrowserState,
       options,
     );
   }
@@ -70,20 +85,6 @@ export class BrowserFeaturesClient {
         ...(promptText !== undefined ? { promptText } : {}),
       },
       z.object({ ok: z.literal(true) }),
-      options,
-    );
-  }
-  takeover(threadId: string, mode: "shared" | "private", options?: RequestOptions) {
-    return this.read(
-      { type: "browser.takeover", threadId: ThreadId.parse(threadId), mode },
-      BrowserState,
-      options,
-    );
-  }
-  handback(threadId: string, options?: RequestOptions) {
-    return this.read(
-      { type: "browser.handback", threadId: ThreadId.parse(threadId) },
-      BrowserState,
       options,
     );
   }

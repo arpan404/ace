@@ -1,6 +1,5 @@
 import { settingsScope } from "../settings.ts";
 import { z } from "zod";
-import { privateBrowserOwnership, refusePrivateBrowserAnswer } from "../browser-private.ts";
 import { join } from "node:path";
 import { BrowserService, UserChromeTabsBackend, type BrowserServiceOptions } from "@ace/browser";
 import {
@@ -19,7 +18,6 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
   const { config, options, store, now, id, resources, services } = context;
 
   await desktopCredential(config.dataDir, store.devices, now);
-  services.browserPrivateAnswers = (command) => refusePrivateBrowserAnswer(store, command);
   let forget: BrowserForget | undefined;
   const workspaceRoot: BrowserServiceOptions["workspaceRoot"] =
     options.browser?.workspaceRoot ??
@@ -55,7 +53,6 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
   const browser = new BrowserService({
     ...options.browser,
     dataDir: config.dataDir,
-    ...privateBrowserOwnership(context),
     tabStore: options.browser?.tabStore ?? new SqliteBrowserTabStore((sql) => store.statement(sql)),
     workspaceRoot,
     cleanup: {

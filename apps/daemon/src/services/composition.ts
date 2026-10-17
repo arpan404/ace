@@ -223,10 +223,7 @@ export function readyServices(
 ): asserts services is Partial<Services> & Pick<Services, "handler"> {
   const handler = requireService(services.handler, "engine");
   services.handler = {
-    handle: (command, store) =>
-      services.asks?.resolve(command) ??
-      services.browserPrivateAnswers?.(command) ??
-      handler.handle(command, store),
+    handle: (command, store) => services.asks?.resolve(command) ?? handler.handle(command, store),
   };
 }
 export type { ServiceContext };
