@@ -45,7 +45,7 @@ export function handleQueue(
       };
       const edited = Command.parse({ ...entry.command, payload });
       dependencies.repo.queue.edit(entry.id, edited);
-      dependencies.repo.admitInput(edited, p.threadId, dependencies.clock.now());
+      dependencies.repo.reviseInput(edited, p.threadId, dependencies.clock.now());
     } else if (p.type === "queue.remove" && entry) {
       dependencies.repo.queue.remove(entry.id);
       dependencies.repo.removeInput(p.threadId, entry.command.id, dependencies.clock.now());
@@ -101,7 +101,7 @@ export function handleQueue(
       // recovery intent here would bypass a later manual or Stop hold.
       if (!heldContinuation) dependencies.repo.add(replacement, p.threadId);
       if (!continuation)
-        dependencies.repo.admitInput(replacement, p.threadId, dependencies.clock.now());
+        dependencies.repo.acceptInput(replacement, p.threadId, dependencies.clock.now());
       // Only the ambiguity hold may be released, never a later pause or recovery hold.
       if (
         queue.reason === "uncertain" &&

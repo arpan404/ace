@@ -1,7 +1,8 @@
 import { CursorHost, discoverCursorSdk, type HostOptions } from "./host.ts";
 import { CursorInstance, cursorSdkEnvironment } from "./instance.ts";
 import { CursorHostSlots } from "./slots.ts";
-import { SafeAuth, sdkVersion } from "./contracts.ts";
+import { checkCli, cliRequirements } from "@ace/provider-kit/cli-requirements";
+import { SafeAuth } from "./contracts.ts";
 
 /** Discovery failure is not a rejected sign-in. Keep provider diagnostics off the auth wire. */
 export class CursorSdkUnavailableError extends Error {
@@ -37,8 +38,14 @@ export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
     diagnostic?.(installed.version ? { cliVersion: installed.version } : {});
     if (!installed.supported)
       throw Object.assign(new CursorSdkUnavailableError(), {
+        // The SDK ships with ace pinned exactly: only an older copy is "too old"; a newer one is
+        // a version ace hasn't checked.
         code:
-          installed.version && installed.version !== sdkVersion ? "cli_too_old" : "not_configured",
+          !installed.version || installed.version === cliRequirements["cursor-sdk"].minimum
+            ? "not_configured"
+            : checkCli("cursor-sdk", installed.version).status === "too_old"
+              ? "cli_too_old"
+              : "cli_unsupported",
       });
   };
   const slots = options.slots ?? new CursorHostSlots(2);

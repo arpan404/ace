@@ -56,8 +56,16 @@ it("the installed boundary serves JSON readiness under a stdin lease and secrets
   await h.adapter.close();
   expect(h.exits).toHaveLength(1);
 });
+it("an OpenCode older than ace's minimum prevents session creation and asks for an update", async () => {
+  await expect(
+    setup({ discovery: { env: { ACE_TEST_OPENCODE_VERSION: "1.18.33" } } }),
+  ).rejects.toMatchObject({
+    code: "cli_too_old",
+    title: "Update OpenCode",
+    detail: expect.stringMatching(/is older than 2\.0\.22, the oldest version ace supports/),
+  });
+});
 it.each([
-  { env: { ACE_TEST_OPENCODE_VERSION: "1.18.33" } },
   { env: { ACE_TEST_SERVER_VERSION: "2.0.23" } },
   { env: { ACE_TEST_HTML: "1" } },
   { env: { ACE_TEST_MISSING_OPERATION: "session.prompt" } },

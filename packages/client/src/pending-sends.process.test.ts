@@ -252,14 +252,17 @@ test.each(["native", "run"] as const)(
     ]);
     await when(selection, (entries) => entries[0]?.state === "delivered");
     const notice = h.daemon.store.snapshotThread(h.thread.id).items[failure];
-    if (!notice) throw new Error("Missing stored failure");
+    if (notice?.type !== "notice") throw new Error("Missing stored failure");
     h.daemon.store.appendEvents(h.thread.id, [
       // createdAt is identity since 5729d3e9f and no longer moves on update; the
       // stale write must still arrive without reviving the delivered send.
       { type: "item.updated", item: { ...notice, text: "Still failing, updated" } },
     ]);
     await when(
-      lease.store.select([`item:${failure}`], (reader) => reader.item(failure)?.text),
+      lease.store.select([`item:${failure}`], (reader) => {
+        const stored = reader.item(failure);
+        return stored?.type === "notice" ? stored.text : undefined;
+      }),
       (text) => text === "Still failing, updated",
     );
     expect(selection.getSnapshot()[0]).toMatchObject({

@@ -120,13 +120,13 @@ test.each([true, false])(
       background: new Map(),
     });
     expect(shown(blocks)).toEqual([
-      "work:work:mcp-first",
+      "work:work:start",
       "subagents:subagents:first",
-      "work:work:mcp-second",
+      "work:work:start:mcp-second",
       "narration",
-      "work:work:mcp-third",
+      "work:work:start:mcp-third",
       "subagents:subagents:third",
-      "work:work:later-work",
+      "work:work:start:later-work",
     ]);
     const work = blocks.filter((block) => block.kind === "work");
     expect(work.map((block) => block.itemIds)).toEqual([
@@ -242,24 +242,6 @@ test("subagents that run in the background retain one launch card rather than se
   ]);
 });
 
-test("a message queued while the agent worked reads after the answer it waited for", () => {
-  // The daemon admitted the queued ask while the first turn still worked, so it sits between
-  // that turn's commentary and its answer; it was answered by the second turn.
-  const blocks = buildBlocks(
-    source(
-      [
-        { id: "hold", role: "user", run: "A" },
-        { id: "commentary", role: "assistant", run: "A" },
-        { id: "queued", role: "user", run: "B" },
-        { id: "hold-done", role: "assistant", run: "A" },
-        { id: "queued-done", role: "assistant", run: "B" },
-      ],
-      { A: ended("completed"), B: ended("completed") },
-    ),
-  );
-  expect(shown(blocks)).toEqual(["hold", "commentary", "hold-done", "queued", "queued-done"]);
-});
-
 test("a message steered into the running turn keeps its place", () => {
   const blocks = buildBlocks(
     source(
@@ -345,7 +327,7 @@ test("an ending tied to a message still in the queue goes with it; the turn befo
   expect(visible.at(-1)).toMatchObject({ kind: "end", runId: "A", latest: true });
 });
 
-test("a settled work header stays below earlier asks after history arrives out of order", () => {
+test("rows follow the daemon's creation order even when timestamps run backwards", () => {
   const base = source(
     [
       { id: "earlier", role: "user" },
@@ -355,46 +337,20 @@ test("a settled work header stays below earlier asks after history arrives out o
     { turn: { ...ended("completed"), startedAt: 2 } },
   );
   const tool = mcpTool("tool", 3);
-  const input = {
+  const blocks = buildBlocks({
     ...base,
-    order: ["tool", "answer", "ask", "earlier"],
-    turnOf: (id: string) => (id === tool.id ? "turn" : base.turnOf?.(id)),
-    item: (id: string) => {
-      const item = base.item(id);
-      return id === tool.id ? tool : item && { ...item, createdAt: item.createdAt * 2 };
+    order: ["earlier", "ask", "tool", "answer"],
+    turnOf: (id) => (id === tool.id ? "turn" : base.turnOf?.(id)),
+    // Imported history keeps native timestamps; they never reorder the transcript.
+    item: (id) => {
+      const item = id === tool.id ? tool : base.item(id);
+      return item && { ...item, createdAt: 100 - item.createdAt };
     },
-  };
-  const blocks = buildBlocks(input);
-  expect(shown(blocks)).toEqual(["earlier", "ask", "work:work:tool", "answer"]);
+  });
+  expect(shown(blocks)).toEqual(["earlier", "ask", "work:work:ask", "answer"]);
   expect(blocks.filter((block) => block.kind === "work")).toMatchObject([
     { outcome: "completed", itemIds: ["tool"] },
   ]);
-});
-
-test("equal-time asks use creation sequence before a settled work header", () => {
-  const base = source(
-    [
-      { id: "first", role: "user" },
-      { id: "ask", role: "user", run: "turn" },
-    ],
-    { turn: ended("completed") },
-  );
-  const tool = mcpTool("tool", 0);
-  const seqs: Record<string, number> = { first: 1, ask: 2, tool: 3 };
-  expect(
-    shown(
-      buildBlocks({
-        ...base,
-        order: ["tool", "ask", "first"],
-        turnOf: (id) => (id === tool.id ? "turn" : base.turnOf?.(id)),
-        item: (id) => {
-          const item = id === tool.id ? tool : base.item(id);
-          return item && { ...item, createdAt: 0 };
-        },
-        creationSeq: (id) => seqs[id],
-      }),
-    ),
-  ).toEqual(["first", "ask", "work:work:tool"]);
 });
 
 test("an admitted first ask stays ahead of intervening earlier messages while awaiting output", () => {

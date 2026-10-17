@@ -22,6 +22,8 @@ An explicit send delivery overrides the setting. Clients can implement the
 opposite-default shortcut without duplicating the server queue. Steers bypass
 settled-turn gating only when the adapter advertises steer, the session is live,
 and no recovery/limit hold exists. Unsupported steering enters the ordered queue.
+A queued message is not in the transcript; the claim that delivers it creates its user item
+and binds its run (ADR 0065, 2026-10-17 amendment).
 
 The commit before provider I/O is the claim boundary. Exactly-once external
 delivery cannot be promised across a crash. Unacknowledged claimed messages
@@ -146,3 +148,40 @@ or snooze deadline stays). A completed turn lifts the hold. With no reset, or on
 has cleared, the person's next message is the go-ahead: the hold and ace's "continue" are
 dropped and the queue sends in order. If the provider refuses again, its signal holds the
 thread again.
+
+## Amendment 2026-10-17: the person can always talk to the agent
+
+A thread whose agent had finished its turn but left work running (a subagent, a delegated
+child, a child's open request) held every queued message until that work ended, which could be
+never. The web composer also refused to steer a queued message unless a root turn was running,
+so there was no way to send it. The person could not talk to their own agent.
+
+What a person's message waits for is now one pure rule in core (`acceptsPersonInput`), scoped to
+the agent the person talks to, the root:
+
+- **A root turn is running.** A steer goes into that turn now. A queued message waits for the
+  turn to end ("queued messages wait for the run to end").
+- **The root is between turns.** Any message, queued or steered, starts the next turn now.
+  Background commands, monitors, subagents and delegated children keep running, and the thread
+  keeps reading working or waiting on them; it never reads done while they run.
+- **The provider can't take input yet.** The root is retrying or limited, has lost its
+  connection, has announced a turn of its own (a wake, bounded to seconds), waits on the
+  person's answer, or still holds earlier input in its own queue. A queued message waits and
+  Steer on its row sends it now. A steer never needs a running turn: with none,
+  it starts the next turn.
+
+Stop and the other holds (`paused`, `limited`, recovery) are unchanged: a held queue sends on
+the person's Resume or next message. A message that changes the model or options still waits
+for the whole tree, because the switch may reopen the session and end its background work.
+Forks, switches and merges keep the stricter whole-tree readiness.
+
+Each provider takes a new turn with its background work alive:
+
+| Provider | A message between turns                                                                                                                         |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex    | `turn/start` on the thread; background terminals and child threads keep running. A steer with no turn starts one.                               |
+| Claude   | The user message goes to the CLI's stdin (`priority: "now"` for a steer) and starts the next turn; backgrounded agents and shells keep running. |
+| OpenCode | `session.prompt` with its delivery; the v2 inbox runs it now or as the next execution.                                                          |
+| Cursor   | With no SDK operation active, a send starts a new operation.                                                                                    |
+| Pi       | `prompt`; `streamingBehavior` only matters while a run streams, so an idle harness starts a run.                                                |
+| ACP      | No steer; the queued message is delivered as the next prompt once the previous one has returned.                                                |

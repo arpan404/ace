@@ -14,6 +14,7 @@ export { nextDeadline, DeadlineIndex } from "./deadlines.ts";
 export { isActionableInteraction } from "./human.ts";
 
 export { readyForChildResults } from "./external.ts";
+export { acceptsPersonInput } from "./person-input.ts";
 
 export { ExpiryMap } from "./expiry-map.ts";
 export {

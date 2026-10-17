@@ -346,6 +346,17 @@ export class OpenCodeTranslator implements Translator {
             ? state.reconcileWake(id, number(e.created, Number.MAX_SAFE_INTEGER))
             : state.wake(id)
           : []),
+        // Delivery moves the input into the session's running execution, or with none
+        // running, starts the next one: that is the run which took it.
+        ...(type.endsWith("delivered") && string(p.inboxID)
+          ? [
+              {
+                type: "input.consumed" as const,
+                agent: state.key(id),
+                nativeInputIds: [string(p.inboxID)],
+              },
+            ]
+          : []),
       ];
     }
     if (type === "session.synthetic") {

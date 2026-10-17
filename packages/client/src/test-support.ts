@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile, rename, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, writeFile, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startDaemon, createDevThread, type CommandHandler } from "@ace/daemon";
@@ -131,7 +131,8 @@ export async function setup(
   devices?: import("@ace/daemon").DaemonOptions["devices"],
   projects?: import("@ace/daemon").DaemonOptions["projects"],
 ) {
-  const directory = await mkdtemp(join(tmpdir(), "ace-client-"));
+  // Sessions refuse symlinked workspaces; macOS tmpdir is under the /var symlink.
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "ace-client-")));
   const daemon = await startDaemon({
     config: {
       dataDir: directory,
@@ -234,4 +235,26 @@ export function itemText(item: import("@ace/protocol").Item | undefined): string
         .map((part) => part.text)
         .join("")
     : "";
+}
+/** Thread snapshots arrive holding only their newest item, so an older page has room to land. */
+export function newestOnly(faults: Faults): void {
+  faults.incoming = (incoming, text, deliver) => {
+    if (incoming.type !== "snapshot" || incoming.view.kind !== "thread") return deliver(text);
+    const id = incoming.view.itemOrder.at(-1);
+    const item = id === undefined ? undefined : incoming.view.items[id];
+    const seq = id === undefined ? undefined : incoming.view.itemSeqs?.[id];
+    if (id === undefined || !item || seq === undefined) return deliver(text);
+    deliver(
+      JSON.stringify({
+        ...incoming,
+        view: {
+          ...incoming.view,
+          items: { [id]: item },
+          itemOrder: [id],
+          itemSeqs: { [id]: seq },
+          itemsBefore: seq,
+        },
+      }),
+    );
+  };
 }

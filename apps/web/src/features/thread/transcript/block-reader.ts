@@ -59,6 +59,8 @@ export function createBlockReader(
     | undefined;
   // Turns seen held by a usage limit while this transcript was open.
   const paused = new Set<string>();
+  // The key each turn's rows were first given, so a turn whose ask trims out keeps it.
+  const turnKeys = new Map<string, string>();
   return (reader) => {
     const ledger = ledgerOf(reader);
     const tree = turnTreeOf(reader);
@@ -194,6 +196,7 @@ export function createBlockReader(
             : undefined,
       watch,
       unsettledTail,
+      turnKeys,
     });
     const byKey = new Map(last.map((block) => [block.key, block]));
     const blocks = built.map((block) => {

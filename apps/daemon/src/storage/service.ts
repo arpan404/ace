@@ -55,7 +55,7 @@ export class StorageService {
   }
   usage(): Promise<StorageUsage> {
     return this.serial(async () => {
-      const { candidates, complete } = await this.inventory.scan();
+      const { candidates, complete } = await this.inventory.scan(new Set(StorageKind.options));
       return {
         categories: StorageKind.options.map((kind) => {
           const items = candidates.filter((candidate) => candidate.kind === kind);
@@ -160,7 +160,7 @@ export class StorageService {
     const kinds = new Set(operation.kinds ?? StorageKind.options);
     const force = new Set(operation.forceItems);
     const now = this.owner.now();
-    const scan = await this.inventory.scan();
+    const scan = await this.inventory.scan(kinds);
     const selected = scan.candidates
       .filter((candidate) => kinds.has(candidate.kind))
       .map((candidate) => ({

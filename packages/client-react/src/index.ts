@@ -17,7 +17,6 @@ export {
   useAgent,
   useTask,
   useTaskIds,
-  useHistoryPager,
 } from "./thread.ts";
 export type { HistoryPager } from "./thread.ts";
 export { useAgentTree, agentTree, treeEqual } from "./tree.ts";

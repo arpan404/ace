@@ -191,7 +191,14 @@ test("Pi releases older than 0.85.1 are refused before process launch, naming th
       cli: { installed: true, path: "fake", version: "0.84.4", auth: "unknown", loginHint: "none" },
       runtime,
     }),
-  ).rejects.toThrow("Pi 0.84.4 is not supported; ace supports Pi 0.85.1 or newer");
+  ).rejects.toMatchObject({
+    code: "cli_too_old",
+    cli: "pi",
+    installed: "0.84.4",
+    required: "0.85.1",
+    message:
+      "Pi 0.84.4 is older than 0.85.1, the oldest version ace supports. Update Pi, then refresh.",
+  });
 });
 test("missing ace extension fails startup without falling through to a model prompt", async () => {
   await expect(sessionHarness({}, false, { FAKE_PI_EXTENSION_MISSING: "1" })).rejects.toThrow(

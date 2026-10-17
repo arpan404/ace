@@ -97,6 +97,12 @@ export type Fact =
     }
   /** Durable provider admission transfers queue ownership; it is not a model turn. */
   | { type: "input.admitted"; agent: Key; nativeInputId: string; commandId?: string }
+  /**
+   * The provider reports these inputs (by the native ids their sends carried) taken into the
+   * agent's running turn, or with no turn running, into its next one. The engine binds each
+   * input's transcript item to that run; core keeps no state for it.
+   */
+  | { type: "input.consumed"; agent: Key; nativeInputIds: string[] }
   | {
       type: "turn.started";
       agent: Key;

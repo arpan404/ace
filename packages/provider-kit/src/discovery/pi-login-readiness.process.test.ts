@@ -49,9 +49,12 @@ test.each(["0.85.1", "1.1.0", "1.2.0"])(
 test("Pi stays usable through Codex while its configured Claude service is signed out", async () => {
   expect(await discoverPiStatus(await fixture("1.1.0", true))).toMatchObject({ auth: "logged_in" });
 });
-test("a Pi release older than 0.85.1 remains unknown without running an auth command", async () => {
-  expect(await discoverPiStatus(await fixture("0.84.4", false))).toMatchObject({
+test("a Pi release older than 0.85.1 reports too old, without running an auth command", async () => {
+  const status = await discoverPiStatus(await fixture("0.84.4", false));
+  expect(status).toMatchObject({
+    installed: true,
     auth: "unknown",
-    error: "Pi auth status is unsupported for this version",
+    versionCheck: { status: "too_old", installed: "0.84.4", required: "0.85.1" },
   });
+  expect(status.error).toBeUndefined();
 });

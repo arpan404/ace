@@ -1,5 +1,4 @@
 import { StoppedPill } from "../long/stopped-pill.tsx";
-import { listenScrollIntent } from "./scroll-intent.ts";
 import type { HistoryPager } from "@ace/client-react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -16,7 +15,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useTopFade } from "@/lib/edge-fade.ts";
-import { scrollToEnd as glideToEnd, useListMotion, usePresence } from "@/lib/motion.ts";
+import { useListMotion, usePresence } from "@/lib/motion.ts";
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 import { LiveFrames, LiveFramesContext } from "../items/live-frames.ts";
 import { usePlaceBeforePaint } from "@/lib/virtual-paint.ts";
@@ -39,88 +38,40 @@ import { blockItems, type Block } from "./blocks.ts";
 import { LiveHead } from "../items/live-head.tsx";
 import { useDropTurnSteps } from "../lib/turn-steps.ts";
 import { rowOf, sameRow, transcriptRows, type Row } from "./rows.ts";
-import { useDockShift, useGutter, useKeepPlace, useStayPinned, type Anchor } from "./scroll.ts";
+import { useGutter } from "./scroll.ts";
+import { useFeedScroll, writeScroll } from "./use-feed-scroll.ts";
+import { rowGap } from "./row-gap.ts";
+import { useHistoryPaging, usePagingIntent } from "./use-history-paging.ts";
 import { useRunOrdinals } from "./run-ordinals.ts";
 import { useBlocks } from "./use-blocks.ts";
 import { useTurnActivity } from "./use-turn-activity.ts";
 import { useReadMarker } from "./seen.ts";
 import { AgentPageReveal } from "./agent-page-reveal.tsx";
 
-const nearEdge = 64;
 const tailLive: Block = { kind: "live", key: "live:tail", askId: undefined };
 /** First guess for an unmeasured row's height; measured sizes replace it per row key. */
 const estimatedRowSize = 96;
 /** Room above a row brought into view, for the search bar floating over the transcript's top. */
 const topRoom = 12;
-const gap: Record<Block["kind"], string> = {
-  user: "pb-4",
-  message: "pb-4",
-  work: "pb-2.5",
-  live: "pb-1.5",
-  thinking: "pb-2",
-  files: "pb-4",
-  subagents: "pb-1.5",
-  background: "pb-2",
-  item: "pb-3",
-  started: "pb-3",
-  question: "pb-4",
-  event: "pb-3",
-  end: "pb-4",
-};
-/**
- * The virtualizer learns a new scroll position from the scroll event, which arrives after the
- * rows it just mounted measured themselves; until then it corrects their size changes against
- * the old position and drags the view away from where it was sent. Telling it at once (its
- * public `scrollOffset`) keeps a jump where it landed.
- *
- * Only discrete placements use this (a jump landing, a step to a turn): for a moment after,
- * what the virtualizer last rendered lags behind the place code set, so the reader's anchor
- * stays untouched. Keep-place restores across fast pages deliberately skip the freeze, so the
- * anchor keeps tracking the reader instead of going stale and teleporting back to it.
- */
-function settle(
-  virtualizer: { scrollOffset: number | null },
-  el: HTMLElement | null,
-  placedUntil: { current: number },
-): void {
-  if (el) virtualizer.scrollOffset = el.scrollTop;
-  placedUntil.current = performance.now() + 250;
-}
-/**
- * Code that places the view (a jump, a step to a turn) sets the reader's place itself: for a
- * moment after, what the virtualizer last rendered lags behind it.
- */
-function placedAt(
-  anchor: { current: Anchor | undefined },
-  virtualizer: { measurementsCache: readonly { start: number }[] },
-  el: HTMLElement | null,
-  rows: readonly Row[],
-  index: number,
-  itemId?: string,
-): void {
-  const row = rows[index];
-  const start = virtualizer.measurementsCache[index]?.start;
-  if (!el || !row || start === undefined) return;
-  anchor.current = {
-    key: row.key,
-    index,
-    offset: start - el.scrollTop,
-    start,
-    itemId: itemId ?? blockItems(row.block)[0],
-  };
-}
-/**
- * A progress note followed straight by another sits close to it; a turn's last answer doesn't.
- * An answer under its turn's "Worked for" keeps its time in its hover-actions row, so its
- * changed files sit close.
- */
-function rowGap(row: Row, next: Row | undefined): string {
-  if (row.block.kind === "message" && next?.block.kind === "message") return "pb-1.5";
-  if (row.block.kind === "message" && row.block.headed && next?.block.kind === "files")
-    return "pb-1.5";
-  return gap[row.block.kind];
-}
+const now = () => performance.now();
 const rowKey = (row: Row) => row.key;
+/** The turn of the first row from `index` that knows its turn. */
+function turnFrom(rows: readonly Row[], index: number): number | undefined {
+  for (let at = index; at < Math.min(rows.length, index + 8); at++) {
+    const ordinal = rows[at]?.ordinal;
+    if (ordinal !== undefined) return ordinal;
+  }
+  return undefined;
+}
+/** The rows' keys, the same array while they are the same keys (the virtualizer's sizes key on them). */
+function useStableKeys(rows: readonly Row[]): readonly string[] {
+  const [keys, setKeys] = useState<readonly string[]>(() => rows.map(rowKey));
+  const same = keys.length === rows.length && rows.every((row, index) => row.key === keys[index]);
+  if (same) return keys;
+  const next = rows.map(rowKey);
+  setKeys(next);
+  return next;
+}
 const highlight = {
   boxShadow: "0 0 0 2px color-mix(in oklab, var(--ring) 45%, transparent)",
   borderRadius: 12,
@@ -154,7 +105,8 @@ export function Feed(props: FeedProps) {
   const activity = useTurnActivity(threadId);
   useDropTurnSteps(threadId);
   // The live turn's header sits under its ask; a turn whose ask is not in view (still on its
-  // way, older than the window) keeps it at the end instead.
+  // way, older than the window) keeps it at the end instead. Either way it is one row, which
+  // moves rather than flashing out and back in.
   const working = !detached && !!activity && activity.tone !== "paused";
   const blocks = useMemo(() => {
     const merged = local && !detached ? local.merge(built, blockItems) : built;
@@ -171,8 +123,8 @@ export function Feed(props: FeedProps) {
   const handled = useRef(0);
   const focus = jump.focus;
   const rows = useMemo(() => transcriptRows(blocks, ordinalOf), [blocks, ordinalOf]);
-  const keys = useMemo(() => rows.map(rowKey), [rows]);
-  const { rows: motionRows } = useListMotion(blocks, (block: Block) => block.key);
+  const keys = useStableKeys(rows);
+  const { rows: motionRows } = useListMotion(rows, rowKey);
   const entering = useMemo(
     () => new Set(motionRows.flatMap((row) => (row.phase === "enter" ? [row.key] : []))),
     [motionRows],
@@ -180,23 +132,15 @@ export function Feed(props: FeedProps) {
 
   const viewport = useRef<HTMLDivElement>(null);
   const feed = useRef<HTMLDivElement>(null);
-  const pinnedRef = useRef(!detached);
-  const upwardIntent = useRef(false);
-  const glidingUntil = useRef(0);
-  // Until this moment the view is where code put it (a restored place, a jump): its scroll
-  // events are not the reader's and never page the window.
-  const placedUntil = useRef(0);
-  const anchor = useRef<Anchor | undefined>(undefined);
-  const [pinned, setPinnedState] = useState(!detached);
-  const setPinned = useCallback((value: boolean) => {
-    pinnedRef.current = value;
-    setPinnedState(value);
-  }, []);
+  const dock = useRef<HTMLDivElement>(null);
   const [flash, setFlash] = useState<{ key: string; hit: boolean }>();
 
   // A row filling in (its text, a card's code arriving) moves the rows under it in the same
   // frame, so a thread never paints its rows stacked on each other.
   const placed = usePlaceBeforePaint<HTMLDivElement, Element>();
+  // Part of the virtualizer's measurement memo: a new function would rebuild every row's
+  // measurement on every render.
+  const getItemKey = useCallback((index: number) => keys[index] ?? index, [keys]);
   // oxlint-disable-next-line react-compiler/incompatible-library
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -212,7 +156,8 @@ export function Feed(props: FeedProps) {
     useFlushSync: false,
     scrollMargin: feed.current?.offsetTop ?? 0,
     scrollPaddingStart: topRoom,
-    getItemKey: (index) => rows[index]?.key ?? index,
+    getItemKey,
+    scrollToFn: writeScroll,
     // A jump must measure its target even when estimated sizes initially place
     // it outside the viewport. Retain only that one row alongside the visible
     // range; the next jump or return to live replaces or clears the focus.
@@ -224,55 +169,43 @@ export function Feed(props: FeedProps) {
         : [...visible, target].toSorted((a, b) => a - b);
     },
   });
-  useForgetGoneRows(virtualizer, rows.length, (index) => rows[index]?.key ?? index);
+  useForgetGoneRows(virtualizer, rows.length, getItemKey);
   const total = virtualizer.getTotalSize();
   const margin = virtualizer.options.scrollMargin;
-  const scrollToEnd = () => {
-    const el = viewport.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  };
-  const shift = useCallback(
-    (delta: number) => {
-      // A structural nudge, not a placement: added rows above push the view down, removed
-      // ones pull it up, and the reader's own scrolling in between is preserved because the
-      // target is relative. Through the virtualizer (not a raw scrollTop set) so its range
-      // follows even where no scroll event fires. Sync it at once (see settle) but freeze
-      // nothing.
-      const el = viewport.current;
-      if (!el || delta === 0) return;
-      virtualizer.scrollToOffset(el.scrollTop + delta);
-      virtualizer.scrollOffset = el.scrollTop;
-    },
-    [virtualizer],
-  );
-  const rowOfItem = useCallback((itemId: string) => rowOf(rows, itemId), [rows]);
-  const startOf = useCallback(
-    (index: number) => virtualizer.measurementsCache[index]?.start,
-    [virtualizer],
-  );
-  useKeepPlace(keys, anchor, pinnedRef, shift, rowOfItem, startOf);
-  useStayPinned(viewport, pinnedRef, glidingUntil);
-  const dock = useRef<HTMLDivElement>(null);
-  useDockShift(dock, viewport, pinnedRef);
+
+  const intent = usePagingIntent();
+  const scroll = useFeedScroll({
+    viewport,
+    virtualizer,
+    rows,
+    keys,
+    total,
+    detached,
+    topRoom,
+    dock,
+    now,
+    onDirection: intent.onDirection,
+  });
+  const pinned = scroll.following;
+  const paging = useHistoryPaging({
+    intent,
+    viewport,
+    pager,
+    jump,
+    nav,
+    detached,
+    following: pinned,
+  });
   useGutter(viewport);
-  // A window that isn't joined to the tail has no live end to follow.
-  useEffect(() => {
-    if (detached) setPinned(false);
-  }, [detached, setPinned]);
   // Leaving a window (back to live, or a link that failed) shows the live tail from its end,
   // never from the top, where it would page older history in.
   const hadWindow = useRef(!!window);
   useLayoutEffect(() => {
     const had = hadWindow.current;
     hadWindow.current = !!window;
-    if (!had || window || pinnedRef.current) return;
-    setPinned(true);
-    scrollToEnd();
-  }, [window, setPinned]);
-  // Follow streaming output and new rows while the reader is at the live end.
-  useLayoutEffect(() => {
-    if (pinnedRef.current) scrollToEnd();
-  }, [total, rows]);
+    if (!had || window || scroll.isFollowing()) return;
+    scroll.toLive("now");
+  }, [window, scroll]);
   useEffect(() => nav.following.set(pinned && !window), [nav.following, pinned, window]);
   // A joined window the reader follows past is no longer needed: back to the tail alone.
   useEffect(() => {
@@ -284,84 +217,31 @@ export function Feed(props: FeedProps) {
   // The live header scrolled out of view above: a copy stays pinned at the top.
   const liveRow = useMemo(() => rows.findIndex((row) => row.block.kind === "live"), [rows]);
   const [livePinned, setLivePinned] = useState(false);
-  /** The first row in view, which turn the reader is in, and where its top sits. */
+  /** The first row in view, and which turn the reader is in. */
   const readTop = () => {
     const el = viewport.current;
-    if (!el) return;
-    const top = el.scrollTop + topRoom;
-    const items = virtualizer.getVirtualItems();
-    const first = items.find((item) => item.end > top);
-    if (!first) return;
-    const liveItem = items.find((item) => item.index === liveRow);
+    const first = scroll.observe();
+    if (!el || !first) return;
+    const liveItem = virtualizer.getVirtualItems().find((item) => item.index === liveRow);
     const pinLive =
       liveRow >= 0 && (liveItem ? liveItem.end <= el.scrollTop : first.index > liveRow);
     if (pinLive !== livePinned) setLivePinned(pinLive);
-    const row = rows[first.index];
-    // While code is placing the view (a jump landing, a restored place), the place it set is
-    // the reader's; what the virtualizer last rendered may not have caught up yet.
-    if (performance.now() >= placedUntil.current)
-      anchor.current = {
-        key: row?.key ?? String(first.key),
-        index: first.index,
-        offset: first.start - el.scrollTop,
-        start: first.start,
-        itemId: row ? blockItems(row.block)[0] : undefined,
-      };
-    const turnFrom = (index: number) => {
-      for (let at = index; at < Math.min(rows.length, index + 8); at++) {
-        const ordinal = rows[at]?.ordinal;
-        if (ordinal !== undefined) return ordinal;
-      }
-      return undefined;
-    };
-    const topTurn = turnFrom(first.index);
+    const topTurn = turnFrom(rows, first.index);
     if (topTurn !== undefined) nav.currentTurn.set(topTurn);
   };
   useEffect(readTop);
 
-  const [olderIntent, setOlderIntent] = useState(false);
-  const [newerIntent, setNewerIntent] = useState(false);
-  const landing = useRef(0);
-  useEffect(() => {
-    const el = viewport.current;
-    if (!el) return;
-    const stop = () => {
-      landing.current++;
-    };
-    return listenScrollIntent(
-      el,
-      (upward) => {
-        upwardIntent.current = upward;
-        setOlderIntent(upward);
-        setNewerIntent(!upward);
-        if (upward) {
-          glidingUntil.current = 0;
-          setPinned(false);
-        } else if (!detached && el.scrollHeight - el.scrollTop - el.clientHeight < nearEdge)
-          setPinned(true);
-      },
-      stop,
-    );
-  }, [setPinned, detached]);
-
-  // A jump (or a search hit) brings its item into view once its row exists.
-  // One placement only: re-aiming over many frames fights the reader's own
-  // scrolling and reads as jumpiness once neighbours finish measuring.
+  // A jump (or a search hit) brings its item into view once its row exists, and holds it there
+  // while its neighbours measure, until the reader scrolls (see `scroll-mode.ts`).
   useLayoutEffect(() => {
     if (!focus || handled.current === focus.nonce) return;
     const index = rowOf(rows, focus.itemId);
     if (index < 0) return;
     handled.current = focus.nonce;
-    landing.current++;
-    setPinned(false);
-    virtualizer.scrollToIndex(index, { align: focus.query ? "center" : "start" });
-    settle(virtualizer, viewport.current, placedUntil);
+    scroll.jumpTo(index, focus.query ? "center" : "start", focus.itemId);
     const key = rows[index]?.key;
     if (key) setFlash({ key, hit: focus.query !== undefined });
-    // The jump's row is the reader's place from now on, so rows sliding around it
-    // (the window's turns arriving, say) keep it where it landed.
-    placedAt(anchor, virtualizer, viewport.current, rows, index, focus.itemId);
-  }, [focus, rows, virtualizer, setPinned]);
+  }, [focus, rows, scroll]);
   useEffect(() => {
     if (!flash) return;
     const timer = setTimeout(() => setFlash(undefined), 1_600);
@@ -373,100 +253,10 @@ export function Feed(props: FeedProps) {
   }, [nav.searchOpen]);
   const items = virtualizer.getVirtualItems();
   const { hasOlder, loading, loadOlder } = pager;
-  // Only scrolls backed by reader intent may page.
-  // Older history loads one request per upward gesture, well before the edge, so
-  // paging in never surfaces as a visible jump. A reply, a jump settling, or a
-  // keep-place restore fires scroll events with no gesture behind them, and those
-  // must never walk the history by themselves.
-  const maybeLoadOlder = useCallback(
-    (scrollTop: number) => {
-      if (
-        olderIntent &&
-        scrollTop < 900 &&
-        hasOlder &&
-        !loading &&
-        !pager.error &&
-        !jump.failed &&
-        !jump.loading
-      ) {
-        setOlderIntent(false);
-        void loadOlder();
-      }
-    },
-    [olderIntent, hasOlder, loading, pager.error, jump.failed, jump.loading, loadOlder],
-  );
-  const prefetchFocus = useRef(focus?.nonce);
-  useEffect(() => {
-    if (prefetchFocus.current !== focus?.nonce) {
-      prefetchFocus.current = focus?.nonce;
-      setOlderIntent(false);
-      setNewerIntent(false);
-      return;
-    }
-    if (olderIntent && !pinned) {
-      const top = viewport.current?.scrollTop ?? 0;
-      if (top < 1200 && hasOlder && !loading && !pager.error && !jump.failed) {
-        setOlderIntent(false);
-        void loadOlder();
-      }
-    }
-  }, [focus?.nonce, olderIntent, pinned, hasOlder, loading, pager.error, jump.failed, loadOlder]);
-  // Newer history loads the same way, mirrored: one request per downward
-  // gesture while near the live end, so scrolling back toward live is one
-  // continuous list. A wheel or key at the very bottom moves no scroll offset,
-  // so the intent effect below must page on its own; scroll events with no
-  // gesture behind them (a jump landing, a keep-place restore) never do, so a
-  // page settling can't chain into the next one and stick the view flickering.
-  const distanceToLive = () => {
-    const el = viewport.current;
-    return el ? el.scrollHeight - el.scrollTop - el.clientHeight : Number.POSITIVE_INFINITY;
-  };
-  const maybeLoadNewer = useCallback(
-    (distance: number) => {
-      if (
-        newerIntent &&
-        distance < 900 &&
-        detached &&
-        window &&
-        !jump.loading &&
-        !loading &&
-        !pager.error &&
-        !jump.failed
-      ) {
-        setNewerIntent(false);
-        void nav.jump.newer();
-      }
-    },
-    [newerIntent, detached, window, jump.loading, jump.failed, loading, pager.error, nav.jump],
-  );
-  useEffect(() => {
-    if (prefetchFocus.current !== focus?.nonce) return;
-    if (newerIntent && !pinned && detached && window) {
-      if (distanceToLive() < 1200 && !jump.loading && !loading && !pager.error && !jump.failed) {
-        setNewerIntent(false);
-        void nav.jump.newer();
-      }
-    }
-  }, [
-    focus?.nonce,
-    newerIntent,
-    pinned,
-    detached,
-    window,
-    jump.loading,
-    jump.failed,
-    loading,
-    pager.error,
-    nav.jump,
-  ]);
   const toLive = () => {
-    upwardIntent.current = false;
-    setOlderIntent(false);
-    setNewerIntent(false);
-    glidingUntil.current = performance.now() + 800;
-    setPinned(true);
+    paging.reset();
+    scroll.toLive(window ? undefined : "glide");
     if (window) nav.jump.live();
-    else if (viewport.current) glideToEnd(viewport.current, true);
   };
 
   const lastWindowOrdinal = window ? ordinalOf(window.items.at(-1)?.id ?? "") : undefined;
@@ -496,23 +286,19 @@ export function Feed(props: FeedProps) {
             onScroll={(event) => {
               const el = event.currentTarget;
               readTop();
-              maybeLoadNewer(el.scrollHeight - el.scrollTop - el.clientHeight);
-              maybeLoadOlder(el.scrollTop);
-              const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < nearEdge;
-              if (!atEnd && performance.now() < glidingUntil.current) return;
-              // A detached window's end is not the live end.
-              const following = atEnd && !detached && !upwardIntent.current;
-              if (following !== pinnedRef.current) setPinned(following);
+              paging.onScroll(el);
+              scroll.scrolled(el);
             }}
           >
-            <div className={`${readingColumn} pt-6 pb-[calc(var(--composer-clearance,0px)+4rem)]`}>
-              {hasOlder && (
-                <div className="flex min-h-8 justify-center pb-4">
-                  {loading && (
-                    <span role="status" aria-label="Loading earlier messages">
-                      <Spinner />
-                    </span>
-                  )}
+            <div
+              className={`${readingColumn} relative pt-6 pb-[calc(var(--composer-clearance,0px)+4rem)]`}
+            >
+              {/* Over the top padding, never above the rows: older history's arrival moves nothing. */}
+              {hasOlder && loading && (
+                <div className="pointer-events-none absolute inset-x-0 top-1 flex justify-center">
+                  <span role="status" aria-label="Loading earlier messages">
+                    <Spinner />
+                  </span>
                 </div>
               )}
               {pager.error && (
@@ -614,14 +400,9 @@ export function Feed(props: FeedProps) {
         <Suspense fallback={null}>
           <DeferredTurnKeys.Component
             rows={rows}
-            anchor={anchor}
+            top={scroll.top}
             nav={nav}
-            scrollTo={(index) => {
-              setPinned(false);
-              virtualizer.scrollToIndex(index, { align: "start" });
-              settle(virtualizer, viewport.current, placedUntil);
-              placedAt(anchor, virtualizer, viewport.current, rows, index);
-            }}
+            scrollTo={(index) => scroll.jumpTo(index, "start")}
             toLive={toLive}
           />
         </Suspense>

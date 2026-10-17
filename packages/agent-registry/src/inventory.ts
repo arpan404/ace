@@ -5,6 +5,7 @@ import { isAbsolute } from "node:path";
 import { z } from "zod";
 import { RegistryInstallation, AcpIdentity } from "@ace/protocol";
 import { findExecutable, isPackageRunner } from "@ace/provider-kit/discovery";
+import { requireMinimum, type CliId } from "@ace/provider-kit/cli-requirements";
 import { matchProfile, type CompatibilityProfile } from "./profiles.ts";
 import { limits } from "./decode.ts";
 export const LocalInstallation = z.object({
@@ -33,6 +34,21 @@ export type LocalBinding = {
   env?: Readonly<Record<string, string>>;
   underlyingCommand?: string;
 };
+const reviewedAgents: Readonly<Record<string, CliId>> = {
+  "official:antigravity-acp": "antigravity",
+  "official:gemini": "gemini",
+  "official:qwen-code": "qwen-code",
+  "official:claude-acp": "claude-acp",
+  "official:codex-acp": "codex-acp",
+  "official:goose": "goose",
+  "official:auggie": "auggie",
+};
+
+/** The declared minimum behind a reviewed registry agent; none for other ACP agents. */
+export function acpAgentCli(acpAgentId: string): CliId | undefined {
+  return Object.hasOwn(reviewedAgents, acpAgentId) ? reviewedAgents[acpAgentId] : undefined;
+}
+
 export type LaunchPlan = Readonly<{
   identity: AcpIdentity;
   version: string;
@@ -136,6 +152,10 @@ export class LocalInventory {
     if (!entry || !this.has(identity)) throw new Error("Approved ACP installation unavailable");
     if ((await executableDigest(entry.command)) !== entry.executableDigest)
       throw new Error("ACP artifact changed; new approval required");
+    // A reviewed agent older than ace's floor for it is refused before it launches. Agents
+    // without a reviewed profile are admitted by ACP protocol version at initialize.
+    const cli = acpAgentCli(identity.acpAgentId);
+    if (cli) requireMinimum(cli, entry.metadata.version);
     const profile = identity.acpAgentId.startsWith("official:")
       ? matchProfile(identity.acpAgentId.slice(9), entry.metadata.version)
       : undefined;

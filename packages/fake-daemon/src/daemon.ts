@@ -1085,6 +1085,19 @@ export class FakeDaemon implements Host {
     this.apply(threadId, outcome.facts);
     return { commandId, ok: true };
   }
+  /**
+   * Like the daemon, an accepted send makes the thread a task even while it waits in the
+   * queue, before its transcript item exists.
+   */
+  private markSent(threadId: string): void {
+    const host = this.threads.get(threadId);
+    if (host && !host.view.thread.hasSentMessage)
+      this.append(
+        host,
+        [{ type: "thread.client.updated", changes: { hasSentMessage: true } }],
+        this.at(0),
+      );
+  }
   private migrationTarget(host: ThreadHost): string | undefined {
     const thread = host.view.thread;
     const current = thread.live?.account ?? thread.execution?.instanceId;
@@ -1443,8 +1456,8 @@ export class FakeDaemon implements Host {
         });
         return { commandId, ok: true, threadId: ThreadId.parse(id) };
       }
-      case "thread.send":
-        return this.run(commandId, payload.threadId, (host) =>
+      case "thread.send": {
+        const sent = this.run(commandId, payload.threadId, (host) =>
           sendFacts(host, commandId, {
             ...payload,
             attachments: this.servicesWire.context.messageAttachments(
@@ -1461,6 +1474,9 @@ export class FakeDaemon implements Host {
                 : "queue"),
           }),
         );
+        if (sent.ok) this.markSent(payload.threadId);
+        return sent;
+      }
       case "thread.interrupt":
         return this.run(commandId, payload.threadId, (host) =>
           interruptFacts(host, payload.agentId, payload.cascade),

@@ -147,7 +147,14 @@ it.each(["message", "reasoning", "notice"])(
     );
   },
 );
-it("keeps oversized text outside the snapshot window after an incompatible output delta", async () => {
+const preview = (id: string) => ({
+  itemOrder: [id],
+  itemsBefore: null,
+  items: {
+    [id]: { parts: [{ type: "text", text: "x".repeat(4096), source: expect.any(Object) }] },
+  },
+});
+it("shows oversized newest text as a bounded snapshot preview after an incompatible output delta", async () => {
   const f = await fixture();
   cleanups.push(() => f.close());
   const item = message("large", "");
@@ -161,7 +168,7 @@ it("keeps oversized text outside the snapshot window after an incompatible outpu
       append: "x".repeat(2 * 1024 * 1024),
     },
   ]);
-  expect(f.store.snapshotThread(f.thread.id).itemOrder).toEqual([]);
+  expect(f.store.snapshotThread(f.thread.id)).toMatchObject(preview("large"));
   f.store.appendEvents(f.thread.id, [
     {
       type: "item.delta",
@@ -171,14 +178,13 @@ it("keeps oversized text outside the snapshot window after an incompatible outpu
       append: "ignored",
     },
   ]);
-  const snapshot = f.store.snapshotThread(f.thread.id);
-  expect(snapshot.itemOrder).toEqual([]);
+  expect(f.store.snapshotThread(f.thread.id)).toMatchObject(preview("large"));
   expect(f.store.readItems(f.thread.id, f.store.headSeq() + 1, 1).items[0]).toMatchObject({
     parts: [{ text: "x".repeat(2 * 1024 * 1024) }],
   });
   const reopened = new Store(join(f.home, "events.sqlite"));
   cleanups.push(() => reopened.close());
-  expect(reopened.snapshotThread(f.thread.id).itemOrder).toEqual([]);
+  expect(reopened.snapshotThread(f.thread.id)).toMatchObject(preview("large"));
 });
 it("budgets a surrogate pair completed across the authoritative body and an append", async () => {
   const f = await fixture();
@@ -188,7 +194,7 @@ it("budgets a surrogate pair completed across the authoritative body and an appe
     Buffer.byteLength(JSON.stringify({ m: empty })) + Buffer.byteLength(JSON.stringify(["m"]));
   const item = message("m", "x".repeat(1024 * 1024 - overhead - 5) + "\ud83d");
   f.store.appendEvents(f.thread.id, [{ type: "item.created", item }]);
-  expect(f.store.snapshotThread(f.thread.id).itemOrder).toEqual([]);
+  expect(f.store.snapshotThread(f.thread.id)).toMatchObject(preview("m"));
   f.store.appendEvents(f.thread.id, [
     { type: "item.delta", itemId: item.id, agentId: item.agentId, field: "text", append: "\ude00" },
   ]);
@@ -222,7 +228,7 @@ it("budgets a near-limit surrogate pair split across two appended chunks and ret
     ]);
   f.store.appendEvents(f.thread.id, [{ type: "item.created", item }]);
   append("\ud83d");
-  expect(f.store.snapshotThread(f.thread.id).itemOrder).toEqual([]);
+  expect(f.store.snapshotThread(f.thread.id)).toMatchObject(preview("m"));
   append("\ude00");
   const view = f.store.snapshotThread(f.thread.id);
   expect(view.itemOrder).toEqual(["m"]);

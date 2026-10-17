@@ -1,9 +1,10 @@
 import type { Capabilities } from "@ace/protocol";
 import { accessModeOffers } from "@ace/provider-kit/access-modes";
-import { piVersionSupported, type DiscoveryResult } from "@ace/provider-kit/discovery";
+import type { DiscoveryResult } from "@ace/provider-kit/discovery";
+import { admitsVersion } from "@ace/provider-kit/cli-requirements";
 import { PiProfile } from "@ace/protocol/pi";
 export function piProfile(cli: DiscoveryResult) {
-  const supported = cli.installed && piVersionSupported(cli.version);
+  const supported = cli.installed && admitsVersion("pi", cli.version);
   return PiProfile.parse({
     version: cli.version ?? "unknown",
     supported,

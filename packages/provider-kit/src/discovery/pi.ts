@@ -1,5 +1,6 @@
 import { findExecutable } from "./executable.ts";
 import { probeOutput } from "../process.ts";
+import { checkCli } from "../cli-requirements.ts";
 import type { DiscoveryResult } from "./types.ts";
 import type { DiscoveryOptions } from "./index.ts";
 /** Pi auth checks need an LLM provider. Generic discovery never selects one or starts a session. */
@@ -27,5 +28,6 @@ export async function discoverPi(
   } catch {
     result.error = "Pi version probe failed";
   }
+  result.versionCheck = checkCli("pi", result.version);
   return result;
 }

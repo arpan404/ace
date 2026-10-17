@@ -139,7 +139,7 @@ for (const provider of ["claude", "codex"] as const) {
     join(editors, provider),
     `#!${process.execPath}
 const args = process.argv.slice(2).join(' ');
-if (args === '--version') console.log(${JSON.stringify(provider === "claude" ? "2.1.4" : "codex-cli 0.150.0")});
+if (args === '--version') console.log(${JSON.stringify(provider === "claude" ? "2.1.286" : "codex-cli 0.159.1")});
 else if (args === ${JSON.stringify(provider === "claude" ? "auth status" : "login status")}) console.log(${JSON.stringify(provider === "claude" ? '{"loggedIn":true}' : "Logged in using ChatGPT")});
 else if (!args.includes('--help')) throw new Error('Only scripted metadata commands are allowed');
 `,

@@ -113,6 +113,7 @@ export * from "./project-requests.ts";
 export * from "./long-thread.ts";
 export * from "./turn-steps.ts";
 
+export * from "./cli-version.ts";
 export * from "./provider-status.ts";
 
 export { ProviderConfiguration, ProviderConfigurations } from "./provider-configuration.ts";

@@ -6,7 +6,9 @@ import { migrateEmptyCursorThreads } from "./cursor-empty-migration.ts";
 import { SessionMetadata } from "./session-metadata.ts";
 import {
   syntheticInput,
+  acceptInput,
   admitInput,
+  reviseInput,
   removeInput,
   notifyNamingPrompt,
 } from "./transcript-inputs.ts";
@@ -381,10 +383,21 @@ export class EngineRepository {
   ): void {
     syntheticInput(this, id, key, text, origin, at);
   }
-  admitInput(command: Command, id: ThreadId, at: number): void {
-    admitInput(this, command, id, at);
+  acceptInput(command: Command, id: ThreadId, at: number): void {
+    acceptInput(this, command, id, at);
   }
-  /** A fresh admission (never a restart or queue edit) may hand its text to title generation. */
+  admitInput(
+    command: Command,
+    id: ThreadId,
+    run: import("@ace/protocol").RunId | undefined,
+    at: number,
+  ): void {
+    admitInput(this, command, id, run, at);
+  }
+  reviseInput(command: Command, id: ThreadId, at: number): void {
+    reviseInput(this, command, id, at);
+  }
+  /** A fresh acceptance (never a restart or queue edit) may hand its text to title generation. */
   notifyNamingPrompt(command: Command, id: ThreadId): void {
     notifyNamingPrompt(this, command, id);
   }

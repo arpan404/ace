@@ -6,7 +6,7 @@ import { QueuePage, type CommandPayload, type ThreadId } from "@ace/protocol";
 import {
   admissionFacts,
   inputText,
-  steerFacts,
+  steerOrStart,
   type ThreadCommandOutcome,
 } from "./thread-commands.ts";
 import type { FakeQueued, ThreadHost } from "./thread-host.ts";
@@ -119,7 +119,7 @@ export function queueCommand(
           ok: true,
           facts: [
             ...admissionFacts(host, edited.key, edited.input, edited.attachments),
-            ...steerFacts(host, edited.key, edited.text),
+            ...steerOrStart(host, edited.key, edited.text),
             { type: "queue.changed", count: host.queued.length },
           ],
         };

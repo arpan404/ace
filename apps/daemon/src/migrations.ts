@@ -122,6 +122,9 @@ const migrations = [
     WHERE json_extract(status,'$.state') NOT IN ('new','done','failed');`,
   // Marker rows for the daemon's one-time data passes (drafts, history imports).
   `CREATE TABLE IF NOT EXISTS upgrade_cleanup (id TEXT PRIMARY KEY);`,
+  // Snapshots keep the root agent's share of the transcript tail (ADR 0062), read by agent.
+  `ALTER TABLE item_heads ADD COLUMN agent_id TEXT NOT NULL DEFAULT '';
+  CREATE INDEX item_heads_thread_agent ON item_heads(thread_id, agent_id, created_seq);`,
 ];
 export function migrate(db: DatabaseSync): void {
   db.exec("BEGIN IMMEDIATE");

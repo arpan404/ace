@@ -23,13 +23,21 @@ function blockOrdinal(block: Block, ordinalOf: OrdinalOf): number | undefined {
   return undefined;
 }
 
+/**
+ * A row's key. The live turn's header is one row whatever block carries it (at the end before
+ * its turn's blocks are known, under its ask after), so it moves instead of flashing out and in.
+ */
+function rowKeyOf(block: Block): string {
+  return block.kind === "live" ? "live" : block.key;
+}
+
 export function transcriptRows(blocks: readonly Block[], ordinalOf: OrdinalOf): Row[] {
   const rows: Row[] = [];
   let ordinal: number | undefined;
   for (const block of blocks) {
     // A block of no known turn belongs to the turn before it.
     ordinal = blockOrdinal(block, ordinalOf) ?? ordinal;
-    rows.push({ key: block.key, block, ordinal });
+    rows.push({ key: rowKeyOf(block), block, ordinal });
   }
   return rows;
 }

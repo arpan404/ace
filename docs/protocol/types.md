@@ -6590,6 +6590,62 @@ Example:
 []
 ```
 
+## CliVersionCheck
+
+[JSON Schema](schema/CliVersionCheck.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| status | yes | `"ok"` |  |
+| installed | yes | string | {"minLength":1,"maxLength":64} |
+| required | yes | string | {"minLength":1,"maxLength":64} |
+
+Example:
+
+```json
+{
+  "installed": "example",
+  "required": "example",
+  "status": "ok"
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| status | yes | `"too_old"` |  |
+| installed | yes | string | {"minLength":1,"maxLength":64} |
+| required | yes | string | {"minLength":1,"maxLength":64} |
+
+Example:
+
+```json
+{
+  "installed": "example",
+  "required": "example",
+  "status": "too_old"
+}
+```
+
+### Variant 3
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| status | yes | `"unreadable"` |  |
+| required | yes | string | {"minLength":1,"maxLength":64} |
+
+Example:
+
+```json
+{
+  "required": "example",
+  "status": "unreadable"
+}
+```
+
 ## CommandDiagnostic
 
 [JSON Schema](schema/CommandDiagnostic.json), input validation.
@@ -18438,7 +18494,7 @@ Example:
 | instanceId | no | string | {"minLength":1,"maxLength":256} |
 | permissionModes | no | array | {"maxItems":256,"items":{"$ref":"https://ace.local/protocol/v1/NativePermissionMode.json"}} |
 | accessModes | no | array | {"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/AccessModeOffer.json"}} |
-| readiness | no | ["not_installed","installed_signed_out","signed_in","needs_attention","not_configured"] |  |
+| readiness | no | ["not_installed","installed_signed_out","signed_in","needs_attention","not_configured","needs_update"] |  |
 | installHint | no | string | {"maxLength":1024} |
 | installCommand | no | string | {"maxLength":256} |
 | latestVersion | no | string | {"maxLength":256} |
@@ -18449,6 +18505,7 @@ Example:
 | enabled | no | boolean |  |
 | path | no | string | {"minLength":1,"maxLength":4096} |
 | version | no | string | {"minLength":1,"maxLength":256} |
+| versionCheck | no | [CliVersionCheck.json](schema/CliVersionCheck.json) |  |
 | auth | yes | ["logged_in","logged_out","unknown"] |  |
 | authMethod | no | [AccountAuthMethod.json](schema/AccountAuthMethod.json) |  |
 | apiKey | no | [ApiKeySupport.json](schema/ApiKeySupport.json) |  |
@@ -18473,8 +18530,7 @@ Example:
     "reason": "example",
     "supported": false
   },
-  "auth": "unknown",
-  "authMethod": "unknown",
+  "auth": "logged_in",
   "error": "example",
   "installed": null,
   "instanceId": "example",

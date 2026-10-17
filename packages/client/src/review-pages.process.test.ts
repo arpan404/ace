@@ -7,7 +7,7 @@ afterEach(async () => {
   cleanup = undefined;
 });
 
-test("overlapping history pages applied out of order keep creation order and a stable cursor", async () => {
+test("history pages applied out of order fill the window in creation order and keep the live tail", async () => {
   const h = await setup();
   cleanup = h.cleanup;
   if (message.type !== "item.created") throw new Error("fixture");
@@ -20,9 +20,10 @@ test("overlapping history pages applied out of order keep creation order and a s
       return { type: "item.created" as const, item };
     }),
   );
+  const b = events[1];
   const c = events[2];
   const d = events[3];
-  if (!c || !d) throw new Error("creation cursors");
+  if (!b || !c || !d) throw new Error("creation cursors");
   const { client, faults } = h.make({ limits: { items: 3 } });
   await ready(client);
   faults.incoming = (event, frame, deliver) => {
@@ -46,7 +47,7 @@ test("overlapping history pages applied out of order keep creation order and a s
   const { store } = client.thread(h.thread.id);
   await barrier(client, h.thread.id);
   expect(store.order).toEqual(["D"]);
-  // First scroll back; keep A/B in a bounded window with the currently loaded D.
+  // Two reads race: one for the window's own cursor, one for a cursor it never had.
   const held: (() => void)[] = [];
   faults.incoming = (event, frame, deliver) => {
     if (event.type === "items.page") held.push(() => deliver(frame));
@@ -63,8 +64,9 @@ test("overlapping history pages applied out of order keep creation order and a s
   const newer = await overlap;
   first();
   const old = await older;
-  store.page(old);
-  store.page(newer);
+  // The read for a cursor the window never had would leave C missing between B and D.
+  store.page(old, c.seq);
+  store.page(newer, d.seq);
   const order = store.order;
   let notifications = 0;
   const stop = store
@@ -72,13 +74,13 @@ test("overlapping history pages applied out of order keep creation order and a s
     .subscribe(() => {
       notifications++;
     });
-  store.page(old);
+  store.page(old, c.seq);
   expect(store.order).toBe(order);
   expect(notifications).toBe(0);
   stop();
-  expect(store.order).toEqual(["A", "B", "C"]);
-  expect(new Set(store.order).size).toBe(3);
-  expect(store.itemsBefore).toBeNull();
+  // The window is full: the live D stays, and older history waits behind B's cursor.
+  expect(store.order).toEqual(["B", "C", "D"]);
+  expect(store.itemsBefore).toBe(b.seq);
 });
 
 test("oversized text history is a bounded preview with lazy complete text reads", async () => {
@@ -94,13 +96,9 @@ test("oversized text history is a bounded preview with lazy complete text reads"
   await ready(client);
   const { store } = client.thread(h.thread.id);
   await barrier(client, h.thread.id);
-  expect(store.order).toEqual([]);
-  const page = await client.itemsPage({
-    threadId: h.thread.id,
-    before: store.itemsBefore ?? undefined,
-    limit: 1,
-  });
-  const item = page.items[0];
+  // Over the snapshot budget, the newest item still shows, as its bounded preview.
+  expect(store.order).toEqual([message.item.id]);
+  const item = store.item(message.item.id);
   if (item?.type !== "message") throw new Error("message preview");
   const part = item.parts[0];
   if (part?.type !== "text" || !part.source) throw new Error("text source");
@@ -111,8 +109,6 @@ test("oversized text history is a bounded preview with lazy complete text reads"
     actual += chunk;
   }
   expect(actual).toBe(text);
-  store.page(page);
-  expect(store.item(item.id)?.id).toBe(item.id);
   expect(store.truncated(item.id)).toBe(true);
   const previous = store.item(item.id);
   h.daemon.store.appendEvents(h.thread.id, [
