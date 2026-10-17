@@ -158,9 +158,12 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
           },
           {
             id: "selected-archive",
-            label: `Archive ${n}…`,
+            label: `Archive ${n}`,
             icon: ArchiveIcon,
-            run: run(() => selection.ask("archive")),
+            run: run(() => {
+              actions.archiveMany(chosen);
+              selection.clear();
+            }),
           },
           {
             id: "selected-delete",

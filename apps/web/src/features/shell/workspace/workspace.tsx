@@ -191,7 +191,12 @@ export function Workspace(props: {
   );
   return (
     <div ref={outer} data-workspace className="relative flex min-h-0 flex-1 flex-col">
-      <WorkspaceHotkeys workspace={workspace} definition={definition} actions={actions} />
+      <WorkspaceHotkeys
+        workspace={workspace}
+        definition={definition}
+        actions={actions}
+        root={() => outer.current}
+      />
       <KindOverlays scope={scope} definition={definition} />
       {shown && (
         <LocalBoundary label="the close confirmation" fallback={null}>

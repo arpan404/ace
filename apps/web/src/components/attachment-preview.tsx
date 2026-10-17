@@ -162,6 +162,7 @@ function TextBody(props: { source: FileSource }) {
   return (
     <div className="flex min-h-0 flex-col gap-2">
       <pre
+        role="region"
         tabIndex={0}
         aria-label="File contents"
         style={{ maxHeight: stage.height }}

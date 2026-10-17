@@ -220,7 +220,8 @@ export function TabItem(props: {
               onClick={() => void actions.close(tab.key)}
               className={cn(
                 "absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded-xs text-subtle-foreground outline-none",
-                "opacity-0 transition-[opacity,background-color,color] duration-(--motion-fast) group-hover/tab:opacity-100 pointer-coarse:opacity-100 hover:bg-accent hover:text-foreground",
+                // Shown on keyboard focus too, where Delete closes the tab it marks.
+                "opacity-0 transition-[opacity,background-color,color] duration-(--motion-fast) group-focus-within/tab:opacity-100 group-hover/tab:opacity-100 pointer-coarse:opacity-100 hover:bg-accent hover:text-foreground",
                 props.active && "opacity-100",
               )}
             >

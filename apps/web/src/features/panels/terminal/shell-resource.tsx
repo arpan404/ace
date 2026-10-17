@@ -239,6 +239,7 @@ function ShellHeader(props: { scope: string; task: BackgroundTask; command: stri
         </Tip>
       )}
       <Tip label={takeOverReason}>
+        {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard */}
         <span tabIndex={0} className="inline-flex">
           <Button size="sm" variant="ghost" disabled aria-label="Take over (unavailable)">
             <HandGrabbingIcon aria-hidden size={14} />

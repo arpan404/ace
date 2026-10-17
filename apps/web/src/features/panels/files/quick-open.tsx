@@ -154,6 +154,7 @@ export function QuickOpenDialog(props: { threadId: string; onClose(): void }) {
                   {row.group}
                 </p>
               )}
+              {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- keys pick through the combobox's aria-activedescendant */}
               <div
                 id={optionId(index)}
                 role="option"

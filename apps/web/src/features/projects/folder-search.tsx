@@ -375,6 +375,7 @@ function FolderOption(props: {
   const { row } = props;
   if (row.create)
     return (
+      // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- keys pick through the combobox's aria-activedescendant
       <div
         id={props.id}
         role="option"
@@ -399,6 +400,7 @@ function FolderOption(props: {
       </div>
     );
   return (
+    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- keys pick through the combobox's aria-activedescendant
     <div
       id={props.id}
       role="option"

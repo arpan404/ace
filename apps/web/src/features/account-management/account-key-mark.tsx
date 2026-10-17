@@ -7,6 +7,7 @@ export function AccountKeyMark(props: { method: string | undefined }) {
   return (
     <Tip label="Signed in with an API key">
       <span
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
         tabIndex={0}
         aria-label="Signed in with an API key"
         className="inline-flex shrink-0 text-muted-foreground"

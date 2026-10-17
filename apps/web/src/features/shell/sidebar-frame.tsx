@@ -7,6 +7,7 @@ import { useLayout } from "@/lib/layout.tsx";
 import { crowdedQuery, overlayPanelsQuery, useSidebarInline } from "@/lib/breakpoints.ts";
 import { useMediaQuery } from "@/lib/media.ts";
 import { Sidebar, SidebarProvider } from "@/components/ui/sidebar.tsx";
+import { RegionKeys } from "./region-keys.tsx";
 
 interface FrameValue {
   /** There is a sidebar (the header shows its toggle). */
@@ -98,6 +99,12 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
   // ⌘\ shows or hides the sidebar where it is: the sheet on a narrow window (leaving the wide
   // window's remembered choice alone), the sidebar beside the content elsewhere.
   useHotkey(keymap.toggleSidebar.keys, value.sidebarShown ? value.hideSidebar : value.showSidebar);
+  // F6 and ⇧⌘E find the sidebar by this mark (`regions.ts`); `contents` keeps its layout.
+  const region = (
+    <div data-focus-region="sidebar" className="contents">
+      {props.sidebar}
+    </div>
+  );
   return (
     <FrameContext.Provider value={value}>
       <SidebarProvider
@@ -110,12 +117,13 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
         data-sidebar={wide ? (inline ? "shown" : "hidden") : "sheet"}
         className="relative z-[1]"
       >
+        <RegionKeys showSidebar={value.hasSidebar && !shown ? value.showSidebar : undefined} />
         {setup ? null : wide ? (
-          <Sidebar>{props.sidebar}</Sidebar>
+          <Sidebar>{region}</Sidebar>
         ) : (
           <Suspense fallback={null}>
             <SidebarSheet open={sheetOpen} onOpenChange={setSheetOpen}>
-              {props.sidebar}
+              {region}
             </SidebarSheet>
           </Suspense>
         )}

@@ -36,6 +36,7 @@ export function AttachmentTiles(props: Shown & { className?: string | undefined 
     <div className={cn("flex flex-col items-end gap-1.5", props.className)}>
       {imageDelivery && (
         <Tip label={deliveryDetails[imageDelivery]}>
+          {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard */}
           <span tabIndex={0} className="focus-ring rounded-xs text-xs text-muted-foreground">
             {imageDelivery === "file_path" ? "Images sent as files" : "Native images"}
           </span>
@@ -184,6 +185,7 @@ export function FileChip(props: {
           {face}
         </button>
       ) : (
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
         <span tabIndex={0} aria-label={`${file.name}, ${meta}`} className={cn(chip, "focus-ring")}>
           {face}
         </span>
