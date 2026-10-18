@@ -94,12 +94,15 @@ describe.skipIf(!executablePath)("authorized agent browser MCP", () => {
       expect(await f.evaluate("document.getElementById('result').textContent")).toBe("MCP input");
       const image = z
         .object({
-          content: z.array(
-            z.object({
-              type: z.literal("image"),
-              mimeType: z.literal("image/jpeg"),
-              data: z.string(),
-            }),
+          content: z.tuple(
+            [
+              z.object({
+                type: z.literal("image"),
+                mimeType: z.literal("image/jpeg"),
+                data: z.string(),
+              }),
+            ],
+            z.unknown(),
           ),
         })
         .parse(await call("screenshot"));

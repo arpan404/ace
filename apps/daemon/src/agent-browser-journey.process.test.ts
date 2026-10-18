@@ -13,7 +13,9 @@ const nodes = z.object({
   nodes: z.array(z.object({ name: z.string(), ref: z.string().optional() })),
 });
 const image = z.object({
-  result: z.object({ content: z.array(z.object({ type: z.literal("image"), data: z.string() })) }),
+  result: z.object({
+    content: z.tuple([z.object({ type: z.literal("image"), data: z.string() })], z.unknown()),
+  }),
 });
 
 it("an agent completes a form navigation, reads results, rejects stale refs and resumes after human control", async (test) => {

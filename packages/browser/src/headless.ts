@@ -147,6 +147,7 @@ export class ChromeBackend implements BrowserBackend {
         frames: () => tabs.frames(tabId()),
         pageStatus: () => tabs.pageStatus(tabId()),
         networkBody: (requestId) => tabs.inspection.body(requestId),
+        networkPending: () => tabs.inspection.pending(tabId()),
         url: () => tabs.url(tabId()),
         navigate: async (url, _timeout, navigation) => {
           // The session owns the load budget; it pauses during policy waits.

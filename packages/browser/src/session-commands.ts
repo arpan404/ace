@@ -14,6 +14,7 @@ import { BrowserActionError } from "./action-error.ts";
 import { waitForBrowser } from "./wait.ts";
 import { BrowserOriginError, browserOrigin } from "./policy.ts";
 import { NavigationTask } from "./navigation.ts";
+import { documentLoaded, networkIdle } from "./load-wait.ts";
 import { evaluatePage, evaluateReadOnly } from "./evaluation.ts";
 import { measureBrowserInteraction } from "./measurement.ts";
 import { uploadPaths } from "./uploads.ts";
@@ -182,6 +183,13 @@ export async function executeBrowserCommand(
             ? context.navigate()
             : page.navigate(command.url, command.timeout + 65_000, task.signal);
         });
+        // The navigation has reached DOMContentLoaded; later stages share its deadline.
+        if (command.waitUntil !== "domcontentloaded")
+          await task.run(async () => {
+            const clock = context.options.navigationClock;
+            await documentLoaded(page, clock, task.signal);
+            if (command.waitUntil === "networkidle") await networkIdle(page, clock, task.signal);
+          });
         return context.state();
       } catch (error) {
         if (task.blocked)
@@ -205,7 +213,10 @@ export async function executeBrowserCommand(
       }
     }
     case "snapshot":
-      return { tabId: context.tabId, ...(await context.refs.snapshot()) };
+      return {
+        tabId: context.tabId,
+        ...(await context.refs.snapshot({ ref: command.ref, depth: command.depth })),
+      };
     case "find": {
       const snapshot = await context.refs.snapshot();
       return {
@@ -371,7 +382,7 @@ export async function executeBrowserCommand(
     case "wait_for":
       return waitForBrowser({
         command,
-        cdp,
+        page,
         refs: context.refs,
         clock: context.options.navigationClock,
         policies: context.policies,

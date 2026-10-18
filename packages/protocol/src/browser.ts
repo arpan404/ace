@@ -65,7 +65,17 @@ export const BrowserCommand = z.discriminatedUnion("action", [
     text: z.string().max(4096),
     forward: z.boolean().default(true),
   }),
-  commandBase.extend({ action: z.literal("navigate"), url: z.string().max(8192), timeout }),
+  commandBase.extend({
+    action: z.literal("navigate"),
+    url: z.string().max(8192),
+    timeout,
+    waitUntil: z
+      .enum(["domcontentloaded", "load", "networkidle"])
+      .default("domcontentloaded")
+      .describe(
+        "When navigate returns: domcontentloaded (the HTML is parsed), load (images, styles and scripts too) or networkidle (load, then no request in flight for 500 ms).",
+      ),
+  }),
   commandBase.extend({
     action: click.shape.action,
     ref: short.optional().describe("Ref from the latest snapshot. Omit it to click at x, y."),
@@ -86,7 +96,21 @@ export const BrowserCommand = z.discriminatedUnion("action", [
     action: z.literal("measure_interaction"),
     ...BrowserMeasurementOptions.shape,
   }),
-  commandBase.extend({ action: z.literal("snapshot") }),
+  commandBase.extend({
+    action: z.literal("snapshot"),
+    ref: short
+      .optional()
+      .describe(
+        "Only this element's subtree (a ref from the latest snapshot). Its refs join that snapshot's.",
+      ),
+    depth: z
+      .number()
+      .int()
+      .min(1)
+      .max(64)
+      .optional()
+      .describe("How many levels below the page (or ref) to read. Default 20."),
+  }),
   commandBase.extend({
     action: z.literal("screenshot"),
     fullPage: z.boolean().default(false).describe("The whole scrollable page, not the viewport."),
@@ -95,7 +119,12 @@ export const BrowserCommand = z.discriminatedUnion("action", [
   commandBase.extend({
     action: z.literal("evaluate"),
     expression: z.string().max(65_536),
-    mode: z.enum(["read-only", "unrestricted"]).default("unrestricted"),
+    mode: z
+      .enum(["read-only", "unrestricted"])
+      .default("unrestricted")
+      .describe(
+        "unrestricted: runs in the page like a script of its own and may change it (awaits promises). read-only: an isolated world where anything with a side effect (writes, calls into page code, promises) is refused; use it to read values.",
+      ),
   }),
   commandBase.extend({
     action: z.literal("wait_for"),
@@ -109,7 +138,7 @@ export const BrowserCommand = z.discriminatedUnion("action", [
       .max(8192)
       .optional()
       .describe(
-        "Exact destination URL. Also waits for DOMContentLoaded. Works before or after navigation commits.",
+        "Destination URL: exact, or a glob where * matches any characters (http://localhost:3000/orders/*). Also waits for DOMContentLoaded. Works before or after navigation commits.",
       ),
     text: z
       .string()
@@ -117,6 +146,17 @@ export const BrowserCommand = z.discriminatedUnion("action", [
       .max(4096)
       .optional()
       .describe("Visible page text to wait for, matched as a substring."),
+    networkIdle: z
+      .literal(true)
+      .optional()
+      .describe("Wait until no request is in flight for 500 ms, such as after a save."),
+    timeMs: z
+      .number()
+      .int()
+      .min(1)
+      .max(60_000)
+      .optional()
+      .describe("Just wait this many ms. Prefer a condition; use this for animations."),
     timeout,
   }),
   commandBase.extend({
@@ -144,8 +184,7 @@ export const BrowserCommand = z.discriminatedUnion("action", [
   }),
   commandBase.extend({
     action: z.literal("tabs"),
-    /** `switch` is the earlier name of `select`. */
-    operation: z.enum(["list", "open", "select", "switch", "close"]).default("list"),
+    operation: z.enum(["list", "open", "select", "close"]).default("list"),
     url: z.string().max(8192).optional(),
     label: z.string().min(1).max(64).optional(),
   }),

@@ -17,43 +17,53 @@ that calls them applies its own permissions, so every call ace receives proceeds
    Other browser tools also open it lazily.
 2. `ace_browser_snapshot({})` returns bounded accessibility `nodes`, with
    `name`, `role`, optional `value`, and optional `ref`. Only nodes with refs
-   can be targeted. Take a new snapshot after navigation.
+   can be targeted. Take a new snapshot after navigation. `ref` reads one
+   element's subtree (its refs join the latest snapshot's) and `depth` limits
+   the levels read. Output over 10000 nodes or 512 KB is cut with
+   `truncated: true` and a `hint`; a page over 50000 DOM nodes returns an
+   outline of its landmarks and headings to scope with `ref`.
 3. `ace_browser_click({ref: "e1-42"})` clicks the element's centre.
    `ace_browser_type({ref: "e1-43", text: "Ada"})` replaces the editable
    element's contents. `ace_browser_press({ref: "e1-43", key: "Enter"})`
    focuses it and sends a key. Omitting `ref` uses the focused element.
 4. After submitting, use `ace_browser_wait_for({url: "http://localhost:3000/results"})`
-   for an exact destination through DOMContentLoaded, or
+   for a destination through DOMContentLoaded (exact, or a glob where `*` matches
+   any characters: `"http://localhost:3000/orders/*"`), or
    `ace_browser_wait_for({text: "Saved"})` for a bounded visible-text substring.
    These check the current document, so they work if navigation already finished.
    A URL includes its query string and fragment. A loaded error document is not
    proof that a submission succeeded; inspect its content.
 5. Snapshot again to read results and obtain current refs.
    `ace_browser_screenshot({})` returns an inline JPEG of the viewport, capped
-   at 1536 pixels on its longest side. Capture scaling does not change layout.
+   at 1536 pixels on its longest side and 768 KB (a denser capture is retaken
+   at lower quality, then smaller). Capture scaling does not change layout.
+   Beside the image comes its `width`, `height`, `scale` (CSS pixels per image
+   pixel) and `origin` (the viewport point of its top-left corner): image pixel
+   (px, py) is click point (`origin.x + px * scale`, `origin.y + py * scale`).
 
-Choose exactly one wait condition: `url`, `text`, or `ref` with
-`state: "visible" | "hidden"`. The element form applies to the current document;
+Choose exactly one wait condition: `url`, `text`, `ref` with
+`state: "visible" | "hidden"`, `networkIdle: true` (no request in flight for
+500 ms, as after a save) or `timeMs` (a fixed pause up to 60000 ms). The element form applies to the current document;
 it cannot wait for a destination element whose ref does not exist yet. Wait and
 navigation `timeout` values are milliseconds, default 10000, maximum 30000.
-Cancellation does not return a late success. Each text poll visits at most 1024 DOM nodes
-and 65536 text characters, and rejects documents over the 20000-node snapshot cap.
-Larger searches return `page_text_limit` instead of repeatedly scanning the page.
+Cancellation does not return a late success. Text waits work on pages of any size: each poll
+first checks the document's text natively and walks only a document that contains it, and
+polls on large pages are spaced so probing takes at most a fifth of the page's main thread.
 
 Refs include frame identity, a document generation and Chromium node identity. They remain
 stable across snapshots of an unchanged element in the same document, but only
 the latest snapshot grants actionable refs. Navigation, detached elements and
 backend replacement require a fresh snapshot. A ref is not a CSS selector.
 
-| Tool                   | Arguments and result                                                                        |
-| ---------------------- | ------------------------------------------------------------------------------------------- |
-| `ace_browser_navigate` | `url`, optional `timeout`; HTTP(S), no URL credentials; returns browser state               |
-| `ace_browser_scroll`   | `x`, `y` are horizontal/vertical pixel distances, not target coordinates                    |
-| `ace_browser_evaluate` | `expression`, optional `mode: read-only / unrestricted`; bounded JSON                       |
-| `ace_browser_logs`     | optional kind, level, url substring, status, limit; returns bounded redacted inline entries |
-| `ace_browser_resize`   | `width`, `height`, 100–4096 CSS pixels                                                      |
-| `ace_browser_emulate`  | `width`, `height`, optional `deviceScaleFactor`, `mobile`, `touch`, `colorScheme`           |
-| `ace_browser_close`    | `{}`; closes the thread browser after agent control is restored                             |
+| Tool                   | Arguments and result                                                                                                                                              |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ace_browser_navigate` | `url`, optional `timeout` and `waitUntil` (`domcontentloaded`, `load`, `networkidle`); HTTP(S), no URL credentials; returns browser state                         |
+| `ace_browser_scroll`   | `x`, `y` are horizontal/vertical pixel distances, not target coordinates                                                                                          |
+| `ace_browser_evaluate` | `expression`, optional `mode`: `unrestricted` (default; may change the page, awaits promises) or `read-only` (isolated world; side effects refused); bounded JSON |
+| `ace_browser_logs`     | optional kind, level, url substring, status, limit; returns bounded redacted inline entries                                                                       |
+| `ace_browser_resize`   | `width`, `height`, 100–4096 CSS pixels                                                                                                                            |
+| `ace_browser_emulate`  | `width`, `height`, optional `deviceScaleFactor`, `mobile`, `touch`, `colorScheme`                                                                                 |
+| `ace_browser_close`    | `{}`; closes the thread browser after agent control is restored                                                                                                   |
 
 ## Sites and control
 

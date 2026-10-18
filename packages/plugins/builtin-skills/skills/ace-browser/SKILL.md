@@ -12,9 +12,9 @@ Each thread has a browser with tabs inside ace, shared by you and the person. Th
 1. `ace_browser_open` with `url` (HTTP or HTTPS, localhost included). It returns the `tabId` you work in. Without a url it reports your current tab.
 2. `ace_browser_snapshot` reads the accessibility tree. Each node has a **ref**.
 3. Act on refs: `ace_browser_click` (or `x`, `y` for a point), `ace_browser_type` (replaces the field's text), `ace_browser_fill_form` (several fields at once), `ace_browser_press` (keys such as `Enter`, `Control+a`), `ace_browser_select`, `ace_browser_check`, `ace_browser_hover`, `ace_browser_drag`, `ace_browser_upload`.
-4. After a click or key that navigates, call `ace_browser_wait_for` with exactly one of `url`, `text` or `ref` plus `state`. Then snapshot again.
+4. After a click or key that navigates, call `ace_browser_wait_for` with exactly one of `url` (exact, or a glob such as `http://localhost:3000/orders/*`), `text`, `ref` plus `state`, `networkIdle: true` (after a save or other requests) or `timeMs`. Then snapshot again. `ace_browser_navigate` takes `waitUntil: "load"` or `"networkidle"` for pages that keep loading after their HTML.
 
-**Refs** belong to the latest snapshot of the current document. Navigation expires them. A `stale_ref` error means: snapshot again and use a current ref. `ace_browser_find` (role and name) and `ace_browser_find_text` locate elements without reading the whole tree.
+**Refs** belong to the latest snapshot of the current document. Navigation expires them. A `stale_ref` error means: snapshot again and use a current ref. `ace_browser_find` (role and name) and `ace_browser_find_text` locate elements without reading the whole tree. On a large page the snapshot is cut short (`truncated` with a `hint`) or lists only landmarks and headings: pass one's `ref` to `ace_browser_snapshot` to read that part, and `depth` to read fewer levels.
 
 ## Tabs
 
@@ -30,11 +30,11 @@ Every page tool takes an optional `tabId`. Without one, a tool acts in your curr
 ## Evidence
 
 - `ace_browser_logs`: console and network entries, filtered by kind, level, URL or status. `ace_browser_network_body` reads one response body by its `requestId` from the logs.
-- `ace_browser_screenshot`: a visual check of one tab (`fullPage` for the whole page, `ref` for one element). It never changes the tab the person sees. Snapshots cost fewer tokens; use them for structure.
+- `ace_browser_screenshot`: a visual check of one tab (`fullPage` for the whole page, `ref` for one element). It never changes the tab the person sees. Snapshots cost fewer tokens; use them for structure. To click something you only see in the image, use the `scale` and `origin` beside it: click `x = origin.x + px * scale`, `y = origin.y + py * scale` for image pixel (px, py).
 - `ace_browser_pdf`: print a tab to a PDF file. `ace_browser_downloads`: what the tabs downloaded, or `wait` for downloads to finish. `ace_browser_extensions`: the installed extensions (read-only).
-- `ace_browser_evaluate`: runs JavaScript in the page.
+- `ace_browser_evaluate`: runs JavaScript in the page. `mode: "read-only"` reads values and refuses side effects; the default may change the page.
 - `ace_browser_measure_interaction`: input latency and frame hitches for one action.
-- `ace_browser_record_start` and `ace_browser_record_stop`: a recording attached to the thread.
+- `ace_browser_record_start` and `ace_browser_record_stop`: a recording of your tab (or `tabId`), attached to the thread, even while the person views another tab.
 
 ## Page settings
 
@@ -46,6 +46,15 @@ The person never has to take over or hand back. While you work in a tab it is ma
 
 - When they are typing, clicking or scrolling in your tab, your clicks, typing, keys, scrolls and navigation there wait until they pause. If they keep going, the tool fails with `human_active`: snapshot again (the page may have changed), then retry or use another tab. Reads (snapshot, screenshot, evaluate, logs) never wait.
 - A tab the person marks "Keep agents out" is theirs alone: tools there fail with `human_private`. Use another tab.
+
+## When a tool fails
+
+Every failure has a `code` and a `hint` that says what to do next. The common ones:
+
+- `page_unreachable`: `detail` names the network error. `net::ERR_CONNECTION_REFUSED` on localhost means the dev server is not running or listens on another port.
+- `browser_restarted`: the browser or the daemon restarted and the tab reopened at its last address. Form input and refs are gone: snapshot again and redo the lost steps.
+- A result with `pending_dialog` means a dialog holds the tab. Answer it with `ace_browser_dialog`, then retry.
+- `evaluate_failed`: the script threw, ran over 10 seconds, or (in `read-only` mode) tried a side effect.
 
 ## Another machine
 

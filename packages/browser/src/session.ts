@@ -8,7 +8,8 @@ import { SessionLogs } from "./logs.ts";
 import { browserState } from "./session-state.ts";
 import { closeSession } from "./session-close.ts";
 import { QueueBudget } from "./session-queue.ts";
-import { SessionRecording } from "./session-recording.ts";
+import { SessionRecording, type RecordedTab } from "./session-recording.ts";
+import type { AgentScreenshot } from "./session-images.ts";
 import type { NavigationTask } from "./navigation.ts";
 import { SessionTabs } from "./session-tabs.ts";
 import { TabRuntime, type TabHost } from "./tab-runtime.ts";
@@ -102,6 +103,8 @@ export class BrowserSession {
         private: record.private,
       });
     this.tabs.reconcile();
+    // Tabs reopened after a daemon restart: their page state and refs are gone.
+    for (const record of options.restoredTabs ?? []) this.tabs.find(record.tabId)?.refs.restarted();
     this.captured = this.tabs.viewedId();
     this.live = new LiveCapture(
       this.viewedPage().cdp,
@@ -160,7 +163,7 @@ export class BrowserSession {
         const runtime = this.tabs.find(tabId);
         if (runtime && (await wakeTab(runtime))) this.emit();
       },
-      beginRecording: (check) => this.recordings.start(check),
+      beginRecording: (tabId, check) => this.recordings.start(check, this.recordedTab(tabId)),
       finishRecording: () => this.recordings.stop(),
       annotation: (connectionId: string, event: BrowserAnnotationEvent) =>
         this.options.annotation?.(connectionId, event),
@@ -281,6 +284,7 @@ export class BrowserSession {
     signal?: AbortSignal,
   ): Promise<void> {
     await this.swap(backend, kind, signal);
+    for (const tab of this.tabs.all()) tab.refs.restarted();
     this.pageStateLost = true;
     this.reason = "The page was reopened after the browser disconnected";
     this.emit();
@@ -492,7 +496,7 @@ export class BrowserSession {
     tabId?: string,
     options: { fullPage?: boolean | undefined; ref?: string | undefined } = {},
     actor: Actor = { kind: "agent" },
-  ): Promise<Uint8Array> {
+  ): Promise<AgentScreenshot> {
     this.lastActivity = this.options.now();
     return this.onTab(actor, tabId, (runtime) => runtime.screenshot(actor, signal, options));
   }
@@ -514,8 +518,26 @@ export class BrowserSession {
     const viewed = this.tab();
     const epoch = viewed.access.epoch;
     return viewed.serialize(() =>
-      this.recordings.start(() => viewed.readCheck({ kind: "agent" }, epoch)),
+      this.recordings.start(
+        () => viewed.readCheck({ kind: "agent" }, epoch),
+        this.recordedTab(viewed.id),
+      ),
     );
+  }
+  /** A tab a recording follows; a backend without tabs has only the page it shows. */
+  private recordedTab(tabId: string): RecordedTab | undefined {
+    if (!this.options.backend.tabs) return undefined;
+    const epoch = this.tabs.find(tabId)?.access.epoch;
+    return {
+      id: tabId,
+      page: this.tabs.page(tabId),
+      live: () => this.captured === tabId && !this.paused,
+      // Agent recordings never resume in a tab that turned private, even once let back in.
+      visible: () => {
+        const tab = this.tabs.find(tabId);
+        return tab !== undefined && !tab.private && tab.access.epoch === epoch;
+      },
+    };
   }
   stopRecording(actor: Actor = { kind: "agent" }): Promise<BrowserArtifact> {
     const viewed = this.tab();

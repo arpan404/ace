@@ -1,26 +1,39 @@
-/** Bound every visible-text probe before allocating or matching page text. These are work
- * budgets, not timings: measured latency and memory still need the merge-time benchmark. */
-export const textWaitMaxNodes = 1024;
-export const textWaitMaxCharacters = 65_536;
+/**
+ * One visible-text probe, run in the page. A native `textContent` check rules out most polls
+ * cheaply; only a document that contains the text is walked, text nodes only, checking layout
+ * just for the nodes the walk reads. The probe reports how long it ran so the caller can space
+ * polls out on very large pages instead of refusing them.
+ */
 export function textCondition(text: string): string {
   return `(() => {
-    if (document.readyState === 'loading' || !document.body) return {matched:false, limited:false};
+    const started = performance.now();
+    const done = (matched) => ({ matched, elapsed: performance.now() - started });
+    if (document.readyState === 'loading' || !document.body) return done(false);
     const search = ${JSON.stringify(text)};
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ALL);
-    let node, nodes=0, characters=0, tail='';
+    if (!(document.body.textContent ?? '').includes(search)) return done(false);
+    const skipped = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    let node, tail = '';
     while ((node = walker.nextNode())) {
-      if (++nodes > ${textWaitMaxNodes}) return {matched:false, limited:true};
-      if (node.nodeType !== Node.TEXT_NODE || !node.parentElement) continue;
-      if (['SCRIPT','STYLE','NOSCRIPT'].includes(node.parentElement.tagName)) continue;
+      const parent = node.parentElement;
+      if (!parent || skipped.has(parent.tagName)) continue;
       const value = node.nodeValue ?? '';
-      if (characters + value.length > ${textWaitMaxCharacters}) return {matched:false, limited:true};
-      characters += value.length;
-      const range = document.createRange(); range.selectNodeContents(node);
-      if (!range.getClientRects().length || getComputedStyle(node.parentElement).visibility === 'hidden') continue;
+      if (!value) continue;
+      range.selectNodeContents(node);
+      if (!range.getClientRects().length || getComputedStyle(parent).visibility === 'hidden') continue;
       const content = tail + value;
-      if (content.includes(search)) return {matched:true, limited:false};
+      if (content.includes(search)) return done(true);
       tail = search.length > 1 ? content.slice(1 - search.length) : '';
     }
-    return {matched:false, limited:false};
+    return done(false);
   })()`;
+}
+
+/**
+ * The pause before the next probe: at least `intervalMs`, and long enough that probing never
+ * takes more than a fifth of the page's main thread, capped at one second.
+ */
+export function nextProbeDelay(elapsedMs: number, intervalMs = 50): number {
+  return Math.min(1000, Math.max(intervalMs, Math.ceil(elapsedMs * 4)));
 }

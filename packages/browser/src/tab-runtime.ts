@@ -20,7 +20,7 @@ import type { NavigationPolicies } from "./policy-waits.ts";
 import { SnapshotRefs } from "./refs.ts";
 import { executeBrowserCommand, type TabCommand } from "./session-commands.ts";
 import type { TabView } from "./page-tools.ts";
-import { agentScreenshot } from "./session-images.ts";
+import { agentScreenshot, type AgentScreenshot } from "./session-images.ts";
 import { sendHumanInput } from "./session-input.ts";
 import type { Actor, SessionOptions } from "./session-options.ts";
 import { SessionQueue, mutatesBrowser, type QueueBudget } from "./session-queue.ts";
@@ -50,7 +50,8 @@ export interface TabHost {
   privacyChanged(): void;
   /** Bring a frozen tab back before work runs on it. */
   wake(tabId: string): Promise<void>;
-  beginRecording(check: () => void): Promise<void>;
+  /** Start recording this tab (`tabId`), whichever tab the person views. */
+  beginRecording(tabId: string, check: () => void): Promise<void>;
   finishRecording(): Promise<BrowserArtifact>;
   annotation(connectionId: string, event: BrowserAnnotationEvent): void;
 }
@@ -207,7 +208,7 @@ export class TabRuntime {
   }
   restarted(): void {
     this.annotation.restarted(this.page.cdp);
-    this.refs.invalidate();
+    this.refs.restarted();
     this.watchIdentity();
   }
   /** Dialog state changed on the page. */
@@ -446,7 +447,7 @@ export class TabRuntime {
     actor: Actor,
     signal?: AbortSignal,
     options: { fullPage?: boolean | undefined; ref?: string | undefined } = {},
-  ): Promise<Uint8Array> {
+  ): Promise<AgentScreenshot> {
     try {
       this.readCheck(actor);
     } catch (error) {
@@ -546,7 +547,7 @@ export class TabRuntime {
       point: (point) => this.point(actor, point),
       emit: () => host.emit(),
       run: (...args) => this.run(...args),
-      beginRecording: (check) => host.beginRecording(check),
+      beginRecording: (check) => host.beginRecording(this.id, check),
       finishRecording: () => host.finishRecording(),
     });
   }

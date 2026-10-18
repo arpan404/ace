@@ -2,6 +2,13 @@ import { z } from "zod";
 import { BrowserActionError } from "./action-error.ts";
 import type { BrowserBackendPage } from "./backend.ts";
 import { modelScreenshot, type CaptureRegion } from "./model-screenshot.ts";
+import { screenshotPlacement, type ScreenshotGeometry } from "./screenshot-geometry.ts";
+
+/** A model screenshot, with where its pixels lie on the page when that could be read. */
+export interface AgentScreenshot {
+  bytes: Uint8Array;
+  geometry?: ScreenshotGeometry | undefined;
+}
 
 const ScreenshotBytes = z
   .instanceof(Uint8Array)
@@ -21,13 +28,15 @@ export async function agentScreenshot(
     paused(): boolean;
   },
   signal?: AbortSignal,
-): Promise<Uint8Array> {
+): Promise<AgentScreenshot> {
   signal?.throwIfAborted();
   fences.read();
   fences.ready();
   const area = await region();
   fences.read();
   const generation = fences.generation();
+  // Geometry is a convenience: a page that cannot report its layout still gets its image.
+  const placement = await screenshotPlacement(page.cdp, area).catch(() => undefined);
   const bytes =
     area.kind === "viewport"
       ? await page.screenshot("jpeg")
@@ -38,5 +47,6 @@ export async function agentScreenshot(
   fences.ready();
   if (generation !== fences.generation() && fences.lost())
     throw new BrowserActionError("backend_changed");
-  return ScreenshotBytes.parse(bytes);
+  const checked = ScreenshotBytes.parse(bytes);
+  return { bytes: checked, geometry: placement?.measure(checked) };
 }

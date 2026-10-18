@@ -21,6 +21,9 @@ export {
   browserMachineInput,
   type BrowserMachineRoute,
 } from "./mcp.ts";
+export { agentBrowserError } from "./agent-errors.ts";
+export type { AgentScreenshot } from "./session-images.ts";
+export type { ScreenshotGeometry } from "./screenshot-geometry.ts";
 
 export { Recording as BrowserRecording } from "./recording.ts";
 export { ChromeBackend, type ChromeBackendOptions } from "./headless.ts";

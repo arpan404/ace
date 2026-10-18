@@ -193,7 +193,7 @@ it("headless recovery invalidates old refs while reporting lost state", async ()
       { action: "type", ref, text: "x" },
       { kind: "human", connectionId: "human" },
     ),
-  ).rejects.toThrow("ref");
+  ).rejects.toMatchObject({ code: "browser_restarted" });
   expect(frames.length).toBeGreaterThan(1);
   expect(frames.at(-1)?.sequence).toBeGreaterThan(frames[0]?.sequence ?? 0);
 });

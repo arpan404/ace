@@ -114,6 +114,16 @@
         "url": {
           "maxLength": 8192,
           "type": "string"
+        },
+        "waitUntil": {
+          "default": "domcontentloaded",
+          "description": "When navigate returns: domcontentloaded (the HTML is parsed), load (images, styles and scripts too) or networkidle (load, then no request in flight for 500 ms).",
+          "enum": [
+            "domcontentloaded",
+            "load",
+            "networkidle"
+          ],
+          "type": "string"
         }
       },
       "required": [
@@ -348,6 +358,18 @@
           "const": "snapshot",
           "type": "string"
         },
+        "depth": {
+          "description": "How many levels below the page (or ref) to read. Default 20.",
+          "maximum": 64,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "ref": {
+          "description": "Only this element's subtree (a ref from the latest snapshot). Its refs join that snapshot's.",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
         "tabId": {
           "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
@@ -401,6 +423,7 @@
         },
         "mode": {
           "default": "unrestricted",
+          "description": "unrestricted: runs in the page like a script of its own and may change it (awaits promises). read-only: an isolated world where anything with a side effect (writes, calls into page code, promises) is refused; use it to read values.",
           "enum": [
             "read-only",
             "unrestricted"
@@ -425,6 +448,11 @@
         "action": {
           "const": "wait_for",
           "type": "string"
+        },
+        "networkIdle": {
+          "const": true,
+          "description": "Wait until no request is in flight for 500 ms, such as after a save.",
+          "type": "boolean"
         },
         "ref": {
           "description": "Ref from the latest snapshot. Use only for element visibility waits.",
@@ -452,6 +480,12 @@
           "minLength": 1,
           "type": "string"
         },
+        "timeMs": {
+          "description": "Just wait this many ms. Prefer a condition; use this for animations.",
+          "maximum": 60000,
+          "minimum": 1,
+          "type": "integer"
+        },
         "timeout": {
           "default": 10000,
           "maximum": 120000,
@@ -459,7 +493,7 @@
           "type": "integer"
         },
         "url": {
-          "description": "Exact destination URL. Also waits for DOMContentLoaded. Works before or after navigation commits.",
+          "description": "Destination URL: exact, or a glob where * matches any characters (http://localhost:3000/orders/*). Also waits for DOMContentLoaded. Works before or after navigation commits.",
           "maxLength": 8192,
           "minLength": 1,
           "type": "string"
@@ -620,7 +654,6 @@
             "list",
             "open",
             "select",
-            "switch",
             "close"
           ],
           "type": "string"
