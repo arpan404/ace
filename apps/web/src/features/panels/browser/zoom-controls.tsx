@@ -18,7 +18,7 @@ export function ZoomRow(props: { tools: PageTools }) {
       role="group"
       aria-label="Zoom"
       className={cn(
-        "flex h-[30px] items-center gap-[9px] px-2 text-ui text-foreground [&_svg]:size-4",
+        "flex h-7.5 items-center gap-[9px] px-2 text-ui text-foreground [&_svg]:size-4",
         off && "opacity-50",
       )}
     >

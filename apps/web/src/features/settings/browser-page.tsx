@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
-import { useAlwaysShowDevices } from "@/features/panels/browser/device-settings.ts";
+import { useAlwaysShowDevices } from "@/features/panels/index.ts";
 import { settingKeys } from "./data/setting-keys.ts";
 import { useDesktopPreferences } from "./data/desktop-preferences.ts";
 import { useSetting, useSettingControl, useSettingWrite } from "./data/use-settings.ts";
