@@ -1,4 +1,4 @@
-import { withoutEmptySources } from "@ace/ui-core";
+import { catalogScopeKey, readModelCatalog, type ModelCatalog } from "@ace/ui-core";
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import type { CatalogModel, ModelFilter, ModelInstanceStatus } from "@ace/protocol";
@@ -18,42 +18,12 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 export type CatalogState = "loading" | "refreshing" | "ready" | "failed";
 
 /** Every model row, and each account's (instance's) freshness and discovery errors. */
-export interface Catalog {
-  models: CatalogModel[];
-  instances: ModelInstanceStatus[];
-}
-
-/** Pages a large catalog in; the daemon returns at most 100 rows per `models.list`. */
-const maxPages = 8;
+export type Catalog = ModelCatalog;
 
 export const catalogKey = ["models", "list"] as const;
 
-const scopeOf = (row: { provider: string; instance: string }) =>
-  `${row.provider}\u0000${row.instance}`;
-
-/** Every page of `models.list` for `filter` (the whole catalog when empty). */
-async function readCatalog(
-  client: ClientApi,
-  filter: ModelFilter,
-  signal?: AbortSignal,
-): Promise<Catalog> {
-  const models: CatalogModel[] = [];
-  const instances = new Map<string, ModelInstanceStatus>();
-  let offset: number | undefined = 0;
-  for (let page = 0; page < maxPages && offset !== undefined; page++) {
-    const start: number = offset;
-    const reply = await client.request(
-      { type: "models.list", options: { ...filter, offset: start, limit: 100 } },
-      signal ? { signal } : {},
-    );
-    if (!("models" in reply.result)) throw new Error("Couldn't load models. Try again.");
-    models.push(...reply.result.models);
-    for (const status of reply.result.instances) instances.set(scopeOf(status), status);
-    offset = reply.result.nextOffset;
-  }
-  const statuses = [...instances.values()];
-  return { models: withoutEmptySources(models, statuses), instances: statuses };
-}
+const scopeOf = catalogScopeKey;
+const readCatalog = readModelCatalog;
 
 /** `rows` with one account's rows replaced by `next`, where the old ones stood. */
 function splice<T extends { provider: string; instance: string }>(

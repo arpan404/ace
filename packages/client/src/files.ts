@@ -1,4 +1,4 @@
-import { fileConnection, type FileClient } from "./file-connection.ts";
+import { fileConnection, type FileClient, type FileHost } from "./file-connection.ts";
 import type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 import type { ClientApi } from "./api.ts";
 import { decodeBase64 } from "./base64.ts";
@@ -130,7 +130,7 @@ async function uploadChunks(
 }
 
 export async function* downloadFile(
-  client: ClientApi,
+  client: FileHost,
   input: FileDownloadInput,
   options: RequestOptions,
 ): AsyncGenerator<Uint8Array> {
