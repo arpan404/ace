@@ -32,7 +32,7 @@ Static verification: formatting, lint, TypeScript and source size checks are the
 - Adapter shutdown stops every owned account process and closes external consumers/recovery waiters without stopping an unrelated or externally owned server.
 - Native submitted `input.background` owns child work, including repeated dispatches to a completed child and stale historical synthetic replay.
 - A running snapshot cannot be discarded by a newer text delta; covered message/ordinal chunks reconcile once, including delayed HTTP responses, and late suffixes/other ordinals survive. A partial chunk boundary fails recovery rather than claiming completeness.
-- Empty-data location shutdown expires owned permissions/forms and rejects actions; foreign and moved-away directories cannot expire them.
+- Empty-data location shutdown expires owned permissions/forms and recovers the location: shells it killed end, surviving shells keep the thread waiting, and actions work after recovery; foreign and moved-away directories cannot expire them.
 - Newer buffered work, inbox entries and forms defeat stale recovery idle/absence; foreign events cannot delay the send barrier.
 
 `v2.test.ts` checks public translation through core/projection. `v2-session.process.test.ts` uses an actual local HTTP/SSE server behind a fake executable. Provider spawning tests use the `.process.test.ts` convention. Historical v1 assertions use the archived implementation explicitly.

@@ -7,6 +7,8 @@ import {
   emptyTurnDigest,
   itemDigestContribution,
   itemMessagePreview,
+  runTurn,
+  startsTurn,
   type DigestContribution,
 } from "@ace/projection";
 import type {
@@ -103,14 +105,19 @@ export class FakeTurnIndex {
     if (payload.type === "run.started") {
       ordinal =
         payload.run.agentId === view.thread.rootAgentId
-          ? (payload.run.ordinal ?? (ordinal ?? 0) + 1)
+          ? (runTurn(payload.run) ?? (ordinal ?? 0) + 1)
           : (this.agents.get(payload.run.agentId) ?? ordinal);
       if (ordinal === undefined) return;
       this.runs.set(payload.run.id, ordinal);
       this.agentRuns.set(payload.run.agentId, payload.run.id);
       this.agents.set(payload.run.agentId, ordinal);
-      if (payload.run.agentId === view.thread.rootAgentId) this.current.set(threadId, ordinal);
       const turn = this.ensure(event, ordinal);
+      if (payload.run.agentId === view.thread.rootAgentId) {
+        this.current.set(threadId, ordinal);
+        // A later run of the same turn (the agent carrying on) makes it active again.
+        turn.summary.outcome = "active";
+        delete turn.summary.endedAt;
+      }
       turn.agents.add(payload.run.agentId);
       turn.summary.startedAt = Math.min(turn.summary.startedAt, payload.run.startedAt);
     } else if (payload.type === "item.created" || payload.type === "item.updated") {
@@ -120,11 +127,17 @@ export class FakeTurnIndex {
         (item.runId ? this.runs.get(item.runId) : undefined) ??
         (item.agentId ? this.agents.get(item.agentId) : undefined) ??
         ordinal;
-      if (item.type === "message" && item.role === "user" && payload.type === "item.created") {
-        const current = ordinal === undefined ? undefined : this.turns.get(threadId)?.get(ordinal);
-        if (!current || current.summary.outcome !== "active")
-          ordinal = (this.current.get(threadId) ?? 0) + 1;
-      }
+      // As the daemon's index: an ask no started run took opens the turn after the current one
+      // (the run that takes it is numbered so); a message bound to a run is in that run's turn.
+      const bound = item.runId ? this.runs.get(item.runId) : undefined;
+      if (
+        bound === undefined &&
+        item.agentId === view.thread.rootAgentId &&
+        startsTurn(item) &&
+        payload.type === "item.created" &&
+        !this.items.has(item.id)
+      )
+        ordinal = (this.current.get(threadId) ?? 0) + 1;
       if (ordinal === undefined) return;
       this.items.set(item.id, ordinal);
       if (!this.itemSeqs.has(item.id)) this.itemSeqs.set(item.id, event.seq);
@@ -302,6 +315,9 @@ export class FakeTurnIndex {
       },
       children.map((agent) => agentThreadStatus(agent.status)),
     ) ?? { state: turn.summary.outcome === "failed" ? "failed" : "done" };
+    const root = view.thread.rootAgentId;
+    const main = root ? turn.agentAggregates.get(root) : undefined;
+    if (root && main) turn.summary.main = { agentId: root, digest: aggregateDigest(main.all()) };
     turn.summary.subagents = children.slice(0, 32).map((agent) => {
       const summary: TurnSubagentSummary = {
         agentId: agent.id,

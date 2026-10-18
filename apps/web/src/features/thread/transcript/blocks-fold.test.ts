@@ -157,3 +157,26 @@ test("an answer said in several messages after the last step stays whole", () =>
   const head = blocks[1];
   expect(head?.kind === "work" && head.answerIds).toEqual(["found", "fixed"]);
 });
+
+// Mutation: opening a second "Worked for" log for a run the daemon numbers into the same turn.
+test("a run ace continued after a restart folds into the ask's one log when it shares its turn", () => {
+  const items = [
+    message("ask", "user", 1),
+    shell("install", 2, "first"),
+    shell("build", 4, "continued"),
+    message("answer", "assistant", 5, "continued"),
+  ];
+  const runs = new Map<string, RunFacts>([
+    ["first", { state: "interrupted", trigger: "user", turn: 1, startedAt: 1, endedAt: 3 }],
+    ["continued", { state: "completed", trigger: "restart", turn: 1, startedAt: 4, endedAt: 6 }],
+  ]);
+  const byId = new Map<string, Item>(items.map((item) => [item.id, item]));
+  const blocks = buildBlocks({
+    order: items.map((item) => item.id),
+    item: (id) => byId.get(id),
+    background: new Map(),
+    turnOf: (id) => byId.get(id)?.runId,
+    run: (id) => runs.get(id),
+  });
+  expect(blocks.filter((block) => block.kind === "work")).toHaveLength(1);
+});

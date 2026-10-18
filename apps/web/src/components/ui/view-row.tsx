@@ -15,7 +15,7 @@ import { Icon, type IconGlyph } from "@/components/icon.tsx";
 export const compactViewRowClass = cn(
   "group flex min-h-(--row-height) w-full items-center gap-2.5 rounded-md px-2.5 text-ui transition-colors duration-(--motion-fast)",
   "hover:bg-sidebar-accent focus-ring-inset",
-  "data-[status=active]:bg-foreground/8 aria-[current=page]:bg-foreground/8",
+  "data-[status=active]:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent",
 );
 
 export function CompactViewRowBody(props: {

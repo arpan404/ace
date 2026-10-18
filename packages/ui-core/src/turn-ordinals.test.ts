@@ -115,6 +115,38 @@ test("a subagent's items count toward the root turn that spawned it", () => {
   expect(ordinals).toEqual([3, 3]);
 });
 
+const turnRun = (id: string, ordinal: number, turn: number): Run =>
+  Run.parse({ ...run(id, "root", ordinal), turn });
+
+test("a run the agent started by itself numbers its items with the ask's turn", () => {
+  const items = [
+    message("ask", "user"),
+    message("answer", "assistant", "run-1"),
+    message("after-background-work", "assistant", "run-2"),
+    message("next-ask", "user"),
+    message("next-answer", "assistant", "run-3"),
+  ];
+  const runs = [turnRun("run-1", 1, 1), turnRun("run-2", 2, 1), turnRun("run-3", 3, 2)];
+  expect(itemTurnOrdinals(reader(items, runs))).toEqual([1, 1, 1, 2, 2]);
+});
+
+test("a delegated agent's result stays in the turn before it, even before its run starts", () => {
+  const result = Item.parse({
+    ...message("result", "user"),
+    synthetic: true,
+    origin: { kind: "subagent_result" },
+  });
+  const items = [
+    message("ask", "user"),
+    message("answer", "assistant", "run-1"),
+    result,
+    message("next-ask", "user"),
+    message("next-answer", "assistant", "run-2"),
+  ];
+  const runs = [turnRun("run-1", 1, 1), turnRun("run-2", 2, 2)];
+  expect(itemTurnOrdinals(reader(items, runs))).toEqual([1, 1, 1, 2, 2]);
+});
+
 test("items whose run isn't known, and a message no turn has answered yet, stay unknown", () => {
   const items = [message("old", "assistant", "evicted"), message("just-sent", "user")];
   expect(itemTurnOrdinals(reader(items, []))).toEqual([undefined, undefined]);

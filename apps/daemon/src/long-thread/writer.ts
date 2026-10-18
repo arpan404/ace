@@ -1,7 +1,13 @@
 import { ThreadId as importThreadIdSchema } from "@ace/protocol";
 import { z } from "zod";
 import { AgentStatus, Interaction, ThreadStatus, type Event, type Thread } from "@ace/protocol";
-import { itemMessagePreview, itemDigestContribution, approvalAutoReviewed } from "@ace/projection";
+import {
+  itemMessagePreview,
+  itemDigestContribution,
+  approvalAutoReviewed,
+  runTurn,
+  startsTurn,
+} from "@ace/projection";
 import { counterPolicy, accountSample, Counts, countsTowardTurnUsage } from "@ace/usage";
 import { LongThreadDatabase, decodeCounters } from "./database.ts";
 import { Digests } from "./digests.ts";
@@ -155,14 +161,16 @@ export class TurnWriter {
     } else if (p.type === "run.started") {
       const root = p.run.agentId === this.head(event.threadId)?.root;
       const known = this.data
-        .sql("SELECT ordinal FROM client_run_index WHERE thread_id=? AND run_id=?")
+        .sql(
+          "SELECT COALESCE((SELECT turn FROM client_run_turn WHERE thread_id=?1 AND run_id=?2),(SELECT ordinal FROM client_run_index WHERE thread_id=?1 AND run_id=?2)) AS ordinal",
+        )
         .get(event.threadId, p.run.id);
       const ordinal = this.ensure(
         event,
         startedRunTurnOrdinal({
           root,
-          providerOrdinal: p.run.ordinal,
-          knownOrdinal: known ? Number(known.ordinal) : undefined,
+          providerOrdinal: runTurn(p.run),
+          knownOrdinal: known?.ordinal == null ? undefined : Number(known.ordinal),
           headOrdinal: this.head(event.threadId)?.ordinal ?? 0,
           agentOrdinal: root ? 0 : this.agentOrdinal(event, p.run.agentId),
         }),
@@ -269,6 +277,7 @@ export class TurnWriter {
           p.itemId,
         );
         this.repairPreviews(event.threadId, Number(old.ordinal));
+        this.dropUnstartedTurn(event.threadId, Number(old.ordinal));
       }
     } else if (p.type === "interaction.opened") {
       const interaction = p.interaction;
@@ -309,7 +318,10 @@ export class TurnWriter {
       if (countsTowardTurnUsage(p)) {
         const ordinal = this.agentOrdinal(event, p.agentId);
         const run = this.data
-          .sql("SELECT id FROM long_runs WHERE thread_id=? AND ordinal=? AND root=1 LIMIT 1")
+          // A turn holds several root runs; usage belongs to the running (else the newest) one.
+          .sql(
+            "SELECT id FROM long_runs WHERE thread_id=? AND ordinal=? AND root=1 ORDER BY live DESC,rowid DESC LIMIT 1",
+          )
           .get(event.threadId, ordinal);
         const policy = counterPolicy(p, thread.provider, String(run?.id ?? ordinal));
         const id = JSON.stringify([
@@ -410,8 +422,8 @@ export class TurnWriter {
           .get(event.threadId, item.runId)
       : undefined;
     const head = this.head(event.threadId);
-    const rootUserMessage =
-      item.type === "message" && item.role === "user" && item.agentId === head?.root;
+    const rootMessage = item.type === "message" && item.agentId === head?.root;
+    const rootUserMessage = rootMessage && startsTurn(item);
     const active =
       rootUserMessage && !old && !run
         ? this.data
@@ -426,6 +438,7 @@ export class TurnWriter {
           ? this.agentOrdinal(event, item.agentId)
           : Math.max(1, head?.ordinal ?? 1),
       rootUserMessage,
+      boundUserMessage: rootMessage && item.role === "user",
       headOrdinal: head?.ordinal ?? 0,
       currentTurn: active
         ? {
@@ -456,7 +469,7 @@ export class TurnWriter {
       this.digests.itemDetails(event, ordinal, item.id, contribution, item.agentId);
     const preview = itemMessagePreview(item);
     this.data.run(
-      `INSERT INTO long_items VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(thread_id,item_id) DO UPDATE SET preview=excluded.preview,counters=excluded.counters,agent_id=excluded.agent_id`,
+      `INSERT INTO long_items VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(thread_id,item_id) DO UPDATE SET ordinal=excluded.ordinal,preview=excluded.preview,counters=excluded.counters,agent_id=excluded.agent_id`,
       event.threadId,
       item.id,
       ordinal,
@@ -467,6 +480,31 @@ export class TurnWriter {
       item.agentId ?? null,
     );
     if (item.type === "message") this.preview(event, ordinal, item.role, preview, item.id);
+    // A message that moved turns (bound to the run that took it) leaves its old turn's previews.
+    if (old && Number(old.ordinal) !== ordinal) {
+      const left = Number(old.ordinal);
+      this.repairPreviews(event.threadId, ordinal);
+      if (!this.dropUnstartedTurn(event.threadId, left)) {
+        this.ensure(event, left);
+        this.repairPreviews(event.threadId, left);
+      }
+    }
+  }
+  /**
+   * An ask opens the next turn ahead of its run. When the running turn took it instead, or it was
+   * withdrawn, that turn holds nothing and no run started it: it is not a turn yet.
+   */
+  private dropUnstartedTurn(thread: string, ordinal: number): boolean {
+    if (ordinal <= (this.head(thread)?.ordinal ?? 0)) return false;
+    const held = this.data
+      .sql(
+        "SELECT 1 FROM long_items WHERE thread_id=?1 AND ordinal=?2 UNION ALL SELECT 1 FROM long_runs WHERE thread_id=?1 AND ordinal=?2 UNION ALL SELECT 1 FROM long_agents WHERE thread_id=?1 AND ordinal=?2 UNION ALL SELECT 1 FROM long_entities WHERE thread_id=?1 AND ordinal=?2 UNION ALL SELECT 1 FROM long_counts WHERE thread_id=?1 AND ordinal=?2 AND value<>0 LIMIT 1",
+      )
+      .get(thread, ordinal);
+    if (held) return false;
+    this.affected.delete(ordinal);
+    this.data.run("DELETE FROM long_turns WHERE thread_id=? AND ordinal=?", thread, ordinal);
+    return true;
   }
   private approval(
     event: Event,

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { apply, createThreadState, type Fact, type Key, type ThreadState } from "@ace/core";
 import { applyDelivery, createThreadView } from "@ace/projection";
+import { RunTurns } from "./run-turns.ts";
 import type {
   ContentPart,
   DeliveryEvent,
@@ -50,6 +51,7 @@ export class ThreadHost {
   /** A selection split off a steer, published as the thread's pending switch after the change. */
   steerSwitch: import("@ace/protocol").ExecutionSelection | undefined;
   runOrdinal = 0;
+  readonly turns = new RunTurns();
   /** The clock reading of the last folded fact: "now" for readiness rules between commands. */
   foldedAt = 0;
   permissionParent: string | undefined;

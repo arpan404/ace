@@ -103,7 +103,7 @@ function Sidebar(props: { children: ReactNode; edge?: ReactNode; className?: str
           data-sidebar="sidebar"
           aria-hidden={collapsed || undefined}
           inert={collapsed}
-          className="sidebar-scroll flex size-full min-h-0 flex-col bg-sidebar"
+          className="no-scrollbar flex size-full min-h-0 flex-col bg-sidebar"
         >
           {props.children}
         </div>

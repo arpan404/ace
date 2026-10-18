@@ -23,7 +23,7 @@ export function over(top: Rgb, alpha: number, under: Rgb): Rgb {
 }
 
 /** The strongest ink wash under text: a selected row (`--fill-strong`). */
-export const selectedInk: Record<Scheme, number> = { light: 0.07, dark: 0.08 };
+export const selectedInk: Record<Scheme, number> = { light: 0.04, dark: 0.05 };
 
 /** `palette` needs no accent: the accent is fitted to these surfaces. */
 export function paletteSurfaces(palette: Base, scheme: Scheme): Surface[] {

@@ -18,6 +18,8 @@ export function piCapabilities(cli: DiscoveryResult): Capabilities {
   const supported = piProfile(cli).supported;
   return {
     steer: supported,
+    // Pi delivers a steer after the current tool execution, before the next LLM call.
+    steerTiming: "after_tool",
     permissionModes: [],
     // Pi has no approval channel: Read-only is its own tool allowlist, Full access its default.
     accessModes: accessModeOffers({ provider: "pi" }),

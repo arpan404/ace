@@ -149,7 +149,7 @@ export function createBlockReader(
               return run
                 ? {
                     runId,
-                    state: run.state,
+                    state: runState(run),
                     trigger: run.trigger,
                     startedAt: run.startedAt,
                     endedAt: run.endedAt,
@@ -175,8 +175,9 @@ export function createBlockReader(
         const run = ancestry.run(runId);
         return (
           run && {
-            state: run.state,
+            state: runState(run),
             trigger: run.trigger,
+            turn: run.turn,
             startedAt: run.startedAt,
             endedAt: run.endedAt,
             failedOn: failedOn(run),
@@ -222,4 +223,12 @@ export function createBlockReader(
     inputs = [...fixed, ...lastWatch.map((key) => watchedEntity(reader, key))];
     return { value: last, watch: lastWatch };
   };
+}
+
+/**
+ * A run ace cut short so the person's steer reached the model now carried on into that steer:
+ * it reads as finished work, never as a stop.
+ */
+function runState(run: Pick<Run, "state" | "endedBy">): Run["state"] {
+  return run.state === "interrupted" && run.endedBy === "steer" ? "completed" : run.state;
 }

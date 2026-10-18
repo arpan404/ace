@@ -40,6 +40,11 @@ export const Capabilities = z.object({
   childFidelity: z.enum(["full", "summary", "placeholder"]).optional(),
   /** Inject input into a running turn. When false, ace queues it client-side. */
   steer: z.boolean(),
+  /**
+   * When a native steer reaches the model. `after_tool`: only once the running tool returns, so
+   * ace interrupts the turn to deliver the person's steer now. Omitted means immediately.
+   */
+  steerTiming: z.enum(["immediate", "after_tool"]).optional(),
   /** Implemented launch selectors, empty when absent. */
   launchOptions: z
     .array(z.enum(["effort", "serviceTier"]))

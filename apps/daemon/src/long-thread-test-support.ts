@@ -12,6 +12,7 @@ import {
   TurnsPageRequest,
   ThreadCatchUpRequest,
   ItemsWindowRequest,
+  type RunTrigger,
   type Thread,
   type ToolDetail,
   type ToolStatus,
@@ -130,7 +131,7 @@ export function start(
   thread: Thread,
   id: string,
   at: number,
-  trigger: "user" | "background_completion" = "user",
+  trigger: RunTrigger = "user",
 ) {
   return store.appendEvents(
     thread.id,

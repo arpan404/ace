@@ -94,6 +94,7 @@ export function recoverEngine(
             (intent.status === "running" || intent.awaiting)
           )
             repo.queue.uncertain(intent.id);
+        recovery.dropContinuationBehindStop(state.threadId);
         recovery.capture(state.threadId);
         // A stopped provider no longer owns an admitted continuation. Native history
         // remains the source for a new restart continuation, never the old input.

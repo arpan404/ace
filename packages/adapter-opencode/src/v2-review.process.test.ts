@@ -180,8 +180,9 @@ it("source-shaped background child dispatches each await their own synthetic com
   await complete();
 });
 
-it("location shutdown with empty data expires its interactions and forbids actions without settling work", async () => {
+it("a location rebuild expires its interactions, keeps running work and accepts actions after recovery", async () => {
   const h = await setup();
+  await h.control("/test/state", { active: { [h.session.nativeSessionId]: { type: "running" } } });
   await h.publish("session.execution.started");
   await h.publish("permission.asked", { id: "ask", action: "edit", resources: ["x"] });
   await h.publish("form.created", {
@@ -193,25 +194,25 @@ it("location shutdown with empty data expires its interactions and forbids actio
       fields: [{ key: "q0", type: "string" }],
     },
   });
-  const pending = Object.values(h.projection.view.interactions)[0];
-  const from = h.frames.length;
+  const recovered = h.recovered();
   await h.control("/test/events", [{ type: "location.shutdown", directory: "/one", data: {} }]);
-  await h.seen((f) => f.channel === "sse" && object(f.data).type === "location.shutdown", from);
+  await recovered;
   expect(Object.values(h.projection.view.interactions).map((i) => i.state)).toEqual([
     "expired",
     "expired",
   ]);
-  expect(h.projection.view.thread.status.state).not.toBe("done");
-  await expect(h.session.send([{ type: "text", text: "after loss" }], "queue")).rejects.toThrow(
-    "location",
-  );
-  if (!pending) throw new Error("Expected interaction");
+  expect(h.projection.view.thread.status.state).toBe("working");
   await expect(
     h.session.resolve(`permission:${h.session.nativeSessionId}:ask`, {
       kind: "approval",
       optionId: "once",
     }),
   ).rejects.toThrow();
+  await h.session.send([{ type: "text", text: "after rebuild" }], "queue");
+  const prompts = array(await h.control("/test/requests"))
+    .map(object)
+    .filter((r) => String(r.path).endsWith("/prompt"));
+  expect(prompts.map((r) => object(r.body).text)).toEqual(["after rebuild"]);
 });
 
 it("foreign location shutdown does not expire an owned interaction", async () => {

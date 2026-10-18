@@ -1,9 +1,4 @@
-import {
-  acceptsPersonInput,
-  deriveThreadStatus,
-  hasRunningForegroundCommand,
-  type Fact,
-} from "@ace/core";
+import { acceptsPersonInput, deriveThreadStatus, type Fact } from "@ace/core";
 import { CommandId, type ContentPart, type MessageContext } from "@ace/protocol";
 import type { ThreadHost } from "./thread-host.ts";
 
@@ -177,12 +172,8 @@ export function sendFacts(
       ],
     };
   }
-  if (
-    payload.delivery === "steer" &&
-    !host.queue.paused &&
-    plain &&
-    !hasRunningForegroundCommand(host.state)
-  )
+  // Like the daemon, a steer goes in now, a running command included.
+  if (payload.delivery === "steer" && !host.queue.paused && plain)
     return {
       ok: true,
       facts: [
@@ -217,7 +208,7 @@ export function drainQueue(host: ThreadHost): Fact[] {
   const next = host.queued[0];
   if (root === undefined || !next || host.queue.paused) return [];
   const plain = next.model === undefined && next.options === undefined;
-  const steer = next.delivery === "steer" && plain && !hasRunningForegroundCommand(host.state);
+  const steer = next.delivery === "steer" && plain;
   if (!steer && !takesMessage(host, plain)) return [];
   host.queued.shift();
   host.queueDirty = true;

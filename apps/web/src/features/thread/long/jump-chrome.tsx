@@ -15,7 +15,7 @@ import { useTurnHead } from "./turn-index.ts";
 
 /**
  * The window's newer edge: what lies between it and the live end, loaded on as the reader
- * scrolls (or at once with Jump to live). Never a hole the list pretends isn't there.
+ * scrolls (or at once with Scroll to end). Never a hole the list pretends isn't there.
  */
 export function GapRow(props: {
   threadId: string;
@@ -49,7 +49,7 @@ export function GapRow(props: {
           Load newer
         </Button>
         <Button size="sm" onClick={props.onLive}>
-          Jump to live
+          Scroll to end
         </Button>
       </div>
     </div>

@@ -1,4 +1,3 @@
-import { isRunningShellTool, hasForegroundShellCommand } from "@ace/core";
 import type { Selection, ThreadReader, ThreadSource } from "@ace/client";
 import { agentTreeWork } from "@ace/ui-core";
 import type { Agent, BackgroundTask, Interaction, Item, Run } from "@ace/protocol";
@@ -23,8 +22,6 @@ export class AgentFacts {
   readonly bySpawn = new Map<string, Set<string>>();
   readonly byThread = new Map<string, Set<string>>();
   readonly launches = new Map<string, Set<string>>();
-  private commandOwners = new Map<string, string>();
-  private commands = new Map<string, Set<string>>();
   private agents = new Map<string, Agent>();
   private questions = new Map<string, Interaction>();
   private pending = new Map<string, Set<string>>();
@@ -42,8 +39,6 @@ export class AgentFacts {
   }
 
   reset(): void {
-    this.commandOwners.clear();
-    this.commands.clear();
     this.bySpawn.clear();
     this.byThread.clear();
     this.launches.clear();
@@ -152,30 +147,8 @@ export class AgentFacts {
     return latest;
   }
 
-  hasRunningCommand(agentId: string): boolean {
-    return hasForegroundShellCommand(
-      [...(this.commands.get(agentId) ?? [])].map((id) => this.reader.item(id)),
-      [...(this.ownedTasks.get(agentId) ?? [])].flatMap((id) => {
-        const task = this.tasks.get(id);
-        return task?.status === "running" ? [task.toolCallId] : [];
-      }),
-    );
-  }
-
   private item(id: string, changed: Set<string>) {
     const item = this.reader.item(id);
-    const previousOwner = this.commandOwners.get(id);
-    const owner = isRunningShellTool(item) ? item.agentId : undefined;
-    if (previousOwner !== owner) {
-      remove(this.commands, previousOwner, id);
-      if (previousOwner) changed.add(`command:${previousOwner}`);
-      this.commandOwners.delete(id);
-      if (owner) {
-        this.commandOwners.set(id, owner);
-        add(this.commands, owner, id);
-        changed.add(`command:${owner}`);
-      }
-    }
     const before = this.launchItems.get(id);
     if (before !== item) {
       remove(this.launches, before?.childThreadId, id);
