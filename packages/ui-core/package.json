@@ -16,6 +16,11 @@
     "./interaction-measurement": "./src/interaction-measurement.ts",
     "./editor-url": "./src/editor-url.ts",
     "./file-references": "./src/file-references.ts",
+    "./transcript-blocks": "./src/transcript-blocks.ts",
+    "./transcript-block-reader": "./src/transcript-block-reader.ts",
+    "./agent-facts": "./src/agent-facts.ts",
+    "./subagent-group": "./src/subagent-group.ts",
+    "./thread-execution": "./src/thread-execution.ts",
     "./mobile": "./src/mobile.ts"
   },
   "scripts": {

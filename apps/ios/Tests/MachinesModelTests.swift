@@ -101,8 +101,15 @@ import Testing
         let laptop = try #require(fixture.model.inbox.client("laptop"))
         #expect(laptop.canOperate)
         laptop.open("thread-1")
+        // Stop is offered only when the bridge's canonical controls say the tree can stop.
+        let epoch = try #require(laptop.thread?.epoch)
+        let controls: [[String: Any]] = [["type": "thread.controls", "threadId": "thread-1", "epoch": epoch,
+                                          "row": ["busy": true, "delivery": "queue", "alternate": NSNull(), "canStop": true, "provider": "codex", "model": "", "switching": ""]]]
+        laptop.receive(try JSONSerialization.data(withJSONObject: controls))
         laptop.stopTree()
-        #expect(fixture.sessions.started[0].submitted.count == 1)
+        let operating = fixture.sessions.started[0]
+        for _ in 0..<20 where operating.submitted.isEmpty { await Task.yield() }
+        #expect(operating.submitted.count == 1)
     }
 
     @Test func notificationsBindToEachMachineBeforeItsRuntimeOpens() async throws {
@@ -285,7 +292,7 @@ private final class FakeSession: ClientSession, @unchecked Sendable {
     var invoked: [String] { lock.withLock { calls } }
     func start(itemLimit: Int) {}
     /// Commands and inbox organization the model handed to the VM.
-    var submitted: [String] { lock.withLock { calls.filter { $0.contains("\"type\":\"command\"") || $0.contains("\"type\":\"inbox\"") } } }
+    var submitted: [String] { lock.withLock { calls.filter { $0.contains("\"type\":\"command\"") || $0.contains("\"type\":\"inbox\"") || $0.contains("\"type\":\"thread\"") } } }
     func invoke(_ name: String, json: String) { lock.withLock { calls.append(json) } }
     func acknowledge(accepted: Bool) {}
     func stop(completion: @escaping @Sendable () -> Void) { lock.withLock { stopRequested = true; self.completion = completion } }

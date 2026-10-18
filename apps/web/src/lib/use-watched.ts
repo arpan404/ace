@@ -2,11 +2,9 @@ import type { ThreadKey, ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
 import { useMemo, useState } from "react";
 
-/** A selected value and the entity keys (`item:…`, `run:…`, `agent:…`) it was read from. */
-export interface Watched<T> {
-  value: T;
-  watch: readonly string[];
-}
+import type { Watched } from "@ace/ui-core/transcript-block-reader";
+
+export type { Watched };
 
 const none: readonly string[] = [];
 const sameList = (a: readonly string[], b: readonly string[]) =>

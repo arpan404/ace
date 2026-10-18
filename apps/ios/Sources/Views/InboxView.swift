@@ -75,7 +75,10 @@ struct InboxView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
             .navigationDestination(for: String.self) { id in
-                if let client = current, let thread = client.thread, thread.id == id { ThreadView(model: client, thread: thread) }
+                if let client = current, let thread = client.thread, thread.id == id {
+                    // Child threads open on the same machine's client as their parent.
+                    ThreadView(model: client, thread: thread) { child in client.open(child); path.append(child) }
+                }
             }
             .sheet(isPresented: $showingMachines) {
                 MachinesSheet(inbox: inbox, machines: machines) { showingMachines = false; addMachine() }
@@ -89,6 +92,8 @@ struct InboxView: View {
             .aceNotifications(inbox: inbox) { key in openThread(key) }
             .onChange(of: path) { old, new in
                 if !old.isEmpty && new.isEmpty { current?.back(); openMachine = nil }
+                // Back from a child thread reopens its parent on that machine, under a new generation.
+                else if new.count < old.count, let parent = new.last { current?.open(parent) }
             }
         }
         .tint(AceTheme.Colours.foreground)

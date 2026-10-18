@@ -16,6 +16,7 @@ import CryptoKit
     var interactions: [String: ApprovalRow] = [:]
     var cursor = 0
     var loaded = false
+    let screen = ThreadScreenModel()
     @ObservationIgnored var positions: [String: Int] = [:]
     init(id: String) { self.id = id }
     var approvals: [ApprovalRow] { interactions.values.filter { $0.state == "pending" }.sorted { $0.id < $1.id } }
@@ -48,8 +49,8 @@ import CryptoKit
     @ObservationIgnored private var connectionEpoch = 0
     @ObservationIgnored private var shutdown: Task<Void, Never>?
     @ObservationIgnored private var frames = BridgeFrames()
-    @ObservationIgnored private let admissions = CommandAdmissions()
-    @ObservationIgnored private var approvalRequests: [String: String] = [:]
+    @ObservationIgnored let admissions = CommandAdmissions()
+    @ObservationIgnored var approvalRequests: [String: String] = [:]
     @ObservationIgnored let now: () -> Double
     @ObservationIgnored var metrics: SpikeMetrics?
     @ObservationIgnored var largestFrame = 0
@@ -131,6 +132,7 @@ import CryptoKit
                 thread.order = []
                 thread.interactions = [:]
                 thread.loaded = false
+                thread.screen.reset()
             case .position(let id, let epoch, let itemId, let index):
                 guard let thread, thread.id == id, thread.epoch == epoch else { continue }
                 thread.positions[itemId] = index
@@ -150,6 +152,8 @@ import CryptoKit
                 }
             case .cursor(let id, let epoch, let cursor): if thread?.id == id, thread?.epoch == epoch { thread?.cursor = cursor }
             case .ready(let id, let epoch, _): if thread?.id == id, thread?.epoch == epoch { thread?.loaded = true }
+            case .block, .blockPosition, .controls, .history, .models, .queue:
+                if let thread, let scope = patch.screenScope, scope.thread == thread.id, scope.epoch == thread.epoch { thread.screen.apply(patch) }
             case .agents(let id, let epoch, let sheet): if thread?.id == id, thread?.epoch == epoch { sheets.agents = sheet }
             case .changesSummary(let id, let epoch, let summary): if thread?.id == id, thread?.epoch == epoch { sheets.changes = summary }
             case .changesFile(let id, let epoch, let path, let diff):
@@ -157,6 +161,7 @@ import CryptoKit
             case .gitResult(let id, let ok, let message): sheets.outcomes[id] = GitOutcome(ok: ok, message: message)
             }
         }
+        thread?.screen.commit()
         if reorder, let thread {
             thread.order = thread.positions.keys.filter { thread.items[$0] != nil }.sorted {
                 (thread.positions[$0] ?? 0) < (thread.positions[$1] ?? 0)
@@ -199,10 +204,6 @@ import CryptoKit
             command(["type": "thread.send", "threadId": thread.id, "input": [["type": "text", "text": text]], "delivery": delivery], requestId: id)
         }
     }
-    func stopTree() {
-        guard canOperate, let thread else { return }
-        command(["type": "thread.interrupt", "threadId": thread.id, "cascade": true, "beforeSeq": thread.cursor])
-    }
     func approve(_ interaction: ApprovalRow, option: ApprovalRow.Option) {
         guard canOperate, interaction.state == "pending", approvalSubmissions[interaction.id] == nil else { return }
         let id = admissions.nextId()
@@ -228,7 +229,7 @@ import CryptoKit
         if !dispatched { error = "Could not submit the request. Your draft is still available." }
         return dispatched
     }
-    @discardableResult private func action(_ value: [String: Any]) -> Bool {
+    @discardableResult func action(_ value: [String: Any]) -> Bool {
         guard let runtime, let data = try? JSONSerialization.data(withJSONObject: value) else { return false }
         runtime.invoke("aceAction", json: String(decoding: data, as: UTF8.self))
         return true

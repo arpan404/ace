@@ -3,8 +3,8 @@ import SwiftUI
 import UIKit
 
 @MainActor enum AceTheme {
-    /// UIKit resolves dynamic colours on SwiftUI's render threads too (sheets with detents),
-    /// so the provider must not assume the main actor.
+    /// UIKit also resolves dynamic colours on SwiftUI's render threads, so the provider is
+    /// nonisolated and touches nothing but its captured values.
     nonisolated private static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
         Color(uiColor: UIColor { @Sendable traits in
             let value = traits.userInterfaceStyle == .dark ? dark : light

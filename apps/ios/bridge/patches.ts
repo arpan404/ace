@@ -1,5 +1,7 @@
 import type { ChangeTap, ThreadSource } from "@ace/client";
-import { threadRow, itemRow, approvalRow } from "./presentation.ts";
+import { threadRow, itemRow } from "./presentation.ts";
+import { interactionRow } from "./interaction-rows.ts";
+import { itemDetail } from "./thread-rows.ts";
 
 import { PatchPump } from "./patch-pump.ts";
 export { PatchPump } from "./patch-pump.ts";
@@ -26,14 +28,16 @@ export function followThread(
       return {
         type: "thread.item",
         id,
-        row: item ? itemRow(item, positions.get(id), store.truncated(id)) : null,
+        row: item
+          ? { ...itemRow(item, positions.get(id), store.truncated(id)), ...itemDetail(item) }
+          : null,
       };
     });
   };
   const interaction = (id: string) =>
     put(`interaction:${id}`, () => {
       const value = store.interaction(id);
-      return { type: "thread.interaction", id, row: value ? approvalRow(value, store) : null };
+      return { type: "thread.interaction", id, row: value ? interactionRow(value, store) : null };
     });
   const change: ChangeTap = (keys) => {
     if (keys === "all") {

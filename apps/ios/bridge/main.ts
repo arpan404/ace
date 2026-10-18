@@ -6,6 +6,7 @@ import { call, scheduler } from "./host.ts";
 import { PatchPump, followThread } from "./patches.ts";
 import { followInbox, inboxAction } from "./inbox.ts";
 import { dispatchCommand } from "./commands.ts";
+import { ThreadSession } from "./thread-session.ts";
 import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
 import { nativeTransport, socketEvent } from "./socket.ts";
@@ -32,6 +33,7 @@ const Action = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("retry") }),
   z.object({ type: z.literal("machine.refresh") }),
+  z.object({ type: z.literal("thread"), action: z.unknown() }),
   /** The thread's Agents and Changes sheets (`sheets.ts`). */
   z.object({ type: z.literal("sheet"), action: z.unknown() }),
   z.object({
@@ -44,6 +46,7 @@ let client: ClientCore | undefined;
 let notifications: NotificationBridge | undefined;
 let lease: Lease<ThreadSource> | undefined;
 let stopThread: (() => void) | undefined;
+let session: ThreadSession | undefined;
 let epoch = 0;
 let itemLimit = 200;
 let historyAbort: AbortController | undefined;
@@ -181,7 +184,9 @@ function action(json: string): void {
         lease?.release();
         openThreadId = value.threadId;
         lease = client.thread(value.threadId);
+        session?.dispose();
         stopThread = followThread(lease.store, value.threadId, ++epoch, pump, itemLimit);
+        session = new ThreadSession(client, lease.store, value.threadId, epoch, pump);
         if (itemLimit > 200) {
           const generation = epoch;
           const signal = historyAbort.signal;
@@ -193,6 +198,8 @@ function action(json: string): void {
       case "back":
         epoch++;
         historyAbort?.abort();
+        session?.dispose();
+        session = undefined;
         stopThread?.();
         sheets.close();
         lease?.release();
@@ -210,6 +217,10 @@ function action(json: string): void {
         break;
       case "command":
         void dispatchCommand(client, value.payload, value.requestId, pump);
+        break;
+      case "thread":
+        if (session) session.handle(value.action);
+        else error();
         break;
       case "inbox":
         inboxAction(client, value.action, value.requestId, pump);

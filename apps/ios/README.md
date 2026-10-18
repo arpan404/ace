@@ -102,6 +102,37 @@ simulator screenshots.
   Additional URL/crypto APIs for future service and encrypted-relay flows need contracts
   before those flows ship.
 
+## Thread screen
+
+`bridge/thread-session.ts` adds, per navigation generation, what the thread screen needs
+beyond item and interaction rows. Transcript blocks come from the web's shared grouping
+(`@ace/ui-core/transcript-blocks`): "Worked for" heads with the shared work counts,
+subagent groups rolled up by whole branch, questions and turn endings. Blocks re-derive on
+membership, run, agent, task or interaction changes, never on a text delta, and each
+changed block is one patch at content priority. Composer controls carry the shared
+steer/queue rule (`followUpDelivery`) and Stop's run fence (`stopFence`); actions send intent
+only, and the bridge builds `thread.send`, `thread.interrupt`, `interaction.resolve`,
+`thread.switch` and failed-send retry (`retrySend`) from the SDK reader. Approval rows name
+the shared Allow once / Always allow / Deny verbs by option index, so large option sets are
+sent once with exact canonical ids.
+
+SwiftUI renders blocks with native Markdown (`Models/Markdown.swift`, SF Mono code blocks),
+collapsible work logs, inline subagent rows (a delegated child thread pushes; a native
+subagent's lane opens a sheet), question and approval cards above the composer, a model
+sheet and the header menu (Stop all agents, Snooze, Archive). The fixture's thread scenarios
+live in `scripts/thread-scenarios.ts`. `ACE_IOS_SPIKE_PORT` moves the fixture, and the app's
+`--spike-port N` argument and `TEST_RUNNER_ACE_IOS_SPIKE_PORT` for tests follow it. TS bridge
+behavior tests run with `bunx vitest run apps/ios/bridge/thread-session.test.ts`.
+
+## Scope
+
+The app currently connects through an explicit debug launch argument. Release builds
+cannot use the unpinned loopback fixture. Production targets require WSS and an exact
+QR-confirmed SHA-256 DER SPKI pin; redirects are refused. Actual paired TLS, ticket
+exchange, QR onboarding, Keychain, Face ID, multi-machine UI, Agents and Changes
+remain Phase 1 work. SPKI adapter implementation is present; it has not been
+validated against a real paired daemon in this spike.
+
 ## Inbox
 
 `bridge/inbox.ts` sends each thread row with its status word and colour token, and

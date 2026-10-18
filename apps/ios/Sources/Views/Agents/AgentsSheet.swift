@@ -6,6 +6,8 @@ import SwiftUI
 struct AgentsSheet: View {
     @Bindable var model: ClientModel
     @Bindable var thread: ThreadModel
+    /// Pushes an agent that runs as its own ace thread; its transcript lives there.
+    var openThread: ((String) -> Void)? = nil
     @State private var stop = StopConfirmation()
     @Environment(\.dismiss) private var dismiss
     private var sheet: AgentSheet? { model.sheets.agents }
@@ -16,7 +18,14 @@ struct AgentsSheet: View {
                 if let sheet {
                     Section {
                         ForEach(sheet.rows) { row in
-                            NavigationLink(value: row.id) { AgentRowView(row: row) }
+                            Group {
+                                if let child = row.childThreadId, let openThread {
+                                    Button { dismiss(); openThread(child) } label: { AgentRowView(row: row).contentShape(Rectangle()) }
+                                        .buttonStyle(.plain)
+                                } else {
+                                    NavigationLink(value: row.id) { AgentRowView(row: row) }
+                                }
+                            }
                                 .accessibilityIdentifier("agents.row.\(row.id)")
                                 .swipeActions(edge: .trailing) {
                                     if model.canOperate && row.stoppable {

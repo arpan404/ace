@@ -13,7 +13,8 @@ import { ThreadId } from "@ace/protocol";
 import {
   modelLabel,
   providerNames,
-  threadIsRunning,
+  followUpDelivery,
+  isBusy,
   selectionInputs,
   choiceSelection,
   currentModelChoice,
@@ -69,11 +70,6 @@ export const stopKeyWindowMs = 1_500;
 
 const pendingQuestion = (interaction: Interaction) =>
   interaction.state === "pending" && interaction.request.kind === "question";
-
-/** The agent is mid-turn or held up: a new message follows up rather than starting a turn. */
-export function isBusy(status: ThreadStatus | undefined): boolean {
-  return threadIsRunning(status) || status?.state === "limited";
-}
 
 /**
  * The thread's composer, on the transcript's column. Enter sends: the message shows as its
@@ -210,9 +206,13 @@ export function ThreadComposer({
     const commandId = crypto.randomUUID();
     // While the agent works the delivery is said outright, so this window knows at once
     // whether the message is a bubble (steered in) or a pill (queued).
-    const other = followUp === "steer" ? "queue" : "steer";
     // A steer always steers: a new model or effort on it takes effect from the next turn.
-    const delivery = busy ? (draft.opposite ? other : (followUp ?? "queue")) : undefined;
+    const delivery = followUpDelivery({
+      status: props.status,
+      canSteer,
+      setting,
+      opposite: draft.opposite,
+    });
     const selection = runsOn(meta);
     const model = currentModelChoice(modelChoices, selection);
     const explicit = sent?.options ?? selection?.options;

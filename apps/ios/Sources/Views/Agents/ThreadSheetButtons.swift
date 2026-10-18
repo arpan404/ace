@@ -5,6 +5,8 @@ import SwiftUI
 struct ThreadSheetButtons: ViewModifier {
     @Bindable var model: ClientModel
     @Bindable var thread: ThreadModel
+    /// Pushes an agent that runs as its own ace thread.
+    let openThread: ((String) -> Void)?
     @State private var showingAgents = false
     @State private var showingChanges = false
     private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
@@ -22,7 +24,7 @@ struct ThreadSheetButtons: ViewModifier {
                 }
             }
             .sheet(isPresented: $showingAgents) {
-                AgentsSheet(model: model, thread: thread).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+                AgentsSheet(model: model, thread: thread, openThread: openThread).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showingChanges) {
                 ChangesSheet(model: model, title: metadata?.title ?? "").presentationDetents([.large]).presentationDragIndicator(.visible)
@@ -31,7 +33,7 @@ struct ThreadSheetButtons: ViewModifier {
 }
 
 extension View {
-    func threadSheets(model: ClientModel, thread: ThreadModel) -> some View {
-        modifier(ThreadSheetButtons(model: model, thread: thread))
+    func threadSheets(model: ClientModel, thread: ThreadModel, openThread: ((String) -> Void)? = nil) -> some View {
+        modifier(ThreadSheetButtons(model: model, thread: thread, openThread: openThread))
     }
 }

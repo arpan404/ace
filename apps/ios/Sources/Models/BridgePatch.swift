@@ -30,6 +30,12 @@ struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     let createdAt: Double
     let agentId: String
     let truncated: Bool
+    var runId: String? = nil
+    var synthetic: Bool? = nil
+    var level: String? = nil
+    var step: StepLine? = nil
+    var attachments: [AttachmentLine]? = nil
+    var moreAttachments: Int? = nil
     /// Shared secondary line, such as the visualization fallback; empty when the row has none.
     let detail: String?
     let quiet: Bool?
@@ -44,6 +50,14 @@ struct ApprovalRow: Codable, Sendable, Identifiable {
     let command: String
     let options: [Option]
     let truncated: Bool
+    var heading: String? = nil
+    var reason: String? = nil
+    var risk: String? = nil
+    var riskText: String? = nil
+    var decisions: [Decision]? = nil
+    var others: [Other]? = nil
+    var questions: [Question]? = nil
+    var unanswerable: Bool? = nil
 }
 struct PendingRow: Codable, Sendable, Identifiable {
     let id: String; let threadId: String; let state: String; let waiting: Bool; let text: String
@@ -86,6 +100,12 @@ enum BridgePatch: Decodable, Sendable {
     case error(String)
     case receipt(String, Bool, String)
     case admission(String, Bool, String)
+    case block(String, Int, String, BlockRow?)
+    case blockPosition(String, Int, String, Int?)
+    case controls(String, Int, ControlsRow?)
+    case history(String, Int, Bool, Bool)
+    case models(String, Int, String, [ModelOption])
+    case queue(String, Int, QueueRow)
     case inboxSections(InboxLayout)
     case problem(ProblemNotice?)
     case machineStatus(MachineStatusInfo)
@@ -96,7 +116,7 @@ enum BridgePatch: Decodable, Sendable {
     case changesFile(String, Int, String, FileDiff)
     case gitResult(String, Bool, String)
 
-    private enum Keys: String, CodingKey { case type, id, row, threadId, epoch, state, message, ok, cursor, count, index, problem, sheet, path, diff }
+    private enum Keys: String, CodingKey { case type, id, row, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -123,6 +143,20 @@ enum BridgePatch: Decodable, Sendable {
         case "error": self = .error(try box.decode(String.self, forKey: .message))
         case "receipt": self = .receipt(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
         case "admission": self = .admission(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
+        case "thread.block":
+            let (id, epoch) = try scope()
+            self = .block(id, epoch, try box.decode(String.self, forKey: .id), try box.decodeIfPresent(BlockRow.self, forKey: .row))
+        case "thread.blockPosition":
+            let (id, epoch) = try scope()
+            self = .blockPosition(id, epoch, try box.decode(String.self, forKey: .id), try box.decodeIfPresent(Int.self, forKey: .index))
+        case "thread.controls": let (id, epoch) = try scope(); self = .controls(id, epoch, try box.decodeIfPresent(ControlsRow.self, forKey: .row))
+        case "thread.history":
+            let (id, epoch) = try scope()
+            self = .history(id, epoch, try box.decode(Bool.self, forKey: .hasOlder), try box.decode(Bool.self, forKey: .loading))
+        case "thread.queue": let (id, epoch) = try scope(); self = .queue(id, epoch, try QueueRow(from: decoder))
+        case "thread.models":
+            let (id, epoch) = try scope()
+            self = .models(id, epoch, try box.decode(String.self, forKey: .state), try box.decode([ModelOption].self, forKey: .models))
         case "inbox.sections": self = .inboxSections(try InboxLayout(from: decoder))
         case "connection.problem": self = .problem(try box.decodeIfPresent(ProblemNotice.self, forKey: .problem))
         case "machine.status": self = .machineStatus(try MachineStatusInfo(from: decoder))

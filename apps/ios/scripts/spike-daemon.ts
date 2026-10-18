@@ -6,6 +6,7 @@ import { CommandId, DeviceId, Notification, ThreadId } from "@ace/protocol";
 import { oversizedScenario, approvalRetryScenario } from "./review-scenarios.ts";
 import { manyActions, snapshotFrames } from "./many-actions.ts";
 import { LostReceipt } from "./lost-receipt.ts";
+import { threadScenarios } from "./thread-scenarios.ts";
 import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
 
@@ -176,6 +177,8 @@ daemon.command({
     until: Date.now() + 3 * 60 * 60 * 1000,
   },
 });
+
+threadScenarios(daemon, details);
 
 const connections = new Map<ServerWebSocket<undefined>, ReturnType<FakeDaemon["connect"]>>();
 let online = true;
