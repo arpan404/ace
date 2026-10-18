@@ -40,7 +40,7 @@ async function browsing() {
   const world = await evalWorld({ browser: false, browserBackend: fakeHeadlessBackend(loginPage) });
   running = world;
   const { agent, threadId } = await world.agent({});
-  const opened = await agent.call("ace_browser_open", { url: "https://example.com/login" });
+  const opened = await agent.call("browser_open", { url: "https://example.com/login" });
   const { tabId } = z.object({ tabId: z.string() }).parse(opened.data);
   await world.endTurn(threadId);
   return { world, threadId, tabId };

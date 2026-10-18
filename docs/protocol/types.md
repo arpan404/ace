@@ -4548,7 +4548,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | nativeShown | no | boolean |  |
-| cursor | no | object | {"properties":{"fill":{"type":"string","pattern":"^#[0-9a-f]{6}$"},"outline":{"type":"string","pattern":"^#[0-9a-f]{6}$"}},"required":["fill","outline"]} |
+| cursor | no | object | {"properties":{"fill":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"},"outline":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"}},"required":["fill","outline"]} |
 | width | yes | integer | {"minimum":100,"maximum":4096} |
 | height | yes | integer | {"minimum":100,"maximum":4096} |
 | devicePixelRatio | yes | number | {"minimum":1,"maximum":4} |
@@ -4876,8 +4876,8 @@ Example:
   "type": "browser.capture",
   "viewport": {
     "cursor": {
-      "fill": "#b3bd2b",
-      "outline": "#984e56"
+      "fill": "#A4fD3f",
+      "outline": "#dc6D78"
     },
     "devicePixelRatio": 3,
     "height": 104,

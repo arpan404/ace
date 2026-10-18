@@ -173,7 +173,7 @@ A thread's browser holds ordered tabs on whichever backend serves it.
   agent settle (`agent.status` idle, interrupted or failed; never while it waits on subagents,
   background work or a person), its temporary tabs close and its cursor is released, so a
   finished agent never pushes the next one into an extra tab. A tab stays when the agent kept
-  it (`ace_browser_tabs` `keep`, or `keep` on open: a deliverable or handoff), when the person
+  it (`browser_tabs` `keep`, or `keep` on open: a deliverable or handoff), when the person
   opened it, views it, used it in the last 10 minutes or keeps agents out, and while it is
   busy, holds a dialog or is downloading; the thread's last tab never closes this way. `kept`
   is restored after a restart.

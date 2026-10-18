@@ -17,7 +17,7 @@ async function browsing() {
   const world = await evalWorld({ browser: false, browserBackend: fakeHeadlessBackend() });
   running = world;
   const { agent, threadId } = await world.agent({});
-  const opened = await agent.call("ace_browser_open", { url: "https://example.com/login" });
+  const opened = await agent.call("browser_open", { url: "https://example.com/login" });
   expect(opened.failed).toBe(false);
   return { world, agent, threadId, tabId: Opened.parse(opened.data).tabId };
 }
@@ -56,7 +56,7 @@ function answer(
 
 it("a help request makes the thread need the person until they press Done, and the agent hears done", async () => {
   const { world, agent, threadId, tabId } = await browsing();
-  const call = agent.call("ace_browser_request_help", {
+  const call = agent.call("browser_request_help", {
     tabId,
     reason: "login",
     message: "Sign in with your work account",
@@ -85,7 +85,7 @@ it("a help request makes the thread need the person until they press Done, and t
 
 it("a request for a tab the thread does not have is refused and nobody is asked", async () => {
   const { world, agent, threadId } = await browsing();
-  const result = await agent.call("ace_browser_request_help", {
+  const result = await agent.call("browser_request_help", {
     tabId: "no-such-tab",
     reason: "captcha",
     message: "Solve the check",
@@ -97,7 +97,7 @@ it("a request for a tab the thread does not have is refused and nobody is asked"
 
 it("an unanswered request stays open after the turn ends, and the person's Done arrives as their next message", async () => {
   const { world, agent, threadId, tabId } = await browsing();
-  const result = await agent.call("ace_browser_request_help", {
+  const result = await agent.call("browser_request_help", {
     tabId,
     reason: "two_factor",
     message: "Enter the code from your phone",
@@ -130,7 +130,7 @@ it("an unanswered request stays open after the turn ends, and the person's Done 
 
 it("an agent that carries on in a new turn withdraws the request nobody answered", async () => {
   const { world, agent, threadId, tabId } = await browsing();
-  const result = await agent.call("ace_browser_request_help", {
+  const result = await agent.call("browser_request_help", {
     tabId,
     reason: "dialog",
     message: "Choose whether to leave the page",

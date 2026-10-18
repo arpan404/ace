@@ -391,7 +391,7 @@ export const BrowserArtifact = z.object({
   flags: z.array(z.enum(["executable", "archive"])).optional(),
 });
 export type BrowserArtifact = z.infer<typeof BrowserArtifact>;
-const hexColour = z.string().regex(/^#[0-9a-f]{6}$/i);
+const hexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 /** One capture of a multi-size screenshot (`screenshot` with `sizes`). */
 export const BrowserSizedScreenshot = z.object({
   size: BrowserScreenshotSize,
