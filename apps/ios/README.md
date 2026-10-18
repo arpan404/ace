@@ -122,7 +122,21 @@ subagent's lane opens a sheet), question and approval cards above the composer, 
 sheet and the header menu (Stop all agents, Snooze, Archive). The fixture's thread scenarios
 live in `scripts/thread-scenarios.ts`. `ACE_IOS_SPIKE_PORT` moves the fixture, and the app's
 `--spike-port N` argument and `TEST_RUNNER_ACE_IOS_SPIKE_PORT` for tests follow it. TS bridge
-behavior tests run with `bunx vitest run apps/ios/bridge/thread-session.test.ts`.
+behavior tests run with `bunx vitest run apps/ios/bridge/thread-*.test.ts` (shared harness in
+`bridge/thread-harness.ts`).
+
+Plan reviews, MCP forms and browser requests answer on their own cards
+(`bridge/thread-requests.ts`, validated with the shared `@ace/ui-core` form rules). An opened
+settled "Worked for" log reads its turn's full steps (`turn.steps` through the SDK's bounded
+`TurnStepsCache`), sent in 25-step page patches. The effort and speed chip follows the web's
+capability rules (`threadTuning`, `followUpTurnOptions` in `@ace/ui-core`); a pick goes with the next
+message only. Photos and files are staged natively (`Sources/Bridge/AttachmentStaging.swift`,
+hashed with CryptoKit); the bridge checks the shared limits and what the agent reads, then uploads
+through `context.request`, pulling one 48 KiB chunk at a time over the `attachment.chunk` host call.
+A native subagent's lane sheet groups its own blocks (`createBlockReader(agentId)`). Going back from
+a child keeps the parent's last transcript (`ThreadTrail`) until the reopened session's first block.
+Request threads live in `scripts/request-scenarios.ts`; `POST /review/fresh {"scenario": …}` seeds a
+new one per contract test, so suites pass in any order.
 
 ## Scope
 

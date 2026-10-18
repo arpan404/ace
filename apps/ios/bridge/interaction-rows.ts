@@ -2,6 +2,7 @@ import type { ThreadReader } from "@ace/client";
 import type { Interaction } from "@ace/protocol";
 import { approvalCopy, questionOptions, questionTitle } from "@ace/ui-core";
 import { approvalRow, preview } from "./presentation.ts";
+import { requestRow } from "./thread-requests.ts";
 
 /*
  * An interaction card's row: the spike's approval fields, plus the web's three approval verbs
@@ -63,6 +64,7 @@ export function interactionRow(interaction: Interaction, reader: ThreadReader) {
   return {
     ...base,
     ...(request.kind === "question" ? { title: preview(questionTitle(request.questions)) } : {}),
+    ...requestRow(request),
     // Questions past what a phone card shows are answered on a larger screen.
     unanswerable:
       request.kind === "question" &&

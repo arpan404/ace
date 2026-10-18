@@ -21,6 +21,14 @@ import Observation
     var queue: QueueRow?
     /// Stop was pressed; cleared when the tree stops working.
     var stopping = false
+    /// Finished turns' steps read on demand, by turn ordinal.
+    var steps: [Int: TurnStepsModel] = [:]
+    /// Effort and speed for the next message.
+    var tune: TuneRow?
+    /// Files on the next message and their uploads.
+    var attachments: [AttachmentFile] = []
+    /// The native subagent lane open in its sheet.
+    var lane: LaneModel?
     @ObservationIgnored private var positions: [String: Int] = [:]
     @ObservationIgnored private var reorder = false
 
@@ -30,6 +38,9 @@ import Observation
         blockOrder = []
         controls = nil
         queue = nil
+        steps = [:]
+        tune = nil
+        attachments = []
         hasOlder = false
         loadingOlder = false
     }

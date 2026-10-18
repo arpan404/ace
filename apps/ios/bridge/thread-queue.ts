@@ -1,13 +1,13 @@
 import { readServerQueue, type ClientCore, type ThreadSource } from "@ace/client";
 import { CommandId, type CommandPayload, type QueuePage, type ThreadId } from "@ace/protocol";
-import { queuedInputLine } from "@ace/ui-core";
+import { queueMoveAfter, queuedInputLine } from "@ace/ui-core";
 import { preview } from "./presentation.ts";
 
 /*
  * Follow-ups waiting in the daemon's queue. A queued send joins the transcript only when it is
  * delivered, so the phone reads the queue itself (the web's `readServerQueue`) whenever the
  * reader's queue revision moves, and offers the daemon's own edits: change the words, send it
- * now as a steer, or remove it. Every edit is fenced to the revision the person saw.
+ * now as a steer, move it up or down, or remove it. Every edit is fenced to the revision the person saw.
  */
 
 const shown = 32;
@@ -53,7 +53,11 @@ export class QueueFollower {
   /** A queue command for one message the person saw, or undefined when it has moved on. */
   edit(
     messageId: string,
-    change: { kind: "remove" } | { kind: "steer" } | { kind: "words"; text: string },
+    change:
+      | { kind: "remove" }
+      | { kind: "steer" }
+      | { kind: "words"; text: string }
+      | { kind: "move"; step: -1 | 1 },
   ): CommandPayload | undefined {
     const page = this.#page;
     const message = page?.messages.find((entry) => entry.id === messageId);
@@ -64,6 +68,16 @@ export class QueueFollower {
       messageId: CommandId.parse(messageId),
     };
     if (change.kind === "remove") return { type: "queue.remove", ...target };
+    if (change.kind === "move") {
+      const ids: string[] = page.messages.map((entry) => entry.id);
+      const after = queueMoveAfter(ids, ids.indexOf(message.id), change.step);
+      if (after === undefined) return undefined;
+      return {
+        type: "queue.move",
+        ...target,
+        after: after === null ? null : CommandId.parse(after),
+      };
+    }
     if (change.kind === "steer")
       return { type: "queue.edit", ...target, input: message.input, delivery: "steer" };
     const text = change.text.trim();

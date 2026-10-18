@@ -9,6 +9,8 @@ struct HostServices: Sendable {
     /// Receives an access runtime's single result.
     var result: (@Sendable (String) -> Void)?
     var now: @Sendable () -> Date = { Date() }
+    /// Photos and files staged for the next message (`AttachmentStaging`).
+    var attachments = AttachmentStaging()
 
     /// A machine's connection may read its own device token and nothing else.
     static func connection(_ target: ConnectionTarget) -> HostServices {
@@ -42,6 +44,9 @@ struct HostServices: Sendable {
             try FileManager.default.createDirectory(at: directoryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try Data(value.utf8).write(to: directoryURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             return ""
+        case "attachment.chunk":
+            let read = try JSONDecoder().decode(ChunkRead.self, from: input)
+            return try attachments.chunk(read.localId, offset: read.offset, limit: read.limit)
         case "access.result":
             guard let result else { throw HostError.unsupported }
             result(String(decoding: input, as: UTF8.self))
@@ -51,3 +56,4 @@ struct HostServices: Sendable {
     }
 }
 private struct SecretWrite: Decodable { let key: String; let token: String }
+private struct ChunkRead: Decodable { let localId: String; let offset: Int; let limit: Int }
