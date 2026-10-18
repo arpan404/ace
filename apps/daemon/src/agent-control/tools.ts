@@ -15,6 +15,7 @@ import { childTaskView } from "./task-view.ts";
 import { settleThread, unsettleThread } from "./thread-settle.ts";
 import { findProjects } from "./projects.ts";
 import { queueControl } from "./queue-control.ts";
+import { createForks } from "./forks.ts";
 import { resolveSelection, type OpenSelection } from "./selection-defaults.ts";
 import { conversationTool, type ConversationStartPort } from "./conversation-tools.ts";
 import { AgentControlError } from "./failure.ts";
@@ -28,13 +29,7 @@ import {
 export type ExtensionOperation = Extract<
   AgentControlOperation,
   {
-    op:
-      | "thread.fork"
-      | "thread.merge"
-      | "automation.manage"
-      | "thread.handoff"
-      | "preview.list"
-      | "preview.close";
+    op: "automation.manage" | "thread.handoff" | "preview.list" | "preview.close";
   }
 >;
 export type ThreadOwnerOperation = Extract<
@@ -131,6 +126,7 @@ export function createAgentControlPort(
   service: DelegationService,
   extensions: AgentControlExtensions = {},
 ): AgentControlPort {
+  const forks = createForks(store, service, service.conversations);
   return {
     async execute(caller, value, signal) {
       const operation = AgentControlOperation.parse(value);
@@ -467,7 +463,9 @@ export function createAgentControlPort(
         case "queue.reorder":
           return queueControl(service, caller, operation);
         case "thread.fork":
+          return forks.fork(caller, operation);
         case "thread.merge":
+          return forks.merge(caller, operation);
         case "automation.manage":
         case "thread.handoff":
         case "preview.list":

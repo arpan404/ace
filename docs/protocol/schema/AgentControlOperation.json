@@ -538,38 +538,19 @@
       "type": "object"
     },
     {
-      "additionalProperties": false,
-      "properties": {
-        "op": {
-          "const": "thread.fork",
-          "type": "string"
-        },
-        "requestId": {
-          "maxLength": 128,
-          "minLength": 1,
-          "pattern": "^[a-zA-Z0-9_.-]+$",
-          "type": "string"
-        },
-        "runId": {
-          "maxLength": 128,
-          "minLength": 1,
-          "pattern": "^[a-zA-Z0-9_.-]+$",
-          "type": "string"
-        },
-        "threadId": {
-          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
-        }
-      },
-      "required": [
-        "op",
-        "threadId",
-        "requestId"
-      ],
-      "type": "object"
+      "$ref": "https://ace.local/protocol/v1/ThreadForkOperation.json"
     },
     {
       "additionalProperties": false,
       "properties": {
+        "itemIds": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ItemId.json"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array"
+        },
         "op": {
           "const": "thread.merge",
           "type": "string"
@@ -580,6 +561,9 @@
           "pattern": "^[a-zA-Z0-9_.-]+$",
           "type": "string"
         },
+        "summary": {
+          "$ref": "https://ace.local/protocol/v1/MessageText.json"
+        },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         }
@@ -587,7 +571,8 @@
       "required": [
         "op",
         "threadId",
-        "requestId"
+        "requestId",
+        "summary"
       ],
       "type": "object"
     },

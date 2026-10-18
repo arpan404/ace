@@ -246,17 +246,67 @@ const projectsFind = controlTool({
   run: ({ query, limit }, control) => control.run({ op: "projects.list", query, limit }),
 });
 
+const threadFork = controlTool({
+  ...threads,
+  name: "thread_fork",
+  title: "Fork a thread",
+  riskClass: "agent-execution",
+  capability: "thread_control",
+  description:
+    "Fork a thread into a new one that keeps its conversation and takes it another way: text is the fork's first message (what to try instead), optionally on another model. It forks after the latest finished turn, so you can fork this thread mid-turn; runId picks an earlier turn. The fork shares the thread's checkout and is yours to message, settle and merge back with thread_merge. The person sees it as a card: relay it in a sentence, without ids.",
+  input: z.strictObject({
+    threadId: ownedThread.optional().describe("The thread to fork. Default: this thread."),
+    requestId: fields.requestId,
+    text: MessageText.describe(
+      "The fork's first message: the other approach, standing on its own.",
+    ),
+    title: z.string().min(1).max(256).optional().describe("Its sidebar title."),
+    runId: z
+      .string()
+      .min(1)
+      .max(128)
+      .optional()
+      .describe("Fork after this finished run. Default: the latest finished one."),
+    model: z
+      .string()
+      .min(1)
+      .max(256)
+      .optional()
+      .describe("Another model of the same provider, from `models`. Default: the thread's."),
+    effort: z.string().min(1).max(64).optional().describe("Reasoning effort, with model."),
+  }),
+  output: controlResult(z.unknown()),
+  run: ({ threadId, ...input }, control) =>
+    control.run({
+      op: "thread.fork",
+      threadId: threadId ?? control.context.caller.threadId,
+      ...input,
+    }),
+});
+
 const threadMerge = controlTool({
   ...threads,
   name: "thread_merge",
-  title: "Merge a thread's work",
-  riskClass: "external-effect",
-  openWorld: false,
-  destructive: true,
+  title: "Merge a fork back",
+  riskClass: "thread-write",
   capability: "thread_control",
   description:
-    "Merge an owned thread's worktree changes back into the branch it started from. This overwrites files there, so your provider may ask the person first.",
-  input: z.strictObject({ threadId: ownedThread, requestId: fields.requestId }),
+    "Bring a finished fork's result back into the thread it was forked from: summary says what the fork found or did, and it cites the fork's latest answer (or itemIds you pass). That thread's agent sees it from its next turn. A fork shares its source's checkout, so its file changes are already there. Wait for the fork to finish first.",
+  input: z.strictObject({
+    threadId: ownedThread.describe("The fork, from thread_fork."),
+    requestId: fields.requestId,
+    summary: MessageText.describe(
+      "What the fork found or did, standing on its own for the other thread's agent.",
+    ),
+    itemIds: z
+      .array(z.string().min(1).max(256))
+      .min(1)
+      .max(100)
+      .optional()
+      .describe(
+        "Fork transcript items the summary rests on, from thread_read. Default: its latest answer.",
+      ),
+  }),
   output: controlResult(z.unknown()),
   run: (input, control) => control.run({ op: "thread.merge", ...input }),
 });
@@ -421,6 +471,7 @@ export const threadTools = [
   projectsFind,
   threadRead,
   threadStart,
+  threadFork,
   threadMerge,
   queueEdit,
   questionAnswer,

@@ -19,11 +19,8 @@ it("delivers Codex authority only in native thread configuration", () => {
 it("Codex approves ace tools by default and prompts only for the destructive ones", () => {
   const server = codexInjection(connection).config["mcp_servers.ace"];
   expect(server.default_tools_approval_mode).toBe("approve");
-  expect(Object.keys(server.tools).toSorted()).toEqual(["automation_remove", "thread_merge"]);
-  expect(Object.values(server.tools)).toEqual([
-    { approval_mode: "prompt" },
-    { approval_mode: "prompt" },
-  ]);
+  // Merging a fork back adds context to a thread and overwrites nothing, so it never prompts.
+  expect(server.tools).toEqual({ automation_remove: { approval_mode: "prompt" } });
 });
 it("builds Claude Agent SDK HTTP mcpServers with bearer headers", () => {
   const result = claudeInjection(connection);

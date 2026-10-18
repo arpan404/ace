@@ -8,7 +8,6 @@ type Operation = z.input<typeof AgentControlOperation>;
 const needs = {
   rename: [],
   configure: ["requestId", "model"],
-  fork: ["requestId"],
   handoff: ["requestId", "branch"],
   interrupt: ["requestId"],
   settle: [],
@@ -25,7 +24,7 @@ const Input = z
     action: z
       .enum(actions)
       .describe(
-        "rename: set title, or omit title to retitle from the first message. configure: model and effort. fork: copy the conversation into a new thread. handoff: move it to a new Git worktree on branch. interrupt: stop its current turn and its children. settle: move it to Settled, as the person's Settle does; a thread still working (this one, mid-turn) settles when it is done, unless it fails or needs the person. unsettle: bring it back and cancel a pending settle. snooze: mute its notifications until a time. close_preview: stop a preview server. rename_project: rename this project.",
+        "rename: set title, or omit title to retitle from the first message. configure: model and effort. handoff: move it to a new Git worktree on branch. interrupt: stop its current turn and its children. settle: move it to Settled, as the person's Settle does; a thread still working (this one, mid-turn) settles when it is done, unless it fails or needs the person. unsettle: bring it back and cancel a pending settle. snooze: mute its notifications until a time. close_preview: stop a preview server. rename_project: rename this project.",
       ),
     threadId: ThreadId.optional().describe(
       "A thread you own, or with full access any of the person's. Default: this thread.",
@@ -39,12 +38,6 @@ const Input = z
     model: z.string().min(1).max(256).optional().describe("configure: a model id from `models`."),
     effort: z.string().min(1).max(64).optional().describe("configure: reasoning effort."),
     serviceTier: z.enum(["default", "priority", "flex"]).optional().describe("configure."),
-    runId: z
-      .string()
-      .min(1)
-      .max(128)
-      .optional()
-      .describe("fork: fork after this run; default the latest."),
     branch: z.string().min(1).max(256).optional().describe("handoff: the new branch name."),
     until: Timestamp.nullable()
       .optional()
@@ -63,7 +56,7 @@ const Input = z
   })
   .meta({
     "x-ace-constraint":
-      "configure needs requestId and model; fork and interrupt need requestId; handoff needs requestId and branch; snooze needs until; close_preview needs previewId; rename_project needs name.",
+      "configure needs requestId and model; interrupt needs requestId; handoff needs requestId and branch; snooze needs until; close_preview needs previewId; rename_project needs name.",
   });
 type Input = z.output<typeof Input>;
 
@@ -92,13 +85,6 @@ function operation(input: Input, threadId: string): Operation {
           ...(input.effort ? { effort: input.effort } : {}),
           ...(input.serviceTier ? { serviceTier: input.serviceTier } : {}),
         },
-      };
-    case "fork":
-      return {
-        op: "thread.fork",
-        threadId,
-        requestId,
-        ...(input.runId ? { runId: input.runId } : {}),
       };
     case "handoff":
       return { op: "thread.handoff", threadId, requestId, branch: input.branch ?? "" };
@@ -130,7 +116,7 @@ export const threadControl = controlTool({
   riskClass: "thread-write",
   capability: "thread_control",
   description:
-    "Change a thread you own (this one or one you started; with full access, any of the person's threads): rename, configure its model, fork, hand off to a new worktree, interrupt, settle (this thread too, when its work is finished) or unsettle, snooze, close a preview server, or rename this project. Each action's fields are named in action's description.",
+    "Change a thread you own (this one or one you started; with full access, any of the person's threads): rename, configure its model, hand off to a new worktree, interrupt, settle (this thread too, when its work is finished) or unsettle, snooze, close a preview server, or rename this project. Each action's fields are named in action's description.",
   input: Input,
   output: controlResult(z.unknown()),
   async run(input, control) {
