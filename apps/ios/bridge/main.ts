@@ -3,8 +3,8 @@ import { ClientCore, type TransportEvents, type Lease, type ThreadSource } from 
 import { z } from "zod";
 import { DeviceId, HostId } from "@ace/protocol";
 import { call, scheduler } from "./host.ts";
-import { PatchPump, followInbox, followThread } from "./patches.ts";
-import { preview } from "./presentation.ts";
+import { PatchPump, followThread } from "./patches.ts";
+import { followInbox, inboxAction } from "./inbox.ts";
 import { dispatchCommand } from "./commands.ts";
 
 const Config = z.object({
@@ -22,6 +22,11 @@ const Action = z.discriminatedUnion("type", [
     requestId: z.string().min(1).max(64),
   }),
   z.object({ type: z.literal("retry") }),
+  z.object({
+    type: z.literal("inbox"),
+    action: z.unknown(),
+    requestId: z.string().min(1).max(64),
+  }),
 ]);
 let client: ClientCore | undefined;
 let lease: Lease<ThreadSource> | undefined;
@@ -91,32 +96,7 @@ async function start(json: string): Promise<void> {
   connection.subscribe(() =>
     pump.put("connection", () => ({ type: "connection", state: connection.getSnapshot() })),
   );
-  followInbox(client.threads().store, pump);
-  const owner = client;
-  owner.observePendingSends((id) =>
-    pump.put(`pending:${id}`, () => {
-      const pending = owner.pendingSend(id);
-      return {
-        type: "pending",
-        id,
-        row: pending
-          ? {
-              id,
-              threadId: pending.threadId,
-              state: pending.state,
-              waiting: pending.waiting,
-              text: preview(
-                pending.payload.input
-                  .filter((part) => part.type === "text")
-                  .map((part) => part.text)
-                  .join("\n"),
-                8192,
-              ),
-            }
-          : null,
-      };
-    }),
-  );
+  followInbox(client, config.hostId, pump);
   await client.start();
 }
 async function hydrate(
@@ -203,6 +183,9 @@ function action(json: string): void {
         break;
       case "command":
         void dispatchCommand(client, value.payload, value.requestId, pump);
+        break;
+      case "inbox":
+        inboxAction(client, value.action, value.requestId, pump);
         break;
     }
   } catch {

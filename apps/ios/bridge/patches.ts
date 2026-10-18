@@ -1,30 +1,9 @@
-import type { ChangeTap, SidebarSource, ThreadSource } from "@ace/client";
+import type { ChangeTap, ThreadSource } from "@ace/client";
 import { threadRow, itemRow, approvalRow } from "./presentation.ts";
 
 import { PatchPump } from "./patch-pump.ts";
 export { PatchPump } from "./patch-pump.ts";
 
-export function followInbox(store: SidebarSource, pump: PatchPump): () => void {
-  const row = (id: string) =>
-    pump.put(`inbox:${id}`, () => ({
-      type: "inbox.row",
-      id,
-      row: (() => {
-        const value = store.thread(id);
-        return value ? threadRow(value) : null;
-      })(),
-    }));
-  const change: ChangeTap = (keys) => {
-    if (keys === "all" || keys.has("ids")) {
-      pump.clear("inbox:");
-      pump.put("inbox:reset", () => ({ type: "inbox.reset" }));
-      for (const id of store.ids) row(id);
-    } else for (const key of keys) if (key.startsWith("thread:")) row(key.slice(7));
-  };
-  const stop = store.observe(change);
-  change("all");
-  return stop;
-}
 export function followThread(
   store: ThreadSource,
   threadId: string,

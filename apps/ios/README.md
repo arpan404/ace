@@ -100,6 +100,16 @@ simulator screenshots.
   Additional URL/crypto APIs for future service and encrypted-relay flows need contracts
   before those flows ship.
 
+## Inbox
+
+`bridge/inbox.ts` sends each thread row with its status word and colour token, and
+the inbox sections (Needs you, Working, Syncing, Unsent, Done, Snoozed) in order. Both
+come from `@ace/ui-core/mobile`, which Android also uses. Swift filters by search text,
+maps token keys to theme colours and draws the rows. Archive, unarchive (Undo), snooze
+presets and wake go through the SDK's durable outbox. Rows carry a machine id so a
+later multi-machine inbox can merge daemons. `InboxContractTests` and
+`InboxUITests` exercise the inbox against the fixture.
+
 ## Scope
 
 The app currently connects through an explicit debug launch argument. Release builds

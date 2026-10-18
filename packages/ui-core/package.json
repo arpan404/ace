@@ -15,7 +15,8 @@
     "./computer-use": "./src/computer-use.ts",
     "./interaction-measurement": "./src/interaction-measurement.ts",
     "./editor-url": "./src/editor-url.ts",
-    "./file-references": "./src/file-references.ts"
+    "./file-references": "./src/file-references.ts",
+    "./mobile": "./src/mobile.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

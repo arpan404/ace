@@ -3,6 +3,7 @@ import { z } from "zod";
 
 export function manyActions(daemon: FakeDaemon, id: string): void {
   daemon.createThread({
+    hasSentMessage: true,
     id,
     workspaceId: "ace",
     title: "Many approval actions",

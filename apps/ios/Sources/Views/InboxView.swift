@@ -1,5 +1,7 @@
 import SwiftUI
 
+/// The single inbox (issue #560): the bridge's shared sections in order, Done and Snoozed folded
+/// away below. Swift filters by search text and draws; grouping and wording come from the SDK side.
 struct InboxView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var model: ClientModel
@@ -8,68 +10,69 @@ struct InboxView: View {
     @State private var showingSearch = false
     @State private var showingMachines = false
     @State private var showSettled = false
-    private var rows: [ThreadRow] {
-        model.inbox.values.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || $0.project.localizedCaseInsensitiveContains(search) }
-            .sorted { $0.updatedAt > $1.updatedAt }
-    }
+    @State private var snoozing: ThreadRow?
+    @State private var archived: ThreadRow?
+    private static let settledKeys: Set<String> = ["done", "snoozed"]
+
+    private var sections: [InboxLayout.Section] { model.inboxLayout.sections.compactMap(filtered) }
+    private var open: [InboxLayout.Section] { sections.filter { !Self.settledKeys.contains($0.key) } }
+    private var settled: [InboxLayout.Section] { sections.filter { Self.settledKeys.contains($0.key) } }
+
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                if showingSearch { TextField("Search threads", text: $search).textFieldStyle(.plain).accessibilityIdentifier("inbox.search") }
+                if showingSearch {
+                    TextField("Search threads", text: $search).textFieldStyle(.plain).accessibilityIdentifier("inbox.search")
+                }
                 if model.connection != "ready" {
-                    Button { model.retry() } label: {
-                        Label(model.connection == "fatal" ? "Connection needs attention" : "Connecting to your machine…", systemImage: "wifi.slash")
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                    }.listRowSeparator(.hidden)
+                    InboxConnectionBanner(connection: model.connection) { model.retry() }.listRowSeparator(.hidden)
                 }
-                group("Needs you", state: "needs_you")
-                let working = rows.filter { ["working", "waiting", "limited", "failed", "unresponsive", "new"].contains($0.state) && $0.snoozedUntil == nil }
-                section("Working", entries: working)
-                let unsent = model.pending.values.filter { ["saving", "sent", "failed"].contains($0.state) }
-                if !unsent.isEmpty {
-                    Section {
-                        ForEach(unsent.sorted { $0.id < $1.id }) { entry in
-                            VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                                Text(entry.text).lineLimit(2).aceFont(AceTheme.Typography.body, relativeTo: .body)
-                                Text(entry.state == "failed" ? "Send needs attention" : "Sends on reconnect").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
-                            }
+                ForEach(open) { section in
+                    Section { rows(section) } header: { InboxSectionHeader(title: section.label, count: section.ids.count) }
+                }
+                if !settled.isEmpty {
+                    Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { showSettled.toggle() } } label: {
+                        HStack(spacing: AceTheme.Spacing.md) {
+                            Text(settled.map { "\($0.label) (\($0.ids.count))" }.joined(separator: " · "))
+                            Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
+                            Image(systemName: "chevron.down").rotationEffect(.degrees(showSettled ? 180 : 0))
                         }
-                    } header: { sectionHeader("Unsent", count: unsent.count) }
-                }
-                DisclosureGroup(isExpanded: $showSettled) {
-                    ForEach(rows.filter { $0.state == "done" || $0.snoozedUntil != nil }) { row in inboxRow(row) }
-                } label: {
-                    Text("Done today (\(rows.filter { $0.state == "done" }.count)) · Snoozed (\(rows.filter { $0.snoozedUntil != nil }.count))")
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                }.listRowSeparator(.hidden)
-                if model.inboxLoaded && rows.isEmpty {
-                    ContentUnavailableView("Your inbox is clear", systemImage: "tray", description: Text("Tasks from your machines will appear here."))
-                        .listRowSeparator(.hidden)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .listRowSeparator(.hidden)
+                    .accessibilityIdentifier("inbox.settled")
+                    .accessibilityValue(showSettled ? "Expanded" : "Collapsed")
+                    if showSettled {
+                        ForEach(settled) { section in
+                            Section { rows(section) } header: { InboxSectionHeader(title: section.label, count: section.ids.count) }
+                        }
+                    }
                 }
+                if model.inboxLayout.more && search.isEmpty {
+                    Button("Show older threads") { model.loadOlderThreads() }
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .listRowSeparator(.hidden).accessibilityIdentifier("inbox.more")
+                }
+                emptyState.listRowSeparator(.hidden)
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(AceTheme.Colours.background)
+            .refreshable { await refresh() }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItemGroup(placement: .topBarLeading) {
-                    Text("ace.").aceFont(AceTheme.Typography.wordmark, relativeTo: .title3).fixedSize(horizontal: true, vertical: false).foregroundStyle(AceTheme.Colours.foreground)
-                    Button { showingMachines = true } label: {
-                        HStack(spacing: AceTheme.Spacing.xs) {
-                            Circle().fill(model.connection == "ready" ? AceTheme.Status.done : AceTheme.Colours.decoration).frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
-                            Text("1 machine").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                        }.foregroundStyle(AceTheme.Colours.mutedForeground)
-                    }.accessibilityLabel("Machines")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { showingSearch.toggle() } } label: { Image(systemName: "magnifyingglass") }
-                        .accessibilityLabel("Search threads")
-                }
-            }
+            .toolbar { toolbar }
             .navigationDestination(for: String.self) { id in
                 if let thread = model.thread, thread.id == id { ThreadView(model: model, thread: thread) }
             }
             .sheet(isPresented: $showingMachines) { machinesSheet }
+            .confirmationDialog("Snooze until", isPresented: Binding(get: { snoozing != nil }, set: { if !$0 { snoozing = nil } }), presenting: snoozing) { row in
+                ForEach(model.inboxLayout.snooze) { option in
+                    Button(option.label) { Task { _ = await model.snooze(row.id, preset: option.id) } }
+                }
+            }
+            .overlay(alignment: .bottom) { undoArchive }
             .onChange(of: path) { old, new in if !old.isEmpty && new.isEmpty { model.back() } }
         }
         .tint(AceTheme.Colours.foreground)
@@ -77,54 +80,129 @@ struct InboxView: View {
             Button("OK") { model.error = nil }
         } message: { Text(model.error ?? "") }
     }
-    @ViewBuilder private func group(_ title: String, state: String) -> some View { section(title, entries: rows.filter { $0.state == state && $0.snoozedUntil == nil }) }
-    @ViewBuilder private func section(_ title: String, entries: [ThreadRow]) -> some View {
-        if !entries.isEmpty {
-            Section { ForEach(entries) { row in inboxRow(row) } } header: { sectionHeader(title, count: entries.count) }
+
+    @ViewBuilder private func rows(_ section: InboxLayout.Section) -> some View {
+        if section.key == "unsent" {
+            ForEach(section.ids, id: \.self) { id in
+                if let entry = model.pending[id] {
+                    Button { openThread(entry.threadId) } label: { InboxUnsentRow(entry: entry, thread: model.inbox[entry.threadId]) }
+                        .buttonStyle(.plain).accessibilityIdentifier("unsent.\(id)")
+                }
+            }
+        } else {
+            ForEach(section.ids, id: \.self) { id in
+                if let row = model.inbox[id] { threadRow(row, section: section.key) }
+            }
         }
     }
-    private func sectionHeader(_ title: String, count: Int) -> some View {
-        HStack(spacing: AceTheme.Spacing.md) {
-            Text(title).aceFont(AceTheme.Typography.label, relativeTo: .caption).textCase(nil)
-            Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
-            Text(count.formatted()).aceFont(AceTheme.Typography.caption, relativeTo: .caption).monospacedDigit()
-        }.foregroundStyle(AceTheme.Colours.mutedForeground).padding(.vertical, AceTheme.Spacing.xxs)
+    private func threadRow(_ row: ThreadRow, section: String) -> some View {
+        let snoozed = section == "snoozed"
+        return Button { openThread(row.id) } label: { InboxThreadRow(row: row, snoozed: snoozed) }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("thread.\(row.id)")
+            .listRowBackground(section == "needs-you" ? AceTheme.Colours.needsYouSurface : AceTheme.Colours.background)
+            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                Button("Archive", systemImage: "archivebox") { archive(row) }.tint(AceTheme.Colours.mutedForeground)
+            }
+            .swipeActions(edge: .leading, allowsFullSwipe: snoozed) {
+                if snoozed { Button("Wake", systemImage: "sun.max") { Task { _ = await model.wake(row.id) } }.tint(AceTheme.Status.waiting) }
+                else { Button("Snooze", systemImage: "moon.zzz") { snoozing = row }.tint(AceTheme.Status.waiting) }
+            }
+            .contextMenu {
+                if snoozed { Button("Wake", systemImage: "sun.max") { Task { _ = await model.wake(row.id) } } }
+                else {
+                    Menu("Snooze", systemImage: "moon.zzz") {
+                        ForEach(model.inboxLayout.snooze) { option in
+                            Button(option.label) { Task { _ = await model.snooze(row.id, preset: option.id) } }
+                        }
+                    }
+                }
+                Button("Archive", systemImage: "archivebox") { archive(row) }
+            }
     }
-    private func inboxRow(_ row: ThreadRow) -> some View {
-        Button { model.open(row.id); path.append(row.id) } label: {
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                HStack(spacing: AceTheme.Spacing.sm) {
-                    Image(systemName: "folder").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    Text(row.project).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    Spacer()
-                    StateLabel(state: row.state)
-                }.foregroundStyle(AceTheme.Colours.mutedForeground)
-                Text(row.title).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
-                HStack(spacing: AceTheme.Spacing.sm) {
-                    Text(row.branch).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1)
-                    Text("· \(row.machine)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1)
-                    Spacer(minLength: AceTheme.Spacing.none)
-                    if row.agents > 1 { Label("\(row.agents) agents", systemImage: "point.3.connected.trianglepath.dotted").aceFont(AceTheme.Typography.caption, relativeTo: .caption) }
-                }.foregroundStyle(AceTheme.Colours.mutedForeground)
-            }.padding(.vertical, AceTheme.Spacing.sm).contentShape(Rectangle())
+    @ViewBuilder private var emptyState: some View {
+        if sections.isEmpty {
+            if !search.isEmpty && !model.inboxLayout.sections.isEmpty { ContentUnavailableView.search(text: search) }
+            else if !model.inboxLoaded {
+                if model.connection == "fatal" || model.connection == "offline" {
+                    ContentUnavailableView {
+                        Label("Can't reach your machine", systemImage: "wifi.slash")
+                    } description: { Text("Your threads appear once it's back.") } actions: { Button("Retry") { model.retry() } }
+                } else {
+                    ContentUnavailableView { Label { Text("Connecting to your machine…") } icon: { ProgressView() } }
+                }
+            } else {
+                ContentUnavailableView("Your inbox is clear", systemImage: "tray", description: Text("Tasks from your machines appear here."))
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("thread.\(row.id)")
-        .listRowBackground(row.state == "needs_you" ? AceTheme.Colours.needsYouSurface : AceTheme.Colours.background)
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button("Archive", systemImage: "archivebox") { model.archive(row.id) }.tint(AceTheme.Colours.mutedForeground)
+    }
+    @ViewBuilder private var undoArchive: some View {
+        if let row = archived {
+            HStack(spacing: AceTheme.Spacing.md) {
+                Text("Archived “\(row.title)”").lineLimit(1)
+                Spacer(minLength: AceTheme.Spacing.sm)
+                Button("Undo") { archived = nil; Task { _ = await model.unarchive(row.id) } }.bold().accessibilityIdentifier("inbox.undoArchive")
+            }
+            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+            .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.md)
+            .floatingGlass()
+            .padding(.horizontal, AceTheme.Spacing.lg).padding(.bottom, AceTheme.Spacing.md)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .task(id: row.id) {
+                try? await Task.sleep(for: .seconds(5))
+                if archived?.id == row.id { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { archived = nil } }
+            }
         }
-        .contextMenu { Button("Archive", systemImage: "archivebox") { model.archive(row.id) } }
+    }
+    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarLeading) {
+            Text("ace.").aceFont(AceTheme.Typography.wordmark, relativeTo: .title3).fixedSize(horizontal: true, vertical: false).foregroundStyle(AceTheme.Colours.foreground)
+            Button { showingMachines = true } label: {
+                HStack(spacing: AceTheme.Spacing.xs) {
+                    Circle().fill(model.connection == "ready" ? AceTheme.Status.done : AceTheme.Colours.decoration).frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
+                    Text("1 machine").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                }.foregroundStyle(AceTheme.Colours.mutedForeground)
+            }.accessibilityLabel("Machines")
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { showingSearch.toggle(); if !showingSearch { search = "" } } } label: { Image(systemName: "magnifyingglass") }
+                .accessibilityLabel("Search threads")
+        }
     }
     private var machinesSheet: some View {
         NavigationStack {
             List {
                 Label(model.inbox.values.first?.machine ?? "Your machine", systemImage: "laptopcomputer")
                 LabeledContent("Connection", value: model.connection)
-                Text("Phase 0 connects to the local spike daemon. Pairing is part of the MVP.").aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
             }
             .navigationTitle("Machines").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showingMachines = false } } }
         }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+    }
+
+    private func filtered(_ section: InboxLayout.Section) -> InboxLayout.Section? {
+        guard !search.isEmpty else { return section }
+        let ids = section.ids.filter { id in
+            let row = section.key == "unsent" ? model.pending[id].flatMap { model.inbox[$0.threadId] } : model.inbox[id]
+            let text = section.key == "unsent" ? model.pending[id]?.text ?? "" : ""
+            return [row?.title ?? "", row?.project ?? "", text].contains { $0.localizedCaseInsensitiveContains(search) }
+        }
+        return ids.isEmpty ? nil : InboxLayout.Section(key: section.key, label: section.label, ids: ids)
+    }
+    private func openThread(_ id: String) {
+        guard model.inbox[id] != nil else { return }
+        model.open(id); path.append(id)
+    }
+    private func archive(_ row: ThreadRow) {
+        Task {
+            guard await model.archive(row.id) else { return }
+            withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { archived = row }
+        }
+    }
+    /// The list is live; a pull asks the SDK to reconnect now and waits briefly for it.
+    private func refresh() async {
+        guard model.connection != "ready" else { return }
+        model.retry()
+        for _ in 0..<20 where model.connection != "ready" { try? await Task.sleep(for: .milliseconds(100)) }
     }
 }

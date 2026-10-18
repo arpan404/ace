@@ -10,7 +10,7 @@ import { Approval } from "./Approval.tsx";
 import { Composer } from "./Composer.tsx";
 import { AceText, AceButton, Row, StatusPill } from "./components.tsx";
 import { statusAppearance } from "./status.ts";
-import { transcriptRowContent } from "./transcript-row.ts";
+import { transcriptRowContent } from "@ace/ui-core/mobile";
 import { AgentsSheet } from "./sheets.tsx";
 
 const TranscriptRow = memo(function TranscriptRow({

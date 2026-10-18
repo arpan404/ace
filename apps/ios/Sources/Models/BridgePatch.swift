@@ -14,6 +14,11 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     let snoozedUntil: Double?
     let updatedAt: Double
     let canSteer: Bool
+    /// The shared status word and colour token (`@ace/ui-core/mobile`).
+    let status: StatusDisplay
+    /// Inbox rows only: the machine the thread runs on and its last execution activity.
+    let machineId: String?
+    let activityAt: Double?
 }
 struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     let id: String
@@ -25,6 +30,9 @@ struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     let createdAt: Double
     let agentId: String
     let truncated: Bool
+    /// Shared secondary line, such as the visualization fallback; empty when the row has none.
+    let detail: String?
+    let quiet: Bool?
 }
 struct ApprovalRow: Codable, Sendable, Identifiable {
     struct Option: Codable, Sendable, Identifiable { let id: String; let label: String; let kind: String }
@@ -37,7 +45,23 @@ struct ApprovalRow: Codable, Sendable, Identifiable {
     let options: [Option]
     let truncated: Bool
 }
-struct PendingRow: Codable, Sendable, Identifiable { let id: String; let threadId: String; let state: String; let waiting: Bool; let text: String }
+struct PendingRow: Codable, Sendable, Identifiable {
+    let id: String; let threadId: String; let state: String; let waiting: Bool; let text: String
+    /// The shared unsent wording ("Sends on reconnect", "Not sent") and its colour token.
+    let label: String?; let token: String?
+}
+/// A status the bridge has already worded; Swift only maps `token` to a theme colour.
+struct StatusDisplay: Codable, Sendable, Equatable { let label: String; let token: String }
+/// The shared inbox grouping: ordered sections of row ids (thread ids, or pending ids for Unsent).
+struct InboxLayout: Codable, Sendable, Equatable {
+    struct Section: Codable, Sendable, Identifiable, Equatable { let key: String; let label: String; let ids: [String]; var id: String { key } }
+    struct SnoozeOption: Codable, Sendable, Identifiable, Equatable { let id: String; let label: String }
+    let sections: [Section]
+    /// The daemon has older threads beyond the loaded window.
+    let more: Bool
+    let snooze: [SnoozeOption]
+    static let empty = InboxLayout(sections: [], more: false, snooze: [])
+}
 
 enum BridgePatch: Decodable, Sendable {
     case fragment(BridgeFragment)
@@ -55,6 +79,7 @@ enum BridgePatch: Decodable, Sendable {
     case error(String)
     case receipt(String, Bool, String)
     case admission(String, Bool, String)
+    case inboxSections(InboxLayout)
 
     private enum Keys: String, CodingKey { case type, id, row, threadId, epoch, state, message, ok, cursor, count, index }
     init(from decoder: any Decoder) throws {
@@ -83,6 +108,7 @@ enum BridgePatch: Decodable, Sendable {
         case "error": self = .error(try box.decode(String.self, forKey: .message))
         case "receipt": self = .receipt(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
         case "admission": self = .admission(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
+        case "inbox.sections": self = .inboxSections(try InboxLayout(from: decoder))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: box, debugDescription: "Unknown bridge patch")
         }
     }

@@ -14,7 +14,7 @@ export function isRemoved(entry: ThreadListEntry): boolean {
 }
 
 /** Older named threads stay compatible; a recorded empty draft never becomes a task by rename. */
-function isDraft(entry: ThreadListEntry): boolean {
+export function isDraft(entry: ThreadListEntry): boolean {
   return (
     entry.hasSentMessage === false ||
     (entry.hasSentMessage === undefined &&

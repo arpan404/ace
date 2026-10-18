@@ -1,48 +1,37 @@
 import SwiftUI
 
-/// Presentation of the daemon's canonical state. This never computes tree completion.
+/// Colours for the shared status token keys (`@ace/ui-core/mobile`). Words and grouping arrive
+/// ready-made from the bridge; this never labels a state or computes tree completion.
 @MainActor enum StateStyle {
-    static func marker(_ state: String) -> Color {
-        switch state {
-        case "needs_you": AceTheme.Status.needsYou
+    static func marker(_ token: String) -> Color {
+        switch token {
+        case "needsYou": AceTheme.Status.needsYou
         case "working": AceTheme.Status.working
-        case "waiting", "limited": AceTheme.Status.waiting
+        case "waiting": AceTheme.Status.waiting
         case "done": AceTheme.Status.done
         case "failed": AceTheme.Status.failed
         case "unresponsive": AceTheme.Status.unresponsive
         default: AceTheme.Colours.decoration
         }
     }
-    static func text(_ state: String) -> Color {
-        switch state {
-        case "needs_you": AceTheme.StatusText.needsYou
+    static func text(_ token: String) -> Color {
+        switch token {
+        case "needsYou": AceTheme.StatusText.needsYou
         case "working": AceTheme.StatusText.working
-        case "waiting", "limited": AceTheme.StatusText.waiting
+        case "waiting": AceTheme.StatusText.waiting
         case "done": AceTheme.StatusText.done
         case "failed": AceTheme.StatusText.failed
         case "unresponsive": AceTheme.StatusText.unresponsive
         default: AceTheme.Colours.mutedForeground
         }
     }
-    static func label(_ state: String) -> String {
-        switch state {
-        case "needs_you": "Needs you"
-        case "working": "Working"
-        case "waiting": "Waiting"
-        case "limited": "Rate limited"
-        case "done": "Done"
-        case "failed": "Failed"
-        case "unresponsive": "Unresponsive"
-        default: "New"
-        }
-    }
 }
 struct StateLabel: View {
-    let state: String
+    let status: StatusDisplay
     var body: some View {
         HStack(spacing: AceTheme.Spacing.xs) {
-            Circle().fill(StateStyle.marker(state)).frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
-            Text(StateStyle.label(state)).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(StateStyle.text(state))
+            Circle().fill(StateStyle.marker(status.token)).frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
+            Text(status.label).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(StateStyle.text(status.token))
         }
         .accessibilityElement(children: .combine)
     }
