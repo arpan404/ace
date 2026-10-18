@@ -1,4 +1,5 @@
 import { cardEdge } from "@/components/ui/rules.ts";
+import { cn } from "@/lib/cn.ts";
 import { refusalMessage } from "@/lib/daemon-command.ts";
 import { useState, type KeyboardEvent, type ReactNode } from "react";
 import type { ClientApi } from "@ace/client";
@@ -301,11 +302,17 @@ function OpenRequest(props: {
       )}
       {request.kind !== "question" ? (
         <div className="mt-2 mb-2.5 flex items-start gap-2">
-          <h3 className="min-w-0 flex-1 text-md leading-[1.35] font-medium tracking-[-0.005em]">
+          <h3
+            className={cn(
+              "min-w-0 flex-1 font-medium",
+              copy?.command
+                ? "flex items-center gap-1.5 text-xs text-muted-foreground"
+                : "text-md leading-[1.35] tracking-[-0.005em]",
+            )}
+          >
             {copy?.command ? (
-              <>
-                Run <code className="text-ui font-normal break-words">{copy.command}</code>?
-              </>
+              // The command itself shows below, in a code block.
+              "Run command"
             ) : copy ? (
               <ApprovalHeading copy={copy} />
             ) : (

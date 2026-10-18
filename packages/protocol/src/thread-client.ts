@@ -32,6 +32,11 @@ export const ThreadOrganization = z.object({
   activityAt: Timestamp.optional(),
   autoSettleAt: Timestamp.optional(),
   /**
+   * False when this thread never settles by itself (inactivity, merged or closed PR); absent
+   * means the settings decide. Unsettling a thread by hand turns it off.
+   */
+  autoSettle: z.literal(false).optional(),
+  /**
    * An agent asked to settle this thread while it was still working. It settles once the
    * thread is done; any other outcome (failed, a question for the person) drops the request.
    */
@@ -191,6 +196,7 @@ export const ThreadClientUpdated = z.object({
     settledReason: ThreadOrganization.shape.settledReason.unwrap().nullable().optional(),
     snoozedUntil: Timestamp.nullable().optional(),
     autoSettleAt: Timestamp.nullable().optional(),
+    autoSettle: z.literal(false).nullable().optional(),
     settleWhenDone: z.literal(true).nullable().optional(),
   }),
 });
@@ -224,5 +230,7 @@ export const ThreadOrganizationCommands = [
   z.object({ type: z.literal("thread.read"), threadId: ThreadId, unread: z.boolean() }),
   z.object({ type: z.literal("thread.settle"), threadId: ThreadId }),
   z.object({ type: z.literal("thread.unsettle"), threadId: ThreadId }),
+  /** Let this thread settle by itself again (`enabled`), or keep it in the list until settled by hand. */
+  z.object({ type: z.literal("thread.autoSettle"), threadId: ThreadId, enabled: z.boolean() }),
   z.object({ type: z.literal("thread.snooze"), threadId: ThreadId, until: Timestamp.nullable() }),
 ] as const;

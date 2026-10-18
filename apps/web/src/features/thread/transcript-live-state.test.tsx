@@ -49,7 +49,7 @@ async function running(events = initial(), throughWorker = false) {
   };
 }
 
-test("a working turn ends with a read-only status line and its agent tree opens from the menu", async () => {
+test("a working turn leads with a read-only status line and its agent tree opens from the menu", async () => {
   await running();
   const feed = screen.getByRole("feed", { name: "Transcript" });
   // One live status in the whole view: no copy pinned at the top, no second "Thinking" line.
@@ -59,11 +59,12 @@ test("a working turn ends with a read-only status line and its agent tree opens 
     .getAllByText(/bun run build/)
     .at(-1);
   if (!step) throw new Error("Missing step");
-  // It ends the turn's flow, under the ask and the step in flight.
+  // It heads the turn's flow: under the ask, above the step in flight.
   expect(ask.compareDocumentPosition(live()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(step.compareDocumentPosition(live()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  // The line stays selectable text; the thread menu opens its agent tree.
+  expect(step.compareDocumentPosition(live()) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  // The line stays selectable text with no glyph; the thread menu opens its agent tree.
   expect(within(live()).queryByRole("button")).toBeNull();
+  expect(live().querySelector('[data-slot="status-glyph"]')).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /Open agent tree/ }));
   expect(await screen.findByRole("region", { name: "Thread panel" })).toBeTruthy();

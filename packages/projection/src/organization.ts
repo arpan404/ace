@@ -16,6 +16,7 @@ export const organizationCommands = [
   "thread.read",
   "thread.settle",
   "thread.unsettle",
+  "thread.autoSettle",
   "thread.snooze",
 ] as const;
 
@@ -56,6 +57,7 @@ export function organizationDecision(
         changes: { settledAt: at, settledReason: "manual", snoozedUntil: null, autoSettleAt: null },
       };
     case "thread.unsettle":
+      // The person wants it in the list: the rules that settled it must not settle it again.
       return {
         type: "thread.client.updated",
         changes: {
@@ -63,8 +65,14 @@ export function organizationDecision(
           settledReason: null,
           activityAt: at,
           autoSettleAt: null,
+          autoSettle: false,
           settleWhenDone: null,
         },
+      };
+    case "thread.autoSettle":
+      return {
+        type: "thread.client.updated",
+        changes: p.enabled ? { autoSettle: null } : { autoSettle: false, autoSettleAt: null },
       };
     case "thread.snooze":
       if (p.until !== null && p.until <= at) return "snooze_in_past";
@@ -125,7 +133,8 @@ function automaticSettle(
     return { ...expired, autoSettleAt: null, settledAt: null, settledReason: null };
   if (thread.archivedAt !== undefined || thread.pinned || threadAttention(thread))
     return { ...expired, autoSettleAt: null };
-  if (thread.settledAt !== undefined) return { ...expired, autoSettleAt: null };
+  if (thread.settledAt !== undefined || thread.autoSettle === false)
+    return { ...expired, autoSettleAt: null };
   const due =
     policy.hours > 0
       ? (thread.activityAt ?? thread.updatedAt) + policy.hours * 3_600_000

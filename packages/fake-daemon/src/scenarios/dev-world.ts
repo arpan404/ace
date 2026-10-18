@@ -15,7 +15,7 @@ import { multiDayDemo } from "./multi-day-demo.ts";
 import { longHistory } from "./long-history.ts";
 import { replayCursor } from "./replay-cursor.ts";
 import { startedConversation } from "./started-conversation.ts";
-import { explainer, visualization } from "./visualization.ts";
+import { explainer, postedImage, visualization } from "./visualization.ts";
 
 /** One thread of the development world and how it is played. */
 export interface WorldThread {
@@ -68,6 +68,8 @@ export function devWorld(): WorldThread[] {
     { scenario: visualization(), agoMs: 25 * minute },
     // An interactive learning page (slider, step-through, quick check) inline in the reply.
     { scenario: explainer(), agoMs: 12 * minute },
+    // An image the agent rendered and posted (image_show) above its reply.
+    { scenario: postedImage(), agoMs: 8 * minute },
     // The exhausted Codex Team account's threads, stopped at its limit (Usage & accounts).
     ...teamAtLimit().map((scenario) => ({ scenario, agoMs: 40 * minute })),
   ]);

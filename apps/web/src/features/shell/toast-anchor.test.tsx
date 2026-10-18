@@ -43,7 +43,7 @@ function geometry(main: () => DOMRect, sidebar = () => new DOMRect()) {
   return () => act(() => fires.forEach((fire) => fire()));
 }
 
-test("toasts centre over the main pane so they stay clear of an open side panel", async () => {
+test("toasts sit at the main pane's right edge so they stay clear of an open side panel", async () => {
   let box = new DOMRect(240, 0, 600, 800);
   const resized = geometry(() => box);
   const view = await harness().open("/");
@@ -51,6 +51,8 @@ test("toasts centre over the main pane so they stay clear of an open side panel"
   resized();
   expect(center()).toBe("540px");
   expect(paneWidth()).toBe("600px");
+  // jsdom's window is 1024px wide: the pane ends 184px short of it, plus a 12px gap.
+  expect(document.documentElement.style.getPropertyValue("--toast-pane-right")).toBe("196px");
 
   box = new DOMRect(100, 0, 800, 800);
   act(() => window.dispatchEvent(new Event("resize")));

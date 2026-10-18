@@ -15,13 +15,19 @@ export const themeProperties = [
   "foreground",
   "muted",
   "muted-foreground",
+  "subtle-foreground",
   "card",
+  "surface-2",
+  "hover",
   "card-foreground",
   "border",
+  "input",
+  "field",
   "primary",
   "primary-foreground",
   "accent",
   "accent-foreground",
+  "accent-text",
   "destructive",
   "success",
   "warning",
@@ -132,7 +138,7 @@ export const pageBridge = `(() => {
  * CSP source for `pageBridge`. A static page's policy admits only this script, so an authored
  * script or handler that survived stripping still cannot run. `mode.test.ts` keeps it current.
  */
-export const pageBridgeHash = "'sha256-ezP0I/7RKpjUGrpDUustiVXiCv2YUnlKI8nT1xjLqwU='";
+export const pageBridgeHash = "'sha256-Lm50VCNjORn1sSt2ou5mfSBbuEOseqCFaK35pIzX1Z4='";
 
 /**
  * Runs in the trusted outer document. Attaches the page frame, relays only its height out, and

@@ -751,9 +751,14 @@ export function buildBlocks(source: BlockSource): Block[] {
       (!pseudo && !settled(source, turn, newestRun === turn))
     ) {
       for (const block of turn.work) block.ongoing = true;
-      // The newest turn says what it is doing in one line at the end of its flow (DESIGN.md §8).
-      if (newest === turn && source.heldTurn !== turn.id)
-        place(turn.lastBlock, { kind: "live", key: `live:${turn.key}`, askId: turn.askId });
+      // The newest turn says what it is doing in one line at the top of its flow, under its
+      // ask, where its "Worked for" head stands once it settles (DESIGN.md §8).
+      if (newest === turn && source.heldTurn !== turn.id) {
+        const live: Block = { kind: "live", key: `live:${turn.key}`, askId: turn.askId };
+        const first = turn.blocks.size ? Math.min(...turn.blocks) : undefined;
+        if (first === undefined) place(turn.lastBlock, live);
+        else before.set(first, [live, ...(before.get(first) ?? [])]);
+      }
       // A pause shows while the turn waits on the limit, before anything settles.
       if (source.heldTurn === turn.id) {
         place(turn.lastBlock, endBlock(turn, "paused", newest === turn, ending?.runId));

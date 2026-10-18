@@ -16,6 +16,8 @@ export interface OrganizePatch {
   pinOrder?: number;
   unread?: boolean;
   settled?: boolean;
+  /** Whether the thread may settle by itself (`thread.autoSettle`; unsettling turns it off). */
+  autoSettle?: boolean;
   /** A wake time, or null to wake it now. */
   snoozedUntil?: number | null;
   archived?: boolean;
@@ -55,6 +57,11 @@ export function patchEntry(
     delete next.settledAt;
     delete next.settledReason;
     next.activityAt = latest;
+  }
+  if (patch.autoSettle === true) delete next.autoSettle;
+  else if (patch.autoSettle === false) {
+    next.autoSettle = false;
+    delete next.autoSettleAt;
   }
   if (patch.snoozedUntil === null) delete next.snoozedUntil;
   else if (patch.snoozedUntil !== undefined) next.snoozedUntil = patch.snoozedUntil;
@@ -96,6 +103,7 @@ export function reflects(
     (patch.unread === undefined ||
       ((entry.unread === true) === patch.unread && entry.readAt !== before?.readAt)) &&
     (patch.settled === undefined || (entry.settledAt !== undefined) === patch.settled) &&
+    (patch.autoSettle === undefined || (entry.autoSettle !== false) === patch.autoSettle) &&
     (patch.snoozedUntil === undefined || (entry.snoozedUntil ?? null) === patch.snoozedUntil) &&
     (patch.archived === undefined || (entry.archivedAt !== undefined) === patch.archived) &&
     (patch.deleted === undefined || entry.deletedAt !== undefined) &&

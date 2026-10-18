@@ -503,6 +503,24 @@ Example:
 }
 ```
 
+### thread.autoSettle
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"thread.autoSettle"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| enabled | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "enabled": true,
+  "threadId": "example",
+  "type": "thread.autoSettle"
+}
+```
+
 ### thread.snooze
 
 | Field | Required | Type | Constraints |
@@ -517,7 +535,7 @@ Example:
 {
   "threadId": "example",
   "type": "thread.snooze",
-  "until": 8
+  "until": null
 }
 ```
 
