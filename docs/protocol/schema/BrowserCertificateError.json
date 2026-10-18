@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserCertificateError.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "error": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "url": {
+      "maxLength": 8192,
+      "type": "string"
+    }
+  },
+  "required": [
+    "url",
+    "error"
+  ],
+  "type": "object"
+}

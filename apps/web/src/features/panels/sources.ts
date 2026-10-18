@@ -99,6 +99,16 @@ export interface BrowserTabView {
   /** "Keep agents out of this tab": agents can neither read nor drive it. */
   private?: boolean | undefined;
   pendingDialog?: BrowserDialogView | undefined;
+  /** A site's sign-in prompt holding the page; only the person answers it. */
+  pendingAuth?: BrowserSignInView | undefined;
+  /** The page wasn't opened: its certificate isn't trusted. The person may proceed anyway. */
+  certificateError?: { url: string; error: string } | undefined;
+}
+export interface BrowserSignInView {
+  authId: string;
+  tabId: string;
+  origin: string;
+  realm?: string | undefined;
 }
 export interface BrowserDownloadView {
   downloadId: string;

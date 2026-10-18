@@ -19,6 +19,7 @@ import { clearPartition } from "./partition-cleanup.ts";
 import { PausedRequests } from "./paused-requests.ts";
 import { CrashBackoff } from "./crash-backoff.ts";
 import { FocusHandoff, type ReplayedKey } from "./focus-handoff.ts";
+import type { CertificateExceptions } from "./certificates.ts";
 const throttleIdleMs = 30_000;
 /** The longest the view keeps keys for the app before giving them up. */
 const handoffMs = 1_000;
@@ -39,6 +40,8 @@ export interface PageOptions {
   forget(): void;
   authPreload?: string | undefined;
   rememberPopup?(contents: WebContents): () => void;
+  /** Certificates the person trusted in this thread's browser (shared by its tabs). */
+  certificates?: CertificateExceptions | undefined;
 }
 
 export class EmbeddedPage implements ViewPage {
@@ -91,6 +94,8 @@ export class EmbeddedPage implements ViewPage {
   private crashed = false;
   private crashReload: ReturnType<typeof setTimeout> | undefined;
   private handoff = new FocusHandoff();
+  /** The certificate the shown document last failed on, for the person to proceed past. */
+  private certificateError: { url: string; fingerprint: string } | undefined;
 
   constructor(options: PageOptions) {
     this.options = options;
@@ -109,10 +114,11 @@ export class EmbeddedPage implements ViewPage {
     const contents = this.contents;
     this.auth = new NativeBasicAuth(contents, () => this.nativeInput, options.authPreload);
     this.dialogs = new NativeDialogs(contents, (method, params) => this.emit(method, params));
+    // A sign-in popup (window.opener, OAuth) opens for the person and for an agent's tab alike.
     this.popups = new NativePopups({
       contents,
       authPreload: options.authPreload,
-      allowed: () => this.nativeInput,
+      allowed: () => this.popupsAllowed(),
       emit: (method, params) => this.emit(method, params),
       remember: (popup) => options.rememberPopup?.(popup) ?? (() => {}),
       navigate: (url) => {
@@ -128,6 +134,14 @@ export class EmbeddedPage implements ViewPage {
       this.emit("ace.title", { title: title.slice(0, 1024) }),
     );
     contents.on("will-attach-webview", (event) => event.preventDefault());
+    contents.on("certificate-error", (event, url, _error, certificate, callback, isMainFrame) => {
+      if (options.certificates?.allows(url, certificate.fingerprint)) {
+        event.preventDefault();
+        callback(true);
+        return;
+      }
+      if (isMainFrame) this.certificateError = { url, fingerprint: certificate.fingerprint };
+    });
     contents.on("before-input-event", (event, input) => {
       if (this.injecting === 0 && this.handoff.capture(Date.now(), input)) {
         event.preventDefault();
@@ -505,6 +519,7 @@ export class EmbeddedPage implements ViewPage {
       this.recovery.ready();
       return {};
     }
+    if (method === "ace.certificate.proceed") return this.proceedCertificate(params);
     if (this.popups.command(method, params) || this.dialogs.answer(method, params)) return {};
     if (this.downloads.command(method, params)) return {};
     if (method === "ace.findText") {
@@ -658,15 +673,34 @@ export class EmbeddedPage implements ViewPage {
 
   setNativeInput(enabled: boolean): void {
     this.nativeInput = enabled;
-    if (!enabled) {
-      this.popups.close();
-      this.auth.close();
-    }
+    if (!enabled) this.auth.close();
+    if (!this.popupsAllowed()) this.popups.close();
     this.updateThrottle();
+  }
+
+  /** Popups exist while the person or an agent uses the page, never for an idle unseen one. */
+  private popupsAllowed(): boolean {
+    return this.nativeInput || this.agentControl;
+  }
+
+  /**
+   * The person proceeds past the certificate error they were shown for `url`: this thread's
+   * browser trusts that origin's certificate (the one that failed) and loads the page again.
+   * Only the daemon's person-only request sends this; agents have no path to it.
+   */
+  private async proceedCertificate(params: unknown): Promise<unknown> {
+    const { url } = z.object({ url: z.string().max(8192) }).parse(params);
+    const failed = this.certificateError;
+    if (!failed || failed.url !== url || !this.options.certificates)
+      throw new Error("Certificate error no longer shown");
+    this.options.certificates.allow(failed.url, failed.fingerprint);
+    this.certificateError = undefined;
+    return this.send("Page.navigate", { url });
   }
 
   setAgentControl(agent: boolean): void {
     this.agentControl = agent;
+    if (!this.popupsAllowed()) this.popups.close();
     void this.send("Page.setInterceptFileChooserDialog", { enabled: agent }).catch((error) =>
       this.options.log(String(error)),
     );

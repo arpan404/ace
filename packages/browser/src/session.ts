@@ -16,6 +16,7 @@ import { executeDownloads, executeTabs } from "./session-structure.ts";
 import { freezeIdleTabs, wakeTab } from "./session-lifecycle.ts";
 import { tabCommand } from "./session-commands.ts";
 import { collaborationTiming } from "./collaboration.ts";
+import { requestAsPerson, type PersonRequest } from "./person-requests.ts";
 
 import type { Actor, SessionOptions } from "./session-options.ts";
 export type { Actor, SessionOptions } from "./session-options.ts";
@@ -140,6 +141,7 @@ export class BrowserSession {
       }),
       dialog: (tabId) =>
         this.options.backend.tabs?.list().find((tab) => tab.tabId === tabId)?.pending_dialog,
+      listed: (tabId) => this.options.backend.tabs?.list().find((tab) => tab.tabId === tabId),
       answer: async (dialogId, accept, promptText) => {
         const tabs = this.options.backend.tabs;
         if (!tabs) throw new BrowserActionError("not_supported");
@@ -344,6 +346,14 @@ export class BrowserSession {
     if (this.tab(tabId).setPrivate(value)) this.emit();
     return this.state;
   }
+  /** What only the person may ask of a page, such as answering a site's sign-in. */
+  async asPerson(request: PersonRequest): Promise<BrowserState> {
+    this.tab(request.tabId);
+    this.lastActivity = this.options.now();
+    await requestAsPerson(this.options.backend.tabs, request);
+    this.emit();
+    return this.state;
+  }
   /** The person used a tab in a view the daemon does not route (the desktop's native view). */
   humanActivity(tabId?: string): void {
     if (this.closed) return;
@@ -363,6 +373,7 @@ export class BrowserSession {
     // A popup of a private page is private too.
     for (const tab of added)
       if (tab.openedBy?.kind === "page" && viewed?.private) tab.setPrivate(true);
+    this.announcePopups(added);
     const viewedId = this.tabs.viewedId();
     if (viewedId !== this.captured && !this.paused) {
       this.tabs.find(this.captured ?? "")?.annotation.end("tab");
@@ -375,6 +386,22 @@ export class BrowserSession {
     }
     this.persist();
     this.emit();
+  }
+  /** Popups the backend adopted as tabs: their openers' agents and the logs hear of them. */
+  private announcePopups(added: readonly TabRuntime[]): void {
+    const tabs = this.options.backend.tabs;
+    for (const tab of added) {
+      const openerId = tabs?.opener?.(tab.id);
+      if (openerId === undefined) continue;
+      const url = tabs?.list().find((entry) => entry.tabId === tab.id)?.url ?? "about:blank";
+      this.tabs.find(openerId)?.popupOpened({ tabId: tab.id, url });
+      this.log({
+        kind: "console",
+        type: "popup",
+        tabId: openerId,
+        text: `The page opened a window as tab ${tab.id}; act in it with that tabId.`,
+      });
+    }
   }
   execute(raw: unknown, actor: Actor = { kind: "agent" }, signal?: AbortSignal): Promise<unknown> {
     return this.submit(BrowserCommand.parse(raw), actor, signal);

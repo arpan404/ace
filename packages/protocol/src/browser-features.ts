@@ -9,6 +9,27 @@ export const BrowserDialog = z.object({
 });
 export type BrowserDialog = z.infer<typeof BrowserDialog>;
 /**
+ * A site's HTTP sign-in prompt (basic or digest auth) holding a tab's page load. Only the person
+ * answers it: their credentials go straight to the browser engine and are never stored.
+ */
+export const BrowserAuthChallenge = z.object({
+  authId: id,
+  tabId: id,
+  origin: z.string().max(8192),
+  realm: z.string().max(1024).optional(),
+  scheme: z.string().max(64).optional(),
+});
+export type BrowserAuthChallenge = z.infer<typeof BrowserAuthChallenge>;
+/**
+ * The page in this tab was not opened because its certificate is not trusted. The person may
+ * proceed past it for this origin and certificate, for the browser's session; agents never may.
+ */
+export const BrowserCertificateError = z.object({
+  url: z.string().max(8192),
+  error: z.string().max(256),
+});
+export type BrowserCertificateError = z.infer<typeof BrowserCertificateError>;
+/**
  * Who opened or is driving a tab. `page` is a popup the page itself opened. Unknown kinds decode
  * to undefined on the field that carries them, so a newer daemon never breaks an older client.
  */
@@ -38,6 +59,8 @@ export const BrowserTab = z.object({
   url: z.string().max(8192),
   title: z.string().max(1024),
   pending_dialog: BrowserDialog.optional(),
+  pending_auth: BrowserAuthChallenge.optional(),
+  certificate_error: BrowserCertificateError.optional(),
   openedBy: BrowserTabActor.optional(),
   /** The actor whose command ran on this tab most recently. */
   drivenBy: BrowserTabActor.optional(),

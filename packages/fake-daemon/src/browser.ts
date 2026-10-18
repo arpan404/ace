@@ -440,6 +440,46 @@ export class FakeBrowser {
     )?.pending_dialog;
     this.changed();
   }
+  /** A site on this tab asks for a sign-in; only the person's answer clears it. */
+  signInAsk(threadId: string, tabId: string, realm: string): string {
+    const tab = this.tab(threadId, tabId);
+    if (!tab) throw new Error("Browser tab unavailable");
+    const authId = `${tabId}-auth`;
+    // Fake pages may be listed as typed ("localhost:5173/settings"), without a scheme.
+    const origin = new URL(tab.url.includes("://") ? tab.url : `http://${tab.url}`).origin;
+    tab.pending_auth = { authId, tabId, origin, realm };
+    this.changed();
+    return authId;
+  }
+  /** What the site received: the person's credentials, or `null` for a cancelled sign-in. */
+  readonly signIns: ({ username: string; password: string } | null)[] = [];
+  signInAnswer(
+    threadId: string,
+    tabId: string,
+    authId: string,
+    credentials: { username: string; password: string } | undefined,
+  ): void {
+    const tab = this.tab(threadId, tabId);
+    if (tab?.pending_auth?.authId !== authId) throw new Error("Sign-in no longer pending");
+    delete tab.pending_auth;
+    this.signIns.push(credentials ?? null);
+    this.changed();
+  }
+  /** The tab's page failed on an untrusted certificate for `url`. */
+  certificateFail(threadId: string, tabId: string, url: string, error: string): void {
+    const tab = this.tab(threadId, tabId);
+    if (!tab) throw new Error("Browser tab unavailable");
+    tab.certificate_error = { url, error };
+    this.changed();
+  }
+  /** The person proceeded past the certificate error for `url`; the page loads. */
+  certificateProceed(threadId: string, tabId: string, url: string): void {
+    const tab = this.tab(threadId, tabId);
+    if (tab?.certificate_error?.url !== url) throw new Error("Certificate error no longer shown");
+    delete tab.certificate_error;
+    tab.url = url;
+    this.changed();
+  }
   downloadsList(threadId: string): BrowserDownload[] {
     return this.view(threadId)?.downloads ?? [];
   }

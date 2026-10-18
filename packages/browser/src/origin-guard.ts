@@ -54,6 +54,11 @@ export async function installOriginGuard(
     attach(cdp: BrowserCdp, targetId: string): Promise<void>;
     detach(cdp: BrowserCdp): void;
   },
+  /**
+   * Top-level document sign-in challenges pause as `Fetch.authRequired` for the tab's owner to
+   * answer (ace's Chrome, which shows no prompt of its own). Off: the engine handles them.
+   */
+  options: { handleAuthRequests?: boolean } = {},
 ) {
   // Fetch redirects have new IDs. Carry the original actor along that chain.
   const actors = new Map<string, boolean>();
@@ -274,7 +279,10 @@ export async function installOriginGuard(
   cdp.on("Target.attachedToTarget", rootAttached);
   cdp.on("Target.receivedMessageFromTarget", received);
   cdp.on("Target.detachedFromTarget", detached);
-  await root("Fetch.enable", guarded);
+  await root(
+    "Fetch.enable",
+    options.handleAuthRequests ? { ...guarded, handleAuthRequests: true } : guarded,
+  );
   await root("Target.setAutoAttach", {
     autoAttach: true,
     waitForDebuggerOnStart: true,

@@ -192,6 +192,12 @@ const netErrors: Record<string, (host: string) => Omit<BrowserFailure, "code">> 
 export function describeBrowserFailure(message: string, url: string): BrowserFailure {
   const host = addressHost(url) ?? url;
   const net = /net::(ERR_[A-Z_]+)/.exec(message)?.[1];
+  if (net?.startsWith("ERR_CERT_") && !netErrors[net])
+    return {
+      title: "This connection isn't private",
+      detail: `${host}'s certificate isn't valid (${net}), so the page wasn't opened.`,
+      code: net,
+    };
   if (net) {
     const known = netErrors[net];
     return known

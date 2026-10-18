@@ -43,6 +43,12 @@ export function useBrowserFeatures(threadId: string) {
     answerDialog: (tabId: string, dialogId: string, accept: boolean, promptText?: string) =>
       attempt("Couldn't answer the page", () => answerDialog(tabId, dialogId, accept, promptText)),
 
+    answerAuth: (tabId: string, authId: string, credentials?: SignInAnswer) =>
+      attempt("Couldn't answer the sign-in", () =>
+        features.answerAuth(threadId, tabId, authId, credentials),
+      ),
+    proceedCertificate: (tabId: string, url: string) =>
+      attempt("Couldn't open the page", () => features.proceedCertificate(threadId, tabId, url)),
     startRecording: () =>
       attempt("Couldn't start recording", async () => {
         await recording("browser.recording.start");
@@ -57,3 +63,7 @@ export function useBrowserFeatures(threadId: string) {
 }
 
 export type BrowserFeatures = ReturnType<typeof useBrowserFeatures>;
+export interface SignInAnswer {
+  username: string;
+  password: string;
+}

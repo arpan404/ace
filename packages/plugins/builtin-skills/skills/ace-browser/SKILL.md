@@ -24,6 +24,7 @@ Every page tool takes an optional `tabId`. Without one, a tool acts in your curr
 - `ace_browser_tabs`: `list` (each tab's `tabId`, url, title, label, who opened and drives it, `inUse` for the agent working there, `private`, `pending_dialog`; `current` marks yours), `open`, `select`, `close`.
 - `ace_browser_close` with `tabId` closes that tab. Close the tabs you opened when you are done.
 - Commands in different tabs run at the same time; a dialog holds only its own tab.
+- Some pages need the person: a site's sign-in (`pending_auth`) holds its tab until they answer it in ace's Browser panel, and a certificate warning (`certificate_error`) refuses your input with `needs_person`. Never ask for or type a site password; tell the person. A sign-in popup (OAuth) opens as its own tab and your next result lists it in `popups_opened`.
 
 **Parallel agents and subagents** share one browser. Each must open its own labelled tab (`ace_browser_open` with `newTab` and `label`) and pass that `tabId` to every browser tool, so no two agents drive the same page. Subagents of one provider can share an identity, so do not rely on the current tab there.
 

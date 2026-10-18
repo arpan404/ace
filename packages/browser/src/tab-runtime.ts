@@ -6,6 +6,7 @@ import {
   type BrowserOriginBlock,
   type BrowserState,
   type BrowserAgentPointer,
+  type BrowserTab,
   type BrowserTabActor,
   type BrowserTabLifecycle,
 } from "@ace/protocol";
@@ -21,7 +22,8 @@ import { executeBrowserCommand, type TabCommand } from "./session-commands.ts";
 import { agentScreenshot } from "./session-images.ts";
 import { sendHumanInput } from "./session-input.ts";
 import type { Actor, SessionOptions } from "./session-options.ts";
-import { SessionQueue, mutatesBrowser, type QueueBudget } from "./session-queue.ts";
+import { SessionQueue, mutatesBrowser, type QueueBudget, type TabHold } from "./session-queue.ts";
+import { personHold, refusesAgent } from "./person-holds.ts";
 import { TabAccess } from "./tab-access.ts";
 import { agentInputDelay, waitsForPerson, type CollaborationTiming } from "./collaboration.ts";
 
@@ -36,6 +38,8 @@ export interface TabHost {
   /** Thread-wide facts every check reads. */
   flags(): { closed: boolean; paused: boolean; pageStateLost: boolean };
   dialog(tabId: string): BrowserDialog | undefined;
+  /** The backend's listing of this tab: what it waits on (a sign-in, a certificate warning). */
+  listed(tabId: string): BrowserTab | undefined;
   answer(dialogId: string, accept: boolean, promptText?: string): Promise<void>;
   blocked(): BrowserOriginBlock | undefined;
   blockedNavigation(blocked: BrowserOriginBlock): void;
@@ -89,6 +93,7 @@ export class TabRuntime {
   /** The backend knows an agent uses the tab (file choosers, unseen rendering). */
   private agentShown = false;
   private agentSync: Promise<void> = Promise.resolve();
+  private popups: { tabId: string; url: string }[] = [];
   constructor(host: TabHost, id: string, meta: TabMeta = {}) {
     this.host = host;
     this.id = id;
@@ -96,7 +101,7 @@ export class TabRuntime {
     this.label = meta.label;
     this.lastActiveAt = meta.lastActiveAt ?? host.options.now();
     if (meta.private) this.access.setPrivate(true, host.options.now());
-    this.queue = new SessionQueue(() => host.dialog(id), host.budget);
+    this.queue = new SessionQueue(() => this.held(), host.budget);
     this.annotation = new AnnotationSession(
       (connectionId, event) => host.annotation(connectionId, event),
       () => host.emit(),
@@ -355,9 +360,11 @@ export class TabRuntime {
       if (mutatesBrowser(command)) this.check(actor, signal, submittedGeneration, privateEpoch);
       if (flags.paused) throw new BrowserActionError("browser_paused");
       const generation = this.access.generation;
-      // A dialog owns its tab until answered; other tabs keep working.
-      const pending_dialog = this.host.dialog(this.id);
-      if (pending_dialog) return { pending_dialog };
+      // A dialog or a sign-in owns its tab until answered; other tabs keep working.
+      const held = this.held(command);
+      if (held) return held;
+      if (actor.kind === "agent" && refusesAgent(this.host.listed(this.id), command))
+        throw new BrowserActionError("needs_person");
       await this.queue.drainDialog();
       if (actor.kind === "agent" && waitsForPerson(command)) {
         await this.personIdle(signal);
@@ -380,7 +387,7 @@ export class TabRuntime {
       const after = this.host.flags();
       if (after.paused || (generation !== this.access.generation && after.pageStateLost))
         throw new BrowserActionError("backend_changed");
-      return result;
+      return actor.kind === "agent" ? this.popupsInto(result) : result;
     });
   }
   screenshot(
@@ -437,6 +444,29 @@ export class TabRuntime {
     });
     this.humanInput = work.catch(() => {});
     return work;
+  }
+  /**
+   * This tab's page opened a window it talks to (an OAuth sign-in, say); it is now a tab of the
+   * thread. The next agent result from this tab says so once.
+   */
+  popupOpened(popup: { tabId: string; url: string }): void {
+    if (this.popups.length < 8) this.popups.push(popup);
+  }
+  private popupsInto(result: unknown): unknown {
+    if (!this.popups.length || Array.isArray(result)) return result;
+    const popups_opened = this.popups.splice(0);
+    const notice = {
+      popups_opened,
+      popup_hint:
+        "This page opened a window it needs (often a sign-in). Act in it with its tabId; a sign-in there may need the person.",
+    };
+    return typeof result === "object" && result !== null ? { ...result, ...notice } : notice;
+  }
+  /** What holds this tab until it is answered; `command` may be one that leaves the page. */
+  private held(command?: TabCommand): TabHold | undefined {
+    const pending_dialog = this.host.dialog(this.id);
+    if (pending_dialog) return { pending_dialog };
+    return personHold(this.host.listed(this.id), command);
   }
   /** Thread-level work (recording) that must wait its turn behind this tab's commands. */
   serialize<T>(work: () => Promise<T>): Promise<T> {

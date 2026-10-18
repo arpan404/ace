@@ -54,6 +54,8 @@ const view = (state: BrowserState): BrowserView => ({
     pointer: tab.pointer,
     private: tab.private,
     pendingDialog: tab.pending_dialog,
+    pendingAuth: tab.pending_auth,
+    certificateError: tab.certificate_error,
   })),
   activeTabId: state.activeTabId,
   loading: state.loading,

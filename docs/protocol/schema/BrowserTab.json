@@ -2,6 +2,9 @@
   "$id": "https://ace.local/protocol/v1/BrowserTab.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "certificate_error": {
+      "$ref": "https://ace.local/protocol/v1/BrowserCertificateError.json"
+    },
     "drivenBy": {
       "$ref": "https://ace.local/protocol/v1/BrowserTabActor.json"
     },
@@ -24,6 +27,9 @@
     },
     "openedBy": {
       "$ref": "https://ace.local/protocol/v1/BrowserTabActor.json"
+    },
+    "pending_auth": {
+      "$ref": "https://ace.local/protocol/v1/BrowserAuthChallenge.json"
     },
     "pending_dialog": {
       "$ref": "https://ace.local/protocol/v1/BrowserDialog.json"

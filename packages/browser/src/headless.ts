@@ -208,6 +208,9 @@ export class ChromeBackend implements BrowserBackend {
         dialog: () => tabs.dialog(),
         answer: (id, accept, text) => tabs.answer(id, accept, text),
         downloads: () => tabs.downloads.transfers.list(),
+        opener: (id) => tabs.opener(id),
+        answerAuth: (id, authId, credentials) => tabs.answerAuth(id, authId, credentials),
+        proceedCertificate: (id, url) => tabs.proceedCertificate(id, url),
         page,
       },
       privateMode: (enabled) => {

@@ -32,6 +32,7 @@ import { BrowserSubscriptions } from "./subscriptions.ts";
 import { PolicyGate } from "./policy-call.ts";
 import { setMaxListeners } from "node:events";
 import type { BrowserServiceOptions } from "./service-options.ts";
+import type { PersonRequest } from "./person-requests.ts";
 export type { BrowserServiceOptions } from "./service-options.ts";
 
 export class BrowserService {
@@ -518,6 +519,10 @@ export class BrowserService {
   /** "Keep agents out of this tab" (a person's choice), or let them back in. */
   setPrivate(threadId: string, tabId: string, value: boolean): BrowserState {
     return this.get(threadId).setPrivate(tabId, value);
+  }
+  /** What only the person may ask of a page, from their own client connection. */
+  asPerson(threadId: string, request: PersonRequest): Promise<BrowserState> {
+    return this.get(threadId).asPerson(request);
   }
   disconnect(connectionId: string): void {
     for (const session of this.sessions.values()) session.disconnect(connectionId);

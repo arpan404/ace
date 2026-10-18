@@ -1,4 +1,4 @@
-import type { BrowserCommand, BrowserDialog } from "@ace/protocol";
+import type { BrowserCommand } from "@ace/protocol";
 import { BrowserActionError } from "./action-error.ts";
 
 const inputActions = new Set([
@@ -40,15 +40,20 @@ export class QueueBudget {
     this.limit = limit;
   }
 }
+/**
+ * What holds a tab until someone answers it, as the command's result: `{pending_dialog}` for a
+ * page dialog, `{pending_auth}` for a site's sign-in only the person gives.
+ */
+export type TabHold = Record<string, unknown>;
 /** One tab's bounded queue; dialog answers deliberately bypass renderer work. */
 export class SessionQueue {
   private tail: Promise<unknown> = Promise.resolve();
   private pending = 0;
   private dialogWaiters = new Set<() => void>();
   private dialogWork: Promise<void> | undefined;
-  private dialog: () => BrowserDialog | undefined;
+  private dialog: () => TabHold | undefined;
   private budget: QueueBudget;
-  constructor(dialog: () => BrowserDialog | undefined, budget = new QueueBudget()) {
+  constructor(dialog: () => TabHold | undefined, budget = new QueueBudget()) {
     this.dialog = dialog;
     this.budget = budget;
   }
@@ -83,8 +88,8 @@ export class SessionQueue {
     let notify: (() => void) | undefined;
     const dialog = new Promise<unknown>((resolve) => {
       notify = () => {
-        const pending_dialog = this.dialog();
-        if (pending_dialog) resolve({ pending_dialog });
+        const hold = this.dialog();
+        if (hold) resolve(hold);
       };
       this.dialogWaiters.add(notify);
     });

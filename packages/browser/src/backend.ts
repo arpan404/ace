@@ -92,6 +92,20 @@ export interface BrowserBackendTabs {
    * new tab counts as opened by whoever drove its opener.
    */
   opener?(tabId: string): string | undefined;
+  /**
+   * The person's answer to a site's sign-in prompt (the tab's `pending_auth`); omitted
+   * credentials cancel it. A backend whose engine prompts the person itself has none.
+   */
+  answerAuth?(
+    tabId: string,
+    authId: string,
+    credentials?: { username: string; password: string },
+  ): Promise<void>;
+  /**
+   * The person proceeds past the tab's certificate error to `url`, for that origin and
+   * certificate while the engine runs. Only the person's own request reaches this.
+   */
+  proceedCertificate?(tabId: string, url: string): Promise<void>;
   page?(tabId: string): BrowserBackendPage;
 }
 /** One page's surface. Everything here acts on that page only. */

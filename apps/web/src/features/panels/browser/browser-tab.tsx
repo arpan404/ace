@@ -13,6 +13,7 @@ import { WithServices } from "../with-services.tsx";
 import { FindPage } from "./find-page.tsx";
 import { AddressBar } from "./address-bar.tsx";
 import { PageDialog } from "./page-dialog.tsx";
+import { PageSignIn } from "./page-sign-in.tsx";
 import { useBrowserFeatures } from "./use-browser-features.ts";
 import { BrowserActions } from "./browser-actions.tsx";
 import { DownloadsButton } from "./downloads.tsx";
@@ -21,7 +22,14 @@ import { PageNav, PageToolbar, ToolPill } from "./page-toolbar.tsx";
 import { PageTabs } from "./page-tabs.tsx";
 import { AnnotateButton } from "./annotate-button.tsx";
 import { useNativeView } from "./native-view.ts";
-import { Disconnected, LoadFailed, Offline, Opening, StartPage } from "./page-states.tsx";
+import {
+  CertificateWarning,
+  Disconnected,
+  LoadFailed,
+  Offline,
+  Opening,
+  StartPage,
+} from "./page-states.tsx";
 import { PageView } from "./page-view.tsx";
 import { ConnectionMark } from "./connection-mark.tsx";
 import { useBrowserTab } from "./use-browser-tab.ts";
@@ -81,7 +89,8 @@ function Browser(props: TabViewProps) {
       live.status !== "paused" &&
       live.status !== "recovering" &&
       online &&
-      page.state.phase !== "failed",
+      page.state.phase !== "failed" &&
+      !shown?.certificateError,
     { device: viewport.emulation },
   );
   const nativeShown = native.shown || native.frozen !== undefined;
@@ -166,9 +175,19 @@ function Browser(props: TabViewProps) {
       );
   };
 
+  const certificate = shown?.certificateError;
   let content;
   if (live?.status === "paused" && live.pageStateLost)
     content = <Disconnected reason={live.reason} onReopen={tabs.reopen} />;
+  else if (shown && certificate)
+    content = (
+      <CertificateWarning
+        url={certificate.url}
+        error={certificate.error}
+        onReload={() => page.go(certificate.url)}
+        onProceed={() => void browser.proceedCertificate(shown.tabId, certificate.url)}
+      />
+    );
   else if (page.state.phase === "failed")
     content = (
       <LoadFailed url={page.state.url} failure={page.state.failure} onReload={page.reload} />
@@ -296,6 +315,7 @@ function Browser(props: TabViewProps) {
         progress={page.loading ? `Loading ${displayAddress(shownUrl ?? "")}` : undefined}
       />
       {live && !live.closed && <PageDialog view={live} browser={browser} />}
+      {live && !live.closed && <PageSignIn view={live} browser={browser} />}
       {finding && live && (
         <FindPage
           source={source}

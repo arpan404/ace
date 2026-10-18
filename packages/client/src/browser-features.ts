@@ -88,6 +88,37 @@ export class BrowserFeaturesClient {
       options,
     );
   }
+  /**
+   * The person's answer to a site's sign-in prompt; without credentials it is cancelled. The
+   * credentials go to the page's browser for that request; nothing in ace keeps them.
+   */
+  answerAuth(
+    threadId: string,
+    tabId: string,
+    authId: string,
+    credentials?: { username: string; password: string },
+    options?: RequestOptions,
+  ) {
+    return this.read(
+      {
+        type: "browser.auth.answer",
+        threadId: ThreadId.parse(threadId),
+        tabId,
+        authId,
+        ...(credentials ? { credentials } : {}),
+      },
+      BrowserState,
+      options,
+    );
+  }
+  /** Proceed past the tab's certificate error to `url`, for that origin and certificate. */
+  proceedCertificate(threadId: string, tabId: string, url: string, options?: RequestOptions) {
+    return this.read(
+      { type: "browser.certificate.proceed", threadId: ThreadId.parse(threadId), tabId, url },
+      BrowserState,
+      options,
+    );
+  }
   private async read<T>(
     request: BrowserRequest,
     schema: z.ZodType<T>,

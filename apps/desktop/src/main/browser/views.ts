@@ -21,6 +21,7 @@ import { PartitionPool } from "./partition-pool.ts";
 import { PlacementBook, toWindowBounds } from "./placement.ts";
 import { EmbeddedPage } from "./page.ts";
 import { EmbeddedPageGroup } from "./page-group.ts";
+import { CertificateExceptions } from "./certificates.ts";
 import { clearPartition } from "./partition-cleanup.ts";
 
 /** The app window whose renderer asked to place a view, and that renderer's page zoom. */
@@ -117,6 +118,7 @@ export class EmbeddedViews implements ViewHost {
         "The desktop browser profile limit was reached. Restart ace to open another profile.",
       );
     const partitionSession = this.configure(partition);
+    const certificates = new CertificateExceptions();
     const group = new EmbeddedPageGroup(
       async () => {
         const view = new WebContentsView({
@@ -145,6 +147,7 @@ export class EmbeddedViews implements ViewHost {
             ? join(dirname(this.options.preload), "browser-auth-preload.cjs")
             : undefined,
           downloadDir: request.downloadDir,
+          certificates,
           session: partitionSession,
           released: undefined,
           window,

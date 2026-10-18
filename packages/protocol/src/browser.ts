@@ -306,6 +306,27 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
     accept: z.boolean(),
     promptText: z.string().max(4096).optional(),
   }),
+  /**
+   * The person answers a site's sign-in prompt. Without `credentials` the sign-in is cancelled.
+   * The credentials go to the browser engine for that request only; ace never stores them.
+   */
+  base.extend({
+    type: z.literal("browser.auth.answer"),
+    tabId: short,
+    authId: short,
+    credentials: z
+      .object({ username: z.string().max(4096), password: z.string().max(4096) })
+      .optional(),
+  }),
+  /**
+   * The person proceeds past a certificate error to `url` (the tab's `certificate_error`), for
+   * that origin and certificate until the browser restarts. Agents have no way to send this.
+   */
+  base.extend({
+    type: z.literal("browser.certificate.proceed"),
+    tabId: short,
+    url: z.string().max(8192),
+  }),
   base.extend({ type: z.literal("browser.execute"), command: BrowserCommand }),
   base.extend({ type: z.literal("browser.subscribe"), subscriberId: short.optional() }),
   base.extend({ type: z.literal("browser.capture"), viewport: BrowserCaptureViewport }),

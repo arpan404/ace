@@ -101,6 +101,14 @@ export function fakeBrowserSession(
                 };
           break;
         }
+        case "browser.auth.answer":
+          browser.signInAnswer(id, message.tabId, message.authId, message.credentials);
+          result = BrowserState.parse(browser.view(id));
+          break;
+        case "browser.certificate.proceed":
+          browser.certificateProceed(id, message.tabId, message.url);
+          result = BrowserState.parse(browser.view(id));
+          break;
         case "browser.tabs.private":
           browser.setPrivate(id, message.tabId, message.private);
           result = BrowserState.parse(browser.view(id));

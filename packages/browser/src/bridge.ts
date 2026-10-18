@@ -161,6 +161,25 @@ export function connectBrowser(
             await service.input(threadId, message.input, options.connectionId, message.tabId);
             respond(null);
             break;
+          case "browser.auth.answer":
+            respond(
+              await service.asPerson(threadId, {
+                kind: "auth",
+                tabId: message.tabId,
+                authId: message.authId,
+                credentials: message.credentials,
+              }),
+            );
+            break;
+          case "browser.certificate.proceed":
+            respond(
+              await service.asPerson(threadId, {
+                kind: "certificate",
+                tabId: message.tabId,
+                url: message.url,
+              }),
+            );
+            break;
           case "browser.tabs.private":
             respond(service.setPrivate(threadId, message.tabId, message.private));
             break;

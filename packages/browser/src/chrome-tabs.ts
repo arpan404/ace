@@ -14,6 +14,9 @@ import { pageFrames } from "./page-frames.ts";
 import { pageStatus } from "./page-status.ts";
 import { TabCdp } from "./tab-cdp.ts";
 import { threadTabLimit } from "./tab-limits.ts";
+import { SignInPrompt, type SignInCredentials } from "./sign-in-prompt.ts";
+import { certificateErrors } from "./certificate-errors.ts";
+import { needsOpener, opensWindow, PopupPairing, type PopupKind } from "./popup-kind.ts";
 
 const Navigated = z.object({
   frame: z.object({
@@ -56,7 +59,12 @@ interface Tab {
   title: string;
   url: string;
   dialog?: BrowserDialog | undefined;
-  popupKinds: boolean[];
+  signIn: SignInPrompt;
+  certificates: ReturnType<typeof certificateErrors>;
+  /** The tab whose page opened this one, for a popup adopted as a tab. */
+  openerId?: string | undefined;
+  /** This page's `window.open` events paired with the popup targets they create. */
+  popups: PopupPairing<AttachedTarget>;
   recovering?: Promise<void> | undefined;
   release(): void;
   stops: (() => void)[];
@@ -191,8 +199,34 @@ export class ChromeTabs {
       url: tab.url.slice(0, 8192),
       title: tab.title,
       pending_dialog: tab.dialog,
+      pending_auth: tab.signIn.challenge(),
+      certificate_error: tab.certificates.read(),
       loading: tab.status.read().loading,
     }));
+  }
+  opener(id: string): string | undefined {
+    return this.tabs.get(id)?.openerId;
+  }
+  /** The person's answer to a site's sign-in prompt; the credentials go only to Chrome. */
+  async answerAuth(id: string, authId: string, credentials?: SignInCredentials): Promise<void> {
+    const tab = this.tabs.get(id);
+    if (!tab) throw new Error("Browser tab unavailable");
+    await tab.signIn.answer(authId, credentials);
+  }
+  /**
+   * The person proceeds past the certificate error shown for `url`. Chrome's own interstitial
+   * records the exception for that host and certificate until the browser restarts.
+   */
+  async proceedCertificate(id: string, url: string): Promise<void> {
+    const tab = this.tabs.get(id);
+    if (!tab) throw new Error("Browser tab unavailable");
+    tab.certificates.expect(url);
+    const result = z.object({ exceptionDetails: z.unknown().optional() }).parse(
+      await tab.cdp.send("Runtime.evaluate", {
+        expression: "certificateErrorPageController.proceed()",
+      }),
+    );
+    if (result.exceptionDetails) throw new Error("This certificate error cannot be bypassed");
   }
   /** A new tab; `background` leaves the person's view where it is. */
   async open(options: { background?: boolean } = {}): Promise<string> {
@@ -291,18 +325,16 @@ export class ChromeTabs {
       this.starting--;
     }
   }
-  /** A popup arrives paused. Agents never get popups: their links reuse the page. */
-  private popup(opener: Tab, target: AttachedTarget): void {
-    const reuse = opener.popupKinds.shift();
+  /**
+   * A popup arrives paused. A window the page needs to talk back to (`window.opener`, such as
+   * an OAuth sign-in) becomes a tab of the thread, opened by whoever drove its opener; an
+   * agent's plain new-tab links reuse its page instead.
+   */
+  private popup(opener: Tab, target: AttachedTarget, kind: PopupKind | undefined): void {
+    const reuse = kind?.reuse;
     const host = this.host;
     const refuse = () => void host?.instance.targets.close(target.targetId);
-    if (
-      this.stopped ||
-      !host ||
-      opener.agent ||
-      reuse === true ||
-      this.tabs.size + this.starting >= this.maxTabs
-    ) {
+    if (this.stopped || !host || reuse === true || this.tabs.size + this.starting >= this.maxTabs) {
       refuse();
       return;
     }
@@ -314,11 +346,13 @@ export class ChromeTabs {
       return;
     }
     const tab = this.track(release);
-
+    tab.openerId = opener.id;
+    if (kind) tab.url = kind.url.slice(0, 8192);
     this.starting++;
     void this.bind(tab, target)
       .then(() => {
-        this.activate(tab.id);
+        // The person sees a popup of the tab they view; one from an unseen tab waits in the strip.
+        if (this.activeId === opener.id) this.activate(tab.id);
         this.request.changed?.();
       })
       .catch(() => {
@@ -342,10 +376,22 @@ export class ChromeTabs {
       status: pageStatus(cdp, () => this.request.changed?.()),
       title: "",
       url: "about:blank",
-      popupKinds: [],
+      popups: new PopupPairing(this.schedule, (target, kind) => this.popup(tab, target, kind)),
       release,
       stops: [],
+      signIn: new SignInPrompt(
+        cdp,
+        id,
+        () => this.request.id?.() ?? String(++this.sequence),
+        () => this.request.changed?.(),
+      ),
+      certificates: certificateErrors(cdp, () => this.request.changed?.()),
     };
+    tab.stops.push(
+      () => tab.signIn.close(),
+      () => tab.certificates.close(),
+      () => tab.popups.clear((popup) => void this.host?.instance.targets.close(popup.targetId)),
+    );
     this.tabs.set(id, tab);
     const on = (method: string, listener: (raw: unknown) => void) => cdp.on(method, listener);
     on("Page.javascriptDialogOpening", (raw) => {
@@ -410,11 +456,9 @@ export class ChromeTabs {
   private windowOpen(tab: Tab, raw: unknown): void {
     const popup = WindowOpen.safeParse(raw);
     if (!popup.success) return;
-    const reuse =
-      tab.agent ||
-      ((!popup.data.windowName || popup.data.windowName.startsWith("_")) &&
-        !popup.data.windowFeatures?.length);
-    if (tab.popupKinds.length < 8) tab.popupKinds.push(reuse);
+    // An agent's links load in its own page unless the page needs the window it opens.
+    const reuse = tab.agent ? !needsOpener(popup.data) : !opensWindow(popup.data);
+    tab.popups.opened({ reuse, url: popup.data.url });
     if (!reuse) return;
     const binding = tab.binding;
     void this.request
@@ -454,22 +498,30 @@ export class ChromeTabs {
     tab.binding++;
     tab.cdp.bind(host.instance.connection.session(target.sessionId));
     const stopPopups = host.instance.targets.popups(target.targetId, (popup) =>
-      this.popup(tab, popup),
+      tab.popups.arrived(popup),
     );
     tab.stops.push(stopPopups);
     await tab.cdp.send("Page.enable");
     await tab.cdp.send("Runtime.enable");
     await tab.cdp.send("Emulation.setFocusEmulationEnabled", { enabled: true });
     await sizeHeadlessTab(tab.cdp, tab.viewport, this.deviceScaleFactor);
-    tab.guard = await installOriginGuard(tab.cdp, this.request.allowed, this.request.initiator, {
-      attach: (child) => this.inspection.attach(child, tab.id),
-      detach: (child) => this.inspection.detach(child),
-    });
+    tab.guard = await installOriginGuard(
+      tab.cdp,
+      this.request.allowed,
+      this.request.initiator,
+      {
+        attach: (child) => this.inspection.attach(child, tab.id),
+        detach: (child) => this.inspection.detach(child),
+      },
+      // Headless Chrome shows no sign-in prompt: the person answers it in ace (`answerAuth`).
+      { handleAuthRequests: true },
+    );
     await this.inspection.attach(tab.cdp, tab.id);
     if (this.stopped || this.tabs.get(tab.id) !== tab) throw new Error("Browser closed");
     await host.instance.targets.resume(target);
   }
   private unbind(tab: Tab): void {
+    tab.signIn.forget();
     tab.guard?.close();
     tab.guard = undefined;
     this.inspection.detach(tab.cdp);
