@@ -365,7 +365,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
           maskImage:
             "linear-gradient(to bottom, transparent, black 8px, black calc(100% - 8px), transparent)",
         }}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4 [scrollbar-gutter:stable]"
+        className="no-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4"
       >
         <div
           ref={listRef}

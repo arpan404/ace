@@ -95,7 +95,7 @@ Two levels. **`glass-thin`** (`.ace-floating`): menus, popovers, selects, contex
 
 ## 3. Layout
 
-- **Shell:** `[sidebar 280] [header 44 / content / composer]` with an optional right panel. Header order in a thread: `[sidebar toggle] [mark] project / Title … [⋯] [Work] [panel toggle]`. The header draws a `--border` under itself once the content has scrolled.
+- **Shell:** `[sidebar 336 by default, drag its edge 220–480; double-click resets; it scrolls without ever showing a scrollbar] [header 44 / content / composer]` with an optional right panel. Header order in a thread: `[sidebar toggle] [mark] project / Title … [⋯] [Work] [panel toggle]`. The header draws a `--border` under itself once the content has scrolled.
 - **Content widths:** the transcript and the composer share `--column` (Chat width setting). Settings pages use `--settings-column`. Wizards and empty states centre a 480px column.
 - **Settings page anatomy:** page title (`text-xl` 600), optional one-line description (`muted`), then `SettingSection`s 24px apart. A section is a header plus one card. The title row carries **at most one action** on the right; an Enabled toggle is the first row of the first card; other actions live in the header ⋯ menu.
 - **Section header:** 13px/500 `--muted-foreground`, 6px above the card. Explanations of a whole group go in the section `note` above the card, one or two lines.
