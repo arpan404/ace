@@ -60,8 +60,7 @@ export async function executeTabs(
       if (command.url) await context.navigate(runtime, command.url, actor, signal);
       return result(context, actor, runtime.id);
     }
-    case "select":
-    case "switch": {
+    case "select": {
       const tabId = command.tabId ?? (actor.kind === "agent" ? undefined : tabs.viewedId());
       if (tabId === undefined) throw new BrowserActionError("invalid_arguments");
       tabs.get(tabId).readCheck(actor);

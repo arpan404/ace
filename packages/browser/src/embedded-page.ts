@@ -28,6 +28,7 @@ export function embeddedTabPage(
     findText: (text, forward) => cdp().send("ace.findText", { text, forward }),
     pageStatus: () => tabs.pageStatus(id) ?? { loading: false },
     networkBody: (requestId) => tabs.inspection.body(requestId),
+    networkPending: () => tabs.inspection.pending(id),
     frames: () => tabs.frames(id),
     url: () => tabs.list().find((tab) => tab.tabId === id)?.url ?? "about:blank",
     crashed: () => tabs.crashed(id),

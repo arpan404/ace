@@ -26,6 +26,7 @@ import type {
 import { sessionPolicies } from "./session-policies.ts";
 import { agentResumes, backendCandidates } from "./backend-choice.ts";
 import { BrowserSession, type Actor } from "./session.ts";
+import type { AgentScreenshot } from "./session-images.ts";
 import type { FrameSink } from "./fanout.ts";
 import { BrowserSubscriptions } from "./subscriptions.ts";
 
@@ -502,6 +503,16 @@ export class BrowserService {
     options: { fullPage?: boolean | undefined; ref?: string | undefined } = {},
     actor?: Actor,
   ): Promise<Uint8Array> {
+    return this.capture(threadId, signal, tabId, options, actor).then((shot) => shot.bytes);
+  }
+  /** A screenshot as `screenshot` takes it, with where its pixels lie on the page. */
+  capture(
+    threadId: string,
+    signal?: AbortSignal,
+    tabId?: string,
+    options: { fullPage?: boolean | undefined; ref?: string | undefined } = {},
+    actor?: Actor,
+  ): Promise<AgentScreenshot> {
     return this.get(threadId).screenshot(signal, tabId, options, actor);
   }
   /** The agent's own tab, opening one if the viewed tab is another agent's. */

@@ -77,6 +77,14 @@ export function browserToolkit(
         signal?.throwIfAborted();
         return service.screenshot(threadId, signal, tabId, options, actor);
       },
+      async capture(
+        ...[threadId, signal, tabId, options, actor]: Parameters<BrowserService["capture"]>
+      ) {
+        signal?.throwIfAborted();
+        await open(ThreadId.parse(threadId), service);
+        signal?.throwIfAborted();
+        return service.capture(threadId, signal, tabId, options, actor);
+      },
     };
   };
   return {
@@ -154,6 +162,7 @@ export function browserToolkit(
         {
           execute: (...call) => opened("ace").execute(...call),
           screenshot: (...call) => opened("ace").screenshot(...call),
+          capture: (...call) => opened("ace").capture(...call),
         },
         200_000,
         route,

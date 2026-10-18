@@ -154,10 +154,7 @@ export function fakeBrowserSession(
           if (command.action === "tabs") {
             let opened: string | undefined;
             if (command.operation === "open") opened = browser.personOpen(id, command.url);
-            else if (
-              (command.operation === "switch" || command.operation === "select") &&
-              command.tabId
-            )
+            else if (command.operation === "select" && command.tabId)
               browser.tabSelect(id, command.tabId);
             else if (command.operation === "close" && command.tabId)
               if (browser.tabClose(id, command.tabId)) {

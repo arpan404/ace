@@ -104,6 +104,8 @@ export interface BrowserBackendPage {
     permissionDenied?: { origin: string; permission: string } | undefined;
   };
   networkBody?(requestId: string): Promise<unknown>;
+  /** This page's network requests still in flight, for network-idle waits. */
+  networkPending?(): number;
   frames?(): Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]>;
   url(): string;
   navigate(url: string, timeout: number, signal?: AbortSignal): Promise<void>;

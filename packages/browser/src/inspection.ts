@@ -155,6 +155,16 @@ export class BrowserInspection {
       throw error;
     }
   }
+  /**
+   * Requests of `tabId` sent and not yet finished or failed, as far as inspection saw them. It
+   * sees none while a private tab turned inspection off.
+   */
+  pending(tabId: string): number {
+    const prefix = `${tabId}:`;
+    let count = 0;
+    for (const key of this.requests.keys()) if (key.startsWith(prefix)) count++;
+    return count;
+  }
   private enable(cdp: BrowserCdp): Promise<unknown> {
     return cdp.send("Network.enable", {
       maxTotalBufferSize: 1024 * 1024,

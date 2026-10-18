@@ -23,30 +23,41 @@ export type CaptureRegion =
 /** The tallest full-page capture, in CSS pixels; longer pages are cut at this height. */
 const pageLimit = 16_384;
 
-/** Where a region lies in page coordinates; element rects are viewport-relative. */
-export async function captureClip(cdp: BrowserCdp, region: CaptureRegion) {
+/**
+ * Where a region lies in page coordinates (`clip`; element rects are viewport-relative), and
+ * how far the viewport is scrolled (`scroll`), so page points can be told as viewport points.
+ */
+export async function captureArea(cdp: BrowserCdp, region: CaptureRegion) {
   const metrics = Metrics.parse(await cdp.send("Page.getLayoutMetrics"));
   const viewport = metrics.cssVisualViewport;
+  const scroll = { x: viewport.pageX, y: viewport.pageY };
   if (region.kind === "viewport")
     return {
-      x: viewport.pageX,
-      y: viewport.pageY,
-      width: viewport.clientWidth,
-      height: viewport.clientHeight,
+      scroll,
+      clip: { ...scroll, width: viewport.clientWidth, height: viewport.clientHeight },
     };
   if (region.kind === "page") {
     const size = metrics.cssContentSize ?? {
       width: viewport.clientWidth,
       height: viewport.clientHeight,
     };
-    return { x: 0, y: 0, width: size.width, height: Math.min(size.height, pageLimit) };
+    return {
+      scroll,
+      clip: { x: 0, y: 0, width: size.width, height: Math.min(size.height, pageLimit) },
+    };
   }
   return {
-    x: viewport.pageX + Math.max(0, region.x),
-    y: viewport.pageY + Math.max(0, region.y),
-    width: Math.max(1, region.width),
-    height: Math.max(1, region.height),
+    scroll,
+    clip: {
+      x: viewport.pageX + Math.max(0, region.x),
+      y: viewport.pageY + Math.max(0, region.y),
+      width: Math.max(1, region.width),
+      height: Math.max(1, region.height),
+    },
   };
+}
+export async function captureClip(cdp: BrowserCdp, region: CaptureRegion) {
+  return (await captureArea(cdp, region)).clip;
 }
 
 /** The largest JPEG a model screenshot may be, base64-encoded. */

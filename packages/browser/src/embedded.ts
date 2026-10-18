@@ -671,6 +671,7 @@ function embeddedTabSurface(
       }),
     ),
     networkBody: tabs.inspection.body.bind(tabs.inspection),
+    networkPending: () => tabs.inspection.pending(tabs.active()),
     frames: () => tabs.frames(),
   };
 }

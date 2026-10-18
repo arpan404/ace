@@ -27,7 +27,7 @@ const actions = {
   navigate: {
     riskClass: "external-effect",
     description:
-      "Navigate a tab of this thread's ace browser to a URL (your current tab, or tabId).",
+      "Navigate a tab of this thread's ace browser to a URL (your current tab, or tabId). Returns at DOMContentLoaded; waitUntil load or networkidle waits for the page's resources or for its network to go quiet.",
   },
   click: {
     riskClass: "external-effect",
@@ -80,7 +80,7 @@ const actions = {
   screenshot: {
     riskClass: "read-only",
     description:
-      "Read a screenshot of one tab without changing what the person sees: the viewport, fullPage for the whole page, or ref for one element.",
+      "Read a screenshot of one tab without changing what the person sees: the viewport, fullPage for the whole page, or ref for one element. Beside the image: its width and height, scale (CSS pixels per image pixel) and origin (the viewport point of its top-left corner). To click a point you see at image pixel (px, py), pass click x = origin.x + px * scale, y = origin.y + py * scale.",
   },
   pdf: {
     riskClass: "read-only",
@@ -97,12 +97,13 @@ const actions = {
   },
   evaluate: {
     riskClass: "external-effect",
-    description: "Execute JavaScript in this thread's ace browser page.",
+    description:
+      "Execute JavaScript in this thread's ace browser page and return its value. mode read-only reads without side effects (anything that would change the page is refused); unrestricted (default) may change the page.",
   },
   wait_for: {
     riskClass: "read-only",
     description:
-      "Wait after click/press: pass url for an exact destination loaded through DOMContentLoaded, text for visible page text, or ref plus state (visible/hidden) for an existing element. Choose exactly one of url, text or ref. Safe when navigation already finished; take a fresh snapshot afterward.",
+      "Wait after click/press. Choose exactly one: url (exact, or a glob with *) for a destination loaded through DOMContentLoaded; text for visible page text; ref plus state (visible/hidden) for an existing element; networkIdle true until no request is in flight for 500 ms; or timeMs for a fixed pause. Safe when navigation already finished; take a fresh snapshot afterward.",
   },
   logs: {
     riskClass: "read-only",
@@ -156,7 +157,7 @@ const actions = {
   record_start: {
     riskClass: "external-effect",
     description:
-      "Start recording the tab the person is viewing, using the artifact pipeline. A private tab records no frames.",
+      "Start recording one tab (your current tab, or tabId), whichever tab the person views meanwhile; record_stop saves it as a thread artifact. One recording at a time per browser. A tab kept private records no frames.",
   },
   record_stop: {
     riskClass: "external-effect",
@@ -202,13 +203,17 @@ export const browserChoiceInput = {
     ),
 };
 
+/** What browser tools call; `capture` adds the screenshot's page geometry when present. */
+export type BrowserToolTarget = Pick<BrowserService, "execute" | "screenshot"> &
+  Partial<Pick<BrowserService, "capture">>;
+
 /** Agents share the thread's browser with the person; private tabs are the person's alone. */
 export function browserToolkit(
-  service: Pick<BrowserService, "execute" | "screenshot">,
+  service: BrowserToolTarget,
   startupReserveMs = 0,
   route?: BrowserMachineRoute,
   /** The person's own browser (ADR 0084), for calls with `browser: "user"`. */
-  user?: () => Pick<BrowserService, "execute" | "screenshot">,
+  user?: () => BrowserToolTarget,
 ): BrowserToolkit {
   return {
     capability: "browser",
@@ -278,7 +283,7 @@ export function browserToolkit(
 
 /** One browser tool call on this machine, as the content the agent reads. */
 async function runCommand(
-  target: Pick<BrowserService, "execute" | "screenshot">,
+  target: BrowserToolTarget,
   action: AgentAction,
   args: Record<string, unknown>,
   threadId: string,
@@ -286,17 +291,16 @@ async function runCommand(
   signal: AbortSignal,
 ) {
   if (action === "screenshot") {
-    const bytes = await target.screenshot(
-      threadId,
-      signal,
-      typeof args["tabId"] === "string" ? args["tabId"] : undefined,
-      {
-        fullPage: args["fullPage"] === true,
-        ...(typeof args["ref"] === "string" ? { ref: args["ref"] } : {}),
-      },
-      actor,
-    );
+    const tabId = typeof args["tabId"] === "string" ? args["tabId"] : undefined;
+    const options = {
+      fullPage: args["fullPage"] === true,
+      ...(typeof args["ref"] === "string" ? { ref: args["ref"] } : {}),
+    };
+    const shot = target.capture
+      ? await target.capture(threadId, signal, tabId, options, actor)
+      : { bytes: await target.screenshot(threadId, signal, tabId, options, actor) };
     signal.throwIfAborted();
+    const { bytes, geometry } = shot;
     return {
       content: [
         {
@@ -304,6 +308,7 @@ async function runCommand(
           mimeType: "image/jpeg",
           data: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64"),
         },
+        ...(geometry ? [{ type: "text", text: JSON.stringify(geometry) }] : []),
       ],
     };
   }

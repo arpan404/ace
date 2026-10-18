@@ -4904,6 +4904,7 @@ Example:
 | action | yes | `"navigate"` |  |
 | url | yes | string | {"maxLength":8192} |
 | timeout | no | integer | {"default":10000,"minimum":1,"maximum":120000} |
+| waitUntil | no | ["domcontentloaded","load","networkidle"] | {"default":"domcontentloaded","description":"When navigate returns: domcontentloaded (the HTML is parsed), load (images, styles and scripts too) or networkidle (load, then no request in flight for 500 ms)."} |
 
 Example:
 
@@ -4933,7 +4934,8 @@ Example:
 ```json
 {
   "action": "click",
-  "ref": "example"
+  "modifiers": [],
+  "tabId": "example"
 }
 ```
 
@@ -4952,7 +4954,6 @@ Example:
 {
   "action": "type",
   "ref": "example",
-  "tabId": "example",
   "text": "example"
 }
 ```
@@ -4989,8 +4990,8 @@ Example:
 ```json
 {
   "action": "scroll",
-  "x": 6,
-  "y": 2
+  "x": 2,
+  "y": 5
 }
 ```
 
@@ -5029,7 +5030,12 @@ Example:
 ```json
 {
   "action": "measure_interaction",
-  "filmstrip": false
+  "interaction": {
+    "action": "drag",
+    "ref": "example",
+    "toRef": "example"
+  },
+  "repeat": 4
 }
 ```
 
@@ -5039,13 +5045,14 @@ Example:
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from ace_browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
 | action | yes | `"snapshot"` |  |
+| ref | no | string | {"description":"Only this element's subtree (a ref from the latest snapshot). Its refs join that snapshot's.","minLength":1,"maxLength":256} |
+| depth | no | integer | {"description":"How many levels below the page (or ref) to read. Default 20.","minimum":1,"maximum":64} |
 
 Example:
 
 ```json
 {
-  "action": "snapshot",
-  "tabId": "example"
+  "action": "snapshot"
 }
 ```
 
@@ -5073,7 +5080,7 @@ Example:
 | tabId | no | string | {"description":"The tab to act in, from ace_browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
 | action | yes | `"evaluate"` |  |
 | expression | yes | string | {"maxLength":65536} |
-| mode | no | ["read-only","unrestricted"] | {"default":"unrestricted"} |
+| mode | no | ["read-only","unrestricted"] | {"default":"unrestricted","description":"unrestricted: runs in the page like a script of its own and may change it (awaits promises). read-only: an isolated world where anything with a side effect (writes, calls into page code, promises) is refused; use it to read values."} |
 
 Example:
 
@@ -5092,8 +5099,10 @@ Example:
 | action | yes | `"wait_for"` |  |
 | ref | no | string | {"description":"Ref from the latest snapshot. Use only for element visibility waits.","minLength":1,"maxLength":256} |
 | state | no | ["visible","hidden"] | {"description":"Required with ref."} |
-| url | no | string | {"description":"Exact destination URL. Also waits for DOMContentLoaded. Works before or after navigation commits.","minLength":1,"maxLength":8192} |
+| url | no | string | {"description":"Destination URL: exact, or a glob where * matches any characters (http://localhost:3000/orders/*). Also waits for DOMContentLoaded. Works before or after navigation commits.","minLength":1,"maxLength":8192} |
 | text | no | string | {"description":"Visible page text to wait for, matched as a substring.","minLength":1,"maxLength":4096} |
+| networkIdle | no | `true` | {"description":"Wait until no request is in flight for 500 ms, such as after a save."} |
+| timeMs | no | integer | {"description":"Just wait this many ms. Prefer a condition; use this for animations.","minimum":1,"maximum":60000} |
 | timeout | no | integer | {"default":10000,"minimum":1,"maximum":120000} |
 
 Example:
@@ -5101,8 +5110,9 @@ Example:
 ```json
 {
   "action": "wait_for",
-  "text": "example",
-  "timeout": 8
+  "ref": "example",
+  "tabId": "example",
+  "timeMs": 10
 }
 ```
 
@@ -5123,6 +5133,8 @@ Example:
 ```json
 {
   "action": "logs",
+  "level": "example",
+  "tabId": "example",
   "url": "example"
 }
 ```
@@ -5141,7 +5153,7 @@ Example:
 ```json
 {
   "action": "resize",
-  "height": 101,
+  "height": 102,
   "tabId": "example",
   "width": 105
 }
@@ -5165,11 +5177,9 @@ Example:
 ```json
 {
   "action": "emulate",
-  "deviceScaleFactor": 3,
-  "height": 104,
-  "mobile": false,
-  "tabId": "example",
-  "width": 105
+  "colorScheme": "light",
+  "height": 106,
+  "width": 103
 }
 ```
 
@@ -5179,7 +5189,7 @@ Example:
 | --- | --- | --- | --- |
 | tabId | no | string | {"description":"The tab to act in, from ace_browser_tabs. Omitted: your current tab.","minLength":1,"maxLength":256} |
 | action | yes | `"tabs"` |  |
-| operation | no | ["list","open","select","switch","close"] | {"default":"list"} |
+| operation | no | ["list","open","select","close"] | {"default":"list"} |
 | url | no | string | {"maxLength":8192} |
 | label | no | string | {"minLength":1,"maxLength":64} |
 
@@ -5188,7 +5198,7 @@ Example:
 ```json
 {
   "action": "tabs",
-  "label": "example"
+  "url": "example"
 }
 ```
 
@@ -5210,8 +5220,7 @@ Example:
       "ref": "example",
       "value": "example"
     }
-  ],
-  "tabId": "example"
+  ]
 }
 ```
 
@@ -5229,7 +5238,7 @@ Example:
 ```json
 {
   "action": "downloads",
-  "timeout": 6
+  "operation": "wait"
 }
 ```
 
@@ -5246,8 +5255,7 @@ Example:
 
 ```json
 {
-  "action": "pdf",
-  "printBackground": false
+  "action": "pdf"
 }
 ```
 
@@ -5284,7 +5292,8 @@ Example:
   "files": [
     "example"
   ],
-  "ref": "example"
+  "ref": "example",
+  "tabId": "example"
 }
 ```
 
@@ -5302,9 +5311,10 @@ Example:
 
 ```json
 {
-  "accept": false,
+  "accept": true,
   "action": "dialog",
-  "dialogId": "example"
+  "dialogId": "example",
+  "tabId": "example"
 }
 ```
 
@@ -5321,8 +5331,7 @@ Example:
 ```json
 {
   "action": "hover",
-  "ref": "example",
-  "tabId": "example"
+  "ref": "example"
 }
 ```
 
@@ -5341,7 +5350,6 @@ Example:
 {
   "action": "select",
   "ref": "example",
-  "tabId": "example",
   "values": [
     "example"
   ]
@@ -5361,8 +5369,7 @@ Example:
 ```json
 {
   "action": "check",
-  "ref": "example",
-  "tabId": "example"
+  "ref": "example"
 }
 ```
 
@@ -5396,7 +5403,8 @@ Example:
 ```json
 {
   "action": "focus",
-  "ref": "example"
+  "ref": "example",
+  "tabId": "example"
 }
 ```
 
@@ -5416,7 +5424,8 @@ Example:
 {
   "action": "find",
   "name": "example",
-  "role": "example"
+  "role": "example",
+  "tabId": "example"
 }
 ```
 
@@ -5433,7 +5442,8 @@ Example:
 ```json
 {
   "action": "network_body",
-  "requestId": "example"
+  "requestId": "example",
+  "tabId": "example"
 }
 ```
 
@@ -5448,8 +5458,7 @@ Example:
 
 ```json
 {
-  "action": "record_start",
-  "tabId": "example"
+  "action": "record_start"
 }
 ```
 
@@ -5478,12 +5487,7 @@ Example:
 ```json
 {
   "action": "annotate",
-  "command": {
-    "annotations": [],
-    "op": "restore"
-  },
-  "operation": "command",
-  "tabId": "example"
+  "operation": "start"
 }
 ```
 
@@ -5500,9 +5504,9 @@ Example:
 ```json
 {
   "action": "annotate_capture",
-  "tabId": "example",
   "target": {
-    "kind": "page"
+    "id": "example",
+    "kind": "annotation"
   }
 }
 ```
@@ -5523,10 +5527,11 @@ Example:
 
 ```json
 {
+  "defaultPrompt": "example",
   "dialogId": "example",
   "message": "example",
   "tabId": "example",
-  "type": "prompt"
+  "type": "alert"
 }
 ```
 
@@ -5549,13 +5554,12 @@ Example:
 
 ```json
 {
-  "bytes": 8,
+  "bytes": 6,
   "downloadId": "example",
   "filename": "example",
   "flags": [],
   "mimeType": "example",
-  "path": "example",
-  "state": "failed",
+  "state": "denied",
   "tabId": "example"
 }
 ```
@@ -5576,8 +5580,8 @@ Example:
 
 ```json
 {
-  "phase": "verifying",
-  "received": 6,
+  "phase": "ready",
+  "received": 0,
   "type": "browser.download.progress",
   "version": "example"
 }
@@ -5601,10 +5605,11 @@ Example:
 ```json
 {
   "data": "example",
-  "height": 107,
-  "sequence": 9,
-  "timestamp": 7,
-  "width": 100
+  "height": 101,
+  "sequence": 5,
+  "tabId": "example",
+  "timestamp": 6,
+  "width": 108
 }
 ```
 
@@ -5627,11 +5632,10 @@ Example:
 
 ```json
 {
-  "button": "none",
-  "event": "mousePressed",
+  "event": "mouseMoved",
   "kind": "mouse",
-  "x": 8,
-  "y": 1
+  "x": 4,
+  "y": 6
 }
 ```
 
@@ -5650,10 +5654,11 @@ Example:
 
 ```json
 {
-  "event": "keyUp",
+  "code": "example",
+  "event": "keyDown",
   "key": "example",
   "kind": "key",
-  "modifiers": 1
+  "text": "example"
 }
 ```
 
@@ -5671,11 +5676,11 @@ Example:
 
 ```json
 {
-  "deltaX": 5,
+  "deltaX": 4,
   "deltaY": 2,
   "kind": "scroll",
-  "x": 0,
-  "y": 7
+  "x": 5,
+  "y": 2
 }
 ```
 
@@ -5691,7 +5696,7 @@ Example:
 
 ```json
 {
-  "event": "touchMove",
+  "event": "touchCancel",
   "kind": "touch",
   "points": []
 }
@@ -5766,8 +5771,8 @@ Example:
 ```json
 {
   "action": "scroll",
-  "x": 9,
-  "y": 1
+  "x": 3,
+  "y": 5
 }
 ```
 
@@ -5803,9 +5808,7 @@ Example:
 Example:
 
 ```json
-{
-  "observeMs": 6
-}
+{}
 ```
 
 ## BrowserOpen
@@ -5825,6 +5828,7 @@ Example:
 ```json
 {
   "background": false,
+  "headed": false,
   "threadId": "example",
   "workspaceId": "example"
 }
@@ -5871,7 +5875,7 @@ Example:
   "backend": "embedded",
   "pageStateLost": true,
   "reason": "example",
-  "recovery": "headless",
+  "recovery": "pause",
   "threadId": "example",
   "type": "browser.backend.lost",
   "url": "example"
@@ -5893,8 +5897,7 @@ Example:
 ```json
 {
   "phase": "verifying",
-  "received": 0,
-  "total": 7,
+  "received": 7,
   "type": "browser.download.progress",
   "version": "example"
 }
@@ -5919,6 +5922,7 @@ Example:
     "origin": "example",
     "reason": "approval_required"
   },
+  "error": "example",
   "ok": false,
   "requestId": "example",
   "type": "browser.result"
@@ -5937,7 +5941,6 @@ Example:
 ```json
 {
   "state": {
-    "backend": "user",
     "closed": true,
     "features": [],
     "reason": "example",
