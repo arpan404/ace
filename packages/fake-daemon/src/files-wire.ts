@@ -44,6 +44,16 @@ export class FakeFilesWire {
     this.checkout = new FakeCheckout(host);
     this.files = this.checkout.files;
   }
+  /** Put a text file (and its folders) in a thread's checkout, as a scenario's agent would. */
+  seed(threadId: string, path: string, text: string): void {
+    const parts = path.split("/");
+    for (let depth = 1; depth < parts.length; depth++) {
+      const folder = parts.slice(0, depth).join("/");
+      if (!this.files.has(this.key(threadId, folder)))
+        this.checkout.apply(threadId, { op: "mkdir", path: folder, expected: null });
+    }
+    this.checkout.apply(threadId, { op: "create", path, expected: null, text });
+  }
   paths(threadId: string): string[] {
     return this.checkout.paths(threadId);
   }

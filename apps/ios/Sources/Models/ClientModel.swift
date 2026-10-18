@@ -43,6 +43,9 @@ import CryptoKit
     @ObservationIgnored var notificationSink: ((NotificationPatch) -> Void)?
     /// The open thread's Agents and Changes sheets (`bridge/sheets.ts`).
     let sheets = ThreadSheetsModel()
+    /// New thread and Add project on this machine; the open thread's Files sheet.
+    let compose = ComposeModel()
+    let files = ThreadFilesModel()
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var runtime: (any ClientSession)?
     @ObservationIgnored private let makeRuntime: ClientSessionFactory
@@ -64,7 +67,7 @@ import CryptoKit
         connectionEpoch += 1
         let epoch = connectionEpoch
         let closing = retireRuntime()
-        inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false; sheets.reset()
+        inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false; sheets.reset(); compose.reset(); files.reset()
         inboxLayout = .empty
         machineStatus = nil; providers = nil
         connection = "connecting"; error = nil; problem = nil
@@ -159,6 +162,8 @@ import CryptoKit
             case .changesFile(let id, let epoch, let path, let diff):
                 if thread?.id == id, thread?.epoch == epoch { sheets.file = .init(path: path, diff: diff) }
             case .gitResult(let id, let ok, let message): sheets.outcomes[id] = GitOutcome(ok: ok, message: message)
+            case .compose(let patch): compose.apply(patch)
+            case .files(let patch): files.apply(patch)
             }
         }
         thread?.screen.commit()

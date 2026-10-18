@@ -10,6 +10,9 @@ struct ThreadView: View {
     @State private var showModels = false
     @State private var lane: BlockRow.Agents.Entry?
     @State private var scrolledToTail = false
+    @State private var showFiles = false
+    /// A file picked in Files, inserted into the composer as `@path`.
+    @State private var mention: ComposerMention?
     private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
     private var screen: ThreadScreenModel { thread.screen }
     var body: some View {
@@ -64,7 +67,7 @@ struct ThreadView: View {
                         ComposerView(controls: screen.controls, stopping: screen.stopping,
                                      placeholder: thread.approvals.isEmpty ? "Steer or follow up…" : "Reply instead…",
                                      send: { await model.sendMessage($0, alternate: $1) }, stop: { model.stopTree() },
-                                     openModels: { showModels = true }, inputBegan: { model.metrics?.inputBegan() })
+                                     openModels: { showModels = true }, inputBegan: { model.metrics?.inputBegan() }, mention: mention)
                     } else {
                         ViewOnlyNote.thread
                             .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.md)
@@ -80,6 +83,10 @@ struct ThreadView: View {
             .navigationBarTitleDisplayMode(.inline)
             .threadSheets(model: model, thread: thread, openThread: openThread)
             .sheet(isPresented: $showDetails) { details }
+            .sheet(isPresented: $showFiles) {
+                ThreadFilesSheet(model: model, threadId: thread.id, mention: model.canOperate ? { mention = ComposerMention(path: $0) } : nil)
+                    .presentationDetents([.large]).presentationDragIndicator(.visible)
+            }
             .sheet(isPresented: $showModels) {
                 ModelPickerSheet(screen: screen, load: { model.requestModels() }, choose: { await model.switchModel($0) })
             }
@@ -123,6 +130,7 @@ struct ThreadView: View {
                 }
             }
             Button("Archive", systemImage: "archivebox") { Task { if await model.archive(thread.id) { dismiss() } } }
+            Button("Files", systemImage: "folder") { showFiles = true }.accessibilityIdentifier("thread.files")
             Divider()
             Button("Connection details", systemImage: "network") { showDetails = true }
         } label: { Image(systemName: "ellipsis") }

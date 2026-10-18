@@ -12,6 +12,8 @@ struct ComposerView: View {
     let stop: () -> Void
     let openModels: () -> Void
     let inputBegan: () -> Void
+    /// A file picked in Files: each new one is inserted as `@path`.
+    var mention: ComposerMention? = nil
     @State private var draft = ComposerDraft()
     @State private var feedback = 0
     private var empty: Bool { draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -57,6 +59,7 @@ struct ComposerView: View {
         .padding(.leading, AceTheme.Spacing.lg).padding(.trailing, AceTheme.Spacing.sm).padding(.vertical, AceTheme.Spacing.sm)
         .floatingGlass()
         .sensoryFeedback(.impact(weight: .light), trigger: feedback)
+        .onChange(of: mention) { _, picked in if let picked { draft.text = Mention.insert(picked.path, into: draft.text) } }
         .padding(.horizontal, AceTheme.Dimensions.composerInset).padding(.bottom, AceTheme.Spacing.sm)
     }
     private var disabled: Bool { draft.saving || (stops ? stopping : empty) }
