@@ -73,15 +73,19 @@ export function useFocusBackOnHide(
   const inside = useRef(false);
   const wasOpen = useRef(open);
   const latest = useRef(fallback);
+  // The panel's element as last rendered: hidden in an Activity, its ref is detached by the
+  // time the hide is seen, though the element (and the focus in it) is still in the document.
+  const seen = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
     latest.current = fallback;
+    if (panel.current) seen.current = panel.current;
   });
   useLayoutEffect(() => {
     const was = wasOpen.current;
     wasOpen.current = open;
     if (!was || open || !inside.current) return;
     inside.current = false;
-    const element = panel.current;
+    const element = panel.current ?? seen.current;
     const doc = element?.ownerDocument ?? document;
     const active = doc.activeElement;
     // The person moved focus elsewhere on purpose (a menu, a dialog): leave it there.
