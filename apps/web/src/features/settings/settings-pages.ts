@@ -1,4 +1,5 @@
 import {
+  BrowserIcon,
   FileTextIcon,
   HardDriveIcon,
   BellIcon,
@@ -21,6 +22,7 @@ export type SettingsPath =
   | "/settings/source-control"
   | "/settings/remote"
   | "/settings/computer-use"
+  | "/settings/browser"
   | "/settings/keyboard"
   | "/settings/advanced"
   | "/settings/storage";
@@ -34,6 +36,7 @@ export const settingsPages: readonly { to: SettingsPath; title: string; icon: Ic
   { to: "/settings/source-control", title: "Source control", icon: CodeIcon },
   { to: "/settings/remote", title: "Remote devices", icon: LaptopIcon },
   { to: "/settings/computer-use", title: "Computer use", icon: CursorClickIcon },
+  { to: "/settings/browser", title: "Browser", icon: BrowserIcon },
   { to: "/settings/keyboard", title: "Keyboard", icon: KeyboardIcon },
   { to: "/settings/storage", title: "Storage", icon: HardDriveIcon },
   { to: "/settings/advanced", title: "Advanced", icon: CodeIcon },

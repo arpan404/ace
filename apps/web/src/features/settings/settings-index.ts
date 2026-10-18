@@ -248,6 +248,37 @@ const entries = [
     title: "Agents on other devices can use this machine",
     keywords: ["machines", "delegate", "cross-device", "mcp", "agents", "browser"],
   },
+  // Browser
+  {
+    id: "browser.engine",
+    page: "/settings/browser",
+    title: "Browser engine",
+    keywords: ["chrome", "headless", "desktop", "native", "backend"],
+  },
+  {
+    id: "browser.profile",
+    page: "/settings/browser",
+    title: "New browsers",
+    keywords: ["profile", "cookies", "private", "incognito", "sign-ins"],
+  },
+  {
+    id: "browser.loss",
+    page: "/settings/browser",
+    title: "When the desktop app goes away",
+    keywords: ["fallback", "pause", "continue"],
+  },
+  {
+    id: "browser.downloadDir",
+    page: "/settings/browser",
+    title: "Downloads folder",
+    keywords: ["download", "save", "folder", "location"],
+  },
+  {
+    id: "browser.deviceToolbar",
+    page: "/settings/browser",
+    title: "Device toolbar in new tabs",
+    keywords: ["responsive", "mobile", "emulation", "viewport"],
+  },
   {
     id: "host.displayName",
     page: "/settings/remote",
