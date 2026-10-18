@@ -30,17 +30,19 @@ Example:
 
 ```json
 {
-  "access": "read-only",
-  "concurrency": 8,
+  "concurrency": 1,
   "enabled": true,
   "id": "example",
-  "jitterMs": 1,
+  "jitterMs": 4,
   "missedRun": "skip",
   "prompt": "example",
-  "provider": "codex",
+  "provider": "claude",
   "title": "example",
   "trigger": {
-    "kind": "manual"
+    "event": "issue_labelled",
+    "kind": "github",
+    "pollIntervalMs": 60009,
+    "repository": "K67V3EIt6/ROs6VZZqar"
   },
   "workspace": "example",
   "worktree": true
@@ -78,7 +80,7 @@ Example:
 
 ```json
 {
-  "before": 8,
+  "before": 9,
   "runs": []
 }
 ```
@@ -96,7 +98,7 @@ Example:
 
 ```json
 {
-  "at": 0,
+  "at": 9,
   "message": "example"
 }
 ```
@@ -118,25 +120,24 @@ Example:
 ```json
 {
   "automation": {
+    "access": "auto-review",
     "concurrency": 7,
-    "enabled": false,
+    "enabled": true,
     "id": "example",
-    "jitterMs": 8,
+    "jitterMs": 9,
     "missedRun": "skip",
+    "model": "example",
     "prompt": "example",
-    "provider": "claude",
+    "provider": "codex",
     "title": "example",
     "trigger": {
-      "kind": "schedule",
-      "schedule": {
-        "expression": "example",
-        "kind": "cron",
-        "startAt": 0,
-        "timezone": "example"
-      }
+      "event": "ci_failed",
+      "kind": "github",
+      "pollIntervalMs": 60000,
+      "repository": "uX667vlYbB/urRbs6c"
     },
     "workspace": "example",
-    "worktree": true
+    "worktree": false
   },
   "requestId": "example",
   "type": "automation.put"
@@ -211,8 +212,8 @@ Example:
 
 ```json
 {
-  "before": 1,
-  "limit": 7,
+  "automationId": "example",
+  "limit": 2,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -237,21 +238,17 @@ Example:
 
 ```json
 {
-  "inbox": {
-    "before": null,
-    "runs": []
-  },
+  "automations": [],
   "ok": false,
   "requestId": "example",
   "run": {
     "automationId": "example",
     "eventKey": "example",
     "id": "example",
-    "result": "example",
-    "startedAt": 1,
-    "status": "skipped",
+    "startedAt": 8,
+    "status": "succeeded",
     "title": "example",
-    "trigger": "github"
+    "trigger": "manual"
   },
   "type": "automation.result"
 }
@@ -281,9 +278,9 @@ Example:
   "automationId": "example",
   "eventKey": "example",
   "id": "example",
-  "startedAt": 1,
-  "status": "skipped",
-  "threadId": "example",
+  "result": "example",
+  "startedAt": 7,
+  "status": "succeeded",
   "title": "example",
   "trigger": "file"
 }
@@ -343,7 +340,7 @@ Example:
   "kind": "schedule",
   "schedule": {
     "expression": "example",
-    "kind": "cron",
+    "kind": "rrule",
     "startAt": 0,
     "timezone": "example"
   }
@@ -367,10 +364,9 @@ Example:
 {
   "event": "review_comment",
   "kind": "github",
-  "label": "example",
-  "pollIntervalMs": 60008,
-  "pullRequest": 7,
-  "repository": "1J0v.Sqc/Y3YInqV"
+  "pollIntervalMs": 60001,
+  "pullRequest": 3,
+  "repository": "wc6NW/K"
 }
 ```
 

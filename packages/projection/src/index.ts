@@ -1,5 +1,5 @@
-export { chronologicalItemOrder } from "./item-order.ts";
-import { insertChronologicalItem } from "./item-order.ts";
+export { mergeBySeq, retainedTail } from "./item-order.ts";
+export type { RetainedTail, TailEntry } from "./item-order.ts";
 export {
   isRawHistoryItem,
   historyMessageIdentity,
@@ -272,9 +272,10 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       )
         break;
       const previous = get(view.items, p.item.id);
-      if (!previous) insertChronologicalItem(view.itemOrder, view.items, p.item);
-      // Creation time is identity, as in the core reducer. A provider refresh can
-      // replace content but cannot change where an already admitted item belongs.
+      // Events arrive in creation-sequence order, so a new item belongs at the end.
+      if (!previous) view.itemOrder.push(p.item.id);
+      // Creation time is identity, as in the core reducer: a provider refresh replaces
+      // content but keeps the timestamp the item was admitted with.
       const item = structuredCopy(p.item);
       if (previous) item.createdAt = previous.createdAt;
       put(view.items, p.item.id, item);

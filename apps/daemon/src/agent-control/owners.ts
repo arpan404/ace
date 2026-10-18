@@ -6,7 +6,14 @@ import { createHandoffs } from "./handoffs.ts";
 import { join } from "node:path";
 import { z } from "zod";
 import { AutomationService, AutomationStore } from "@ace/automations";
-import { AgentId, ThreadId, type AgentControlResult, type McpAttribution } from "@ace/protocol";
+import {
+  AgentId,
+  ThreadId,
+  type AgentControlResult,
+  type Automation,
+  type AutomationRequest,
+  type McpAttribution,
+} from "@ace/protocol";
 import type { ServiceContext } from "../services/types.ts";
 import type { DelegationService } from "./delegations.ts";
 import type { ExtensionOperation } from "./tools.ts";
@@ -149,18 +156,26 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
             return { ok: false, code: "forbidden" };
           if (!identity && request.type !== "automation.put")
             return { ok: false, code: "not_found" };
+          let full: AutomationRequest | undefined =
+            request.type === "automation.put" ? undefined : request;
           if (request.type === "automation.put") {
-            const path = store.getWorkspacePath(
-              store.getThread(caller.threadId)?.workspaceId ??
-                (() => {
-                  throw new Error("Caller missing");
-                })(),
-            );
-            const definition = request.automation;
+            const thread = store.getThread(caller.threadId);
+            if (!thread) throw new Error("Caller missing");
+            const path = store.getWorkspacePath(thread.workspaceId);
+            if (!path) return { ok: false, code: "unavailable" };
+            const draft = request.automation;
+            // Agent jobs run in the caller's project, without worktrees or jitter.
+            const definition: Automation = {
+              ...draft,
+              workspace: draft.workspace ?? path,
+              provider: draft.provider ?? thread.provider,
+              worktree: false,
+              jitterMs: 0,
+            };
             if (
               definition.workspace !== path ||
-              definition.worktree ||
-              definition.jitterMs !== 0 ||
+              draft.worktree ||
+              (draft.jitterMs ?? 0) !== 0 ||
               !["manual", "schedule"].includes(definition.trigger.kind)
             )
               return { ok: false, code: "unsupported" };
@@ -173,8 +188,10 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
                 caller.agentId,
               );
             });
+            full = { ...request, automation: definition };
           }
-          const result = automations.handle(request);
+          if (!full) return { ok: false, code: "invalid" };
+          const result = automations.handle(full);
           return { ok: result.ok, data: result };
         }
         default:

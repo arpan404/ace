@@ -135,7 +135,7 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
       .update(JSON.stringify([caller.threadId, operation.requestId]))
       .digest("hex");
     const requestId = `handoff-${key}`;
-    const task = `Continue thread ${operation.threadId} in this worktree. Page its transcript with ace_thread_read before starting.`;
+    const task = `Continue thread ${operation.threadId} in this worktree. Page its transcript with thread_read before starting.`;
     const receipt = delegations.journal.receipt(caller.threadId, requestId);
     if (receipt) {
       if (

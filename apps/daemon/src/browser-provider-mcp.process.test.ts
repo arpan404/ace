@@ -105,12 +105,12 @@ it("daemon MCP wrapping preserves model configuration and the lease when native 
   await expect(session.close("user")).rejects.toThrow("Native process still live");
   if (!connection) throw new Error("Missing injected connection");
   expect(
-    (await invoke(connection, "ace_browser_open", { url: "http://localhost:3000/after-refusal" }))
+    (await invoke(connection, "browser_open", { url: "http://localhost:3000/after-refusal" }))
       .status,
   ).toBe(200);
   expect(f.browser.state(f.thread.id)?.url).toBe("http://localhost:3000/after-refusal");
   await session.close("user");
-  expect((await invoke(connection, "ace_browser_open", {})).status).toBe(401);
+  expect((await invoke(connection, "browser_open", {})).status).toBe(401);
 });
 
 it.each(cases)(
@@ -222,13 +222,13 @@ it.each(cases)(
           ? [httpReply.data.body.mcpProof]
           : [];
     });
+    // ACP agents never reload their list: the browser's other tools are reached by tools_call.
+    const fixedList = provider === "acp" || provider === "antigravity";
     expect(observed).toContainEqual(
       expect.objectContaining({
-        tools: expect.arrayContaining([
-          "ace_browser_open",
-          "ace_browser_snapshot",
-          "ace_browser_close",
-        ]),
+        tools: fixedList
+          ? expect.arrayContaining(["browser_open", "tools_find", "tools_call"])
+          : expect.arrayContaining(["browser_open", "browser_snapshot", "browser_settings"]),
       }),
     );
     if (provider === "opencode" || provider === "codex") {
@@ -266,7 +266,7 @@ it.each(cases)(
     }
     if (connection) expect(JSON.stringify(frames)).not.toContain(connection.bearer);
     await session.close("shutdown");
-    if (connection) expect((await invoke(connection, "ace_browser_open", {})).status).toBe(401);
+    if (connection) expect((await invoke(connection, "browser_open", {})).status).toBe(401);
   },
 );
 

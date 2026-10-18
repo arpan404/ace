@@ -25,7 +25,7 @@ export interface RetentionTiming {
   intervalMs: number;
   /** A shorter window applies this soon after it is saved. */
   changeMs: number;
-  /** Retry after a pass that left eligible work behind or failed. */
+  /** Retry after a pass that removed work and left more behind, or failed. */
   retryMs: number;
 }
 export const retentionTiming: RetentionTiming = {
@@ -45,10 +45,15 @@ export function delayAfterChange(
   return next < previous ? timing.changeMs : undefined;
 }
 
-/** When the next pass runs after one finishes. */
+/**
+ * When the next pass runs after one finishes. Only a failure, or a pass that removed something
+ * and left more behind, retries soon: a pass that removed nothing would scan the same
+ * candidates again, so an unfinished inventory alone never turns the interval into a loop.
+ */
 export function delayAfterPass(
-  outcome: { complete: boolean } | "failed",
+  outcome: { complete: boolean; removed: number } | "failed",
   timing: RetentionTiming,
 ): number {
-  return outcome === "failed" || !outcome.complete ? timing.retryMs : timing.intervalMs;
+  if (outcome === "failed") return timing.retryMs;
+  return !outcome.complete && outcome.removed > 0 ? timing.retryMs : timing.intervalMs;
 }

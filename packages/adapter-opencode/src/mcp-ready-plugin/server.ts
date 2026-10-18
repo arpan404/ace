@@ -1,4 +1,4 @@
-import { mcpReadyRpc } from "../mcp-ready-contract.ts";
+import { aceReadinessTool, mcpReadyRpc } from "../mcp-ready-contract.ts";
 
 // The installed OpenCode host supplies these public Promise plugin interfaces.
 // Keep this entry dependency-free; it runs in the CLI, not the daemon.
@@ -30,7 +30,7 @@ export default {
     // MCP connection status precedes OpenCode's debounced native tool reload.
     // Observe the tool transform instead of assuming a connection means readiness.
     await context.tool.transform((editor) => {
-      if (editor.list().some((tool) => tool.id === "ace_ace_status")) settled.resolve();
+      if (editor.list().some((tool) => tool.id === aceReadinessTool)) settled.resolve();
     });
     await context.rpc.register(mcpReadyRpc, {
       async ready(_, { signal }) {
@@ -47,7 +47,7 @@ export default {
         const tools = (await context.tool.list())
           .filter((tool) => tool.options?.namespace === "ace")
           .map((tool) => ({ name: tool.id, description: tool.description }));
-        if (tools.length > 256 || !tools.some((tool) => tool.name === "ace_ace_status"))
+        if (tools.length > 256 || !tools.some((tool) => tool.name === aceReadinessTool))
           throw new Error("ace MCP native tools unavailable");
         return { tools };
       },

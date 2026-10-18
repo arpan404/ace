@@ -4,9 +4,9 @@ import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { z } from "zod";
-import { agentMcp } from "./agent-mcp-test-support.ts";
+import { agentMcp, refNamed } from "./agent-mcp-test-support.ts";
 import { imageSize } from "./image-size.ts";
-import { executablePath, fixture, ref } from "./test-support.ts";
+import { executablePath, fixture, toolPort } from "./test-support.ts";
 
 const Geometry = z.object({
   width: z.number(),
@@ -47,18 +47,19 @@ describe.skipIf(!executablePath)("browser tools agents can aim and pace", () => 
   it("a click computed from a downscaled screenshot's scale lands on what the image shows", async () => {
     const f = await fixture();
     await f.navigate();
-    const agent = agentMcp(f.service);
-    await agent.ok("resize", { width: 3200, height: 800 });
+    const agent = agentMcp(toolPort(f.service));
+    await agent.ok("browser_settings", { action: "resize", width: 3200, height: 800 });
     await f.evaluate(
       `document.body.innerHTML = '<div role="group" aria-label="Pair" style="display:flex;width:3000px;height:120px"><button style="width:1500px" onclick="document.title=\\'Left\\'">Left</button><button style="width:1500px" onclick="document.title=\\'Right\\'">Right</button></div>'; 0`,
     );
-    const pair = ref(agent.text(await agent.ok("snapshot")), "Pair");
-    const shot = await agent.ok("screenshot", { ref: pair });
-    const geometry = Geometry.parse(agent.text(shot, 1));
+    const pair = refNamed(agent.raw(await agent.ok("browser_snapshot")), "Pair");
+    const shot = await agent.ok("browser_screenshot", { ref: pair });
+    const geometry = Geometry.parse(agent.json(shot));
     // The 3000 CSS px group comes back narrower than it is; scale carries the difference.
     expect(geometry.width).toBeLessThan(3000);
     // Three quarters across the image is inside the right-hand button.
-    await agent.ok("click", {
+    await agent.ok("browser_act", {
+      action: "click",
       x: geometry.origin.x + geometry.width * 0.75 * geometry.scale,
       y: geometry.origin.y + geometry.height * 0.5 * geometry.scale,
     });
@@ -68,53 +69,59 @@ describe.skipIf(!executablePath)("browser tools agents can aim and pace", () => 
   it("navigate with waitUntil networkidle returns only once the page's requests are done", async () => {
     const f = await fixture();
     const site = await busySite();
-    const agent = agentMcp(f.service);
-    await agent.ok("navigate", { url: `${site}/`, waitUntil: "networkidle", timeout: 10_000 });
+    const agent = agentMcp(toolPort(f.service));
+    await agent.ok("browser_open", { url: `${site}/`, waitUntil: "networkidle", timeout: 10_000 });
     await expect(f.evaluate("window.loaded")).resolves.toBe("slow-done");
   });
 
   it("wait_for networkIdle waits out the requests a click started", async () => {
     const f = await fixture();
     const site = await busySite();
-    const agent = agentMcp(f.service);
-    await agent.ok("navigate", { url: `${site}/`, waitUntil: "networkidle" });
-    const save = ref(agent.text(await agent.ok("snapshot")), "Save");
-    await agent.ok("click", { ref: save });
-    await agent.ok("wait_for", { networkIdle: true });
+    const agent = agentMcp(toolPort(f.service));
+    await agent.ok("browser_open", { url: `${site}/`, waitUntil: "networkidle" });
+    const save = refNamed(agent.raw(await agent.ok("browser_snapshot")), "Save");
+    await agent.ok("browser_act", { action: "click", ref: save });
+    await agent.ok("browser_wait_for", { networkIdle: true });
     await expect(f.evaluate("window.saved")).resolves.toBe("slow-done");
   });
 
   it("wait_for url accepts a glob for a destination with an id and query", async () => {
     const f = await fixture();
     const site = await busySite();
-    const agent = agentMcp(f.service);
-    await agent.ok("navigate", { url: `${site}/` });
-    await agent.ok("click", { ref: ref(agent.text(await agent.ok("snapshot")), "Open order") });
+    const agent = agentMcp(toolPort(f.service));
+    await agent.ok("browser_open", { url: `${site}/` });
+    await agent.ok("browser_act", {
+      action: "click",
+      ref: refNamed(agent.raw(await agent.ok("browser_snapshot")), "Open order"),
+    });
     const waited = z
       .object({ url: z.string() })
-      .parse(agent.text(await agent.ok("wait_for", { url: `${site}/orders/*` })));
+      .parse(agent.json(await agent.ok("browser_wait_for", { url: `${site}/orders/*` })));
     expect(waited.url).toBe(`${site}/orders/42?from=list`);
-    const wrong = await agent.failure("wait_for", { url: `${site}/invoices/*`, timeout: 300 });
+    const wrong = await agent.failure("browser_wait_for", {
+      url: `${site}/invoices/*`,
+      timeout: 300,
+    });
     expect(wrong.code).toBe("timeout");
   });
 
   it("wait_for timeMs pauses for that long", async () => {
     const f = await fixture();
     await f.navigate();
-    const agent = agentMcp(f.service);
+    const agent = agentMcp(toolPort(f.service));
     await f.evaluate("setTimeout(() => { window.settled = true }, 300); 0");
-    await agent.ok("wait_for", { timeMs: 600 });
+    await agent.ok("browser_wait_for", { timeMs: 600 });
     await expect(f.evaluate("window.settled")).resolves.toBe(true);
   });
 
   it("record_start records the background tab it is given, not the tab the person views", async () => {
     const f = await fixture();
     await f.navigate();
-    const agent = agentMcp(f.service);
+    const agent = agentMcp(toolPort(f.service));
     const viewed = f.service.state("thread").activeTabId;
     const opened = z
       .object({ tabId: z.string() })
-      .parse(agent.text(await agent.ok("tabs", { operation: "open", url: f.url })));
+      .parse(agent.json(await agent.ok("browser_tabs", { action: "open", url: f.url })));
     // The person keeps looking at their own tab.
     await f.service.execute(
       "thread",
@@ -123,12 +130,17 @@ describe.skipIf(!executablePath)("browser tools agents can aim and pace", () => 
     );
     expect(f.service.state("thread").activeTabId).not.toBe(opened.tabId);
     // A size no other tab has, so every recorded frame shows which tab it came from.
-    await agent.ok("resize", { tabId: opened.tabId, width: 900, height: 700 });
-    await agent.ok("record_start", { tabId: opened.tabId });
+    await agent.ok("browser_settings", {
+      action: "resize",
+      tabId: opened.tabId,
+      width: 900,
+      height: 700,
+    });
+    await agent.ok("browser_settings", { action: "record_start", tabId: opened.tabId });
     await sleep(1_000);
     const artifact = z
       .object({ path: z.string() })
-      .parse(agent.text(await agent.ok("record_stop", { tabId: opened.tabId })));
+      .parse(agent.json(await agent.ok("browser_settings", { action: "record_stop" })));
     const dir = dirname(artifact.path);
     const frames = (await readdir(dir)).filter((name) => name.endsWith(".jpg"));
     expect(frames.length).toBeGreaterThan(1);

@@ -11,23 +11,51 @@ async function fixture(env: NodeJS.ProcessEnv = {}) {
   return h;
 }
 const caller = { threadId: "thread", agentId: "agent" };
+function agentCall(screen: Parameters<typeof screenToolkit>[0]) {
+  const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
+  screenToolkit(screen).register(registry);
+  const credentials = new CredentialRegistry(() => "a".repeat(64));
+  onTestFinished(() => credentials.close());
+  const lease = credentials.issue(
+    McpScope.parse({ sessionId: "mcp", ...caller, capabilities: ["screen"] }),
+    new AbortController().signal,
+  );
+  return (name: string, args: Record<string, unknown>) =>
+    registry.call(name, args, lease.principal, new AbortController().signal);
+}
 it("opening an app selects its focused usable window and lists alternatives", async () => {
   const h = await fixture({ NOT_READY_QUERIES: "2" });
   await h.screen.enable(true);
   const state = await h.screen.openAgentApp(target.bundleId, caller, new AbortController().signal);
   expect(state.target).toEqual({ kind: "window", bundleId: target.bundleId, windowId: 2 });
   expect(state.windows.map((window) => window.windowId)).toEqual([1, 2]);
-  const tools = computerUseHandler(
-    h.screen,
-    state.sessionId,
-    JSON.stringify([caller.threadId, caller.agentId]),
-  );
-  await tools("screen_select_window", { windowId: 1 });
+  const call = agentCall(h.screen);
+  const switched = await call("screen_open_app", { bundleId: target.bundleId, windowId: 1 });
+  expect(switched.isError).not.toBe(true);
   expect(h.screen.state(state.sessionId).target).toEqual(target);
-  await expect(tools("screen_select_window", { windowId: 99 })).rejects.toMatchObject({
-    code: "target_gone",
+  const missing = await call("screen_open_app", { bundleId: target.bundleId, windowId: 99 });
+  expect(missing).toMatchObject({
+    isError: true,
+    content: [{ text: expect.stringContaining('"code":"target_gone"') }],
   });
   expect(h.screen.state(state.sessionId).target).toEqual(target);
+});
+it("opening an app with a url opens it there and returns the settled UI", async () => {
+  const h = await fixture();
+  await h.screen.enable(true);
+  const result = await agentCall(h.screen)("screen_open_app", {
+    bundleId: target.bundleId,
+    windowId: 1,
+    url: "https://example.test/",
+  });
+  expect(result.content).toMatchObject([
+    { text: expect.stringContaining('"opened":"https://example.test/"') },
+  ]);
+  const [state] = h.screen.states();
+  if (!state) throw new Error("No session");
+  expect((await h.screen.uiTree(state.sessionId, {})).nodes[0]?.value).toBe(
+    "https://example.test/",
+  );
 });
 it("ambiguous app acquisition reports candidate windows before dispatch", async () => {
   const h = await fixture({ AMBIGUOUS: "1" });
@@ -90,8 +118,8 @@ it.each([
     new AbortController().signal,
   );
   const result = await registry.call(
-    "screen_key",
-    { key: "l", modifiers: ["command"] },
+    "screen_input",
+    { action: "key", key: "l", modifiers: ["command"] },
     lease.principal,
     new AbortController().signal,
   );
@@ -114,20 +142,17 @@ it("action tools reuse one settled traversal and cached permission facts", async
   recorded.screen.controller(state.sessionId, "agent", "agent");
   const tools = computerUseHandler(recorded.screen, state.sessionId, "agent");
   for (const [name, args] of [
-    ["screen_type", { text: "typed" }],
-    ["screen_key", { key: "l", modifiers: ["command"] }],
-    ["screen_paste", { text: "pasted" }],
-    ["screen_menu", { path: ["File", "New"] }],
-    ["screen_open_url", { url: "https://example.test/" }],
+    ["screen_input", { action: "type", text: "typed" }],
+    ["screen_input", { action: "key", key: "l", modifiers: ["command"] }],
+    ["screen_input", { action: "paste", text: "pasted" }],
+    ["screen_ui_act", { menu: ["File", "New"] }],
   ] as const) {
     const result = await tools(name, args);
     expect(result.content).toMatchObject([
       { text: expect.stringContaining('"snapshot":{"nodes"') },
     ]);
   }
-  expect((await recorded.screen.uiTree(state.sessionId, {})).nodes[0]?.value).toBe(
-    "https://example.test/",
-  );
+  expect((await recorded.screen.uiTree(state.sessionId, {})).nodes[0]?.value).toBe("File > New");
 });
 it("TCC change events revoke cached permission before the next action", async () => {
   const h = await fixture();

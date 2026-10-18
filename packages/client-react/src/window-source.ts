@@ -44,7 +44,9 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
   const currentOrder = () => {
     if (live.order === tailOrder) return order;
     tailOrder = live.order;
-    const newer = joined ? tailOrder.filter((id) => !items.has(id)) : [];
+    // Only what follows the overlap is newer: a tail may keep older root items ahead of it.
+    const shared = joined ? tailOrder.findLastIndex((id) => items.has(id)) : -1;
+    const newer = joined ? tailOrder.slice(shared + 1).filter((id) => !items.has(id)) : [];
     const kept = own.filter((id) => !isDeleted(id));
     order = newer.length ? [...kept, ...newer] : kept;
     return order;

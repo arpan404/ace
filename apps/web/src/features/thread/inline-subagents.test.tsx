@@ -76,9 +76,7 @@ test.each(["child", "descendant"])(
     const feed = await screen.findByRole("feed", { name: "Transcript" });
     const card = await group(feed, "1 subagent");
     // One subagent is just its row: no disclosure, no count line.
-    expect(
-      await within(card).findByRole("link", { name: "Open Review first, Finished" }),
-    ).toBeTruthy();
+    expect(await within(card).findByRole("link", { name: "Open Review first, Done" })).toBeTruthy();
     expect(within(card).queryByRole("button", { name: "1 subagent" })).toBeNull();
 
     const lease = app.client.thread("inline-subagents");
@@ -125,7 +123,7 @@ test.each(["child", "descendant"])(
       expect(
         await within(card).findByRole("link", { name: "Open Review first, Running" }),
       ).toBeTruthy();
-      expect(within(card).queryByText("Finished")).toBeNull();
+      expect(within(card).queryByText("Done")).toBeNull();
       expect(source.agent(agent.id)?.status.state).toBe("idle");
       await deliver({ type: "background_task.updated", taskId: task.id, status: "unknown" });
       expect(within(card).getByRole("link", { name: "Open Review first, Running" })).toBeTruthy();
@@ -139,7 +137,7 @@ test.each(["child", "descendant"])(
         7000,
       );
       expect(
-        await within(card).findByRole("link", { name: "Open Review first, Finished" }),
+        await within(card).findByRole("link", { name: "Open Review first, Done" }),
       ).toBeTruthy();
       expect(source.agent(agent.id)?.status.state).toBe("idle");
     } finally {
@@ -152,7 +150,12 @@ const mcpLaunch = (id: string): Fact[] => [
   facts.tool("root", `mcp-${id}`, {
     kind: "mcp",
     title: "Delegate work",
-    detail: { kind: "mcp", server: "ace", tool: "delegate_task", arguments: { task: id } },
+    detail: {
+      kind: "mcp",
+      server: "ace",
+      tool: "delegate",
+      arguments: { tasks: [{ requestId: id, task: id, role: id }] },
+    },
   }),
   {
     type: "item.upsert",
@@ -293,11 +296,9 @@ test.each(["child", "descendant"])(
         ...(owner === "descendant" ? [facts.endTurn("nested")] : []),
       ]),
     );
-    await within(card).findByRole("link", { name: "Open Review first, Waiting on you" });
-    expect(
-      within(card).getByRole("link", { name: "Open Review first, Waiting on you" }),
-    ).toBeTruthy();
-    expect(within(card).queryByText("Finished")).toBeNull();
+    await within(card).findByRole("link", { name: "Open Review first, Needs you" });
+    expect(within(card).getByRole("link", { name: "Open Review first, Needs you" })).toBeTruthy();
+    expect(within(card).queryByText("Done")).toBeNull();
     await act(async () =>
       app.daemon.apply("inline-subagents", [
         {
@@ -308,9 +309,7 @@ test.each(["child", "descendant"])(
         },
       ]),
     );
-    expect(
-      await within(card).findByRole("link", { name: "Open Review first, Finished" }),
-    ).toBeTruthy();
+    expect(await within(card).findByRole("link", { name: "Open Review first, Done" })).toBeTruthy();
     // Opening a question on an already idle owner must update the disclosure too.
     await act(async () =>
       app.daemon.apply("inline-subagents", [
@@ -323,11 +322,11 @@ test.each(["child", "descendant"])(
         },
       ]),
     );
-    await within(card).findByRole("link", { name: "Open Review first, Waiting on you" });
+    await within(card).findByRole("link", { name: "Open Review first, Needs you" });
   },
 );
 
-test("one subagent is one row with its status once; several get one line whose counts agree with the rows", async () => {
+test("one subagent is one row with its status word; several fold into one row with worst-first counts", async () => {
   const app = harness();
   app
     .play(
@@ -344,26 +343,29 @@ test("one subagent is one row with its status once; several get one line whose c
   await app.open("/t/inline-subagents");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const solo = await group(feed, "1 subagent");
-  // No disclosure and no count line: the row, its done state shown once (the dot, not words).
+  // No disclosure and no count line: the row alone, its status word always in view.
   expect(within(solo).queryByRole("button")).toBeNull();
   expect(within(solo).queryByRole("status")).toBeNull();
   expect(within(solo).getAllByRole("listitem")).toHaveLength(1);
-  expect(within(solo).getByRole("link", { name: "Open Review solo, Finished" })).toBeTruthy();
-  expect(within(solo).queryByText(/Finished|done/)).toBeNull();
+  const soloRow = within(solo).getByRole("link", { name: "Open Review solo, Done" });
+  expect(within(soloRow).getByText("Done")).toBeTruthy();
 
   const pair = await group(feed, "2 subagents");
+  // One working child keeps the whole group working: never done while any child works.
+  expect(pair.getAttribute("data-group-status")).toBe("working");
   const header = within(pair).getByRole("button", { name: "2 subagents" });
-  expect(header.textContent).toMatch(/^2 subagents · 1 working · 1 done/);
+  expect(within(pair).getByRole("status").textContent).toBe("1 working · 1 done");
+  expect(header.getAttribute("aria-expanded")).toBe("false");
   await userEvent.click(header);
   const rows = within(pair).getAllByRole("link");
   expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
-    "Open Review first, Finished",
+    "Open Review first, Done",
     "Open Review second, Running",
   ]);
-  // The rows don't repeat what the header line says.
-  expect(within(pair).getByRole("list", { name: "Subagents" }).textContent).not.toMatch(
-    /Finished|Running|done|working/,
-  );
+  expect(rows.map((row) => within(row).getByText(/^(Done|Running)$/).textContent)).toEqual([
+    "Done",
+    "Running",
+  ]);
 });
 
 test("52 concurrent children share one disclosure, expose every row and retain keyboard navigation", async () => {
@@ -376,7 +378,7 @@ test("52 concurrent children share one disclosure, expose every row and retain k
   const card = await group(feed, "52 subagents");
   const disclosure = within(card).getByRole("button", { name: "52 subagents" });
   expect(disclosure.getAttribute("aria-expanded")).toBe("false");
-  expect(within(card).getByText("52 working")).toBeTruthy();
+  expect(within(card).getByRole("status").textContent).toBe("52 working");
   expect(within(card).queryByRole("list", { name: "Subagents" })).toBeNull();
   disclosure.focus();
   await userEvent.keyboard("{Enter}");
@@ -430,12 +432,15 @@ test("collapsed status counts follow child completion and human waits through du
       },
     ]);
   });
-  await within(card).findByText("1 waiting on you · 1 done");
+  await within(card).findByText("1 waiting on you");
+  expect(within(card).getByRole("status").textContent).toBe("1 waiting on you · 1 done");
+  // The group reads as its worst child: it needs you.
+  expect(card.getAttribute("data-group-status")).toBe("human");
   expect(within(feed).getAllByRole("button", { name: "2 subagents" })).toHaveLength(1);
   await userEvent.click(within(card).getByRole("button", { name: "2 subagents" }));
   expect(
     within(card)
-      .getByRole("link", { name: "Open Review second's thread, Waiting on you" })
+      .getByRole("link", { name: "Open Review second's thread, Needs you" })
       .getAttribute("href"),
   ).toBe("/t/child-second");
   await act(async () =>
@@ -449,9 +454,10 @@ test("collapsed status counts follow child completion and human waits through du
     ]),
   );
   await within(card).findByText("2 done");
+  expect(card.getAttribute("data-group-status")).toBe("done");
 });
 
-test("a finished result is a compact child-thread link with its summary and delivery timestamp", async () => {
+test("a finished result is a compact child-thread link with its summary", async () => {
   const timestamp = Date.parse("2026-10-11T14:35:00.000Z");
   const app = harness({ clock: () => timestamp });
   for (const script of delegatedDocs()) app.play(script).runUntilBlocked();
@@ -459,12 +465,11 @@ test("a finished result is a compact child-thread link with its summary and deli
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const results = await within(feed).findByRole("list", { name: "Subagent results" });
   const link = within(results).getByRole("link", {
-    name: "Open Relay protocol reference's thread, Finished",
+    name: "Open Relay protocol reference's thread, Done",
   });
   expect(link.textContent).toContain(
     "Wrote docs/protocol/relay.md and documented reconnect behavior.",
   );
-  expect(link.querySelector("time")?.getAttribute("datetime")).toBe("2026-10-11T14:35:00.000Z");
   expect(within(feed).getAllByRole("region", { name: "1 subagent" })).toHaveLength(1);
   await act(async () =>
     app.daemon.apply(delegatedDocsIds.parent, [
@@ -477,7 +482,7 @@ test("a finished result is a compact child-thread link with its summary and deli
     ]),
   );
   const waiting = await within(results).findByRole("link", {
-    name: "Open Relay protocol reference's thread, Waiting on you",
+    name: "Open Relay protocol reference's thread, Needs you",
   });
   expect(waiting.textContent).toContain(
     "Wrote docs/protocol/relay.md and documented reconnect behavior.",

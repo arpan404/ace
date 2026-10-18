@@ -9,14 +9,11 @@ export {
   type ToolContext,
   type CallObserver,
   type ToolDefinition,
+  type ToolMetadata,
 } from "./registry.ts";
+export { aceToolDispatch, aceToolSearch, bareToolName, toolNamePattern } from "./tool-names.ts";
 export { startMcpServer, type McpServerOptions } from "./http.ts";
-export {
-  registerBuiltins,
-  type McpReadPort,
-  type McpIntentPort,
-  type AgentPageRequest,
-} from "./builtins.ts";
+export { registerBuiltins, type McpIntentPort } from "./builtins.ts";
 export {
   registerAutomationTool,
   type Toolkit,
@@ -51,12 +48,13 @@ export { runStdioBridge, type BridgeOptions } from "./stdio-bridge.ts";
 export { acpStdioInjection, appendAcpMcp } from "./injection.ts";
 
 export type { ContentToolDefinition } from "./content-tools.ts";
-export { builtinToolCatalog, handoffToolCatalog, statusToolCatalog } from "./catalog.ts";
+export { builtinToolCatalog, handoffToolCatalog, HandoffReadInput } from "./catalog.ts";
 
 export {
   agentControlToolkit,
   agentControlToolCatalog,
   destructiveAceTools,
+  maxDelegateTasks,
   type AgentControlPort,
 } from "./agent-control.ts";
 
@@ -90,12 +88,24 @@ export type { SessionGuidance } from "./injection.ts";
 export {
   knowledgeToolkit,
   knowledgeToolCatalog,
-  knowledgeResources,
-  ContextTopic,
-  ContextResult,
+  KnowledgeTopic,
+  KnowledgeResult,
   AskInput,
   AskResult,
   type KnowledgePort,
 } from "./knowledge-tools.ts";
+export {
+  contextToolCatalog,
+  contextResources,
+  ContextTopic,
+  ContextResult,
+} from "./context-tool.ts";
 export { guideToolkit, type AceGuide } from "./guide-tools.ts";
-export { coreTools, coreToolsHeader, toolsetOf } from "./toolsets.ts";
+export { metaToolCatalog } from "./meta-tools.ts";
+export {
+  coreTools,
+  coreToolsHeader,
+  openedToolset,
+  staticToolsHeader,
+  type ToolListing,
+} from "./toolsets.ts";

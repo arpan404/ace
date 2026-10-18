@@ -13,7 +13,7 @@ import UIKit
         static let background = adaptive(0xFFFFFF, 0x0A0A0B)
         static let secondaryBackground = adaptive(0xF5F5F7, 0x141416)
         static let card = adaptive(0xFFFFFF, 0x1A1A1D)
-        static let foreground = adaptive(0x0B0B0C, 0xF5F5F7)
+        static let foreground = adaptive(0x222224, 0xDEDEE0)
         static let mutedForeground = adaptive(0x626268, 0x9A9AA1)
         static let subtleForeground = adaptive(0x69696F, 0x8B8B93)
         static let decoration = adaptive(0x87878D, 0x76767E)

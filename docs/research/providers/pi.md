@@ -137,7 +137,7 @@ Keep permission support honest even if another provider has more named modes. An
 
 Installed README states that Pi has no built-in subagents; extensions can spawn Pi processes or implement custom orchestration. The official extension examples include `subagent/`, but arbitrary packages do not share a guaranteed child lifecycle/transcript protocol. A tool named `subagent` or `task` alone is insufficient to invent child agents, completion, or cancellation. Advertise `subagentTranscripts:false`, `backgroundVisibility:"none"`, `backgroundTaskControl:false`, and no guaranteed native interrupt cascade. See README and extension examples index.
 
-ace-owned `ace_spawn_agent` calls can still create canonical children through the existing MCP/orchestrator contracts. Their whole-tree state belongs to ace. Pi's `agent_settled` closes only its own run and cannot close ace children. Unknown extension subagent progress is retained as native tool/raw information until a separately documented integration provides stronger facts.
+ace-owned `delegate` calls can still create canonical children through the existing MCP/orchestrator contracts. Their whole-tree state belongs to ace. Pi's `agent_settled` closes only its own run and cannot close ace children. Unknown extension subagent progress is retained as native tool/raw information until a separately documented integration provides stronger facts.
 
 ## Injecting ace MCP tools into 0.85.1
 

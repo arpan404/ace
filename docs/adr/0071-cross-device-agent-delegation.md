@@ -1,8 +1,14 @@
 # 0071: Cross-device agent delegation
 
-Status: proposed. Date: 2026-10-09. ADR 0078 adds daemon-forwarded machine calls
-(`ace_machines`, `delegate_task` with `machine`) that need no connected client; converging
-this client-brokered path onto them is a follow-up there.
+Status: superseded by ADR 0078 (2026-10-17). Date: 2026-10-09.
+
+The client-brokered remote-task path described here has been removed. That covers the
+`ace_device_*` agent tools, the daemon's remote task owner, its journal, publication,
+return and context-transfer stores, the `delegation.remote.*` and `delegation.broker.*`
+wire messages, and the web client's broker. Agents now work on another machine only through
+ADR 0078's daemon-forwarded machine calls (`machines`, and `delegate` with `machine` and
+`project`). Sending context or files to another machine is not yet available over machine
+calls. It is a follow-up in ADR 0078. The rest of this record describes the removed design.
 
 ## Decision
 
@@ -114,3 +120,12 @@ PNG/text bytes, aliases, immutable outcomes, source-local resolution, partial
 reconnect, manifest downgrade rejection and Stop during upload admission with
 transient cancellation failure followed by recovered cleanup. No real provider
 prompts are used.
+
+## Addendum (2026-10-17): removed
+
+The removal leaves the remote-task SQLite tables (`remote_agent_tasks`, `remote_agent_incoming`,
+`remote_agent_context`, `remote_agent_publications`, `remote_agent_returns`,
+`delegation_incoming_usage_recovery`) unused in homes that already have them. ace no longer
+creates or reads them. An older build that opens the home creates them again, so no data
+format bump is needed (ADR 0081). Attachments those tables kept alive are no longer retained
+on their behalf.

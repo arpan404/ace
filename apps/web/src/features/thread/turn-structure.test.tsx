@@ -268,11 +268,11 @@ test("the subagent card deduplicates a launch and its spawn call and opens the c
   const tree = await within(feed).findByRole("list", { name: "Subagents" });
   expect(within(tree).getAllByRole("listitem")).toHaveLength(1);
   expect(within(tree).getByText("Relay protocol reference")).toBeTruthy();
-  // Done shows once, as the avatar's dot: no "Finished" words beside the name.
-  expect(within(tree).queryByText("Finished")).toBeNull();
+  // Its status word stays beside the name.
+  expect(within(tree).getByText("Done")).toBeTruthy();
 
   await userEvent.click(
-    within(tree).getByRole("link", { name: "Open Relay protocol reference's thread, Finished" }),
+    within(tree).getByRole("link", { name: "Open Relay protocol reference's thread, Done" }),
   );
   expect(await screen.findByText(/Drafted the frame table/)).toBeTruthy();
 });
@@ -449,7 +449,7 @@ test("an open turn has a quiet work log that becomes timed history when the turn
   script.runThrough("spoke");
   await app.open("/t/thread-frozen");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  // The turn's live head sits at its top, inside the transcript, until the whole tree settles.
+  // The turn's live line ends its flow, inside the transcript, until the whole tree settles.
   expect(within(feed).getByRole("group", { name: "Turn in progress" }).textContent).toMatch(
     /^Working for/,
   );

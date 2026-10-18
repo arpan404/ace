@@ -10,11 +10,9 @@ export interface ControllerBinding {
   /** Replacing or terminating this controller invalidates its external authority. */
   released(): void;
 }
-import type { ModelCoordinates } from "./model-coordinates.ts";
 export type Session = {
   /** The policy epoch the latest frame was authorized under. */
   frameEpoch?: number;
-  modelCoordinates: ModelCoordinates | undefined;
   state: ScreenState;
   helper: HelperPort;
   humanView: boolean;
@@ -52,7 +50,6 @@ export function createSession(
     humanView: false,
     nativeStarted: false,
     helper,
-    modelCoordinates: undefined,
     hub: new FrameHub(),
     latest: undefined,
     epoch: 0,

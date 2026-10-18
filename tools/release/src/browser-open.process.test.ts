@@ -45,7 +45,7 @@ try {await service.open({threadId:"thread",workspaceId:"workspace",background:tr
   }
 }, 60_000);
 
-it("packaged ace_browser_open navigates and snapshots a local page in an isolated headless profile", async (context) => {
+it("packaged browser_open navigates and snapshots a local page in an isolated headless profile", async (context) => {
   const executable = await detectChromium();
   if (!executable) {
     context.skip("No fixture Chromium executable available");
@@ -83,8 +83,8 @@ const credentials=new CredentialRegistry(()=>"a".repeat(64));
 const lease=credentials.issue({sessionId:"mcp",threadId:thread.id,agentId:"agent",capabilities:["browser"]},new AbortController().signal);
 try {
  const opened=[];
- for(let i=0;i<2;i++) opened.push(await registry.call("ace_browser_open",{url:process.env.FIXTURE_URL},lease.principal,new AbortController().signal));
- const snapshot=await registry.call("ace_browser_snapshot",{},lease.principal,new AbortController().signal);
+ for(let i=0;i<2;i++) opened.push(await registry.call("browser_open",{url:process.env.FIXTURE_URL},lease.principal,new AbortController().signal));
+ const snapshot=await registry.call("browser_snapshot",{},lease.principal,new AbortController().signal);
  console.log(JSON.stringify({opened,snapshot,state:service.state(thread.id)}));
 } finally {credentials.close();await service.close();store.close();}
 } catch(error) { console.log(JSON.stringify({failure:error instanceof Error?error.message:"unknown fixture error"})); }

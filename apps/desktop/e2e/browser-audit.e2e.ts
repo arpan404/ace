@@ -49,7 +49,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await browser.execute(thread, { action: "click", ref: file });
       expect(await browser.execute(thread, { action: "logs" })).toMatchObject({
         entries: expect.arrayContaining([
-          expect.objectContaining({ text: expect.stringContaining("ace_browser_upload") }),
+          expect.objectContaining({ text: expect.stringContaining('action "upload"') }),
         ]),
       });
 

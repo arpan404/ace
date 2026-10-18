@@ -1,8 +1,6 @@
 import { z } from "zod";
 import { afterEach, expect, it } from "vitest";
-import { Agent, Thread } from "@ace/protocol";
-import { registerBuiltins } from "./index.ts";
-import { deferred, harness, scope, thread, toolHeaders, toolRequest } from "./test-support.ts";
+import { deferred, harness, scope, toolHeaders, toolRequest } from "./test-support.ts";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -30,11 +28,12 @@ it("rejects registration beyond the tool limit while admitted tools remain calla
   );
   const { client } = await h.connect();
   expect((await client.listTools()).tools.map((entry) => entry.name)).toEqual([
-    "ace_status",
+    "context",
+    "tools_find",
     "ace_first",
   ]);
-  expect(await client.callTool({ name: "ace_status", arguments: {} })).toMatchObject({
-    structuredContent: { threadId: "thread", agentId: "root" },
+  expect(await client.callTool({ name: "context", arguments: {} })).toMatchObject({
+    structuredContent: { status: { threadId: "thread", agentId: "root" } },
   });
   expect(
     await client.callTool({ name: "ace_first", arguments: { value: "accepted" } }),
@@ -103,45 +102,5 @@ for (const limit of ["tools", "HTTP"] as const) {
       result: { structuredContent: { value: "recovered" } },
     });
     expect(effects).toEqual(["first", "recovered"]);
-  });
-}
-
-{
-  it("rejects a foreign-thread agents read port without exposing its data", async () => {
-    const h = await harness(cleanups, scheduler);
-    const foreign = Thread.parse({
-      ...thread,
-      id: "foreign-thread",
-      title: "private foreign title",
-    });
-    const agent = Agent.parse({
-      id: "foreign-agent",
-      threadId: foreign.id,
-      parentId: null,
-      origin: "root",
-      native: { provider: "codex" },
-      fidelity: "full",
-      cwd: "/private-foreign",
-      status: { state: "idle" },
-      createdAt: 1,
-    });
-    registerBuiltins(
-      h.registry,
-      {
-        async agents() {
-          return { agents: [agent], nextCursor: null };
-        },
-      },
-      {
-        async notify() {
-          throw new Error("Unexpected notification");
-        },
-      },
-    );
-    const { client } = await h.connect();
-    const result = await client.callTool({ name: "ace_list_agents" });
-    expect(result).toMatchObject({ isError: true });
-    expect(result.structuredContent).toBeUndefined();
-    expect(JSON.stringify(result)).not.toContain("foreign");
   });
 }

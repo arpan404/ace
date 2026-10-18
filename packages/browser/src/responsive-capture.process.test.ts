@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { imageSize } from "./image-size.ts";
 import { browserToolkit } from "./index.ts";
-import { executablePath, fixture } from "./test-support.ts";
+import { executablePath, fixture, toolPort } from "./test-support.ts";
 
 const person = { kind: "human", connectionId: "person" } as const;
 const metrics = "[innerWidth, innerHeight, devicePixelRatio].join('x')";
@@ -64,7 +64,7 @@ describe.skipIf(!executablePath)("multi-size screenshots in real Chrome", () => 
     await f.navigate();
     const before = await f.evaluate(metrics);
     const registry = new ToolRegistry({ scheduler: nodeScheduler });
-    browserToolkit(f.service).register(registry);
+    browserToolkit(toolPort(f.service)).register(registry);
     const credentials = new CredentialRegistry(() => "b".repeat(64));
     const lease = credentials.issue(
       McpScope.parse({
@@ -87,7 +87,7 @@ describe.skipIf(!executablePath)("multi-size screenshots in real Chrome", () => 
         })
         .parse(
           await registry.call(
-            "ace_browser_screenshot",
+            "browser_screenshot",
             { sizes: ["phone", "desktop"] },
             lease.principal,
             new AbortController().signal,

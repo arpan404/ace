@@ -10,13 +10,8 @@ type Tree = z.infer<typeof AXTree>;
 export const outlineDomNodes = 50_000;
 /** Landmarks and headings: enough to see the page's parts and pass one's ref to snapshot it. */
 export const outlineRoles = ["main", "navigation", "form", "dialog", "heading"] as const;
-/** How many levels a snapshot reads when the caller does not choose. */
-export const defaultSnapshotDepth = 20;
-
-export const truncatedHint =
-  "Only the first part of the page fit in this snapshot. Pass ref (a container's ref from this snapshot) to read one part, or a smaller depth to read fewer levels.";
 export const outlineHint =
-  "This page is too large for a full snapshot, so only its landmarks and headings are listed. Pass one's ref to ace_browser_snapshot to read that part, or use ace_browser_find, ace_browser_wait_for text or a screenshot.";
+  "This page is too large for a full snapshot, so only its landmarks and headings are listed. Pass one's ref to browser_snapshot to read that part, or use browser_find, browser_wait_for text or a screenshot.";
 
 /**
  * Keep the first node (the root) and its descendants at most `depth` levels below it. Work is

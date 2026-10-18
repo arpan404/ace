@@ -1,7 +1,7 @@
 # MCP discovery and loaded-host reliability
 
 The daemon advertises ace instructions through MCP initialize and current server
-discovery. `ace_status` and the authenticated `ace://status` resource share the same
+discovery. `context` (topic `status`) and the authenticated `ace://status` resource share the same
 live result: caller thread/agent, effective ace permission mode, and tool-group
 availability. The result contains no session secret, filesystem path, provider
 credential, or transcript. A null mode means the standalone MCP host has no policy

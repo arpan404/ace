@@ -2,6 +2,7 @@ import { useClient } from "@ace/client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import {
   Dialog,
   DialogBody,
@@ -49,7 +50,7 @@ export function TrashDialog(props: {
   };
   return (
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
-      <DialogContent size="md">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Recently deleted</DialogTitle>
           <DialogDescription>
@@ -68,7 +69,7 @@ export function TrashDialog(props: {
             </Button>
           )}
           {page.isPending ? (
-            <p role="status">Loading deleted files…</p>
+            <ListSkeleton label="deleted files" shape="row" rows={3} />
           ) : (
             !entries.length && <p className="text-muted-foreground">No recently deleted files.</p>
           )}

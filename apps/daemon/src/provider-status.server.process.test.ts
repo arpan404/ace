@@ -204,7 +204,7 @@ test("cached reads answer before a gated CLI status probe is released", async ()
   }
 });
 
-test("unsupported Pi status and failing CLI auth commands stay unknown and never invoke interactive login", async () => {
+test("a too-old Pi needs an update and failing CLI auth commands stay unknown, never invoking interactive login", async () => {
   const f = await fixture();
   let statuses: ProviderStatuses | undefined;
   let server: Awaited<ReturnType<typeof fixture>> | undefined;
@@ -246,7 +246,8 @@ test("unsupported Pi status and failing CLI auth commands stay unknown and never
             provider: "pi",
             installed: true,
             auth: "unknown",
-            error: "Pi auth status is unsupported for this version",
+            readiness: "needs_update",
+            versionCheck: { status: "too_old", installed: "0.84.0", required: "0.85.1" },
           }),
           expect.objectContaining({
             provider: "codex",
@@ -279,7 +280,7 @@ test("unsupported Pi status and failing CLI auth commands stay unknown and never
           expect.objectContaining({
             provider: "pi",
             auth: "unknown",
-            error: "Pi auth status is unsupported for this version",
+            readiness: "needs_update",
           }),
         ]),
       },

@@ -104,7 +104,7 @@ it("auto opens the desktop's native page for people and agents alike", async () 
     backend: "embedded",
   });
   await f.daemon.browser.closeThread(f.thread.id);
-  await f.tool("ace_browser_open");
+  await f.tool("browser_open");
   expect(f.daemon.browser.state(f.thread.id)).toMatchObject({ backend: "embedded" });
   expect(f.headless.pages).toHaveLength(0);
   // Thread browsers keep their own persistent profile unless the settings say otherwise.
@@ -114,16 +114,16 @@ it("auto opens the desktop's native page for people and agents alike", async () 
 it("agent browser tools navigate, press and screenshot in the desktop's native view", async () => {
   const f = await setup();
   await f.desktop(true);
-  await f.tool("ace_browser_open", { url: "http://127.0.0.1:4100/agent" });
+  await f.tool("browser_open", { url: "http://127.0.0.1:4100/agent" });
   const page = f.views.only();
   expect(page.url()).toBe("http://127.0.0.1:4100/agent");
-  await f.tool("ace_browser_press", { key: "Enter" });
+  await f.tool("browser_act", { action: "press", key: "Enter" });
   expect(page.calls).toContainEqual({ method: "press", params: { key: "Enter" } });
   page.results.set("Page.getLayoutMetrics", {
     cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 1280, clientHeight: 720 },
   });
   page.results.set("Runtime.evaluate", { result: { value: 1 } });
-  const shot = await f.tool("ace_browser_screenshot");
+  const shot = await f.tool("browser_screenshot");
   expect(shot.content).toContainEqual(expect.objectContaining({ type: "image" }));
   expect(page.calls.some((call) => call.method === "Page.captureScreenshot")).toBe(true);
   expect(f.headless.pages).toHaveLength(0);
@@ -131,7 +131,7 @@ it("agent browser tools navigate, press and screenshot in the desktop's native v
 
 it("without a desktop agent tools run headless, and a desktop that connects later keeps that page", async () => {
   const f = await setup();
-  await f.tool("ace_browser_open", { url: "http://127.0.0.1:4100/headless" });
+  await f.tool("browser_open", { url: "http://127.0.0.1:4100/headless" });
   expect(f.daemon.browser.state(f.thread.id)).toMatchObject({ backend: "headless" });
   await f.desktop(true);
   // The person opening the thread's browser on the desktop sees the agent's page as it is.
@@ -148,12 +148,12 @@ it("without a desktop agent tools run headless, and a desktop that connects late
 it("agent work continues headlessly at the last URL when the desktop closes mid-task", async () => {
   const f = await setup();
   await f.desktop(true);
-  await f.tool("ace_browser_open", { url: "http://127.0.0.1:4100/task" });
+  await f.tool("browser_open", { url: "http://127.0.0.1:4100/task" });
   await f.desktop(false);
   await vi.waitFor(() =>
     expect(f.daemon.browser.state(f.thread.id)).toMatchObject({ status: "paused" }),
   );
-  await f.tool("ace_browser_scroll", { x: 0, y: 200 });
+  await f.tool("browser_act", { action: "scroll", x: 0, y: 200 });
   expect(f.daemon.browser.state(f.thread.id)).toMatchObject({
     backend: "headless",
     url: "http://127.0.0.1:4100/task",
@@ -164,7 +164,7 @@ it("agent work continues headlessly at the last URL when the desktop closes mid-
 it("deleting a thread purges its desktop partition now, or when the desktop next registers", async () => {
   const f = await setup();
   await f.desktop(true);
-  await f.tool("ace_browser_open");
+  await f.tool("browser_open");
   deleteThread(f.daemon, f.thread.id);
   await vi.waitFor(() => expect(f.views.purged).toHaveLength(1));
   expect(f.views.purged[0]).toEqual({ threadId: f.thread.id, workspaceId: f.workspaceId });

@@ -27,4 +27,10 @@ export const controlDivider = "mx-1 h-4 w-px shrink-0 bg-border";
  * Everything else (the transcript, the sidebar, menus) is borderless.
  */
 export const groupCard = "rounded-lg border border-border-soft bg-card";
+/*
+ * `cardEdge`: the hairline edge of an inline transcript card (a code block, a task card, an
+ * answered question, a started-thread card, a command preview). An inset shadow rather than a
+ * border so the card's content box keeps its padding exact.
+ */
+export const cardEdge = "shadow-[inset_0_0_0_1px_var(--border)]";
 export const plainRow = "rounded-md transition-colors duration-(--motion-fast) hover:bg-accent";

@@ -2,11 +2,27 @@ import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
 const History = z.object({
   currentIndex: z.number().int(),
-  entries: z.array(z.object({ id: z.number().int(), url: z.string() })),
+  entries: z.array(
+    z.object({ id: z.number().int(), url: z.string(), title: z.string().optional() }),
+  ),
 });
+const shownEntries = 20;
+/** Whether back/forward work, and the session's recent entries with the current one marked. */
 export async function pageHistory(cdp: BrowserCdp) {
   const state = History.parse(await cdp.send("Page.getNavigationHistory"));
-  return { back: state.currentIndex > 0, forward: state.currentIndex < state.entries.length - 1 };
+  const first = Math.max(0, state.entries.length - shownEntries);
+  return {
+    back: state.currentIndex > 0,
+    forward: state.currentIndex < state.entries.length - 1,
+    entries: state.entries.slice(first).map((entry, index) => {
+      const shown: { url: string; title?: string; current?: true } = {
+        url: entry.url.slice(0, 2048),
+      };
+      if (entry.title) shown.title = entry.title.slice(0, 256);
+      if (first + index === state.currentIndex) shown.current = true;
+      return shown;
+    }),
+  };
 }
 export async function traverseHistory(
   cdp: BrowserCdp,

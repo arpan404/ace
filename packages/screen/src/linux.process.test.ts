@@ -94,9 +94,9 @@ it("one helper survives inspections and sequential captures while semantic tools
       (await handler("screen_ui_act", { ref: "stable-entry", action: "setValue", value: "héllo" }))
         .content,
     ).toMatchObject([{ text: expect.stringContaining('"fallback":false') }]);
-    expect((await handler("screen_ui_find", { query: { name: "Message" } })).content).toMatchObject(
-      [{ text: expect.stringContaining("héllo") }],
-    );
+    expect((await handler("screen_ui_tree", { name: "Message" })).content).toMatchObject([
+      { text: expect.stringContaining("héllo") },
+    ]);
     manager.controller(state.sessionId, "human", "human");
     await expect(
       handler("screen_ui_act", { ref: "stable-entry", action: "press" }),

@@ -3,7 +3,7 @@ import type { TabCommand } from "./session-commands.ts";
 import { mutatesBrowser } from "./session-queue.ts";
 
 const signInHint =
-  "This site asks for a sign-in (HTTP authentication). Only the person may sign in: tell them, and they answer the prompt in ace's Browser panel. Continue once pending_auth is gone from ace_browser_tabs.";
+  "This site asks for a sign-in (HTTP authentication). Only the person may sign in: tell them, and they answer the prompt in ace's Browser panel. Continue once pending_auth is gone from browser_tabs list.";
 
 /** Leaving the page (a new address, back or forward) is always allowed; it drops the prompt. */
 function leavesPage(command: TabCommand): boolean {

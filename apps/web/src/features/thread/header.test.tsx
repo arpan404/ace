@@ -13,6 +13,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import { harness } from "@/test/harness.tsx";
+import { createIdleTask } from "@/test/tasks.ts";
 
 // Warm the details card's editor menu code before behavioural deadlines; editor discovery and
 // launch still run through the real fixture wire.
@@ -675,6 +676,39 @@ test("archiving from the ⋯ menu leaves the thread", async () => {
   await userEvent.click(await screen.findByRole("button", { name: "Archive, keep running" }));
   expect(await screen.findByText("Archived · Replay cursor resets on every resume")).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
+});
+
+test("archiving the open thread opens the other thread in the list, caret in its composer, and Undo comes back", async () => {
+  const app = harness();
+  for (const [id, title] of [
+    ["thread-notes", "Tidy the release notes"],
+    ["thread-replay-cursor", "Replay cursor resets on every resume"],
+  ] as const)
+    // Sent requests: a thread with nothing sent yet is a draft, not in the list.
+    createIdleTask(app.daemon, { id, workspaceId: "relay", provider: "claude", title });
+  await app.open("/t/thread-replay-cursor");
+  await screen.findByRole("heading", { level: 1, name: "Replay cursor resets on every resume" });
+  // Opening the menu loads the thread's shortcuts with it.
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await screen.findByRole("menuitem", { name: /^Archive/ });
+  await userEvent.keyboard("{Escape}");
+
+  // Off Apple platforms Archive is Ctrl+Alt+Shift+A.
+  await userEvent.keyboard("{Control>}{Alt>}{Shift>}a{/Shift}{/Alt}{/Control}");
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "Tidy the release notes" }),
+  ).toBeTruthy();
+  await waitFor(() =>
+    expect(document.activeElement?.closest('[data-slot="composer"]')).toBeTruthy(),
+  );
+
+  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+  expect(
+    await screen.findByRole("heading", {
+      level: 1,
+      name: "Replay cursor resets on every resume",
+    }),
+  ).toBeTruthy();
 });
 
 test("deleting a thread with work still running from the ⋯ menu keeps it and says why", async () => {

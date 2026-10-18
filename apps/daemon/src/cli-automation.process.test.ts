@@ -79,6 +79,8 @@ test("automation CLI retries one shared run and keeps it running across descenda
       parent,
       "--provider",
       "claude",
+      "--role",
+      "Descendant",
       "--json",
     ]);
     const child = z

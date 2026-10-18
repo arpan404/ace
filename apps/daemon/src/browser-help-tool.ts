@@ -29,12 +29,13 @@ export function browserHelpTab(browser: BrowserService): BrowserHelpTab {
   };
 }
 
-/** `ace_browser_request_help`, beside the browser tools (ADR 0067, collaboration). */
+/** `browser_request_help`, beside the browser tools (ADR 0067, collaboration). */
 export function browserHelpToolkit(help: BrowserHelp): Toolkit {
   return {
     register(registry) {
       registry.register({
-        name: "ace_browser_request_help",
+        name: "browser_request_help",
+        title: "Ask the person to act in a tab",
         riskClass: "thread-write",
         description:
           "Ask the person to act in one of this thread's browser tabs when only they can: sign in (login), solve a CAPTCHA (captcha), enter a two-factor code (two_factor) or answer a dialog you should not answer (dialog). ace shows the request, notifies them and opens the tab for them; it waits up to timeoutSeconds (at most 240). done: they finished, snapshot the tab and carry on. skipped: they won't, so work around it. pending: end your turn; their answer arrives as their next message. Never type credentials or codes yourself.",

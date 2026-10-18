@@ -10,8 +10,13 @@ const args = {
   model: "gpt-6-luna",
   workspace: { kind: "project" },
 };
-/** An `ace_thread_start` call as OpenCode reports it: ace's answer only in the raw snapshot. */
-function call(status: "succeeded" | "failed", answer: unknown, tool = "ace_thread_start") {
+/** A `thread_start` call as OpenCode reports it: ace's answer only in the raw snapshot. */
+function call(
+  status: "succeeded" | "failed",
+  answer: unknown,
+  tool = "thread_start",
+  server = "ace",
+) {
   return Item.parse({
     id: "call",
     agentId: "root",
@@ -25,7 +30,7 @@ function call(status: "succeeded" | "failed", answer: unknown, tool = "ace_threa
       title: `ace_${tool}`,
       status,
       startedAt: 1,
-      detail: { kind: "mcp", server: "ace", tool, arguments: args },
+      detail: { kind: "mcp", server, tool, arguments: args },
       raw: [
         {
           type: "snapshot.tool",
@@ -52,10 +57,16 @@ test("Claude's prefixed tool name is read as the same thread start, with the ans
       call(
         "succeeded",
         { ok: true, data: { threadId: "dc12", title: "Renamed", account: "360" } },
-        "mcp__ace__ace_thread_start",
+        "mcp__ace__thread_start",
+        "unknown",
       ),
     ),
   ).toMatchObject({ threadId: "dc12", title: "Renamed", account: "360" });
+});
+
+test("another server's own thread_start opens no ace thread", () => {
+  const answer = { ok: true, data: { threadId: "dc12" } };
+  expect(startedThreadOf(call("succeeded", answer, "thread_start", "linear"))).toBeUndefined();
 });
 
 test("a refused or failed start names no thread to open", () => {

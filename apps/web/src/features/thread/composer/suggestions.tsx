@@ -19,11 +19,15 @@ export interface Suggestion {
   tab?: MentionTab | undefined;
   entry?: CatalogEntry | undefined;
 }
-export type Suggestions =
+export type Suggestions = (
   | { state: "closed" }
   | { state: "ready"; kind: Trigger["kind"]; items: readonly Suggestion[]; refreshing?: boolean }
   | { state: "loading" | "empty"; kind: Trigger["kind"]; query: string }
-  | { state: "failed"; kind: Trigger["kind"]; query: string; retry(): void };
+  | { state: "failed"; kind: Trigger["kind"]; query: string; retry(): void }
+) & {
+  /** The current catalog, for resolving a `/name` typed without picking from the menu. */
+  entries?: readonly CatalogEntry[] | undefined;
+};
 const groups = {
   builtin: "Add",
   plugin: "Plugins",
@@ -86,7 +90,9 @@ export function useSuggestions(
     enabled: ready && scoped && trigger?.kind === "mention",
     staleTime: 10_000,
   });
-  if (!trigger) return { state: "closed" };
+  const known =
+    catalog && catalog.reference === reference && !catalog.failed ? catalog.entries : undefined;
+  if (!trigger) return { state: "closed", entries: known };
   const { kind, query } = trigger;
   if (!scoped || !ready) return { state: "loading", kind, query };
   const q = query.toLowerCase();
@@ -192,5 +198,5 @@ export function useSuggestions(
   }
   return items.length
     ? { state: "ready", kind, items, refreshing: kind === "command" && catalog?.stale === true }
-    : { state: "empty", kind, query };
+    : { state: "empty", kind, query, entries: known };
 }

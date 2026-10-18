@@ -6,13 +6,13 @@ import { CredentialRegistry, ToolRegistry, nodeScheduler, startMcpServer } from 
 import { scope } from "./test-support.ts";
 
 test.each(["codex", "claude", "opencode", "cursor", "pi", "acp"])(
-  "%s cannot discover or execute disabled screen and device tools",
+  "%s cannot discover or execute disabled screen and simulator tools",
   async (provider) => {
     const registry = new ToolRegistry({ scheduler: nodeScheduler });
     let effects = 0;
     for (const [name, capability] of [
       ["screen_open_app", "screen"],
-      ["device_list", "devices"],
+      ["sim_list", "devices"],
     ] as const)
       registry.register({
         name,
@@ -50,19 +50,24 @@ test.each(["codex", "claude", "opencode", "cursor", "pi", "acp"])(
         requestInit: { headers: { Authorization: `Bearer ${lease.bearer}` } },
       }),
     );
-    expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(["ace_status"]);
+    expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
+      "context",
+      "tools_find",
+    ]);
     expect(await client.callTool({ name: "screen_open_app", arguments: {} })).toMatchObject({
       isError: true,
     });
-    expect(await client.callTool({ name: "device_list", arguments: {} })).toMatchObject({
+    expect(await client.callTool({ name: "sim_list", arguments: {} })).toMatchObject({
       isError: true,
     });
     expect(effects).toBe(0);
-    expect(await client.callTool({ name: "ace_status", arguments: {} })).toMatchObject({
+    expect(await client.callTool({ name: "context", arguments: {} })).toMatchObject({
       structuredContent: {
-        groups: expect.arrayContaining([
-          { name: "screen", enabled: false, reason: "Computer use is disabled." },
-        ]),
+        status: {
+          groups: expect.arrayContaining([
+            { name: "screen", enabled: false, reason: "Computer use is disabled." },
+          ]),
+        },
       },
     });
   },
@@ -82,10 +87,10 @@ test.each([
       readOnly = false,
       effects = 0;
     const registry = new ToolRegistry({ scheduler: nodeScheduler });
-    for (const name of ["screen_open_app", "device_list"])
+    for (const name of ["screen_open_app", "sim_list"])
       registry.register({
         name,
-        capability: name === "device_list" ? "devices" : "screen",
+        capability: name === "sim_list" ? "devices" : "screen",
         description: "Operate a native app",
         input: z.object({}),
         output: z.object({}),
@@ -141,9 +146,9 @@ test.each([
     if (mode === "modern") await client.listen({ toolsListChanged: true });
     else await stream.promise;
     if (nativeInstructions) expect(client.getInstructions()).toBeUndefined();
-    else expect(client.getInstructions()).toContain("ace_browser_open");
+    else expect(client.getInstructions()).toContain("browser_open");
     const listed = async () => (await client.listTools()).tools;
-    expect((await listed()).map((tool) => tool.name)).toEqual(["ace_status"]);
+    expect((await listed()).map((tool) => tool.name)).toEqual(["context", "tools_find"]);
     const change = async (mutate: () => void) => {
       const changed = Promise.withResolvers<void>();
       notifications.push(changed.resolve);
@@ -156,7 +161,7 @@ test.each([
       await change(() => {
         enabled = true;
       }),
-    ).toEqual(["ace_status", "screen_open_app", "device_list"]);
+    ).toEqual(["context", "tools_find", "screen_open_app", "sim_list"]);
     for (const tool of await listed())
       expect(tool.description).not.toContain("ace tools add ace-specific actions");
     expect(await client.callTool({ name: "screen_open_app", arguments: {} })).not.toMatchObject({
@@ -167,8 +172,8 @@ test.each([
       await change(() => {
         readOnly = true;
       }),
-    ).toEqual(["ace_status", "screen_open_app", "device_list"]);
-    expect(await client.callTool({ name: "device_list", arguments: {} })).not.toMatchObject({
+    ).toEqual(["context", "tools_find", "screen_open_app", "sim_list"]);
+    expect(await client.callTool({ name: "sim_list", arguments: {} })).not.toMatchObject({
       isError: true,
     });
     expect(effects).toBe(2);
@@ -176,7 +181,7 @@ test.each([
       await change(() => {
         enabled = false;
       }),
-    ).toEqual(["ace_status"]);
+    ).toEqual(["context", "tools_find"]);
     expect(await client.callTool({ name: "screen_open_app", arguments: {} })).toMatchObject({
       isError: true,
     });
@@ -218,7 +223,10 @@ test("legacy notification streams cannot be reused with another lease and end on
       },
     });
   expect((await request(other.bearer)).status).toBe(404);
-  expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(["ace_status"]);
+  expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
+    "context",
+    "tools_find",
+  ]);
   lease.end();
   expect((await request(lease.bearer)).status).toBe(401);
   expect((await request(other.bearer)).status).toBe(404);
@@ -256,7 +264,9 @@ test("status names why a group is off without pointing at a setting that does no
     }),
   );
   const status = McpStatus.parse(
-    (await client.callTool({ name: "ace_status", arguments: {} })).structuredContent,
+    z
+      .object({ status: z.unknown() })
+      .parse((await client.callTool({ name: "context", arguments: {} })).structuredContent).status,
   );
   expect(status.groups).toContainEqual({
     name: "browser",

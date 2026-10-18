@@ -67,6 +67,32 @@ export function placeEditorCaret(el: HTMLElement, position: number): void {
   selection?.addRange(range);
 }
 
+/**
+ * Put plain text where the selection is, replacing what it covers, then report it as typed
+ * input so the composer reads it like any other edit.
+ */
+export function insertEditorText(el: HTMLElement, text: string): void {
+  const selection = el.ownerDocument.getSelection();
+  if (!selection?.rangeCount) return;
+  const range = selection.getRangeAt(0);
+  if (!el.contains(range.commonAncestorContainer)) return;
+  range.deleteContents();
+  const node = el.ownerDocument.createTextNode(text);
+  range.insertNode(node);
+  range.setStartAfter(node);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/** The text each chip in the editor stands for, in document order. */
+export function editorTokenTexts(el: HTMLElement): string[] {
+  return [...el.querySelectorAll<HTMLElement>("[data-token-text]")].map(
+    (node) => node.dataset.tokenText ?? "",
+  );
+}
+
 export function editorSelection(el: HTMLElement): { start: number; end: number } {
   const selection = el.ownerDocument.getSelection();
   if (!selection?.rangeCount) return { start: editorText(el).length, end: editorText(el).length };

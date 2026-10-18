@@ -75,7 +75,7 @@ continues. Before the next queued send, the engine waits for whole-tree
 quiescence and applies the pending selection. Model/options changes configure
 the live session when supported, otherwise native resume preserves the session.
 Across providers, create a new session with portable context and expose `lossy`
-and `delegate_task` advice. Remember model/options per provider and model in
+and `delegate` advice. Remember model/options per provider and model in
 SQLite, with bounded selection cardinality. Account changes close the source
 session, call the accounts migration service, then native resume. Migration
 refusal preserves the old selection and emits a visible failure. The accounts

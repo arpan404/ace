@@ -8,7 +8,6 @@ export { extensionManifest, extensionVersion } from "./manifest.ts";
 export { writeExtension } from "./extension-files.ts";
 export { extensionDir, hostCredentialPath, launcherPath, userBrowserDir } from "./host-files.ts";
 export {
-  hostEntry,
   installNativeHost,
   installSupported,
   installedNativeHosts,

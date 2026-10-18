@@ -49,7 +49,7 @@ export type BrowserHelpTab = (
 ) => { url: string; title: string } | undefined;
 
 /**
- * `ace_browser_request_help`: an agent hands a browser tab to the person (sign in, a CAPTCHA, a
+ * `browser_request_help`: an agent hands a browser tab to the person (sign in, a CAPTCHA, a
  * code, a dialog). The thread needs the person until they press Done or Skip in the composer's
  * strip, or until the agent carries on without them (a new turn starts). The tool waits a
  * bounded time; after that it returns pending and the person's Done arrives as their next

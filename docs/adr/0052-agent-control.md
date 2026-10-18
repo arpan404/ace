@@ -47,7 +47,7 @@ ACP selections carry the explicit approved agent/installation/instance identity 
 Agents and people need to wait on several children or threads without polling and without
 holding a provider turn indefinitely.
 
-- **One wait primitive.** `ace_wait` takes `threadIds` (1 to 16), `mode` (`all` by default, or
+- **One wait primitive.** `wait` takes `threadIds` (1 to 64), `mode` (`all` by default, or
   `any`) and `timeoutSeconds` (default 120, at most 600). It covers delegated children and any
   other thread the caller may read. It returns `status` (`ready`, `needs_you`, `timeout`,
   `interrupted`) and, per thread, `state` (`working`, `needs_you`, `done`, `failed`,
@@ -56,16 +56,19 @@ holding a provider turn indefinitely.
   thread waiting on the person is never reported done. Settlement uses the existing whole-tree
   aggregate. A timeout ends only the observation; the agent may wait again. Daemon shutdown
   resolves every pending wait as `interrupted`, so a restart never leaves a caller hanging. The
-  separate single-thread `ace_thread_wait` was folded into it.
-- **Monitoring.** `ace_agents_status` returns a compact snapshot of every delegated descendant:
+  separate single-thread wait tool was folded into it.
+- **Monitoring.** `agents_status` returns a compact snapshot of every delegated descendant:
   state, step, elapsed seconds, request count and first request, last output line, with clipped
-  fields so twenty children stay under 8 KB.
-- **One way to start child work.** `delegate_task` accepts one task or `tasks` (up to eight),
-  each with its own stable `requestId`, plus `await: none|any|all` and `timeoutSeconds`. Tasks
-  are admitted in order through the same admission path; a retried batch creates no new
-  threads. `ace_spawn_agent` is retired, and `thread.create`/`thread.launch` are host-internal
-  and no longer advertised over MCP. `ace_thread_start` remains for top-level conversations.
-- **Parent state.** While an ace wait tool call is live (`ace_wait`, or `delegate_task` with a
+  fields so twenty children stay under 8 KB. Given a `threadId`, it returns that child's result
+  once settled; it replaced the separate list, status and result tools.
+- **One way to start child work.** `delegate` takes a batch only: `{tasks: [...], waitSeconds?,
+waitFor?}`, 1 to 64 tasks, each with its own stable `requestId`. The provider defaults to
+  the caller's, and the daemon resolves a model to an account or instance. The older `wait`,
+  `waitMs`, `await` and `timeoutSeconds` inputs are gone. Tasks are admitted in order through
+  the same admission path; a retried batch creates no new threads. The spawn tool is retired,
+  and `thread.create`/`thread.launch` are host-internal and no longer advertised over MCP.
+  `thread_start` remains for top-level conversations.
+- **Parent state.** While an ace wait tool call is live (`wait`, or `delegate` with a
   wait), the engine marks the calling agent as waiting on the named `ace-child:` summary agents
   (`subagents.waiting`), so the parent reads "Waiting on N subagents" and never done.
 - **Push.** No supported provider surfaces MCP server notifications to the model, so ace keeps

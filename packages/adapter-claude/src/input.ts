@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { nativeCommandInputs } from "@ace/commands/invocation";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
 import type {
   PermissionResult,
@@ -50,6 +51,18 @@ export function content(input: ContentPart[]): SDKUserMessage["message"]["conten
             data: part.content.data,
           },
         };
+      // Text content is already bounded by the ContentPart schema; keep it with its path.
+      if (part.content?.encoding === "text")
+        return {
+          type: "document" as const,
+          title: part.name ?? part.path.split("/").at(-1) ?? "Attachment",
+          context: `Path: ${JSON.stringify(part.path)}`,
+          source: {
+            type: "text" as const,
+            media_type: "text/plain" as const,
+            data: part.content.data,
+          },
+        };
       return {
         type: "text" as const,
         text: `File (${part.mimeType ?? "application/octet-stream"}): ${JSON.stringify(part.path)}`,
@@ -68,6 +81,19 @@ export function content(input: ContentPart[]): SDKUserMessage["message"]["conten
       },
     };
   });
+}
+/**
+ * One user message per selected command. Claude Code dispatches `/name args` only at the
+ * start of a prompt string (Agent SDK "Dispatch commands by name"), so a text-only command
+ * admission is sent as a string; the complete message follows as context.
+ */
+export function admissions(input: ContentPart[]): SDKUserMessage["message"]["content"][] {
+  if (!input.some((part) => part.type === "mention")) return [content(input)];
+  return nativeCommandInputs(input).map((parts) =>
+    parts.every((part) => part.type === "text")
+      ? parts.map((part) => part.text).join("")
+      : content(parts),
+  );
 }
 export function permissionResult(
   resolution: InteractionResolution,

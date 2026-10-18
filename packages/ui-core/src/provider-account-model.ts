@@ -104,7 +104,11 @@ export function providerAccountModel(input: {
       version: input.row?.version ?? stored.version,
       runtimeStatus: serviceStatus ?? stored.runtimeStatus,
     };
-    if (base?.state === "not_installed" || base?.state === "off") {
+    if (
+      base?.state === "not_installed" ||
+      base?.state === "off" ||
+      base?.state === "needs_update"
+    ) {
       accounts.push({
         ...account,
         runtimeStatus: { tone: base.tone, text: base.label, canRun: false },
@@ -143,8 +147,8 @@ export function providerAccountModel(input: {
     input.accounts !== undefined &&
     (input.provider === "acp" || input.row !== undefined || input.readinessFailed === true);
   if (!loaded) return { accounts, loaded, view: undefined };
-  // Missing or disabled runtimes cannot run any of their accounts.
-  if (base?.state === "not_installed" || base?.state === "off")
+  // Missing, disabled or too-old runtimes cannot run any of their accounts.
+  if (base?.state === "not_installed" || base?.state === "off" || base?.state === "needs_update")
     return { accounts, loaded, view: base };
   const usable = accounts.filter((account) => accountStatus(account, input.now).canRun);
   const runnable = usable.find((account) => account.isDefault) ?? usable[0];

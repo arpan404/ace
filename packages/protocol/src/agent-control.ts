@@ -1,14 +1,13 @@
 import { ForgePrWorktree } from "./forge-worktree.ts";
-import { RemoteContextSelection } from "./remote-context.ts";
 import { AccessRequest } from "./permissions.ts";
 import { z } from "zod";
 import { WorktreeBase } from "./worktree-base.ts";
-import { AgentId, ThreadId, Timestamp, WorkspaceId, InteractionId, HostId } from "./ids.ts";
+import { AgentId, ThreadId, Timestamp, WorkspaceId, InteractionId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
 import { InteractionResolution } from "./interactions.ts";
 import { AcpIdentity } from "./agent-registry.ts";
 import { AccountInstanceId } from "./account-ids.ts";
-import { AutomationRequest } from "./automations.ts";
+import { Automation, AutomationRequest } from "./automations.ts";
 import { AgentCatalogInput, AgentWorkspace, ThreadListInput } from "./agent-orchestration.ts";
 import { WaitInput, WaitMode, WaitTimeoutSeconds } from "./agent-monitor.ts";
 import { MachineName } from "./machine-calls.ts";
@@ -55,14 +54,22 @@ export const DelegationRequest = z.strictObject({
   waitMs: z.number().int().min(1).max(600000).optional(),
   workspace: AgentWorkspace.optional(),
   estimatedLoad: z.number().min(0).max(100).default(0),
-  /** Run on another paired machine from `ace_machines`, in one of its projects (ADR 0078). */
+  /** Run on another paired machine from `machines`, in one of its projects (ADR 0078). */
   machine: MachineName.optional(),
   project: z.string().min(1).max(256).optional(),
 });
 export type DelegationRequest = z.infer<typeof DelegationRequest>;
-/** One task of a batch; batches wait through `await` rather than per-task flags. */
-export const DelegationTask = DelegationRequest.omit({ wait: true, waitMs: true });
+/**
+ * One task of a batch; batches wait through `await` rather than per-task flags. An omitted
+ * provider is the caller's own provider, or the one whose catalog has the named model; the
+ * daemon resolves it before admission.
+ */
+export const DelegationTask = DelegationRequest.omit({ wait: true, waitMs: true }).extend({
+  provider: ProviderKind.optional(),
+});
 export type DelegationTask = z.infer<typeof DelegationTask>;
+/** A single delegation as an operation states it: the provider may still be resolved. */
+const SingleDelegation = DelegationRequest.extend({ provider: ProviderKind.optional() });
 const single = DelegationRequest.shape;
 const singleKeys = Object.keys(single);
 /**
@@ -101,7 +108,7 @@ export const DelegateTaskOperation = z
       if (input[field] !== undefined)
         context.addIssue({ code: "custom", path: [field], message: "Only a tasks batch awaits." });
     const { op: _op, tasks: _tasks, await: _await, timeoutSeconds: _timeout, ...rest } = input;
-    const parsed = DelegationRequest.safeParse(rest);
+    const parsed = SingleDelegation.safeParse(rest);
     if (!parsed.success)
       for (const issue of parsed.error.issues)
         context.addIssue({ code: "custom", message: issue.message, path: issue.path });
@@ -159,31 +166,6 @@ export const DelegationRecord = z.object({
 export type DelegationRecord = z.infer<typeof DelegationRecord>;
 export const ControlThreadInput = z.strictObject({ threadId: ThreadId });
 export type ControlThreadInput = z.infer<typeof ControlThreadInput>;
-export const RemoteDelegationRequest = z.strictObject({
-  context: RemoteContextSelection.optional(),
-  requestId: key,
-  hostId: HostId,
-  mode: z.enum(["worktree", "local"]).default("worktree"),
-  workspaceId: WorkspaceId,
-  task: MessageText,
-  role: DelegationRole,
-  ...AgentSelection.shape,
-});
-export type RemoteDelegationRequest = z.infer<typeof RemoteDelegationRequest>;
-export const RemoteAgentOperation = z.discriminatedUnion("op", [
-  z.strictObject({ op: z.literal("device.list") }),
-
-  z.strictObject({ op: z.literal("device.delegate"), ...RemoteDelegationRequest.shape }),
-  z.strictObject({ op: z.literal("device.task_status"), taskId: key }),
-  z.strictObject({ op: z.literal("device.task_wait"), taskId: key }),
-  z.strictObject({ op: z.literal("device.task_cancel"), taskId: key }),
-  z.strictObject({
-    op: z.literal("device.task_publish"),
-    requestId: key,
-    ...RemoteContextSelection.omit({ threadBudgetBytes: true }).shape,
-  }),
-]);
-export type RemoteAgentOperation = z.infer<typeof RemoteAgentOperation>;
 export const ThreadStartOperation = z.strictObject({
   op: z.literal("thread.start"),
   requestId: key,
@@ -191,6 +173,8 @@ export const ThreadStartOperation = z.strictObject({
   text: MessageText,
   workspace: AgentWorkspace,
   ...AgentSelection.shape,
+  /** Omitted: the caller's own provider, resolved by the daemon before the thread starts. */
+  provider: ProviderKind.optional(),
 });
 export type ThreadStartOperation = z.infer<typeof ThreadStartOperation>;
 export const AgentConversationRecord = z.object({
@@ -202,8 +186,33 @@ export const AgentConversationRecord = z.object({
   request: ThreadStartOperation,
 });
 export type AgentConversationRecord = z.infer<typeof AgentConversationRecord>;
+/**
+ * An agent's automation definition: the daemon supplies the caller's project, and agent jobs
+ * never use worktrees or jitter, so those may be omitted. Omitted provider: the caller's own.
+ */
+export const AgentAutomation = Automation.extend({
+  workspace: Automation.shape.workspace.optional(),
+  provider: ProviderKind.optional(),
+  worktree: Automation.shape.worktree.optional(),
+  jitterMs: Automation.shape.jitterMs.optional(),
+  enabled: z.boolean().default(true),
+  missedRun: Automation.shape.missedRun.default("skip"),
+  concurrency: Automation.shape.concurrency.default(1),
+});
+export type AgentAutomation = z.infer<typeof AgentAutomation>;
+export const AgentAutomationRequest = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("automation.put"),
+    requestId: AutomationRequest.options[0].shape.requestId,
+    automation: AgentAutomation,
+  }),
+  AutomationRequest.options[1],
+  AutomationRequest.options[2],
+  AutomationRequest.options[3],
+  AutomationRequest.options[4],
+]);
+export type AgentAutomationRequest = z.infer<typeof AgentAutomationRequest>;
 export const AgentControlOperation = z.discriminatedUnion("op", [
-  ...RemoteAgentOperation.options,
   z.strictObject({ op: z.literal("threads.list"), ...ThreadListInput.shape }),
   ThreadStartOperation,
   z.strictObject({
@@ -341,11 +350,12 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     threadId: ThreadId,
     until: Timestamp.nullable(),
   }),
-  z.strictObject({ op: z.literal("automation.manage"), request: AutomationRequest }),
-  z.strictObject({ op: z.literal("project.read"), workspaceId: WorkspaceId }),
+  z.strictObject({ op: z.literal("automation.manage"), request: AgentAutomationRequest }),
+  /** Omitted workspaceId: the caller's own project. */
+  z.strictObject({ op: z.literal("project.read"), workspaceId: WorkspaceId.optional() }),
   z.strictObject({
     op: z.literal("project.rename"),
-    workspaceId: WorkspaceId,
+    workspaceId: WorkspaceId.optional(),
     name: z.string().min(1).max(256),
   }),
   z.strictObject({

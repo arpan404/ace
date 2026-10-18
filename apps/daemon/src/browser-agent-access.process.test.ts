@@ -48,10 +48,10 @@ it.each(["ask", "auto-review"] as const)(
   async (mode) => {
     const f = await agentBrowser(mode);
     expect(
-      succeeded(await f.call("ace_browser_open", { url: "https://never-seen.example/page" })),
+      succeeded(await f.call("browser_open", { url: "https://never-seen.example/page" })),
     ).toBe(true);
     expect(f.browser.state(f.thread.id).url).toBe("https://never-seen.example/page");
-    expect(succeeded(await f.call("ace_browser_evaluate", { expression: "1 + 1" }))).toBe(true);
+    expect(succeeded(await f.call("browser_evaluate", { expression: "1 + 1" }))).toBe(true);
     const page = f.headless.opens[0];
     if (!page) throw new Error("Missing headless page");
     expect(await page.allowed("https://cdn.never-seen.example/app.js")).toBe(true);
@@ -64,10 +64,10 @@ it.each(["ask", "auto-review"] as const)(
 
 it("a tab the person keeps private refuses agent navigation until they let agents back in", async () => {
   const f = await agentBrowser("ask");
-  await f.call("ace_browser_open", {});
+  await f.call("browser_open", {});
   const tabId = f.browser.state(f.thread.id).activeTabId ?? "page";
   f.browser.setPrivate(f.thread.id, tabId, true);
-  const refused = await f.call("ace_browser_navigate", { url: "https://elsewhere.example/" });
+  const refused = await f.call("browser_open", { url: "https://elsewhere.example/" });
   expect(refused).toMatchObject({
     isError: true,
     content: [{ text: expect.stringContaining("human_private") }],
@@ -76,8 +76,6 @@ it("a tab the person keeps private refuses agent navigation until they let agent
   // Privacy is the person's choice, not a question: nothing asks them anything.
   expect(f.opened).toEqual([]);
   f.browser.setPrivate(f.thread.id, tabId, false);
-  expect(
-    succeeded(await f.call("ace_browser_navigate", { url: "https://elsewhere.example/" })),
-  ).toBe(true);
+  expect(succeeded(await f.call("browser_open", { url: "https://elsewhere.example/" }))).toBe(true);
   expect(f.browser.state(f.thread.id).url).toBe("https://elsewhere.example/");
 });

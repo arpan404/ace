@@ -221,7 +221,7 @@ test("the parent reads waiting on its subagents during a wait, never done", asyn
           detail: {
             kind: "mcp",
             server: "ace",
-            tool: "mcp__ace__ace_wait",
+            tool: "mcp__ace__wait",
             arguments: { threadIds: [child], mode: "all", timeoutSeconds: 60 },
           },
         },

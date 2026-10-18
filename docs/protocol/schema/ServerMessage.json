@@ -12,9 +12,6 @@
       "$ref": "https://ace.local/protocol/v1/UserBrowserSettingsResult.json"
     },
     {
-      "$ref": "https://ace.local/protocol/v1/RemoteDelegationResult.json"
-    },
-    {
       "$ref": "https://ace.local/protocol/v1/WorktreeCreationEvent.json"
     },
     {

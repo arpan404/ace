@@ -30,6 +30,7 @@ export function PageSourceDialog(props: { source: PageSource | undefined; onClos
         <DialogBody className="mx-0 rounded-md bg-(--code) px-0">
           <pre
             aria-label="Page source"
+            // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrolling region takes focus so keys scroll it
             tabIndex={0}
             className="min-h-0 flex-1 overflow-auto p-3 font-mono text-xs leading-relaxed whitespace-pre text-foreground outline-none focus-ring-inset"
           >
@@ -72,7 +73,7 @@ export function ClearDataDialog(props: {
   const shared = props.engine === "headless";
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent size="md">
+      <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>Clear browsing data?</DialogTitle>
           <DialogDescription>

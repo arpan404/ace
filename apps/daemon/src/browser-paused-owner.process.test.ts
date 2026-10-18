@@ -44,7 +44,7 @@ it("MCP cannot close a suspended browser holding a private tab", async () => {
   await f.disconnect();
   await lost.promise;
   const result = Result.parse(
-    await (await invoke(connection, "ace_browser_close", {})).json(),
+    await (await invoke(connection, "browser_settings", { action: "close" })).json(),
   ).result;
   expect(result).toMatchObject({
     isError: true,
@@ -56,7 +56,8 @@ it("MCP cannot close a suspended browser holding a private tab", async () => {
   });
   f.service.setPrivate(thread.id, f.service.state(thread.id).activeTabId ?? "page", false);
   expect(
-    Result.parse(await (await invoke(connection, "ace_browser_close", {})).json()).result.isError,
+    Result.parse(await (await invoke(connection, "browser_settings", { action: "close" })).json())
+      .result.isError,
   ).not.toBe(true);
   expect(() => f.service.state(thread.id)).toThrow("not open");
   lease.end();

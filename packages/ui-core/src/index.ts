@@ -84,6 +84,7 @@ export * from "./browser-help.ts";
 export * from "./checkout-files.ts";
 export * from "./projects.ts";
 export * from "./folder-search.ts";
+export * from "./path-picker.ts";
 export * from "./usage-cost.ts";
 export * from "./usage-days.ts";
 export * from "./usage-limits.ts";
@@ -96,6 +97,7 @@ export * from "./error-display.ts";
 export * from "./tool-refusals.ts";
 export * from "./repeated-events.ts";
 export * from "./background-groups.ts";
+export * from "./transcript-groups.ts";
 export * from "./system-events.ts";
 export * from "./system-input.ts";
 export * from "./approvals.ts";
@@ -104,6 +106,7 @@ export {
   composerInput,
   editComposerTokens,
   tokensFromInput,
+  withTypedCommand,
   type ComposerToken,
 } from "./composer-tokens.ts";
 
@@ -142,9 +145,12 @@ export {
   subagentTerminal,
   rollupSubagent,
   subagentStatusLine,
+  subagentStatusCounts,
   workingSubagentsText,
   subagentBranchStates,
   subagentLabels,
+  subagentGroupStatus,
+  type SubagentGroupStatus,
   type SubagentState,
 } from "./subagents.ts";
 export {

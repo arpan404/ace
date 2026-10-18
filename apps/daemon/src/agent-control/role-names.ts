@@ -79,7 +79,7 @@ export function duplicateRoleProblem(role: string): string {
   return `role '${role.trim()}' is already used by a live child of this thread. ${example()}`;
 }
 
-/** Duplicate display names inside one delegate_task batch, in the agent's words. */
+/** Duplicate display names inside one delegate batch, in the agent's words. */
 export function batchDuplicateRoleProblem(role: string): string {
   return `role '${role.trim()}' appears twice in this batch. ${example()}`;
 }

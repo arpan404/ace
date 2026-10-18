@@ -160,7 +160,7 @@ test("official script installation verifies the binary and uninstalls only Claud
   try {
     await symlink("/bin/bash", join(f.bin, "bash"));
     await symlink("/bin/rm", join(f.bin, "rm"));
-    const payload = `/bin/mkdir -p "$HOME/.local/bin" "$HOME/.local/share/claude"\n/bin/cat > "$HOME/.local/bin/claude" <<'CLI'\n#!${process.execPath}\nconsole.log('2.0.0');\nCLI\n/bin/chmod +x "$HOME/.local/bin/claude"\n`;
+    const payload = `/bin/mkdir -p "$HOME/.local/bin" "$HOME/.local/share/claude"\n/bin/cat > "$HOME/.local/bin/claude" <<'CLI'\n#!${process.execPath}\nconsole.log('2.1.286 (Claude Code)');\nCLI\n/bin/chmod +x "$HOME/.local/bin/claude"\n`;
     await writeFile(
       join(f.bin, "curl"),
       `#!${process.execPath}\nimport {appendFileSync} from 'node:fs';\nappendFileSync(process.env.ACE_INSTALL_CALLS,JSON.stringify(['curl',...process.argv.slice(2)])+'\\n');\nprocess.stdout.write(${JSON.stringify(payload)});`,
@@ -176,7 +176,7 @@ test("official script installation verifies the binary and uninstalls only Claud
     });
     expect(await f.wait((event) => ["succeeded", "failed"].includes(event.state))).toMatchObject({
       state: "succeeded",
-      version: "2.0.0",
+      version: "2.1.286",
     });
     expect(await f.calls()).toContainEqual(["curl", "-fsSL", "https://claude.ai/install.sh"]);
     const plan = await f.installs.plan({ provider: "claude" }, "uninstall");

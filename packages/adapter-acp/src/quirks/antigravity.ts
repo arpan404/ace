@@ -1,5 +1,6 @@
 import type { ToolKind } from "@ace/protocol";
 import { object, string } from "../data.ts";
+import { admitsVersion } from "@ace/provider-kit/cli-requirements";
 import { baseCapabilities, type AcpQuirks } from "./types.ts";
 const names: Record<string, ToolKind> = {
   start_subagent: "agent.spawn",
@@ -50,7 +51,7 @@ export const antigravityQuirks: AcpQuirks = {
     return undefined;
   },
   capabilities(version) {
-    const supported = /^1\.(?:[2-9]|\d{2,})\./.test(version ?? "");
+    const supported = admitsVersion("antigravity", version);
     return { ...baseCapabilities, resume: supported, imageInput: supported };
   },
 };

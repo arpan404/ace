@@ -1,4 +1,5 @@
 import type { ToolDetailDraft } from "@ace/core";
+import { bareToolName } from "@ace/provider-kit/ace-tool-names";
 import { obj, str, list } from "./native.ts";
 export function toolDetail(name: string, args: unknown): ToolDetailDraft {
   const a = obj(args);
@@ -17,8 +18,9 @@ export function toolDetail(name: string, args: unknown): ToolDetailDraft {
     };
   if (["grep", "find", "ls"].includes(name))
     return { kind: "search", query: str(a.pattern), path: str(a.path) };
-  if (name === "delegate_task" || name.startsWith("ace_") || name === "screen_measure_interaction")
-    return { kind: "mcp", server: "ace", tool: name, arguments: args };
+  // ace's extension tools are `ace_<bare name>` (piToolName); the MCP detail carries the bare name.
+  if (name.startsWith("ace_"))
+    return { kind: "mcp", server: "ace", tool: bareToolName(name), arguments: args };
   return { kind: "custom" };
 }
 export function resultText(value: unknown): string {

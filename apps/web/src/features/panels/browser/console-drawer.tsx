@@ -75,7 +75,7 @@ function useTabLog(source: PreviewSource, threadId: string, tabId: string) {
 
 /**
  * A light drawer under the page with the tab's console messages and network requests: the same
- * log agents read (`ace_browser_logs`). Console filters by level; network lists status, method,
+ * log agents read (`browser_logs`). Console filters by level; network lists status, method,
  * address, size and time, and can show only failures. Clear hides what is listed now (agents
  * keep their log). Not DevTools: nothing to inspect or edit.
  */

@@ -128,7 +128,10 @@ test("a failed create remains reachable as Not sent after leaving its pending ro
   const rows = await screen.findByRole("list", { name: "Starting threads" });
   const row = await within(rows).findByRole("link", { name: /Keep my failed start/ });
   await waitFor(() => expect(row.textContent).toContain("Not sent"));
+  // With several projects New thread asks which.
   await userEvent.click(screen.getByRole("link", { name: "New thread" }));
+  const step = await screen.findByRole("dialog", { name: "New thread in" });
+  await userEvent.click(within(step).getByRole("option", { name: "relay" }));
   expect(await screen.findByRole("heading", { name: "New thread", level: 1 })).toBeTruthy();
   expect(field().textContent).toBe("");
   await userEvent.click(within(rows).getByRole("link", { name: /Keep my failed start/ }));
@@ -460,9 +463,11 @@ test("Continue uses the live restart reason while an older queue page remains on
   expect(page.queue.paused).toBe(false);
 });
 
-test("Stop names the active root even after a reload retains only child output", async () => {
+test("Stop names the active root even when a reload's window holds only child output", async () => {
   const { facts } = await import("@ace/fake-daemon");
-  const made = harness({ snapshotItems: 200 });
+  // A window keeps the root's share of its items (ADR 0062), so only a one-item window can
+  // hold child output alone: the newest item is all that fits.
+  const made = harness({ snapshotItems: 1 });
   made.play(replayCursor()).runThrough("finding");
   made.daemon.apply("thread-replay-cursor", [
     facts.subagent("cursor", "busy-child", "Child", "search"),

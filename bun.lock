@@ -285,6 +285,7 @@
     "packages/adapter-claude": {
       "name": "@ace/adapter-claude",
       "dependencies": {
+        "@ace/commands": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/engine-api": "workspace:*",
         "@ace/mcp-server": "workspace:*",

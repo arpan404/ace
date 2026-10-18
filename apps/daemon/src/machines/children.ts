@@ -46,7 +46,7 @@ export interface ChildrenDeps {
   label(machine: string): string;
   /** Hands a settled result to the parent as a new turn. */
   deliver(parentThreadId: ThreadId, id: ThreadId, text: string): void;
-  /** A live ace_wait reads this child, so its result is not woken separately. */
+  /** A live wait reads this child, so its result is not woken separately. */
   waiting(id: ThreadId): boolean;
   isDescendant(child: ThreadId, ancestor: ThreadId): boolean;
   log(message: string, fields: Record<string, unknown>): void;

@@ -3,17 +3,12 @@ import type { AgentFacts } from "@/lib/agent-facts.ts";
 import {
   delegatedState,
   describeProviderError,
-  formatClock,
   resultLead,
-  subagentLabels,
   subagentTerminal,
   rollupSubagent,
   type DelegationResult,
   type SubagentState,
 } from "@ace/ui-core";
-import { CaretRightIcon } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
-import { cn } from "@/lib/cn.ts";
 import { useAgentFacts } from "@/lib/use-agent-facts.ts";
 import { useCallback } from "react";
 import {
@@ -22,7 +17,8 @@ import {
   type SubagentEntry,
 } from "../lib/subagent-group.ts";
 import { ModelFacing } from "./model-facing.tsx";
-import { SubagentAvatar, subagentTones } from "./subagent-row.tsx";
+import { useThreadLiveState } from "../lib/live-state.ts";
+import { SubagentRow } from "./subagent-row.tsx";
 
 const outcomes: Record<DelegationResult["outcome"], SubagentState> = {
   completed: "done",
@@ -35,7 +31,6 @@ export function DelegationCard(props: {
   threadId: string;
   results: readonly DelegationResult[];
   received?: string;
-  at?: number;
 }) {
   const read = useCallback(
     (facts: AgentFacts) =>
@@ -48,15 +43,17 @@ export function DelegationCard(props: {
   );
   const entries = useAgentFacts(props.threadId, read, subagentEntriesEqual) ?? [];
   const byThread = new Map(entries.map((entry) => [entry.childThreadId, entry]));
+  const live = useThreadLiveState(props.threadId);
   return (
-    <section aria-label="Delegated work finished" className="py-2">
-      <ul aria-label="Subagent results" className="flex flex-col gap-1">
+    <section aria-label="Delegated work finished">
+      <ul aria-label="Subagent results" className="flex flex-col">
         {props.results.map((result) => (
           <ResultRow
             key={result.threadId}
+            threadId={props.threadId}
             result={result}
-            at={props.at}
             entry={byThread.get(result.threadId)}
+            fresh={live.fresh}
           />
         ))}
       </ul>
@@ -66,9 +63,10 @@ export function DelegationCard(props: {
 }
 
 function ResultRow(props: {
+  threadId: string;
   result: DelegationResult;
-  at?: number | undefined;
   entry?: SubagentEntry | undefined;
+  fresh: boolean;
 }) {
   const { result } = props;
   const thread = useSidebarThread(result.threadId);
@@ -79,7 +77,6 @@ function ResultRow(props: {
       : (props.entry?.state ?? sidebarState);
   // A revived child tree is live again, even though this delivery is in history.
   const state = current && !subagentTerminal(current) ? current : outcomes[result.outcome];
-  const title = props.entry?.title ?? thread?.title ?? "Delegated thread";
   const lead =
     result.outcome === "failed"
       ? describeProviderError({
@@ -88,50 +85,18 @@ function ResultRow(props: {
           model: thread?.execution?.model,
         }).title
       : resultLead(result.result);
-  const label = subagentLabels[state];
-  // Status shows once: the avatar's dot, or words when it needs attention (failed, needs you).
-  const attention = state === "failed" || state === "human" || state === "unresponsive";
-  return (
-    <li>
-      <Link
-        to="/t/$threadId"
-        params={{ threadId: result.threadId }}
-        aria-label={`Open ${title}'s thread, ${label}`}
-        className="flex min-h-(--row-height) pointer-coarse:min-h-11 items-center gap-(--surface-gap) rounded-md px-(--surface-inset) py-[calc(var(--setting-row-padding)/2)] transition-colors duration-(--motion-fast) hover:bg-accent focus-ring"
-      >
-        <SubagentAvatar
-          provider={props.entry?.provider ?? thread?.provider}
-          model={props.entry?.model ?? thread?.execution?.model}
-          state={attention ? undefined : state}
-        />
-        <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-            <span className="min-w-0 truncate text-ui font-medium">{title}</span>
-            {attention && (
-              <span
-                className={cn(
-                  "shrink-0 rounded-sm bg-secondary px-1.5 py-0.5 text-xs",
-                  subagentTones[state],
-                )}
-              >
-                {label}
-              </span>
-            )}
-          </span>
-          {lead && (
-            <span className="mt-0.5 block truncate text-xs text-muted-foreground">{lead}</span>
-          )}
-        </span>
-        {props.at !== undefined && (
-          <time
-            dateTime={new Date(props.at).toISOString()}
-            className="shrink-0 text-xs text-subtle-foreground tabular-nums"
-          >
-            {formatClock(props.at)}
-          </time>
-        )}
-        <CaretRightIcon aria-hidden size={16} className="shrink-0 text-subtle-foreground" />
-      </Link>
-    </li>
-  );
+  const entry: SubagentEntry = {
+    ...props.entry,
+    id: props.entry?.id ?? result.threadId,
+    // The row opens the child's thread and keeps its delivered result in view, not its activity.
+    agentId: undefined,
+    childThreadId: result.threadId,
+    provider: props.entry?.provider ?? thread?.provider,
+    model: props.entry?.model ?? thread?.execution?.model,
+    title: props.entry?.title ?? thread?.title ?? "Delegated thread",
+    state,
+    startedAt: props.entry?.startedAt ?? 0,
+    result: lead || undefined,
+  };
+  return <SubagentRow threadId={props.threadId} entry={entry} fresh={props.fresh} />;
 }

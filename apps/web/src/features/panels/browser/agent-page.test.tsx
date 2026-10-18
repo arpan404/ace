@@ -15,12 +15,12 @@ const openPage = (item: string, tool: string) =>
   });
 
 test.each([
-  ["Claude or Codex (an MCP call)", openPage("open-youtube", "mcp__ace__ace_browser_open")],
+  ["Claude or Codex (an MCP call)", openPage("open-youtube", "mcp__ace__browser_open")],
   [
     "OpenCode (a custom call named for the tool)",
     facts.tool("root", "open-youtube", {
       kind: "custom",
-      title: "ace_ace_browser_open",
+      title: "ace_browser_open",
       detail: { kind: "custom" },
     }),
   ],
@@ -54,7 +54,7 @@ test("an agent's other browser steps never pull the panel open", async () => {
   seedPanels(app.daemon);
   await app.open(`/t/${threadId}`);
   await screen.findByRole("heading", { level: 1, name: scenario.thread.title });
-  act(() => app.daemon.apply(threadId, [openPage("read", "mcp__ace__ace_browser_snapshot")]));
+  act(() => app.daemon.apply(threadId, [openPage("read", "mcp__ace__browser_snapshot")]));
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
   });

@@ -7,11 +7,7 @@ const frame = (data: unknown, channel = "stdio", dir: Frame["dir"] = "recv"): Na
   dir,
 });
 
-export function measurementFrames(
-  provider: ProviderKind,
-  args: unknown,
-  tool = "screen_measure_interaction",
-) {
+export function measurementFrames(provider: ProviderKind, args: unknown, tool = "screen_measure") {
   const rpc = (method: string, params: unknown) => frame({ method, params });
   const codexItem = {
     id: "measure",

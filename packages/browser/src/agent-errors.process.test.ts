@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { z } from "zod";
-import { agentMcp } from "./agent-mcp-test-support.ts";
+import { agentMcp, refNamed } from "./agent-mcp-test-support.ts";
 import { chromeProcesses } from "./chrome-test-process.ts";
 import { BrowserService } from "./index.ts";
-import { executablePath, fixture, ref } from "./test-support.ts";
+import { executablePath, fixture, toolPort } from "./test-support.ts";
 
 /** A loopback port nothing listens on: a dev server that is not running. */
 async function closedPort(): Promise<number> {
@@ -22,8 +22,8 @@ async function closedPort(): Promise<number> {
 describe.skipIf(!executablePath)("browser failures an agent can act on", () => {
   it("names the network error and asks whether the dev server runs when a page is unreachable", async () => {
     const f = await fixture();
-    const agent = agentMcp(f.service);
-    const failure = await agent.failure("navigate", {
+    const agent = agentMcp(toolPort(f.service));
+    const failure = await agent.failure("browser_open", {
       url: `http://127.0.0.1:${await closedPort()}/`,
     });
     expect(failure).toMatchObject({
@@ -35,9 +35,9 @@ describe.skipIf(!executablePath)("browser failures an agent can act on", () => {
 
   it("tells the agent the browser restarted when it uses a ref from before a Chrome crash", async () => {
     const f = await fixture();
-    const agent = agentMcp(f.service);
-    await agent.ok("navigate", { url: `${f.url}/?before` });
-    const name = ref(agent.text(await agent.ok("snapshot")), "Name");
+    const agent = agentMcp(toolPort(f.service));
+    await agent.ok("browser_open", { url: `${f.url}/?before` });
+    const name = refNamed(agent.raw(await agent.ok("browser_snapshot")), "Name");
     const { browser } = await chromeProcesses(f.home);
     if (!browser) throw new Error("Browser process missing");
     process.kill(browser, "SIGKILL");
@@ -45,47 +45,52 @@ describe.skipIf(!executablePath)("browser failures an agent can act on", () => {
       timeout: 30_000,
       interval: 200,
     });
-    const failure = await agent.failure("type", { ref: name, text: "lost" });
+    const failure = await agent.failure("browser_act", { action: "type", ref: name, text: "lost" });
     expect(failure.code).toBe("browser_restarted");
     expect(failure.hint).toMatch(/fresh snapshot/);
     // A fresh snapshot is the way back.
-    const fresh = ref(agent.text(await agent.ok("snapshot")), "Name");
-    await agent.ok("type", { ref: fresh, text: "after restart" });
+    const fresh = refNamed(agent.raw(await agent.ok("browser_snapshot")), "Name");
+    await agent.ok("browser_act", { action: "type", ref: fresh, text: "after restart" });
   }, 60_000);
 
   it("explains a recording that was never started or is already running", async () => {
     const f = await fixture();
     await f.navigate();
-    const agent = agentMcp(f.service);
-    expect((await agent.failure("record_stop")).code).toBe("recording_inactive");
-    await agent.ok("record_start");
-    const twice = await agent.failure("record_start");
+    const agent = agentMcp(toolPort(f.service));
+    const stop = { action: "record_stop" };
+    expect((await agent.failure("browser_settings", stop)).code).toBe("recording_inactive");
+    await agent.ok("browser_settings", { action: "record_start" });
+    const twice = await agent.failure("browser_settings", { action: "record_start" });
     expect(twice.code).toBe("recording_active");
-    expect(twice.hint).toMatch(/ace_browser_record_stop/);
-    await agent.ok("record_stop");
+    expect(twice.hint).toMatch(/record_stop/);
+    await agent.ok("browser_settings", stop);
   });
 
-  it("points at ace_browser_dialog while a dialog holds the tab", async () => {
+  it("points at answering the dialog while a dialog holds the tab", async () => {
     const f = await fixture();
     await f.navigate();
-    const agent = agentMcp(f.service);
+    const agent = agentMcp(toolPort(f.service));
     await f.evaluate("setTimeout(() => alert('Unsaved changes'), 0); 0");
     await vi.waitFor(() =>
       expect(f.service.state("thread").tabs?.some((tab) => tab.pending_dialog)).toBe(true),
     );
     const held = z
       .object({ pending_dialog: z.object({ dialogId: z.string() }), hint: z.string() })
-      .parse(agent.text(await agent.ok("snapshot")));
-    expect(held.hint).toMatch(/ace_browser_dialog/);
-    await agent.ok("dialog", { dialogId: held.pending_dialog.dialogId, accept: true });
-    await agent.ok("snapshot");
+      .parse(agent.json(await agent.ok("browser_snapshot")));
+    expect(held.hint).toMatch(/action:"dialog"/);
+    await agent.ok("browser_act", {
+      action: "dialog",
+      dialogId: held.pending_dialog.dialogId,
+      accept: true,
+    });
+    await agent.ok("browser_snapshot");
   });
 
   it("explains a read-only script that tried to change the page", async () => {
     const f = await fixture();
     await f.navigate();
-    const agent = agentMcp(f.service);
-    const failure = await agent.failure("evaluate", {
+    const agent = agentMcp(toolPort(f.service));
+    const failure = await agent.failure("browser_evaluate", {
       expression: "document.title = 'changed'",
       mode: "read-only",
     });
@@ -96,13 +101,13 @@ describe.skipIf(!executablePath)("browser failures an agent can act on", () => {
   it("downscales a screenshot too dense for the model's budget instead of failing", async () => {
     const f = await fixture();
     await f.navigate();
-    const agent = agentMcp(f.service);
-    await agent.ok("resize", { width: 1536, height: 1536 });
+    const agent = agentMcp(toolPort(f.service));
+    await agent.ok("browser_settings", { action: "resize", width: 1536, height: 1536 });
     // Random noise barely compresses: at full size this JPEG is far over 768 KB.
     await f.evaluate(
       "(() => { const c = document.createElement('canvas'); c.width = innerWidth; c.height = innerHeight; c.style.cssText = 'position:fixed;inset:0'; const x = c.getContext('2d'); const d = x.createImageData(c.width, c.height); for (let i = 0; i < d.data.length; i += 65536) crypto.getRandomValues(d.data.subarray(i, i + 65536)); for (let i = 3; i < d.data.length; i += 4) d.data[i] = 255; x.putImageData(d, 0, 0); document.body.append(c); return 0; })()",
     );
-    const result = await agent.ok("screenshot");
+    const result = await agent.ok("browser_screenshot");
     const image = result.content.find((item) => item.type === "image");
     expect(image?.type === "image" && image.mimeType).toBe("image/jpeg");
   });
@@ -117,9 +122,13 @@ describe.skipIf(!executablePath)("browser failures an agent can act on", () => {
     const handle = await open(file, "w");
     await handle.truncate(65 * 1024 * 1024);
     await handle.close();
-    const mcp = agentMcp(f.service);
-    const input = ref(mcp.text(await mcp.ok("snapshot")), "Attachment");
-    const failure = await mcp.failure("upload", { ref: input, files: [file] });
+    const mcp = agentMcp(toolPort(f.service));
+    const input = refNamed(mcp.raw(await mcp.ok("browser_snapshot")), "Attachment");
+    const failure = await mcp.failure("browser_act", {
+      action: "upload",
+      ref: input,
+      files: [file],
+    });
     expect(failure.code).toBe("limit");
     expect(`${failure.message} ${failure.hint}`).not.toMatch(/device/i);
     expect(failure.hint).toMatch(/smaller files/);
@@ -127,7 +136,7 @@ describe.skipIf(!executablePath)("browser failures an agent can act on", () => {
 
   it("asks the person rather than retrying when the host refuses a site", async () => {
     const f = await fixture({ originPolicy: () => false });
-    const failure = await agentMcp(f.service).failure("navigate", {
+    const failure = await agentMcp(toolPort(f.service)).failure("browser_open", {
       url: "https://example.invalid/",
     });
     expect(failure.code).toBe("approval_required");
@@ -143,14 +152,7 @@ describe("browser startup failures", () => {
       await service.close();
       await rm(home, { recursive: true, force: true });
     });
-    const opened: Pick<BrowserService, "execute" | "screenshot"> = {
-      execute: async (...call) => {
-        await service.open({ threadId: "thread", workspaceId: "workspace", background: true });
-        return service.execute(...call);
-      },
-      screenshot: (...call) => service.screenshot(...call),
-    };
-    const failure = await agentMcp(opened).failure("snapshot");
+    const failure = await agentMcp(toolPort(service)).failure("browser_snapshot");
     expect(failure.code).toBe("browser_unavailable");
   });
 });

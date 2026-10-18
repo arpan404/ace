@@ -1,4 +1,5 @@
 import type { Item, RawPayload, ToolStatus } from "@ace/protocol";
+import { bareToolName } from "@ace/provider-kit/ace-tool-names";
 import { toolProblem, type AceToolFamily, type ToolProblem } from "./ace-tool-problems.ts";
 import { aceSpecs, unknownAceTool } from "./ace-tool-specs-ace.ts";
 import {
@@ -70,12 +71,12 @@ export interface AceToolView {
   /** Images the tool answered with, as `data:` URLs. */
   images: string[];
   problem?: ToolProblem | undefined;
-  /** "ace · screen_key", for Details. */
+  /** "ace · screen_input", for Details. */
   tool: string;
 }
 
 const aceServer = /^ace$|^ace[-_]/;
-const measurementTools = new Set(["screen_measure_interaction", "ace_browser_measure_interaction"]);
+const measurementTools = new Set(["screen_measure", "browser_measure"]);
 const glyphs: Record<"agents" | "threads" | "ace", ToolMark> = {
   agents: { kind: "glyph", glyph: "agent" },
   threads: { kind: "glyph", glyph: "thread" },
@@ -86,27 +87,23 @@ const groupLabels: Partial<Record<AceToolFamily, string>> = {
   threads: "Worked with threads",
 };
 
-/** The spec for one of ace's tools, or undefined for anyone else's. */
+/**
+ * The spec for one of ace's tools, or undefined for anyone else's. A call is ace's when ace's
+ * server made it or its name carries ace's namespace; another server's bare `context` is not.
+ */
 export function aceToolSpec(server: string, tool: string): AceToolSpec | undefined {
-  const name = aceToolName(tool);
-  const ours = aceServer.test(server) || /^(ace_|screen_)/.test(name);
+  const ours = aceServer.test(server) || /^(?:mcp__ace__|ace_|screen_)/.test(tool);
   if (!ours) return undefined;
-  return (
-    surfaceSpecs[name] ??
-    aceSpecs[name] ??
-    (name.startsWith("ace_") ? unknownAceTool(name) : undefined)
-  );
+  const name = aceToolName(tool);
+  return surfaceSpecs[name] ?? aceSpecs[name] ?? unknownAceTool(name);
 }
 
 /**
- * A tool's registry name, whatever the provider prefixed: Claude's `mcp__ace__screen_click`,
- * OpenCode's `ace_screen_click` and `ace_ace_browser_open` all read as ace's own name.
+ * A tool's bare name, whatever the provider prefixed: Claude's `mcp__ace__screen_input`,
+ * OpenCode's `ace_screen_input` and a toolkit's old `ace_browser_open` all read as ace's own.
  */
 export function aceToolName(tool: string): string {
-  const name = tool.replace(/^mcp__ace__/, "");
-  if (surfaceSpecs[name] || aceSpecs[name]) return name;
-  const unprefixed = name.replace(/^ace_/, "");
-  return surfaceSpecs[unprefixed] || aceSpecs[unprefixed] ? unprefixed : name;
+  return bareToolName(tool);
 }
 
 const record = (value: unknown): Record<string, unknown> =>
@@ -115,9 +112,9 @@ const record = (value: unknown): Record<string, unknown> =>
     : {};
 
 /** "ios:…" ids are simulators; "android:…" emulators or phones. */
-function platformOf(deviceId: string | undefined): "ios" | "android" | undefined {
-  if (deviceId?.startsWith("ios:")) return "ios";
-  if (deviceId?.startsWith("android:")) return "android";
+function platformOf(simId: string | undefined): "ios" | "android" | undefined {
+  if (simId?.startsWith("ios:")) return "ios";
+  if (simId?.startsWith("android:")) return "android";
   return undefined;
 }
 
@@ -159,8 +156,8 @@ function subjectOf(
           };
     }
     case "device": {
-      const deviceId = str(args, "deviceId");
-      const platform = platformOf(deviceId);
+      const simId = str(args, "simId");
+      const platform = platformOf(simId);
       const fallback =
         platform === "ios"
           ? "the simulator"
@@ -172,7 +169,7 @@ function subjectOf(
       return {
         name,
         mark: { kind: "device", platform },
-        group: { key: `device:${deviceId ?? ""}`, label: `Used ${label}` },
+        group: { key: `device:${simId ?? ""}`, label: `Used ${label}` },
       };
     }
     default: {
@@ -224,7 +221,7 @@ function viewOf(spec: AceToolSpec, call: AceToolCall, context: AceToolContext): 
   const parts =
     raw.length && !measurementTools.has(aceToolName(call.tool)) ? mcpResultParts(raw) : undefined;
   const name = aceToolName(call.tool);
-  const isPr = /^ace_thread_(link_pr|unlink_pr|list_prs)$/.test(name);
+  const isPr = name === "thread_link_pr";
   if (isPr) {
     let data = field(field(call.result, "structuredContent") ?? call.result, "data");
     if (!data)
@@ -238,17 +235,9 @@ function viewOf(spec: AceToolSpec, call: AceToolCall, context: AceToolContext): 
         if (data) break;
       }
     const number = field(data, "number");
-    const links = field(data, "linkedPrs");
-    if (name === "ace_thread_list_prs" && Array.isArray(links))
+    if (typeof number === "number")
       words = say(
-        ["Listed", "Listing", "List"],
-        ` ${links.length} linked PR${links.length === 1 ? "" : "s"}`,
-      );
-    else if (typeof number === "number")
-      words = say(
-        name === "ace_thread_link_pr"
-          ? ["Linked", "Linking", "Link"]
-          : ["Unlinked", "Unlinking", "Unlink"],
+        args.unlink === true ? ["Unlinked", "Unlinking", "Unlink"] : ["Linked", "Linking", "Link"],
         ` PR #${number}`,
       );
   }
@@ -266,7 +255,7 @@ function viewOf(spec: AceToolSpec, call: AceToolCall, context: AceToolContext): 
       family: spec.family,
       code,
       subject: subject.name,
-      input: spec.input,
+      input: typeof spec.input === "function" ? spec.input(args) : spec.input,
       mode: context.app?.mode,
       attempt: lowerFirst(words.target ? `${words.awaiting} ${words.target}` : words.awaiting),
       message:
@@ -353,25 +342,25 @@ const uiActions = new Set([
   "performSecondaryAction",
   "selectText",
 ]);
-const actionTools: Record<string, string> = {
-  "key.press": "screen_key",
-  key: "screen_key",
-  "text.type": "screen_type",
-  type: "screen_type",
-  "text.paste": "screen_paste",
-  "pointer.click": "screen_click",
-  "pointer.drag": "screen_click",
-  click: "screen_click",
-  scroll: "screen_scroll",
-  measure_interaction: "screen_measure_interaction",
+/** The `screen_input` action an audited input action came from. */
+const inputActions: Record<string, string> = {
+  "key.press": "key",
+  key: "key",
+  "text.type": "type",
+  type: "type",
+  "text.paste": "paste",
+  "pointer.click": "click",
+  "pointer.drag": "click",
+  click: "click",
+  scroll: "scroll",
 };
 
 /** The computer-use tools whose call an audited action belongs to. */
 export function screenStepTools(action: string): readonly string[] {
-  if (action === "scroll") return ["screen_scroll", "screen_ui_act"];
+  if (action === "scroll") return ["screen_input", "screen_ui_act"];
   if (uiActions.has(action)) return ["screen_ui_act"];
-  const tool = actionTools[action];
-  return tool ? [tool] : [];
+  if (action === "measure_interaction") return ["screen_measure"];
+  return inputActions[action] ? ["screen_input"] : [];
 }
 
 /** An audited action no call shows, as its own row: "Pressed a key in Safari". */
@@ -381,7 +370,12 @@ export function screenStepView(step: ScreenStep): AceToolView {
     ? { app: { bundleId: step.bundleId, mode: step.mode, outcome: step.outcome } }
     : {};
   const status = step.outcome === "completed" ? "succeeded" : "failed";
-  const args = uiActions.has(step.action) ? { action: step.action } : {};
+  const input = inputActions[step.action];
+  const args = uiActions.has(step.action)
+    ? { action: step.action }
+    : input
+      ? { action: input }
+      : {};
   const call = { server: "ace", tool: tool ?? "screen", args, status, raw: [] } as const;
   return viewOf((tool && surfaceSpecs[tool]) || usedApp, call, context);
 }
@@ -424,15 +418,19 @@ export function aceCallOf(item: Item | undefined): AceToolCall | undefined {
   const shared = { status: call.status, raw: call.raw, error: call.error, result };
   if (call.detail.kind === "mcp") {
     if (!aceToolSpec(call.detail.server, call.detail.tool)) return undefined;
+    // A namespaced name reported under another server label is still ace's own tool.
     return {
-      server: call.detail.server,
+      server: aceServer.test(call.detail.server) ? call.detail.server : "ace",
       tool: aceToolName(call.detail.tool),
       args: call.detail.arguments,
       ...shared,
     };
   }
   if (call.detail.kind !== "custom") return undefined;
-  const tool = aceToolName(call.title.trim());
+  // A bare custom name is the provider's own unless it is a computer-use or device tool.
+  const title = call.title.trim();
+  const tool = aceToolName(title);
+  if (!/^(?:mcp__ace__|ace_|screen_|device_)/.test(title)) return undefined;
   if (!surfaceSpecs[tool] && !aceSpecs[tool]) return undefined;
   return { server: "ace", tool, args: argsFromRaw(call.raw), ...shared };
 }

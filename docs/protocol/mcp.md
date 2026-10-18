@@ -6,35 +6,35 @@ JSON Schema validates structure. `x-ace-constraint` names additional semantic ru
 
 Built-in definitions come from `@ace/mcp-server`. The local /mcp endpoint uses session-scoped credentials and capability filtering. Discovery exposes only registered tools allowed for that session. Dynamic browser/preview toolkits depend on installed host adapters and are not fabricated here. Inputs use input validation; structured results use output validation, including populated defaults. Standard MCP call failures use isError and text content.
 
-## ace_html_render
+## html_render
 
-Show a self-contained HTML page (inline CSS, JS, SVG and data: images; no network) inline in your reply. mode "interactive" runs its scripts in a sandbox; "static" strips them and suits charts and diagrams. An invalid page returns invalid_html listing every problem and publishes nothing. Design and sandbox rules: ace_guide visualize.
+Show a chart, diagram, mockup or small interactive page inline in your reply. An invalid page returns invalid_html listing every problem and publishes nothing. Design and sandbox rules: guide visualize.
 
 Required capability: none beyond session authentication. Timeout: 30000 ms.
 
-## ace_html_render.input
+## html_render.input
 
-[JSON Schema](schema/ace_html_render.input.json), input validation.
+[JSON Schema](schema/html_render.input.json), input validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| title | yes | string | {"minLength":1,"maxLength":160,"pattern":"\\S"} |
-| html | yes | [HtmlDocument.json](schema/HtmlDocument.json) |  |
-| height | no | [HtmlHeight.json](schema/HtmlHeight.json) |  |
-| mode | no | [HtmlMode.json](schema/HtmlMode.json) |  |
+| title | yes | string | {"minLength":1,"maxLength":160,"pattern":"\\S","description":"A short caption shown above the page."} |
+| html | yes | string | {"minLength":1,"maxLength":262144,"description":"A complete self-contained HTML document: inline CSS, JS, SVG and data: images, no network."} |
+| height | no | [HtmlHeight.json](schema/HtmlHeight.json) | {"description":"Frame height in CSS pixels; default fits the content."} |
+| mode | no | [HtmlMode.json](schema/HtmlMode.json) | {"description":"interactive runs its scripts in a sandbox; static strips them (charts, diagrams). Default: inferred."} |
 
 Example:
 
 ```json
 {
   "html": "example",
-  "title": "{"
+  "title": "M"
 }
 ```
 
-## ace_html_render.output
+## html_render.output
 
-[JSON Schema](schema/ace_html_render.output.json), output validation.
+[JSON Schema](schema/html_render.output.json), output validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -48,71 +48,33 @@ Example:
 }
 ```
 
-## ace_list_agents
+## notify
 
-Read a page of this thread's agent tree; status includes live descendants.
-
-Required capability: none beyond session authentication. Timeout: 10000 ms.
-
-## ace_list_agents.input
-
-[JSON Schema](schema/ace_list_agents.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| cursor | no | string | {"maxLength":256} |
-| limit | no | integer | {"default":50,"minimum":1,"maximum":100} |
-
-Example:
-
-```json
-{}
-```
-
-## ace_list_agents.output
-
-[JSON Schema](schema/ace_list_agents.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| agents | yes | array | {"maxItems":100,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"threadId":{"type":"string","minLength":1},"childThreadId":{"type":"string","minLength":1},"parentId":{"anyOf":[{"type":"string","minLength":1},{"type":"null"}]},"origin":{"type":"string","enum":["root","provider_subagent","ace"]},"lineage":{"type":"object","properties":{"parentThreadId":{"type":"string","minLength":1},"parentAgentId":{"type":"string","minLength":1},"point":{"oneOf":[{"type":"object","properties":{"type":{"type":"string","const":"turn"},"runId":{"type":"string","minLength":1}},"required":["type","runId"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string","const":"item"},"itemId":{"type":"string","minLength":1}},"required":["type","itemId"],"additionalProperties":false}]},"mode":{"type":"string","enum":["native","portable"]},"lossy":{"type":"boolean"}},"required":["parentThreadId","parentAgentId","point","mode","lossy"],"additionalProperties":false},"native":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"acpAgentId":{"type":"string","minLength":1,"maxLength":256},"installationId":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"nativeId":{"type":"string"},"path":{"type":"string"},"forkedFromNativeId":{"type":"string","minLength":1,"maxLength":1024},"aliases":{"type":"array","items":{"type":"string"}}},"required":["provider"],"additionalProperties":false},"fidelity":{"type":"string","enum":["full","summary","placeholder"]},"spawnedBy":{"anyOf":[{"type":"string","minLength":1},{"type":"null"}]},"name":{"type":"string"},"role":{"type":"string"},"model":{"type":"string"},"cwd":{"type":"string"},"status":{"oneOf":[{"type":"object","properties":{"state":{"type":"string","const":"starting"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"working"},"activity":{"type":"string","enum":["thinking","responding","tool","compacting","retrying","starting_turn"]},"itemId":{"type":"string","minLength":1},"detail":{"type":"string"}},"required":["state","activity"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"blocked"},"on":{"type":"string","enum":["human","subagents","background_task","rate_limit","network","upstream"]},"refs":{"default":[],"type":"array","items":{"type":"string"}},"until":{"type":"integer","minimum":0,"maximum":9007199254740991},"attempt":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"message":{"type":"string"}},"required":["state","on","refs"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"idle"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"interrupted"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"failed"},"error":{"type":"object","properties":{"kind":{"type":"string","enum":["provider","auth","quota","network","process_exit","unknown"]},"message":{"type":"string"},"code":{"type":"string"},"title":{"type":"string"},"detail":{"type":"string"},"details":{"type":"object","properties":{"code":{"type":"string","minLength":1,"maxLength":256},"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"title":{"type":"string","maxLength":256},"detail":{"type":"string","maxLength":2048},"model":{"type":"string","minLength":1,"maxLength":256}},"required":["code","provider"],"additionalProperties":false}},"required":["kind","message"],"additionalProperties":false}},"required":["state","error"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"unresponsive"},"lastSignalAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["state","lastSignalAt"],"additionalProperties":false}]},"background":{"default":false,"type":"boolean"},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"endedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","threadId","parentId","origin","native","fidelity","cwd","status","background","createdAt"],"additionalProperties":false}} |
-| nextCursor | yes | union | {"anyOf":[{"type":"string","maxLength":256},{"type":"null"}]} |
-
-Example:
-
-```json
-{
-  "agents": [],
-  "nextCursor": null
-}
-```
-
-## ace_notify_user
-
-Post a notice and request a user notification.
+Post a notice on this thread and send the person a notification, for something they should see while away (a long task finished, a decision is needed).
 
 Required capability: notify. Timeout: 10000 ms.
 
-## ace_notify_user.input
+## notify.input
 
-[JSON Schema](schema/ace_notify_user.input.json), input validation.
+[JSON Schema](schema/notify.input.json), input validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| text | yes | string | {"minLength":1,"maxLength":4096} |
-| level | no | ["info","warning","error"] | {"default":"info"} |
+| text | yes | string | {"minLength":1,"maxLength":4096,"description":"What happened, in one or two sentences."} |
+| level | no | ["info","warning","error"] | {"default":"info","description":"info (default), warning or error."} |
 
 Example:
 
 ```json
 {
+  "level": "info",
   "text": "example"
 }
 ```
 
-## ace_notify_user.output
+## notify.output
 
-[JSON Schema](schema/ace_notify_user.output.json), output validation.
+[JSON Schema](schema/notify.output.json), output validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -128,871 +90,77 @@ Example:
 }
 ```
 
-## ace_device_list
+## delegate
 
-List connected paired execution devices, their projects and available agents. Credentials and paths remain on their device.
-
-Required capability: none beyond session authentication. Timeout: 630000 ms.
-
-## ace_device_list.input
-
-[JSON Schema](schema/ace_device_list.input.json), input validation.
-
-Type: object. See JSON Schema for constraints.
-
-Example:
-
-```json
-{}
-```
-
-## ace_device_list.output
-
-[JSON Schema](schema/ace_device_list.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | any JSON value |  |
-
-Example:
-
-```json
-{
-  "hint": "example",
-  "ok": true
-}
-```
-
-## ace_device_delegate
-
-Delegate a task to an explicitly selected paired device and project. Use a stable requestId. Returns a task ID; results return to this thread. Selected context is imported through the encrypted relay. Explicit published outputs return as originating-thread attachments; workspaces are not copied or merged.
+Start child agents as their own threads, on any installed provider or a paired machine, for independent or parallel work (prefer this to your provider's built-in subagent tool). One call takes 1 to 64 tasks and returns their threadIds at once. To use results this turn, set waitSeconds; otherwise end your turn and settled results arrive as a new turn. Never poll. Fields and examples: guide ace-agents.
 
 Required capability: agents. Timeout: 630000 ms.
 
-## ace_device_delegate.input
+## delegate.input
 
-[JSON Schema](schema/ace_device_delegate.input.json), input validation.
+[JSON Schema](schema/delegate.input.json), input validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| context | no | [RemoteContextSelection.json](schema/RemoteContextSelection.json) |  |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| hostId | yes | [HostId.json](schema/HostId.json) |  |
-| mode | no | ["worktree","local"] | {"default":"worktree"} |
-| workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
-| task | yes | [MessageText.json](schema/MessageText.json) |  |
-| role | yes | [DelegationRole.json](schema/DelegationRole.json) |  |
-| provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
-| access | no | [AccessRequest.json](schema/AccessRequest.json) |  |
-| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
-| installationId | no | string | {"minLength":1,"maxLength":256} |
-| instanceId | no | string | {"minLength":1,"maxLength":256} |
-| model | no | string | {"minLength":1,"maxLength":256} |
-| accountId | no | [AccountInstanceId.json](schema/AccountInstanceId.json) |  |
-| effort | no | union | {"anyOf":[{"type":"string","const":"inherit"},{"$ref":"https://ace.local/protocol/v1/AgentEffort.json"}]} |
-| options | no | [AgentServiceOptions.json](schema/AgentServiceOptions.json) |  |
+| tasks | yes | array | {"minItems":1,"maxItems":64,"items":{"type":"object","properties":{"requestId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."},"task":{"type":"string","minLength":1,"maxLength":262144,"description":"The whole assignment: goal, files, constraints, project notes that apply, and how to verify. The child sees none of your conversation."},"role":{"$ref":"https://ace.local/protocol/v1/DelegationRole.json"},"provider":{"description":"Provider that runs the child. Default: yours, or the one whose catalog has `model`.","$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"model":{"description":"A model id from `models`. Default: the provider's default model. ace picks the account and instance that serve it.","type":"string","minLength":1,"maxLength":256},"effort":{"description":"Reasoning effort, such as low, medium, high or xhigh. Default inherit: yours on the same model, else the model's default.","type":"string","minLength":1,"maxLength":64},"access":{"description":"The child's access mode. Default inherit (yours); never broader than yours.","$ref":"https://ace.local/protocol/v1/AccessRequest.json"},"workspace":{"description":"Where the child works. Default: this project's checkout. new_worktree starts a Git worktree from base; existing_worktree reuses one by path.","$ref":"https://ace.local/protocol/v1/AgentWorkspace.json"},"machine":{"description":"Run on this paired machine (a name from `machines`). Requires project.","$ref":"https://ace.local/protocol/v1/MachineName.json"},"project":{"description":"The project on that machine, as `machines` lists it.","type":"string","minLength":1,"maxLength":256}},"required":["requestId","task","role"],"additionalProperties":false},"description":"One entry per child. Roles must be unique among your live children."} |
+| waitSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) | {"description":"Wait up to this many seconds (max 600) for the children before returning, as `wait` does. Omit to return at once."} |
+| waitFor | no | [WaitMode.json](schema/WaitMode.json) | {"default":"all","description":"With waitSeconds: return when all children settle (default) or when any does."} |
 
 Example:
 
 ```json
 {
-  "access": "inherit",
-  "context": {},
-  "hostId": "example",
-  "installationId": "example",
-  "instanceId": "example",
-  "mode": "worktree",
-  "options": {
-    "serviceTier": "priority"
-  },
-  "provider": "pi",
-  "requestId": "KA",
-  "role": "example",
-  "task": "example",
-  "workspaceId": "example"
+  "tasks": [
+    {
+      "access": "inherit",
+      "model": "example",
+      "project": "example",
+      "requestId": "_",
+      "role": "example",
+      "task": "example"
+    }
+  ]
 }
 ```
 
-## ace_device_delegate.output
+## delegate.output
 
-[JSON Schema](schema/ace_device_delegate.output.json), output validation.
+[JSON Schema](schema/delegate.output.json), output validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | any JSON value |  |
-
-Example:
-
-```json
-{
-  "data": null,
-  "ok": false
-}
-```
-
-## ace_device_task_status
-
-Read an owned remote task's status, host/thread identity and bounded result.
-
-Required capability: none beyond session authentication. Timeout: 630000 ms.
-
-## ace_device_task_status.input
-
-[JSON Schema](schema/ace_device_task_status.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| taskId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-
-Example:
-
-```json
-{
-  "taskId": "v0pDEHdyd"
-}
-```
-
-## ace_device_task_status.output
-
-[JSON Schema](schema/ace_device_task_status.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | any JSON value |  |
-
-Example:
-
-```json
-{
-  "ok": false
-}
-```
-
-## ace_device_task_wait
-
-Wait for an owned remote task and its descendants to settle. Offline devices remain pending.
-
-Required capability: none beyond session authentication. Timeout: 630000 ms.
-
-## ace_device_task_wait.input
-
-[JSON Schema](schema/ace_device_task_wait.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| taskId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-
-Example:
-
-```json
-{
-  "taskId": "3"
-}
-```
-
-## ace_device_task_wait.output
-
-[JSON Schema](schema/ace_device_task_wait.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | any JSON value |  |
-
-Example:
-
-```json
-{
-  "hint": "example",
-  "ok": false
-}
-```
-
-## ace_device_task_cancel
-
-Cancel an owned remote task and its descendants, preserving cancellation until its device reconnects.
-
-Required capability: thread_control. Timeout: 630000 ms.
-
-## ace_device_task_cancel.input
-
-[JSON Schema](schema/ace_device_task_cancel.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| taskId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-
-Example:
-
-```json
-{
-  "taskId": "O"
-}
-```
-
-## ace_device_task_cancel.output
-
-[JSON Schema](schema/ace_device_task_cancel.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | any JSON value |  |
-
-Example:
-
-```json
-{
-  "hint": "example",
-  "ok": false
-}
-```
-
-## ace_device_task_publish
-
-Publish selected owned attachment hashes or relative files from this remote task to its originating thread. One immutable selection per task, stable requestId, at most 16 items/128 MiB. No workspace overwrite or merge.
-
-Required capability: thread_control. Timeout: 630000 ms.
-
-## ace_device_task_publish.input
-
-[JSON Schema](schema/ace_device_task_publish.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| attachments | no | array | {"default":[],"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/BlobHash.json"}} |
-| files | no | array | {"default":[],"maxItems":8,"items":{"type":"string","minLength":1,"maxLength":1024}} |
-
-Example:
-
-```json
-{
-  "requestId": "9afj2.x.Mm1"
-}
-```
-
-## ace_device_task_publish.output
-
-[JSON Schema](schema/ace_device_task_publish.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | any JSON value |  |
-
-Example:
-
-```json
-{
-  "ok": true
-}
-```
-
-## ace_threads_list
-
-List or search ordinary and child threads in the calling thread's project. Page with the returned cursor; unrelated projects are forbidden.
-
-Required capability: none beyond session authentication. Timeout: 630000 ms.
-
-## ace_threads_list.input
-
-[JSON Schema](schema/ace_threads_list.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
-| query | no | string | {"default":"","maxLength":256} |
-| cursor | no | string | {"minLength":1,"maxLength":2048} |
-| limit | no | integer | {"default":10,"minimum":1,"maximum":20} |
-
-Example:
-
-```json
-{
-  "cursor": "example",
-  "limit": 4
-}
-```
-
-## ace_threads_list.output
-
-[JSON Schema](schema/ace_threads_list.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"hits":{"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"threadTitle":{"type":"string"},"itemId":{"type":"string","minLength":1},"status":{"type":"string"},"provider":{"type":"string"},"snippet":{"type":"object","properties":{"text":{"type":"string"}},"required":["text"],"additionalProperties":{}}},"required":["threadId"],"additionalProperties":{}}},"cursor":{"type":["string","null"]}},"required":["hits"],"additionalProperties":{}} |
-
-Example:
-
-```json
-{
-  "ok": false
-}
-```
-
-## ace_thread_start
-
-Start a top-level thread in the person's sidebar with its own project or worktree; text is its first message, which its agent answers at once. For child work whose result you need, use delegate_task. Use a stable requestId: if the call is cut short, the thread is still being created, and calling again with the same requestId returns it. The person sees the new thread as a card: relay the result's summary in a sentence, without its ids.
-
-Required capability: thread_control. Timeout: 630000 ms.
-
-## ace_thread_start.input
-
-[JSON Schema](schema/ace_thread_start.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| title | yes | string | {"minLength":1,"maxLength":256} |
-| text | yes | [MessageText.json](schema/MessageText.json) |  |
-| workspace | yes | [AgentWorkspace.json](schema/AgentWorkspace.json) |  |
-| provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
-| access | no | [AccessRequest.json](schema/AccessRequest.json) |  |
-| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
-| installationId | no | string | {"minLength":1,"maxLength":256} |
-| instanceId | no | string | {"minLength":1,"maxLength":256} |
-| model | no | string | {"minLength":1,"maxLength":256} |
-| accountId | no | [AccountInstanceId.json](schema/AccountInstanceId.json) |  |
-| effort | no | union | {"anyOf":[{"type":"string","const":"inherit"},{"$ref":"https://ace.local/protocol/v1/AgentEffort.json"}]} |
-| options | no | [AgentServiceOptions.json](schema/AgentServiceOptions.json) |  |
-
-Example:
-
-```json
-{
-  "accountId": "example",
-  "instanceId": "example",
-  "provider": "cursor",
-  "requestId": "YvTk",
-  "text": "example",
-  "title": "example",
-  "workspace": {
-    "base": {
-      "ref": "example"
-    },
-    "kind": "new_worktree"
-  }
-}
-```
-
-## ace_thread_start.output
-
-[JSON Schema](schema/ace_thread_start.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | any JSON value |  |
-
-Example:
-
-```json
-{
-  "ok": false
-}
-```
-
-## ace_thread_configure
-
-Set an owned thread's catalog model and launch options, preserving provider/account and its permission ceiling. The engine applies the configuration through its existing model-switch lifecycle.
-
-Required capability: thread_control. Timeout: 630000 ms.
-
-## ace_thread_configure.input
-
-[JSON Schema](schema/ace_thread_configure.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| model | yes | string | {"minLength":1,"maxLength":256} |
-| options | no | [AgentLaunchOptions.json](schema/AgentLaunchOptions.json) |  |
-
-Example:
-
-```json
-{
-  "model": "example",
-  "options": {},
-  "requestId": "JeA5ylv",
-  "threadId": "example"
-}
-```
-
-## ace_thread_configure.output
-
-[JSON Schema](schema/ace_thread_configure.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | any JSON value |  |
-
-Example:
-
-```json
-{
-  "hint": "example",
-  "ok": true
-}
-```
-
-## ace_agents_catalog
-
-Page the composer's live provider/account/model catalog, model options and allowed native permission/runtime modes. Preserve instance when selecting an account. Stale or unknown authentication is explicit; no credentials or account homes are returned.
-
-Required capability: none beyond session authentication. Timeout: 630000 ms.
-
-## ace_agents_catalog.input
-
-[JSON Schema](schema/ace_agents_catalog.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
-| installationId | no | string | {"minLength":1,"maxLength":256} |
-| instanceId | no | string | {"minLength":1,"maxLength":256} |
-| provider | no | [ProviderKind.json](schema/ProviderKind.json) |  |
-| instance | no | string | {"minLength":1,"maxLength":256} |
-| offset | no | integer | {"default":0,"minimum":0,"maximum":40960} |
-| limit | no | integer | {"default":10,"minimum":1,"maximum":20} |
-| instanceOffset | no | integer | {"default":0,"minimum":0,"maximum":64} |
-
-Example:
-
-```json
-{
-  "acpAgentId": "example",
-  "instanceId": "example",
-  "instanceOffset": 0,
-  "offset": 7
-}
-```
-
-## ace_agents_catalog.output
-
-[JSON Schema](schema/ace_agents_catalog.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"models":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"displayName":{"type":"string"},"provider":{"type":"string"}},"required":["id"],"additionalProperties":{}}},"instances":{"type":"array","items":{"type":"object","properties":{"provider":{"type":"string"},"installed":{"type":"boolean"},"auth":{"type":"string"},"allowedAccessModes":{"type":"array","items":{"type":"string","enum":["read-only","ask","auto-review","full-access"]}}},"required":["provider","installed","auth","allowedAccessModes"],"additionalProperties":{}}},"caller":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"access":{"anyOf":[{"type":"string","enum":["read-only","ask","auto-review","full-access"]},{"type":"null"}]}},"required":["threadId","access"],"additionalProperties":{}}},"required":["models","instances","caller"],"additionalProperties":{}} |
+| data | no | object | {"properties":{"threadIds":{"type":"array","items":{"type":"string"}},"wait":{"type":"object","properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false}},"required":["threadIds"],"additionalProperties":{}} |
 
 Example:
 
 ```json
 {
   "code": "invalid",
-  "hint": "example",
+  "data": {
+    "threadIds": []
+  },
   "ok": true
 }
 ```
 
-## ace_agent_status
+## wait
 
-Read an owned child's aggregate state, including descendants and human waits.
+Block until threads settle, up to timeoutSeconds. Returns early with needs_you, naming each request, when a thread waits on the person: tell the person and treat it as unfinished. timeout or interrupted: the threads keep working; call wait again. Use this, never a polling loop.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
-## ace_agent_status.input
+## wait.input
 
-[JSON Schema](schema/ace_agent_status.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-
-Example:
-
-```json
-{
-  "threadId": "example"
-}
-```
-
-## ace_agent_status.output
-
-[JSON Schema](schema/ace_agent_status.output.json), output validation.
+[JSON Schema](schema/wait.input.json), input validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","waiting_on_human","waiting_on_children","result_available","failed","cancelled"]},"outcome":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","enum":["completed","failed","cancelled"]},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"before":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["threadId","outcome","result","truncated","before"],"additionalProperties":false}},"required":["threadId","state"],"additionalProperties":{}} |
-
-Example:
-
-```json
-{
-  "ok": true
-}
-```
-
-## ace_agents_status
-
-Compact snapshot of every child you delegated, including their own children: state, current step, elapsed seconds, requests waiting on the person and the last output line. Cheap to call, but use ace_wait instead of calling this repeatedly.
-
-Required capability: none beyond session authentication. Timeout: 630000 ms.
-
-## ace_agents_status.input
-
-[JSON Schema](schema/ace_agents_status.input.json), input validation.
-
-Type: object. See JSON Schema for constraints.
-
-Example:
-
-```json
-{}
-```
-
-## ace_agents_status.output
-
-[JSON Schema](schema/ace_agents_status.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"children":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"parent":{"type":"string","minLength":1},"role":{"type":"string","maxLength":40},"state":{"type":"string","enum":["working","needs_you","done","failed","cancelled"]},"step":{"type":"string","maxLength":60},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"ask":{"type":"string","maxLength":100},"last":{"type":"string","maxLength":100},"machine":{"type":"string","maxLength":64}},"required":["id","role","state","elapsedSeconds"],"additionalProperties":false}},"counts":{"type":"object","properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","needs_you","done","failed","cancelled"],"additionalProperties":false}},"required":["children","counts"],"additionalProperties":false} |
-
-Example:
-
-```json
-{
-  "hint": "example",
-  "ok": true
-}
-```
-
-## ace_machines
-
-List the other paired machines whose agent access is on: name, online or offline, access (read or operate), projects, tool groups and providers. Pass a machine's `machine` to delegate_task (with `project`) or to ace_browser_* tools to work there. Tokens and paths never leave their machine.
-
-Required capability: none beyond session authentication. Timeout: 630000 ms.
-
-## ace_machines.input
-
-[JSON Schema](schema/ace_machines.input.json), input validation.
-
-Type: object. See JSON Schema for constraints.
-
-Example:
-
-```json
-{}
-```
-
-## ace_machines.output
-
-[JSON Schema](schema/ace_machines.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | any JSON value |  |
-
-Example:
-
-```json
-{
-  "hint": "example",
-  "ok": false
-}
-```
-
-## ace_agent_result
-
-Read an owned child's settled outcome. This does not consume its durable parent notification. Returns not_ready while any descendant or human wait remains active.
-
-Required capability: none beyond session authentication. Timeout: 630000 ms.
-
-## ace_agent_result.input
-
-[JSON Schema](schema/ace_agent_result.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-
-Example:
-
-```json
-{
-  "threadId": "example"
-}
-```
-
-## ace_agent_result.output
-
-[JSON Schema](schema/ace_agent_result.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","waiting_on_human","waiting_on_children","result_available","failed","cancelled"]},"outcome":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","enum":["completed","failed","cancelled"]},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"before":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["threadId","outcome","result","truncated","before"],"additionalProperties":false}},"required":["threadId","state"],"additionalProperties":{}} |
-
-Example:
-
-```json
-{
-  "hint": "example",
-  "ok": true
-}
-```
-
-## ace_agent_cancel
-
-Cancel an owned child and all descendants. Acceptance is not proof that its tree has stopped; read status for settlement.
-
-Required capability: agents. Timeout: 630000 ms.
-
-## ace_agent_cancel.input
-
-[JSON Schema](schema/ace_agent_cancel.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-
-Example:
-
-```json
-{
-  "requestId": "Yhd",
-  "threadId": "example"
-}
-```
-
-## ace_agent_cancel.output
-
-[JSON Schema](schema/ace_agent_cancel.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-
-Example:
-
-```json
-{
-  "hint": "example",
-  "ok": false
-}
-```
-
-## ace_agent_message
-
-Send follow-up work to the same owned child, retaining its permissions. Use a stable requestId.
-
-Required capability: agents. Timeout: 630000 ms.
-
-## ace_agent_message.input
-
-[JSON Schema](schema/ace_agent_message.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| text | yes | [MessageText.json](schema/MessageText.json) |  |
-| delivery | no | ["queue","steer"] | {"default":"queue"} |
-
-Example:
-
-```json
-{
-  "requestId": "mFV9aJq",
-  "text": "example",
-  "threadId": "example"
-}
-```
-
-## ace_agent_message.output
-
-[JSON Schema](schema/ace_agent_message.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-
-Example:
-
-```json
-{
-  "code": "not_found",
-  "ok": true
-}
-```
-
-## delegate_task
-
-Start child threads on any provider: one task, or several with tasks: [...]. Returns their ids at once. Each role is the child's display name: it must be unique among this thread's live children and descriptive of the work (e.g. 'Fix-869-worked-for-toast', never 'Implementer'); generic or repeated roles are rejected. To use results this turn, set await (any or all) with timeoutSeconds, or call ace_wait with the ids; never poll. If you end your turn instead, settled results arrive as a new turn. Stable requestIds make retries create nothing new. Fields, machines and access: ace_guide ace-agents.
-
-Required capability: agents. Timeout: 630000 ms.
-
-## delegate_task.input
-
-[JSON Schema](schema/delegate_task.input.json), input validation.
-
-Semantic rule: Either one task (requestId, task, role, provider) or tasks: [{ requestId, task, role, provider }, ...].
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| provider | no | [ProviderKind.json](schema/ProviderKind.json) |  |
-| access | no | [AccessRequest.json](schema/AccessRequest.json) |  |
-| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
-| installationId | no | string | {"minLength":1,"maxLength":256} |
-| instanceId | no | string | {"minLength":1,"maxLength":256} |
-| model | no | string | {"minLength":1,"maxLength":256} |
-| accountId | no | [AccountInstanceId.json](schema/AccountInstanceId.json) |  |
-| effort | no | union | {"anyOf":[{"type":"string","const":"inherit"},{"$ref":"https://ace.local/protocol/v1/AgentEffort.json"}]} |
-| options | no | [AgentServiceOptions.json](schema/AgentServiceOptions.json) |  |
-| requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| task | no | [MessageText.json](schema/MessageText.json) |  |
-| role | no | [DelegationRole.json](schema/DelegationRole.json) |  |
-| wait | no | boolean |  |
-| waitMs | no | integer | {"minimum":1,"maximum":600000} |
-| workspace | no | [AgentWorkspace.json](schema/AgentWorkspace.json) |  |
-| estimatedLoad | no | number | {"minimum":0,"maximum":100} |
-| machine | no | [MachineName.json](schema/MachineName.json) |  |
-| project | no | string | {"minLength":1,"maxLength":256} |
-| tasks | no | array | {"minItems":1,"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/DelegationTask.json"}} |
-| await | no | ["none","any","all"] |  |
-| timeoutSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) |  |
-
-Example:
-
-```json
-{
-  "access": "read-only",
-  "effort": "high",
-  "machine": "studio",
-  "project": "relay",
-  "provider": "claude",
-  "requestId": "review-on-studio",
-  "role": "Review-0.9-build",
-  "task": "Review the 0.9 build and list failing benchmarks"
-}
-```
-
-## delegate_task.output
-
-[JSON Schema](schema/delegate_task.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","enum":["completed","failed","cancelled"]},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"before":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["threadId","outcome","result","truncated","before"],"additionalProperties":false},"threadIds":{"type":"array","items":{"type":"string","minLength":1}},"wait":{"type":"object","properties":{"status":{"type":"string","enum":["ready","needs_you","timeout","interrupted"]},"mode":{"type":"string","enum":["any","all"]},"threads":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"state":{"type":"string","enum":["working","needs_you","done","failed","cancelled"]},"title":{"type":"string","maxLength":120},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"step":{"type":"string","maxLength":120},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"last":{"type":"string","maxLength":160},"needs":{"maxItems":8,"type":"array","items":{"type":"object","properties":{"interactionId":{"type":"string","minLength":1},"kind":{"type":"string","maxLength":64},"prompt":{"type":"string","maxLength":240}},"required":["interactionId","kind","prompt"],"additionalProperties":false}},"machine":{"type":"string","maxLength":64}},"required":["threadId","state","title","elapsedSeconds"],"additionalProperties":false}}},"required":["status","mode","threads"],"additionalProperties":false}},"additionalProperties":{}} |
-
-Example:
-
-```json
-{
-  "ok": true
-}
-```
-
-## ace_thread_message
-
-Send to an owned thread under its existing permissions. queue waits for settlement, steer uses the provider's native steering or queue fallback, and restart atomically accepts a cascade interrupt followed by queued replacement input. Stable request IDs deduplicate the whole restart.
-
-Required capability: thread_control. Timeout: 630000 ms.
-
-## ace_thread_message.input
-
-[JSON Schema](schema/ace_thread_message.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| text | yes | [MessageText.json](schema/MessageText.json) |  |
-| delivery | no | ["queue","steer","restart"] | {"default":"queue"} |
-
-Example:
-
-```json
-{
-  "requestId": "a",
-  "text": "example",
-  "threadId": "example"
-}
-```
-
-## ace_thread_message.output
-
-[JSON Schema](schema/ace_thread_message.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-
-Example:
-
-```json
-{
-  "hint": "example",
-  "ok": true
-}
-```
-
-## ace_wait
-
-Wait up to timeoutSeconds (default 120, max 600) for threads to settle, mode all (default) or any. Returns early with needs_you, naming each request, when a thread waits on the person: tell the person, and never report it done. On timeout the threads keep working: call again. interrupted means ace restarted: wait again. Never poll in a loop.
-
-Required capability: none beyond session authentication. Timeout: 630000 ms.
-
-## ace_wait.input
-
-[JSON Schema](schema/ace_wait.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| threadIds | yes | array | {"minItems":1,"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}} |
-| mode | no | [WaitMode.json](schema/WaitMode.json) | {"default":"all"} |
-| timeoutSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) | {"default":120} |
+| threadIds | yes | array | {"minItems":1,"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"description":"Threads to watch: children from delegate, or any thread you can read."} |
+| mode | no | [WaitMode.json](schema/WaitMode.json) | {"default":"all","description":"all (default): every thread settles; any: the first."} |
+| timeoutSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) | {"default":120,"description":"Longest wait in seconds, 1 to 600 (default 120)."} |
 
 Example:
 
@@ -1004,9 +172,9 @@ Example:
 }
 ```
 
-## ace_wait.output
+## wait.output
 
-[JSON Schema](schema/ace_wait.output.json), output validation.
+[JSON Schema](schema/wait.output.json), output validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -1019,30 +187,24 @@ Example:
 
 ```json
 {
-  "data": {
-    "mode": "any",
-    "status": "needs_you",
-    "threads": []
-  },
+  "hint": "example",
   "ok": false
 }
 ```
 
-## ace_thread_read
+## agents_status
 
-Read a thread's metadata (title, titleSource, status, permission, branch) and a byte-budgeted transcript page. Omit threadId for your own thread. Use itemsBefore as the next before cursor. For truncated parts with source.streamId, use ace_thread_read_output to page retained bytes.
+Your delegated children, on this machine or others. Without threadId: a compact snapshot of every child and its descendants (state, current step, elapsed seconds, what waits on the person, last output line). With threadId: that child's state and, once it has settled, its result. To block until children settle, call wait instead.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
-## ace_thread_read.input
+## agents_status.input
 
-[JSON Schema](schema/ace_thread_read.input.json), input validation.
+[JSON Schema](schema/agents_status.input.json), input validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | no | [ThreadId.json](schema/ThreadId.json) |  |
-| before | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
-| limit | no | integer | {"default":20,"minimum":1,"maximum":50} |
+| threadId | no | string | {"description":"One child to read in full, with its result once settled.","minLength":1} |
 
 Example:
 
@@ -1050,354 +212,65 @@ Example:
 {}
 ```
 
-## ace_thread_read.output
+## agents_status.output
 
-[JSON Schema](schema/ace_thread_read.output.json), output validation.
+[JSON Schema](schema/agents_status.output.json), output validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"thread":{"type":"object","properties":{"id":{"type":"string","minLength":1},"title":{"type":"string"},"titleSource":{"type":"string"},"provider":{"type":"string"},"workspaceId":{"type":"string","minLength":1},"status":{"type":"object","properties":{"state":{"type":"string"}},"required":["state"],"additionalProperties":{}},"permission":{"type":"object","properties":{"effective":{"type":["string","null"]}},"required":["effective"],"additionalProperties":{}}},"required":["id","title","provider","workspaceId","status"],"additionalProperties":{}},"items":{"type":"array","items":{"type":"object","properties":{"type":{"type":"string"},"id":{"type":"string","minLength":1}},"required":["type"],"additionalProperties":{}}},"itemsBefore":{"type":["number","null"]},"linkedPrs":{"type":"array","items":{}}},"additionalProperties":{}} |
+| data | no | union | {"anyOf":[{"type":"object","properties":{"children":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"parent":{"type":"string","minLength":1},"role":{"type":"string","maxLength":40},"state":{"type":"string","enum":["working","needs_you","done","failed","cancelled"]},"step":{"type":"string","maxLength":60},"elapsedSeconds":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"ask":{"type":"string","maxLength":100},"last":{"type":"string","maxLength":100},"machine":{"type":"string","maxLength":64}},"required":["id","role","state","elapsedSeconds"],"additionalProperties":false}},"counts":{"type":"object","properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","needs_you","done","failed","cancelled"],"additionalProperties":false}},"required":["children","counts"],"additionalProperties":false},{"type":"object","properties":{"threadId":{"type":"string"},"state":{"type":"string"},"outcome":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","enum":["completed","failed","cancelled"]},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"before":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["threadId","outcome","result","truncated","before"],"additionalProperties":false}},"required":["threadId","state"],"additionalProperties":{}}]} |
 
 Example:
 
 ```json
 {
   "data": {
-    "items": [],
-    "itemsBefore": null,
-    "linkedPrs": [],
-    "thread": {
-      "id": "example",
-      "permission": {
-        "effective": "example"
-      },
-      "provider": "example",
-      "status": {
-        "state": "example"
-      },
-      "title": "example",
-      "workspaceId": "example"
-    }
+    "state": "example",
+    "threadId": "example"
   },
-  "hint": "example",
-  "ok": false
-}
-```
-
-## ace_thread_read_output
-
-Read a bounded byte range from a transcript/output source returned by ace_thread_read. Offsets and limits are bytes; the result contains base64 bytes and nextOffset. Decode using the source encoding. The stream must belong to the requested authorized thread.
-
-Required capability: none beyond session authentication. Timeout: 630000 ms.
-
-## ace_thread_read_output.input
-
-[JSON Schema](schema/ace_thread_read_output.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| streamId | yes | string | {"minLength":1,"maxLength":256} |
-| offset | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| limit | no | integer | {"default":8192,"minimum":1,"maximum":16384} |
-
-Example:
-
-```json
-{
-  "offset": 8,
-  "streamId": "example",
-  "threadId": "example"
-}
-```
-
-## ace_thread_read_output.output
-
-[JSON Schema](schema/ace_thread_read_output.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"bytes":{"type":"string","description":"Base64"},"nextOffset":{"type":"number"}},"required":["bytes"],"additionalProperties":{}} |
-
-Example:
-
-```json
-{
-  "ok": false
-}
-```
-
-## ace_thread_search
-
-Search an authorized thread's retained transcript without changing it.
-
-Required capability: none beyond session authentication. Timeout: 630000 ms.
-
-## ace_thread_search.input
-
-[JSON Schema](schema/ace_thread_search.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| query | yes | string | {"minLength":1,"maxLength":256} |
-| cursor | no | string | {"maxLength":2048} |
-| limit | no | integer | {"default":20,"minimum":1,"maximum":50} |
-
-Example:
-
-```json
-{
-  "limit": 10,
-  "query": "example",
-  "threadId": "example"
-}
-```
-
-## ace_thread_search.output
-
-[JSON Schema](schema/ace_thread_search.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"hits":{"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"threadTitle":{"type":"string"},"itemId":{"type":"string","minLength":1},"status":{"type":"string"},"provider":{"type":"string"},"snippet":{"type":"object","properties":{"text":{"type":"string"}},"required":["text"],"additionalProperties":{}}},"required":["threadId"],"additionalProperties":{}}},"cursor":{"type":["string","null"]}},"required":["hits"],"additionalProperties":{}} |
-
-Example:
-
-```json
-{
-  "hint": "example",
   "ok": true
 }
 ```
 
-## ace_thread_interrupt
+## agent_message
 
-Interrupt an owned thread and its descendants.
+Send follow-up work to a child or a thread you started; it keeps its permissions. delivery queue (default) waits for its current turn to end, steer injects now, restart interrupts its tree and replaces queued input with this text.
 
-Required capability: thread_control. Timeout: 630000 ms.
+Required capability: agents. Timeout: 630000 ms.
 
-## ace_thread_interrupt.input
+## agent_message.input
 
-[JSON Schema](schema/ace_thread_interrupt.input.json), input validation.
+[JSON Schema](schema/agent_message.input.json), input validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| threadId | yes | string | {"minLength":1,"description":"A child's threadId, from delegate or agents_status."} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
+| text | yes | string | {"minLength":1,"maxLength":262144,"description":"The message, standing on its own."} |
+| delivery | no | ["queue","steer","restart"] | {"default":"queue","description":"queue (default), steer, or restart."} |
 
 Example:
 
 ```json
 {
-  "requestId": "eIW",
-  "threadId": "example"
-}
-```
-
-## ace_thread_interrupt.output
-
-[JSON Schema](schema/ace_thread_interrupt.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-
-Example:
-
-```json
-{
-  "hint": "example",
-  "ok": false
-}
-```
-
-## ace_thread_fork
-
-Create an independent fork of an owned thread's conversation.
-
-Required capability: thread_control. Timeout: 630000 ms.
-
-## ace_thread_fork.input
-
-[JSON Schema](schema/ace_thread_fork.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| runId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-
-Example:
-
-```json
-{
-  "requestId": "J",
-  "threadId": "example"
-}
-```
-
-## ace_thread_fork.output
-
-[JSON Schema](schema/ace_thread_fork.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | any JSON value |  |
-
-Example:
-
-```json
-{
-  "ok": false
-}
-```
-
-## ace_thread_merge
-
-Merge an owned thread's work through its workspace owner.
-
-Required capability: thread_control. Timeout: 630000 ms.
-
-## ace_thread_merge.input
-
-[JSON Schema](schema/ace_thread_merge.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-
-Example:
-
-```json
-{
-  "requestId": "2tfAY6lLz_b",
-  "threadId": "example"
-}
-```
-
-## ace_thread_merge.output
-
-[JSON Schema](schema/ace_thread_merge.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | any JSON value |  |
-
-Example:
-
-```json
-{
-  "code": "not_ready",
-  "hint": "example",
-  "ok": true
-}
-```
-
-## ace_queue_edit
-
-Replace queued input on an owned thread before it is delivered.
-
-Required capability: thread_control. Timeout: 630000 ms.
-
-## ace_queue_edit.input
-
-[JSON Schema](schema/ace_queue_edit.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| entryId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| text | yes | [MessageText.json](schema/MessageText.json) |  |
-
-Example:
-
-```json
-{
-  "entryId": "sWtiiS_V",
-  "requestId": "775jn6H",
+  "requestId": "RROFJmxa5",
   "text": "example",
   "threadId": "example"
 }
 ```
 
-## ace_queue_edit.output
+## agent_message.output
 
-[JSON Schema](schema/ace_queue_edit.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | any JSON value |  |
-
-Example:
-
-```json
-{
-  "code": "not_found",
-  "ok": false
-}
-```
-
-## ace_queue_reorder
-
-Reorder pending input on an owned thread.
-
-Required capability: thread_control. Timeout: 630000 ms.
-
-## ace_queue_reorder.input
-
-[JSON Schema](schema/ace_queue_reorder.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| entryIds | yes | array | {"minItems":1,"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"}} |
-
-Example:
-
-```json
-{
-  "entryIds": [
-    "Z635PCnoA"
-  ],
-  "requestId": "-Dh-2LQymPB",
-  "threadId": "example"
-}
-```
-
-## ace_queue_reorder.output
-
-[JSON Schema](schema/ace_queue_reorder.output.json), output validation.
+[JSON Schema](schema/agent_message.output.json), output validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | any JSON value |  |
 
 Example:
 
@@ -1409,40 +282,33 @@ Example:
 }
 ```
 
-## ace_question_answer
+## agent_cancel
 
-Answer a pending question on an owned thread. Permission approvals cannot be answered.
+Stop a child and all its descendants, here or on another machine. Acceptance is not proof the tree stopped: confirm with agents_status or wait.
 
-Required capability: thread_control. Timeout: 630000 ms.
+Required capability: agents. Timeout: 630000 ms.
 
-## ace_question_answer.input
+## agent_cancel.input
 
-[JSON Schema](schema/ace_question_answer.input.json), input validation.
+[JSON Schema](schema/agent_cancel.input.json), input validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| interactionId | yes | [InteractionId.json](schema/InteractionId.json) |  |
-| answer | yes | object | {"properties":{"kind":{"type":"string","const":"question"},"answers":{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{"type":"array","items":{"type":"string"}}},"dismissed":{"type":"boolean"},"feedback":{"type":"string","maxLength":8192}},"required":["kind","answers"]} |
+| threadId | yes | string | {"minLength":1,"description":"A child's threadId, from delegate or agents_status."} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
 
 Example:
 
 ```json
 {
-  "answer": {
-    "answers": {},
-    "kind": "question"
-  },
-  "interactionId": "example",
-  "requestId": "4id",
+  "requestId": "WLWnkoEq",
   "threadId": "example"
 }
 ```
 
-## ace_question_answer.output
+## agent_cancel.output
 
-[JSON Schema](schema/ace_question_answer.output.json), output validation.
+[JSON Schema](schema/agent_cancel.output.json), output validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -1454,257 +320,19 @@ Example:
 
 ```json
 {
-  "hint": "example",
   "ok": true
 }
 ```
 
-## ace_thread_rename
+## machines
 
-Change an owned thread's display title.
-
-Required capability: thread_control. Timeout: 630000 ms.
-
-## ace_thread_rename.input
-
-[JSON Schema](schema/ace_thread_rename.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| title | yes | string | {"minLength":1,"maxLength":256} |
-| onlyIfProvisional | no | boolean |  |
-
-Example:
-
-```json
-{
-  "threadId": "example",
-  "title": "example"
-}
-```
-
-## ace_thread_rename.output
-
-[JSON Schema](schema/ace_thread_rename.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-
-Example:
-
-```json
-{
-  "code": "not_found",
-  "ok": true
-}
-```
-
-## ace_thread_regenerate_title
-
-Generate an owned thread's display title from retained user input.
-
-Required capability: thread_control. Timeout: 630000 ms.
-
-## ace_thread_regenerate_title.input
-
-[JSON Schema](schema/ace_thread_regenerate_title.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-
-Example:
-
-```json
-{
-  "threadId": "example"
-}
-```
-
-## ace_thread_regenerate_title.output
-
-[JSON Schema](schema/ace_thread_regenerate_title.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-
-Example:
-
-```json
-{
-  "hint": "example",
-  "ok": false
-}
-```
-
-## ace_thread_link_pr
-
-Link a pull request to your calling thread using its URL or number. The repo defaults to the thread workspace's origin remote; repo may be owner/name or host/owner/name. Existing links are unchanged. If the forge is offline or signed out, save an unverified link and refresh it later.
-
-Required capability: thread_control. Timeout: 630000 ms.
-
-## ace_thread_link_pr.input
-
-[JSON Schema](schema/ace_thread_link_pr.input.json), input validation.
-
-### Variant 1
-
-Semantic rule: Exactly one of url or number is required.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| url | yes | string | {"format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
-| number | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
-| repo | no | string | {"minLength":1,"maxLength":512} |
-
-Example:
-
-```json
-{
-  "url": "https://example.invalid/"
-}
-```
-
-### Variant 2
-
-Semantic rule: Exactly one of url or number is required.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| url | no | string | {"format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
-| number | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
-| repo | no | string | {"minLength":1,"maxLength":512} |
-
-Example:
-
-```json
-{
-  "number": 5,
-  "repo": "example"
-}
-```
-
-## ace_thread_link_pr.output
-
-[JSON Schema](schema/ace_thread_link_pr.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | any JSON value |  |
-
-Example:
-
-```json
-{
-  "data": null,
-  "ok": true
-}
-```
-
-## ace_thread_unlink_pr
-
-Unlink a pull request from your calling thread using its URL or number, or all: true to remove every link. This only changes the thread's links; it does not change or close the pull requests.
-
-Required capability: thread_control. Timeout: 630000 ms.
-
-## ace_thread_unlink_pr.input
-
-[JSON Schema](schema/ace_thread_unlink_pr.input.json), input validation.
-
-### Variant 1
-
-Semantic rule: Exactly one of url, number, or all: true is required.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| url | yes | string | {"format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
-| number | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
-| all | no | `true` |  |
-
-Example:
-
-```json
-{
-  "url": "https://example.invalid/"
-}
-```
-
-### Variant 2
-
-Semantic rule: Exactly one of url, number, or all: true is required.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| url | no | string | {"format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
-| number | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
-| all | no | `true` |  |
-
-Example:
-
-```json
-{
-  "number": 4
-}
-```
-
-### Variant 3
-
-Semantic rule: Exactly one of url, number, or all: true is required.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| url | no | string | {"format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
-| number | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
-| all | yes | `true` |  |
-
-Example:
-
-```json
-{
-  "all": true
-}
-```
-
-## ace_thread_unlink_pr.output
-
-[JSON Schema](schema/ace_thread_unlink_pr.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | any JSON value |  |
-
-Example:
-
-```json
-{
-  "data": null,
-  "hint": "example",
-  "ok": true
-}
-```
-
-## ace_thread_list_prs
-
-List your calling thread's linked pull requests, newest first, with their number, repository, URL, state and title.
+Other machines the person paired that let agents in: name (pass as machine), online or offline, access (read or operate), projects, tool groups and providers. Use with delegate {machine, project}; delegated children there join wait and agents_status.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
-## ace_thread_list_prs.input
+## machines.input
 
-[JSON Schema](schema/ace_thread_list_prs.input.json), input validation.
+[JSON Schema](schema/machines.input.json), input validation.
 
 Type: object. See JSON Schema for constraints.
 
@@ -1714,9 +342,52 @@ Example:
 {}
 ```
 
-## ace_thread_list_prs.output
+## machines.output
 
-[JSON Schema](schema/ace_thread_list_prs.output.json), output validation.
+[JSON Schema](schema/machines.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "code": "limit",
+  "ok": true
+}
+```
+
+## models
+
+Models a child can run on, with their efforts, and the installed providers with their login state and the access modes a child may take. Pass a model's id to delegate. Page with offset.
+
+Required capability: none beyond session authentication. Timeout: 630000 ms.
+
+## models.input
+
+[JSON Schema](schema/models.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| provider | no | [ProviderKind.json](schema/ProviderKind.json) | {"description":"Only this provider's models."} |
+| offset | no | integer | {"default":0,"description":"From nextOffset.","minimum":0,"maximum":40960} |
+
+Example:
+
+```json
+{
+  "provider": "antigravity"
+}
+```
+
+## models.output
+
+[JSON Schema](schema/models.output.json), output validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -1731,532 +402,684 @@ Example:
 {
   "data": null,
   "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
-## ace_thread_settle
+## threads_find
 
-Archive an owned thread only after its work has settled.
+Find threads in this project, or search inside one. Without threadId: threads whose title or messages match query (all recent threads when query is empty). With threadId: matching items in that thread's transcript. Page with cursor.
 
-Required capability: thread_control. Timeout: 630000 ms.
+Required capability: none beyond session authentication. Timeout: 630000 ms.
 
-## ace_thread_settle.input
+## threads_find.input
 
-[JSON Schema](schema/ace_thread_settle.input.json), input validation.
+[JSON Schema](schema/threads_find.input.json), input validation.
+
+Semantic rule: With threadId, query must not be empty.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| query | no | string | {"default":"","description":"Words to match; empty lists recent threads.","maxLength":256} |
+| threadId | no | [ThreadId.json](schema/ThreadId.json) | {"description":"Search inside this thread's transcript instead."} |
+| cursor | no | string | {"description":"From the previous page's cursor.","minLength":1,"maxLength":2048} |
+| limit | no | integer | {"default":10,"description":"Results per page, 1 to 20.","minimum":1,"maximum":20} |
 
 Example:
 
 ```json
 {
-  "threadId": "example"
+  "cursor": "example",
+  "limit": 9,
+  "query": "example"
 }
 ```
 
-## ace_thread_settle.output
+## threads_find.output
 
-[JSON Schema](schema/ace_thread_settle.output.json), output validation.
+[JSON Schema](schema/threads_find.output.json), output validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
+| data | no | object | {"properties":{"hits":{"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string"},"threadTitle":{"type":"string"},"itemId":{"type":"string"},"snippet":{"type":"object","properties":{"text":{"type":"string"}},"required":["text"],"additionalProperties":{}}},"required":["threadId"],"additionalProperties":{}}},"cursor":{"type":["string","null"]}},"required":["hits"],"additionalProperties":{}} |
 
 Example:
 
 ```json
 {
-  "code": "forbidden",
   "hint": "example",
-  "ok": true
-}
-```
-
-## ace_thread_snooze
-
-Snooze notifications for an owned thread until the supplied time.
-
-Required capability: thread_control. Timeout: 630000 ms.
-
-## ace_thread_snooze.input
-
-[JSON Schema](schema/ace_thread_snooze.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| until | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/Timestamp.json"},{"type":"null"}]} |
-
-Example:
-
-```json
-{
-  "threadId": "example",
-  "until": null
-}
-```
-
-## ace_thread_snooze.output
-
-[JSON Schema](schema/ace_thread_snooze.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-
-Example:
-
-```json
-{
-  "ok": true
-}
-```
-
-## ace_automation_manage
-
-Create, change or run a local automation and its future agent work.
-
-Required capability: automations. Timeout: 630000 ms.
-
-## ace_automation_manage.input
-
-[JSON Schema](schema/ace_automation_manage.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| request | yes | [AutomationRequest.json](schema/AutomationRequest.json) |  |
-
-Example:
-
-```json
-{
-  "request": {
-    "automation": {
-      "concurrency": 6,
-      "enabled": true,
-      "id": "example",
-      "jitterMs": 9,
-      "missedRun": "skip",
-      "prompt": "example",
-      "provider": "codex",
-      "title": "example",
-      "trigger": {
-        "kind": "file",
-        "paths": [
-          "example"
-        ]
-      },
-      "workspace": "example",
-      "worktree": false
-    },
-    "requestId": "example",
-    "type": "automation.put"
-  }
-}
-```
-
-## ace_automation_manage.output
-
-[JSON Schema](schema/ace_automation_manage.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | any JSON value |  |
-
-Example:
-
-```json
-{
   "ok": false
 }
 ```
 
-## ace_project_read
+## thread_read
 
-Read the caller's workspace project metadata.
+Read a thread: title, status, branch, linked PRs, preview servers and a page of its transcript, newest first. Omit threadId for this thread. Page back with before = itemsBefore. A truncated part with source.streamId continues with streamId and offset (base64 bytes, then nextOffset).
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
-## ace_project_read.input
+## thread_read.input
 
-[JSON Schema](schema/ace_project_read.input.json), input validation.
+[JSON Schema](schema/thread_read.input.json), input validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| threadId | no | [ThreadId.json](schema/ThreadId.json) | {"description":"Default: this thread."} |
+| before | no | integer | {"description":"The previous page's itemsBefore.","exclusiveMinimum":0,"maximum":9007199254740991} |
+| limit | no | integer | {"default":20,"description":"Items per page, 1 to 50.","minimum":1,"maximum":50} |
+| streamId | no | string | {"description":"Read a truncated part's retained output instead of the transcript.","minLength":1,"maxLength":256} |
+| offset | no | integer | {"default":0,"description":"With streamId: byte offset, from nextOffset.","minimum":0,"maximum":9007199254740991} |
+| maxBytes | no | integer | {"default":8192,"description":"With streamId: bytes to read, up to 16384.","minimum":1,"maximum":16384} |
 
 Example:
 
 ```json
 {
-  "workspaceId": "example"
-}
-```
-
-## ace_project_read.output
-
-[JSON Schema](schema/ace_project_read.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"id":{"type":"string","minLength":1},"name":{"type":"string"}},"required":["id","name"],"additionalProperties":{}} |
-
-Example:
-
-```json
-{
-  "ok": false
-}
-```
-
-## ace_project_rename
-
-Change the caller's workspace project display name.
-
-Required capability: projects. Timeout: 630000 ms.
-
-## ace_project_rename.input
-
-[JSON Schema](schema/ace_project_rename.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
-| name | yes | string | {"minLength":1,"maxLength":256} |
-
-Example:
-
-```json
-{
-  "name": "example",
-  "workspaceId": "example"
-}
-```
-
-## ace_project_rename.output
-
-[JSON Schema](schema/ace_project_rename.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"id":{"type":"string","minLength":1},"name":{"type":"string"}},"required":["id","name"],"additionalProperties":{}} |
-
-Example:
-
-```json
-{
-  "ok": true
-}
-```
-
-## ace_thread_handoff
-
-Prepare a Git worktree and hand off an owned thread's conversation to it.
-
-Required capability: thread_control. Timeout: 630000 ms.
-
-## ace_thread_handoff.input
-
-[JSON Schema](schema/ace_thread_handoff.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-| branch | yes | string | {"minLength":1,"maxLength":256} |
-
-Example:
-
-```json
-{
-  "branch": "example",
-  "requestId": "NAlqQAZw",
-  "threadId": "example"
-}
-```
-
-## ace_thread_handoff.output
-
-[JSON Schema](schema/ace_thread_handoff.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | any JSON value |  |
-
-Example:
-
-```json
-{
-  "code": "unsupported",
-  "ok": false
-}
-```
-
-## ace_preview_list
-
-List preview servers associated with an authorized thread.
-
-Required capability: none beyond session authentication. Timeout: 630000 ms.
-
-## ace_preview_list.input
-
-[JSON Schema](schema/ace_preview_list.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-
-Example:
-
-```json
-{
-  "threadId": "example"
-}
-```
-
-## ace_preview_list.output
-
-[JSON Schema](schema/ace_preview_list.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | any JSON value |  |
-
-Example:
-
-```json
-{
-  "ok": true
-}
-```
-
-## ace_preview_close
-
-Stop a preview server associated with an owned thread.
-
-Required capability: thread_control. Timeout: 630000 ms.
-
-## ace_preview_close.input
-
-[JSON Schema](schema/ace_preview_close.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| previewId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
-
-Example:
-
-```json
-{
-  "previewId": "itqnVEz",
-  "threadId": "example"
-}
-```
-
-## ace_preview_close.output
-
-[JSON Schema](schema/ace_preview_close.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| ok | yes | boolean |  |
-| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
-| hint | no | string | {"maxLength":512} |
-| data | no | any JSON value |  |
-
-Example:
-
-```json
-{
-  "code": "unsupported",
-  "data": null,
-  "ok": false
-}
-```
-
-## ace_read_handoff
-
-Page cited handoff history. Use sourceThreadId from the manifest and itemsBefore for earlier pages.
-
-Required capability: none beyond session authentication. Timeout: 10000 ms.
-
-## ace_read_handoff.input
-
-[JSON Schema](schema/ace_read_handoff.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| sourceThreadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| before | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
-| limit | no | integer | {"default":50,"minimum":1,"maximum":50} |
-
-Example:
-
-```json
-{
-  "sourceThreadId": "example"
-}
-```
-
-## ace_read_handoff.output
-
-[JSON Schema](schema/ace_read_handoff.output.json), output validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| threadId | yes | string | {"minLength":1} |
-| items | yes | array | {"maxItems":50,"items":{"oneOf":[{"type":"object","properties":{"id":{"type":"string","minLength":1},"agentId":{"type":"string","minLength":1},"runId":{"type":"string","minLength":1},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"nativeId":{"type":"string","maxLength":256},"executionSource":{"type":"object","properties":{"nativeSessionId":{"type":"string","minLength":1,"maxLength":512},"selection":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"options":{"default":{},"type":"object","propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"anyOf":[{"type":"string","maxLength":1024},{"type":"number"},{"type":"boolean"},{"type":"null"}]},"x-ace-constraint":"At most 32 provider option entries."}},"required":["provider","options"],"additionalProperties":false}},"required":["nativeSessionId","selection"],"additionalProperties":false},"complete":{"type":"boolean"},"type":{"type":"string","const":"html"},"visualization":{"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":160},"document":{"type":"object","properties":{"sha256":{"type":"string","pattern":"^[a-f0-9]{64}$"},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991},"mimeType":{"type":"string","maxLength":128},"name":{"type":"string","maxLength":255},"kind":{"type":"string","enum":["image","pdf","text","binary"]},"delivery":{"type":"string","enum":["native_image","native_pdf","native_resource","inline_text","inline_text_and_path","file_path"]},"width":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"height":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"thumbnailAvailable":{"type":"boolean"}},"required":["sha256","bytes","mimeType","name"],"additionalProperties":false},"height":{"type":"integer","minimum":80,"maximum":2000},"mode":{"type":"string","enum":["interactive","static"]}},"required":["title","document"],"additionalProperties":false},"raw":{"default":[],"type":"array","items":{"anyOf":[{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"},"data":{}},"required":["type","data"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"},"blobRef":{"type":"string","minLength":1},"size":{"type":"integer","minimum":0,"maximum":9007199254740991},"preview":{"type":"string","x-ace-constraint":"UTF-8 encoding must be at most 2048 bytes."}},"required":["type","blobRef","size","preview"],"additionalProperties":false}]}}},"required":["id","agentId","createdAt","complete","type","visualization","raw"],"additionalProperties":false},{"type":"object","properties":{"id":{"type":"string","minLength":1},"agentId":{"type":"string","minLength":1},"runId":{"type":"string","minLength":1},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"nativeId":{"type":"string","maxLength":256},"executionSource":{"type":"object","properties":{"nativeSessionId":{"type":"string","minLength":1,"maxLength":512},"selection":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"options":{"default":{},"type":"object","propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"anyOf":[{"type":"string","maxLength":1024},{"type":"number"},{"type":"boolean"},{"type":"null"}]},"x-ace-constraint":"At most 32 provider option entries."}},"required":["provider","options"],"additionalProperties":false}},"required":["nativeSessionId","selection"],"additionalProperties":false},"complete":{"type":"boolean"},"type":{"type":"string","const":"message"},"role":{"type":"string","enum":["user","assistant"]},"parts":{"type":"array","items":{"oneOf":[{"type":"object","properties":{"type":{"type":"string","const":"mention"},"entryId":{"type":"string","minLength":1,"maxLength":256},"name":{"type":"string","minLength":1,"maxLength":256},"title":{"type":"string","minLength":1,"maxLength":256},"kind":{"type":"string","enum":["skill","command","plugin","agent","workflow","mcp-tool","builtin"]},"icon":{"type":"string","maxLength":4096},"arguments":{"default":"","type":"string","maxLength":16384},"values":{"type":"object","propertyNames":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.:-]+$"},"additionalProperties":{"anyOf":[{"type":"string","maxLength":16384},{"type":"number"},{"type":"boolean"}]},"maxProperties":64,"x-ace-constraint":"At most 64 arguments."},"invocation":{"oneOf":[{"type":"object","properties":{"type":{"type":"string","const":"slash"},"name":{"type":"string","minLength":1,"maxLength":256}},"required":["type","name"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string","const":"skill"},"name":{"type":"string","minLength":1,"maxLength":256},"path":{"type":"string","minLength":1,"maxLength":4096}},"required":["type","name","path"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string","const":"mention"},"name":{"type":"string","minLength":1,"maxLength":256},"path":{"type":"string","minLength":1,"maxLength":4096}},"required":["type","name","path"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string","const":"plugin"},"name":{"type":"string","minLength":1,"maxLength":256}},"required":["type","name"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string","const":"agent"},"name":{"type":"string","minLength":1,"maxLength":256}},"required":["type","name"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string","const":"tool"},"name":{"type":"string","minLength":1,"maxLength":256},"server":{"type":"string","maxLength":256}},"required":["type","name","server"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string","const":"prompt"},"commandId":{"type":"string","minLength":1,"maxLength":256},"parameters":{"type":"object","propertyNames":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.:-]+$"},"additionalProperties":{"type":"object","properties":{"type":{"type":"string","enum":["string","number","boolean"]},"required":{"default":false,"type":"boolean"},"default":{"anyOf":[{"type":"string","maxLength":16384},{"type":"number"},{"type":"boolean"}]}},"required":["type","required"],"additionalProperties":false,"x-ace-constraint":"An argument default must have the declared type."},"maxProperties":64,"x-ace-constraint":"At most 64 arguments."}},"required":["type","commandId"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string","const":"action"},"action":{"type":"string","minLength":1,"maxLength":128}},"required":["type","action"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string","const":"unavailable"},"reason":{"type":"string","minLength":1,"maxLength":2048}},"required":["type","reason"],"additionalProperties":false}]}},"required":["type","entryId","name","kind","arguments"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string","const":"text"},"text":{"type":"string"},"source":{"type":"object","properties":{"streamId":{"type":"string","minLength":1},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991},"encoding":{"type":"string","const":"utf-16le"}},"required":["streamId","bytes","encoding"],"additionalProperties":false}},"required":["type","text"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string","const":"image"},"mimeType":{"type":"string"},"url":{"type":"string"}},"required":["type","mimeType","url"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string","const":"file"},"path":{"type":"string"},"mimeType":{"type":"string"},"name":{"type":"string","maxLength":255},"content":{"oneOf":[{"type":"object","properties":{"encoding":{"type":"string","const":"base64"},"data":{"type":"string","maxLength":46137344}},"required":["encoding","data"],"additionalProperties":false},{"type":"object","properties":{"encoding":{"type":"string","const":"text"},"data":{"type":"string","maxLength":131072}},"required":["encoding","data"],"additionalProperties":false}]}},"required":["type","path"],"additionalProperties":false}]}},"attachments":{"maxItems":64,"type":"array","items":{"type":"object","properties":{"sha256":{"type":"string","pattern":"^[a-f0-9]{64}$"},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991},"mimeType":{"type":"string","maxLength":128},"name":{"type":"string","maxLength":255},"kind":{"type":"string","enum":["image","pdf","text","binary"]},"delivery":{"type":"string","enum":["native_image","native_pdf","native_resource","inline_text","inline_text_and_path","file_path"]},"width":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"height":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"thumbnailAvailable":{"type":"boolean"}},"required":["sha256","bytes","mimeType","name"],"additionalProperties":false}},"synthetic":{"default":false,"type":"boolean"},"origin":{"type":"object","properties":{"kind":{"type":"string","enum":["person","interaction_answer","subagent_result","handoff","spawn","parent_agent","restart","limit_resume","queue","automation","schedule","background_completion"]},"commandId":{"type":"string","minLength":1},"interactionId":{"type":"string","minLength":1},"threadIds":{"type":"array","items":{"type":"string","minLength":1}},"parentThreadId":{"type":"string","minLength":1},"role":{"type":"string"},"from":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string"}},"required":["provider"],"additionalProperties":false},"to":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string"}},"required":["provider"],"additionalProperties":false},"lossy":{"type":"boolean"}},"required":["kind"],"additionalProperties":false},"notAnswered":{"type":"string","const":"stopped"},"mergedContext":{"type":"object","properties":{"sourceThreadId":{"type":"string","minLength":1},"summary":{"type":"string","minLength":1,"maxLength":262144},"citations":{"minItems":1,"maxItems":100,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"itemId":{"type":"string","minLength":1}},"required":["threadId","itemId"],"additionalProperties":false}},"patchApplied":{"type":"boolean"}},"required":["sourceThreadId","summary","citations","patchApplied"],"additionalProperties":false},"raw":{"default":[],"type":"array","items":{"anyOf":[{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"},"data":{}},"required":["type","data"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"},"blobRef":{"type":"string","minLength":1},"size":{"type":"integer","minimum":0,"maximum":9007199254740991},"preview":{"type":"string","x-ace-constraint":"UTF-8 encoding must be at most 2048 bytes."}},"required":["type","blobRef","size","preview"],"additionalProperties":false}]}}},"required":["id","agentId","createdAt","complete","type","role","parts","synthetic","raw"],"additionalProperties":false},{"type":"object","properties":{"id":{"type":"string","minLength":1},"agentId":{"type":"string","minLength":1},"runId":{"type":"string","minLength":1},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"nativeId":{"type":"string","maxLength":256},"executionSource":{"type":"object","properties":{"nativeSessionId":{"type":"string","minLength":1,"maxLength":512},"selection":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"options":{"default":{},"type":"object","propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"anyOf":[{"type":"string","maxLength":1024},{"type":"number"},{"type":"boolean"},{"type":"null"}]},"x-ace-constraint":"At most 32 provider option entries."}},"required":["provider","options"],"additionalProperties":false}},"required":["nativeSessionId","selection"],"additionalProperties":false},"complete":{"type":"boolean"},"type":{"type":"string","const":"delegation.started"},"origin":{"type":"string","const":"ace"},"childThreadId":{"type":"string","minLength":1},"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"accountId":{"type":"string","minLength":1,"maxLength":256},"title":{"type":"string","maxLength":256},"role":{"type":"string","maxLength":1024},"phase":{"type":"string","enum":["created","running","cancelling","settled"]},"status":{"oneOf":[{"type":"object","properties":{"state":{"type":"string","const":"needs_you"},"interactions":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["state","interactions"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"working"},"agents":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["state","agents"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"waiting"},"on":{"type":"string","enum":["background_task","rate_limit","network","upstream","queue"]}},"required":["state","on"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"limited"},"until":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"failed"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"unresponsive"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"done"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"new"}},"required":["state"],"additionalProperties":false}]},"updatedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"generation":{"type":"integer","minimum":0,"maximum":9007199254740991},"outcome":{"default":null,"anyOf":[{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","enum":["completed","failed","cancelled"]},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"before":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["threadId","outcome","result","truncated","before"],"additionalProperties":false},{"type":"null"}]},"machine":{"type":"object","properties":{"machine":{"type":"string","minLength":1,"maxLength":64},"name":{"type":"string","minLength":1,"maxLength":256}},"required":["machine","name"],"additionalProperties":false},"raw":{"default":[],"type":"array","items":{"anyOf":[{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"},"data":{}},"required":["type","data"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"},"blobRef":{"type":"string","minLength":1},"size":{"type":"integer","minimum":0,"maximum":9007199254740991},"preview":{"type":"string","x-ace-constraint":"UTF-8 encoding must be at most 2048 bytes."}},"required":["type","blobRef","size","preview"],"additionalProperties":false}]}}},"required":["id","agentId","createdAt","complete","type","origin","childThreadId","provider","title","role","phase","status","updatedAt","generation","outcome","raw"],"additionalProperties":false},{"type":"object","properties":{"id":{"type":"string","minLength":1},"agentId":{"type":"string","minLength":1},"runId":{"type":"string","minLength":1},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"nativeId":{"type":"string","maxLength":256},"executionSource":{"type":"object","properties":{"nativeSessionId":{"type":"string","minLength":1,"maxLength":512},"selection":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"options":{"default":{},"type":"object","propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"anyOf":[{"type":"string","maxLength":1024},{"type":"number"},{"type":"boolean"},{"type":"null"}]},"x-ace-constraint":"At most 32 provider option entries."}},"required":["provider","options"],"additionalProperties":false}},"required":["nativeSessionId","selection"],"additionalProperties":false},"complete":{"type":"boolean"},"type":{"type":"string","const":"delegation.settled"},"origin":{"type":"string","const":"ace"},"results":{"minItems":1,"maxItems":64,"type":"array","items":{"type":"object","properties":{"threadId":{"type":"string","minLength":1},"outcome":{"type":"string","enum":["completed","failed","cancelled"]},"result":{"type":"string","maxLength":4096},"truncated":{"type":"boolean"},"before":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["threadId","outcome","result","truncated","before"],"additionalProperties":false}},"delivery":{"type":"string","enum":["tool","ace-input"]},"raw":{"default":[],"type":"array","items":{"anyOf":[{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"},"data":{}},"required":["type","data"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"},"blobRef":{"type":"string","minLength":1},"size":{"type":"integer","minimum":0,"maximum":9007199254740991},"preview":{"type":"string","x-ace-constraint":"UTF-8 encoding must be at most 2048 bytes."}},"required":["type","blobRef","size","preview"],"additionalProperties":false}]}}},"required":["id","agentId","createdAt","complete","type","origin","results","delivery","raw"],"additionalProperties":false},{"type":"object","properties":{"id":{"type":"string","minLength":1},"agentId":{"type":"string","minLength":1},"runId":{"type":"string","minLength":1},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"nativeId":{"type":"string","maxLength":256},"executionSource":{"type":"object","properties":{"nativeSessionId":{"type":"string","minLength":1,"maxLength":512},"selection":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"options":{"default":{},"type":"object","propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"anyOf":[{"type":"string","maxLength":1024},{"type":"number"},{"type":"boolean"},{"type":"null"}]},"x-ace-constraint":"At most 32 provider option entries."}},"required":["provider","options"],"additionalProperties":false}},"required":["nativeSessionId","selection"],"additionalProperties":false},"complete":{"type":"boolean"},"type":{"type":"string","const":"reasoning"},"text":{"type":"string"},"source":{"type":"object","properties":{"streamId":{"type":"string","minLength":1},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991},"encoding":{"type":"string","const":"utf-16le"}},"required":["streamId","bytes","encoding"],"additionalProperties":false},"summary":{"default":false,"type":"boolean"},"raw":{"default":[],"type":"array","items":{"anyOf":[{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"},"data":{}},"required":["type","data"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"},"blobRef":{"type":"string","minLength":1},"size":{"type":"integer","minimum":0,"maximum":9007199254740991},"preview":{"type":"string","x-ace-constraint":"UTF-8 encoding must be at most 2048 bytes."}},"required":["type","blobRef","size","preview"],"additionalProperties":false}]}}},"required":["id","agentId","createdAt","complete","type","text","summary","raw"],"additionalProperties":false},{"type":"object","properties":{"id":{"type":"string","minLength":1},"agentId":{"type":"string","minLength":1},"runId":{"type":"string","minLength":1},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"nativeId":{"type":"string","maxLength":256},"executionSource":{"type":"object","properties":{"nativeSessionId":{"type":"string","minLength":1,"maxLength":512},"selection":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"options":{"default":{},"type":"object","propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"anyOf":[{"type":"string","maxLength":1024},{"type":"number"},{"type":"boolean"},{"type":"null"}]},"x-ace-constraint":"At most 32 provider option entries."}},"required":["provider","options"],"additionalProperties":false}},"required":["nativeSessionId","selection"],"additionalProperties":false},"complete":{"type":"boolean"},"type":{"type":"string","const":"tool_call"},"call":{"type":"object","properties":{"id":{"type":"string","minLength":1},"agentId":{"type":"string","minLength":1},"kind":{"type":"string","enum":["shell","file.read","file.edit","file.write","file.delete","file.move","search","web.search","web.fetch","mcp","agent.spawn","agent.message","todo","plan","ask_user","browser","image","notebook","custom"]},"title":{"type":"string"},"status":{"type":"string","enum":["pending","awaiting_approval","running","succeeded","failed","declined","cancelled"]},"detail":{"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"shell"},"command":{"type":"string"},"rawCommand":{"type":"string"},"cwd":{"type":"string"},"exitCode":{"anyOf":[{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991},{"type":"null"}]},"output":{"type":"object","properties":{"streamId":{"type":"string","minLength":1},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991},"tail":{"type":"string","x-ace-constraint":"UTF-8 encoding must be at most 4096 bytes."},"truncated":{"type":"boolean"}},"required":["streamId","bytes","tail","truncated"],"additionalProperties":false}},"required":["kind","command"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"file.read"},"path":{"type":"string"},"range":{"type":"object","properties":{"start":{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991},"end":{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991}},"required":["start","end"],"additionalProperties":false}},"required":["kind","path"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","enum":["file.edit","file.write","file.delete","file.move"]},"changes":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"kind":{"type":"string","enum":["add","update","delete","move"]},"movePath":{"type":"string"},"diff":{"type":"string"},"oldText":{"type":["string","null"]},"newText":{"type":"string"}},"required":["path","kind"],"additionalProperties":false}}},"required":["kind","changes"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"search"},"query":{"type":"string"},"path":{"type":"string"},"matches":{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991}},"required":["kind","query"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"web.search"},"query":{"type":"string"}},"required":["kind","query"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"web.fetch"},"url":{"type":"string"}},"required":["kind","url"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"mcp"},"server":{"type":"string"},"tool":{"type":"string"},"arguments":{}},"required":["kind","server","tool"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"agent.spawn"},"description":{"type":"string"},"prompt":{"type":"string"},"agentType":{"type":"string"},"childAgentId":{"type":"string","minLength":1}},"required":["kind"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"agent.message"},"targetAgentId":{"type":"string","minLength":1},"message":{"type":"string"}},"required":["kind"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"todo"},"todos":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"content":{"type":"string"},"status":{"type":"string","enum":["pending","in_progress","completed","cancelled"]}},"required":["content","status"],"additionalProperties":false}}},"required":["kind","todos"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"plan"},"markdown":{"type":"string"},"todos":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"content":{"type":"string"},"status":{"type":"string","enum":["pending","in_progress","completed","cancelled"]}},"required":["content","status"],"additionalProperties":false}}},"required":["kind"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"ask_user"}},"required":["kind"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"image"},"path":{"type":"string","maxLength":4096},"sourcePath":{"type":"string","maxLength":4096},"attachment":{"type":"object","properties":{"sha256":{"type":"string","pattern":"^[a-f0-9]{64}$"},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991},"mimeType":{"type":"string","maxLength":128},"name":{"type":"string","maxLength":255},"kind":{"type":"string","enum":["image","pdf","text","binary"]},"delivery":{"type":"string","enum":["native_image","native_pdf","native_resource","inline_text","inline_text_and_path","file_path"]},"width":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"height":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"thumbnailAvailable":{"type":"boolean"}},"required":["sha256","bytes","mimeType","name"],"additionalProperties":false},"unavailable":{"type":"string"}},"required":["kind"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","enum":["browser","notebook","custom"]}},"required":["kind"],"additionalProperties":false}]},"backgroundTaskId":{"type":"string","minLength":1},"error":{"type":"string"},"result":{"type":"object","properties":{"isError":{"type":"boolean"},"content":{"maxItems":16,"type":"array","items":{"oneOf":[{"type":"object","properties":{"type":{"type":"string","const":"text"},"text":{"type":"string","maxLength":32768}},"required":["type","text"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string","const":"image"},"attachment":{"type":"object","properties":{"sha256":{"type":"string","pattern":"^[a-f0-9]{64}$"},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991},"mimeType":{"type":"string","maxLength":128},"name":{"type":"string","maxLength":255},"kind":{"type":"string","enum":["image","pdf","text","binary"]},"delivery":{"type":"string","enum":["native_image","native_pdf","native_resource","inline_text","inline_text_and_path","file_path"]},"width":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"height":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"thumbnailAvailable":{"type":"boolean"}},"required":["sha256","bytes","mimeType","name"],"additionalProperties":false}},"required":["type","attachment"],"additionalProperties":false}]}},"structuredContent":{},"durationMs":{"type":"number","minimum":0},"target":{"type":"object","properties":{"bundleId":{"type":"string","maxLength":256},"windowId":{"type":"integer","minimum":0,"maximum":9007199254740991},"displayName":{"type":"string","maxLength":256}},"required":["bundleId","displayName"],"additionalProperties":false},"mode":{"type":"string","enum":["background","foreground"]},"scale":{"type":"number","exclusiveMinimum":0},"size":{"type":"object","properties":{"width":{"type":"integer","exclusiveMinimum":0,"maximum":16384},"height":{"type":"integer","exclusiveMinimum":0,"maximum":16384}},"required":["width","height"],"additionalProperties":false}},"required":["isError","content","durationMs"],"additionalProperties":false},"startedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"endedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"raw":{"type":"array","items":{"anyOf":[{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"},"data":{}},"required":["type","data"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"},"blobRef":{"type":"string","minLength":1},"size":{"type":"integer","minimum":0,"maximum":9007199254740991},"preview":{"type":"string","x-ace-constraint":"UTF-8 encoding must be at most 2048 bytes."}},"required":["type","blobRef","size","preview"],"additionalProperties":false}]}}},"required":["id","agentId","kind","title","status","detail","startedAt","raw"],"additionalProperties":false},"measurement":{"type":"object","properties":{"source":{"type":"string","enum":["screen-frames","browser-trace"]},"target":{"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"window"},"bundleId":{"type":"string","minLength":1,"maxLength":256},"windowId":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["kind","bundleId","windowId"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"browser-tab"},"threadId":{"type":"string","minLength":1,"maxLength":256},"tabId":{"type":"string","minLength":1,"maxLength":256}},"required":["kind","threadId"],"additionalProperties":false}]},"action":{"anyOf":[{"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"pointer.move"},"x":{"type":"number","minimum":0},"y":{"type":"number","minimum":0}},"required":["kind","x","y"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"pointer.click"},"x":{"type":"number","minimum":0},"y":{"type":"number","minimum":0},"button":{"default":"left","type":"string","enum":["left","right"]}},"required":["kind","x","y","button"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"pointer.drag"},"durationMs":{"type":"integer","minimum":1,"maximum":10000},"x":{"type":"number","minimum":0},"y":{"type":"number","minimum":0},"toX":{"type":"number","minimum":0},"toY":{"type":"number","minimum":0},"button":{"default":"left","type":"string","enum":["left","right"]}},"required":["kind","x","y","toX","toY","button"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"key.press"},"key":{"type":"string","enum":["0","1","2","3","4","5","6","7","8","9","A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z","a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u","v","w","x","y","z","Enter","Return","Tab","Space","Backspace","Escape","Esc","Delete","Home","End","PageUp","PageDown","Left","Right","Up","Down","ArrowLeft","ArrowRight","ArrowUp","ArrowDown","enter","return","tab","space","backspace","escape","esc","delete","home","end","pageup","pagedown","left","right","up","down","arrowleft","arrowright","arrowup","arrowdown","F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12","F13","F14","F15","F16","F17","F18","F19","F20","f1","f2","f3","f4","f5","f6","f7","f8","f9","f10","f11","f12","f13","f14","f15","f16","f17","f18","f19","f20","-","=","[","]","\\",";","'",",",".","/","`","!","@","#","$","%","^","&","*","(",")","_","+","{","}","\|",":","\"","<",">","?","~"]},"modifiers":{"default":[],"maxItems":4,"type":"array","items":{"type":"string","enum":["command","shift","option","control","alt","meta","super"]}}},"required":["kind","key","modifiers"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"text.type"},"text":{"type":"string","maxLength":4096}},"required":["kind","text"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"scroll"},"x":{"type":"number","minimum":0},"y":{"type":"number","minimum":0},"dx":{"type":"integer","minimum":-1000,"maximum":1000},"dy":{"type":"integer","minimum":-1000,"maximum":1000}},"required":["kind","dx","dy"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"text.paste"},"text":{"type":"string","maxLength":4096}},"required":["kind","text"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"pointer.down"},"x":{"type":"number","minimum":0},"y":{"type":"number","minimum":0}},"required":["kind","x","y"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"pointer.up"},"x":{"type":"number","minimum":0},"y":{"type":"number","minimum":0}},"required":["kind","x","y"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"pointer.cancel"}},"required":["kind"],"additionalProperties":false}]},{"oneOf":[{"type":"object","properties":{"action":{"type":"string","const":"click"},"ref":{"type":"string","minLength":1,"maxLength":256}},"required":["action","ref"],"additionalProperties":false},{"type":"object","properties":{"action":{"type":"string","const":"type"},"ref":{"type":"string","minLength":1,"maxLength":256},"text":{"type":"string","maxLength":65536}},"required":["action","ref","text"],"additionalProperties":false},{"type":"object","properties":{"action":{"type":"string","const":"press"},"key":{"type":"string","minLength":1,"maxLength":256},"ref":{"type":"string","minLength":1,"maxLength":256}},"required":["action","key"],"additionalProperties":false},{"type":"object","properties":{"action":{"type":"string","const":"scroll"},"x":{"type":"number","minimum":-100000,"maximum":100000},"y":{"type":"number","minimum":-100000,"maximum":100000}},"required":["action","x","y"],"additionalProperties":false},{"type":"object","properties":{"action":{"type":"string","const":"drag"},"ref":{"type":"string","minLength":1,"maxLength":256},"toRef":{"type":"string","minLength":1,"maxLength":256}},"required":["action","ref","toRef"],"additionalProperties":false}]}]},"refreshHz":{"type":"number","exclusiveMinimum":0,"maximum":240},"windowMs":{"type":"number","minimum":0,"maximum":10000},"latencyMs":{"type":"number","minimum":0},"settleMs":{"type":"number","minimum":0},"frames":{"type":"integer","minimum":0,"maximum":2400},"effectiveFps":{"type":"number","minimum":0},"droppedFrames":{"type":"integer","minimum":0,"maximum":9007199254740991},"hitches":{"maxItems":20,"type":"array","items":{"type":"object","properties":{"atMs":{"type":"number","minimum":0},"durationMs":{"type":"number","minimum":0}},"required":["atMs","durationMs"],"additionalProperties":false}},"hitchRatioMsPerS":{"type":"number","minimum":0},"hitchTimeMs":{"type":"number","minimum":0},"longTasks":{"maxItems":100,"type":"array","items":{"type":"object","properties":{"atMs":{"type":"number","minimum":0},"durationMs":{"type":"number","minimum":0}},"required":["atMs","durationMs"],"additionalProperties":false}},"layoutShift":{"type":"number","minimum":0},"verdict":{"type":"string","enum":["smooth","minor_hitches","janky","no_change","inconclusive"]},"confidence":{"type":"string","enum":["high","medium","low"]},"hostLoad":{"type":"number","minimum":0},"captureOverheadPct":{"type":"number","minimum":0},"notes":{"maxItems":32,"type":"array","items":{"type":"string","maxLength":512}},"repeat":{"type":"object","properties":{"runs":{"minItems":1,"maxItems":5,"type":"array","items":{"type":"object","properties":{"verdict":{"type":"string","enum":["smooth","minor_hitches","janky","no_change","inconclusive"]},"confidence":{"type":"string","enum":["high","medium","low"]}},"required":["verdict","confidence"],"additionalProperties":false}},"metrics":{"type":"object","properties":{"refreshHz":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"windowMs":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"frames":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"latencyMs":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"settleMs":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"effectiveFps":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"droppedFrames":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"hitchRatioMsPerS":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"layoutShift":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"hostLoad":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"captureOverheadPct":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"longTaskMs":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"hitchMs":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false}},"required":["refreshHz","windowMs","frames","hitchMs"],"additionalProperties":false}},"required":["runs","metrics"],"additionalProperties":false},"filmstrip":{"type":"object","properties":{"sha256":{"type":"string","pattern":"^[a-f0-9]{64}$"},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991},"mimeType":{"type":"string","maxLength":128},"name":{"type":"string","maxLength":255},"kind":{"type":"string","enum":["image","pdf","text","binary"]},"delivery":{"type":"string","enum":["native_image","native_pdf","native_resource","inline_text","inline_text_and_path","file_path"]},"width":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"height":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"thumbnailAvailable":{"type":"boolean"}},"required":["sha256","bytes","mimeType","name"],"additionalProperties":false}},"required":["source","target","refreshHz","windowMs","frames","hitches","verdict","confidence","notes"],"additionalProperties":false}},"required":["id","agentId","createdAt","complete","type","call"],"additionalProperties":false},{"type":"object","properties":{"id":{"type":"string","minLength":1},"agentId":{"type":"string","minLength":1},"runId":{"type":"string","minLength":1},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"nativeId":{"type":"string","maxLength":256},"executionSource":{"type":"object","properties":{"nativeSessionId":{"type":"string","minLength":1,"maxLength":512},"selection":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"options":{"default":{},"type":"object","propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"anyOf":[{"type":"string","maxLength":1024},{"type":"number"},{"type":"boolean"},{"type":"null"}]},"x-ace-constraint":"At most 32 provider option entries."}},"required":["provider","options"],"additionalProperties":false}},"required":["nativeSessionId","selection"],"additionalProperties":false},"complete":{"type":"boolean"},"type":{"type":"string","const":"notice"},"level":{"type":"string","enum":["info","warning","error"]},"commandId":{"type":"string","minLength":1},"interactionId":{"type":"string","minLength":1},"code":{"type":"string"},"diagnostic":{"type":"boolean"},"title":{"type":"string"},"detail":{"type":"string"},"details":{"type":"object","properties":{"code":{"type":"string","minLength":1,"maxLength":256},"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"title":{"type":"string","maxLength":256},"detail":{"type":"string","maxLength":2048},"model":{"type":"string","minLength":1,"maxLength":256}},"required":["code","provider"],"additionalProperties":false},"toolCallId":{"type":"string","minLength":1},"measurement":{"type":"object","properties":{"source":{"type":"string","enum":["screen-frames","browser-trace"]},"target":{"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"window"},"bundleId":{"type":"string","minLength":1,"maxLength":256},"windowId":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["kind","bundleId","windowId"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"browser-tab"},"threadId":{"type":"string","minLength":1,"maxLength":256},"tabId":{"type":"string","minLength":1,"maxLength":256}},"required":["kind","threadId"],"additionalProperties":false}]},"action":{"anyOf":[{"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"pointer.move"},"x":{"type":"number","minimum":0},"y":{"type":"number","minimum":0}},"required":["kind","x","y"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"pointer.click"},"x":{"type":"number","minimum":0},"y":{"type":"number","minimum":0},"button":{"default":"left","type":"string","enum":["left","right"]}},"required":["kind","x","y","button"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"pointer.drag"},"durationMs":{"type":"integer","minimum":1,"maximum":10000},"x":{"type":"number","minimum":0},"y":{"type":"number","minimum":0},"toX":{"type":"number","minimum":0},"toY":{"type":"number","minimum":0},"button":{"default":"left","type":"string","enum":["left","right"]}},"required":["kind","x","y","toX","toY","button"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"key.press"},"key":{"type":"string","enum":["0","1","2","3","4","5","6","7","8","9","A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z","a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u","v","w","x","y","z","Enter","Return","Tab","Space","Backspace","Escape","Esc","Delete","Home","End","PageUp","PageDown","Left","Right","Up","Down","ArrowLeft","ArrowRight","ArrowUp","ArrowDown","enter","return","tab","space","backspace","escape","esc","delete","home","end","pageup","pagedown","left","right","up","down","arrowleft","arrowright","arrowup","arrowdown","F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12","F13","F14","F15","F16","F17","F18","F19","F20","f1","f2","f3","f4","f5","f6","f7","f8","f9","f10","f11","f12","f13","f14","f15","f16","f17","f18","f19","f20","-","=","[","]","\\",";","'",",",".","/","`","!","@","#","$","%","^","&","*","(",")","_","+","{","}","\|",":","\"","<",">","?","~"]},"modifiers":{"default":[],"maxItems":4,"type":"array","items":{"type":"string","enum":["command","shift","option","control","alt","meta","super"]}}},"required":["kind","key","modifiers"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"text.type"},"text":{"type":"string","maxLength":4096}},"required":["kind","text"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"scroll"},"x":{"type":"number","minimum":0},"y":{"type":"number","minimum":0},"dx":{"type":"integer","minimum":-1000,"maximum":1000},"dy":{"type":"integer","minimum":-1000,"maximum":1000}},"required":["kind","dx","dy"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"text.paste"},"text":{"type":"string","maxLength":4096}},"required":["kind","text"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"pointer.down"},"x":{"type":"number","minimum":0},"y":{"type":"number","minimum":0}},"required":["kind","x","y"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"pointer.up"},"x":{"type":"number","minimum":0},"y":{"type":"number","minimum":0}},"required":["kind","x","y"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"pointer.cancel"}},"required":["kind"],"additionalProperties":false}]},{"oneOf":[{"type":"object","properties":{"action":{"type":"string","const":"click"},"ref":{"type":"string","minLength":1,"maxLength":256}},"required":["action","ref"],"additionalProperties":false},{"type":"object","properties":{"action":{"type":"string","const":"type"},"ref":{"type":"string","minLength":1,"maxLength":256},"text":{"type":"string","maxLength":65536}},"required":["action","ref","text"],"additionalProperties":false},{"type":"object","properties":{"action":{"type":"string","const":"press"},"key":{"type":"string","minLength":1,"maxLength":256},"ref":{"type":"string","minLength":1,"maxLength":256}},"required":["action","key"],"additionalProperties":false},{"type":"object","properties":{"action":{"type":"string","const":"scroll"},"x":{"type":"number","minimum":-100000,"maximum":100000},"y":{"type":"number","minimum":-100000,"maximum":100000}},"required":["action","x","y"],"additionalProperties":false},{"type":"object","properties":{"action":{"type":"string","const":"drag"},"ref":{"type":"string","minLength":1,"maxLength":256},"toRef":{"type":"string","minLength":1,"maxLength":256}},"required":["action","ref","toRef"],"additionalProperties":false}]}]},"refreshHz":{"type":"number","exclusiveMinimum":0,"maximum":240},"windowMs":{"type":"number","minimum":0,"maximum":10000},"latencyMs":{"type":"number","minimum":0},"settleMs":{"type":"number","minimum":0},"frames":{"type":"integer","minimum":0,"maximum":2400},"effectiveFps":{"type":"number","minimum":0},"droppedFrames":{"type":"integer","minimum":0,"maximum":9007199254740991},"hitches":{"maxItems":20,"type":"array","items":{"type":"object","properties":{"atMs":{"type":"number","minimum":0},"durationMs":{"type":"number","minimum":0}},"required":["atMs","durationMs"],"additionalProperties":false}},"hitchRatioMsPerS":{"type":"number","minimum":0},"hitchTimeMs":{"type":"number","minimum":0},"longTasks":{"maxItems":100,"type":"array","items":{"type":"object","properties":{"atMs":{"type":"number","minimum":0},"durationMs":{"type":"number","minimum":0}},"required":["atMs","durationMs"],"additionalProperties":false}},"layoutShift":{"type":"number","minimum":0},"verdict":{"type":"string","enum":["smooth","minor_hitches","janky","no_change","inconclusive"]},"confidence":{"type":"string","enum":["high","medium","low"]},"hostLoad":{"type":"number","minimum":0},"captureOverheadPct":{"type":"number","minimum":0},"notes":{"maxItems":32,"type":"array","items":{"type":"string","maxLength":512}},"repeat":{"type":"object","properties":{"runs":{"minItems":1,"maxItems":5,"type":"array","items":{"type":"object","properties":{"verdict":{"type":"string","enum":["smooth","minor_hitches","janky","no_change","inconclusive"]},"confidence":{"type":"string","enum":["high","medium","low"]}},"required":["verdict","confidence"],"additionalProperties":false}},"metrics":{"type":"object","properties":{"refreshHz":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"windowMs":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"frames":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"latencyMs":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"settleMs":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"effectiveFps":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"droppedFrames":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"hitchRatioMsPerS":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"layoutShift":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"hostLoad":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"captureOverheadPct":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"longTaskMs":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false},"hitchMs":{"type":"object","properties":{"median":{"type":"number","minimum":0},"worst":{"type":"number","minimum":0}},"required":["median","worst"],"additionalProperties":false}},"required":["refreshHz","windowMs","frames","hitchMs"],"additionalProperties":false}},"required":["runs","metrics"],"additionalProperties":false},"filmstrip":{"type":"object","properties":{"sha256":{"type":"string","pattern":"^[a-f0-9]{64}$"},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991},"mimeType":{"type":"string","maxLength":128},"name":{"type":"string","maxLength":255},"kind":{"type":"string","enum":["image","pdf","text","binary"]},"delivery":{"type":"string","enum":["native_image","native_pdf","native_resource","inline_text","inline_text_and_path","file_path"]},"width":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"height":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"thumbnailAvailable":{"type":"boolean"}},"required":["sha256","bytes","mimeType","name"],"additionalProperties":false}},"required":["source","target","refreshHz","windowMs","frames","hitches","verdict","confidence","notes"],"additionalProperties":false},"text":{"type":"string"},"source":{"type":"object","properties":{"streamId":{"type":"string","minLength":1},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991},"encoding":{"type":"string","const":"utf-16le"}},"required":["streamId","bytes","encoding"],"additionalProperties":false},"raw":{"default":[],"type":"array","items":{"anyOf":[{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"},"data":{}},"required":["type","data"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string"},"name":{"type":"string"},"blobRef":{"type":"string","minLength":1},"size":{"type":"integer","minimum":0,"maximum":9007199254740991},"preview":{"type":"string","x-ace-constraint":"UTF-8 encoding must be at most 2048 bytes."}},"required":["type","blobRef","size","preview"],"additionalProperties":false}]}}},"required":["id","agentId","createdAt","complete","type","level","text","raw"],"additionalProperties":false},{"type":"object","properties":{"id":{"type":"string","minLength":1},"agentId":{"type":"string","minLength":1},"runId":{"type":"string","minLength":1},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"nativeId":{"type":"string","maxLength":256},"executionSource":{"type":"object","properties":{"nativeSessionId":{"type":"string","minLength":1,"maxLength":512},"selection":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"options":{"default":{},"type":"object","propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"anyOf":[{"type":"string","maxLength":1024},{"type":"number"},{"type":"boolean"},{"type":"null"}]},"x-ace-constraint":"At most 32 provider option entries."}},"required":["provider","options"],"additionalProperties":false}},"required":["nativeSessionId","selection"],"additionalProperties":false},"complete":{"type":"boolean"},"type":{"type":"string","const":"compaction"},"tokensBefore":{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991},"tokensAfter":{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991}},"required":["id","agentId","createdAt","complete","type"],"additionalProperties":false},{"type":"object","properties":{"id":{"type":"string","minLength":1},"agentId":{"type":"string","minLength":1},"runId":{"type":"string","minLength":1},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"nativeId":{"type":"string","maxLength":256},"executionSource":{"type":"object","properties":{"nativeSessionId":{"type":"string","minLength":1,"maxLength":512},"selection":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"options":{"default":{},"type":"object","propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"anyOf":[{"type":"string","maxLength":1024},{"type":"number"},{"type":"boolean"},{"type":"null"}]},"x-ace-constraint":"At most 32 provider option entries."}},"required":["provider","options"],"additionalProperties":false}},"required":["nativeSessionId","selection"],"additionalProperties":false},"complete":{"type":"boolean"},"type":{"type":"string","const":"artifact"},"filename":{"type":"string","maxLength":256},"flags":{"type":"array","items":{"type":"string","enum":["executable","archive"]}},"source":{"type":"string","enum":["browser","device"]},"artifactId":{"type":"string","minLength":1,"maxLength":256},"path":{"type":"string"},"mimeType":{"type":"string"},"bytes":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","createdAt","complete","type","source","path","mimeType","bytes"],"additionalProperties":false}]}} |
-| itemsBefore | yes | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
-
-Example:
-
-```json
-{
-  "items": [],
-  "itemsBefore": 3,
-  "threadId": "example"
-}
-```
-
-## ace_read_handoff_chunk
-
-Read a bounded text or shell-output stream from handoff history. Bytes are base64; decode with the returned encoding. Continue at nextOffset until eof.
-
-Required capability: none beyond session authentication. Timeout: 10000 ms.
-
-## ace_read_handoff_chunk.input
-
-[JSON Schema](schema/ace_read_handoff_chunk.input.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| sourceThreadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| streamId | yes | string | {"minLength":1,"maxLength":1024} |
-| offset | no | integer | {"default":0,"minimum":0,"maximum":9007199254740991} |
-| limit | no | integer | {"default":32768,"minimum":1,"maximum":32768} |
-
-Example:
-
-```json
-{
-  "offset": 3,
-  "sourceThreadId": "example",
+  "limit": 5,
   "streamId": "example"
 }
 ```
 
-## ace_read_handoff_chunk.output
+## thread_read.output
 
-[JSON Schema](schema/ace_read_handoff_chunk.output.json), output validation.
+[JSON Schema](schema/thread_read.output.json), output validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| bytes | yes | string | {"maxLength":43692} |
-| encoding | yes | ["utf-16le","utf-8"] |  |
-| nextOffset | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| eof | yes | boolean |  |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+| data | no | object | {"properties":{"thread":{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"}},"required":["id","title"],"additionalProperties":{}},"items":{"type":"array","items":{"type":"object","properties":{"type":{"type":"string"},"id":{"type":"string"}},"required":["type"],"additionalProperties":{}}},"itemsBefore":{"type":["number","null"]},"linkedPrs":{"type":"array","items":{}},"previews":{"type":"array","items":{}},"bytes":{"description":"Base64 output bytes, when reading a stream","type":"string"},"nextOffset":{"type":"number"}},"additionalProperties":{}} |
 
 Example:
 
 ```json
 {
-  "bytes": "example",
-  "encoding": "utf-16le",
-  "eof": true,
-  "nextOffset": 5
+  "hint": "example",
+  "ok": true
 }
 ```
 
-## ace_status
+## thread_start
 
-Describe ace, this connection, which ace tool groups are enabled, and the thread's access mode. Groups cover only ace's own tools: use your own workspace tools for files and shell. Also available as ace://status.
+Open a new top-level thread in the person's sidebar; text is its first message and its agent answers at once. For child work whose result you need, use delegate. If the call is cut short, call again with the same requestId to get the same thread. The person sees it as a card: relay its summary in a sentence, without ids.
 
-Required capability: none beyond session authentication. Timeout: 10000 ms.
+Required capability: thread_control. Timeout: 630000 ms.
 
-## ace_status.input
+## thread_start.input
 
-[JSON Schema](schema/ace_status.input.json), input validation.
-
-Type: object. See JSON Schema for constraints.
-
-Example:
-
-```json
-{}
-```
-
-## ace_status.output
-
-[JSON Schema](schema/ace_status.output.json), output validation.
+[JSON Schema](schema/thread_start.input.json), input validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | yes | string | {"minLength":1} |
-| agentId | yes | string | {"minLength":1} |
-| access | yes | union | {"anyOf":[{"type":"string","enum":["read-only","ask","auto-review","full-access"]},{"type":"null"}]} |
-| groups | yes | array | {"maxItems":9,"items":{"type":"object","properties":{"name":{"type":"string","enum":["thread","browser","notify","agents","thread_control","automations","projects","screen","devices"]},"enabled":{"type":"boolean"},"reason":{"type":"string","maxLength":512}},"required":["name","enabled"],"additionalProperties":false}} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
+| title | yes | string | {"minLength":1,"maxLength":256,"description":"The sidebar title."} |
+| text | yes | string | {"minLength":1,"maxLength":262144,"description":"The first message, standing on its own."} |
+| workspace | no | [AgentWorkspace.json](schema/AgentWorkspace.json) | {"default":{"kind":"project"},"description":"Where it works. Default: this project's checkout; new_worktree starts a Git worktree from base."} |
+| provider | no | [ProviderKind.json](schema/ProviderKind.json) | {"description":"Default: yours."} |
+| model | no | string | {"description":"A model id from `models`.","minLength":1,"maxLength":256} |
+| effort | no | string | {"description":"Reasoning effort, such as high.","minLength":1,"maxLength":64} |
+| access | no | [AccessRequest.json](schema/AccessRequest.json) | {"description":"Default inherit; never broader than yours."} |
 
 Example:
 
 ```json
 {
   "access": "full-access",
-  "agentId": "example",
-  "groups": [],
+  "provider": "acp",
+  "requestId": "XWhi_jpSeb",
+  "text": "example",
+  "title": "example",
+  "workspace": {
+    "kind": "existing_worktree",
+    "path": "example"
+  }
+}
+```
+
+## thread_start.output
+
+[JSON Schema](schema/thread_start.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "hint": "example",
+  "ok": true
+}
+```
+
+## thread_merge
+
+Merge an owned thread's worktree changes back into the branch it started from. This overwrites files there, so your provider may ask the person first.
+
+Required capability: thread_control. Timeout: 630000 ms.
+
+## thread_merge.input
+
+[JSON Schema](schema/thread_merge.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | string | {"minLength":1,"description":"A thread you own: this one or one you started."} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
+
+Example:
+
+```json
+{
+  "requestId": "GXd1joJ",
   "threadId": "example"
 }
 ```
 
-## ace_context
+## thread_merge.output
 
-What this project already knows, in one read: recent threads with their outcomes and PRs, this worktree's changes versus upstream, linked PRs with CI state, project notes, and this session's diagnostics (failed ace calls, what blocks settlement). Cheaper than re-reading transcripts; each topic is also an ace:// resource.
-
-Required capability: none beyond session authentication. Timeout: 30000 ms.
-
-## ace_context.input
-
-[JSON Schema](schema/ace_context.input.json), input validation.
+[JSON Schema](schema/thread_merge.output.json), output validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| topics | no | array | {"default":["recent","changes","prs","notes"],"minItems":1,"maxItems":5,"items":{"type":"string","enum":["recent","changes","prs","notes","diagnostics"]}} |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "ok": true
+}
+```
+
+## queue_edit
+
+Change an owned thread's queued input before it is delivered: replace one entry's text (entryId and text), or reorder pending entries (order).
+
+Required capability: thread_control. Timeout: 630000 ms.
+
+## queue_edit.input
+
+[JSON Schema](schema/queue_edit.input.json), input validation.
+
+Semantic rule: Either entryId with text, or order.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | string | {"minLength":1,"description":"A thread you own: this one or one you started."} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
+| entryId | no | string | {"description":"The queued entry to replace.","minLength":1,"maxLength":128} |
+| text | no | [MessageText.json](schema/MessageText.json) | {"description":"Its new text."} |
+| order | no | array | {"description":"Pending entry ids in their new order.","minItems":1,"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":128}} |
+
+Example:
+
+```json
+{
+  "entryId": "example",
+  "requestId": "3yKYn8dOwK",
+  "text": "example",
+  "threadId": "example"
+}
+```
+
+## queue_edit.output
+
+[JSON Schema](schema/queue_edit.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+
+Example:
+
+```json
+{
+  "ok": false
+}
+```
+
+## question_answer
+
+Answer a question an owned thread's agent asked (wait and agents_status name it under needs_you). Permission approvals belong to the person and cannot be answered here.
+
+Required capability: thread_control. Timeout: 630000 ms.
+
+## question_answer.input
+
+[JSON Schema](schema/question_answer.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | string | {"minLength":1,"description":"A thread you own: this one or one you started."} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
+| interactionId | yes | string | {"minLength":1,"description":"The request's interactionId."} |
+| answers | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"type":"array","items":{"type":"string"}},"description":"Question id to the chosen option ids, or to free text when other is allowed."} |
+| dismissed | no | boolean | {"description":"Decline to answer; the agent continues without."} |
+| feedback | no | string | {"description":"Why, when declining.","maxLength":8192} |
+
+Example:
+
+```json
+{
+  "answers": {},
+  "interactionId": "example",
+  "requestId": "qOZIJGa",
+  "threadId": "example"
+}
+```
+
+## question_answer.output
+
+[JSON Schema](schema/question_answer.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+
+Example:
+
+```json
+{
+  "code": "limit",
+  "hint": "example",
+  "ok": false
+}
+```
+
+## thread_link_pr
+
+Link the pull request for this thread's work, by URL or number, so the person sees its state and CI on the thread. Call it right after you open or find the PR. unlink removes a link (all: true removes every link); the PR itself never changes.
+
+Required capability: thread_control. Timeout: 630000 ms.
+
+## thread_link_pr.input
+
+[JSON Schema](schema/thread_link_pr.input.json), input validation.
+
+Semantic rule: Exactly one of url, number, or all: true; all only with unlink.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| url | no | string | {"description":"The pull request URL.","format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
+| number | no | integer | {"description":"Or its number.","exclusiveMinimum":0,"maximum":9007199254740991} |
+| repo | no | string | {"description":"owner/name or host/owner/name; default: this workspace's origin.","minLength":1,"maxLength":512} |
+| unlink | no | boolean | {"default":false,"description":"Remove the link instead."} |
+| all | no | `true` | {"description":"With unlink: remove every link."} |
+
+Example:
+
+```json
+{
+  "repo": "example",
+  "unlink": true,
+  "url": "https://example.invalid/"
+}
+```
+
+## thread_link_pr.output
+
+[JSON Schema](schema/thread_link_pr.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "data": null,
+  "hint": "example",
+  "ok": false
+}
+```
+
+## thread_control
+
+Change a thread you own (this one or one you started): rename, configure its model, fork, hand off to a new worktree, interrupt, settle (archive), snooze, close a preview server, or rename this project. Each action's fields are named in action's description.
+
+Required capability: thread_control. Timeout: 630000 ms.
+
+## thread_control.input
+
+[JSON Schema](schema/thread_control.input.json), input validation.
+
+Semantic rule: configure needs requestId and model; fork and interrupt need requestId; handoff needs requestId and branch; snooze needs until; close_preview needs previewId; rename_project needs name.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | ["rename","configure","fork","handoff","interrupt","settle","snooze","close_preview","rename_project"] | {"description":"rename: set title, or omit title to retitle from the first message. configure: model and effort. fork: copy the conversation into a new thread. handoff: move it to a new Git worktree on branch. interrupt: stop its current turn and its children. settle: archive it once done. snooze: mute its notifications until a time. close_preview: stop a preview server. rename_project: rename this project."} |
+| threadId | no | [ThreadId.json](schema/ThreadId.json) | {"description":"A thread you own. Default: this thread."} |
+| requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
+| title | no | string | {"description":"rename: the new title.","minLength":1,"maxLength":256} |
+| onlyIfProvisional | no | boolean | {"description":"rename: only replace a title ace generated, never one the person chose."} |
+| model | no | string | {"description":"configure: a model id from `models`.","minLength":1,"maxLength":256} |
+| effort | no | string | {"description":"configure: reasoning effort.","minLength":1,"maxLength":64} |
+| serviceTier | no | ["default","priority","flex"] | {"description":"configure."} |
+| runId | no | string | {"description":"fork: fork after this run; default the latest.","minLength":1,"maxLength":128} |
+| branch | no | string | {"description":"handoff: the new branch name.","minLength":1,"maxLength":256} |
+| until | no | union | {"description":"snooze: epoch milliseconds, or null to unmute.","anyOf":[{"$ref":"https://ace.local/protocol/v1/Timestamp.json"},{"type":"null"}]} |
+| previewId | no | string | {"description":"close_preview: from thread_read.","minLength":1,"maxLength":128} |
+| name | no | string | {"description":"rename_project: the new name.","minLength":1,"maxLength":256} |
+
+Example:
+
+```json
+{
+  "action": "interrupt",
+  "branch": "example",
+  "model": "example",
+  "name": "example",
+  "requestId": "PUM-7GeTgz",
+  "runId": "example",
+  "threadId": "example"
+}
+```
+
+## thread_control.output
+
+[JSON Schema](schema/thread_control.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "code": "unavailable",
+  "data": null,
+  "hint": "example",
+  "ok": true
+}
+```
+
+## automations_list
+
+Automations you or the threads you own created in this project, with each schedule's next run. runs: true reads recent runs instead, newest first, paged with before.
+
+Required capability: none beyond session authentication. Timeout: 630000 ms.
+
+## automations_list.input
+
+[JSON Schema](schema/automations_list.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| runs | no | boolean | {"default":false,"description":"Read recent runs instead of definitions."} |
+| automationId | no | string | {"description":"runs: only this automation's runs.","minLength":1,"maxLength":256} |
+| before | no | integer | {"description":"runs: the previous page's before.","exclusiveMinimum":0,"maximum":9007199254740991} |
+| limit | no | integer | {"default":20,"description":"runs: runs per page.","minimum":1,"maximum":100} |
+
+Example:
+
+```json
+{
+  "limit": 4
+}
+```
+
+## automations_list.output
+
+[JSON Schema](schema/automations_list.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "ok": true
+}
+```
+
+## automation_put
+
+Create or replace an automation in this project: a prompt that runs as a child agent when run with automation_run, or on a schedule (RRULE or cron). Saving the same id again replaces it.
+
+Required capability: automations. Timeout: 630000 ms.
+
+## automation_put.input
+
+[JSON Schema](schema/automation_put.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"minLength":1,"maxLength":256,"description":"The automation's id, as you named it in automation_put."} |
+| title | yes | string | {"minLength":1,"maxLength":256,"description":"What it does, for the person's list."} |
+| prompt | yes | string | {"minLength":1,"maxLength":262144,"description":"The child's whole task, standing on its own."} |
+| schedule | no | [AutomationSchedule.json](schema/AutomationSchedule.json) | {"description":"Run on this schedule. kind rrule or cron; startAt in epoch ms, a whole minute. Omit for manual runs only."} |
+| enabled | no | boolean | {"default":true,"description":"false saves it paused."} |
+| provider | no | [ProviderKind.json](schema/ProviderKind.json) | {"description":"Default: yours."} |
+| model | no | string | {"description":"A model id from `models`.","minLength":1,"maxLength":256} |
+| access | no | [AccessMode.json](schema/AccessMode.json) | {"description":"The child's access mode; default yours."} |
+| missedRun | no | ["skip","run_once"] | {"default":"skip","description":"A schedule missed while ace was off: skip (default) or run once."} |
+
+Example:
+
+```json
+{
+  "id": "example",
+  "prompt": "example",
+  "schedule": {
+    "expression": "example",
+    "kind": "cron",
+    "startAt": 0,
+    "timezone": "example"
+  },
+  "title": "example"
+}
+```
+
+## automation_put.output
+
+[JSON Schema](schema/automation_put.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "ok": false
+}
+```
+
+## automation_run
+
+Run a saved automation now, as a child agent. Its run appears in automations_list {runs: true} with the child's threadId.
+
+Required capability: automations. Timeout: 630000 ms.
+
+## automation_run.input
+
+[JSON Schema](schema/automation_run.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"minLength":1,"maxLength":256,"description":"The automation's id, as you named it in automation_put."} |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
+| variables | no | [TriggerVariables.json](schema/TriggerVariables.json) | {"default":{},"description":"Values for {{name}} placeholders in its prompt."} |
+
+Example:
+
+```json
+{
+  "id": "example",
+  "requestId": "cDA2WeP",
+  "variables": {}
+}
+```
+
+## automation_run.output
+
+[JSON Schema](schema/automation_run.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "ok": true
+}
+```
+
+## automation_remove
+
+Delete a saved automation and its schedule. Past runs stay in the run list.
+
+Required capability: automations. Timeout: 630000 ms.
+
+## automation_remove.input
+
+[JSON Schema](schema/automation_remove.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"minLength":1,"maxLength":256,"description":"The automation's id, as you named it in automation_put."} |
+
+Example:
+
+```json
+{
+  "id": "example"
+}
+```
+
+## automation_remove.output
+
+[JSON Schema](schema/automation_remove.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+
+Example:
+
+```json
+{
+  "ok": true
+}
+```
+
+## handoff_read
+
+Page the history cited by a handoff from another provider: items newest first (before = itemsBefore for earlier ones), or with streamId a bounded text or shell-output stream as base64 in the returned encoding, continued at nextOffset until eof.
+
+Required capability: none beyond session authentication. Timeout: 10000 ms.
+
+## handoff_read.input
+
+[JSON Schema](schema/handoff_read.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| sourceThreadId | yes | string | {"minLength":1,"description":"The sourceThreadId from the handoff manifest."} |
+| before | no | integer | {"description":"The previous page's itemsBefore, for earlier items.","exclusiveMinimum":0,"maximum":9007199254740991} |
+| limit | no | integer | {"default":50,"description":"Items per page, 1 to 50.","minimum":1,"maximum":50} |
+| streamId | no | string | {"description":"Read a cited text or shell-output stream instead of items.","minLength":1,"maxLength":1024} |
+| offset | no | integer | {"default":0,"description":"With streamId: byte offset, from nextOffset.","minimum":0,"maximum":9007199254740991} |
+| maxBytes | no | integer | {"default":32768,"description":"With streamId: bytes to read.","minimum":1,"maximum":32768} |
+
+Example:
+
+```json
+{
+  "limit": 9,
+  "sourceThreadId": "example"
+}
+```
+
+## handoff_read.output
+
+[JSON Schema](schema/handoff_read.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | no | string |  |
+| items | no | array | {"items":{"type":"object","properties":{"type":{"type":"string"},"id":{"type":"string"}},"required":["type"],"additionalProperties":{}}} |
+| itemsBefore | no | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| bytes | no | string |  |
+| encoding | no | ["utf-16le","utf-8"] |  |
+| nextOffset | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| eof | no | boolean |  |
+
+Example:
+
+```json
+{
+  "encoding": "utf-16le"
+}
+```
+
+## context
+
+What ace already knows, in one read; call it before working in an existing project. status: this thread, project, access mode and which ace tool groups are on. recent: recent threads with outcomes and PRs. changes: this worktree's branch, upstream and uncommitted paths. prs: linked PRs with CI. notes: project notes. diagnostics: this session's failed ace calls and what keeps the thread from settling.
+
+Required capability: none beyond session authentication. Timeout: 30000 ms.
+
+## context.input
+
+[JSON Schema](schema/context.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| topics | no | array | {"default":["status","recent","changes","prs","notes"],"description":"Only the topics you need. Default: status, recent, changes, prs, notes.","minItems":1,"maxItems":6,"items":{"type":"string","enum":["status","recent","changes","prs","notes","diagnostics"]}} |
 
 Example:
 
 ```json
 {
   "topics": [
-    "changes"
+    "recent"
   ]
 }
 ```
 
-## ace_context.output
+## context.output
 
-[JSON Schema](schema/ace_context.output.json), output validation.
+[JSON Schema](schema/context.output.json), output validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2265,26 +1088,39 @@ Example:
 | prs | no | array | {"maxItems":20,"items":{"type":"object","properties":{"threadId":{"type":"string"},"number":{"type":"number"},"url":{"type":"string","maxLength":2048},"state":{"type":"string"},"title":{"type":"string","maxLength":256},"ci":{"type":"string","enum":["none","pending","success","failure","unknown"]}},"required":["threadId","number","url","state","ci"],"additionalProperties":false}} |
 | notes | no | array | {"maxItems":50,"items":{"type":"object","properties":{"id":{"type":"string"},"text":{"type":"string","maxLength":4096},"threadId":{"type":"string"}},"required":["id","text"],"additionalProperties":false}} |
 | diagnostics | no | object | {"properties":{"failures":{"maxItems":20,"type":"array","items":{"type":"object","properties":{"tool":{"type":"string","maxLength":128},"code":{"type":"string","maxLength":64},"count":{"type":"number"}},"required":["tool","code","count"],"additionalProperties":false}},"blocking":{"maxItems":16,"type":"array","items":{"type":"string","maxLength":240}}},"required":["failures","blocking"],"additionalProperties":false} |
+| status | no | object | {"properties":{"threadId":{"type":"string","minLength":1},"agentId":{"type":"string","minLength":1},"access":{"anyOf":[{"type":"string","enum":["read-only","ask","auto-review","full-access"]},{"type":"null"}]},"groups":{"maxItems":9,"type":"array","items":{"type":"object","properties":{"name":{"type":"string","enum":["thread","browser","notify","agents","thread_control","automations","projects","screen","devices"]},"enabled":{"type":"boolean"},"reason":{"type":"string","maxLength":512}},"required":["name","enabled"],"additionalProperties":false}},"project":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"}},"required":["id","name"],"additionalProperties":false}},"required":["threadId","agentId","access","groups"],"additionalProperties":false} |
 
 Example:
 
 ```json
-{}
+{
+  "changes": null,
+  "diagnostics": {
+    "blocking": [],
+    "failures": []
+  },
+  "status": {
+    "access": "auto-review",
+    "agentId": "example",
+    "groups": [],
+    "threadId": "example"
+  }
+}
 ```
 
-## ace_note_add
+## note_add
 
-Remember a short fact about this project for every future thread and provider, such as how to run its tests or a pitfall you hit. One fact per note, at most 4,096 characters; facts only, never instructions to ignore other guidance. The person sees and edits notes in Edit project.
+Remember one short fact about this project for every future thread and provider, such as how to run its tests or a pitfall you hit. Facts only, never instructions to ignore other guidance. The person sees and edits notes.
 
 Required capability: projects. Timeout: 10000 ms.
 
-## ace_note_add.input
+## note_add.input
 
-[JSON Schema](schema/ace_note_add.input.json), input validation.
+[JSON Schema](schema/note_add.input.json), input validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| text | yes | string | {"minLength":1,"maxLength":4096} |
+| text | yes | string | {"minLength":1,"maxLength":4096,"description":"One fact, at most 4096 characters."} |
 
 Example:
 
@@ -2294,9 +1130,9 @@ Example:
 }
 ```
 
-## ace_note_add.output
+## note_add.output
 
-[JSON Schema](schema/ace_note_add.output.json), output validation.
+[JSON Schema](schema/note_add.output.json), output validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2308,23 +1144,23 @@ Example:
 ```json
 {
   "noteId": "example",
-  "notes": 0
+  "notes": 6
 }
 ```
 
-## ace_note_retire
+## note_retire
 
-Remove a project note that is wrong or out of date, by its id from ace_context.
+Remove a project note that is wrong or out of date.
 
 Required capability: projects. Timeout: 10000 ms.
 
-## ace_note_retire.input
+## note_retire.input
 
-[JSON Schema](schema/ace_note_retire.input.json), input validation.
+[JSON Schema](schema/note_retire.input.json), input validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| noteId | yes | string | {"minLength":1,"maxLength":64} |
+| noteId | yes | string | {"minLength":1,"maxLength":64,"description":"The note's id from context topic notes."} |
 
 Example:
 
@@ -2334,9 +1170,9 @@ Example:
 }
 ```
 
-## ace_note_retire.output
+## note_retire.output
 
-[JSON Schema](schema/ace_note_retire.output.json), output validation.
+[JSON Schema](schema/note_retire.output.json), output validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2346,39 +1182,39 @@ Example:
 
 ```json
 {
-  "retired": true
+  "retired": false
 }
 ```
 
-## ace_ask
+## ask
 
-Ask the person a question in ace and wait for the answer, up to timeoutSeconds (at most 240). Offer options when you can. If they have not answered by then, it returns pending: end your turn; their answer arrives as their next message. Use only when you have no native ask tool of your own. Never use it to ask for permission.
+Ask the person a question in ace and wait up to timeoutSeconds for the answer. If they have not answered by then it returns pending: end your turn, and their answer arrives as their next message. Never use it to ask for permission.
 
 Required capability: none beyond session authentication. Timeout: 250000 ms.
 
-## ace_ask.input
+## ask.input
 
-[JSON Schema](schema/ace_ask.input.json), input validation.
+[JSON Schema](schema/ask.input.json), input validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| question | yes | string | {"minLength":1,"maxLength":1000} |
-| options | no | array | {"maxItems":8,"items":{"type":"string","minLength":1,"maxLength":80}} |
-| allowOther | no | boolean | {"default":true} |
-| timeoutSeconds | no | integer | {"default":240,"minimum":5,"maximum":240} |
+| question | yes | string | {"minLength":1,"maxLength":1000,"description":"One clear question."} |
+| options | no | array | {"description":"Answers to choose from, when you can offer them.","maxItems":8,"items":{"type":"string","minLength":1,"maxLength":80}} |
+| allowOther | no | boolean | {"default":true,"description":"Let the person type their own answer."} |
+| timeoutSeconds | no | integer | {"default":240,"description":"How long to wait, 5 to 240 seconds.","minimum":5,"maximum":240} |
 
 Example:
 
 ```json
 {
-  "allowOther": true,
+  "options": [],
   "question": "example"
 }
 ```
 
-## ace_ask.output
+## ask.output
 
-[JSON Schema](schema/ace_ask.output.json), output validation.
+[JSON Schema](schema/ask.output.json), output validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2393,5 +1229,88 @@ Example:
   "answer": [],
   "askId": "example",
   "status": "declined"
+}
+```
+
+## tools_find
+
+Find the ace tools for what you want to do, among the ones this session can call. Returns each match's name, purpose, effect and input schema.
+
+Required capability: none beyond session authentication. Timeout: 10000 ms.
+
+## tools_find.input
+
+[JSON Schema](schema/tools_find.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| query | yes | string | {"minLength":1,"maxLength":500,"description":"What you want to do, in plain words, e.g. \"click a button in Safari\"."} |
+| limit | no | integer | {"default":5,"description":"At most this many.","minimum":1,"maximum":10} |
+| family | no | ["ace-agents","ace-browser","visualize","ace-threads","ace-computer-use"] | {"description":"Only this family's tools."} |
+
+Example:
+
+```json
+{
+  "query": "example"
+}
+```
+
+## tools_find.output
+
+[JSON Schema](schema/tools_find.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| matches | yes | array | {"maxItems":10,"items":{"type":"object","properties":{"name":{"type":"string"},"title":{"type":"string"},"purpose":{"type":"string"},"family":{"type":"string"},"effect":{"type":"string","enum":["read-only","changes","destructive"]},"inputSchema":{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{}}},"required":["name","purpose","effect","inputSchema"],"additionalProperties":false}} |
+| how | no | string |  |
+| hint | no | string |  |
+
+Example:
+
+```json
+{
+  "how": "example",
+  "matches": []
+}
+```
+
+## tools_call
+
+Run any ace tool by name, with the arguments its schema takes (from tools_find or guide). Returns that tool's result.
+
+Required capability: none beyond session authentication. Timeout: 660000 ms.
+
+## tools_call.input
+
+[JSON Schema](schema/tools_call.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string | {"minLength":1,"maxLength":128,"x-ace-constraint":"Not tools_find or tools_call.","description":"The tool's name, as tools_find returns it."} |
+| arguments | no | object | {"default":{},"description":"The tool's own arguments, matching its input schema.","propertyNames":{"type":"string"},"additionalProperties":{}} |
+
+Example:
+
+```json
+{
+  "name": "example"
+}
+```
+
+## tools_call.output
+
+[JSON Schema](schema/tools_call.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| content | yes | array | {"items":{}} |
+| isError | no | boolean |  |
+
+Example:
+
+```json
+{
+  "content": []
 }
 ```

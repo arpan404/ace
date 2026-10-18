@@ -25,10 +25,6 @@ const known: [RegExp, PublicToolCode][] = [
 /** Chromium's network error name, as CDP (`net::ERR_…`) or Electron (`ERR_… (-N)`) word it. */
 const netError = /\bnet::(ERR_[A-Z0-9_]+)|\b(ERR_[A-Z0-9_]+) \(-\d+\)/;
 
-/** What a tool returns while a dialog holds its tab, with the way out. */
-export const pendingDialogHint =
-  "A dialog is open in this tab and holds it: nothing else runs there until it is answered. Answer it with ace_browser_dialog (this dialogId, accept true or false, promptText for a prompt), then retry.";
-
 /**
  * The failure an agent sees for a browser tool. Public failures pass through; a raw engine
  * failure with a known meaning becomes its public code; anything else stays private and is

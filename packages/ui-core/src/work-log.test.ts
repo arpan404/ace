@@ -182,7 +182,7 @@ test("a failed step says why: the exit code for commands, the error otherwise", 
     {
       kind: "mcp",
       server: "ace",
-      tool: "ace_browser_open",
+      tool: "browser_open",
       arguments: { url: "https://youtube.com" },
     },
     "failed",
@@ -325,7 +325,7 @@ test("reading other lines of a file doesn't retry a failed read", () => {
 
 test("before the tool wording loads (idle, after first paint), a step reads plainly", () => {
   const mcp = call(
-    { kind: "mcp", server: "ace", tool: "ace_browser_open", arguments: { url: "https://x.dev" } },
+    { kind: "mcp", server: "ace", tool: "browser_open", arguments: { url: "https://x.dev" } },
     "running",
     0,
   );

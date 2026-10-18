@@ -21,7 +21,7 @@ test("stdio MCP forwards a six-minute tool result without ending the provider co
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   tools.register({
-    name: "device_install",
+    name: "sim_act",
     description: "Synthetic installation",
     capability: "devices",
     timeoutMs: 630000,
@@ -85,7 +85,7 @@ test("stdio MCP forwards a six-minute tool result without ending the provider co
       jsonrpc: "2.0",
       id: 1,
       method: "tools/call",
-      params: { name: "device_install", arguments: {} },
+      params: { name: "sim_act", arguments: {} },
     }) + "\n",
   );
   await entered.promise;

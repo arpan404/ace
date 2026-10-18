@@ -485,7 +485,7 @@ export class ChromeTabs {
             kind: "console",
             type: "file.chooser",
             tabId: id,
-            text: "The page needs a file. Use ace_browser_upload with the file input's snapshot ref.",
+            text: "The page needs a file. Use browser_act upload with the file input's snapshot ref.",
           }),
       }),
     };

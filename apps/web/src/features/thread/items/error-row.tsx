@@ -1,11 +1,12 @@
 import type { Item, ProviderKind } from "@ace/protocol";
 import { describeProviderError, isLimitError, type ErrorInput, type ErrorView } from "@ace/ui-core";
-import { CaretRightIcon, HourglassMediumIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { HourglassMediumIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useSignIn } from "@/features/sign-in/index.ts";
+import { rowClass } from "./transcript-row.tsx";
 
 const linkButton = buttonVariants({ variant: "primary", size: "sm" });
 /** A limit's way out is an option, not the one fix: it stays quiet beside the row. */
@@ -69,13 +70,15 @@ export function ErrorRow(props: {
       aria-label={`${title}${message ? `: ${message}` : ""}`}
       className={cn("text-ui", props.className)}
     >
-      <div className="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1">
+      <div className={cn(rowClass, "flex-wrap gap-y-1")}>
         {/* A limit lifts on its own: a quiet hourglass, not an alarm. */}
-        {isLimitError(view) ? (
-          <HourglassMediumIcon aria-hidden size={16} className="shrink-0 text-muted-foreground" />
-        ) : (
-          <WarningCircleIcon aria-hidden size={16} className="shrink-0 text-status-failed" />
-        )}
+        <span className="flex min-w-5 shrink-0 items-center justify-center">
+          {isLimitError(view) ? (
+            <HourglassMediumIcon aria-hidden size={16} className="text-subtle-foreground" />
+          ) : (
+            <WarningCircleIcon aria-hidden size={16} className="text-status-failed" />
+          )}
+        </span>
         <span className="font-medium text-foreground">{title}</span>
         {(props.count ?? 1) > 1 && (
           <span
@@ -126,11 +129,6 @@ export function ErrorRow(props: {
               onClick={() => setOpen(!open)}
             >
               Details
-              <CaretRightIcon
-                aria-hidden
-                size={12}
-                className={cn("transition-transform duration-(--motion-base)", open && "rotate-90")}
-              />
             </Button>
           )}
         </span>
@@ -138,7 +136,7 @@ export function ErrorRow(props: {
       {open && raw && (
         <p
           id={details}
-          className="fx-rise-in mt-1 ml-6 text-ui leading-normal whitespace-pre-wrap text-muted-foreground"
+          className="fx-rise-in mt-1 pl-7 text-ui leading-normal whitespace-pre-wrap text-muted-foreground"
         >
           {raw}
         </p>

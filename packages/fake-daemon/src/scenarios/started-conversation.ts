@@ -13,7 +13,7 @@ const opening = "Hello - starting a separate chat on Codex.";
 
 /**
  * An OpenCode thread whose agent started a separate top-level Codex conversation through ace's
- * `ace_thread_start` tool, as OpenCode reports the call (its result only in the raw snapshot),
+ * `thread_start` tool, as OpenCode reports the call (its result only in the raw snapshot),
  * and the conversation it started: the tool's opening message from the parent agent, then the
  * new agent's reply. Play `startedConversation()` whole.
  */
@@ -47,16 +47,16 @@ export function startedConversation(): Scenario[] {
       complete: true,
       call: {
         kind: "mcp",
-        title: "ace_ace_thread_start",
+        title: "ace_thread_start",
         status: "succeeded",
-        detail: { kind: "mcp", server: "ace", tool: "ace_thread_start", arguments: args },
+        detail: { kind: "mcp", server: "ace", tool: "thread_start", arguments: args },
         raw: [
           {
             type: "snapshot.tool",
-            name: "ace_ace_thread_start",
+            name: "ace_thread_start",
             data: {
               type: "tool",
-              name: "ace_ace_thread_start",
+              name: "ace_thread_start",
               state: {
                 status: "completed",
                 input: args,

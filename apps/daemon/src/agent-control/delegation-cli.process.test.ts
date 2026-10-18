@@ -44,29 +44,27 @@ for (const parent of ["claude", "codex"] as const)
       await resumeQueue(f);
       await f.settled();
       const args = {
-        requestId: "after-stop",
-        provider,
-        task: "Hello",
-        role: "greet-after-stop",
-        wait: true,
+        tasks: [{ requestId: "after-stop", provider, task: "Hello", role: "greet-after-stop" }],
+        waitSeconds: 600,
       };
-      const result = await f.call("delegate_task", args);
+      const result = await f.call("delegate", args);
       expect(result.isError).not.toBe(true);
       const accepted = AgentControlResult.parse(result.structuredContent);
-      const child = z
+      const data = z
         .object({
-          threadId: ThreadId,
-          outcome: z.object({ outcome: z.literal("completed"), result: z.string() }),
+          threadIds: z.tuple([ThreadId]),
+          wait: z.object({
+            status: z.literal("ready"),
+            threads: z.tuple([z.object({ state: z.literal("done"), result: z.string() })]),
+          }),
         })
         .parse(accepted.data);
-      expect(child.outcome.result).toContain(
+      expect(data.wait.threads[0].result).toContain(
         `${provider === "opencode" ? "OpenCode" : provider === "claude" ? "Claude" : "Codex"} delegated result`,
       );
-      expect(f.daemon.store.getThread(child.threadId)?.provider).toBe(provider);
+      expect(f.daemon.store.getThread(data.threadIds[0])?.provider).toBe(provider);
       expect(f.daemon.store.getThread(f.caller.threadId)?.status.state).toBe("done");
-      expect((await f.call("delegate_task", args)).structuredContent).toEqual(
-        result.structuredContent,
-      );
+      expect((await f.call("delegate", args)).structuredContent).toEqual(result.structuredContent);
       expect(f.daemon.store.listThreads()).toHaveLength(2);
     });
   }
@@ -77,49 +75,39 @@ const task = (requestId: string) => ({
   role: `say-hello-${requestId}`,
   task: "Hello",
 });
+const one = (requestId: string, overrides: Record<string, unknown> = {}) => ({
+  tasks: [{ ...task(requestId), ...overrides }],
+});
 test("single and batch delegation disclose actionable failures and keep diagnostic detail out of MCP and notices", async () => {
   const f = await cliDaemon("codex");
-  for (const args of [task("disabled-single"), { tasks: [task("disabled-batch")] }]) {
+  for (const args of [
+    one("disabled-single"),
+    { tasks: [task("disabled-batch-a"), task("disabled-batch-b")] },
+  ]) {
     await f.daemon.settings.set(
       "providers.configuration",
       [{ provider: "claude", enabled: false }],
       { kind: "global" },
     );
-    const result = await f.call("delegate_task", args);
+    const result = await f.call("delegate", args);
     expect(result).toMatchObject({
       isError: true,
       content: [{ text: expect.stringContaining('"code":"provider_disabled"') }],
     });
   }
   await f.daemon.settings.set("providers.configuration", [], { kind: "global" });
-  for (const [provider, accountId, code] of [
-    ["antigravity", undefined, "provider_unavailable"],
-    ["claude", "private-missing-account", "account_unavailable"],
-  ] as const) {
-    const result = await f.call("delegate_task", {
-      role: `probe-${code}`,
-      task: "Hello",
-      requestId: code,
-      provider,
-      accountId,
-    });
-    expect(result).toMatchObject({
-      isError: true,
-      content: [{ text: expect.stringContaining(`"code":"${code}"`) }],
-    });
-    expect(JSON.stringify(result)).not.toContain("private-missing-account");
-  }
+  expect(
+    await f.call("delegate", one("provider_unavailable", { provider: "antigravity" })),
+  ).toMatchObject({
+    isError: true,
+    content: [{ text: expect.stringContaining('"code":"provider_unavailable"') }],
+  });
   const path = f.daemon.store.getWorkspacePath(f.workspaceId);
   if (!path) throw new Error("Missing sandbox workspace");
   await rename(path, `${path}-moved`);
   try {
     expect(
-      await f.call("delegate_task", {
-        role: "probe-missing-workspace",
-        task: "Hello",
-        requestId: "missing-workspace",
-        provider: "claude",
-      }),
+      await f.call("delegate", one("missing-workspace", { role: "probe-missing-workspace" })),
     ).toMatchObject({
       isError: true,
       content: [{ text: expect.stringContaining('"code":"workspace_unavailable"') }],
@@ -128,13 +116,10 @@ test("single and batch delegation disclose actionable failures and keep diagnost
     await rename(`${path}-moved`, path);
   }
   await f.daemon.models.invalidate({ provider: "claude" });
-  const result = await f.call("delegate_task", {
-    role: "probe-missing-model",
-    task: "Hello",
-    requestId: "missing-model",
-    provider: "claude",
-    model: "private-model-evidence",
-  });
+  const result = await f.call(
+    "delegate",
+    one("missing-model", { role: "probe-missing-model", model: "private-model-evidence" }),
+  );
   expect(result).toMatchObject({
     isError: true,
     content: [{ text: expect.stringContaining('"code":"model_unavailable"') }],
@@ -147,26 +132,20 @@ test("single and batch delegation disclose actionable failures and keep diagnost
     expect.arrayContaining([
       expect.objectContaining({
         code: "provider_disabled",
-        text: expect.stringContaining("Enable"),
+        text: expect.stringContaining("only the person can enable"),
       }),
       expect.objectContaining({ code: "provider_unavailable" }),
-      expect.objectContaining({ code: "account_unavailable" }),
       expect.objectContaining({
         code: "model_unavailable",
-        text: expect.stringContaining("Refresh"),
+        text: expect.stringContaining("Call models"),
       }),
     ]),
   );
-  expect(JSON.stringify(notices)).not.toMatch(/private-model-evidence|private-missing-account/);
+  expect(JSON.stringify(notices)).not.toContain("private-model-evidence");
   expect(f.daemon.store.listThreads()).toHaveLength(1);
   f.controls.delegations.close();
   expect(
-    await f.call("delegate_task", {
-      role: "probe-closed-admission",
-      task: "Hello",
-      requestId: "closed-admission",
-      provider: "claude",
-    }),
+    await f.call("delegate", one("closed-admission", { role: "probe-closed-admission" })),
   ).toMatchObject({
     isError: true,
     content: [{ text: expect.stringContaining('"code":"admission_closed"') }],
@@ -174,7 +153,6 @@ test("single and batch delegation disclose actionable failures and keep diagnost
   await f.daemon.close();
   const logs = await readFile(join(f.home, "daemon", "logs", "ace.jsonl"), "utf8");
   expect(logs).toContain("private-model-evidence");
-  expect(logs).toContain("private-missing-account");
 });
 
 test("one batch delegation awaits every child on a restarted OpenCode root and retries create nothing", async () => {
@@ -205,10 +183,10 @@ test("one batch delegation awaits every child on a restarted OpenCode root and r
       task: "Hello",
       role: `greet-${requestId}`,
     })),
-    await: "all",
-    timeoutSeconds: 60,
   };
-  const result = AgentControlResult.parse((await f.call("delegate_task", batch)).structuredContent);
+  const result = AgentControlResult.parse(
+    (await f.call("delegate", { ...batch, waitSeconds: 60 })).structuredContent,
+  );
   const data = z
     .object({ threadIds: z.array(ThreadId).length(2), wait: z.unknown() })
     .parse(result.data);
@@ -220,12 +198,10 @@ test("one batch delegation awaits every child on a restarted OpenCode root and r
     ],
   });
   const waited = AgentControlResult.parse(
-    (await f.call("ace_wait", { threadIds: data.threadIds, mode: "any" })).structuredContent,
+    (await f.call("wait", { threadIds: data.threadIds, mode: "any" })).structuredContent,
   );
   expect(waited.data).toMatchObject({ status: "ready" });
-  const retried = AgentControlResult.parse(
-    (await f.call("delegate_task", { ...batch, await: "none" })).structuredContent,
-  );
+  const retried = AgentControlResult.parse((await f.call("delegate", batch)).structuredContent);
   expect(retried.data).toEqual({ threadIds: data.threadIds });
   expect(f.daemon.store.listThreads()).toHaveLength(3);
 });
@@ -233,8 +209,8 @@ test("one batch delegation awaits every child on a restarted OpenCode root and r
 test("single and batch delegation refuse an access mode the target lacks, per task, with its supported list", async () => {
   const f = await cliDaemon("codex");
   const unsupported = { ...task("opencode-review"), provider: "opencode", access: "auto-review" };
-  for (const args of [unsupported, { tasks: [unsupported, task("never-reached")] }]) {
-    const result = await f.call("delegate_task", args);
+  for (const args of [{ tasks: [unsupported] }, { tasks: [unsupported, task("never-reached")] }]) {
+    const result = await f.call("delegate", args);
     expect(result).toMatchObject({
       isError: true,
       content: [{ text: expect.stringContaining('"code":"access_unavailable"') }],

@@ -1,0 +1,91 @@
+{
+  "$id": "https://ace.local/protocol/v1/thread_read.output.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "enum": [
+        "unsupported",
+        "forbidden",
+        "not_found",
+        "limit",
+        "not_ready",
+        "invalid",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "data": {
+      "additionalProperties": {},
+      "properties": {
+        "bytes": {
+          "description": "Base64 output bytes, when reading a stream",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "additionalProperties": {},
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "itemsBefore": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "linkedPrs": {
+          "items": {},
+          "type": "array"
+        },
+        "nextOffset": {
+          "type": "number"
+        },
+        "previews": {
+          "items": {},
+          "type": "array"
+        },
+        "thread": {
+          "additionalProperties": {},
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "title"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "hint": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "type": "object"
+}

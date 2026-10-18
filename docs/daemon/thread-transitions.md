@@ -8,8 +8,8 @@ fork with citations and explicit omitted-history pointers. Forking a finished
 point does not stop later source work. Forks inherit the source workspace; they
 do not automatically create an isolated git worktree.
 
-`ace_read_handoff` pages those pointers through MCP. `ace_read_handoff_chunk`
-reads full text, reasoning and shell output in chunks of at most 32 KiB.
+`handoff_read` pages those pointers through MCP, and also reads full text,
+reasoning and shell output in chunks of at most 32 KiB.
 Cross-thread reads require a durable grant to the fork's chosen cutoff or a
 merged fork's history. Grants survive prompt delivery and restart, with eight
 source grants per recipient and explicit capacity errors. Unrelated threads and
@@ -39,7 +39,7 @@ rejects nonempty options.
 
 Within a provider, the engine configures the live session or resumes the same
 native ID. Across providers, it supplies portable context and records `lossy`
-plus `recommendation: "delegate_task"` for client warnings. An account switch
+plus `recommendation: "delegate"` for client warnings. An account switch
 closes the source session, migrates its native history and lineage through the
 accounts service, then resumes or forks according to the migration result.
 Unsupported formats and unavailable writer-exclusion leases fail visibly. The

@@ -41,7 +41,6 @@ export function watchedState(
   if (thread.status.state === "failed") return "failed";
   if (thread.status.state === "done")
     return thread.queue?.lastFailure?.code === "cancelled" ? "cancelled" : "done";
-  if (thread.status.state !== "working") return "done";
   return "working";
 }
 
@@ -118,7 +117,7 @@ const fullResultChars = 4096;
 /**
  * A wait on many children splits one excerpt budget between them, so the answer stays inside
  * the tool result budget however many threads it watches. A shortened excerpt is marked
- * truncated; the full result stays readable with ace_agent_result or ace_thread_read.
+ * truncated; the full result stays readable with agents_status or thread_read.
  */
 export function shareResults(threads: readonly WatchedThread[]): WatchedThread[] {
   const share = Math.min(

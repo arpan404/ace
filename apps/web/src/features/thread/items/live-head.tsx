@@ -10,21 +10,20 @@ import { useShownPlans } from "@/lib/use-plans.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { WorkingIndicator } from "@/components/working-indicator.tsx";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
-import { PauseCircleIcon } from "@phosphor-icons/react";
+import { ClipboardTextIcon, PauseCircleIcon } from "@phosphor-icons/react";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
-import type { ThreadKey, ThreadReader } from "@ace/client";
-import { useWatched, type Watched } from "@/lib/use-watched.ts";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { useDescendantRequest } from "../composer/descendant-request.ts";
-import { ThinkingRow } from "./step-groups-view.tsx";
 import { SystemRow } from "./system-row.tsx";
 
 /*
- * The live turn's header, right under the ask that started it: one muted `[grid] Working for 3m 6s`
- * row over a hairline, the turn's steps flowing below it. It reads the same `turnActivity` as
- * every other surface, counting the whole tree. The timer writes its text through a ref, so a
- * ticking second re-renders nothing, and it stands at the time reached while the turn waits on
- * the person (that time comes from the thread, so a redrawn header shows it too).
+ * The live turn's one status line, at the end of its flow (DESIGN.md §8): one muted
+ * `[grid] Working for 3m 6s` row after the turn's steps, with a small icon that opens the Summary.
+ * It reads the same `turnActivity` as every other surface, counting the whole tree. The timer
+ * writes its text through a ref, so a ticking second re-renders nothing, and it stands at the
+ * time reached while the turn waits on the person (that time comes from the thread, so a redrawn
+ * line shows it too).
  */
 
 export function LiveHead(props: { threadId: string }) {
@@ -42,19 +41,19 @@ export function LiveHead(props: { threadId: string }) {
   const subagents = useWorkingSubagents(props.threadId, activity?.subagents);
   // A pause is the turn's own row; a lost connection is the header's to say.
   if (!activity || activity.tone === "paused" || live.staleLabel) return null;
-  // The status line stays a live region of its own; the whole row also opens the Summary.
+  // The status line stays a live region of its own; only the Summary icon after it opens the
+  // Summary, so a click on the line (selecting its text) does nothing.
   return (
-    <div
-      role="group"
-      aria-label="Turn in progress"
-      className="relative border-b border-border pb-2"
-    >
-      <ActivityLine activity={activity} progress={progress} subagents={subagents} />
-      <button
-        type="button"
-        aria-label="Open the summary"
+    <div role="group" aria-label="Turn in progress" className="flex min-w-0 items-center gap-1">
+      <div className="min-w-0">
+        <ActivityLine activity={activity} progress={progress} subagents={subagents} />
+      </div>
+      <IconButton
+        icon={ClipboardTextIcon}
+        label="Open the summary"
+        size="sm"
+        className="text-subtle-foreground"
         onClick={() => workspace.open({ kind: "work" })}
-        className="absolute inset-0 rounded-sm focus-ring"
       />
     </div>
   );
@@ -115,29 +114,6 @@ export function ActivityLine(props: {
         <span className="min-w-0 truncate">{label}</span>
       )}
     </p>
-  );
-}
-
-const orderKeys: readonly ThreadKey[] = ["order"];
-/** Whether the newest item is a thought still being written (it says "Thinking" itself). */
-function readThinking(reader: ThreadReader): Watched<boolean> {
-  const last = reader.order.at(-1);
-  const item = last === undefined ? undefined : reader.item(last);
-  return {
-    value: item?.type === "reasoning" && !item.complete,
-    watch: last === undefined ? [] : [`item:${last}`],
-  };
-}
-
-/** "Thinking", closing the working turn's flow, while no step is in flight. */
-export function TailThinking(props: { threadId: string }) {
-  const activity = useTurnActivity(props.threadId);
-  const thought = useWatched(props.threadId, orderKeys, readThinking, Object.is) ?? false;
-  if (activity?.tone !== "working" || activity.current || thought) return null;
-  return (
-    <ul aria-label="Working" className="flex flex-col">
-      <ThinkingRow />
-    </ul>
   );
 }
 

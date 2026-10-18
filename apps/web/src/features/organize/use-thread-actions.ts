@@ -11,7 +11,7 @@ import { runningWork } from "./running-work.ts";
 import { useOrganizeOverlay } from "./overlay.ts";
 
 /** How long Undo stays on screen for reversible actions. */
-export const undoWindowMs = 6_000;
+export const undoWindowMs = 5_000;
 
 /** What an action needs of a thread: a Home list entry or the open thread's meta. */
 export interface ThreadTarget {
@@ -59,6 +59,7 @@ export interface ThreadActions {
   remove(entry: ThreadTarget): void;
   /** An archived thread, deleted now: the person confirmed it, so there is no Undo. */
   deleteArchived(entry: ThreadTarget): void;
+  /** New thread in the entry's project, from its default branch. */
   newThreadOnMain(entry: ThreadTarget): void;
   copyLink(entry: ThreadTarget): void;
 }
@@ -146,13 +147,10 @@ export function useThreadActions(): ThreadActions {
         title: done,
         ...waiting(),
         timeout: undoWindowMs,
-        actionProps: {
-          children: "Undo",
-          onClick: () => {
-            toast.close(toastId);
-            for (const step of steps) void act(step.entry, step.undo);
-            afterUndo?.();
-          },
+        // The button or ⌘Z (`undoLatest`), while the toast shows.
+        undo: () => {
+          for (const step of steps) void act(step.entry, step.undo);
+          afterUndo?.();
         },
       });
       return Promise.all(steps.map((step) => act(step.entry, step.action))).then((results) => {
@@ -441,7 +439,8 @@ export function useThreadActions(): ThreadActions {
         });
       },
       newThreadOnMain: (entry) =>
-        void navigate({ to: "/new", search: { project: entry.workspaceId, base: "main" } }),
+        // No base: New thread starts from the project's own default branch, whatever it's named.
+        void navigate({ to: "/new", search: { project: entry.workspaceId } }),
       copyLink: (entry) => {
         const link = new URL(`/t/${entry.id}`, location.href).href;
         const copied =

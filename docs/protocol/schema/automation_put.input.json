@@ -1,0 +1,63 @@
+{
+  "$id": "https://ace.local/protocol/v1/automation_put.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "access": {
+      "$ref": "https://ace.local/protocol/v1/AccessMode.json",
+      "description": "The child's access mode; default yours."
+    },
+    "enabled": {
+      "default": true,
+      "description": "false saves it paused.",
+      "type": "boolean"
+    },
+    "id": {
+      "description": "The automation's id, as you named it in automation_put.",
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "missedRun": {
+      "default": "skip",
+      "description": "A schedule missed while ace was off: skip (default) or run once.",
+      "enum": [
+        "skip",
+        "run_once"
+      ],
+      "type": "string"
+    },
+    "model": {
+      "description": "A model id from `models`.",
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "prompt": {
+      "description": "The child's whole task, standing on its own.",
+      "maxLength": 262144,
+      "minLength": 1,
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json",
+      "description": "Default: yours."
+    },
+    "schedule": {
+      "$ref": "https://ace.local/protocol/v1/AutomationSchedule.json",
+      "description": "Run on this schedule. kind rrule or cron; startAt in epoch ms, a whole minute. Omit for manual runs only."
+    },
+    "title": {
+      "description": "What it does, for the person's list.",
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "prompt"
+  ],
+  "type": "object"
+}

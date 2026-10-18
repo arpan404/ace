@@ -31,6 +31,7 @@ export function InlineRename(props: InlineRenameProps) {
     props.onDone();
   };
   return (
+    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- only keeps a click from reaching the row link beneath
     <form
       data-inline-rename
       className="min-w-0 flex-1"

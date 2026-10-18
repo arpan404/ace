@@ -50,6 +50,7 @@ export function MarkdownImage(props: { src: string; alt: string }) {
   const name = displayName(src, "Image");
   return (
     <Tip label="An image file on the agent's machine; it isn't loaded here">
+      {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard */}
       <span tabIndex={0} className={chipClass}>
         <ImageIcon aria-hidden size={14} className="shrink-0 text-subtle-foreground" />
         <span className="min-w-0 truncate">{alt && alt !== name ? `${alt} (${name})` : name}</span>

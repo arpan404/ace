@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { McpStatus } from "@ace/protocol";
+import { McpStatus as BaseStatus } from "@ace/protocol";
+
+/** `context` topic status: the session status plus the caller's project. */
+const McpStatus = BaseStatus.extend({
+  project: z.object({ id: z.string(), name: z.string() }).optional(),
+});
 
 /** Probe through the credential delivered to the fake CLI or scripted SDK boundary. */
 export async function availability(url: string, authorization: string) {
@@ -39,15 +44,13 @@ export async function availability(url: string, authorization: string) {
   };
   const instructions = z.string().parse((await request("server/discover"))["instructions"]);
   // ace's always-on guidance: where the how-to lives, and what to do when a tool is disabled.
-  if (!instructions.includes("ace_guide") || !instructions.includes("disabled"))
+  if (!instructions.includes("guide with topic") || !instructions.includes("off"))
     throw new Error("ace discovery instructions are missing");
   const tools = z
     .array(z.object({ name: z.string(), description: z.string() }))
     .max(256)
     .parse((await request("tools/list"))["tools"]);
-  if (
-    !tools.some((tool) => tool.name === "ace_status" && tool.description.includes("ace://status"))
-  )
+  if (!tools.some((tool) => tool.name === "context" && tool.description.includes("status")))
     throw new Error("ace status tool is missing or undescribed");
   const resources = z
     .array(z.object({ uri: z.string() }))
@@ -56,7 +59,13 @@ export async function availability(url: string, authorization: string) {
   if (!resources.some((resource) => resource.uri === "ace://status"))
     throw new Error("ace status resource is missing");
   const status = McpStatus.parse(
-    (await request("tools/call", { name: "ace_status", arguments: {} }))["structuredContent"],
+    z
+      .object({ status: z.unknown() })
+      .parse(
+        (await request("tools/call", { name: "context", arguments: { topics: ["status"] } }))[
+          "structuredContent"
+        ],
+      ).status,
   );
   const contents = z
     .array(z.object({ text: z.string() }))

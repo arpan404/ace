@@ -6,6 +6,8 @@ Browser, screen and device catalogs came from the daemon; screen/device I/O used
 the offline helper backends. Prompts only requested native tool names and a
 read-only `ace_thread_info` call. No fast mode was enabled and no owner's project
 was opened. The installed desktop app and `~/.ace-next` were not modified.
+Tool names below are as recorded. The tool is now `context`, shown as
+`ace_context` in OpenCode and `mcp__ace__context` in Claude and Codex.
 
 | Provider    | Installed version / model                         | Prompts | Native evidence                                                                                                  |
 | ----------- | ------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |

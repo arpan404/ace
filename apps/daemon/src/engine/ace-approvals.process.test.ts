@@ -46,7 +46,7 @@ test.each(["read-only", "ask", "auto-review", "full-access"] as const)(
         {
           on: "send",
           frames: [
-            frames.frame(start, ...approval("ace_thread_read", { threadId: "child", limit: 20 })),
+            frames.frame(start, ...approval("thread_read", { threadId: "child", limit: 20 })),
           ],
         },
         {
@@ -76,7 +76,7 @@ test.each(["read-only", "ask", "auto-review", "full-access"] as const)(
       expect(interaction).toMatchObject({
         state: "pending",
         request: {
-          target: { tool: "ace_thread_read", origin: "ace", riskClass: "read-only" },
+          target: { tool: "thread_read", origin: "ace", riskClass: "read-only" },
         },
       });
       expect(
@@ -142,7 +142,7 @@ test.each(["full-access", "auto-review"] as const)(
   async (mode) => {
     const frames = scriptFrames();
     const h = await harness(
-      [{ on: "send", frames: [frames.frame(start, ...codexGate("ace_thread_merge", merge))] }],
+      [{ on: "send", frames: [frames.frame(start, ...codexGate("thread_merge", merge))] }],
       frames,
       { permissionSettings: async () => ({ access: mode }) },
     );
@@ -155,7 +155,7 @@ test.each(["full-access", "auto-review"] as const)(
       expect(interaction).toMatchObject({
         state: "pending",
         toolCallId: call?.id,
-        request: { target: { tool: "ace_thread_merge", origin: "ace" } },
+        request: { target: { tool: "thread_merge", origin: "ace" } },
       });
     } finally {
       await h.close();
@@ -172,7 +172,7 @@ test("a request from another machine shown during an ace tool call reads on that
         frames: [
           frames.frame(
             start,
-            ...codexGate("ace_browser_navigate", {
+            ...codexGate("browser_open", {
               url: "https://a.test",
               machine: "studio",
             }).slice(0, 1),
@@ -190,7 +190,7 @@ test("a request from another machine shown during an ace tool call reads on that
       {
         kind: "approval",
         title: "studio: run a command",
-        target: { tool: "ace_browser_navigate", access: "execute" },
+        target: { tool: "browser_open", access: "execute" },
         options: [{ id: "allow_once", label: "Allow once", kind: "allow_once" }],
       },
       [],
@@ -201,6 +201,36 @@ test("a request from another machine shown during an ace tool call reads on that
   } finally {
     await h.close();
   }
+});
+
+test("a provider's approval of tools_call on a destructive tool reads exactly as approving that tool", async () => {
+  const seen: unknown[] = [];
+  for (const [tool, input] of [
+    ["thread_merge", merge],
+    ["tools_call", { name: "thread_merge", arguments: merge }],
+  ] as const) {
+    const frames = scriptFrames();
+    const h = await harness(
+      [{ on: "send", frames: [frames.frame(start, ...approval(tool, input))] }],
+      frames,
+    );
+    try {
+      const id = await h.create();
+      await h.engine.flush();
+      const thread = h.store.snapshotThread(id);
+      const interaction = Object.values(thread.interactions)[0];
+      const call = Object.values(thread.items).find((item) => item.type === "tool_call");
+      expect(interaction?.state).toBe("pending");
+      seen.push({
+        target: interaction?.request.kind === "approval" ? interaction.request.target : undefined,
+        detail: call?.type === "tool_call" ? call.call.detail : undefined,
+      });
+    } finally {
+      await h.close();
+    }
+  }
+  expect(seen[0]).toMatchObject({ target: { tool: "thread_merge", origin: "ace" } });
+  expect(seen[1]).toEqual(seen[0]);
 });
 
 test.each([
@@ -214,7 +244,7 @@ test.each([
       [
         {
           on: "send",
-          frames: [frames.frame(start, ...approval("ace_thread_read", input, server))],
+          frames: [frames.frame(start, ...approval("thread_read", input, server))],
         },
       ],
       frames,

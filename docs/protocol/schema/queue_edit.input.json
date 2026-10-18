@@ -1,0 +1,46 @@
+{
+  "$id": "https://ace.local/protocol/v1/queue_edit.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "entryId": {
+      "description": "The queued entry to replace.",
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "order": {
+      "description": "Pending entry ids in their new order.",
+      "items": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "type": "array"
+    },
+    "requestId": {
+      "description": "Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice.",
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "text": {
+      "$ref": "https://ace.local/protocol/v1/MessageText.json",
+      "description": "Its new text."
+    },
+    "threadId": {
+      "description": "A thread you own: this one or one you started.",
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "threadId",
+    "requestId"
+  ],
+  "type": "object",
+  "x-ace-constraint": "Either entryId with text, or order."
+}

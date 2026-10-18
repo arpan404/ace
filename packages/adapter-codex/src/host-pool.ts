@@ -1,6 +1,6 @@
 import type { DiscoveryOptions, DiscoveryResult } from "@ace/provider-kit/discovery";
 import type { ElisionLimits } from "@ace/provider-kit/elision";
-import { codexCapabilities } from "./capabilities.ts";
+import { requireReadableMinimum } from "@ace/provider-kit/cli-requirements";
 import { CodexHost, type ChannelHandlers, type CodexChannel } from "./host.ts";
 import type { CodexRuntime } from "./runtime.ts";
 import type { CodexSessionContext } from "./session-context.ts";
@@ -103,10 +103,7 @@ async function discover(options: ChannelOptions): Promise<string> {
         : await io.discoverProvider("codex", discovery)));
   if (!cli.installed || !cli.path)
     throw new Error("Codex is not installed. Install it or configure its path.");
-  if (!codexCapabilities(cli).steer)
-    throw new Error(
-      `Codex ${cli.version ?? "unknown version"} is unsupported; need 0.159.1 or newer.`,
-    );
+  requireReadableMinimum("codex", cli.version);
   return cli.path;
 }
 

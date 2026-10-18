@@ -106,6 +106,7 @@ export function SettledRow(props: { threadId: string; leaving?: boolean | undefi
         {!renaming && (
           <div
             className="absolute top-1/2 right-1.5 hidden -translate-y-1/2 items-center gap-0.5 group-focus-within/row:flex group-hover/row:flex has-[[data-popup-open]]:flex"
+            role="presentation"
             onClick={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
           >

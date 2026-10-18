@@ -120,6 +120,7 @@ export function AccountBadge(props: {
         props.focusable && "focus-ring",
         props.className,
       )}
+      // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
       tabIndex={props.focusable ? 0 : undefined}
       style={
         props.colorPreview

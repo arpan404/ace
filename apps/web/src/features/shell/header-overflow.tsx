@@ -37,7 +37,7 @@ export function Overflow(props: {
       <MenuContent align="end" className="min-w-56">
         {props.actions && <div className={row}>{props.actions}</div>}
         {props.tools && (
-          <div className="flex flex-col" onClick={() => setOpen(false)}>
+          <div role="presentation" className="flex flex-col" onClick={() => setOpen(false)}>
             {labelTools(props.tools)}
           </div>
         )}

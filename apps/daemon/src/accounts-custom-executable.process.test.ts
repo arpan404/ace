@@ -39,7 +39,7 @@ test.each(["provider", "account"])(
         observedAt: 100,
         timeZone: "UTC",
       });
-      await fakeCli(f.bin, "codex", "codex-cli 0.150.0", "Not logged in", "login status");
+      await fakeCli(f.bin, "codex", "codex-cli 0.159.1", "Not logged in", "login status");
       await f.management.close();
       const settings = new SettingsService({ dataDir: f.dataDir });
       resources.own(() => settings.close());
@@ -163,7 +163,7 @@ test.each(["configuration", "login revision"])(
         discovery: {
           probe: async (_path, args) => {
             if (args[0] === "--version")
-              return { code: 0, stdout: "codex-cli 0.150.0", stderr: "" };
+              return { code: 0, stdout: "codex-cli 0.159.1", stderr: "" };
             entered.resolve();
             await release.promise;
             return { code: 0, stdout: "Not logged in", stderr: "" };

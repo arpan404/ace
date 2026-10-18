@@ -9,7 +9,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -27,7 +27,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -54,7 +54,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -77,7 +77,7 @@
           "type": "boolean"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -100,7 +100,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -174,7 +174,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -209,7 +209,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -243,7 +243,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -262,7 +262,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -297,7 +297,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -341,7 +341,7 @@
           "type": "integer"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -359,19 +359,31 @@
           "type": "string"
         },
         "depth": {
-          "description": "How many levels below the page (or ref) to read. Default 20.",
+          "description": "How many levels below the page (or ref) to read. Omitted: every level.",
           "maximum": 64,
           "minimum": 1,
           "type": "integer"
         },
+        "interactiveOnly": {
+          "default": false,
+          "description": "Only actionable elements (buttons, links, fields), as a flat list.",
+          "type": "boolean"
+        },
+        "maxNodes": {
+          "default": 120,
+          "description": "Most lines to return; the result says when more exist.",
+          "maximum": 2000,
+          "minimum": 1,
+          "type": "integer"
+        },
         "ref": {
-          "description": "Only this element's subtree (a ref from the latest snapshot). Its refs join that snapshot's.",
+          "description": "Ref of a container from the latest snapshot: return only its subtree.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -409,7 +421,7 @@
           "type": "array"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -440,7 +452,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -478,7 +490,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -543,7 +555,7 @@
           "type": "integer"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -570,7 +582,7 @@
           "type": "integer"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -619,7 +631,7 @@
           "type": "boolean"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -672,7 +684,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -717,7 +729,7 @@
           "type": "array"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -744,7 +756,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -776,7 +788,7 @@
           "type": "boolean"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -801,7 +813,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -834,7 +846,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -866,7 +878,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -891,7 +903,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -915,7 +927,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -949,7 +961,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -973,7 +985,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -997,7 +1009,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -1016,29 +1028,31 @@
           "type": "string"
         },
         "exact": {
-          "default": true,
+          "default": false,
+          "description": "Match the whole name exactly.",
           "type": "boolean"
         },
         "name": {
+          "description": "Accessible name; a case-insensitive substring unless exact is true.",
           "maxLength": 1024,
+          "minLength": 1,
           "type": "string"
         },
         "role": {
+          "description": "Accessible role, e.g. button, link, textbox, heading.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
         }
       },
       "required": [
-        "action",
-        "role",
-        "name"
+        "action"
       ],
       "type": "object"
     },
@@ -1054,7 +1068,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -1073,7 +1087,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -1091,7 +1105,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -1122,7 +1136,7 @@
               "type": "string"
             },
             "tabId": {
-              "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+              "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
               "maxLength": 256,
               "minLength": 1,
               "type": "string"
@@ -1145,7 +1159,7 @@
               "type": "string"
             },
             "tabId": {
-              "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+              "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
               "maxLength": 256,
               "minLength": 1,
               "type": "string"
@@ -1171,7 +1185,7 @@
               "type": "string"
             },
             "tabId": {
-              "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+              "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
               "maxLength": 256,
               "minLength": 1,
               "type": "string"
@@ -1198,7 +1212,7 @@
           "type": "number"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -1217,7 +1231,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -1235,7 +1249,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -1253,7 +1267,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -1283,7 +1297,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -1307,7 +1321,7 @@
           "type": "string"
         },
         "tabId": {
-          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "description": "The tab to act in, from browser_tabs. Omitted: your current tab.",
           "maxLength": 256,
           "minLength": 1,
           "type": "string"

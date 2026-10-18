@@ -1,7 +1,7 @@
 import { modelDisplayName } from "@ace/models/display-name";
 import type { ProviderKind, Thread } from "@ace/protocol";
 
-/** What `ace_thread_start` answers once the conversation exists. */
+/** What `thread_start` answers once the conversation exists. */
 export interface ConversationAnswer {
   threadId: string;
   title: string;

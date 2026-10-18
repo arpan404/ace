@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/wait.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "mode": {
+      "$ref": "https://ace.local/protocol/v1/WaitMode.json",
+      "default": "all",
+      "description": "all (default): every thread settles; any: the first."
+    },
+    "threadIds": {
+      "description": "Threads to watch: children from delegate, or any thread you can read.",
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "type": "array"
+    },
+    "timeoutSeconds": {
+      "$ref": "https://ace.local/protocol/v1/WaitTimeoutSeconds.json",
+      "default": 120,
+      "description": "Longest wait in seconds, 1 to 600 (default 120)."
+    }
+  },
+  "required": [
+    "threadIds"
+  ],
+  "type": "object"
+}

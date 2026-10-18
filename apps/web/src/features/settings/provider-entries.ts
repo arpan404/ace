@@ -71,7 +71,7 @@ export function entryStatus(entry: ProviderEntry): {
     return {
       tone: view.tone,
       text: view.summary,
-      problem: view.tone === "problem" ? view.detail : undefined,
+      problem: view.tone === "problem" || view.state === "needs_update" ? view.detail : undefined,
     };
   if (install.kind !== "acp")
     return {

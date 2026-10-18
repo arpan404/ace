@@ -12,6 +12,8 @@ execution. The root still had a row in `delegation_subtree_stops` and
 `delegation_trees.cancelled=1`. `DelegationAdmission.validate` therefore threw
 `Error("cancelled")` before child preparation. This affected `delegate_task`,
 `ace_spawn_agent` for both Claude and OpenCode, and `ace_thread_create`.
+(These are the tool names at the time. Child work now starts only through
+`delegate`, and top-level conversations through `thread_start`.)
 `toolFailure` exposed ordinary exceptions as `execution_failed`; no underlying
 exception or actionable notice was recorded at this tool boundary.
 

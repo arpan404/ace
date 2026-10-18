@@ -32,9 +32,7 @@ import { DelegationAdmission } from "./admission.ts";
 import { type DelegationReservation, DelegationJournal } from "./journal.ts";
 import { threadOutcome } from "./results.ts";
 import { readAgentCatalog } from "./catalog.ts";
-import { incomingRemoteRoot } from "./incoming-root.ts";
 import { recoverLocalUsage } from "./local-usage-recovery.ts";
-import { recoverIncomingUsage } from "./incoming-usage-recovery.ts";
 import { AcpIdentity as importAcpIdentitySchema } from "@ace/protocol";
 import { delegationEffort, selectedDelegationModel } from "./models.ts";
 import { ConversationJournal } from "./conversation-journal.ts";
@@ -58,8 +56,6 @@ export interface DelegationDependencies {
   /** Host may lower the durable receipt cap, never raise its 10,000 hard limit. */
   journalCapacity?: number;
   policy?: Partial<DelegationPolicy>;
-  /** Work outside the journal (remote tasks) that holds the parent's run slots. */
-  externalCapacity?(parent: ThreadId): { concurrent: number };
   onError(error: unknown): void;
   /** The daemon maintenance gate remains the owner of autonomous turn admission. */
   admitsWork?(): boolean;
@@ -85,7 +81,6 @@ export class DelegationService {
     this.deps = deps;
     this.policy = DelegationPolicy.parse(deps.policy ?? {});
     this.journal = new DelegationJournal(deps.store, deps.journalCapacity);
-    recoverIncomingUsage(deps.store, this.journal, deps.clock.now());
     this.conversations = new ConversationJournal(deps.store);
     this.launches = new LaunchQueue(deps.store);
     // Upgrade old ownership metadata once without decoding prompts or transcripts.
@@ -168,8 +163,16 @@ export class DelegationService {
     const thread = this.deps.store.getThread(threadId);
     this.journal.activity(
       threadId,
-      thread && thread.deletedAt === undefined && thread.status.state === "working" ? 1 : 0,
+      thread &&
+        thread.deletedAt === undefined &&
+        !["done", "failed", "new"].includes(thread.status.state)
+        ? 1
+        : 0,
     );
+  }
+  /** The model catalog's page reader, for filling in a selection an agent left open. */
+  listModels(options: import("@ace/protocol").ModelListOptions) {
+    return this.deps.models.list(options);
   }
   catalog(
     caller: McpAttribution,
@@ -518,9 +521,9 @@ export class DelegationService {
       this.showQueued(current);
     });
   }
-  /** Children holding the parent's run slots, here and on other machines. */
+  /** Children holding the parent's run slots. */
   private running(parent: ThreadId): number {
-    return this.journal.running(parent) + (this.deps.externalCapacity?.(parent).concurrent ?? 0);
+    return this.journal.running(parent);
   }
   /** A queued child reads as waiting, so its parent never looks done while it waits. */
   private showQueued(edge: DelegationRecord): void {
@@ -724,20 +727,7 @@ export class DelegationService {
       }
       const edge = this.journal.get(event.threadId);
       const participant = this.journal.participant(event.threadId);
-      if (!edge && !participant) {
-        // Incoming roots have no local parent edge. Reuse the durable counter owner
-        // so terminal snapshots never depend on asynchronous analytics catch-up.
-        if (
-          (event.payload.type === "run.started" || event.payload.type === "usage.updated") &&
-          incomingRemoteRoot(this.deps.store, event.threadId)
-        )
-          this.deps.store.atomic(() => {
-            this.journal.tree(event.threadId, this.deps.clock.now());
-            this.journal.started(event);
-            this.journal.usage(event.threadId, event);
-          });
-        continue;
-      }
+      if (!edge && !participant) continue;
       const root = edge?.rootId ?? participant?.root_id;
       if (!root) continue;
       changed = true;
@@ -754,7 +744,7 @@ export class DelegationService {
         if (edge) this.reconcile(edge);
       }
     }
-    // Slots also free when remote work ends or admission reopens.
+    // Slots also free when admission reopens.
     if (statuses) this.pumpAll();
     if (changed) this.arm();
   }
@@ -762,7 +752,7 @@ export class DelegationService {
     const thread = this.deps.store.getThread(edge.childId);
     if (!thread) return;
     this.deps.store.atomic(() => {
-      if (edge.phase === "settled" && thread.status.state === "working") {
+      if (edge.phase === "settled" && !["done", "failed", "new"].includes(thread.status.state)) {
         // Revived work always continues, whatever the counts. Only a cancelled child stays stopped.
         this.journal.revive(edge);
         if (this.journal.stopped(edge.childId) || this.journal.ancestorStopped(edge.childId)) {
@@ -786,7 +776,7 @@ export class DelegationService {
         status: this.launches.has(edge.childId) ? queuedStatus : childStatus(edge, thread),
       };
       this.deps.engine.updateChild(edge.parentId, shown);
-      if (edge.phase === "settled" || thread.status.state === "working") {
+      if (edge.phase === "settled" || !["done", "failed"].includes(thread.status.state)) {
         this.deps.engine.delegationStarted(edge, shown);
         return;
       }
@@ -811,7 +801,7 @@ export class DelegationService {
     const outcome =
       record?.phase === "settled" && record.outcome && thread.status.state === "new"
         ? record.outcome
-        : thread.status.state !== "working"
+        : ["done", "failed"].includes(thread.status.state)
           ? (record?.outcome ?? threadOutcome(this.deps.store, thread))
           : await this.waiters.wait(threadId, signal);
     signal.throwIfAborted();

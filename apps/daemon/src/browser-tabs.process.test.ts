@@ -14,10 +14,13 @@ import { SqliteBrowserTabStore } from "./browser-tab-store.ts";
 import { invoke, Result } from "./browser-mcp-test-support.ts";
 
 const executablePath = await detectChromium();
-const Snapshot = z.object({
-  tabId: z.string(),
-  nodes: z.array(z.object({ ref: z.string().optional(), name: z.string() })),
-});
+/** The tab and the Name field's ref from compact snapshot text. */
+function snapshotOf(text: string) {
+  const tabId = text.match(/\[tab=([^\]]+)\]/)?.[1];
+  const name = text.match(/- textbox "Name" \[ref=([^\]]+)\]/)?.[1];
+  if (!tabId || !name) throw new Error(`No tab or Name field in snapshot:\n${text}`);
+  return { tabId, name };
+}
 const Opened = z.object({ tabId: z.string() });
 
 /** A local page with a text field and a cookie it can set. */
@@ -94,27 +97,34 @@ describe.skipIf(!executablePath)("browser tabs through the daemon", () => {
         },
         new AbortController().signal,
       );
-      return async (name: string, args: unknown = {}) => {
+      const text = async (name: string, args: unknown = {}) => {
         const result = Result.parse(
           await (await invoke({ url: mcp.url, bearer: lease.bearer }, name, args)).json(),
         ).result;
-        const text = result.content[0]?.text ?? "null";
-        if (result.isError) throw new Error(text);
-        return JSON.parse(text) as unknown;
+        const body = result.content[0]?.text ?? "null";
+        if (result.isError) throw new Error(body);
+        return body;
       };
+      return Object.assign(
+        async (name: string, args: unknown = {}) => JSON.parse(await text(name, args)) as unknown,
+        { text },
+      );
     };
     const root = connect("root"),
       child = connect("child");
-    const rootTab = Opened.parse(await root("ace_browser_open", { url: `${url}/root` })).tabId;
+    const rootTab = Opened.parse(await root("browser_open", { url: `${url}/root` })).tabId;
     const childTab = Opened.parse(
-      await child("ace_browser_open", { url: `${url}/child`, newTab: true, label: "checkout" }),
+      await child("browser_tabs", { action: "open", url: `${url}/child`, label: "checkout" }),
     ).tabId;
     expect(childTab).not.toBe(rootTab);
     const fill = async (call: typeof root, tabId: string | undefined, text: string) => {
-      const snapshot = Snapshot.parse(await call("ace_browser_snapshot", tabId ? { tabId } : {}));
-      const name = snapshot.nodes.find((node) => node.name === "Name")?.ref;
-      if (!name) throw new Error("No Name field");
-      await call("ace_browser_type", { ...(tabId ? { tabId } : {}), ref: name, text });
+      const snapshot = snapshotOf(await call.text("browser_snapshot", tabId ? { tabId } : {}));
+      await call("browser_act", {
+        ...(tabId ? { tabId } : {}),
+        action: "type",
+        ref: snapshot.name,
+        text,
+      });
       return snapshot.tabId;
     };
     // The root names its tab; the child relies on its own current tab.
@@ -124,7 +134,7 @@ describe.skipIf(!executablePath)("browser tabs through the daemon", () => {
     ]);
     expect([rootSaw, childSaw]).toEqual([rootTab, childTab]);
     const value = (tabId: string) =>
-      root("ace_browser_evaluate", { tabId, expression: "document.querySelector('input').value" });
+      root("browser_evaluate", { tabId, expression: "document.querySelector('input').value" });
     expect(await value(rootTab)).toBe("from root");
     expect(await value(childTab)).toBe("from child");
     const listed = z
@@ -138,15 +148,15 @@ describe.skipIf(!executablePath)("browser tabs through the daemon", () => {
           }),
         ),
       })
-      .parse(await child("ace_browser_tabs", { operation: "list" }));
+      .parse(await child("browser_tabs", { action: "list" }));
     expect(listed.tabs.find((tab) => tab.tabId === childTab)).toMatchObject({
       label: "checkout",
       current: true,
       openedBy: { kind: "agent", agentId: "child" },
     });
-    await child("ace_browser_close", { tabId: childTab });
+    await child("browser_tabs", { action: "close", tabId: childTab });
     expect(d.browser.state(thread.id).tabs?.map((tab) => tab.tabId)).toEqual([rootTab]);
-    await expect(child("ace_browser_snapshot", { tabId: childTab })).rejects.toThrow(
+    await expect(child.text("browser_snapshot", { tabId: childTab })).rejects.toThrow(
       "tab_not_found",
     );
   }, 90_000);

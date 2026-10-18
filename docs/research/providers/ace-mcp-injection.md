@@ -74,7 +74,7 @@ configuration. The SDK runtime config channel, documented in
 ```
 
 Disable OAuth for this pre-issued local bearer. OpenCode names these tools
-`ace_ace_*`. Discovery reads global and project `opencode.json`/`opencode.jsonc`
+`ace_<tool>`, for example `ace_context`; ace's own tool names are bare. Discovery reads global and project `opencode.json`/`opencode.jsonc`
 files, including `.opencode/`, and accepts the named status map from `GET /mcp`.
 The API adapter must set the session's directory as described in the provider
 research. Supply `configPaths` for XDG and other environment overrides.

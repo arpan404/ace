@@ -129,6 +129,8 @@ export function BrowserPip(props: {
           onClick={props.onDismiss}
         />
       </div>
+      {/* A click on the picture is a mouse shortcut; "Show in the panel" is the keyboard path. */}
+      {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- see above */}
       <div
         ref={body}
         data-pip-page=""

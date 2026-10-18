@@ -16,6 +16,15 @@ it("delivers Codex authority only in native thread configuration", () => {
     tool_timeout_sec: 660,
   });
 });
+it("Codex approves ace tools by default and prompts only for the destructive ones", () => {
+  const server = codexInjection(connection).config["mcp_servers.ace"];
+  expect(server.default_tools_approval_mode).toBe("approve");
+  expect(Object.keys(server.tools).toSorted()).toEqual(["automation_remove", "thread_merge"]);
+  expect(Object.values(server.tools)).toEqual([
+    { approval_mode: "prompt" },
+    { approval_mode: "prompt" },
+  ]);
+});
 it("builds Claude Agent SDK HTTP mcpServers with bearer headers", () => {
   const result = claudeInjection(connection);
   expect(result.mcpServers).toEqual({
@@ -25,7 +34,7 @@ it("builds Claude Agent SDK HTTP mcpServers with bearer headers", () => {
       headers: { Authorization: `Bearer ${connection.bearer}`, "X-Ace-Notifications": "stream" },
     },
   });
-  expect(result.developerInstructions).toContain("mcp__ace__delegate_task");
+  expect(result.developerInstructions).toContain("mcp__ace__delegate");
   expect(result.env.MCP_TOOL_TIMEOUT).toBe("660000");
 });
 it("exposes OpenCode tools directly through the v2 runtime server configuration", () => {
@@ -51,7 +60,7 @@ for (const provider of ["cursor", "antigravity", "acp"] as const) {
         headers: [
           { name: "Authorization", value: `Bearer ${connection.bearer}` },
           { name: "X-Ace-Notifications", value: "stream" },
-          { name: "X-Ace-Tools", value: "core" },
+          { name: "X-Ace-Tools", value: "static" },
         ],
       },
     ]);
@@ -83,11 +92,11 @@ it("injects Cursor HTTP lease credentials through the SDK MCP policy path", () =
         Authorization: `Bearer ${connection.bearer}`,
         "X-Ace-Instructions": "native",
         "X-Ace-Notifications": "stream",
-        "X-Ace-Tools": "core",
+        "X-Ace-Tools": "static",
       },
     },
   });
-  expect(result.developerInstructions).toContain("ace_wait");
+  expect(result.developerInstructions).toContain("then wait");
 });
 
 it("each provider receives ace's shared guidance exactly once", () => {
@@ -112,20 +121,22 @@ it("the session brief and enabled groups shape the injected guidance", () => {
   });
   expect(injected.developerInstructions).toContain('Project "shop"');
   expect(injected.developerInstructions).not.toContain("screen_open_app");
-  expect(injected.developerInstructions).not.toContain("ace_device_delegate");
+  expect(injected.developerInstructions).not.toContain("delegate (instead");
 });
 
-it("providers that load every tool upfront ask ace for its core tools; deferring ones get all", () => {
+it("each client asks for the tool listing its tool-list refresh supports", () => {
   const core = ["X-Ace-Tools", "core"];
+  const fixed = ["X-Ace-Tools", "static"];
+  // OpenCode reloads its tools on tools/list_changed, so it starts small and grows.
   expect(Object.entries(openCodeInjection(connection).server.headers)).toContainEqual(core);
+  // Cursor's SDK and generic ACP agents never reload: they keep a fixed list and tools_call.
   expect(Object.entries(cursorSdkInjection(connection).mcpServers.ace.headers)).toContainEqual(
-    core,
+    fixed,
   );
   for (const provider of ["cursor", "antigravity", "acp"] as const)
-    expect(acpInjection(connection, provider).mcpServers[0]?.headers).toContainEqual({
-      name: core[0],
-      value: core[1],
-    });
+    expect(
+      acpInjection(connection, provider).mcpServers[0]?.headers.map((h) => [h.name, h.value]),
+    ).toContainEqual(fixed);
   // Claude Code and Codex defer MCP tools behind their own tool search.
   expect(claudeInjection(connection).mcpServers.ace.headers).not.toHaveProperty("X-Ace-Tools");
   expect(codexInjection(connection).config["mcp_servers.ace"].http_headers).not.toHaveProperty(

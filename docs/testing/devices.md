@@ -86,7 +86,7 @@ when the owner permits them.
    dimensions and scale update, and taps still hit their displayed target. Repeat
    with long press and swipe durations on iOS. Check different Simulator models
    and runtimes; ambiguous windows must fail rather than capture another device.
-9. Start logs locally and through `device_logs`. Generate more than 256 lines,
+9. Start logs locally and through `sim_logs`. Generate more than 256 lines,
    stall a subscriber and verify bounded tail, dropped count and continued
    responsiveness. Stop logs and confirm the child process exits. Reconnect the
    client and confirm no input, approval or control is replayed.

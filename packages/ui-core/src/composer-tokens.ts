@@ -1,5 +1,6 @@
 import type {
   BrowserTabContextItem,
+  CatalogEntry,
   CatalogMention,
   ContentPart,
   Mention,
@@ -56,6 +57,41 @@ export function composerInput(text: string, tokens: readonly ComposerToken[]): C
   }
   if (at < text.length) parts.push({ type: "text", text: text.slice(at) });
   return parts.length ? parts : [{ type: "text", text }];
+}
+
+/**
+ * A message typed as `/name ...` without picking from the menu still selects the catalog
+ * entry of that exact name, so the daemon can invoke it instead of sending bare slash text.
+ * Entries that need a client action or a parameter form, and unknown names, stay as text.
+ */
+export function withTypedCommand(
+  text: string,
+  tokens: readonly ComposerToken[],
+  entries: readonly CatalogEntry[] | undefined,
+): readonly ComposerToken[] {
+  const typed = /^\/([^\s/]+)(?=\s|$)/.exec(text);
+  if (!typed || !entries || tokens.some((token) => token.start < typed[0].length)) return tokens;
+  const entry = entries.find(
+    (candidate) =>
+      candidate.name === typed[1] &&
+      candidate.kind !== "builtin" &&
+      candidate.invocation.type !== "unavailable" &&
+      candidate.invocation.type !== "action" &&
+      !(
+        candidate.invocation.type === "prompt" &&
+        Object.keys(candidate.invocation.parameters ?? {}).length
+      ),
+  );
+  if (!entry) return tokens;
+  const catalog: CatalogMention = {
+    type: "mention",
+    entryId: entry.id,
+    name: entry.name,
+    kind: entry.kind,
+    ...(entry.icon ? { icon: entry.icon } : {}),
+    arguments: "",
+  };
+  return [{ start: 0, end: typed[0].length, label: typed[0], catalog }, ...tokens];
 }
 
 /** Recover references when editing a failed send. */

@@ -1,0 +1,71 @@
+{
+  "$id": "https://ace.local/protocol/v1/AgentAutomation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "access": {
+      "$ref": "https://ace.local/protocol/v1/AccessMode.json"
+    },
+    "concurrency": {
+      "default": 1,
+      "maximum": 32,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "enabled": {
+      "default": true,
+      "type": "boolean"
+    },
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "jitterMs": {
+      "maximum": 3600000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "missedRun": {
+      "default": "skip",
+      "enum": [
+        "skip",
+        "run_once"
+      ],
+      "type": "string"
+    },
+    "model": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "prompt": {
+      "$ref": "https://ace.local/protocol/v1/MessageText.json"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "title": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "trigger": {
+      "$ref": "https://ace.local/protocol/v1/AutomationTrigger.json"
+    },
+    "workspace": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "worktree": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "prompt",
+    "trigger"
+  ],
+  "type": "object"
+}

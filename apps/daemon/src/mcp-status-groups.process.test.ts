@@ -7,6 +7,7 @@ import type { SessionContext } from "@ace/engine-api";
 import { developerInstructions } from "@ace/mcp-server";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterEach, expect, it } from "vitest";
+import { z } from "zod";
 import { AdapterRegistry, readConfig, startDaemon } from "./index.ts";
 
 const cleanup: (() => void | Promise<void>)[] = [];
@@ -83,14 +84,18 @@ async function threadConnection() {
       requestInit: { headers: { Authorization: `Bearer ${connection.bearer}` } },
     }),
   );
+  // context's status adds the project; the groups and access are ace's status.
   const status = async () =>
-    McpStatus.parse(
-      (await client.callTool({ name: "ace_status", arguments: {} })).structuredContent,
-    );
+    z
+      .object({ status: z.looseObject(McpStatus.shape) })
+      .parse(
+        (await client.callTool({ name: "context", arguments: { topics: ["status"] } }))
+          .structuredContent,
+      ).status;
   return { daemon, client, status };
 }
 
-it("a new thread's ace_status lists only groups ace serves, with every served group enabled", async () => {
+it("a new thread's context status lists only groups ace serves, with every served group enabled", async () => {
   const { daemon, status } = await threadConnection();
   const reported = await status();
   const names = reported.groups.map((group) => group.name);
@@ -117,12 +122,12 @@ it("a new thread's ace_status lists only groups ace serves, with every served gr
 
 it("ace's guidance keeps agents on their own shell, file and web tools", async () => {
   const { client } = await threadConnection();
-  expect(client.getInstructions()).toContain("your shell, file, web and other tools work as usual");
-  const statusTool = (await client.listTools()).tools.find((tool) => tool.name === "ace_status");
-  expect(statusTool?.description).toContain("use your own workspace tools for files and shell");
+  expect(client.getInstructions()).toContain("Your shell, file and web tools work as usual");
   // Providers that opt out of server instructions get the same text in their own channel.
   for (const provider of ["codex", "cursor", "pi"] as const)
-    expect(developerInstructions(provider)).toContain("your shell, file, web and other tools");
+    expect(developerInstructions(provider)).toContain(
+      "Your shell, file and web tools work as usual",
+    );
   for (const provider of ProviderKind.options)
     expect(developerInstructions(provider)).not.toMatch(/terminal tools/i);
 });

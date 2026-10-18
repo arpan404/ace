@@ -41,8 +41,7 @@ test("Cursor portable context uses byte-budgeted recent complete citations and s
     },
   ]);
   expect(manifest.omittedItems).toBe(3);
-  expect(manifest.history.tool).toBe("ace_read_handoff");
-  expect(manifest.history.chunkTool).toBe("ace_read_handoff_chunk");
+  expect(manifest.history.tool).toBe("handoff_read");
   expect(manifest.history.before).toBe(51);
 });
 function* history() {

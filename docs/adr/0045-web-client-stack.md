@@ -48,7 +48,7 @@ Every live value comes from an `@ace/client` store. `@ace/client-react` (`packag
 - **Leases.** `useThreadStore` and `useSidebarStore` take a reference-counted subscription inside `useSyncExternalStore`'s `subscribe`, so StrictMode and concurrent rendering stay correct.
 - **Selectors.** `useThread(threadId, keys, selector, equal)` and `useSidebar(keys, selector, equal)` re-render a component only when an event touches one of its keys and the selected value changes under `equal`.
 - **Domain hooks.** `useItem`, `useItemOrder`, `useAgent`, `useAgentTree` (ids only; rows read their own agent), `useInteractions` (pending by default), `useTask`, `useSidebarThread`, `useConnectionState`, `useIntent` and `useIntentSender`.
-- **History.** `useHistoryPager` loads `items.page` before the store's cursor and merges the page through the store (ADR 0006).
+- **History.** Older history reads through a bounded `items.window` beside the leased live tail (ADR 0062); pages never enlarge or evict the live store.
 
 The boundary with TanStack Query is strict. Query caches request/response results only. Thread, sidebar, agent tree, interaction and intent state never enter the Query cache, because a second copy would drift from the replayed store. Commands that change state are durable intents (`useIntentSender`). Their effects arrive as events, never as Query mutation results.
 

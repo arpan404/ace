@@ -6,7 +6,7 @@ import { harness } from "@/test/harness.tsx";
 
 beforeEach(() => localStorage.clear());
 
-test("a collapsed live group names its unfinished parallel step and opens to its thoughts", async () => {
+test("a collapsed live group names its unfinished parallel step; the thought before it keeps its row", async () => {
   const app = harness();
   app.daemon.createThread({
     id: "parallel",
@@ -43,13 +43,19 @@ test("a collapsed live group names its unfinished parallel step and opens to its
   await app.open("/t/parallel");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const group = await within(feed).findByRole("button", {
-    name: /Running.*bun run slow.*3.*steps/,
+    name: /Running.*bun run slow.*2.*steps/,
   });
+  // The thought was in view before the steps arrived: they start their own group below it. It
+  // stays one folded row until the reader opens it.
+  const thought = within(feed).getByRole("button", { name: /^Thought for/ });
   expect(within(feed).queryByText("The slow build can run alongside the quick check.")).toBeNull();
-  await userEvent.click(group);
+  await userEvent.click(thought);
   expect(
     await within(feed).findByText("The slow build can run alongside the quick check."),
   ).toBeTruthy();
+  await userEvent.click(thought);
+  await userEvent.click(group);
+  expect(await within(feed).findByRole("button", { name: /bun run quick/ })).toBeTruthy();
   await userEvent.click(group);
   act(() =>
     app.daemon.apply("parallel", [
@@ -65,7 +71,54 @@ test("a collapsed live group names its unfinished parallel step and opens to its
     await within(feed).findByRole("button", { name: "Waiting for your approval" }),
   ).toBeTruthy();
   act(() => app.daemon.apply("parallel", [facts.toolDone("root", "slow")]));
+  expect(await within(feed).findByRole("button", { name: "Ran 2 commands" })).toBeTruthy();
+});
+
+test("a step the reader opened stays open when the next step joins it into a group", async () => {
+  const app = harness();
+  app.daemon.createThread({
+    id: "joined",
+    workspaceId: "ace",
+    title: "Joined",
+    provider: "claude",
+  });
+  app.daemon.apply("joined", [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Build it"),
+    facts.tool("root", "build", {
+      kind: "shell",
+      title: "build",
+      detail: { kind: "shell", command: "bun run build" },
+    }),
+    facts.output("root", "build", "Bundled 42 modules\n"),
+    facts.toolDone("root", "build"),
+  ]);
+  await app.open("/t/joined");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  await userEvent.click(await within(feed).findByRole("button", { name: /bun run build/ }));
   expect(
-    await within(feed).findByRole("button", { name: "Ran 2 commands and thought once" }),
-  ).toBeTruthy();
+    within(feed)
+      .getByRole("button", { name: /bun run build/ })
+      .getAttribute("aria-expanded"),
+  ).toBe("true");
+  act(() =>
+    app.daemon.apply("joined", [
+      facts.tool("root", "test", {
+        kind: "shell",
+        title: "test",
+        detail: { kind: "shell", command: "bun run test" },
+      }),
+    ]),
+  );
+  // The two steps now read as one group, opened to the step the reader had expanded.
+  const group = await within(feed).findByRole("button", {
+    name: /Running.*bun run test.*2.*steps/,
+  });
+  expect(group.getAttribute("aria-expanded")).toBe("true");
+  expect(
+    within(feed)
+      .getByRole("button", { name: /bun run build/ })
+      .getAttribute("aria-expanded"),
+  ).toBe("true");
 });

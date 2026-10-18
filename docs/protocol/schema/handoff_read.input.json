@@ -1,0 +1,49 @@
+{
+  "$id": "https://ace.local/protocol/v1/handoff_read.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "before": {
+      "description": "The previous page's itemsBefore, for earlier items.",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "limit": {
+      "default": 50,
+      "description": "Items per page, 1 to 50.",
+      "maximum": 50,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "maxBytes": {
+      "default": 32768,
+      "description": "With streamId: bytes to read.",
+      "maximum": 32768,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "offset": {
+      "default": 0,
+      "description": "With streamId: byte offset, from nextOffset.",
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "sourceThreadId": {
+      "description": "The sourceThreadId from the handoff manifest.",
+      "minLength": 1,
+      "type": "string"
+    },
+    "streamId": {
+      "description": "Read a cited text or shell-output stream instead of items.",
+      "maxLength": 1024,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "sourceThreadId"
+  ],
+  "type": "object"
+}

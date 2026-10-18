@@ -49,7 +49,6 @@ const approvalTools: Record<string, string> = {
   multiedit: "File change",
   notebookedit: "File change",
   "codex-permissions-escalation": "Permission escalation",
-  screen_request_foreground: "Foreground control",
   "browser.evaluate": "Page script",
   "browser.downloads": "Download",
   "browser.upload": "File upload",
@@ -138,7 +137,7 @@ const familyIcons: Record<AceToolFamily, ToolLabel["icon"]> = {
   ace: "note",
 };
 
-/** ace's own tools (ace_*, screen_*, device_*), by the registry's words (A4). */
+/** ace's own tools (ace's server, or an ace-namespaced name), by the registry's words (A4). */
 function aceToolLabel(server: string, tool: string, args: unknown): ToolLabel | undefined {
   const spec = aceToolSpec(server, tool);
   const words = spec && aceToolWords(server, tool, args);
@@ -150,7 +149,7 @@ const computerUse = /^(cua|computer[-_ ]?use|computer)(?:[-_]|$)/i;
 
 /**
  * An MCP tool step (A4): ace's own tools by what they do, computer-use as "the computer", and
- * any other server as a tool action with its key argument. Never "ace.ace_browser_open".
+ * any other server as a tool action with its key argument. Never "ace.browser_open".
  */
 export function mcpToolLabel(server: string, tool: string, args?: unknown): ToolLabel {
   const own = aceToolLabel(server, tool, args);
@@ -177,7 +176,7 @@ export function mcpToolLabel(server: string, tool: string, args?: unknown): Tool
 
 /** A tool the adapter knows only by name (browser, image, notebook, custom), as "Used …". */
 export function namedToolLabel(kind: string, title: string): ToolLabel {
-  if (/›|mcp__|^(?:ace_|screen_|device_)/.test(title))
+  if (/›|mcp__|^(?:ace_|browser_|screen_|sim_)/.test(title))
     return label("tool", "Used a tool", "Using a tool", "Use a tool");
   const clean = oneLine(title, 72) ?? humanize(kind);
   if (kind === "browser") return label("web", "Browsed", "Browsing", "Browse", clean);

@@ -1,0 +1,41 @@
+{
+  "$id": "https://ace.local/protocol/v1/agent_message.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "delivery": {
+      "default": "queue",
+      "description": "queue (default), steer, or restart.",
+      "enum": [
+        "queue",
+        "steer",
+        "restart"
+      ],
+      "type": "string"
+    },
+    "requestId": {
+      "description": "Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice.",
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "text": {
+      "description": "The message, standing on its own.",
+      "maxLength": 262144,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "description": "A child's threadId, from delegate or agents_status.",
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "threadId",
+    "requestId",
+    "text"
+  ],
+  "type": "object"
+}

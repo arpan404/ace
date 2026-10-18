@@ -37,7 +37,7 @@ test("queued switch waits for the turn and its background work without interrupt
   expect(h.store.getThread(id)?.switch).toMatchObject({
     state: "queued",
     lossy: true,
-    recommendation: "delegate_task",
+    recommendation: "delegate",
   });
   expect(sourceSession?.closed).toBe(false);
   expect(h.store.getThread(id)?.provider).toBe("codex");
@@ -143,7 +143,7 @@ test("cross-provider switches mark loss and deliver portable provenance to the n
   expect(h.inputs.at(-1)?.text).toContain("source history");
   expect(h.store.getThread(id)?.switch).toMatchObject({
     lossy: true,
-    recommendation: "delegate_task",
+    recommendation: "delegate",
   });
 });
 test.each([

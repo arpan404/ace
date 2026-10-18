@@ -316,13 +316,16 @@ test("Pi API upstream usage prices inclusive cache tokens under the qualified mo
   ]);
 });
 
-test("ace MCP error details fail a Pi tool even when Pi reports normal execution", () => {
+test.each([
+  ["ace_screen_input", "screen_input"],
+  ["ace_thread_control", "thread_control"],
+])("Pi's %s extension tool reads as ace's %s and fails on an MCP error detail", (piName, tool) => {
   const h = replay();
   h.recv(start);
   h.recv({
     type: "tool_execution_start",
     toolCallId: "ace-error",
-    toolName: "screen_click",
+    toolName: piName,
     args: { x: 1, y: 2 },
   });
   h.recv({
@@ -338,7 +341,7 @@ test("ace MCP error details fail a Pi tool even when Pi reports normal execution
   const item = Object.values(h.state.items).find((entry) => entry.type === "tool_call");
   expect(item).toMatchObject({
     complete: true,
-    call: { status: "failed", detail: { kind: "mcp", server: "ace", tool: "screen_click" } },
+    call: { status: "failed", detail: { kind: "mcp", server: "ace", tool } },
   });
 });
 

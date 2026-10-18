@@ -115,6 +115,7 @@ export * from "./project-requests.ts";
 export * from "./long-thread.ts";
 export * from "./turn-steps.ts";
 
+export * from "./cli-version.ts";
 export * from "./provider-status.ts";
 
 export { ProviderConfiguration, ProviderConfigurations } from "./provider-configuration.ts";
@@ -137,9 +138,6 @@ export {
 } from "./prompt-files.ts";
 export * from "./worktree-creation.ts";
 
-export * from "./remote-delegation.ts";
-
-export * from "./remote-context.ts";
 export * from "./agent-orchestration.ts";
 
 export * from "./forge-browser.ts";

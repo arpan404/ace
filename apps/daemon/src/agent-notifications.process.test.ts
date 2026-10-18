@@ -59,9 +59,7 @@ async function setup() {
   });
   const say = async (text: string) => {
     const result = Result.parse(
-      await (
-        await invoke({ url: mcp.url, bearer: lease.bearer }, "ace_notify_user", { text })
-      ).json(),
+      await (await invoke({ url: mcp.url, bearer: lease.bearer }, "notify", { text })).json(),
     );
     expect(result.result.isError).not.toBe(true);
   };
@@ -93,7 +91,7 @@ async function setup() {
   };
 }
 
-test("ace_notify_user reaches notification delivery and recovery does not repeat an accepted intent", async () => {
+test("notify reaches notification delivery and recovery does not repeat an accepted intent", async () => {
   const f = await setup();
   await f.say("The preview is ready for you.");
   await f.notifications.tick();

@@ -2,25 +2,26 @@ import { projectBadge } from "@ace/ui-core";
 import { ProjectMark } from "@/components/project-mark.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { useClient } from "@ace/client-react";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useOrganizerState } from "@/features/organize/index.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { usePreparations } from "./preparations.ts";
-import { discardPreparation } from "./discard-preparation.ts";
+import { useDiscardDraft } from "./use-discard-draft.ts";
 
-/** Unsent preparations belong to this daemon and device, outside the running thread list. */
+/**
+ * Unsent preparations belong to this daemon and device, outside the running thread list.
+ * Discard takes a row away at once, with Undo.
+ */
 export function DraftRows() {
   const identity = useHostIdentity();
   const host = identity?.hostId;
   const { storage } = useLayout();
   const { project } = useOrganizerState();
   const directory = useProjectDirectory();
-  const client = useClient();
-  const navigate = useNavigate();
+  const discard = useDiscardDraft(storage, host ?? "");
   const [error, setError] = useState<string>();
   const rows = usePreparations(storage, host).filter(
     ([, row]) => !project || row.project === project,
@@ -67,36 +68,7 @@ export function DraftRows() {
               type="button"
               aria-label={`Discard draft in ${directory.name(row.project)}`}
               className="absolute right-2 bottom-2 rounded-sm bg-sidebar px-2 py-1 text-xs text-muted-foreground opacity-0 focus-ring group-hover/draft:opacity-100 group-focus-within/draft:opacity-100 hover:text-foreground pointer-coarse:opacity-100"
-              onClick={() => {
-                setError(undefined);
-                if (!discardPreparation(storage, host, key)) {
-                  setError(
-                    "Couldn't discard the draft on this device. Your saved work and files are kept. Free space and try again.",
-                  );
-                  return;
-                }
-                // Remount an open preparation so its in-memory content cannot recreate the discarded row.
-                void navigate({
-                  to: "/new",
-                  search: (previous) => ({
-                    project: row.project,
-                    skill: row.skill,
-                    issue: row.issue,
-                    pullRequest: row.pullRequest,
-                    discard: (previous.discard ?? 0) + 1,
-                  }),
-                });
-                if (row.draftId) {
-                  void client
-                    .request({
-                      type: "context.request",
-                      operation: { op: "draft.release", draftId: row.draftId },
-                    })
-                    .catch(() => {
-                      // The unreferenced scope expires even when this device cannot release it.
-                    });
-                }
-              }}
+              onClick={() => setError(discard(key, row))}
             >
               Discard
             </button>

@@ -187,12 +187,12 @@ test("agent cannot approve its own permission request through a question tool or
   const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
   agentControlToolkit(port).register(registry);
   const result = await registry.call(
-    "ace_question_answer",
+    "question_answer",
     {
       threadId: parent.threadId,
       requestId: "approval",
       interactionId: interaction.id,
-      answer: { kind: "approval", optionId: "yes" },
+      answers: { approval: ["yes"] },
     },
     {
       scope: { ...parent, capabilities: ["thread_control"] },
@@ -200,7 +200,7 @@ test("agent cannot approve its own permission request through a question tool or
     },
     new AbortController().signal,
   );
-  expect(result.isError).toBe(true);
+  expect(result.structuredContent).toMatchObject({ ok: false, code: "forbidden" });
   expect(h.store.getInteraction(interaction.id)?.state).toBe("pending");
   expect(h.store.getThread(parent.threadId)?.status.state).toBe("needs_you");
 });

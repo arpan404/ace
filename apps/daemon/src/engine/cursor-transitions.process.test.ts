@@ -195,7 +195,7 @@ test("switching into Cursor SDK starts fresh with portable context and resumes o
   expect(h.store.getThread(id)).toMatchObject({
     provider: "cursor",
     backend: "cursor-sdk",
-    switch: { state: "applied", lossy: true, recommendation: "delegate_task" },
+    switch: { state: "applied", lossy: true, recommendation: "delegate" },
   });
   expect(
     h.command({

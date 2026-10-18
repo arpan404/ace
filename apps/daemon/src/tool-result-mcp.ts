@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { aceToolName, redactAceArguments } from "@ace/core";
+import { redactAceArguments } from "@ace/core";
+import { bareToolName } from "@ace/provider-kit/ace-tool-names";
 import {
   ItemId,
   ThreadId,
@@ -45,7 +46,7 @@ function screenState(
   if (owned.length === 1) return owned[0];
   try {
     const id =
-      name === "screen_measure_interaction"
+      name === "screen_measure"
         ? manager.measurementSession(caller, args.success ? args.data.sessionId : undefined)
         : manager.agentSession(caller, args.success ? args.data.sessionId : undefined);
     return manager.state(id);
@@ -166,8 +167,10 @@ export function toolResultObserver(runtime: Runtime) {
       for (const row of rows) correlate(String(row.id));
     }
   });
-  const observeCall: CallObserver = (name, input, { caller }) => {
-    if (!aceToolName(name) || !store.getThread(caller.threadId)) return;
+  const observeCall: CallObserver = (called, input, { caller }) => {
+    // Transcripts carry the bare name whichever spelling the provider called.
+    const name = bareToolName(called);
+    if (!store.getThread(caller.threadId)) return;
     const key = argumentKey(redactAceArguments(name, input));
     const started = runtime.now();
     const since = store.headSeq();

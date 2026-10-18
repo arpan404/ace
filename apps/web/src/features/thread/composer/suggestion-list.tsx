@@ -15,6 +15,8 @@ export function SuggestionList(props: {
   suggestions: Suggestions;
   adding?: boolean;
   active: number;
+  /** The pointer moved onto an option: it becomes the highlighted one, as the arrows do. */
+  onHover?: ((index: number) => void) | undefined;
   onPick(item: Suggestion): void;
 }) {
   const { suggestions } = props;
@@ -73,6 +75,11 @@ export function SuggestionList(props: {
                   aria-disabled={item.entry?.invocation.type === "unavailable" || undefined}
                   ref={(el) => {
                     if (el && index === props.active) revealSuggestion(el);
+                  }}
+                  // Move, not enter: a list the arrows scroll under a resting pointer keeps
+                  // the keyboard's highlight.
+                  onMouseMove={() => {
+                    if (index !== props.active) props.onHover?.(index);
                   }}
                   onMouseDown={(event) => {
                     event.preventDefault();

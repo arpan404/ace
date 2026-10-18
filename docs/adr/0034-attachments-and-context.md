@@ -10,7 +10,7 @@ The competitor inventories supplied for this work describe file context, screens
 
 `@ace/context` owns mention resolution, path completion, upload storage, and pure provider projection. The protocol package adds schemas only. The daemon mounts a small authenticated request handler. Clients send workspace-relative mentions or attachment hashes, never daemon paths. The package accepts injected clocks, identifiers, roots, workspace lookup and authorization. A narrow `WorkspaceFiles` interface uses Git for ignore semantics. Workspace PR #26 has landed; the migration assessment below records why this merge keeps the current implementation. Git must be installed; non-Git folders must be initialized before using this implementation.
 
-File and folder mentions expand to bounded text with relative names and explicit truncation markers. Line ranges are inclusive and one-based. Binary files produce a diagnostic and path reference rather than text. Resolution refuses absolute paths, parent traversal and every symlink component. This stricter symlink policy avoids races through redirected directory components. Git ignored paths are refused even if tracked. Reads use no-follow file descriptors and verify the opened inode against its resolved path. Folders use the shared cached index rather than walking the tree on every request.
+File mentions expand to bounded text with relative names and explicit truncation markers. Folder mentions send the folder path plus a bounded listing of its indexed files and sizes (at most 200 entries and 16 KiB, git-ignored files excluded), never file contents; agents read what they need. Line ranges are inclusive and one-based. Non-text file mentions take the attached-file route: images (validated like uploads) and PDFs reach each provider in its native form, other binaries as a path reference. Resolution refuses absolute paths, parent traversal and every symlink component. This stricter symlink policy avoids races through redirected directory components. Git ignored paths are refused even if tracked. Reads use no-follow file descriptors and verify the opened inode against its resolved path. Folders use the shared cached index rather than walking the tree on every request.
 
 The path index has capped entries and path lengths. It stores lowercase paths and character postings for fuzzy subsequence queries. Updates remove and insert only changed paths. Filesystem notifications feed incremental updates; an overflow or ignore-file change invalidates the index for a bounded rebuild. Initial listing streams Git's NUL-separated output. Queries keep only a bounded set of highest scoring results. An empty query returns a bounded prefix. Workspace indexes are evicted by an LRU cap.
 
@@ -193,12 +193,20 @@ base64 document blocks using the installed Agent SDK's typed user-message contra
 its native budget is 4 MiB. Codex keeps local images and file-path fallbacks. Pi and
 Cursor use a 128 KiB native budget and path fallbacks for documents/binaries. ACP
 negotiates `embeddedContext` and then accepts bounded text/blob resources; without
-it, paths and ordinary text remain usable. The engine preserves native document
+it, uninlined files are sent as `resource_link` blocks, which every ACP agent must
+accept. Cursor's local SDK takes inline `{data, mimeType}` images only (it rejects
+URL images for local agents). The engine preserves native document
 and resource content through additive `ContentPart.file.content` fields.
 
-OpenCode V2 uses native images but **does not expose PDF or arbitrary binary file
-parts to the model**. They must be named in prompt text with a readable path,
-rather than sent through `files` and silently omitted. See the primary
+OpenCode V2 reads `file://` attachments itself. In the pinned 2.0.22 source, text
+files are inlined with their name, images and PDFs become media (PDFs only for
+models whose capabilities include PDF input; otherwise OpenCode substitutes an
+error note), and other binaries are dropped from the model request
+(`session/runner/to-llm-message.ts`, `session/model-request.ts`). The attachments
+page below still says PDFs are omitted; the source at the minimum supported tag is
+treated as authoritative. Arbitrary binaries must therefore be named in prompt text
+with a readable path rather than sent through `files`. Whole mentioned workspace
+files are sent as `file://` parts anchored to the composer's `@path` text. See the primary
 [OpenCode V2 attachment contract](https://dev.opencode.ai/v2/docs/attachments/) and
 [ACP v1 content contract](https://agentclientprotocol.com/protocol/v1/content).
 Claude's source format follows the installed SDK declaration and
@@ -258,3 +266,28 @@ Assistant markdown resolves local references through the thread's owning client.
 Captured images render inline and open the existing lightbox. File links inside
 the thread checkout open its file panel. Uncaptured files outside that checkout
 remain unavailable. No link reads the viewing device's local filesystem.
+
+## Idle context indexes and batched reconciliation, 2026-10-17
+
+Context completion indexes no longer stay resident, watched and busy until LRU
+eviction or shutdown. A cache entry retires after two minutes without use: its
+recursive watcher closes, retry and coalescing timers are cancelled and its index
+is dropped. The next request rebuilds from current filesystem and ignore state.
+Requests run through `WorkspaceCache.use`, which holds the entry so neither idle
+expiry nor memory pressure retires it mid-request. Shutdown waits for any drain
+still running on a retired entry.
+
+Watcher hints coalesce for 200 ms. Each batch is reconciled with one
+`git check-ignore --no-index --stdin -z` process, whatever its size, and changed
+folders share one set of three `ls-files` listings using literal pathspecs.
+Containment and symlink checks still run per path, before Git sees it, with
+ancestor `lstat` results shared within the batch. `--no-index` keeps tracked files
+that match an ignore pattern out of context, as before.
+
+The path index replaces per-character posting sets with two character-class
+bitmasks per entry, cutting retained heap for an 80,000-file index from about
+90 MiB to about 26 MiB. Each index maintains a conservative byte estimate. The
+cache keeps the estimated total across roots under 128 MiB by retiring the least
+recently used unheld roots. The most recently used root is always kept whole, so
+a repository larger than the budget still completes in full; the existing
+100,000-entry cap still fails explicitly rather than truncating.

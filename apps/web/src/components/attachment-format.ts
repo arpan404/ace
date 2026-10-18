@@ -176,20 +176,92 @@ export function collectAttachments(input: {
   return shown;
 }
 
-/** Thumbnails shown: up to four, or three and a "+N" tile. */
-export function visibleImages(count: number): { shown: number; more: number } {
-  return count > 4 ? { shown: 3, more: count - 3 } : { shown: count, more: 0 };
+/** One cell of a message's image group, sized before its bytes arrive. */
+export interface ImageCell {
+  image: ShownImage;
+  /** Its position among all the message's images, for the lightbox. */
+  index: number;
+  width: number;
+  height: number;
+  /** The tall left cell of a group of three spans both rows. */
+  tall?: boolean;
+  /** On the last cell of a group of five or more: how many images it stands for ("+N"). */
+  more?: number;
 }
 
-/** A lone image keeps its aspect within 320×240 (4:3 when unknown); a grid's tiles are 160×120. */
-export function tileSize(
+export interface ImageLayout {
+  kind: "single" | "pair" | "trio" | "grid";
+  cells: ImageCell[];
+}
+
+/** Square cells of a group, and the gap between them. */
+const cell = 160;
+const cellGap = 4;
+
+/**
+ * How a message's images are laid out: one keeps its aspect within 320×320; two are side-by-side
+ * squares; three are a tall cell on the left and two stacked squares; four or more are a 2×2
+ * grid whose fourth cell, past four, stands for the rest as "+N".
+ */
+export function imageLayout(images: readonly ShownImage[]): ImageLayout {
+  const [first] = images;
+  if (!first) return { kind: "grid", cells: [] };
+  if (images.length === 1)
+    return { kind: "single", cells: [{ image: first, index: 0, ...singleImageSize(first) }] };
+  const square = (image: ShownImage, index: number): ImageCell => ({
+    image,
+    index,
+    width: cell,
+    height: cell,
+  });
+  if (images.length === 2) return { kind: "pair", cells: images.map(square) };
+  if (images.length === 3)
+    return {
+      kind: "trio",
+      cells: images.map((image, index) =>
+        index === 0
+          ? { image, index, width: cell, height: cell * 2 + cellGap, tall: true }
+          : square(image, index),
+      ),
+    };
+  const cells = images.slice(0, 4).map(square);
+  const last = cells[3];
+  if (last && images.length > 4) last.more = images.length - 3;
+  return { kind: "grid", cells };
+}
+
+/** The height an image group takes before its cells are known, from the images' shapes. */
+export function imageGroupHeight(images: readonly Pick<ShownImage, "width" | "height">[]): number {
+  const [first] = images;
+  if (!first) return 0;
+  if (images.length === 1) return singleImageSize(first).height;
+  return images.length === 2 ? cell : cell * 2 + cellGap;
+}
+
+/** A message's lone image keeps its aspect within 320×320 (4:3 when unknown). */
+function singleImageSize(image: Pick<ShownImage, "width" | "height">): {
+  width: number;
+  height: number;
+} {
+  return fitWithin(image, 320, 320);
+}
+
+/** An inline image in prose keeps its aspect within 320×240 (4:3 when unknown). */
+export function tileSize(image: Pick<ShownImage, "width" | "height">): {
+  width: number;
+  height: number;
+} {
+  return fitWithin(image, 320, 240);
+}
+
+function fitWithin(
   image: Pick<ShownImage, "width" | "height">,
-  count: number,
+  maxWidth: number,
+  maxHeight: number,
 ): { width: number; height: number } {
-  if (count > 1) return { width: 160, height: 120 };
   const width = image.width ?? 4,
     height = image.height ?? 3;
-  const scale = Math.min(320 / width, 240 / height, image.width ? 1 : Infinity);
+  const scale = Math.min(maxWidth / width, maxHeight / height, image.width ? 1 : Infinity);
   return {
     width: Math.max(48, Math.round(width * scale)),
     height: Math.max(36, Math.round(height * scale)),

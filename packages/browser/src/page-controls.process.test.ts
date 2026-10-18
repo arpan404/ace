@@ -36,7 +36,7 @@ it.skipIf(!executablePath)(
       text: "retained form",
     });
     await f.execute({ action: "navigate", url: f.url + "/other" });
-    expect(await f.execute({ action: "navigation_history" })).toEqual({
+    expect(await f.execute({ action: "navigation_history" })).toMatchObject({
       back: true,
       forward: false,
     });
@@ -44,7 +44,7 @@ it.skipIf(!executablePath)(
     await f.execute({ action: "wait_for", url: f.url + "/" });
     await f.execute({ action: "wait_for", text: "Fixture ready" });
     expect(await f.evaluate("document.querySelector('input').value")).toBe("retained form");
-    expect(await f.execute({ action: "navigation_history" })).toEqual({
+    expect(await f.execute({ action: "navigation_history" })).toMatchObject({
       back: true,
       forward: true,
     });

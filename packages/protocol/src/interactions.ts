@@ -24,7 +24,7 @@ export const Question = z.object({
 });
 export type Question = z.infer<typeof Question>;
 
-/** Why an agent hands a browser tab to the person (`ace_browser_request_help`). */
+/** Why an agent hands a browser tab to the person (`browser_request_help`). */
 export const BrowserHelpReason = z.enum(["login", "captcha", "two_factor", "dialog", "other"]);
 export type BrowserHelpReason = z.infer<typeof BrowserHelpReason>;
 

@@ -2,8 +2,7 @@ import { onTestFinished } from "vitest";
 import { z } from "zod";
 import { CredentialRegistry, ToolRegistry, nodeScheduler } from "@ace/mcp-server";
 import { McpScope } from "@ace/protocol";
-import { browserToolkit } from "./index.ts";
-import type { BrowserService } from "./service.ts";
+import { browserToolkit, type BrowserToolPort } from "./index.ts";
 
 const Content = z.object({
   isError: z.boolean().optional(),
@@ -14,6 +13,7 @@ const Content = z.object({
     ]),
   ),
 });
+type Result = z.infer<typeof Content>;
 export const Failure = z.object({
   code: z.string(),
   message: z.string(),
@@ -21,17 +21,28 @@ export const Failure = z.object({
   detail: z.string().optional(),
 });
 
-/** The JSON a text content item carries. */
-function text(result: z.infer<typeof Content>, index = 0): unknown {
-  const item = result.content[index];
+/** A text content item as the agent reads it. */
+function raw(result: Result, index = 0): string {
+  const item = result.content.filter((part) => part.type === "text")[index];
   if (item?.type !== "text") throw new Error("Expected text content");
-  return JSON.parse(item.text);
+  return item.text;
 }
 
-/** An agent calling ace_browser_* tools over the real MCP registry, as a provider would. */
-export function agentMcp(service: Pick<BrowserService, "execute" | "screenshot">) {
+/** The ref on the snapshot line naming `name`, as an agent would pick it out. */
+export function refNamed(snapshot: string, name: string): string {
+  const quoted = JSON.stringify(name);
+  const line = snapshot
+    .split("\n")
+    .find((entry) => entry.includes(quoted) && entry.includes("[ref="));
+  const found = line?.match(/\[ref=([^\]]+)\]/)?.[1];
+  if (!found) throw new Error(`No ${quoted} ref in snapshot:\n${snapshot}`);
+  return found;
+}
+
+/** An agent calling the browser tools over the real MCP registry, as a provider would. */
+export function agentMcp(port: BrowserToolPort) {
   const registry = new ToolRegistry({ scheduler: nodeScheduler });
-  browserToolkit(service).register(registry);
+  browserToolkit(port).register(registry);
   const credentials = new CredentialRegistry(() => "a".repeat(64));
   onTestFinished(() => credentials.close());
   const lease = credentials.issue(
@@ -44,29 +55,24 @@ export function agentMcp(service: Pick<BrowserService, "execute" | "screenshot">
     new AbortController().signal,
   );
   const call = async (name: string, args: Record<string, unknown> = {}) =>
-    Content.parse(
-      await registry.call(
-        `ace_browser_${name}`,
-        args,
-        lease.principal,
-        new AbortController().signal,
-      ),
-    );
+    Content.parse(await registry.call(name, args, lease.principal, new AbortController().signal));
   return {
     call,
-    text,
+    /** A text item's raw text, such as a snapshot. */
+    raw,
+    /** The JSON a text item carries. */
+    json: (result: Result, index = 0): unknown => JSON.parse(raw(result, index)),
     /** The call's result; it must succeed. */
     async ok(name: string, args: Record<string, unknown> = {}) {
       const result = await call(name, args);
-      if (result.isError)
-        throw new Error(`ace_browser_${name} failed: ${JSON.stringify(text(result))}`);
+      if (result.isError) throw new Error(`${name} failed: ${raw(result)}`);
       return result;
     },
     /** The public failure the agent reads; the call must fail. */
     async failure(name: string, args: Record<string, unknown> = {}) {
       const result = await call(name, args);
-      if (!result.isError) throw new Error(`ace_browser_${name} succeeded`);
-      return Failure.parse(text(result));
+      if (!result.isError) throw new Error(`${name} succeeded`);
+      return Failure.parse(JSON.parse(raw(result)));
     },
   };
 }

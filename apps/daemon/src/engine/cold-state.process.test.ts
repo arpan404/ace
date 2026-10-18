@@ -58,10 +58,8 @@ test("an old undelivered model failure retains its exact message in a held queue
     reason: "not_sent",
     pendingCount: 1,
   });
-  expect(recovered.store.snapshotThread(id).items["input:old-failure"]).toMatchObject({
-    type: "message",
-    parts: text("Which file needs fixing?"),
-  });
+  // Never delivered, so it is in the queue, not the transcript.
+  expect(recovered.store.snapshotThread(id).items["input:old-failure"]).toBeUndefined();
 });
 
 test("a thread whose provider never started a turn has no restart continuation", async () => {

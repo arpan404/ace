@@ -21,7 +21,17 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { matchesChord } from "@/lib/hotkeys.ts";
 import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { parseChord } from "@/lib/keymap.ts";
-import { focusListRow, roveListFocus, rowFocusSelector, stepIntoActions } from "./list-focus.ts";
+import {
+  focusListRow,
+  focusRowFrom,
+  roveListFocus,
+  rowFocusSelector,
+  stepIntoActions,
+  typeAheadIndex,
+} from "./list-focus.ts";
+import { jumpTargets } from "./list-jump.ts";
+import { JumpKeys, useJumpHints } from "./list-jump-keys.tsx";
+import { useFocusAfterExit } from "./use-exit-focus.ts";
 import { ManyDevices, useManyDevices } from "./row-parts.tsx";
 import { ThreadRow } from "./thread-row.tsx";
 import { SettledRow } from "./settled-row.tsx";
@@ -64,7 +74,7 @@ const loadDrag = () => import("./list-drag.ts");
 const BulkBar = deferredComponent(() => import("./bulk-bar.tsx").then((module) => module.BulkBar));
 
 const header =
-  "mt-2 flex h-7 w-full items-center gap-2 rounded-sm px-3 text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--motion-fast)";
+  "mt-2 flex h-7 w-full items-center gap-2 rounded-sm px-3 text-xs font-medium text-subtle-foreground focus-ring-inset transition-colors duration-(--motion-fast)";
 
 /** A section's quiet heading: its name and how many. No rule: spacing sets the sections apart. */
 function HeadingText(props: { label: string; count?: number | undefined }) {
@@ -108,7 +118,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
       },
     );
   }, [pinned, active, recent, snoozed, settled, snoozedOpen, settledOpen, moving]);
-  const hold = useListHold();
+  const hold = useListHold(moving !== undefined);
   const held = useHeldRows(rows, hold.state, props.list.needsYou);
   const { rows: drawn, moving: sliding } = useListMotion(held, homeRowKey);
   const viewport = useRef<HTMLDivElement>(null);
@@ -141,6 +151,12 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
     [drawn],
   );
   useEffect(() => selection.keepListed(order), [selection, order]);
+  const mountRow = (index: number) => virtualizer.scrollToIndex(index, { align: "auto" });
+  const exitFocus = useFocusAfterExit(viewport, drawn, mountRow);
+  // ⌘1–9 open the first nine rows; held modifiers show each row's number.
+  const jumps = useMemo(() => jumpTargets(drawn), [drawn]);
+  const numbers = useMemo(() => new Map(jumps.map((id, index) => [id, index + 1])), [jumps]);
+  const hints = useJumpHints();
   // A drag outlives the render it started in: it reads the rows as drawn now.
   const latest = useRef({ drawn, pinned });
   useLayoutEffect(() => {
@@ -254,8 +270,40 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
       startKeyboardMove(id);
       return;
     }
+    const plain = !event.altKey && !event.metaKey && !event.ctrlKey;
+    const end = event.key === "Home" ? 1 : event.key === "End" ? -1 : 0;
+    if (end && plain && !event.shiftKey) {
+      event.preventDefault();
+      const start = end > 0 ? 0 : drawn.length - 1;
+      void focusRowFrom({
+        viewport: viewport.current,
+        rows: drawn,
+        start,
+        step: end,
+        mount: mountRow,
+      });
+      return;
+    }
     const step = steps[event.key];
-    if (!step || event.altKey || event.metaKey || event.ctrlKey) return;
+    // Type to jump: a letter goes to the next thread whose title starts with it. Not prevented,
+    // so a letter may still start a sequence ("g h").
+    if (!step && plain && event.key.length === 1 && /\S/.test(event.key)) {
+      const titles = drawn.map((row) => {
+        const thread = row.phase === "exit" ? undefined : homeRowThread(row.item);
+        return thread ? shownEntry(thread)?.title : undefined;
+      });
+      const at = typeAheadIndex(titles, Number(from.dataset.index), event.key);
+      if (at !== undefined)
+        void focusRowFrom({
+          viewport: viewport.current,
+          rows: drawn,
+          start: at,
+          step: 1,
+          mount: mountRow,
+        });
+      return;
+    }
+    if (!step || !plain) return;
     event.preventDefault();
     const shifted = event.shiftKey;
     void focusListRow({
@@ -264,7 +312,7 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
       from: event.target,
       index: Number(from.dataset.index),
       step,
-      mount: (index) => virtualizer.scrollToIndex(index, { align: "auto" }),
+      mount: mountRow,
     }).then((next) => {
       // Shift+↑↓ picks admitted tasks, while Unsent links and disclosures only move focus.
       if (shifted && next) {
@@ -307,32 +355,34 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
   const manyDevices = useManyDevices();
   return (
     <ManyDevices value={manyDevices}>
+      <JumpKeys targets={jumps} />
       <div
         ref={viewport}
         {...hold.handlers}
-        onPointerEnter={() => {
-          hold.handlers.onPointerEnter();
-          void loadDrag();
-        }}
+        onPointerEnter={() => void loadDrag()}
         data-virtual-viewport=""
         style={{
           maskImage:
             "linear-gradient(to bottom, transparent, black 8px, black calc(100% - 8px), transparent)",
         }}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4 [scrollbar-gutter:stable]"
       >
         <div
           ref={listRef}
           role="list"
           aria-label="Threads"
+          // Its letters jump between rows, so the composer's type-to-focus leaves them alone.
+          data-type-ahead=""
           onKeyDownCapture={onKeyDownCapture}
           onKeyDown={onKeyDown}
           onFocus={(event) => {
+            exitFocus.onFocus(event);
             if (!event.target.matches(rowFocusSelector)) return;
             lastFocused.current = event.target;
             roveListFocus(event.currentTarget, event.target);
           }}
           onBlur={(event) => {
+            exitFocus.onBlur(event);
             const next = event.relatedTarget;
             if (next instanceof Node && event.currentTarget.contains(next)) return;
             keyboardMove.current?.cancel();
@@ -378,6 +428,15 @@ export function ThreadList(props: { list: HomeList; settledTotal?: number | unde
                   ...(thread && movingSet.has(thread) ? { opacity: 0.4 } : {}),
                 }}
               >
+                {hints && thread && !leaving && numbers.has(thread) && (
+                  <span
+                    aria-hidden
+                    data-jump-hint=""
+                    className="pointer-events-none absolute top-1.5 -left-1.5 z-[2] grid h-4 min-w-4 place-items-center rounded-xs bg-popover px-0.5 text-2xs font-medium tabular-nums text-muted-foreground shadow-[0_0_0_1px_var(--border)]"
+                  >
+                    {numbers.get(thread)}
+                  </span>
+                )}
                 <div className={rowMotion(entry.phase)}>
                   {(row.kind === "thread" || row.kind === "pinned" || row.kind === "snoozed") && (
                     <ThreadRow threadId={row.id} settled={false} leaving={leaving} />

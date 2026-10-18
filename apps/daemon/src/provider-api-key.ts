@@ -5,15 +5,13 @@ import {
 } from "@ace/provider-kit/process";
 import type { ProviderKind } from "@ace/protocol";
 import type { ProviderLoginDriver } from "@ace/accounts";
+import { admitsVersion, cliRequirements } from "@ace/provider-kit/cli-requirements";
 
 export function apiKeySupport(provider: ProviderKind, version?: string, help = "") {
-  if (
-    provider === "codex" &&
-    /^(?:0|1)\.\d+\.\d+$/.test(version ?? "") &&
-    help.includes("--with-api-key")
-  )
+  if (provider === "codex" && admitsVersion("codex", version) && help.includes("--with-api-key"))
     return { supported: true };
-  if (provider === "cursor" && version === "1.0.35") return { supported: true };
+  if (provider === "cursor" && version === cliRequirements["cursor-sdk"].minimum)
+    return { supported: true };
   return {
     supported: false,
     reason:

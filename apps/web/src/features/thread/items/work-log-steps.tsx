@@ -2,7 +2,7 @@ import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import type { Item, ToolSurface } from "@ace/protocol";
 import { isMeasurementCall, type StepText } from "@ace/ui-core";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
-import { Suspense, useId, useState } from "react";
+import { Suspense, useId } from "react";
 import { cn } from "@/lib/cn.ts";
 import { DeferredMeasurementStep } from "./deferred-measurement.ts";
 import { MessageAttachments } from "@/components/attachment-message.tsx";
@@ -12,6 +12,8 @@ import { StepGlyph } from "./step-glyph.tsx";
 import { RailMark } from "./step-rail.tsx";
 import { StepProse } from "./step-prose.tsx";
 import { useStepDisplay } from "./use-step-display.ts";
+import { useStepOpen } from "./step-open.ts";
+import { pressableRowClass, rowClass } from "./transcript-row.tsx";
 
 /*
  * One work-log step as a quiet row that expands to its detail, and what the agent said between
@@ -43,7 +45,14 @@ export function ToolStepContent(props: {
         <StepProse threadId={props.threadId} itemId={props.itemId} />
       </li>
     );
-  const line = <StepLine threadId={props.threadId} data={display} surface={props.surface} />;
+  const line = (
+    <StepLine
+      threadId={props.threadId}
+      itemId={props.itemId}
+      data={display}
+      surface={props.surface}
+    />
+  );
   if (
     data &&
     ((item?.type === "tool_call" && (item.measurement || isMeasurementCall(item.call))) ||
@@ -59,12 +68,15 @@ export function ToolStepContent(props: {
 
 function StepLine(props: {
   threadId: string;
+  itemId: string;
   data: ReturnType<typeof useStepDisplay>;
   surface?: ToolSurface | undefined;
 }) {
   const { data } = props;
-  // Details start folded; pending requests remain visible above the composer.
-  const [open, setOpen] = useState(false);
+  // Details start folded; pending requests remain visible above the composer. What the reader
+  // opened stays open when the step joins a group.
+  const [toggled, setOpen] = useStepOpen(props.itemId);
+  const open = toggled ?? false;
   const panel = useId();
   if (!data || data.awaiting) return null;
   const expandable = hasStepDetail(data.item);
@@ -89,11 +101,11 @@ function StepLine(props: {
           <MessageAttachments
             threadId={props.threadId}
             attachments={[data.item.call.detail.attachment]}
-            className="mt-1 items-start pl-6.5"
+            className="mt-1 items-start pl-7"
           />
         )}
       {open && (
-        <div id={panel} className="mt-1 mb-2 pl-6.5">
+        <div id={panel} className="mt-1 mb-2 pl-7">
           <StepDetail item={data.item} threadId={props.threadId} ace={data.step.ace} />
         </div>
       )}
@@ -121,16 +133,21 @@ export function StepRow(props: {
       aria-label={[step.verb, step.target, step.note].filter(Boolean).join(" ")}
       title={step.ace?.problem?.hint}
       onClick={props.expandable === false ? undefined : props.onToggle}
-      className="flex min-h-8 w-full min-w-0 items-center gap-2.5 text-left text-ui text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground"
+      className={cn(
+        props.expandable === false ? rowClass : pressableRowClass,
+        "text-muted-foreground",
+      )}
     >
-      <StepGlyph
-        threadId={props.threadId}
-        item={props.item}
-        surface={props.surface}
-        mark={step.ace?.mark}
-        running={!step.settled}
-        failed={step.failed}
-      />
+      <span className="flex min-w-5 shrink-0 items-center justify-center text-subtle-foreground">
+        <StepGlyph
+          threadId={props.threadId}
+          item={props.item}
+          surface={props.surface}
+          mark={step.ace?.mark}
+          running={!step.settled}
+          failed={step.failed}
+        />
+      </span>
       <span
         className={cn(
           step.target ? "shrink-0" : "min-w-0 truncate",

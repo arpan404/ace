@@ -58,9 +58,8 @@ test.each(["2.0.21", "1.18.33"])(
   async (version) => {
     await expect(setup(release(version))).rejects.toMatchObject({
       code: "cli_too_old",
-      message: expect.stringContaining(
-        `OpenCode ${version} is installed; ace supports OpenCode 2.0.x, 2.0.22 or newer`,
-      ),
+      title: "Update OpenCode",
+      detail: `OpenCode ${version} is older than 2.0.22, the oldest version ace supports. Update OpenCode, then refresh.`,
     });
   },
 );

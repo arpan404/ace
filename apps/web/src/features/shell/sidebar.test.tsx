@@ -218,6 +218,8 @@ test("⌘\\ hides the sidebar, and the choice survives a reload", async () => {
 
   await harness({ storage }).open("/new");
   await title("New thread");
+  // The page proper, past its skeleton (which draws a header of its own).
+  await screen.findByRole("button", { name: "Add a project" });
   expect(list("Threads")).toBeNull();
   await userEvent.click(button("Show sidebar"));
   expect(await screen.findByRole("complementary", { name: "Threads" })).toBeTruthy();
@@ -271,7 +273,6 @@ test("with no project yet, the sidebar, ⌘N and the palette all lead to Add pro
   const add = await within(
     await screen.findByRole("complementary", { name: "Threads" }),
   ).findByRole("button", { name: /^Add project/ });
-  expect(screen.queryByRole("button", { name: /^Project filter:/ })).toBeNull();
   expect(within(appNav()).queryByRole("link", { name: /^New thread/ })).toBeNull();
   await userEvent.click(add);
   expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();

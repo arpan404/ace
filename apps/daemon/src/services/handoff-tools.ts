@@ -8,30 +8,26 @@ export function handoffToolkit(store: Store): Toolkit {
     register(registry) {
       registry.register({
         ...handoffToolCatalog[0],
-        async run(page, { caller, signal }) {
+        async run(input, { caller, signal }) {
           signal.throwIfAborted();
-          const through = access.boundary(caller.threadId, page.sourceThreadId);
+          if (input.streamId) {
+            const chunk = access.readStream(
+              caller.threadId,
+              input.sourceThreadId,
+              input.streamId,
+              input.offset,
+              input.maxBytes,
+            );
+            return { ...chunk, bytes: chunk.bytes.toString("base64") };
+          }
+          const through = access.boundary(caller.threadId, input.sourceThreadId);
           return store.readHistoricalItemPage(
-            page.sourceThreadId,
+            input.sourceThreadId,
             through,
-            Math.min(page.before ?? through + 1, through + 1),
-            page.limit,
+            Math.min(input.before ?? through + 1, through + 1),
+            input.limit,
             128 * 1024,
           );
-        },
-      });
-      registry.register({
-        ...handoffToolCatalog[1],
-        async run(chunk, { caller, signal }) {
-          signal.throwIfAborted();
-          const result = access.readStream(
-            caller.threadId,
-            chunk.sourceThreadId,
-            chunk.streamId,
-            chunk.offset,
-            chunk.limit,
-          );
-          return { ...result, bytes: result.bytes.toString("base64") };
         },
       });
     },

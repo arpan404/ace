@@ -48,9 +48,6 @@ export interface Services {
   workspaceActions?: import("../workspace-runtime.ts").WorkspaceRuntime;
   canReadThread?: NonNullable<import("../server-options.ts").ServerOptions["canReadThread"]>;
   agentControl?: {
-    publications: import("../agent-control/remote-publication.ts").RemotePublications;
-    returns: import("../agent-control/remote-return.ts").RemoteReturns;
-    remote: import("../agent-control/remote.ts").RemoteDelegations;
     previews: import("../agent-control/owners.ts").AgentPreviews;
     delegations: import("../agent-control/delegations.ts").DelegationService;
     port: import("@ace/mcp-server").AgentControlPort;
@@ -65,11 +62,11 @@ export interface Services {
   transitions?: import("../engine/transitions.ts").TransitionIO;
   pi?: import("./pi.ts").PiService;
   screen?: ScreenManager;
-  /** `ace_ask` questions waiting on the person. */
+  /** `ask` questions waiting on the person. */
   asks?: import("../asks.ts").Asks;
   /** Threads whose browser an agent works in now (the task list's indicator). */
   browsing?: import("../browsing.ts").BrowsingThreads;
-  /** `ace_browser_request_help` requests waiting on the person. */
+  /** `browser_request_help` requests waiting on the person. */
   browserHelp?: import("../browser-help.ts").BrowserHelp;
   devices?: DevicesService;
   accounts?: AccountService;

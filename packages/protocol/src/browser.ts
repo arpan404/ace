@@ -51,7 +51,7 @@ export type BrowserOpen = z.infer<typeof BrowserOpen>;
 const commandBase = z.object({
   tabId: short
     .optional()
-    .describe("The tab to act in, from ace_browser_tabs. Omitted: your current tab."),
+    .describe("The tab to act in, from browser_tabs. Omitted: your current tab."),
 });
 const [click, type, press, scroll, drag] = BrowserInteractionAction.options;
 const annotate = commandBase.extend({ action: z.literal("annotate") });
@@ -59,7 +59,8 @@ const annotate = commandBase.extend({ action: z.literal("annotate") });
 const BrowserAnnotateCommand = z.discriminatedUnion("operation", [
   annotate.extend({
     operation: z.literal("start"),
-    // Not `.prefault()`: browser builds leave it out (apps/web/zod-methods.ts).
+    // Not `.prefault({})`: browser builds leave it out (apps/web/zod-methods.ts). Parsing `{}`
+    // on each use fills the config's own defaults the same way.
     config: BrowserAnnotationConfig.default(() => BrowserAnnotationConfig.parse({})),
   }),
   annotate.extend({ operation: z.literal("stop") }),
@@ -112,16 +113,25 @@ export const BrowserCommand = z.discriminatedUnion("action", [
     action: z.literal("snapshot"),
     ref: short
       .optional()
-      .describe(
-        "Only this element's subtree (a ref from the latest snapshot). Its refs join that snapshot's.",
-      ),
+      .describe("Ref of a container from the latest snapshot: return only its subtree."),
+    interactiveOnly: z
+      .boolean()
+      .default(false)
+      .describe("Only actionable elements (buttons, links, fields), as a flat list."),
+    maxNodes: z
+      .number()
+      .int()
+      .min(1)
+      .max(2000)
+      .default(120)
+      .describe("Most lines to return; the result says when more exist."),
     depth: z
       .number()
       .int()
       .min(1)
       .max(64)
       .optional()
-      .describe("How many levels below the page (or ref) to read. Default 20."),
+      .describe("How many levels below the page (or ref) to read. Omitted: every level."),
   }),
   commandBase.extend({
     action: z.literal("screenshot"),
@@ -256,9 +266,14 @@ export const BrowserCommand = z.discriminatedUnion("action", [
   commandBase.extend({ action: z.literal("focus"), ref: short }),
   commandBase.extend({
     action: z.literal("find"),
-    role: short,
-    name: z.string().max(1024),
-    exact: z.boolean().default(true),
+    role: short.optional().describe("Accessible role, e.g. button, link, textbox, heading."),
+    name: z
+      .string()
+      .min(1)
+      .max(1024)
+      .optional()
+      .describe("Accessible name; a case-insensitive substring unless exact is true."),
+    exact: z.boolean().default(false).describe("Match the whole name exactly."),
   }),
   commandBase.extend({ action: z.literal("network_body"), requestId: short }),
   commandBase.extend({ action: z.literal("record_start") }),

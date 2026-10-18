@@ -76,8 +76,8 @@ test("Cursor portable forks deliver the shared manifest and retain scoped histor
     throw new Error("Missing Cursor full history pointer");
   expect(item.parts[0].text).not.toContain("later Cursor secret");
   const responseChunk = await registry.call(
-    manifest.history.chunkTool,
-    { sourceThreadId: source, streamId: item.parts[0].source.streamId, offset: 0, limit: 32768 },
+    manifest.history.tool,
+    { sourceThreadId: source, streamId: item.parts[0].source.streamId, offset: 0 },
     principal,
     principal.signal,
   );

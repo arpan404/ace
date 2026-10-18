@@ -4,6 +4,7 @@ import { CredentialRegistry, ToolRegistry } from "@ace/mcp-server";
 import { McpScope } from "@ace/protocol";
 import { browserToolkit } from "./index.ts";
 import { backendFixture } from "./backend-test-support.ts";
+import { toolPort } from "./tool-port-test-support.ts";
 import { TestNavigationClock } from "./navigation-test-clock.ts";
 import { keepAgentsOut } from "./collaboration-test-support.ts";
 
@@ -99,7 +100,7 @@ it.each(["URL", "element"])(
     const registry = new ToolRegistry({
       scheduler: { after: (delay, work) => clock.set(delay, work) },
     });
-    browserToolkit(f.service).register(registry);
+    browserToolkit(toolPort(f.service)).register(registry);
     const lease = new CredentialRegistry(() => "a".repeat(64)).issue(
       McpScope.parse({
         sessionId: "wait",
@@ -111,7 +112,7 @@ it.each(["URL", "element"])(
     );
     try {
       const waiting = registry.call(
-        "ace_browser_wait_for",
+        "browser_wait_for",
         condition === "URL" ? { url: "https://journey.invalid/result" } : { ref, state: "visible" },
         lease.principal,
         new AbortController().signal,

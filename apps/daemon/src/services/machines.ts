@@ -131,13 +131,11 @@ export function startMachines(context: ServiceContext): void {
       .catch((error: unknown) => log.log("warn", "Machine child not stopped", logError(error)));
   };
   services.engine?.bindHostInteractions((command) => mirror.resolve(command));
-  services.engine?.bindRemoteTaskStop(cancel, "ace-machine:");
+  services.engine?.bindExternalTaskStop("ace-machine:", cancel);
   const delegations = services.agentControl?.delegations;
   if (delegations) {
     delegations.monitor.attachRemote(children);
-    const previous = delegations.onRemoteCancel;
     delegations.onRemoteCancel = (thread) => {
-      previous?.(thread);
       for (const id of children.under(thread)) cancel(id);
     };
   }

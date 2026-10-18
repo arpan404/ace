@@ -10,7 +10,7 @@ import { ProviderKind, type CommandResolution } from "@ace/protocol";
 import { CommandCatalog, type CommandService, type ProviderInstance } from "./catalog.ts";
 import { CommandFiles } from "./files.ts";
 import { RecoveryLoop, type RecoveryTimer } from "./recovery-loop.ts";
-import { discoveryRoots } from "./roots.ts";
+import { builtinSkillsRoot, discoveryRoots, type BuiltinSkills } from "./roots.ts";
 const context = z.object({
   workspace: z.string().min(1).max(4096),
   provider: ProviderKind,
@@ -39,6 +39,7 @@ export class CommandLibrary implements CommandService {
   private readonly instances: () => readonly ProviderInstance[];
   private readonly extras: ((context: LibraryContext) => Promise<CatalogEntry[]>) | undefined;
   private readonly aceHome: string;
+  private readonly builtinSkills: BuiltinSkills | undefined;
   private readonly now: () => number;
   private readonly listeners = new Set<() => void>();
   private serial: Promise<unknown> = Promise.resolve();
@@ -52,7 +53,10 @@ export class CommandLibrary implements CommandService {
     now: () => number;
     extras?: (context: LibraryContext) => Promise<CatalogEntry[]>;
     recoveryTimer?: RecoveryTimer;
+    /** ace's shipped skills, cataloged for providers that cannot load them natively. */
+    builtinSkills?: BuiltinSkills;
   }) {
+    this.builtinSkills = options.builtinSkills;
     this.recovery = new RecoveryLoop(options.recoveryTimer);
     this.extras = options.extras;
     this.contexts = options.context;
@@ -114,7 +118,12 @@ export class CommandLibrary implements CommandService {
       const catalog = new CommandCatalog(this.now);
       const files = new CommandFiles(
         catalog,
-        discoveryRoots(instance ? [instance] : [], this.aceHome, ctx.workspace),
+        [
+          ...discoveryRoots(instance ? [instance] : [], this.aceHome, ctx.workspace),
+          ...(this.builtinSkills?.providers.includes(ctx.provider)
+            ? [builtinSkillsRoot(this.builtinSkills.directory)]
+            : []),
+        ],
         { schedule: this.recovery.schedule },
       );
       entry = {
@@ -375,6 +384,7 @@ export class CommandLibrary implements CommandService {
         target.provider,
         mergeExtensions(snapshot.entries, entry.extras, snapshot.native),
         (id, positional, values) => entry.catalog.resolve(target, id, values, positional),
+        (selected) => entry.catalog.skillSource(target, selected),
       );
     });
   }

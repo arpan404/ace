@@ -22,6 +22,9 @@ export function providerReadiness(row: ProviderStatus): ProviderStatus {
             : "signed_in";
   if (row.enabled !== false && row.installed === true && row.state === "not_configured")
     readiness = "installed_signed_out";
+  // Older than ace's minimum: sessions are refused until it is updated, whatever its sign-in.
+  if (row.enabled !== false && row.installed === true && row.versionCheck?.status === "too_old")
+    readiness = "needs_update";
   return {
     ...row,
     readiness,

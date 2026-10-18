@@ -232,19 +232,34 @@ export async function executeBrowserCommand(
     case "snapshot":
       return {
         tabId: context.tabId,
-        ...(await context.refs.snapshot({ ref: command.ref, depth: command.depth })),
+        url: page.url(),
+        ...(await context.refs.snapshot({
+          ...(command.ref ? { scope: command.ref } : {}),
+          interactiveOnly: command.interactiveOnly,
+          maxNodes: command.maxNodes,
+          depth: command.depth,
+        })),
       };
     case "find": {
-      const snapshot = await context.refs.snapshot();
-      return {
-        ...snapshot,
-        tabId: context.tabId,
-        nodes: snapshot.nodes.filter(
-          (node) =>
-            node.role === command.role &&
-            (command.exact ? node.name === command.name : node.name.includes(command.name)),
-        ),
-      };
+      if (command.role === undefined && command.name === undefined)
+        throw new BrowserActionError("invalid_arguments", undefined, undefined, [
+          { path: "role", expected: "role or name (or both)" },
+        ]);
+      const role = command.role?.toLowerCase();
+      const name = command.name?.toLowerCase();
+      const found = await context.refs.snapshot({
+        maxNodes: 50,
+        match: (node) =>
+          node.role !== "text" &&
+          (role === undefined || node.role.toLowerCase() === role) &&
+          (command.name === undefined ||
+            (command.exact
+              ? node.name === command.name
+              : node.name.toLowerCase().includes(name ?? ""))),
+      });
+      // Matches are a flat list; their tree depth would only mislead.
+      for (const node of found.nodes) node.depth = 0;
+      return { tabId: context.tabId, ...found };
     }
     case "dialog":
       context.check(actor, signal, generation);
