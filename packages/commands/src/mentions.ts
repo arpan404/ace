@@ -21,6 +21,16 @@ function append(parts: ContentPart[], part: ContentPart): void {
   else parts.push(part.type === "text" ? { ...part } : part);
 }
 
+/** Codex's documented app mention slug: ASCII alphanumerics lowercased, others as `-`. */
+function appSlug(name: string): string {
+  return (
+    name
+      .replace(/[^A-Za-z0-9]/g, "-")
+      .toLowerCase()
+      .replace(/^-+|-+$/g, "") || "app"
+  );
+}
+
 /**
  * Entries whose typed or advertised invocation the provider loads itself. ace's own skill
  * files are unknown to every harness; they and other skills without a native route are
@@ -72,9 +82,12 @@ export function translateMentions(
       ...(entry.icon ? { icon: entry.icon } : {}),
     };
     if (native(provider, entry, invocation)) {
-      // Codex documents the `$name` marker alongside the typed item for explicit invocation.
+      // Codex documents the `$name` marker alongside the typed item for explicit invocation;
+      // an app is invoked when its `$<app-slug>` marker accompanies the app:// mention item.
       if (provider === "codex" && invocation.type === "skill")
         append(output, { type: "text", text: `$${invocation.name}` });
+      if (provider === "codex" && invocation.type === "mention")
+        append(output, { type: "text", text: `$${appSlug(invocation.name)}` });
       output.push(selected);
       if (provider === "codex" && part.arguments)
         append(output, {

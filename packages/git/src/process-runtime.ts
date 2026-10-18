@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { developerToolsGit } from "./git-binary.ts";
 import { processGroupAlive, scanGitProcesses } from "./git-processes.ts";
 import type { GitProcessRuntime } from "./types.ts";
 
@@ -15,6 +16,8 @@ export function processRuntime(overrides: Partial<GitProcessRuntime> = {}): GitP
     },
     groupAlive: processGroupAlive,
     gitProcesses: scanGitProcesses(overrides.platform ?? process.platform),
+    locateGit: (env) => developerToolsGit(overrides.platform ?? process.platform, env),
+    fileClock: () => Date.now(),
     ...overrides,
   };
 }

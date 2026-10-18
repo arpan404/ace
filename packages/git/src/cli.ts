@@ -35,6 +35,8 @@ import { GitDiagnostics } from "./diagnostics.ts";
 import { failureMessage, StderrTail } from "./failure-text.ts";
 import { spawnPinned } from "./pinned-process.ts";
 import { count, decode } from "./decode.ts";
+import { ConfigFacts, configEnvironment } from "./config-facts.ts";
+import { learnConfigSources, standardConfigFiles } from "./config-learning.ts";
 import {
   GitError,
   toGitError,
@@ -83,8 +85,12 @@ export class GitCli {
   readonly leaseId: () => string;
   readonly leaseProbe: LeaseProbe;
   private readonly now: () => Date | Promise<Date>;
-  readonly binary: string;
+  /** The executable the caller configured, if any; else `git` or what it would launch. */
+  private readonly configuredBinary: string | undefined;
+  private resolvedBinary: string | undefined;
   readonly timeoutMs: number;
+  private readonly facts: ConfigFacts;
+  private readonly standardFiles = new Map<string, Promise<string[] | undefined>>();
   private ready: Promise<void> | undefined;
   private readonly runtime: GitProcessRuntime;
   private readonly calls = new Set<Promise<Output>>();
@@ -133,10 +139,17 @@ export class GitCli {
           },
       waitMs: options.leaseWaitMs ?? 60_000,
     };
-    this.binary = options.gitBinary ?? "git";
-    if (!this.binary || this.binary.includes("\0")) {
+    this.configuredBinary = options.gitBinary;
+    if (
+      this.configuredBinary !== undefined &&
+      (!this.configuredBinary || this.configuredBinary.includes("\0"))
+    ) {
       throw new GitError("invalid_argument", "gitBinary must name an executable");
     }
+    this.facts = new ConfigFacts({
+      now: this.runtime.fileClock,
+      sources: (cwd, env) => this.configSources(cwd, env),
+    });
     this.timeoutMs = options.timeoutMs ?? 30_000;
     if (
       !Number.isSafeInteger(this.timeoutMs) ||
@@ -319,11 +332,7 @@ export class GitCli {
       throw new GitError("invalid_argument", "Git arguments cannot contain NUL bytes");
     }
     await assertAvailable(cwd, this.leaseProbe);
-    this.ready ??= this.verify(cwd, options.directoryFd, options.signal).catch((error: unknown) => {
-      this.ready = undefined;
-      throw error;
-    });
-    await this.ready;
+    await this.ensureReady(cwd, options.directoryFd, options.signal);
     options.signal?.throwIfAborted();
     await assertAvailable(cwd, this.leaseProbe);
     try {
@@ -346,8 +355,30 @@ export class GitCli {
     }
   }
 
+  /** The executable each Git call starts. */
+  get binary(): string {
+    return this.configuredBinary ?? this.resolvedBinary ?? "git";
+  }
+
+  private ensureReady(cwd: string, directoryFd?: number, signal?: AbortSignal): Promise<void> {
+    this.ready ??= this.verify(cwd, directoryFd, signal).catch((error: unknown) => {
+      this.ready = undefined;
+      this.resolvedBinary = undefined;
+      throw error;
+    });
+    return this.ready;
+  }
+
   private async verify(cwd: string, directoryFd?: number, signal?: AbortSignal): Promise<void> {
-    const result = await this.execute(cwd, ["--version"], { directoryFd, signal });
+    // Resolved once per verification; a missing executable later re-verifies (see `executeRaw`).
+    if (this.configuredBinary === undefined)
+      this.resolvedBinary = await this.runtime.locateGit(inheritedEnv()).catch(() => undefined);
+    // `--version` reads no repository: the fixed guards suffice, with no configuration query.
+    const result = await this.executeRaw(cwd, ["--version"], {
+      directoryFd,
+      signal,
+      env: nonExecutingEnv(),
+    });
     const version = /^git version (\d+)\.(\d+)\.(\d+)/.exec(textOutput(result));
     const [major, minor] = version
       ? decode(z.tuple([z.string(), z.string(), z.string()]), version.slice(1), "version").map(
@@ -408,7 +439,76 @@ export class GitCli {
     );
   }
 
-  private async executionKeys(cwd: string, options: CallOptions): Promise<string> {
+  /**
+   * A fact computed only from the configuration and repository discovery Git sees in `cwd`,
+   * reused until any file Git reads them from changes (see `ConfigFacts`). `keep` decides whether
+   * a computed value may be reused at all.
+   */
+  configFact<T>(
+    cwd: string,
+    name: string,
+    compute: () => Promise<T>,
+    keep?: (value: T) => boolean,
+    env: Record<string, string> = {},
+  ): Promise<T> {
+    if (this.closed) return compute();
+    return this.facts.read(cwd, this.configKeyEnv(env), name, compute, keep);
+  }
+
+  /** Call environment and the inherited variables that place the global config files. */
+  private configKeyEnv(env: Record<string, string>): Record<string, string> {
+    const inherited: Record<string, string> = {};
+    for (const key of ["HOME", "XDG_CONFIG_HOME"] as const) {
+      const value = process.env[key];
+      if (value !== undefined) inherited[key] = value;
+    }
+    return configEnvironment({ ...inherited, ...env });
+  }
+
+  private async configSources(
+    cwd: string,
+    env: Record<string, string>,
+  ): Promise<string[] | undefined> {
+    await this.ensureReady(cwd);
+    // Read-only config queries under the fixed guards, as the execution-key query itself runs.
+    const query = (args: string[]) =>
+      this.executeRaw(cwd, ["-c", "protocol.allow=never", ...args], {
+        env: { ...env, ...nonExecutingEnv() },
+        allowFailure: true,
+        captureBytes: 4_194_304,
+      });
+    return learnConfigSources(cwd, query, () => this.standardConfigFiles(env, query), env.HOME);
+  }
+
+  /** Where this Git keeps its system and global files depends only on the environment. */
+  private standardConfigFiles(
+    env: Record<string, string>,
+    query: Parameters<typeof standardConfigFiles>[0],
+  ): Promise<string[] | undefined> {
+    const key = JSON.stringify([this.binary, env]);
+    const known = this.standardFiles.get(key);
+    if (known) return known;
+    const files = standardConfigFiles(query).catch(() => undefined);
+    this.standardFiles.set(key, files);
+    void files.then((found) => {
+      if (!found) this.standardFiles.delete(key);
+    });
+    return files;
+  }
+
+  private executionKeys(cwd: string, options: CallOptions): Promise<string> {
+    // A directory pinned by descriptor may sit behind a path that no longer leads to it.
+    if (options.directoryFd !== undefined) return this.queryExecutionKeys(cwd, options);
+    return this.configFact(
+      cwd,
+      "execution-keys",
+      () => this.queryExecutionKeys(cwd, options),
+      undefined,
+      options.env,
+    );
+  }
+
+  private async queryExecutionKeys(cwd: string, options: CallOptions): Promise<string> {
     const extensions = await this.executeRaw(
       cwd,
       ["-c", "protocol.allow=never", ...executionKeyQuery],
@@ -465,10 +565,8 @@ export class GitCli {
 
   private executeRaw(cwd: string, args: string[], options: CallOptions): Promise<Output> {
     if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
-    // Repository/index selectors inherited from an agent must not redirect our commands.
-    const env = Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
-    );
+    const binary = this.binary;
+    const env = inheritedEnv();
     Object.assign(env, {
       GIT_TERMINAL_PROMPT: "0",
       LC_ALL: "C",
@@ -494,10 +592,10 @@ export class GitCli {
         throw new GitError("git_cancelled", "Git operation cancelled before dispatch");
       const child =
         options.directoryFd === undefined
-          ? this.runtime.spawn(this.binary, ["--no-pager", ...args], spawnOptions)
+          ? this.runtime.spawn(binary, ["--no-pager", ...args], spawnOptions)
           : spawnPinned(
               this.runtime,
-              this.binary,
+              binary,
               ["--no-pager", ...args],
               spawnOptions,
               options.directoryFd,
@@ -636,7 +734,12 @@ export class GitCli {
       child.stdout.on("data", stdout);
       child.stderr.on("data", stderrData);
       const spawnError = (error: NodeJS.ErrnoException) => {
-        spawnFailure = classifySpawn(error, cwd, this.binary);
+        // The developer tools Git was moved or removed: find what `git` runs now, next call.
+        if (error.code === "ENOENT" && this.resolvedBinary === binary) {
+          this.ready = undefined;
+          this.resolvedBinary = undefined;
+        }
+        spawnFailure = classifySpawn(error, cwd, binary);
       };
       child.on("error", spawnError);
       const detach = () => {
@@ -704,6 +807,12 @@ export class GitCli {
 }
 
 function ignoreError() {}
+
+/** The daemon's environment without Git's: repository/index selectors inherited from an agent
+ * must not redirect our commands. */
+function inheritedEnv(): Record<string, string | undefined> {
+  return Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+}
 
 /** The last few KiB of captured stdout, for commands that report their failure there. */
 function outputTail(chunks: readonly Buffer[]): string {

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { GitWorkspace, WorkspaceCache, resolveMentions } from "./index.ts";
-import { repository } from "./test-support.ts";
+import { listedPaths, repository } from "./test-support.ts";
 
 test.each(["file", "subtree"])(
   "a failed ordinary %s update preserves completion and recovers through the cache retry",
@@ -60,9 +60,7 @@ test.each(["file", "subtree"])(
       await retry();
       expect(workspace.index.complete("new")).toEqual(["src/new.ts"]);
       expect(
-        (await resolveMentions(workspace, [{ path: "src" }])).entries
-          .map((entry) => entry.path)
-          .toSorted(),
+        listedPaths((await resolveMentions(workspace, [{ path: "src" }])).entries).toSorted(),
       ).toEqual(["src/kept.ts", "src/new.ts"]);
       await rm(join(repo.root, "src/kept.ts"));
       await workspace.update(["src/kept.ts"]);

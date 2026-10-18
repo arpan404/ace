@@ -47,7 +47,9 @@ const annotate = commandBase.extend({ action: z.literal("annotate") });
 const BrowserAnnotateCommand = z.discriminatedUnion("operation", [
   annotate.extend({
     operation: z.literal("start"),
-    config: BrowserAnnotationConfig.prefault({}),
+    // Not `.prefault({})`: browser builds leave it out (apps/web/zod-methods.ts). Parsing `{}`
+    // on each use fills the config's own defaults the same way.
+    config: BrowserAnnotationConfig.default(() => BrowserAnnotationConfig.parse({})),
   }),
   annotate.extend({ operation: z.literal("stop") }),
   annotate.extend({ operation: z.literal("command"), command: BrowserAnnotationPageCommand }),

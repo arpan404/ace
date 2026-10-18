@@ -4,7 +4,7 @@ import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
 import type { Repository } from "./repository.ts";
-import type { ChangedFile, StatusEntry } from "./types.ts";
+import type { ChangedFile, RepositoryInfo, StatusEntry } from "./types.ts";
 
 const kinds: Record<string, ChangedFile["status"]> = {
   A: "added",
@@ -152,21 +152,43 @@ export async function changedFiles(
   });
 }
 
+type State = Awaited<ReturnType<Repository["state"]>>;
+
+/** Counts from one status read. Never snapshots the checkout or reads untracked contents. */
+async function summarize(repository: Repository, root: string, { status, branch }: State) {
+  const paths = new Set(
+    [...status.conflicted, ...status.staged, ...status.unstaged].map((entry) => entry.path),
+  );
+  const counts = branch.head
+    ? await trackedCounts(repository, root, [...paths])
+    : new Map<string, Counted>();
+  return {
+    files: new Set([...paths, ...status.untracked]).size,
+    additions: [...counts.values()].reduce((sum, value) => sum + value.added, 0),
+    deletions: [...counts.values()].reduce((sum, value) => sum + value.deleted, 0),
+  };
+}
+
 /** Background counts never snapshot the checkout or read untracked file contents. */
 export async function changeSummary(repository: Repository, worktree: string) {
   const root = await repository.root(worktree);
+  return repository.serial(root, async () =>
+    summarize(repository, root, await repository.state(root)),
+  );
+}
+
+/**
+ * Branch, upstream, remotes and change counts of a checkout from a single status read: what a
+ * thread's details show, at the cost of one `git status` instead of two.
+ */
+export async function checkoutSummary(
+  repository: Repository,
+  worktree: string,
+): Promise<{ info: RepositoryInfo; diff: Awaited<ReturnType<typeof summarize>> }> {
+  const root = await repository.root(worktree);
   return repository.serial(root, async () => {
-    const { status, branch } = await repository.state(root);
-    const paths = new Set(
-      [...status.conflicted, ...status.staged, ...status.unstaged].map((entry) => entry.path),
-    );
-    const counts = branch.head
-      ? await trackedCounts(repository, root, [...paths])
-      : new Map<string, Counted>();
-    return {
-      files: new Set([...paths, ...status.untracked]).size,
-      additions: [...counts.values()].reduce((sum, value) => sum + value.added, 0),
-      deletions: [...counts.values()].reduce((sum, value) => sum + value.deleted, 0),
-    };
+    const state = await repository.state(root);
+    const diff = await summarize(repository, root, state);
+    return { info: { root, ...state.branch, remotes: await repository.remotes(root) }, diff };
   });
 }

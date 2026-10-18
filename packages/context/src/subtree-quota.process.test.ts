@@ -2,7 +2,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { GitWorkspace, resolveMentions } from "./index.ts";
-import { repository } from "./test-support.ts";
+import { listedPaths, repository } from "./test-support.ts";
 
 test.each(["src", "src/deep"])(
   "an over-quota %s update and failed rebuild preserve published completion and mentions",
@@ -21,9 +21,9 @@ test.each(["src", "src/deep"])(
       expect(workspace.index.complete("other.ts")).toEqual(["other.ts"]);
       expect(workspace.index.complete("a.ts")).toEqual([]);
       expect(workspace.index.complete("b.ts")).toEqual([]);
-      expect(
-        (await resolveMentions(workspace, [{ path: folder }])).entries.map((entry) => entry.path),
-      ).toEqual([`${folder}/z.ts`]);
+      expect(listedPaths((await resolveMentions(workspace, [{ path: folder }])).entries)).toEqual([
+        `${folder}/z.ts`,
+      ]);
       await expect(workspace.initialize()).rejects.toMatchObject({ code: "quota" });
       expect(workspace.index.complete("z.ts")).toEqual([`${folder}/z.ts`]);
       expect(workspace.index.complete("a.ts")).toEqual([]);
@@ -31,9 +31,7 @@ test.each(["src", "src/deep"])(
       await workspace.update([folder]);
       expect(workspace.index.complete("other.ts")).toEqual(["other.ts"]);
       expect(
-        (await resolveMentions(workspace, [{ path: folder }])).entries
-          .map((entry) => entry.path)
-          .toSorted(),
+        listedPaths((await resolveMentions(workspace, [{ path: folder }])).entries).toSorted(),
       ).toEqual([`${folder}/b.ts`, `${folder}/z.ts`]);
     } finally {
       await repo.close();
