@@ -14,7 +14,8 @@
     "./counts": "./src/counts.ts",
     "./computer-use": "./src/computer-use.ts",
     "./interaction-measurement": "./src/interaction-measurement.ts",
-    "./editor-url": "./src/editor-url.ts"
+    "./editor-url": "./src/editor-url.ts",
+    "./file-references": "./src/file-references.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

@@ -346,7 +346,10 @@ export function Feed(props: FeedProps) {
                         aria-posinset={item.index + 1}
                         aria-setsize={hasOlder ? -1 : rows.length}
                         {...(lit && flash?.hit ? { "data-hit": "" } : {})}
-                        className={cn("absolute inset-x-0 top-0", rowGap(row))}
+                        className={cn(
+                          "absolute inset-x-0 top-0",
+                          rowGap(row, rows[item.index + 1]),
+                        )}
                         style={{ transform: `translateY(${item.start - margin}px)` }}
                       >
                         <div

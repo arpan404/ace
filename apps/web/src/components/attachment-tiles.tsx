@@ -4,83 +4,45 @@ import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { ImageUrl, type ImageState } from "./attachment-bytes.tsx";
-import { FileGlyph, FileName } from "./attachment-face.tsx";
+import { FileChips } from "./attachment-file-chips.tsx";
+import { ImageGroup } from "./attachment-image-group.tsx";
 import { UnavailableTile } from "./attachment-unavailable.tsx";
-import {
-  tileSize,
-  visibleImages,
-  type Shown,
-  type ShownFile,
-  type ShownImage,
-} from "./attachment-format.ts";
-import { deliveryDetails, deliveryLabels, describeFile, fileMeta } from "./attachment-kind.ts";
+import { imageLayout, tileSize, type Shown, type ShownImage } from "./attachment-format.ts";
+import { deliveryDetails } from "./attachment-kind.ts";
 import { useFilePreview, useLightbox } from "./attachment-open.tsx";
 
+export { FileChip } from "./attachment-file-chips.tsx";
+
 /*
- * A message's attachments: image thumbnails (one up to 320×240, two to four in a 2-column grid of
- * 160×120, more as three and a "+N" tile) and file chips by kind with the name, size and how the
- * agent received the file. A thumbnail opens the lightbox, a file chip its preview; their code
- * loads only then.
+ * A message's attachments, above its bubble and unframed: the images as one rounded group (see
+ * `imageLayout`) and the files as compact chips. A thumbnail opens the lightbox, which pages
+ * through every image of the message; a file chip opens its preview. Their code loads only then.
  */
 
 export function AttachmentTiles(props: Shown & { className?: string | undefined }) {
   const { images, files } = props;
-  const { shown, more } = visibleImages(images.length);
   const { show, lightbox } = useLightbox(images);
   const { show: showFile, preview } = useFilePreview();
-  // Images sent as paths say so: the agent read files, not pictures.
-  const imageDelivery = images.some((image) => image.delivery === "file_path")
-    ? "file_path"
-    : images.find((image) => image.delivery)?.delivery;
+  const layout = imageLayout(images);
   return (
-    <div className={cn("flex flex-col items-end gap-1.5", props.className)}>
-      {imageDelivery && (
-        <Tip label={deliveryDetails[imageDelivery]}>
-          {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard */}
-          <span tabIndex={0} className="focus-ring rounded-xs text-xs text-muted-foreground">
-            {imageDelivery === "file_path" ? "Images sent as files" : "Native images"}
-          </span>
-        </Tip>
-      )}
+    <div className={cn("flex flex-col items-end gap-1", props.className)}>
       {images.length > 0 && (
-        <ul
-          aria-label={images.length === 1 ? "Image" : `${images.length} images`}
-          className={cn("grid w-fit max-w-full gap-1.5", images.length > 1 && "grid-cols-2")}
-        >
-          {images.slice(0, shown).map((image, index) => (
-            <li key={image.key} className="min-w-0 max-w-full">
-              <ImageTile
-                image={image}
-                size={tileSize(image, images.length)}
-                fit={images.length === 1 && !image.width ? "contain" : "cover"}
-                onOpen={(element) => show(index, element)}
-              />
-            </li>
-          ))}
-          {more > 0 && (
-            <li>
-              <button
-                type="button"
-                aria-label={`Show ${more} more images`}
-                onClick={(event) => show(shown, event.currentTarget)}
-                style={{ width: 160, height: 120, maxWidth: "100%" }}
-                className="grid max-w-full place-items-center rounded-md bg-secondary text-lg font-medium text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground"
-              >
-                <span aria-hidden>+{more}</span>
-              </button>
-            </li>
+        <ImageGroup
+          layout={layout}
+          label={images.length === 1 ? "Image" : `${images.length} images`}
+          renderCell={(cell) => (
+            <ImageTile
+              image={cell.image}
+              size={cell}
+              className="rounded-sm"
+              fit={layout.kind === "single" && !cell.image.width ? "contain" : "cover"}
+              more={cell.more}
+              onOpen={(element) => show(cell.index, element)}
+            />
           )}
-        </ul>
+        />
       )}
-      {files.length > 0 && (
-        <ul aria-label="Attached files" className="flex max-w-full flex-wrap justify-end gap-1.5">
-          {files.map((file) => (
-            <li key={file.key} className="max-w-full min-w-0">
-              <FileChip file={file} onOpen={showFile} />
-            </li>
-          ))}
-        </ul>
-      )}
+      {files.length > 0 && <FileChips files={files} onOpen={showFile} />}
       {lightbox}
       {preview}
     </div>
@@ -99,6 +61,9 @@ interface TileProps {
   size: { width: number; height: number };
   /** `contain` letterboxes an image whose shape isn't known instead of cropping it. */
   fit?: "cover" | "contain" | undefined;
+  /** The tile stands for this many images: dimmed under "+N", it opens the rest. */
+  more?: number | undefined;
+  className?: string | undefined;
   onOpen(element: HTMLElement): void;
 }
 
@@ -106,6 +71,7 @@ function Tile(props: TileProps & { url: ImageState }) {
   const image = props.url;
   const [painted, setPainted] = useState<string>();
   const [failed, setFailed] = useState<string>();
+  const corner = props.className ?? "rounded-md";
   // Clamp to the bubble's content box on narrow columns; `object-cover` crops the excess.
   const style: CSSProperties = {
     width: props.size.width,
@@ -115,14 +81,15 @@ function Tile(props: TileProps & { url: ImageState }) {
   if (image.state === "unavailable" || (image.state === "ready" && failed === image.url))
     return <UnavailableTile name={props.image.name} style={style} />;
   const ready = image.state === "ready" && painted === image.url;
-  return (
+  const button = (
     <button
       type="button"
+      aria-label={props.more ? `Show ${props.more} more images` : undefined}
       onClick={(event) => props.onOpen(event.currentTarget)}
       style={style}
-      className="relative block overflow-hidden rounded-md bg-secondary"
+      className={cn("focus-ring relative block overflow-hidden bg-secondary", corner)}
     >
-      {!ready && <Skeleton className="absolute inset-0 h-auto rounded-md" />}
+      {!ready && <Skeleton className={cn("absolute inset-0 h-auto", corner)} />}
       {image.state === "ready" && (
         <img
           src={image.url}
@@ -139,59 +106,18 @@ function Tile(props: TileProps & { url: ImageState }) {
           )}
         />
       )}
-    </button>
-  );
-}
-
-/**
- * A sent file: its kind's glyph, the name, and under it the size, type and how the agent got
- * it ("native PDF", "inline text, truncated"), which the tooltip explains. A file this device
- * can read opens its preview; one an agent only named by path is a quiet label.
- */
-export function FileChip(props: {
-  file: ShownFile;
-  onOpen?: ((file: ShownFile, element: HTMLElement) => void) | undefined;
-}) {
-  const { file } = props;
-  const kind = describeFile(file).kind;
-  const meta = fileMeta(file) + (file.delivery ? ` · ${deliveryLabels[file.delivery]}` : "");
-  const tip = file.delivery ? deliveryDetails[file.delivery] : file.name;
-  const face = (
-    <>
-      <FileGlyph kind={kind} />
-      <span className="flex min-w-0 flex-col items-start">
-        <span className="flex max-w-full min-w-0 text-ui text-foreground">
-          <FileName name={file.name} />
-        </span>
-        <span className="max-w-full truncate text-xs text-muted-foreground">{meta}</span>
-      </span>
-    </>
-  );
-  const chip =
-    "flex max-w-full min-w-0 items-center gap-1.5 rounded-md bg-secondary py-1 pr-2.5 pl-1.5 text-left leading-4";
-  const onOpen = props.onOpen;
-  return (
-    <Tip label={tip}>
-      {file.source && onOpen ? (
-        <button
-          type="button"
-          aria-label={`${file.name}, ${meta}`}
-          onClick={(event) => onOpen(file, event.currentTarget)}
-          className={cn(
-            chip,
-            "focus-ring transition-colors duration-(--motion-fast) hover:bg-accent",
-          )}
+      {props.more !== undefined && (
+        <span
+          aria-hidden
+          className="absolute inset-0 grid place-items-center bg-background/60 text-lg font-medium text-foreground tabular-nums"
         >
-          {face}
-        </button>
-      ) : (
-        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
-        <span tabIndex={0} aria-label={`${file.name}, ${meta}`} className={cn(chip, "focus-ring")}>
-          {face}
+          +{props.more}
         </span>
       )}
-    </Tip>
+    </button>
   );
+  const delivery = props.image.delivery;
+  return delivery ? <Tip label={deliveryDetails[delivery]}>{button}</Tip> : button;
 }
 
 /** An inline image of agent prose: a thumbnail that opens the lightbox. */
@@ -210,7 +136,7 @@ export function InlineImage(props: { src: string; alt: string }) {
     <span className="my-1 inline-block align-middle">
       <ImageTile
         image={image}
-        size={tileSize(image, 1)}
+        size={tileSize(image)}
         fit="contain"
         onOpen={(element) => show(0, element)}
       />
@@ -243,7 +169,7 @@ export function CapturedInlineImage(props: {
     <span className="my-1 inline-block align-middle">
       <ImageTile
         image={image}
-        size={tileSize(image, 1)}
+        size={tileSize(image)}
         fit="contain"
         onOpen={(element) => show(0, element)}
       />

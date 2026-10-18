@@ -3,10 +3,10 @@ import { Suspense } from "react";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { cn } from "@/lib/cn.ts";
+import { ImageGroup } from "./attachment-image-group.tsx";
 import {
   collectAttachments,
-  tileSize,
-  visibleImages,
+  imageLayout,
   type LocalAttachment,
   type Shown,
 } from "./attachment-format.ts";
@@ -63,23 +63,20 @@ export function MessageAttachments(props: {
 }
 
 function Placeholder(props: Shown & { className?: string | undefined }) {
-  const { shown, more } = visibleImages(props.images.length);
   return (
-    <div aria-hidden className={cn("flex flex-col items-end gap-1.5", props.className)}>
+    <div aria-hidden className={cn("flex flex-col items-end gap-1", props.className)}>
       {props.images.length > 0 && (
-        <span
-          className={cn("grid w-fit max-w-full gap-1.5", props.images.length > 1 && "grid-cols-2")}
-        >
-          {props.images.slice(0, shown + (more ? 1 : 0)).map((image) => (
+        <ImageGroup
+          layout={imageLayout(props.images)}
+          renderCell={(cell) => (
             <Skeleton
-              key={image.key}
-              className="max-w-full rounded-md"
-              style={tileSize(image, props.images.length)}
+              className="max-w-full rounded-sm"
+              style={{ width: cell.width, height: cell.height }}
             />
-          ))}
-        </span>
+          )}
+        />
       )}
-      {props.files.length > 0 && <Skeleton className="h-10 w-40 rounded-lg" />}
+      {props.files.length > 0 && <Skeleton className="h-6 w-32 rounded-sm" />}
     </div>
   );
 }

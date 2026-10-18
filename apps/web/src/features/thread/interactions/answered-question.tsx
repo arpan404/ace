@@ -1,3 +1,4 @@
+import { cardEdge } from "@/components/ui/rules.ts";
 import type { Interaction, InteractionResolution, Question } from "@ace/protocol";
 import { answeredQuestions, formatClock, type AnsweredQuestion } from "@ace/ui-core";
 import { CheckIcon, QuotesIcon } from "@phosphor-icons/react";
@@ -58,7 +59,7 @@ export function AnsweredQuestionCard(props: {
     <article
       tabIndex={-1}
       aria-label={`Question: ${title ?? ""}`}
-      className={props.className ?? "rounded-lg px-4 py-3 shadow-[inset_0_0_0_1px_var(--border)]"}
+      className={props.className ?? `rounded-lg px-4 py-3 ${cardEdge}`}
     >
       <p className="text-xs text-subtle-foreground">{props.asker} asked</p>
       <div className="mt-1.5 flex flex-col gap-3">
