@@ -158,9 +158,11 @@ export function fakeBrowserSession(
           if (!browser.view(id) || browser.view(id)?.closed) throw new Error("Browser closed");
           const command = message.command;
           const pending_dialog = browser.view(id)?.pending_dialog;
+          // As the daemon: the person's Back, Forward and Stop never wait behind a dialog.
           if (
             pending_dialog &&
             command.action !== "dialog" &&
+            !(command.action === "history" && command.direction !== "reload") &&
             !(command.action === "tabs" && command.operation === "list")
           ) {
             result = { pending_dialog };

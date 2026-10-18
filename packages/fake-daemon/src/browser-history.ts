@@ -4,6 +4,8 @@ import { canStep, emptyHistory, stepHistory, visitPage, type PageHistory } from 
 export class BrowserDocumentHistory {
   private tabs = new Map<string, PageHistory>();
   visit(tabId: string, url: string) {
+    // The blank page a new tab opens on is no page to go back to.
+    if (url === "about:blank" && !this.tabs.has(tabId)) return;
     this.tabs.set(tabId, visitPage(this.tabs.get(tabId) ?? emptyHistory, url));
   }
   remove(tabId: string) {

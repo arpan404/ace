@@ -5,6 +5,12 @@
     "audible": {
       "type": "boolean"
     },
+    "canGoBack": {
+      "type": "boolean"
+    },
+    "canGoForward": {
+      "type": "boolean"
+    },
     "certificate_error": {
       "$ref": "https://ace.local/protocol/v1/BrowserCertificateError.json"
     },
