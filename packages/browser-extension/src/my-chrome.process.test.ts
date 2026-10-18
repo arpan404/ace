@@ -89,7 +89,13 @@ describe.skipIf(!executable || process.platform === "win32")("Use my Chrome end 
       dataDir: join(browser.root, "service"),
       headlessBackend: new UserChromeBackend(browser.hub, process.platform),
       backendPreference: () => "headless",
-      collaboration: { quietMs, maxWaitMs: 10_000, inUseMs: 1_000, followAfterMs: 1_000 },
+      collaboration: {
+        quietMs,
+        maxWaitMs: 10_000,
+        inUseMs: 1_000,
+        followAfterMs: 1_000,
+        presentMs: 1_000,
+      },
     });
     cleanups.push(() => service.close());
     await service.open({ threadId: "thread", workspaceId: "workspace" });

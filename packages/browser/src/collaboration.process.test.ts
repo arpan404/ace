@@ -8,7 +8,13 @@ import { executablePath, fixture, ref } from "./test-support.ts";
  */
 const agent: Actor = { kind: "agent", agentId: "agent" };
 const key = (char: string) => ({ kind: "key", event: "char", key: char }) as const;
-const slowPerson = { quietMs: 3_000, maxWaitMs: 8_000, inUseMs: 1_000, followAfterMs: 1_000 };
+const slowPerson = {
+  quietMs: 3_000,
+  maxWaitMs: 8_000,
+  inUseMs: 1_000,
+  followAfterMs: 1_000,
+  presentMs: 1_000,
+};
 
 describe.skipIf(!executablePath)("people and agents in one tab", () => {
   it("an agent's snapshot, find, screenshot and logs answer at once while its click waits for the person", async () => {

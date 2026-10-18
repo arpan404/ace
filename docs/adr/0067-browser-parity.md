@@ -221,6 +221,17 @@ The audit found ways an agent could still trip over the person. The rules above 
   extension change is needed. Agent input is trusted too, so reports while one of the tab's
   `Input.*` commands runs, and for 300 ms after, are ignored. Out-of-process iframes are not
   watched.
+- **An agent's typing never takes the person's text, focus or caret.** While the person works
+  in the tab (used it within `presentMs`, 30 s), `type` and each `fill_form` field add the
+  agent's text after the field's own instead of replacing it, and give the person back their
+  focused element, caret and selection; focusing never scrolls the page. Focusing, inserting
+  and giving back run as one page task (`typing.ts`), so none of the person's keystrokes land
+  in the agent's field. The result carries `kept_text` when the field already held text. With
+  the person away, `type` replaces the field's text as before.
+- **Multi-step agent input looks again between steps.** `fill_form` is one waiting input per
+  field in the agent-input lane, so a person who returns between two fields makes the next
+  field wait. A drag checks before each pointer step; if the person used the tab within
+  `quietMs` it releases the button where it is and fails with `human_active`.
 
 ## Private takeover and recording (superseded by Collaboration above)
 

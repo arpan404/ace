@@ -4,6 +4,7 @@ import type { BrowserCdp } from "./backend.ts";
 import { AXTree, Bounds, CallResult, ResolvedNode, snapshotNodes } from "./cdp.ts";
 import { z } from "zod";
 import { withoutSubtree } from "./snapshot-exclusion.ts";
+import { TypedKeeping, typeKeepingPerson } from "./typing.ts";
 
 /** One generation and one bounded snapshot; navigation cannot alias an old ref. */
 export class SnapshotRefs {
@@ -260,6 +261,13 @@ export class SnapshotRefs {
     }`,
       beforeDispatch,
     );
+  }
+  /**
+   * Adds `text` after the field's own text and gives the person back their focus and caret, in
+   * one page task. Returns whether the field already held text.
+   */
+  async typeKeeping(ref: string, text: string, beforeDispatch: () => void): Promise<boolean> {
+    return TypedKeeping.parse(await this.call(ref, typeKeepingPerson, beforeDispatch, [text])).kept;
   }
   async visible(ref: string): Promise<boolean> {
     return z.boolean().parse(

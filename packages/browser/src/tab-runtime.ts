@@ -25,6 +25,7 @@ import { SessionQueue, mutatesBrowser, type QueueBudget } from "./session-queue.
 import { TabAccess } from "./tab-access.ts";
 import { waitsForPerson, type CollaborationTiming } from "./collaboration.ts";
 import { AgentInputLane, personReturned } from "./agent-input-lane.ts";
+import { fillFieldByField } from "./typing.ts";
 
 /** What a tab needs from the thread browser that holds it. */
 export interface TabHost {
@@ -329,13 +330,14 @@ export class TabRuntime {
         return this.run(command, actor, signal, submittedGeneration);
       })();
     const waits = actor.kind === "agent" && waitsForPerson(command);
-    const job = async () => {
+    // One queue turn for a command, or for one step of it (a field of an agent's fill_form).
+    const jobFor = (part: TabCommand) => async () => {
       signal?.throwIfAborted();
       checkTarget();
       this.readCheck(actor, privateEpoch);
       const flags = this.host.flags();
       if (flags.closed || this.closed) throw new BrowserActionError("browser_closed");
-      if (mutatesBrowser(command)) this.check(actor, signal, submittedGeneration, privateEpoch);
+      if (mutatesBrowser(part)) this.check(actor, signal, submittedGeneration, privateEpoch);
       if (flags.paused) throw new BrowserActionError("browser_paused");
       const generation = this.access.generation;
       // A dialog owns its tab until answered; other tabs keep working.
@@ -349,12 +351,12 @@ export class TabRuntime {
       }
       await this.host.wake(this.id);
       this.readCheck(actor, privateEpoch);
-      if (mutatesBrowser(command)) this.check(actor, signal, submittedGeneration, privateEpoch);
-      this.crashCheck(command);
+      if (mutatesBrowser(part)) this.check(actor, signal, submittedGeneration, privateEpoch);
+      this.crashCheck(part);
       let result: unknown;
       try {
         result = await this.queue.untilDialog(() =>
-          this.run(command, actor, signal, submittedGeneration, checkTarget, target?.navigate),
+          this.run(part, actor, signal, submittedGeneration, checkTarget, target?.navigate),
         );
       } catch (error) {
         if (error instanceof BrowserOriginError) this.host.blockedNavigation(error.blocked);
@@ -367,8 +369,12 @@ export class TabRuntime {
       return result;
     };
     // An agent's input waits for the person in its own lane, so reads never queue behind it.
-    if (waits) return this.lane.run(signal, (step) => step(() => this.enqueue(job)));
-    return this.enqueue(job);
+    if (waits && command.action === "fill_form")
+      return this.lane.run(signal, (step) =>
+        fillFieldByField(command.fields, (field) => step(() => this.enqueue(jobFor(field)))),
+      );
+    if (waits) return this.lane.run(signal, (step) => step(() => this.enqueue(jobFor(command))));
+    return this.enqueue(jobFor(command));
   }
   screenshot(
     actor: Actor,
@@ -458,6 +464,8 @@ export class TabRuntime {
         this.check(who, checkSignal, checkGeneration, epoch),
       refDispatch: (ref) =>
         this.refs.dispatch(ref, () => this.check(actor, signal, generation, epoch)),
+      personPresent: () => this.humanWithin(host.timing.presentMs),
+      personBusy: () => actor.kind === "agent" && !this.lane.quiet(),
       point: (point) => this.point(actor, point),
       emit: () => host.emit(),
       run: (...args) => this.run(...args),
