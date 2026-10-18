@@ -3,7 +3,7 @@ import type { ClientMessage, ServerMessage, ThreadListView, ThreadListEntry } fr
 import type { Mirrorable, SidebarExport, SidebarSource } from "./api.ts";
 import type { SidebarKey, SidebarReader } from "./readers.ts";
 import { Notifications, type ChangeTap, type Selection } from "./observable.ts";
-import { parseSidebarRecord, sidebarRecord } from "./read-records.ts";
+import { parseSidebarRecord, sidebarRecord, type SidebarHalf } from "./read-records.ts";
 import { SnapshotBinding, contentChanges, type Persistence } from "./read-snapshots.ts";
 import { ClientError, type Limits } from "./types.ts";
 
@@ -24,6 +24,18 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   #pending = new Set<string>();
   get syncing(): boolean {
     return this.#pending.size > 0;
+  }
+  /** Halves held from a copy the daemon has not confirmed (from disk, or kept unfollowed). */
+  #unconfirmed = new Set<SidebarHalf>();
+  get unconfirmed(): boolean {
+    return this.#unconfirmed.size > 0;
+  }
+  #confirm(halves: readonly SidebarHalf[], unconfirmed: boolean): boolean {
+    const was = this.unconfirmed;
+    for (const half of halves)
+      if (unconfirmed) this.#unconfirmed.add(half);
+      else this.#unconfirmed.delete(half);
+    return was !== this.unconfirmed;
   }
   #await(reasons: readonly string[]): void {
     const was = this.syncing;
@@ -66,6 +78,10 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     if (!home && !archive) return;
     if (home) this.#home = home;
     if (archive) this.#archive = archive;
+    this.#confirm(
+      [...(home ? ["home" as const] : []), ...(archive ? ["archive" as const] : [])],
+      true,
+    );
     if (!this.#pending.size) this.#pending.add("restored");
     this.#merge();
     this.#notifications.emitAll();
@@ -121,10 +137,12 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     if (this.#archiveWire) this.#send({ type: "unsubscribe", subscriptionId: this.#archiveWire });
     this.#archiveWire = undefined;
     this.#archive = undefined;
+    this.#confirm(["archive"], false);
     if (projectChanged) {
       if (this.#wire) this.#send({ type: "unsubscribe", subscriptionId: this.#wire });
       this.#wire = undefined;
       this.#home = undefined;
+      this.#confirm(["home"], false);
       if (this.#refs && this.#ready()) this.#subscribe();
     } else if (input.archived && this.#refs && this.#ready()) this.#subscribeArchive();
     this.#merge();
@@ -184,6 +202,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     const failure = this.#failure;
     return {
       ...(this.syncing ? { syncing: true } : {}),
+      ...(this.unconfirmed ? { unconfirmed: true } : {}),
       error: failure && { code: failure.code, message: failure.message },
       view: this.#view,
       homeWindow: this.#home?.window,
@@ -201,6 +220,12 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
         released = true;
         if (--this.#refs === 0 && this.#wire) {
           this.#await(["released"]);
+          // Kept unfollowed: what a warm view paints from it is no longer confirmed.
+          const held = [
+            ...(this.#home ? ["home" as const] : []),
+            ...(this.#archive ? ["archive" as const] : []),
+          ];
+          if (this.#confirm(held, true)) this.#notifications.emit(["unconfirmed"]);
           this.#send({ type: "unsubscribe", subscriptionId: this.#wire });
           this.#wire = undefined;
           if (this.#archiveWire)
@@ -301,6 +326,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
       this.#failure = undefined;
       if (message.subscriptionId === this.#archiveWire) this.#archive = message.view;
       else this.#home = message.view;
+      this.#confirm([message.subscriptionId === this.#archiveWire ? "archive" : "home"], false);
       this.#pending.delete(message.subscriptionId);
       this.#merge();
       this.#notifications.emitAll();

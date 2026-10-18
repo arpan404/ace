@@ -188,6 +188,7 @@ export interface ConnectionControl {
 /** Everything a thread store holds, for copying it to another realm in one message. */
 export interface ThreadExport {
   syncing?: boolean;
+  unconfirmed?: boolean;
   error: { code: ClientError["code"]; message: string } | undefined;
   view: Omit<ThreadView, "kind"> | undefined;
   truncated: string[];
@@ -195,6 +196,7 @@ export interface ThreadExport {
 }
 export interface SidebarExport {
   syncing?: boolean;
+  unconfirmed?: boolean;
   loaded?: boolean | undefined;
   homeWindow?: import("@ace/protocol").ThreadListWindow | undefined;
   error: { code: ClientError["code"]; message: string } | undefined;

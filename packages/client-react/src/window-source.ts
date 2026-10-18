@@ -78,6 +78,9 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
     get syncing() {
       return live.syncing ?? false;
     },
+    get unconfirmed() {
+      return live.unconfirmed ?? false;
+    },
     get thread() {
       return live.thread;
     },

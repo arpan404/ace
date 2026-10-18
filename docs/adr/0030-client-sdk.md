@@ -103,3 +103,12 @@ so another daemon, device or credential never reads them and no token is stored.
   by 16 MiB of estimated size, least recently used first; held stores are pinned. A tab keeps its
   released mirrors under its own 16 MiB / 32-entry budget (`MirrorCache`), dropped when the worker
   is lost. Sizes are measured at the release boundary only.
+- **Unconfirmed status.** A restored or released copy may say a thread is done while it is
+  working again (AGENTS.md priority 1). `ThreadReader.unconfirmed` and
+  `SidebarReader.unconfirmed` (keys `unconfirmed`, mirrored to tabs) are set on a store restored
+  from disk or released unfollowed, and cleared by the daemon's snapshot or the subscription's
+  `subscription.ready`. While set, a Home row keeps its title and project but says "Syncing"
+  (attention `syncing`: no status glyph, pill, unread result, running subagents or request; only
+  a send that failed on this device stands), the tab title counts only such local failures, the
+  thread's live line says "Syncing…" instead of being at rest or working, and Stop is not
+  offered.

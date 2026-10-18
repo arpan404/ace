@@ -13,6 +13,7 @@ export type ThreadKey =
   | "interactions"
   | "tasks"
   | "sync"
+  | "unconfirmed"
   | `item:${string}`
   | `agent:${string}`
   | `run:${string}`
@@ -28,6 +29,12 @@ export interface ThreadReader {
    * subscription's replay (or fresh snapshot) lands. Select with `sync`.
    */
   readonly syncing?: boolean;
+  /**
+   * The store holds a copy the daemon has not confirmed: read back from disk, or kept while no
+   * subscription followed it. Its status may be stale (a thread shown done may be working
+   * again), so no surface presents it as current until this clears. Select with `unconfirmed`.
+   */
+  readonly unconfirmed?: boolean;
   readonly thread: ThreadView["thread"] | undefined;
   readonly queue: ThreadView["queue"] | undefined;
   /** The root agent's context meter; select with `context:<rootAgentId>`. */
@@ -73,12 +80,18 @@ export interface ThreadReader {
 export type SidebarKey =
   | "error"
   | "sync"
+  | "unconfirmed"
   | "ids"
   | "threads"
   | "window"
   | "homeWindow"
   | `thread:${string}`;
 export interface SidebarReader {
+  /**
+   * Rows from a copy the daemon has not confirmed: read back from disk, or kept while nothing
+   * followed the list. Their status may be stale, so no surface presents it as current.
+   */
+  readonly unconfirmed?: boolean;
   /** Not yet the daemon's list: restored from disk, or waiting for a subscription's snapshot. */
   readonly syncing?: boolean;
   readonly homeWindow?: import("@ace/protocol").ThreadListWindow | undefined;

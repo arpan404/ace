@@ -118,13 +118,13 @@ export class SnapshotBinding {
   }
 }
 
-/** Follow `observe`'s content changes: a change to the syncing flag alone is not content. */
+/** Follow `observe`'s content changes: the syncing and unconfirmed flags are not content. */
 export function contentChanges(
   observe: (tap: (keys: ReadonlySet<string> | "all") => void) => () => void,
 ): (changed: () => void) => () => void {
   return (changed) =>
     observe((keys) => {
       if (keys === "all") return changed();
-      for (const key of keys) if (key !== "sync") return changed();
+      for (const key of keys) if (key !== "sync" && key !== "unconfirmed") return changed();
     });
 }

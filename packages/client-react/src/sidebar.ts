@@ -42,6 +42,14 @@ const readLoaded = (reader: SidebarReader) => reader.loaded;
 export function useSidebarLoaded(): boolean {
   return useSidebar(["ids"], readLoaded) ?? false;
 }
+const readUnconfirmed = (reader: SidebarReader) => reader.unconfirmed ?? false;
+/**
+ * Whether the list's rows come from a copy the daemon hasn't confirmed (`SidebarReader.unconfirmed`):
+ * rows then show as syncing, never with a stale status or a stale request.
+ */
+export function useSidebarUnconfirmed(): boolean {
+  return useSidebar(["unconfirmed"], readUnconfirmed) ?? false;
+}
 export function useSidebarThread(threadId: string): ReturnType<SidebarReader["thread"]> {
   const selector = useCallback((reader: SidebarReader) => reader.thread(threadId), [threadId]);
   return useSidebar([`thread:${threadId}`], selector);

@@ -60,6 +60,16 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     this.#syncing = syncing;
     this.#notifications.emit(["sync"]);
   }
+  #unconfirmed = false;
+  get unconfirmed(): boolean {
+    return this.#unconfirmed;
+  }
+  /** Whether the store holds a copy the daemon has not confirmed (`ThreadReader.unconfirmed`). */
+  setUnconfirmed(unconfirmed: boolean): void {
+    if (this.#unconfirmed === unconfirmed) return;
+    this.#unconfirmed = unconfirmed;
+    this.#notifications.emit(["unconfirmed"]);
+  }
   #view: ThreadView | undefined;
   #notifications: Notifications;
   #limits: Limits;
@@ -165,6 +175,7 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     const view = this.#view;
     return {
       ...(this.#syncing ? { syncing: true } : {}),
+      ...(this.#unconfirmed ? { unconfirmed: true } : {}),
       error: failure && { code: failure.code, message: failure.message },
       view: view && {
         seq: view.seq,
@@ -207,13 +218,14 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       if (!(error instanceof ClientError)) throw error;
       return false;
     }
-    const keys = new Set<ThreadKey>(["sync"]);
+    const keys = new Set<ThreadKey>(["sync", "unconfirmed"]);
     for (const id of truncated)
       if (this.item(id)) {
         this.#clipped.add(id);
         keys.add(`item:${id}`);
       }
     this.#syncing = true;
+    this.#unconfirmed = true;
     this.#notifications.emit(keys);
     return true;
   }
@@ -276,6 +288,8 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     }
     this.#view = view;
     this.#failure = undefined;
+    // The daemon's own snapshot: what the store shows is confirmed (restore marks it again).
+    this.#unconfirmed = false;
     this.#journal.reset(view.seq);
     this.#hydrated.clear();
     this.#creation = creation;

@@ -8,7 +8,8 @@ export const mirrorCacheEntries = 32;
 /**
  * A tab's released mirrors, least recently used first, so a view opened again paints on its
  * first render. Leased mirrors are never here: they are pinned until released. A cached
- * mirror follows nothing, so it is marked syncing until a lease takes it back.
+ * mirror follows nothing, so it is marked syncing and unconfirmed until the worker's copy
+ * replaces it.
  */
 export class MirrorCache {
   private entries = new Map<string, { mirror: MirrorThread | MirrorSidebar; bytes: number }>();
@@ -33,7 +34,11 @@ export class MirrorCache {
     this.take(key);
     const bytes = mirror.retainedBytes();
     if (bytes > mirrorCacheBytes) return;
-    mirror.apply([{ k: "sync", v: true }]);
+    // Nothing follows it now: what it shows is behind and no longer confirmed.
+    mirror.apply([
+      { k: "sync", v: true },
+      { k: "unconfirmed", v: true },
+    ]);
     this.entries.set(key, { mirror, bytes });
     this.bytes += bytes;
     while (this.bytes > mirrorCacheBytes || this.entries.size > mirrorCacheEntries) {

@@ -1,4 +1,4 @@
-import { useSidebarThread } from "@ace/client-react";
+import { useSidebarThread, useSidebarUnconfirmed } from "@ace/client-react";
 import { useState } from "react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { threadCard, projectLabel, type ThreadCard } from "@ace/ui-core";
@@ -28,6 +28,9 @@ export function useThreadCard(
     }
   | undefined {
   const liveEntry = useOverlaidEntry(useSidebarThread(threadId));
+  // Rows painted from a saved list before the daemon answers claim no status (AGENTS.md: never
+  // show done while the tree may be working).
+  const unconfirmed = useSidebarUnconfirmed();
   // Pagination removes archived entries immediately. Only this mounted row retains its
   // last immutable entry, so an inert exit animation can finish without keeping history
   // in the sidebar store. Its snapshot is released when the row unmounts.
@@ -68,6 +71,7 @@ export function useThreadCard(
       now,
       projectName: projectLabel(entry.workspaceId, project),
       readState: read.data,
+      unconfirmed,
     }),
   };
 }

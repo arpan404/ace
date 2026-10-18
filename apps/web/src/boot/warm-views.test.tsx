@@ -86,6 +86,8 @@ test.each(["worker", "in-process"] as const)(
       await vi.waitFor(() => expect(held.store.thread?.title).toBe("Warm thread"));
       held.release();
       expect(remote.cachedThread("warm")?.syncing).toBe(true);
+      // Nothing follows it while released: its status is not confirmed until the lease lands.
+      expect(remote.cachedThread("warm")?.unconfirmed).toBe(true);
       daemon.apply("warm", [facts.message("root", "answer", "assistant", "Missed while away")]);
       const mounted = render(
         <ClientProvider client={remote}>
@@ -96,6 +98,7 @@ test.each(["worker", "in-process"] as const)(
       expect(screen.queryByText("Loading")).toBeNull();
       await screen.findByText("Original Missed while away");
       await screen.findByText("Live");
+      expect(remote.cachedThread("warm")?.unconfirmed).toBe(false);
       mounted.unmount();
     } finally {
       await remote.close();

@@ -96,7 +96,10 @@ export class Subscriptions {
           }
           owned.subscriptionId = undefined;
           // Unfollowed from here on: a view painting from it shows that it may be behind.
-          if (owned.store.cursor !== undefined) owned.store.setSyncing(true);
+          if (owned.store.cursor !== undefined) {
+            owned.store.setSyncing(true);
+            owned.store.setUnconfirmed(true);
+          }
           this.#cache.delete(threadId);
           this.#cache.set(threadId, owned);
           this.#retain(owned);
@@ -212,6 +215,8 @@ export class Subscriptions {
       if (!entry) return;
       if (entry.store.cursor === message.seq) entry.store.recover();
       entry.store.setSyncing(false);
+      // Caught up by replay or snapshot: the daemon has confirmed what the store holds.
+      entry.store.setUnconfirmed(false);
       this.#starting.delete(message.subscriptionId);
       this.#pump();
       return;
