@@ -460,6 +460,21 @@ export class BrowserSession {
           runtime.submit(command, actor, signal),
         );
       }
+      case "annotate":
+      case "annotate_capture": {
+        // Annotate mode lives in one tab: its owner's later commands follow it there, even
+        // if the view has moved on since.
+        const owned =
+          command.tabId === undefined &&
+          actor.kind === "human" &&
+          !(command.action === "annotate" && command.operation === "start")
+            ? this.tabs.all().find((tab) => tab.annotation.owner === actor.connectionId)
+            : undefined;
+        if (owned) return owned.submit(command, actor, signal);
+        return this.onTab(actor, command.tabId, (runtime) =>
+          runtime.submit(command, actor, signal),
+        );
+      }
       default:
         return this.onTab(actor, command.tabId, (runtime) =>
           runtime.submit(command, actor, signal),

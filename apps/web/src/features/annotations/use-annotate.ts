@@ -9,6 +9,12 @@ import { barPositions, composerPorts, sessionPorts } from "./store.ts";
 /** How long the page settles after a change before its screenshot is taken again. */
 const pageSettleMs = 400;
 
+/**
+ * A page's Send, once per press: every Browser view of the thread hears the same event, and
+ * only one of them may send the message.
+ */
+const sent = new WeakSet<BrowserAnnotationEvent>();
+
 /** The page as annotate mode needs to know it. */
 export interface AnnotatablePage {
   url: string;
@@ -71,7 +77,6 @@ export function useAnnotate(options: {
     started?: object | undefined;
     url?: string | undefined;
     timer?: ReturnType<typeof setTimeout> | undefined;
-    capture?: Promise<void> | undefined;
     edit?: string | undefined;
     live: boolean;
   }>({ live: false });
@@ -97,9 +102,14 @@ export function useAnnotate(options: {
       .filter((annotation) => annotation.url === url)
       .map((annotation) => annotation.number);
     if (!numbers.length) return;
-    current.capture = driver.capture(threadId, { kind: "page" }).then(
-      (capture) => port.page(url, captureFile(capture, `annotated-page-${Math.min(...numbers)}`)),
-      () => {},
+    const name = `annotated-page-${Math.min(...numbers)}`;
+    port.page(
+      url,
+      name,
+      driver.capture(threadId, { kind: "page" }).then(
+        (capture) => captureFile(capture, name),
+        () => undefined,
+      ),
     );
   };
   const schedulePage = () => {
@@ -107,9 +117,8 @@ export function useAnnotate(options: {
     session.current.timer = setTimeout(capturePage, pageSettleMs);
   };
   /** Take the page's screenshot now if a change is waiting for it. */
-  const flushPage = async () => {
+  const flushPage = () => {
     if (session.current.timer !== undefined) capturePage();
-    await session.current.capture;
   };
 
   const screenshot = () => {
@@ -146,10 +155,15 @@ export function useAnnotate(options: {
       finish();
     }
   };
-  const stop = async () => {
-    if (!session.current.started) return;
-    await driver?.stop(threadId).catch(() => {});
-    if (session.current.started) finish();
+  /**
+   * Leave annotate mode at once. The daemon runs the person's annotate commands in order, so
+   * images asked for before this still see the markers, and the overlay goes after them.
+   */
+  const stop = () => {
+    const current = session.current;
+    if (!current.started && !current.live) return;
+    void driver?.stop(threadId).catch(() => {});
+    finish();
   };
 
   const onEvent = useEffectEvent((event: BrowserAnnotationEvent) => {
@@ -192,10 +206,14 @@ export function useAnnotate(options: {
         screenshot();
         return;
       case "send":
-        void flushPage().then(() => {
-          composerPorts.get(threadId)?.submit();
-          void stop();
-        });
+        // The message goes at once: a screenshot still being taken follows it, uploading
+        // behind its bubble. Then annotate mode ends.
+        if (!session.current.started && !session.current.live) return;
+        if (sent.has(event)) return void stop();
+        sent.add(event);
+        flushPage();
+        port?.submit();
+        stop();
         return;
       case "bar":
         barPositions.set(threadId, { x: event.x, y: event.y });

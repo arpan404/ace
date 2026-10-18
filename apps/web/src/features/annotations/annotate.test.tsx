@@ -314,3 +314,103 @@ test("a dragged-out region joins the draft as a region that lists what it holds"
   // The section around the region is context for the agent, not the row's text.
   expect(within(list).queryByText("Pair a device")).toBeNull();
 });
+
+/** Page screenshots wait here until released, as a busy or slow page makes them wait. */
+function holdPageCaptures(browser: Awaited<ReturnType<typeof annotating>>["browser"]) {
+  const held: (() => void)[] = [];
+  const execute = browser.annotations.execute.bind(browser.annotations);
+  browser.annotations.execute = (thread, connection, command) => {
+    const result = execute(thread, connection, command);
+    if (command.action !== "annotate_capture" || command.target.kind !== "page") return result;
+    return new Promise((resolve) => held.push(() => resolve(result)));
+  };
+  return {
+    waiting: () => held.length,
+    release: () => {
+      for (const release of held.splice(0)) release();
+    },
+  };
+}
+
+/** jsdom has no object URLs: these stand in for the browser's, at its boundary. */
+const objectUrls = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+function previews() {
+  let next = 0;
+  URL.createObjectURL = () => `blob:test/${++next}`;
+  URL.revokeObjectURL = () => {};
+}
+afterEach(() => {
+  URL.createObjectURL = objectUrls.create;
+  URL.revokeObjectURL = objectUrls.revoke;
+});
+
+async function pinnedOne() {
+  const setup = await annotating();
+  await userEvent.type(setup.message, "Fix the heading");
+  await userEvent.click(annotateButton(setup.panel));
+  await waitFor(() => expect(setup.browser.view(threadId)?.annotation?.owner).toBeTruthy());
+  const capture = holdPageCaptures(setup.browser);
+  act(() => void setup.browser.annotations.pin(threadId, { comment: "Make this bolder" }));
+  await screen.findByRole("button", { name: "Show 1 annotation" });
+  return { ...setup, capture };
+}
+
+test("pressing Send in the page ends annotate mode and removes the overlay, even while the page's screenshot is still being taken", async () => {
+  const { app, panel, browser, capture } = await pinnedOne();
+  const before = userMessages(app).length;
+  act(() => browser.annotations.emit(threadId, { kind: "send" }));
+  await waitFor(() => expect(capture.waiting()).toBe(1));
+  await waitFor(() => expect(browser.view(threadId)?.annotation).toBeUndefined());
+  await waitFor(() => expect(annotateButton(panel).getAttribute("aria-pressed")).toBe("false"));
+  // The screenshot taken meanwhile still goes with the message.
+  capture.release();
+  await waitFor(() => expect(userMessages(app).slice(before)[0]?.attachments).toHaveLength(2));
+}, 20_000);
+
+test("the sent message appears immediately with its annotation card while the screenshot is still being captured and uploaded", async () => {
+  const { app, browser, capture } = await pinnedOne();
+  const before = userMessages(app).length;
+  const feed = screen.getByRole("feed", { name: "Transcript" });
+  const pressed = performance.now();
+  act(() => browser.annotations.emit(threadId, { kind: "send" }));
+  const bubble = await waitFor(() => within(feed).getByText("Fix the heading"), { interval: 5 });
+  const shown = performance.now() - pressed;
+  const row = bubble.closest(".group\\/bubble");
+  if (!(row instanceof HTMLElement)) throw new Error("no bubble");
+  expect(within(row).getByText("1 annotation")).toBeTruthy();
+  expect(shown).toBeLessThan(100);
+  expect(userMessages(app).length).toBe(before);
+
+  // The screenshot arrives later; the message then goes with every image.
+  await waitFor(() => expect(capture.waiting()).toBe(1));
+  capture.release();
+  const sent = await waitFor(() => {
+    const [latest] = userMessages(app).slice(before);
+    if (!latest?.attachments?.length) throw new Error("not sent yet");
+    return latest;
+  });
+  expect(sent.attachments?.map((file) => file.name)).toEqual([
+    "annotated-page-1.png",
+    "annotation-1.png",
+  ]);
+}, 20_000);
+
+test("the pending bubble shows annotation thumbnails, the screenshot's once it is taken", async () => {
+  previews();
+  const { browser, capture } = await pinnedOne();
+  const feed = screen.getByRole("feed", { name: "Transcript" });
+  act(() => browser.annotations.emit(threadId, { kind: "send" }));
+  const crop = await within(feed).findByRole("img", { name: "annotation-1.png" });
+  expect(crop.getAttribute("src")).toMatch(/^blob:test\//);
+  expect(within(feed).queryByRole("img", { name: "annotated-page-1.jpg" })).toBeNull();
+
+  await waitFor(() => expect(capture.waiting()).toBe(1));
+  capture.release();
+  await waitFor(() =>
+    expect(
+      within(feed)
+        .getAllByRole("img")
+        .filter((image) => image.getAttribute("src")?.startsWith("blob:test/")),
+    ).toHaveLength(2),
+  );
+}, 20_000);

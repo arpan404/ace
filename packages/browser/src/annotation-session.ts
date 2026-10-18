@@ -20,7 +20,15 @@ interface Active {
   documentId?: string;
   detach(): void;
   host?: number | undefined;
+  /** Ends the session once the person's client has had its turn after Send. */
+  sent?: (() => void) | undefined;
 }
+
+/**
+ * After the page's Send the person's client takes its last images and stops annotate mode
+ * itself; if it hasn't within this long (gone, hidden, or stuck), the daemon ends it.
+ */
+export const annotationSendGraceMs = 3_000;
 
 /**
  * One page's annotate mode (ADR 0082). The daemon keeps no annotation records: it installs the
@@ -34,12 +42,15 @@ export class AnnotationSession {
   private removing: Promise<void> = Promise.resolve();
   private deliver: (connectionId: string, event: BrowserAnnotationEvent) => void;
   private changed: () => void;
+  private timer: (delay: number, work: () => void) => () => void;
   constructor(
     deliver: (connectionId: string, event: BrowserAnnotationEvent) => void,
     changed: () => void,
+    timer: (delay: number, work: () => void) => () => void,
   ) {
     this.deliver = deliver;
     this.changed = changed;
+    this.timer = timer;
   }
   get owner(): string | undefined {
     return this.active?.owner;
@@ -102,6 +113,12 @@ export class AnnotationSession {
     if (!event.success || event.data.kind === "ended") return;
     this.deliver(active.owner, event.data);
     if (event.data.kind === "close") this.end("stopped");
+    // Send leaves annotate mode. The client still captures the page with its markers first,
+    // then stops; the overlay never outlives a client that doesn't.
+    if (event.data.kind === "send" && !active.sent)
+      active.sent = this.timer(annotationSendGraceMs, () => {
+        if (this.active === active) this.end("stopped");
+      });
   }
   private require(owner: string): Active & { contextId: number } {
     const active = this.active;
@@ -133,6 +150,7 @@ export class AnnotationSession {
     const active = this.active;
     if (!active) return;
     this.active = undefined;
+    active.sent?.();
     active.detach();
     if (active.contextId !== undefined)
       this.removing = removeOverlay(active.cdp, active.contextId).catch(() => {});
@@ -148,6 +166,7 @@ export class AnnotationSession {
     const previous = this.active;
     if (!previous) return;
     previous.detach();
+    previous.sent?.();
     const active: Active = {
       cdp,
       owner: previous.owner,

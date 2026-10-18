@@ -11,8 +11,11 @@ import { useSyncExternalStore } from "react";
 export interface ComposerAnnotationPort {
   /** Add or update a record; a new one's element crop follows when it is captured. */
   save(annotation: BrowserAnnotation, crop?: Promise<File | undefined>): void;
-  /** Replace the screenshot of the page at `url`. */
-  page(url: string, file: File): void;
+  /**
+   * Replace the screenshot of the page at `url` with one being taken now: a message sent
+   * before it arrives still carries it.
+   */
+  page(url: string, name: string, capture: Promise<File | undefined>): void;
   remove(id: string): void;
   clear(): void;
   /** Send the composer's message, as the page bar's Send asks. */

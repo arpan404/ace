@@ -188,7 +188,7 @@ export function fakeBrowserSession(
           else if (command.action === "screenshot") result = browser.frame(id);
           else if (command.action === "logs") result = { entries: [], limit: command.limit };
           else if (command.action === "annotate" || command.action === "annotate_capture")
-            result = browser.annotations.execute(id, connectionId, command);
+            result = await browser.annotations.execute(id, connectionId, command);
           else if (command.action === "evaluate")
             throw new Error("evaluation_unavailable_in_fixture");
           break;

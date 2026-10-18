@@ -12,6 +12,10 @@ interface Image {
   ready?: Held | undefined;
   pending?: Promise<AnnotationOutcome> | undefined;
   file?: File | undefined;
+  /** The image itself while it is still being captured. */
+  capture?: Promise<File | undefined> | undefined;
+  /** What it is called until its file arrives. */
+  name?: string | undefined;
   failed?: boolean | undefined;
 }
 export interface AnnotationItem {
@@ -33,6 +37,8 @@ export interface AnnotationHandOff {
   local: { name: string; mimeType: string; bytes: number; sha256?: string | undefined }[];
   outcomes: Promise<AnnotationOutcome>[];
   files: (File | undefined)[];
+  /** Each image still being captured, in `local`'s order: its file once it is taken. */
+  later: (Promise<File | undefined> | undefined)[];
   /** The annotations as a draft keeps them, for a message that comes back. */
   returned: DraftAnnotations;
   /** Put them back after a refused send. */
@@ -167,29 +173,58 @@ export function useDraftAnnotations(options: {
     void pending?.then((outcome) => {
       if ("error" in outcome) patchItem(id, (item) => ({ crop: settle(item.crop ?? {}, outcome) }));
     });
+    const name = `annotation-${annotation.number}.png`;
     update((now) => ({
       ...now,
-      items: [...now.items, { annotation, ...(pending ? { crop: { pending } } : {}) }],
+      items: [
+        ...now.items,
+        { annotation, ...(pending ? { crop: { pending, capture: crop, name } } : {}) },
+      ],
     }));
   };
-  /** A new screenshot of `url`; the one it replaces is let go once the new one is held. */
-  const page = (url: string, file: File) => {
+  /**
+   * A new screenshot of `url`, counted from the moment it is asked for so a message sent
+   * meanwhile carries it; the one it replaces is let go once the new one is held, and comes
+   * back if the new one can't be taken.
+   */
+  const page = (url: string, name: string, capture: Promise<File | undefined>) => {
     if (!current.current.items.some((item) => item.annotation.url === url)) return;
-    const replaced = current.current.pages.find((entry) => entry.url === url)?.ready;
-    const pending = upload(file, (outcome) => {
+    const previous = current.current.pages.find((entry) => entry.url === url);
+    const replaced = previous?.ready;
+    const ours = (entry: { url: string; pending?: unknown }) =>
+      entry.url === url && entry.pending === pending;
+    const pending: Promise<AnnotationOutcome> = capture.then(
+      (file) => {
+        if (!file) return taken();
+        update((now) => ({
+          ...now,
+          pages: now.pages.map((entry) => (ours(entry) ? { ...entry, file } : entry)),
+        }));
+        return upload(file, (outcome) => {
+          update((now) => ({
+            ...now,
+            pages: now.pages.map((entry) =>
+              ours(entry) ? { url, ...settle(entry, outcome) } : entry,
+            ),
+          }));
+          if (replaced) release([replaced.sha256]);
+        });
+      },
+      () => taken(),
+    );
+    function taken(): AnnotationOutcome {
       update((now) => ({
         ...now,
-        pages: now.pages.map((entry) =>
-          entry.url === url && entry.pending === pending
-            ? { url, ...settle(entry, outcome) }
-            : entry,
-        ),
+        pages: now.pages.flatMap((entry) => (ours(entry) ? (previous ? [previous] : []) : [entry])),
       }));
-      if (replaced) release([replaced.sha256]);
-    });
+      return previous?.ready ?? { error: "The page couldn't be captured" };
+    }
     update((now) => ({
       ...now,
-      pages: [...now.pages.filter((entry) => entry.url !== url), { url, pending, file }],
+      pages: [
+        ...now.pages.filter((entry) => entry.url !== url),
+        { url, pending, capture, name: `${name}.jpg` },
+      ],
     }));
   };
   /**
@@ -235,11 +270,16 @@ export function useDraftAnnotations(options: {
     return {
       part: { type: "text", text: `\n\n${block.text}` },
       local: images.map((image) => {
-        const name = image.ready?.name ?? image.file?.name ?? "annotation.png";
+        const name = image.ready?.name ?? image.file?.name ?? image.name ?? "annotation.png";
+        const preview =
+          image.file && typeof URL.createObjectURL === "function"
+            ? URL.createObjectURL(image.file)
+            : undefined;
         return {
           name,
           mimeType: image.file?.type || mimeOf(name),
           bytes: image.file?.size ?? 0,
+          ...(preview ? { previewUrl: preview } : {}),
           ...(image.ready ? { sha256: image.ready.sha256 } : {}),
         };
       }),
@@ -247,6 +287,7 @@ export function useDraftAnnotations(options: {
         (image) => image.pending ?? Promise.resolve(image.ready ?? { error: "it was removed" }),
       ),
       files: images.map((image) => image.file),
+      later: images.map((image) => (image.file ? undefined : image.capture)),
       returned: draftOf(taken),
       restore: () =>
         update((now) => ({
@@ -296,7 +337,7 @@ export function useAnnotationPort(
     if (!threadId) return;
     return composerPorts.register(threadId, {
       save: (annotation, crop) => latest.current.port.save(annotation, crop),
-      page: (url, file) => latest.current.port.page(url, file),
+      page: (url, name, capture) => latest.current.port.page(url, name, capture),
       remove: (id) => latest.current.port.remove(id),
       clear: () => latest.current.port.clear(),
       submit: () => latest.current.submit(),
