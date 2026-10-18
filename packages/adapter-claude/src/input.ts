@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { nativeCommandInputs } from "@ace/commands/invocation";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
 import type {
   PermissionResult,
@@ -80,6 +81,19 @@ export function content(input: ContentPart[]): SDKUserMessage["message"]["conten
       },
     };
   });
+}
+/**
+ * One user message per selected command. Claude Code dispatches `/name args` only at the
+ * start of a prompt string (Agent SDK "Dispatch commands by name"), so a text-only command
+ * admission is sent as a string; the complete message follows as context.
+ */
+export function admissions(input: ContentPart[]): SDKUserMessage["message"]["content"][] {
+  if (!input.some((part) => part.type === "mention")) return [content(input)];
+  return nativeCommandInputs(input).map((parts) =>
+    parts.every((part) => part.type === "text")
+      ? parts.map((part) => part.text).join("")
+      : content(parts),
+  );
 }
 export function permissionResult(
   resolution: InteractionResolution,

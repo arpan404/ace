@@ -17,65 +17,53 @@ function twoMachines(options: Parameters<typeof harness>[0] = {}) {
 }
 const paths = (daemon: { projects: { list(): { workspaces: { path: string }[] } } }) =>
   daemon.projects.list().workspaces.map((project) => project.path);
-const picker = () => screen.findByRole("radiogroup", { name: "Machine" });
-const checked = async () =>
-  within(await picker())
-    .getAllByRole("radio")
-    .find((radio) => radio.getAttribute("aria-checked") === "true")
-    ?.getAttribute("aria-label");
 const folders = () => screen.findByRole("listbox", { name: "Folders" });
-const option = async (name: string) =>
-  within(await folders()).findByRole("option", { name: new RegExp(`^${name}`) });
+const option = async (name: string) => within(await folders()).findByRole("option", { name });
 
-async function addProject(made: ReturnType<typeof harness>) {
+/** ⇧⌘O: with more than one machine, Add project asks which one first. */
+async function addProjectOn(made: ReturnType<typeof harness>, machine: string, source: string) {
   await made.open("/settings");
   await screen.findByRole("heading", { level: 1 });
   await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
-  await screen.findByRole("dialog", { name: "Add project" });
-  await userEvent.click(screen.getByRole("option", { name: "Local folder" }));
+  const machines = await screen.findByRole("listbox", { name: "Machines" });
+  await userEvent.click(await within(machines).findByRole("option", { name: machine }));
+  await userEvent.click(await screen.findByRole("option", { name: source }));
 }
 
-test("with two machines the picker lists both with their status, and ⌘M cycles them", async () => {
+test("with two machines Add project asks which machine first, and its folders follow the choice", async () => {
   const { made } = twoMachines();
-  await addProject(made);
-  const radios = within(await picker()).getAllByRole("radio");
+  await made.open("/settings");
+  await screen.findByRole("heading", { level: 1 });
+  await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
+  const machines = await screen.findByRole("listbox", { name: "Machines" });
   await waitFor(() =>
-    expect(radios.map((radio) => radio.getAttribute("aria-label"))).toEqual([
-      "This Mac, Connected",
-      "Build server, Connected",
-    ]),
+    expect(
+      within(machines)
+        .getAllByRole("option")
+        .map((each) => each.textContent),
+    ).toEqual(["This Mac", "Build server"]),
   );
-  expect(await checked()).toBe("This Mac, Connected");
-  await userEvent.keyboard("{Control>}m{/Control}");
-  expect(await checked()).toBe("Build server, Connected");
-  // The folders below follow the chosen machine.
+  await userEvent.click(within(machines).getByRole("option", { name: "Build server" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
   expect(await option("services")).toBeTruthy();
-  await userEvent.keyboard("{Control>}m{/Control}");
-  expect(await checked()).toBe("This Mac, Connected");
+
+  // The machine chip changes it again.
+  await userEvent.click(screen.getByRole("button", { name: "Machine: Build server" }));
+  await userEvent.click(
+    within(await screen.findByRole("listbox", { name: "Machines" })).getByRole("option", {
+      name: "This Mac",
+    }),
+  );
   expect(await option("code")).toBeTruthy();
 });
 
-test("the picker is reachable with the keyboard and arrows choose a machine", async () => {
-  const { made } = twoMachines();
-  await addProject(made);
-  await waitFor(async () => expect(within(await picker()).getAllByRole("radio")).toHaveLength(2));
-  // Tab backwards through the dialog until its chosen machine is reached.
-  const selected = within(await picker()).getByRole("radio", { checked: true });
-  for (let press = 0; press < 12 && document.activeElement !== selected; press++)
-    await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
-  expect(document.activeElement).toBe(selected);
-  await userEvent.keyboard("{ArrowRight}");
-  expect(await checked()).toBe("Build server, Connected");
-  expect(document.activeElement?.getAttribute("aria-label")).toBe("Build server, Connected");
-});
-
-test("a folder opened on the build server is added there, not on this machine", async () => {
+test("a folder added on the build server is added there, not on this machine", async () => {
   const { made, build } = twoMachines();
-  await addProject(made);
-  await userEvent.keyboard("{Control>}m{/Control}");
-  const search = await screen.findByRole("combobox", { name: "Search folders" });
-  await userEvent.type(search, "api");
-  await option("api");
+  await addProjectOn(made, "Build server", "Local folder");
+  const field = await screen.findByRole("combobox", { name: "Folder path" });
+  await userEvent.clear(field);
+  await userEvent.type(field, "~/services/api/");
+  await screen.findByText("~/services/api");
   await userEvent.keyboard("{Enter}");
 
   expect(await screen.findByText("Added api on Build server")).toBeTruthy();
@@ -83,41 +71,11 @@ test("a folder opened on the build server is added there, not on this machine", 
   expect(paths(made.daemon)).toEqual([]);
 });
 
-test("recent projects from every machine show together, each marked with its machine", async () => {
-  const { made, build } = twoMachines();
-  await addProject(made);
-  // Registered elsewhere meanwhile, as another device would.
-  build.projects.command({ type: "workspace.add", path: "/home/ci/services/worker" });
-  made.daemon.projects.command({ type: "workspace.add", path: "/Users/dev/code/weather" });
-  await userEvent.keyboard("{Escape}");
-  await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
-  await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
-  const recent = await within(await folders()).findByRole("group", { name: "Recent" });
-  await waitFor(() => {
-    const rows = within(recent)
-      .getAllByRole("option")
-      .map((row) => row.textContent ?? "");
-    expect(rows.some((row) => /^weather.*Project.*This Mac$/.test(row))).toBe(true);
-    expect(rows.some((row) => /^worker.*Project.*Build server$/.test(row))).toBe(true);
-  });
-
-  // Opening the build server's project from here registers nothing on this machine.
-  await userEvent.type(screen.getByRole("combobox", { name: "Search folders" }), "work");
-  const projects = await within(await folders()).findByRole("group", {
-    name: "Projects on your machines",
-  });
-  await userEvent.click(within(projects).getByRole("option", { name: /^worker/ }));
-  expect(await screen.findByText("Added worker on Build server")).toBeTruthy();
-  expect(paths(made.daemon)).toEqual(["/Users/dev/code/weather"]);
-});
-
 test("a new project is created on the chosen machine", async () => {
   const { made, build } = twoMachines();
-  await addProject(made);
-  await userEvent.keyboard("{Control>}2{/Control}{Control>}m{/Control}");
-  expect(await checked()).toBe("Build server, Connected");
-  await userEvent.type(await screen.findByRole("textbox", { name: "Name" }), "jobs");
-  expect(await screen.findByText("Creates ~/jobs")).toBeTruthy();
+  await addProjectOn(made, "Build server", "New project");
+  await userEvent.type(await screen.findByRole("textbox", { name: "Project name" }), "jobs");
+  expect(await screen.findByText("~/jobs")).toBeTruthy();
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
   expect(await screen.findByText("Created jobs on Build server")).toBeTruthy();
   expect(paths(build)).toEqual(["/home/ci/jobs"]);
@@ -130,13 +88,12 @@ test("a clone runs on the chosen machine with its progress, and Cancel stops it 
   const { made, build } = twoMachines({
     projectScheduler: (callback) => void stages.push(callback),
   });
-  await addProject(made);
-  await userEvent.keyboard("{Control>}3{/Control}{Control>}m{/Control}");
+  await addProjectOn(made, "Build server", "Git URL");
   await userEvent.type(
     await screen.findByRole("textbox", { name: "Repository address" }),
     "acme/big-repo",
   );
-  await screen.findByText("Clones into ~/big-repo");
+  await screen.findByText("~/big-repo");
   await userEvent.click(screen.getByRole("button", { name: "Clone" }));
   const bar = await screen.findByRole("progressbar", { name: "Clone progress" });
   expect(
@@ -155,23 +112,6 @@ test("a clone runs on the chosen machine with its progress, and Cancel stops it 
   expect(paths(made.daemon)).toEqual([]);
 });
 
-test("a machine that goes away says so and offers nothing to open on it", async () => {
-  const { made, build } = twoMachines();
-  await addProject(made);
-  await userEvent.keyboard("{Control>}m{/Control}");
-  await option("services");
-  build.refuseConnections(true);
-  expect(
-    await screen.findByText(
-      "Build server isn't connected. Folders and actions come back once it is.",
-    ),
-  ).toBeTruthy();
-  expect(await checked()).toMatch(/^Build server, (Connecting|Offline)$/);
-  expect(screen.getByRole("button", { name: "Select a folder" }).hasAttribute("disabled")).toBe(
-    true,
-  );
-});
-
 test("a chosen machine that leaves the pool stays chosen, so nothing lands on another", async () => {
   const made = harness({ machines: [{ hostId: "build", name: "Build server" }] });
   // The same absolute path exists on both machines.
@@ -181,92 +121,33 @@ test("a chosen machine that leaves the pool stays chosen, so nothing lands on an
   made.machines.get("build")?.projects.seedFolders("/home/ci", [{ path: "/srv/app" }], {
     roots: ["/home/ci", "/srv"],
   });
-  await addProject(made);
-  await userEvent.keyboard("{Control>}m{/Control}");
-  expect(await checked()).toBe("Build server, Connected");
-  const search = await screen.findByRole("combobox", { name: "Search folders" });
-  await userEvent.type(search, "/srv/app/");
-  await option("app");
+  await addProjectOn(made, "Build server", "Local folder");
+  const field = await screen.findByRole("combobox", { name: "Folder path" });
+  await userEvent.clear(field);
+  await userEvent.type(field, "/srv/app/");
+  await screen.findByText("/srv/app");
 
   await made.pool().remove("build");
   expect(
-    await screen.findByText(
-      "Build server was removed from your machines. Choose a machine to carry on.",
-    ),
+    await screen.findByText("Build server isn't connected. Folders come back once it is."),
   ).toBeTruthy();
-  // No machine is chosen in its place, and the typed folder can't be opened anywhere.
-  expect(await checked()).toBeUndefined();
-  await userEvent.click(search);
+  // Nothing takes its place: the typed folder can't be added anywhere.
+  await userEvent.click(field);
   await userEvent.keyboard("{Enter}");
-  expect(screen.getByRole("button", { name: "Select a folder" }).hasAttribute("disabled")).toBe(
-    true,
-  );
+  expect(screen.getByRole("button", { name: "Add" }).hasAttribute("disabled")).toBe(true);
   expect(paths(made.daemon)).toEqual([]);
 
   // Choosing this machine is explicit, and then it works here.
-  await userEvent.click(within(await picker()).getByRole("radio", { name: /^This Mac/ }));
-  await option("app");
-  await userEvent.click(search);
+  await userEvent.click(screen.getByRole("button", { name: "Machine: Build server" }));
+  await userEvent.click(
+    within(await screen.findByRole("listbox", { name: "Machines" })).getByRole("option", {
+      name: "This Mac",
+    }),
+  );
+  const here = await screen.findByRole("combobox", { name: "Folder path" });
+  await userEvent.clear(here);
+  await userEvent.type(here, "/srv/app/");
+  await screen.findByText("/srv/app");
   await userEvent.keyboard("{Enter}");
   await waitFor(() => expect(paths(made.daemon)).toEqual(["/srv/app"]));
-});
-
-test("a path completion that answers after switching machines is dropped", async () => {
-  const { made, build } = twoMachines();
-  made.daemon.projects.seedFolders("/Users/dev", [{ path: "/Users/dev/code/weather" }]);
-  build.projects.seedFolders("/home/ci", [{ path: "/home/ci/cobalt/api" }]);
-  await addProject(made);
-  const search = await screen.findByRole("combobox", { name: "Search folders" });
-  // This Mac is slow to complete ~/co.
-  const release = made.daemon.projects.holdReads((operation) => operation.op === "fs.complete");
-  await userEvent.type(search, "~/co");
-  await userEvent.keyboard("{Tab}");
-  await userEvent.keyboard("{Control>}m{/Control}");
-  expect(await checked()).toBe("Build server, Connected");
-  release();
-  // A round trip on This Mac's connection: its completion reply has arrived by now.
-  await made.client.projects.home();
-  expect(search).toHaveProperty("value", "~/co");
-
-  // Build server completes from its own folders.
-  await userEvent.click(search);
-  await userEvent.keyboard("{Tab}");
-  await waitFor(() => expect(search).toHaveProperty("value", "~/cobalt/"));
-});
-
-test("Retry after the machine's worker is replaced clones through the new connection", async () => {
-  const stages: (() => void)[] = [];
-  const { made, build } = twoMachines({
-    projectScheduler: (callback) => void stages.push(callback),
-  });
-  await addProject(made);
-  await userEvent.keyboard("{Control>}3{/Control}{Control>}m{/Control}");
-  build.refuseCommands("git_failed", "workspace.clone");
-  expect(screen.queryByRole("textbox", { name: "Icon URL" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Upload image" })).toBeNull();
-  await userEvent.type(
-    await screen.findByRole("textbox", { name: "Repository address" }),
-    "acme/web",
-  );
-  await screen.findByText("Clones into ~/web");
-  await userEvent.click(screen.getByRole("button", { name: "Clone" }));
-  expect(await screen.findByText(/Git couldn't finish/)).toBeTruthy();
-
-  // The build server's worker dies and a fresh one connects.
-  build.restoreRequests();
-  made.crashMachine("build");
-  await waitFor(async () => expect(await checked()).toMatch(/^Build server, (Offline|Connecting)/));
-  made.pool().reconnect("build");
-  await waitFor(async () => expect(await checked()).toBe("Build server, Connected"));
-
-  await userEvent.click(screen.getByRole("button", { name: "Retry" }));
-  await screen.findByRole("progressbar", { name: "Clone progress" });
-  for (let stage = 0; stage < 5; stage++) {
-    await waitFor(() => expect(stages.length).toBeGreaterThan(0));
-    stages.shift()?.();
-  }
-  expect(await screen.findByText("Cloned web on Build server")).toBeTruthy();
-  expect(paths(build)).toEqual(["/home/ci/web"]);
-  expect(build.projects.list().workspaces[0]?.icon).toBeUndefined();
-  expect(paths(made.daemon)).toEqual([]);
 });

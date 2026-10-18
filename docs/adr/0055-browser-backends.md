@@ -1,12 +1,21 @@
 # 0055: Embedded browser and daemon headless fallback
 
-Date: 2026-10-02. Status: proposed. Amends ADR 0009.
+Date: 2026-10-02. Status: accepted, amended by ADR 0083. Amends ADR 0009.
+
+Amended 2026-10-17 by [ADR 0083](0083-browser-v2-daemon-chrome.md): the desktop's embedded view stays the primary renderer. The daemon's fallback is its own Chrome for Testing over a pipe, without Playwright, instead of a Chromium per thread. Tabs follow ADR 0083's multi-tab model on both backends. The Chromium acquisition section below still applies.
+
+Amended 2026-10-17 by [ADR 0085](0085-desktop-native-view-lifecycle.md): the embedded backend
+stays as the in-app renderer. A lost link keeps the views for re-adoption (`adopted: true` in
+the open result), a timed-out command fails alone unless an `ace.ping` also fails, and
+`ace.tabs.*` carries several native tabs per thread.
 
 Superseded 2026-10-14: ace's MCP tools are always allowed; permissions are provider-native (owner decision). Evaluation and origin approval mentioned below are removed; scheme checks and request interception for non-http(s) URLs remain.
 
 The background backend default, tabs, files and private-control behavior is amended by
 [ADR 0067](0067-browser-parity.md). Agent backend choice, unseen-view rendering, profiles and
-thread deletion are amended by [ADR 0069](0069-shared-native-browser.md).
+thread deletion are amended by [ADR 0069](0069-shared-native-browser.md). Annotate mode, an
+isolated-world overlay the relay carries unchanged, is added by
+[ADR 0082](0082-browser-annotation.md).
 
 ## Decision
 

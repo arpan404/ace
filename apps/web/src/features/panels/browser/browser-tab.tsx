@@ -18,6 +18,7 @@ import { PageDialog } from "./page-dialog.tsx";
 import { useBrowserFeatures } from "./use-browser-features.ts";
 import { BrowserActions } from "./browser-actions.tsx";
 import { PageNav, PageToolbar } from "./page-toolbar.tsx";
+import { AnnotateButton } from "./annotate-button.tsx";
 import { useNativeView } from "./native-view.ts";
 import { LoadFailed, Offline, Opening, Reopen, StartPage } from "./page-states.tsx";
 import { PageView } from "./page-view.tsx";
@@ -244,6 +245,18 @@ function Browser(props: TabViewProps) {
               disabled: !page.heldAs,
             }}
             loading={loading}
+            after={
+              <AnnotateButton
+                source={source}
+                threadId={threadId}
+                online={page.online}
+                page={
+                  page.bound && !loading && page.state.phase !== "failed" && !page.live?.loadError
+                    ? page.live
+                    : undefined
+                }
+              />
+            }
           />
         }
         address={

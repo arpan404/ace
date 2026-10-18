@@ -9,7 +9,13 @@ import {
 import type { ApprovalTarget } from "@ace/protocol";
 import { validateMeasurementBudget } from "@ace/interaction";
 import type { BrowserToolkit } from "@ace/mcp-server";
+import { PublicToolError } from "@ace/mcp-server/errors";
 import type { BrowserService } from "./service.ts";
+/** Browser actions only a person drives (ADR 0082). */
+type AgentAction = Exclude<BrowserCommand["action"], "annotate" | "annotate_capture">;
+function agentAction(action: BrowserCommand["action"]): action is AgentAction {
+  return action !== "annotate" && action !== "annotate_capture";
+}
 const actions = {
   measure_interaction: {
     riskClass: "external-effect",
@@ -18,12 +24,18 @@ const actions = {
   },
   navigate: {
     riskClass: "external-effect",
-    description: "Navigate this thread's ace browser to a URL.",
+    description:
+      "Navigate a tab of this thread's ace browser to a URL (your current tab, or tabId).",
   },
   click: {
     riskClass: "external-effect",
     description:
-      "Click a ref from ace_browser_snapshot. After a navigation-triggering click, wait_for url or text, then snapshot again. Old document refs expire.",
+      "Click a ref from ace_browser_snapshot, or a point x, y in CSS pixels (with button, clickCount, modifiers). After a navigation-triggering click, wait_for url or text, then snapshot again. Old document refs expire.",
+  },
+  fill_form: {
+    riskClass: "external-effect",
+    description:
+      "Fill several text fields in one call: fields is a list of {ref, value} from the latest snapshot; each value replaces the field's text. Use select or check for other controls.",
   },
   type: {
     riskClass: "external-effect",
@@ -65,7 +77,21 @@ const actions = {
   },
   screenshot: {
     riskClass: "read-only",
-    description: "Read a screenshot of this thread's ace browser.",
+    description:
+      "Read a screenshot of one tab without changing what the person sees: the viewport, fullPage for the whole page, or ref for one element.",
+  },
+  pdf: {
+    riskClass: "read-only",
+    description: "Print a tab to a PDF file and return its path.",
+  },
+  downloads: {
+    riskClass: "read-only",
+    description:
+      "List what this thread's tabs downloaded (with tabId, only that tab's), or operation wait to wait until downloads finish.",
+  },
+  extensions: {
+    riskClass: "read-only",
+    description: "List the browser extensions installed in ace's browser. Read-only.",
   },
   evaluate: {
     riskClass: "external-effect",
@@ -92,7 +118,7 @@ const actions = {
   tabs: {
     riskClass: "external-effect",
     description:
-      "List this thread's single browser page. Legacy open reuses it; switch accepts its current id. Close the page with ace_browser_close.",
+      "Tabs of this thread's ace browser. list: every tab with tabId, url, title, label, openedBy, drivenBy, lease, lifecycle, loading, pending_dialog; current marks yours. open: a new tab (optional url and label) that becomes your current tab. select: make tabId your current tab. close: close tabId. Parallel agents: each open a labelled tab and pass its tabId to every browser tool.",
   },
   upload: {
     riskClass: "external-effect",
@@ -128,14 +154,14 @@ const actions = {
   record_start: {
     riskClass: "external-effect",
     description:
-      "Start recording this thread's browser using the artifact pipeline. Private takeover excludes frames.",
+      "Start recording the tab the person is viewing, using the artifact pipeline. Private takeover excludes frames.",
   },
   record_stop: {
     riskClass: "external-effect",
     description: "Stop recording and announce a thread artifact.",
   },
 } satisfies Record<
-  BrowserCommand["action"],
+  AgentAction,
   { riskClass: NonNullable<ApprovalTarget["riskClass"]>; description: string }
 >;
 
@@ -161,17 +187,35 @@ export const browserMachineInput = {
     .describe("Another paired machine's browser (ace_machines); omit for this machine."),
 };
 
+/**
+ * The optional `browser` argument every browser tool takes when "Use my Chrome" is available
+ * (ADR 0084): ace's own browser, or the person's own Chrome.
+ */
+export const browserChoiceInput = {
+  browser: z
+    .enum(["ace", "user"])
+    .optional()
+    .describe(
+      'Omit (or "ace") for ace\'s browser, which the person watches in ace. "user": the person\'s own Chrome through Use my Chrome, with their logins and extensions, for work that needs their signed-in session. There you get your own tab in an "ace" window; tabs the person shared show in ace_browser_tabs list (browser "user") with openedBy human: pass a tabId to work in one. Not with machine.',
+    ),
+};
+
 /** Agents act in the thread's browser; a person's takeover still pauses them until handback. */
 export function browserToolkit(
   service: Pick<BrowserService, "execute" | "screenshot">,
   startupReserveMs = 0,
   route?: BrowserMachineRoute,
+  /** The person's own browser (ADR 0084), for calls with `browser: "user"`. */
+  user?: () => Pick<BrowserService, "execute" | "screenshot">,
 ): BrowserToolkit {
   return {
     capability: "browser",
     register(registry) {
       for (const command of BrowserCommand.options) {
+        // Annotate mode is the person's (ADR 0082); agents get no tool for it.
+        if (!("shape" in command)) continue;
         const action = command.shape.action.value;
+        if (!agentAction(action)) continue;
         // The longest wait, its 65 s approval reserve, and headroom to report the result.
         const timeoutMs = Math.min(300_000, startupReserveMs + browserWaitLimitMs + 70_000);
         const name = `ace_browser_${action}`;
@@ -185,13 +229,17 @@ export function browserToolkit(
               Object.entries(command.shape).filter(([key]) => key !== "action"),
             ),
             ...(route ? browserMachineInput : {}),
+            ...(user ? browserChoiceInput : {}),
           }),
           capability: "browser",
           timeoutMs,
           async run(input, context) {
             const { caller, signal } = context;
             signal.throwIfAborted();
-            const { machine, ...args } = input;
+            const { machine, browser, ...args } = input;
+            if (browser === "user" && (typeof machine === "string" || !user))
+              throw new PublicToolError("user_browser_unavailable");
+            const target = browser === "user" && user ? user() : service;
             if (route && typeof machine === "string")
               return route(
                 {
@@ -213,11 +261,17 @@ export function browserToolkit(
                 }),
               );
             }
+            const actor = { kind: "agent" as const, agentId: caller.agentId };
             if (action === "screenshot") {
-              const bytes = await service.screenshot(
+              const bytes = await target.screenshot(
                 caller.threadId,
                 signal,
                 typeof args["tabId"] === "string" ? args["tabId"] : undefined,
+                {
+                  fullPage: args["fullPage"] === true,
+                  ...(typeof args["ref"] === "string" ? { ref: args["ref"] } : {}),
+                },
+                actor,
               );
               signal.throwIfAborted();
               return {
@@ -232,10 +286,10 @@ export function browserToolkit(
                 ],
               };
             }
-            const result = await service.execute(
+            const result = await target.execute(
               caller.threadId,
               { ...args, action },
-              { kind: "agent" },
+              actor,
               signal,
             );
             signal.throwIfAborted();

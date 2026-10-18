@@ -11,6 +11,7 @@ import type {
 } from "@ace/protocol";
 import { metadata, type Definition, type ParsedSource, type Target } from "./types.ts";
 import { resolveCommand } from "./plan.ts";
+import type { SkillSource } from "./skill-context.ts";
 import { parseRuntime } from "./runtime.ts";
 import { searchCommands, type Usage } from "./search.ts";
 export class CommandCatalog {
@@ -249,6 +250,33 @@ export class CommandCatalog {
     )
       return { ok: false, error: "not_found" };
     return resolveCommand(command, args, positional, target.provider);
+  }
+  /** The SKILL.md behind a resolved skill entry, as read by discovery for this target. */
+  skillSource(target: Target, entry: CatalogEntry): SkillSource | undefined {
+    const invocation = entry.invocation;
+    const path = invocation.type === "skill" ? invocation.path : entry.source.path;
+    const slash = invocation.type === "slash" ? invocation.name : undefined;
+    let best: Definition | undefined;
+    for (const d of this.entries.values()) {
+      const extension = d.extension;
+      if (
+        d.format === "runtime" ||
+        d.unavailable ||
+        extension?.kind !== "skill" ||
+        !extension.source.path ||
+        (d.provider !== "any" && d.provider !== target.provider) ||
+        (d.instance !== undefined && d.instance !== target.instance)
+      )
+        continue;
+      if (
+        extension.id === entry.id ||
+        (path !== undefined && extension.source.path === path) ||
+        (slash !== undefined && d.nativeName === slash)
+      )
+        if (!best || d.priority > best.priority) best = d;
+    }
+    const file = best?.extension?.source.path;
+    return best && file ? { name: entry.name, path: file, body: best.body } : undefined;
   }
   recordUse(id: string): void {
     if (!this.entries.has(id)) return;

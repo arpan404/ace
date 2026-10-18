@@ -68,27 +68,27 @@ function manualTimers() {
   };
 }
 
-test("the list holds while the pointer is over it and lets go 600 ms after it leaves", () => {
+test("the list holds during a drag and lets go 600 ms after it ends", () => {
   const clock = manualTimers();
   const hold = new ListHold(clock.timers);
   expect(hold.getState().held).toBe(false);
-  hold.pointer(true);
+  hold.drag(true);
   expect(hold.getState()).toEqual({ held: true, rise: false });
-  hold.pointer(false);
+  hold.drag(false);
   clock.advance(599);
-  // Still held after the pointer left, but a row that needs you may rise now.
+  // Still held after the drop, but a row that needs you may rise now.
   expect(hold.getState()).toEqual({ held: true, rise: true });
   clock.advance(1);
   expect(hold.getState().held).toBe(false);
 });
 
-test("coming back before the 600 ms are up keeps the hold", () => {
+test("a new drag before the 600 ms are up keeps the hold", () => {
   const clock = manualTimers();
   const hold = new ListHold(clock.timers);
-  hold.pointer(true);
-  hold.pointer(false);
+  hold.drag(true);
+  hold.drag(false);
   clock.advance(400);
-  hold.pointer(true);
+  hold.drag(true);
   clock.advance(1_000);
   expect(hold.getState()).toEqual({ held: true, rise: false });
 });
@@ -109,8 +109,8 @@ test("listeners hear each change of hold", () => {
   const hold = new ListHold(clock.timers);
   const seen: boolean[] = [];
   hold.subscribe(() => seen.push(hold.getState().held));
-  hold.pointer(true);
-  hold.pointer(false);
+  hold.drag(true);
+  hold.drag(false);
   clock.advance(600);
   expect(seen).toEqual([true, true, false]);
 });

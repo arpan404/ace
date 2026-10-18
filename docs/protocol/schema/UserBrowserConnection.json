@@ -1,0 +1,33 @@
+{
+  "$id": "https://ace.local/protocol/v1/UserBrowserConnection.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "browser": {
+      "$ref": "https://ace.local/protocol/v1/UserBrowserIdentity.json"
+    },
+    "connectedAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "connectionId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "tabs": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/UserBrowserTab.json"
+      },
+      "maxItems": 512,
+      "type": "array"
+    }
+  },
+  "required": [
+    "connectionId",
+    "browser",
+    "connectedAt",
+    "tabs"
+  ],
+  "type": "object"
+}

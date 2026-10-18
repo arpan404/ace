@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/UserBrowserDaemonMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "https://ace.local/protocol/v1/UserBrowserRegistered.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/UserBrowserCommand.json"
+    }
+  ]
+}

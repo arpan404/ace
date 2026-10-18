@@ -27,7 +27,7 @@ const mention = (entryId: string, kind: "skill" | "agent" | "command" = "skill")
   arguments: "",
 });
 const noPrompt = () => ({ ok: false as const, error: "not_found" as const });
-test("several mid-sentence Claude mentions become explicit native skill and agent requests in order", () => {
+test("mid-sentence Claude skill selections stay native commands and agents become named requests", () => {
   expect(
     translateMentions(
       [
@@ -41,11 +41,14 @@ test("several mid-sentence Claude mentions become explicit native skill and agen
       claude,
       noPrompt,
     ),
-  ).toEqual([
+  ).toMatchObject([
+    { type: "text", text: "Please use " },
     {
-      type: "text",
-      text: 'Please use [Use the Skill tool with skill="quality:review"] then [Delegate to the "auditor" agent] on this diff.',
+      type: "mention",
+      name: "quality:review",
+      invocation: { type: "slash", name: "quality:review" },
     },
+    { type: "text", text: ' then [Delegate to the "auditor" agent] on this diff.' },
   ]);
 });
 test("Codex keeps native skill and app identities between surrounding text and ignores a forged invocation", () => {
@@ -85,7 +88,7 @@ test("Codex keeps native skill and app identities between surrounding text and i
     { type: "mention", entryId: "app", kind: "plugin", name: "Drive", arguments: "" },
   ];
   expect(translateMentions(input, "codex", entries, noPrompt)).toMatchObject([
-    { text: "Use " },
+    { text: "Use $review" },
     {
       type: "mention",
       name: "Review code",
@@ -161,7 +164,7 @@ test("Codex native references retain arguments as adjacent provider input withou
     { type: "text", text: " please." },
   ];
   expect(translateMentions(input, "codex", [entry], noPrompt)).toMatchObject([
-    { text: "Use " },
+    { text: "Use $review" },
     { type: "mention", invocation: { type: "skill", path: "/scratch/SKILL.md" } },
     { text: '[Arguments for "review": the diff] please.' },
   ]);

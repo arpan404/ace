@@ -1,5 +1,6 @@
 import {
   findDraft,
+  isEmptyDraft,
   putDraft,
   readJson,
   touchRecent,
@@ -8,7 +9,7 @@ import {
   type DraftEntries,
   type KeyValueStorage,
 } from "@ace/ui-core";
-import { CatalogMention, Mention, ThreadRefContextItem } from "@ace/protocol";
+import { BrowserAnnotation, CatalogMention, Mention, ThreadRefContextItem } from "@ace/protocol";
 import { z as classic } from "zod";
 import * as z from "zod/mini";
 
@@ -24,11 +25,24 @@ const Token = classic.object({
   file: Mention.optional(),
   thread: ThreadRefContextItem.optional(),
 });
+const Held = classic.object({ sha256: classic.string(), name: classic.string() });
+const Annotated = classic.object({ annotation: BrowserAnnotation, crop: Held.optional() });
+/** Annotations decode one by one: an unreadable record is dropped, never the draft. */
+const DraftAnnotationsSchema = classic.object({
+  items: classic.array(classic.unknown()).transform((items) =>
+    items.flatMap((value) => {
+      const item = Annotated.safeParse(value);
+      return item.success ? [item.data] : [];
+    }),
+  ),
+  pages: classic.array(Held.extend({ url: classic.string() })).catch([]),
+});
 export const ComposerDraftSchema = classic.object({
   tokens: classic.array(Token).optional(),
   text: classic.string(),
   mentions: classic.array(classic.string()),
   attachments: classic.array(classic.object({ sha256: classic.string(), name: classic.string() })),
+  annotations: DraftAnnotationsSchema.optional().catch(undefined),
 });
 const Entries = z.catch(z.array(z.tuple([z.string(), ComposerDraftSchema])), []);
 const Recent = z.catch(z.array(z.tuple([z.string(), z.array(z.string())])), []);
@@ -88,7 +102,7 @@ export function writeDraft(
   // Visible preparations are protected from the transient thread composer cache's eviction.
   const protectedDrafts = entries.filter(([id]) => isPreparation(id));
   const transient = entries.filter(([id]) => !isPreparation(id));
-  const creating = isPreparation(key) && draft && (draft.text.trim() || draft.attachments.length);
+  const creating = isPreparation(key) && !isEmptyDraft(draft);
   if (creating && protectedDrafts.length >= 50 && !protectedDrafts.some(([id]) => id === key))
     return false;
   const next = isPreparation(key)

@@ -153,11 +153,16 @@ test("effort chosen in the menu goes with the next message and applies to its tu
 
   await userEvent.type(message, "Also cap the replay at 200{Enter}");
   await screen.findByRole("list", { name: "Queued messages" });
-  // Once the agent and its background relay stop, the queued message starts a turn at High.
-  await userEvent.click(screen.getByRole("button", { name: "Stop the agent" }));
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull());
+  // A new effort may reopen the session, so it waits for the whole tree: once the agent, its
+  // subagents and its background relay finish, the queued message starts a turn at High.
   app.daemon.apply("thread-replay-cursor", [
-    { type: "background.ended", task: "relay", status: "stopped" },
+    { type: "turn.ended", agent: "root", outcome: "completed" },
+  ]);
+  await screen.findByRole("list", { name: "Queued messages" });
+  app.daemon.apply("thread-replay-cursor", [
+    { type: "turn.ended", agent: "audit", outcome: "completed" },
+    { type: "turn.ended", agent: "test", outcome: "completed" },
+    { type: "background.ended", task: "relay", status: "completed" },
   ]);
   await waitFor(() =>
     expect(thread(app, "thread-replay-cursor")?.live?.options).toMatchObject({ effort: "high" }),
@@ -170,10 +175,8 @@ test("an unresolved running effort stays untouched, and an ordinary follow-up ru
   await userEvent.type(message, "Apply the predefined reasoning level{Enter}");
   await screen.findByRole("list", { name: "Queued messages" });
   expect(thread(app, "thread-replay-cursor")?.live?.options?.effort).toBeUndefined();
-  await userEvent.click(screen.getByRole("button", { name: "Stop the agent" }));
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull());
   app.daemon.apply("thread-replay-cursor", [
-    { type: "background.ended", task: "relay", status: "stopped" },
+    { type: "turn.ended", agent: "root", outcome: "completed" },
   ]);
   await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
   // An ordinary follow-up pins no effort (c84d480d3): its turn keeps the model's own default.
@@ -215,17 +218,6 @@ test("a model without effort levels shows only model and account controls", asyn
   expect(within(popover).queryByText("Default effort")).toBeNull();
   expect(within(popover).queryByRole("slider")).toBeNull();
 });
-test("while the agent works, an empty composer offers Stop and a draft offers Queue in its place", async () => {
-  const { message } = await open("busy");
-  expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
-  await userEvent.type(message, "Also check cold start");
-  expect(screen.getByRole("button", { name: "Queue message" })).toBeTruthy();
-  // A draft is never one click from stopping the agent.
-  expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
-  await userEvent.clear(message);
-  expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
-});
-
 test("offline, the model chip keeps the thread's last-known model and says changes wait", async () => {
   const { app } = await open("busy");
   await screen.findByRole("button", { name: /^Model: Opus 5\.5, Personal/ });

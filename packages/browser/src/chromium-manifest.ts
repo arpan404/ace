@@ -1,5 +1,5 @@
 import { z } from "zod";
-/** Google Chrome for Testing object metadata, pinned with Playwright 1.61.1.
+/** Google Chrome for Testing object metadata, pinned.
  * MD5 checks transfer integrity; HTTPS and immutable generation pin the publisher.
  * https://storage.googleapis.com/storage/v1/b/chrome-for-testing-public/o/<encoded object>
  */

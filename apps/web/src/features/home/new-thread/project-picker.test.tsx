@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { WorkspaceId } from "@ace/protocol";
@@ -30,7 +30,39 @@ test("project search keeps draft text, supports keyboard selection, no matches a
   expect(within(reopened).getByRole("button", { name: "Add project" })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
   expect(screen.queryByRole("dialog", { name: "Choose project" })).toBeNull();
-  expect(document.activeElement?.getAttribute("aria-label")).toBe("Project: relay");
+  // Escape hands focus back to the message, ready to type.
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Message" })),
+  );
+});
+
+test("the project and branch controls open from the keyboard and give focus back to the message", async () => {
+  const app = harness();
+  for (const example of workbench()) app.play(example).runUntilBlocked();
+  await app.open("/new?project=ace");
+  await screen.findByRole("combobox", { name: "Message" });
+  (await screen.findByRole("button", { name: "Project: ace" })).focus();
+  await userEvent.keyboard("{Enter}");
+  const popup = await screen.findByRole("dialog", { name: "Choose project" });
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      within(popup).getByRole("combobox", { name: "Search projects" }),
+    ),
+  );
+  await userEvent.keyboard("rel{Enter}");
+  await screen.findByRole("button", { name: "Project: relay" });
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Message" })),
+  );
+
+  const branch = await screen.findByRole("button", { name: /^Start from: (?!Reading)/ });
+  branch.focus();
+  await userEvent.keyboard(" ");
+  await screen.findByRole("dialog", { name: "Start from a branch" });
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Message" })),
+  );
 });
 
 test("the picker uses configured artwork and the shared initials fallback", async () => {

@@ -427,9 +427,7 @@ for (const theme of ["light", "dark"])
             : Infinity;
         })
         .toBeLessThanOrEqual(17);
-      await expect(page.getByRole("heading", { level: 2 })).toHaveText(
-        /What should we work on in\s+relay\s*\?/,
-      );
+      await expect(page.getByRole("heading", { level: 2 })).toHaveCount(0);
       await expect(page.getByRole("button", { name: /^Import/ })).toHaveCount(0);
       const message = composer.getByRole("combobox", { name: "Message" });
       await message.fill("Keep this draft while changing project");
@@ -449,9 +447,7 @@ for (const theme of ["light", "dark"])
       const controls = compact
         ? page.getByRole("dialog", { name: "Environment", exact: true })
         : setup;
-      await expect(
-        page.getByRole("heading", { level: 2 }).getByRole("button", { name: "Project: relay" }),
-      ).toBeVisible();
+      await expect(page.getByRole("button", { name: "Project: relay" })).toBeVisible();
       const toggle = controls.getByRole("checkbox", { name: "Worktree" });
       await expect(toggle).toHaveAttribute("aria-checked", "true");
       await toggle.click();
@@ -466,16 +462,11 @@ for (const theme of ["light", "dark"])
         await setup.getByRole("button", { name: "Environment", exact: true }).click();
       await expect(controls.getByRole("button", { name: "Start from: develop" })).toBeVisible();
       if (compact) await composer.getByRole("combobox", { name: "Message" }).click();
-      await page
-        .getByRole("heading", { level: 2 })
-        .getByRole("button", { name: "Project: relay" })
-        .click();
+      await page.getByRole("button", { name: "Project: relay" }).click();
       await page.getByRole("menuitemradio", { name: "ace", exact: true }).click();
       if (compact && !(await controls.isVisible()))
         await setup.getByRole("button", { name: "Environment", exact: true }).click();
-      await expect(
-        page.getByRole("heading", { level: 2 }).getByRole("button", { name: "Project: ace" }),
-      ).toBeVisible();
+      await expect(page.getByRole("button", { name: "Project: ace" })).toBeVisible();
       await expect(message).toHaveText("Keep this draft while changing project");
       await expect(toggle).toHaveAttribute("aria-checked", "true");
       if (compact) {

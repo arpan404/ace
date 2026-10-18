@@ -73,7 +73,7 @@ export function mayBeSystemInput(item: Item | undefined): boolean {
   const stripped = withoutPortableHandoff(item.parts);
   if (stripped.length !== item.parts.length || stripped[0] !== item.parts[0]) return true;
   const origin = messageOrigin(item);
-  if (origin) return origin.kind !== "person" && origin.kind !== "queue";
+  if (origin) return origin.kind !== "person" && origin.kind !== "queue" && origin.kind !== "steer";
   const text = messageText(item).trimStart();
   return candidates.some((start) => text.startsWith(start));
 }

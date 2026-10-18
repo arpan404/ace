@@ -100,6 +100,7 @@ export function connectBrowser(
             break;
           case "browser.tabs.open":
           case "browser.tabs.switch":
+          case "browser.tabs.select":
           case "browser.tabs.close":
             respond(
               await service.execute(
@@ -157,14 +158,14 @@ export function connectBrowser(
             );
             break;
           case "browser.input":
-            await service.input(threadId, message.input, options.connectionId);
+            await service.input(threadId, message.input, options.connectionId, message.tabId);
             respond(null);
             break;
           case "browser.takeover":
-            respond(service.takeover(threadId, options.connectionId, message.mode));
+            respond(service.takeover(threadId, options.connectionId, message.mode, message.tabId));
             break;
           case "browser.handback":
-            respond(service.handback(threadId, options.connectionId));
+            respond(service.handback(threadId, options.connectionId, message.tabId));
             break;
           case "browser.subscribe": {
             const subscriber = message.subscriberId ?? "legacy";

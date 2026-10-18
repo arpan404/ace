@@ -1,18 +1,10 @@
 import { useClient, useItem, useThreadMeta } from "@ace/client-react";
-import { ThreadId, type ContentPart, type Item } from "@ace/protocol";
 import { describeProviderError, displayNotice, isLimitError, modelLabel } from "@ace/ui-core";
 import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { ErrorRow, noticeError } from "../items/error-row.tsx";
+import { resendPayload } from "../transitions/resend.ts";
 import type { Failure } from "./failure.ts";
-
-/** The person's message again, as input: its text, images and files. */
-function resend(item: Item | undefined): ContentPart[] {
-  if (item?.type !== "message") return [];
-  return item.parts.map((part) =>
-    part.type === "text" ? { type: "text", text: part.text } : part,
-  );
-}
 
 /** Whether the provider's text says only what the row already says, perhaps after a label. */
 function repeats(raw: string, shown: { title: string; message?: string | undefined }): boolean {
@@ -49,7 +41,7 @@ export function FailedTurn(props: {
   const client = useClient();
   const toast = useToast();
   const [sending, setSending] = useState(false);
-  const input = resend(ask);
+  const payload = resendPayload(props.threadId, ask);
   const original = notice?.type === "notice" ? noticeError(notice) : undefined;
   const display = notice?.type === "notice" ? displayNotice(notice) : undefined;
   const reported = original
@@ -78,22 +70,10 @@ export function FailedTurn(props: {
   const raw = original ? (original.detail ?? original.text) : described.raw;
   const view = { ...described, raw: raw && !repeats(raw, described) ? raw : undefined };
   const retry = async () => {
+    if (!payload) return;
     setSending(true);
     try {
-      await client.enqueue({
-        type: "thread.send",
-        threadId: ThreadId.parse(props.threadId),
-        input,
-        trigger: "user",
-        ...(ask?.type === "message" && ask.attachments?.length
-          ? {
-              context: {
-                mentions: [],
-                attachments: ask.attachments.map((file) => ({ sha256: file.sha256 })),
-              },
-            }
-          : {}),
-      });
+      await client.enqueue(payload);
     } catch {
       toast.error({ title: "Couldn't retry the turn" });
     } finally {
@@ -120,7 +100,7 @@ export function FailedTurn(props: {
     <ErrorRow
       error={fixable ? failed : { ...failed, action: undefined }}
       heading={heading}
-      onRetry={latest && input.length > 0 && !fixable ? () => void retry() : undefined}
+      onRetry={latest && payload && !fixable ? () => void retry() : undefined}
       retrying={sending}
     />
   );

@@ -1,5 +1,5 @@
 import { workbench } from "@ace/fake-daemon";
-import { configure, screen, waitFor, within } from "@testing-library/react";
+import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -33,6 +33,29 @@ test("a row's details open beside it rather than over the rows below", async () 
   await userEvent.hover(card(/^Partial refunds/));
   const details = await screen.findByLabelText(/^Details for Partial refunds/);
   expect(details.closest("[data-side]")?.getAttribute("data-side")).toBe("right");
+});
+
+const listViewport = () => {
+  const viewport = threads().querySelector("[data-virtual-viewport]");
+  if (!(viewport instanceof HTMLElement)) throw new Error("no list");
+  return viewport;
+};
+
+test("a row's details stay shut while the list scrolls under the pointer", async () => {
+  await openHome();
+  await userEvent.hover(card(/^Partial refunds/));
+  fireEvent.wheel(listViewport(), { deltaY: 40 });
+  fireEvent.scroll(listViewport());
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  expect(screen.queryByLabelText(/^Details for Partial refunds/)).toBeNull();
+});
+
+test("an open row's details close as soon as the list scrolls", async () => {
+  await openHome();
+  await userEvent.hover(card(/^Partial refunds/));
+  await screen.findByLabelText(/^Details for Partial refunds/);
+  fireEvent.scroll(listViewport());
+  await waitFor(() => expect(screen.queryByLabelText(/^Details for Partial refunds/)).toBeNull());
 });
 
 test("Settle and Unsettle on a row's hover actions move it between the list and Settled", async () => {

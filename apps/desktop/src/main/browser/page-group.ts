@@ -4,10 +4,19 @@ import type { EmbeddedPage } from "./page.ts";
 import type { BaseWindow } from "electron";
 import type { NativeDevice, Rect } from "./placement.ts";
 
+/** Live native tabs one thread may hold (ADR 0083's per-thread limit). */
+export const nativeTabLimit = 16;
+
 const TabCommand = z.object({ tabId: z.string().min(1).max(256) });
 const CdpCommand = TabCommand.extend({
   method: z.string().min(1).max(256),
   params: z.record(z.string(), z.unknown()).optional(),
+});
+/** `select` makes the new tab the one the panel shows; by default it opens in the background. */
+const OpenCommand = z.object({ select: z.boolean().optional() }).optional();
+const ResizeCommand = TabCommand.extend({
+  width: z.number().int().min(100).max(4096),
+  height: z.number().int().min(100).max(4096),
 });
 type GroupPage = Pick<
   EmbeddedPage,
@@ -25,7 +34,8 @@ type GroupPage = Pick<
   | "place"
   | "placementReady"
   | "isShown"
->;
+> &
+  Partial<Pick<EmbeddedPage, "orphan" | "readopt" | "evacuate">>;
 
 interface Tab {
   id: string;
@@ -36,7 +46,13 @@ interface Tab {
   stop(): void;
   blocked(): void;
 }
-/** A thread's native tabs share a partition and a lease, with one placed page. */
+
+/**
+ * A thread's native tabs: one `WebContentsView` each, sharing the thread's partition and its
+ * controller lease. Only the selected tab is placed in the Browser panel; the others stay
+ * alive unseen, and render in the parking window while an agent drives them (see `throttle.ts`).
+ * Commands without a tab go to the selected tab; `ace.tabs.*` commands address any tab.
+ */
 export class EmbeddedPageGroup implements ViewPage {
   private tabs = new Map<string, Tab>();
   private active = "";
@@ -55,20 +71,26 @@ export class EmbeddedPageGroup implements ViewPage {
     zoom?: number;
     device?: NativeDevice | undefined;
   } = { window: undefined, bounds: undefined, visible: false };
-  constructor(
-    privateCreate: (id: string) => Promise<GroupPage>,
-    privateClose: () => Promise<void>,
-  ) {
-    this.create = privateCreate;
-    this.finish = privateClose;
-  }
   private create: (id: string) => Promise<GroupPage>;
   private finish: () => Promise<void>;
+
+  constructor(create: (id: string) => Promise<GroupPage>, finish: () => Promise<void>) {
+    this.create = create;
+    this.finish = finish;
+  }
+
   private current(): Tab {
     const tab = this.tabs.get(this.active);
     if (!tab) throw new Error("Browser tab unavailable");
     return tab;
   }
+
+  private tab(tabId: string): Tab {
+    const tab = this.tabs.get(tabId);
+    if (!tab) throw new Error("Browser tab unavailable");
+    return tab;
+  }
+
   snapshot() {
     return {
       activeTabId: this.active,
@@ -80,15 +102,19 @@ export class EmbeddedPageGroup implements ViewPage {
       })),
     };
   }
+
   private emit(method: string, params: unknown) {
     for (const listener of this.listeners) listener(method, params);
   }
+
   private changed() {
     this.emit("ace.tabs.changed", this.snapshot());
   }
-  async openTab(): Promise<string> {
-    if (this.active) return this.active;
-    if (this.closed || this.opening >= 1) throw new Error("Browser tab limit");
+
+  /** A new tab, in the background unless `select` or it is the thread's first. */
+  async openTab(options: { select?: boolean | undefined } = {}): Promise<string> {
+    if (this.closed) throw new Error("Browser closed");
+    if (this.tabs.size + this.opening >= nativeTabLimit) throw new Error("Browser tab limit");
     this.opening++;
     const id = `native-tab-${++this.sequence}`;
     try {
@@ -99,65 +125,8 @@ export class EmbeddedPageGroup implements ViewPage {
       }
       const tab: Tab = { id, page, title: "", url: page.url(), stop: () => {}, blocked: () => {} };
       this.tabs.set(id, tab);
-      if (!this.active) this.active = id;
-      tab.stop = page.onEvent((method, params) => {
-        if (method === "Page.screencastFrame") {
-          if (id === this.active) {
-            const frame = z.record(z.string(), z.unknown()).parse(params);
-            this.emit(method, { ...frame, aceTabId: id });
-          } else {
-            const frame = z.object({ sessionId: z.number().int() }).safeParse(params);
-            if (frame.success) void page.cdp("Page.screencastFrameAck", frame.data).catch(() => {});
-          }
-          return;
-        }
-        if (method === "Inspector.detached") {
-          if (!this.closed) void this.remove(id).catch(() => {});
-          return;
-        }
-        if (method === "ace.permissionDenied" || method === "ace.downloadDenied") {
-          this.emit(method, params);
-          return;
-        }
-        if (method === "ace.popupRequested") {
-          this.emit(method, {
-            tabId: id,
-            ...z.object({ url: z.string().max(8192) }).parse(params),
-          });
-          return;
-        }
-        if (method === "ace.title") {
-          tab.title = z.object({ title: z.string().max(1024) }).parse(params).title;
-          this.changed();
-          return;
-        }
-        if (method === "Page.frameNavigated") {
-          const nav = z
-            .object({
-              frame: z.object({
-                id: z.string(),
-                url: z.string().max(8192),
-                parentId: z.string().optional(),
-              }),
-            })
-            .safeParse(params);
-          if (nav.success && !nav.data.frame.parentId) {
-            tab.mainFrame = nav.data.frame.id;
-            tab.url = nav.data.frame.url;
-            this.changed();
-          }
-        }
-        if (method === "Page.navigatedWithinDocument") {
-          const nav = z
-            .object({ frameId: z.string(), url: z.string().max(8192) })
-            .safeParse(params);
-          if (nav.success && nav.data.frameId === tab.mainFrame) {
-            tab.url = nav.data.url;
-            this.changed();
-          }
-        }
-        this.emit("ace.tabs.event", { tabId: id, method, params });
-      });
+      if (!this.active || options.select) this.active = id;
+      tab.stop = page.onEvent((method, params) => this.tabEvent(tab, method, params));
       tab.blocked = page.onBlockedInput(() => {
         if (id === this.active) for (const notify of this.blocked) notify();
       });
@@ -168,32 +137,98 @@ export class EmbeddedPageGroup implements ViewPage {
       this.opening--;
     }
   }
+
+  private tabEvent(tab: Tab, method: string, params: unknown): void {
+    const id = tab.id;
+    if (method === "Page.screencastFrame") {
+      if (id === this.active) {
+        const frame = z.record(z.string(), z.unknown()).parse(params);
+        this.emit(method, { ...frame, aceTabId: id });
+      } else {
+        const frame = z.object({ sessionId: z.number().int() }).safeParse(params);
+        if (frame.success) void tab.page.cdp("Page.screencastFrameAck", frame.data).catch(() => {});
+      }
+      return;
+    }
+    if (method === "Inspector.detached") {
+      if (!this.closed) void this.remove(id).catch(() => {});
+      return;
+    }
+    if (method === "ace.permissionDenied" || method === "ace.downloadDenied") {
+      this.emit(method, params);
+      return;
+    }
+    if (method === "ace.popupRequested") {
+      this.emit(method, { tabId: id, ...z.object({ url: z.string().max(8192) }).parse(params) });
+      return;
+    }
+    if (method === "ace.title") {
+      tab.title = z.object({ title: z.string().max(1024) }).parse(params).title;
+      this.changed();
+      return;
+    }
+    if (method === "Page.frameNavigated") {
+      const nav = z
+        .object({
+          frame: z.object({
+            id: z.string(),
+            url: z.string().max(8192),
+            parentId: z.string().optional(),
+          }),
+        })
+        .safeParse(params);
+      if (nav.success && !nav.data.frame.parentId) {
+        tab.mainFrame = nav.data.frame.id;
+        tab.url = nav.data.frame.url;
+        this.changed();
+      }
+    }
+    if (method === "Page.navigatedWithinDocument") {
+      const nav = z.object({ frameId: z.string(), url: z.string().max(8192) }).safeParse(params);
+      if (nav.success && nav.data.frameId === tab.mainFrame) {
+        tab.url = nav.data.url;
+        this.changed();
+      }
+    }
+    this.emit("ace.tabs.event", { tabId: id, method, params });
+  }
+
+  /**
+   * Only the selected tab is placed, takes the person's input and follows the lease the daemon
+   * sends (the shown tab's, ADR 0085). The person cannot reach an unseen tab, so it is always
+   * the agents': it renders while driven and intercepts its file choosers.
+   */
   private apply() {
     for (const [id, tab] of this.tabs) {
-      tab.page.place({ ...this.target, visible: this.target.visible && id === this.active });
-      tab.page.setNativeInput(this.input && id === this.active);
-      tab.page.setAgentControl(this.agent);
+      const shown = id === this.active;
+      tab.page.place({ ...this.target, visible: this.target.visible && shown });
+      tab.page.setNativeInput(this.input && shown);
+      tab.page.setAgentControl(shown ? this.agent : true);
     }
   }
+
   async placementReady(): Promise<void> {
     await this.tabs.get(this.active)?.page.placementReady();
   }
+
   isShown(): boolean {
     return this.tabs.get(this.active)?.page.isShown() ?? false;
   }
+
   place(target: typeof this.target) {
     this.target = target;
     this.apply();
   }
+
   async cdp(method: string, params?: Record<string, unknown>): Promise<unknown> {
     if (method === "ace.tabs.list") return this.snapshot();
     if (method === "ace.tabs.open") {
-      await this.openTab();
-      return this.snapshot();
+      const tabId = await this.openTab(OpenCommand.parse(params) ?? {});
+      return { ...this.snapshot(), tabId };
     }
     if (method === "ace.tabs.switch") {
       const { tabId } = TabCommand.parse(params);
-      if (!this.tabs.has(tabId)) throw new Error("Browser tab unavailable");
+      this.tab(tabId);
       this.active = tabId;
       this.apply();
       this.changed();
@@ -205,17 +240,20 @@ export class EmbeddedPageGroup implements ViewPage {
       await this.remove(tabId);
       return this.snapshot();
     }
+    if (method === "ace.tabs.resize") {
+      const { tabId, width, height } = ResizeCommand.parse(params);
+      await this.tab(tabId).page.resize(width, height);
+      return this.snapshot();
+    }
     if (method === "ace.tabs.cdp") {
       const command = CdpCommand.parse(params);
-      const tab = this.tabs.get(command.tabId);
-      if (!tab) throw new Error("Browser tab unavailable");
-      return tab.page.cdp(command.method, command.params);
+      return this.tab(command.tabId).page.cdp(command.method, command.params);
     }
     return this.current().page.cdp(method, params);
   }
+
   private async remove(id: string) {
-    const tab = this.tabs.get(id);
-    if (!tab) throw new Error("Browser tab unavailable");
+    const tab = this.tab(id);
     this.tabs.delete(id);
     tab.stop();
     tab.blocked();
@@ -226,37 +264,62 @@ export class EmbeddedPageGroup implements ViewPage {
     if (!this.tabs.size && !this.closed)
       this.emit("Inspector.detached", { reason: "All browser tabs closed" });
   }
+
   onEvent(listener: (method: string, params: unknown) => void) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
+
   onBlockedInput(listener: () => void) {
     this.blocked.add(listener);
     return () => this.blocked.delete(listener);
   }
+
   navigate(url: string, timeout: number) {
     return this.current().page.navigate(url, timeout);
   }
+
   press(key: string) {
     return this.current().page.press(key);
   }
+
   resize(width: number, height: number) {
     return this.current().page.resize(width, height);
   }
+
   setNativeInput(enabled: boolean) {
     this.input = enabled;
     this.apply();
   }
+
   setAgentControl(agent: boolean) {
     this.agent = agent;
     this.apply();
   }
+
   url() {
     return this.current().url;
   }
+
+  /** The window is closing: every tab in it moves to the parking window. */
+  evacuate(closing: BaseWindow, park: (size: { width: number; height: number }) => BaseWindow) {
+    for (const tab of this.tabs.values()) tab.page.evacuate?.(closing, park);
+  }
+
+  /** The daemon link dropped: every tab stays alive and refuses what only the daemon decides. */
+  orphan(): void {
+    for (const tab of this.tabs.values()) tab.page.orphan?.();
+  }
+
+  /** A daemon adopts the tabs again: each starts from a clean CDP slate, its page untouched. */
+  async readopt(): Promise<void> {
+    await Promise.all([...this.tabs.values()].map((tab) => tab.page.readopt?.()));
+  }
+
   close(): Promise<void> {
     return (this.closing ??= this.destroy());
   }
+
   private async destroy() {
     this.closed = true;
     await Promise.all(

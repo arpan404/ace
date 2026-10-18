@@ -10,6 +10,9 @@ import {
   type StepFact,
   type StepGroup,
 } from "@ace/ui-core";
+import type { ThreadKey, ThreadReader } from "@ace/client";
+import { useThread } from "@ace/client-react";
+import { thoughtLabel, thoughtMs } from "./thought-time.ts";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
 import {
   BrainIcon,
@@ -26,7 +29,7 @@ import {
   TerminalIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
-import { memo, useId, useMemo, useState } from "react";
+import { memo, useCallback, useId, useMemo, useState } from "react";
 import { OpenStepsContext, useGroupOpen, useOpenSteps, useStepOpen } from "./step-open.ts";
 import { Icon } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -38,6 +41,8 @@ import { LiveGroupTitle } from "./live-group-title.tsx";
 import { useAnswerText } from "./answer-text.ts";
 import { useStreaming } from "../transcript/use-streaming.ts";
 import { Button } from "@/components/ui/button.tsx";
+import { Prose } from "@/components/markdown/prose.tsx";
+import { StaticRow, TranscriptRow, pressableRowClass, rowDetailIndent } from "./transcript-row.tsx";
 
 /*
  * A work log as one quiet flow: consecutive calls by one agent read as one sentence row with a
@@ -202,60 +207,86 @@ const groupIcons: Record<GroupIcon, PhosphorIcon> = {
   think: BrainIcon,
 };
 
-const row = "flex min-h-8 w-full min-w-0 items-center gap-2.5 text-left text-ui";
-
 /** The turn is working with no step in flight: the model is thinking, as a header like a running group. */
 export function ThinkingRow() {
   return (
     <li className="relative">
       <RailMark state="running" />
-      <div role="status" data-step-group="" className={cn(row, "text-muted-foreground")}>
-        <Icon icon={BrainIcon} size={16} className="text-subtle-foreground" />
-        <span className="step-shimmer min-w-0 truncate">Thinking</span>
-      </div>
+      <StaticRow
+        role="status"
+        stepGroup
+        lead={<Icon icon={BrainIcon} size={16} />}
+        leadKind="thought"
+        title={thoughtLabel(false, undefined)}
+        titleClassName="step-shimmer"
+      />
     </li>
   );
 }
 
-/** What the agent thought, as a muted row of its own; "Thinking" while it still thinks. */
+/** A thought's time changes as items follow it and as it finishes. */
+const thoughtKeys: readonly ThreadKey[] = ["order", "thread"];
+
+/**
+ * What the agent thought, as one quiet row: "Thinking…" while it thinks, "Thought for 12s" once
+ * done, the same height either way so nothing moves when it finishes. The thought itself opens
+ * in place, as markdown, only when the reader asks for it.
+ */
 function ThoughtRow(props: { threadId: string; itemId: string }) {
   const item = useStepItem(props.threadId, props.itemId);
   const answer = useAnswerText(item);
   const streaming = useStreaming(props.threadId, item);
   const [toggled, setOpen] = useStepOpen(props.itemId);
-  const open = toggled ?? streaming;
+  const panel = useId();
+  const open = toggled ?? false;
+  const readTook = useCallback(
+    (reader: ThreadReader) => thoughtMs(reader, props.itemId),
+    [props.itemId],
+  );
+  const took = useThread(props.threadId, thoughtKeys, readTook, Object.is);
   if (item?.type !== "reasoning") return null;
   const text = answer.text.trim();
   // Still thinking with no words yet: the same header as a thinking turn with no step in flight.
   if (!item.complete && !text) return <ThinkingRow />;
   return (
-    <li className="relative flex min-h-8 min-w-0 items-start gap-2.5 py-1.5 text-ui text-muted-foreground">
+    <li className="relative min-w-0">
       <RailMark state={item.complete ? "done" : "running"} />
-      <Icon icon={BrainIcon} size={16} className="mt-0.5 text-subtle-foreground" />
-      <div className="min-w-0">
-        <button
-          type="button"
-          aria-expanded={open}
-          onClick={() => setOpen(!open)}
+      <TranscriptRow
+        expanded={open}
+        stepGroup
+        controls={panel}
+        onToggle={() => setOpen(!open)}
+        lead={<Icon icon={BrainIcon} size={16} />}
+        leadKind="thought"
+        title={thoughtLabel(item.complete, took)}
+        titleClassName={item.complete ? undefined : "step-shimmer"}
+      />
+      {open && (
+        <div
+          id={panel}
           className={cn(
-            "min-w-0 text-left leading-relaxed whitespace-pre-wrap",
-            !open && "line-clamp-3",
-            !item.complete && "step-shimmer",
+            "min-w-0 pb-1.5 font-prose text-ui leading-relaxed wrap-break-word text-muted-foreground",
+            rowDetailIndent,
           )}
         >
-          {text}
-        </button>
-        {answer.problem && (
-          <p role="alert">
-            {answer.problem}{" "}
-            {answer.retryable && (
-              <Button size="sm" onClick={answer.load}>
-                Try again
-              </Button>
-            )}
-          </p>
-        )}
-      </div>
+          <Prose
+            text={text}
+            thread={{ threadId: props.threadId, itemId: props.itemId }}
+            stream={`${props.threadId}/${props.itemId}`}
+            streaming={streaming}
+          />
+        </div>
+      )}
+      {answer.problem && (
+        <p role="alert" className={cn("text-ui text-muted-foreground", rowDetailIndent)}>
+          {answer.problem}{" "}
+          {answer.retryable && (
+            <Button size="sm" onClick={answer.load}>
+              Try again
+            </Button>
+          )}
+        </p>
+      )}
     </li>
   );
 }
@@ -298,10 +329,7 @@ const GroupView = memo(function GroupView(props: {
           data-step-group=""
           title={group.summary}
           onClick={() => setOpen(!open)}
-          className={cn(
-            row,
-            "text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground",
-          )}
+          className={cn(pressableRowClass, "text-muted-foreground")}
         >
           <LiveGroupTitle
             threadId={props.threadId}
@@ -312,25 +340,22 @@ const GroupView = memo(function GroupView(props: {
           />
         </button>
       ) : (
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-controls={panel}
-          data-step-group=""
-          onClick={() => setOpen(!open)}
-          className={cn(
-            row,
-            "text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground",
-          )}
-        >
-          <Icon icon={groupIcons[group.icon]} size={16} className="text-subtle-foreground" />
-          <span className="min-w-0 truncate">
-            {group.sentence}
-            {group.failed > 0 && (
-              <span className="text-status-failed"> · {group.failed} failed</span>
-            )}
-          </span>
-        </button>
+        <TranscriptRow
+          expanded={open}
+          stepGroup
+          controls={panel}
+          onToggle={() => setOpen(!open)}
+          lead={<Icon icon={groupIcons[group.icon]} size={16} />}
+          leadKind={group.icon}
+          title={
+            <>
+              {group.sentence}
+              {group.failed > 0 && (
+                <span className="text-status-failed"> · {group.failed} failed</span>
+              )}
+            </>
+          }
+        />
       )}
       {open && (
         <StepRail id={panel} label={group.summary}>

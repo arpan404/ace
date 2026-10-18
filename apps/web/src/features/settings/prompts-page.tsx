@@ -143,6 +143,7 @@ export function PromptsSettingsScreen() {
                   {!!file.diagnostics.length && (
                     <Tip label={file.diagnostics.map((d) => promptProblem(d.message)).join(" ")}>
                       <span
+                        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
                         tabIndex={0}
                         role="status"
                         className="rounded-sm text-xs text-status-failed focus-ring"

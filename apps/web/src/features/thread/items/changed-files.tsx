@@ -1,5 +1,8 @@
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { fileChanges, type Turn } from "@ace/ui-core";
+import type { ThreadReader } from "@ace/client";
+import { useThread } from "@ace/client-react";
+import { fileChanges, rootRunOf, type Turn } from "@ace/ui-core";
+import { useCallback } from "react";
 import type { Item } from "@ace/protocol";
 import { useFileStats } from "@/lib/diffs/use-file-diffs.ts";
 import { useItemsSelect } from "../lib/use-items.ts";
@@ -35,14 +38,23 @@ const chip =
 
 /**
  * The files a turn changed, as wrapping chips: each file's name with its `+N −M`, then "+2 more".
- * Any chip opens the turn's changes in the Changes tab.
+ * A chip opens Changes on that turn with its file in view; "+N more" opens the turn's changes.
  */
 export function ChangedFiles(props: { threadId: string; itemIds: readonly string[] }) {
   const edits = useItemsSelect(props.threadId, props.itemIds, selectEdits, sameEdits) ?? none;
   const files = useFileStats(edits);
   const workspace = useWorkspaceActions(props.threadId);
+  const first = props.itemIds[0] ?? "";
+  // The root turn the edits belong to (a subagent's edits count toward the turn that spawned it).
+  const readTurn = useCallback(
+    (reader: ThreadReader) => rootRunOf(reader, reader.item(first)?.runId)?.id,
+    [first],
+  );
+  const turn = useThread(props.threadId, [`item:${first}`, "agents"], readTurn, Object.is);
   if (!files.length) return null;
-  const open = () => workspace.open({ kind: "changes" });
+  const scope = turn ? { scope: turn } : {};
+  const open = (path?: string) =>
+    workspace.open({ kind: "changes", data: path ? { ...scope, path } : scope });
   const label = `Changed ${files.length} ${files.length === 1 ? "file" : "files"}`;
   const rest = files.length - shown;
   return (
@@ -53,7 +65,7 @@ export function ChangedFiles(props: { threadId: string; itemIds: readonly string
           type="button"
           title={file.path}
           aria-label={`${file.path} ${file.stat ? `+${file.stat.added} −${file.stat.removed}` : ""}`}
-          onClick={open}
+          onClick={() => open(file.path)}
           className={chip}
         >
           <span className="min-w-0 truncate">{file.path.split("/").at(-1) ?? file.path}</span>
@@ -63,7 +75,7 @@ export function ChangedFiles(props: { threadId: string; itemIds: readonly string
       {rest > 1 && (
         <button
           type="button"
-          onClick={open}
+          onClick={() => open()}
           className="h-7 px-1 font-mono text-xs text-subtle-foreground transition-colors duration-(--motion-fast) hover:text-foreground focus-ring"
         >
           +{rest} more

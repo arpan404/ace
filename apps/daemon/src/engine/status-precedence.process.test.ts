@@ -7,7 +7,7 @@ afterEach(async () => {
   for (const close of cleanups.splice(0)) await close();
 });
 
-test("clients see human requests ahead of active background children; queued input waits for subagents but not for a background command", async () => {
+test("clients see human requests ahead of active background children; a queued message waits for neither a subagent nor a background command", async () => {
   const frames = scriptFrames();
   const h = await harness(
     [
@@ -65,7 +65,9 @@ test("clients see human requests ahead of active background children; queued inp
     }).ok,
   ).toBe(true);
   await h.engine.flush();
-  expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(1);
+  // The root's turn has ended: the message starts the next one while the subagent keeps
+  // working, and the thread still reads working because of it.
+  expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(2);
   expect(h.store.getThread(id)?.status.state).toBe("working");
 
   async function status(expected: ThreadStatus) {

@@ -1,5 +1,3 @@
-import { readdir } from "node:fs/promises";
-import { join } from "node:path";
 import { expect, it } from "vitest";
 import type { BrowserFrame } from "@ace/protocol";
 import { backendFixture, FakeHeadless } from "./backend-test-support.ts";
@@ -45,7 +43,7 @@ it("simultaneous opens join replacement recovery and both return a usable ready 
   expect(await complete).toHaveLength(2);
 });
 
-it("ordinary agent opens recover after repeated losses of the replacement headless page and release old profiles", async () => {
+it("ordinary agent opens recover after repeated losses of the replacement headless page", async () => {
   const f = await backendFixture({ backendLoss: () => "headless" });
   await f.open();
   await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/page" });
@@ -83,15 +81,10 @@ it("ordinary agent opens recover after repeated losses of the replacement headle
     // Late traffic from the retired page cannot suspend the new page.
     lost.lost("Late context close");
     expect(f.service.state("thread").status).toBe("ready");
-    expect(
-      (await readdir(join(f.home, "browser"))).filter((name) => name.startsWith("recovery-")),
-    ).toHaveLength(1);
   }
   expect(frames.length).toBeGreaterThanOrEqual(4);
   await f.service.closeThread("thread");
-  expect(
-    (await readdir(join(f.home, "browser"))).filter((name) => name.startsWith("recovery-")),
-  ).toEqual([]);
+  expect(() => f.service.state("thread")).toThrow("not open");
 });
 
 it.each(["shared", "private"] as const)(

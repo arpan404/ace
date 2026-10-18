@@ -41,8 +41,6 @@ test("an address with credentials in it is refused before anything is sent", asy
     return false;
   });
   await openClone(made);
-  // ace clones with the person's own Git setup: it never takes a password.
-  expect(screen.getByText(/ace never asks for or stores credentials/)).toBeTruthy();
   await userEvent.type(await address(), "https://me:hunter2@github.com/acme/web.git");
   expect(await screen.findByText(/Take the user name and password out/)).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Clone" }));
@@ -67,8 +65,6 @@ test("a clone names its folder after the repository, shows Git's progress and op
   expect(bar.getAttribute("aria-valuetext")).toBe("Connecting…");
   await step();
   await waitFor(() => expect(bar.getAttribute("aria-valuetext")).toBe("Receiving objects, 24%"));
-  // Closing the dialog leaves the clone running; it says so when it ends.
-  expect(screen.getByText("The clone carries on while this is hidden.")).toBeTruthy();
   for (let stage = 0; stage < 4; stage++) await step();
 
   await screen.findByRole("button", { name: "Project: weather-app" });
@@ -97,7 +93,7 @@ test("a clone suggests a folder name that is free, and checks one typed over it"
   // The browser already knows a folder named taken is there.
   const folder = screen.getByRole("textbox", { name: "Folder name" });
   await waitFor(() => expect(folder).toHaveProperty("value", "taken-2"));
-  expect(await screen.findByText("Clones into ~/taken-2")).toBeTruthy();
+  expect(await screen.findByText("~/taken-2")).toBeTruthy();
   await userEvent.clear(folder);
   await userEvent.type(folder, "taken");
   expect(await screen.findByText("There's already a folder named taken here.")).toBeTruthy();
@@ -107,7 +103,7 @@ test("GitHub's owner/repo is read by the daemon into an address and a folder", a
   const { made, step } = stepped();
   await openClone(made);
   await userEvent.type(await address(), "acme/weather-app");
-  expect(await screen.findByText("Clones https://github.com/acme/weather-app.git")).toBeTruthy();
+  expect(await screen.findByText("https://github.com/acme/weather-app.git")).toBeTruthy();
   expect(screen.getByRole("textbox", { name: "Folder name" })).toHaveProperty(
     "value",
     "weather-app",
@@ -136,13 +132,14 @@ test("a clone Git refuses says why and Retry runs it again", async () => {
   expect(registered(made)).toEqual([`${home}/private`]);
 });
 
-test("a clone that finishes after its dialog closed says so and opens on request", async () => {
+test("a clone that finishes after the palette closed says so and opens on request", async () => {
   const { made, step } = stepped();
   await openClone(made);
   await userEvent.type(await address(), "https://github.com/acme/docs.git");
   await userEvent.click(screen.getByRole("button", { name: "Clone" }));
   await screen.findByRole("progressbar");
-  await userEvent.click(screen.getByRole("button", { name: "Hide" }));
+  // Closing the palette leaves the clone running.
+  await userEvent.click(screen.getByRole("button", { name: "Close command palette" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   for (let stage = 0; stage < 5; stage++) await step();
 

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { CommandDialog, commandField, CommandSearchRow } from "@/components/ui/command.tsx";
+import { closeHint, KeyHints, navigateHint } from "@/components/ui/key-hints.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
@@ -333,6 +334,7 @@ function SearchBody(props: { initial: string; onClose(): void }) {
               )}
             >
               {hits.map((hit, index) => (
+                // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- keys pick through the combobox's aria-activedescendant
                 <li
                   key={hitKey(hit)}
                   id={`search-hit-${index}`}
@@ -375,6 +377,12 @@ function SearchBody(props: { initial: string; onClose(): void }) {
           </Button>
         )}
       </div>
+      <KeyHints
+        hints={[
+          ...(hits.length ? [navigateHint, { keys: ["enter"], label: "Open" }] : []),
+          closeHint,
+        ]}
+      />
     </>
   );
 }

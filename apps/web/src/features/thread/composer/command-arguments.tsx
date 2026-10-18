@@ -94,7 +94,7 @@ export function CommandArguments(props: {
               {error}
             </p>
           )}
-          <DialogFooter>
+          <DialogFooter submitHint>
             <Button type="button" variant="ghost" onClick={props.onClose}>
               Cancel
             </Button>

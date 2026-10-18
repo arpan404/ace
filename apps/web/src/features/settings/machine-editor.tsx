@@ -163,55 +163,66 @@ function MachineEditor(props: {
             Choose the name and icon shown wherever this machine appears.
           </DialogDescription>
         </DialogHeader>
-        <label className="text-sm" htmlFor="machine-name">
-          Machine name
-        </label>
-        <Input
-          id="machine-name"
-          value={name}
-          maxLength={256}
-          onChange={(event) => setName(event.target.value)}
-          disabled={saving}
-        />
-        <fieldset disabled={saving} className="flex flex-wrap gap-1">
-          <legend className="mb-2 text-sm">Icon</legend>
-          {machineIcons.map((kind) => (
-            <Tip key={kind.kind} label={kind.label}>
-              <Button
-                size="sm"
-                variant={icon.kind === kind.kind ? "secondary" : "ghost"}
-                className="size-8 px-0"
-                aria-label={kind.label}
-                aria-pressed={icon.kind === kind.kind}
-                onClick={() => setIcon({ ...icon, kind: kind.kind })}
-              >
-                <MachineMark icon={{ kind: kind.kind, color: icon.color }} />
-              </Button>
-            </Tip>
-          ))}
-        </fieldset>
-        <Select
-          label="Icon colour"
-          value={icon.color ?? "default"}
-          options={colors}
-          onValueChange={(color) => setIcon({ ...icon, color })}
-          disabled={saving}
-        />
-        <MachineLabel name={name || "This machine"} icon={icon} primary={props.machine.primary} />
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            Couldn't save the machine identity. Check the connection and administrator access, then
-            try again.
-          </p>
-        )}
-        <DialogFooter>
-          <Button variant="ghost" disabled={saving} onClick={props.onClose}>
-            Cancel
-          </Button>
-          <Button disabled={saving} onClick={() => void save()}>
-            {saving ? "Saving…" : "Save"}
-          </Button>
-        </DialogFooter>
+        {/* A form, so Enter in the name saves. */}
+        <form
+          aria-label="Edit machine"
+          className="contents"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!saving) void save();
+          }}
+        >
+          <label className="text-sm" htmlFor="machine-name">
+            Machine name
+          </label>
+          <Input
+            id="machine-name"
+            value={name}
+            maxLength={256}
+            onChange={(event) => setName(event.target.value)}
+            disabled={saving}
+          />
+          <fieldset disabled={saving} className="flex flex-wrap gap-1">
+            <legend className="mb-2 text-sm">Icon</legend>
+            {machineIcons.map((kind) => (
+              <Tip key={kind.kind} label={kind.label}>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={icon.kind === kind.kind ? "secondary" : "ghost"}
+                  className="size-8 px-0"
+                  aria-label={kind.label}
+                  aria-pressed={icon.kind === kind.kind}
+                  onClick={() => setIcon({ ...icon, kind: kind.kind })}
+                >
+                  <MachineMark icon={{ kind: kind.kind, color: icon.color }} />
+                </Button>
+              </Tip>
+            ))}
+          </fieldset>
+          <Select
+            label="Icon colour"
+            value={icon.color ?? "default"}
+            options={colors}
+            onValueChange={(color) => setIcon({ ...icon, color })}
+            disabled={saving}
+          />
+          <MachineLabel name={name || "This machine"} icon={icon} primary={props.machine.primary} />
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              Couldn't save the machine identity. Check the connection and administrator access,
+              then try again.
+            </p>
+          )}
+          <DialogFooter submitHint>
+            <Button type="button" variant="ghost" disabled={saving} onClick={props.onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

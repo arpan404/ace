@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": [],
+    "lib": ["es2024", "dom"],
+    "incremental": true,
+    "tsBuildInfoFile": "./.cache/typecheck/overlay.tsbuildinfo"
+  },
+  "include": ["src/overlay"]
+}

@@ -1,3 +1,4 @@
+import { consoleEntry } from "./console-entry.ts";
 import { pageStatus } from "./page-status.ts";
 import { mkdir } from "node:fs/promises";
 import { EmbeddedTabs } from "./embedded-tabs.ts";
@@ -13,12 +14,21 @@ import {
   type BrowserBackendServerMessage,
   type BrowserBackendRequest,
 } from "@ace/protocol";
-import type { BrowserBackend, BackendOpen, BrowserBackendSession } from "./backend.ts";
+import type {
+  BrowserBackend,
+  BackendOpen,
+  BrowserBackendPage,
+  BrowserBackendSession,
+} from "./backend.ts";
+import { embeddedTabPage } from "./embedded-page.ts";
 import { installOriginGuard } from "./origin-guard.ts";
 import { Screencast } from "./cdp.ts";
 import { navigateCdp } from "./cdp-navigation.ts";
 import type { NavigationClock } from "./navigation.ts";
+import { CommandSlots } from "./command-slots.ts";
 
+/** How long the desktop has to answer a liveness ping after a command timed out. */
+const pingDeadlineMs = 5_000;
 /** Navigations keep the full wait budget plus the policy approval reserve (65 s). */
 const navigationDeadlineMs = browserWaitLimitMs + 65_000;
 function relayDeadline(operation: BrowserBackendOperation): number {
@@ -40,12 +50,6 @@ const Navigation = z.object({
     parentId: z.string().optional(),
   }),
 });
-const Console = z.object({
-  type: z.string(),
-  args: z
-    .array(z.object({ value: z.unknown().optional(), description: z.string().optional() }))
-    .max(128),
-});
 const noop = () => {};
 const Response = z.object({
   response: z.object({ url: z.string().max(8192), status: z.number() }),
@@ -57,6 +61,8 @@ interface RemoteSession {
   pending: Set<string>;
   mainFrame?: string | undefined;
   lost?: boolean;
+  /** A liveness ping in flight after a command timed out. */
+  probing?: boolean;
   cleanup(): void;
 }
 interface Waiter {
@@ -79,6 +85,8 @@ export class EmbeddedBackend implements BrowserBackend {
   private sessions = new Map<string, RemoteSession>();
   private pending = new Map<string, Waiter>();
   private sequence = 0;
+  /** ADR 0055: at most 128 unsettled relay requests; the excess waits for a slot. */
+  private slots = new CommandSlots(128, 4096);
   private closed = false;
   private lost: () => void;
   private clock: NavigationClock;
@@ -113,13 +121,61 @@ export class EmbeddedBackend implements BrowserBackend {
     operation: BrowserBackendOperation,
     signal?: AbortSignal,
   ): Promise<unknown> {
+    return this.slots.run(() => this.dispatch(sessionId, operation, signal), signal);
+  }
+  /**
+   * A command got no answer in time. It fails alone: a slow page (a long script, a dialog, a
+   * busy renderer) is not a lost one. Only when the desktop also misses a liveness ping is the
+   * view lost, and closed so the daemon can recover the thread.
+   */
+  private timedOut(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.lost || session.probing || this.closed) return;
+    session.probing = true;
+    this.dispatch(sessionId, { kind: "cdp", method: "ace.ping" }, undefined, {
+      deadlineMs: pingDeadlineMs,
+      timedOut: () => this.unresponsive(sessionId),
+    }).then(
+      () => {
+        session.probing = false;
+      },
+      (error: unknown) => {
+        session.probing = false;
+        // Any answer but "no such session" (an older desktop's unknown method too) is alive.
+        if (error instanceof Error && error.message === "Unknown browser session")
+          this.unresponsive(sessionId);
+      },
+    );
+  }
+  private unresponsive(sessionId: string): void {
+    this.loseSession(sessionId, "Desktop browser command timed out");
+    try {
+      this.send({
+        type: "browser.backend.request",
+        backendId: this.id,
+        sessionId,
+        id: String(++this.sequence),
+        operation: { kind: "close" },
+      });
+    } catch {
+      /* Transport loss already closes sessions. */
+    }
+  }
+  private dispatch(
+    sessionId: string,
+    operation: BrowserBackendOperation,
+    signal?: AbortSignal,
+    deadline: { deadlineMs: number; timedOut(): void } = {
+      deadlineMs: relayDeadline(operation),
+      timedOut: () => this.timedOut(sessionId),
+    },
+  ): Promise<unknown> {
     if (signal?.aborted) return Promise.reject(signal.reason);
     if (this.closed) return Promise.reject(new Error("Desktop browser backend lost"));
     const session = this.sessions.get(sessionId);
     if (session?.lost) return Promise.reject(new Error("Desktop browser session lost"));
     if (!session && operation.kind !== "purge")
       return Promise.reject(new Error("Desktop browser session closed"));
-    if (this.pending.size >= 128) return Promise.reject(new Error("Browser relay request limit"));
     const id = String(++this.sequence);
     const message: BrowserBackendRequest = {
       type: "browser.backend.request",
@@ -131,25 +187,13 @@ export class EmbeddedBackend implements BrowserBackend {
     return new Promise((resolve, reject) => {
       let cancelTimer = noop;
       const armTimer = () => {
-        cancelTimer = this.clock.set(relayDeadline(operation), () => {
+        cancelTimer = this.clock.set(deadline.deadlineMs, () => {
           signal?.removeEventListener("abort", abort);
           this.pending.delete(id);
           session?.pending.delete(id);
           reject(new Error("Desktop browser command timed out"));
-          if (!session) return;
           // Uncertain work belongs to this session, never to its siblings.
-          this.loseSession(sessionId, "Desktop browser command timed out");
-          try {
-            this.send({
-              type: "browser.backend.request",
-              backendId: this.id,
-              sessionId,
-              id: String(++this.sequence),
-              operation: { kind: "close" },
-            });
-          } catch {
-            /* Transport loss already closes sessions. */
-          }
+          if (session) deadline.timedOut();
         });
       };
       armTimer();
@@ -306,29 +350,8 @@ export class EmbeddedBackend implements BrowserBackend {
         session.request.navigation();
       }
     }
-    if (message.method === "Runtime.consoleAPICalled") {
-      const parsed = Console.safeParse(message.params);
-      if (parsed.success)
-        session.request.log({
-          kind: "console",
-          type: parsed.data.type,
-          text: parsed.data.args
-            .map((arg) => String(arg.value ?? arg.description ?? "").slice(0, 8192))
-            .join(" ")
-            .slice(0, 8192),
-        });
-    }
-    if (message.method === "Runtime.exceptionThrown") {
-      const parsed = z
-        .object({ exceptionDetails: z.object({ text: z.string().max(8192) }) })
-        .safeParse(message.params);
-      if (parsed.success)
-        session.request.log({
-          kind: "console",
-          type: "pageerror",
-          text: parsed.data.exceptionDetails.text,
-        });
-    }
+    const entry = consoleEntry(message.method, message.params);
+    if (entry) session.request.log(entry);
     if (message.method === "Network.responseReceived") {
       const parsed = Response.safeParse(message.params);
       if (parsed.success)
@@ -408,10 +431,18 @@ export class EmbeddedBackend implements BrowserBackend {
       cleanup() {},
     };
     this.sessions.set(sessionId, remote);
-    const call = (operation: BrowserBackendOperation) =>
-      closing && operation.kind !== "close"
+    /**
+     * The desktop handed back the thread's existing page (it kept it through a lost link) at
+     * this URL. Recovery's navigation to the same URL is then already done: skipping it keeps
+     * the page's state instead of reloading it. Any other command first ends the window.
+     */
+    let adoptedUrl: string | undefined;
+    const call = (operation: BrowserBackendOperation) => {
+      adoptedUrl = undefined;
+      return closing && operation.kind !== "close"
         ? Promise.reject(new Error("Desktop browser session closed"))
         : this.call(sessionId, operation);
+    };
     const cdp = {
       send: (method: string, params?: Record<string, unknown>) =>
         method === "Page.screencastFrameAck"
@@ -425,6 +456,10 @@ export class EmbeddedBackend implements BrowserBackend {
     let tabs: EmbeddedTabs | undefined;
     const currentCdp = () => tabs?.current().cdp ?? cdp;
     let viewport = { width: 1280, height: 720 };
+    /** The open sent generation 0; every lease after it rises on the wire. */
+    let leaseGeneration = 0;
+    /** Each tab's newest lease generation, so an older one is refused as the desktop would. */
+    const leases = new Map<string, number>();
     let closing: Promise<void> | undefined;
     let guard: Awaited<ReturnType<typeof installOriginGuard>> | undefined;
     const close = (): Promise<void> =>
@@ -463,6 +498,7 @@ export class EmbeddedBackend implements BrowserBackend {
           activeTabId: z.string().optional(),
           // Decoded leniently by EmbeddedTabs: one odd tab must not fail the whole open.
           tabs: z.array(z.unknown()).optional(),
+          adopted: z.boolean().catch(false).optional(),
         })
         .parse(
           await call({
@@ -477,12 +513,14 @@ export class EmbeddedBackend implements BrowserBackend {
       request.signal.throwIfAborted();
       if (opened.activeTabId !== undefined && opened.tabs) {
         tabs = new EmbeddedTabs(cdp, request);
-        await tabs.start({ activeTabId: opened.activeTabId, tabs: opened.tabs });
+        await tabs.start({ activeTabId: opened.activeTabId, tabs: opened.tabs }, opened.adopted);
       } else guard = await installOriginGuard(cdp, request.allowed, request.initiator);
       await cdp.send("Page.enable");
       await cdp.send("Runtime.enable");
       await cdp.send("Network.enable");
+      if (opened.adopted) adoptedUrl = opened.url;
       return {
+        adopted: opened.adopted === true,
         pageStatus: () => tabs?.pageStatus() ?? status.read(),
         privateMode: (enabled) => {
           tabs?.inspection.privacy(enabled);
@@ -492,15 +530,12 @@ export class EmbeddedBackend implements BrowserBackend {
         get cdp() {
           return currentCdp();
         },
-        ...(tabs
-          ? {
-              tabs,
-              networkBody: tabs.inspection.body.bind(tabs.inspection),
-              frames: tabs.frames.bind(tabs),
-            }
-          : {}),
+        ...(tabs ? embeddedTabSurface(tabs, call) : {}),
         url: () => tabs?.list().find((tab) => tab.tabId === tabs?.active())?.url ?? remote.url,
         navigate: async (url, _timeout, signal) => {
+          const adopted = adoptedUrl;
+          adoptedUrl = undefined;
+          if (adopted !== undefined && adopted === url) return;
           const navigationSignal = signal ?? request.signal;
           await navigateCdp(
             {
@@ -568,8 +603,15 @@ export class EmbeddedBackend implements BrowserBackend {
             features: [{ name: "prefers-color-scheme", value: colorScheme }],
           });
         },
-        controller: async (lease) => {
-          await call({ kind: "controller", lease });
+        // The desktop applies one lease to the view it shows: the shown tab's. Each tab counts
+        // its own generations, so the wire carries one rising count for the whole session.
+        controller: async (lease, tabId) => {
+          const owner = tabId ?? tabs?.active() ?? "";
+          if ((leases.get(owner) ?? -Infinity) > lease.generation)
+            throw new Error("Obsolete controller lease generation");
+          leases.set(owner, lease.generation);
+          if (tabId !== undefined && tabs && tabId !== tabs.active()) return;
+          await call({ kind: "controller", lease: { ...lease, generation: ++leaseGeneration } });
         },
         close,
       };
@@ -578,4 +620,50 @@ export class EmbeddedBackend implements BrowserBackend {
       throw error;
     }
   }
+}
+
+/** The desktop's tabs as the thread browser reads them, with a stable page per tab. */
+function embeddedTabList(
+  tabs: EmbeddedTabs,
+  build: (id: string) => BrowserBackendPage,
+): NonNullable<BrowserBackendSession["tabs"]> {
+  const pages = new Map<string, BrowserBackendPage>();
+  return {
+    list: () => tabs.list(),
+    active: () => tabs.active(),
+    open: (options) => tabs.open(options),
+    switch: (id) => tabs.switch(id),
+    close: async (id) => {
+      await tabs.close(id);
+      pages.delete(id);
+    },
+    dialog: () => tabs.dialog(),
+    answer: (id, accept, text) => tabs.answer(id, accept, text),
+    downloads: () => tabs.downloads(),
+    page: (id) => {
+      tabs.tab(id);
+      let page = pages.get(id);
+      if (!page) {
+        page = build(id);
+        pages.set(id, page);
+      }
+      return page;
+    },
+  };
+}
+
+function embeddedTabSurface(
+  tabs: EmbeddedTabs,
+  call: (operation: BrowserBackendOperation) => Promise<unknown>,
+) {
+  return {
+    tabs: embeddedTabList(tabs, (id) =>
+      embeddedTabPage(tabs, id, {
+        press: (key) => call({ kind: "press", key }),
+        resize: (width, height) => call({ kind: "resize", width, height }),
+      }),
+    ),
+    networkBody: tabs.inspection.body.bind(tabs.inspection),
+    frames: () => tabs.frames(),
+  };
 }

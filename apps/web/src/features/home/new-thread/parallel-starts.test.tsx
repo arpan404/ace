@@ -1,5 +1,5 @@
 import { workbench } from "@ace/fake-daemon";
-import { act, configure, screen, waitFor } from "@testing-library/react";
+import { act, configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -50,8 +50,11 @@ test("a second draft starts its own thread while the first one's worktree is sti
   await screen.findByRole("heading", { level: 1, name: "First start" });
   await screen.findByRole("region", { name: "Creating a worktree" });
 
-  // Back to New thread while the first worktree is still at its first step.
+  // Back to New thread while the first worktree is still at its first step. With several
+  // projects ⌘N asks which.
   await userEvent.keyboard("{Meta>}n{/Meta}");
+  const step = await screen.findByRole("dialog", { name: "New thread in" });
+  await userEvent.click(within(step).getByRole("option", { name: "relay" }));
   await send("Second start");
   // The second message opens its own pending thread, not the first one's.
   await screen.findByRole("heading", { level: 1, name: "Second start" });

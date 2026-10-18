@@ -13,6 +13,15 @@ export interface DiscoveryRoot {
   plugin?: string | undefined;
   trustedRoot?: string | undefined;
 }
+/** ace's shipped `<name>/SKILL.md` directory and the providers that only reach it through ace. */
+export interface BuiltinSkills {
+  directory: string;
+  providers: readonly import("@ace/protocol").ProviderKind[];
+}
+/** Shipped skills are ace prompts: every provider receives their SKILL.md body (ADR 0069). */
+export function builtinSkillsRoot(directory: string): DiscoveryRoot {
+  return { path: directory, trustedRoot: directory, format: "library", scope: "user", skill: true };
+}
 export function discoveryRoots(
   instances: readonly ProviderInstance[],
   aceHome: string,

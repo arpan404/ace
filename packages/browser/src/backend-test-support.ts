@@ -173,7 +173,13 @@ export async function backendFixture(
 ) {
   const home = await mkdtemp(join(tmpdir(), "ace-backend-"));
   const headless = new FakeHeadless();
-  const service = new BrowserService({ dataDir: home, headlessBackend: headless, ...options });
+  // These desktops never re-adopt a view: a dropped link reports its loss at once.
+  const service = new BrowserService({
+    dataDir: home,
+    headlessBackend: headless,
+    desktopReadoptionGraceMs: 0,
+    ...options,
+  });
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0, maxPayload: 1024 * 1024 });
   await once(server, "listening");
   const address = server.address();

@@ -38,6 +38,8 @@ export function ModelPicker(props: {
   onSpeed(speed: Speed): void;
   /** The saved model is gone and the one shown stands in: picking it, too, confirms it. */
   unconfirmed?: boolean | undefined;
+  /** The last start's model, named while the catalog loads: a message can already go on it. */
+  remembered?: string | undefined;
 }) {
   const { model, account, effort, provider } = props.resolved;
   const compact = useComposerCompact();
@@ -83,7 +85,8 @@ export function ModelPicker(props: {
     hasEfforts: efforts.length > 0,
     speed: speed.speed,
   };
-  const name = details && modelControlName(details);
+  const standIn = props.options ? undefined : props.remembered;
+  const name = details ? modelControlName(details) : standIn;
   // Each account's rows: the picker groups them by account and source.
   const models: PickerModel[] = (props.options?.models ?? []).map((option) =>
     pickerModel(option, option.label, option.account),
@@ -94,11 +97,14 @@ export function ModelPicker(props: {
       (props.options?.accounts.filter((option) => option.provider === provider).length ?? 0) > 1
         ? tag
         : undefined,
-    label: error ? undefined : model?.label,
+    label: error ? undefined : (model?.label ?? standIn),
     placeholder: empty.label,
     ariaLabel: `Model: ${error ?? name ?? empty.aria}`,
     tip:
-      error ?? (details ? modelControlName({ ...details, provider: model.provider }) : empty.label),
+      error ??
+      (details
+        ? modelControlName({ ...details, provider: model.provider })
+        : (standIn ?? empty.label)),
     // An account without models can still move to another model or account.
     disabled: !!error || props.options === undefined,
     modelKey: props.unconfirmed ? undefined : model?.key,

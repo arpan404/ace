@@ -33,7 +33,10 @@ import {
   ManageProjectItems,
 } from "@/features/projects/index.ts";
 
-/** The task list's project filter is always visible. */
+/**
+ * The task list's project filter, which ends with Add project. With no project yet there is
+ * nothing to filter, so Add project stands in its place.
+ */
 export function ThreadsActions() {
   const directory = useProjectDirectory();
   const projects = useProjectDialogs();
@@ -51,7 +54,7 @@ export function ThreadsActions() {
     );
   }
   return (
-    <span className="flex items-center gap-0.5">
+    <span className="flex min-w-0 items-center gap-0.5">
       <ProjectFilter />
     </span>
   );
@@ -83,7 +86,7 @@ export function ProjectFilter() {
     <Menu>
       <MenuTrigger
         aria-label={`Project filter: ${label}`}
-        className="inline-flex h-[26px] max-w-[140px] items-center gap-1 rounded-sm pr-2 pl-[9px] text-sm font-medium text-muted-foreground outline-none transition-colors duration-(--motion-fast) hover:bg-sidebar-accent hover:text-foreground aria-expanded:bg-sidebar-accent aria-expanded:text-foreground"
+        className="inline-flex h-[26px] max-w-[140px] items-center gap-1 rounded-sm pr-2 pl-[9px] text-sm font-medium text-muted-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-sidebar-accent hover:text-foreground aria-expanded:bg-sidebar-accent aria-expanded:text-foreground"
       >
         <span className="truncate">{label}</span>
         <CaretDownIcon aria-hidden size={14} className="shrink-0" />

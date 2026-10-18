@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { rm } from "node:fs/promises";
 
 import {
   BrowserOpen,
@@ -9,13 +8,21 @@ import {
   type BrowserFrame,
 } from "@ace/protocol";
 import { recoverHeadless } from "./recovery.ts";
+import { DesktopLoss } from "./desktop-loss.ts";
 import { detectFfmpeg } from "./discovery.ts";
 import { ownedHeadless } from "./owned-backend.ts";
 import { BrowserProfiles } from "./profiles.ts";
 import { TabBudget } from "./tab-budget.ts";
+import { daemonTabLimit, threadTabLimit } from "./tab-limits.ts";
+import { defaultTabLifecycle } from "./tab-lifecycle.ts";
+import type { LifecycleSchedule } from "./session-lifecycle.ts";
 import { EmbeddedBackend, type EmbeddedTransport } from "./embedded.ts";
 import type { BrowserBackend, BackendOpen, BrowserBackendSession } from "./backend.ts";
-import type { BrowserBackendLost, BrowserDownloadProgress } from "@ace/protocol";
+import type {
+  BrowserAnnotationMessage,
+  BrowserBackendLost,
+  BrowserDownloadProgress,
+} from "@ace/protocol";
 import { sessionPolicies } from "./session-policies.ts";
 import { agentResumes, backendCandidates } from "./backend-choice.ts";
 import { BrowserSession, type Actor } from "./session.ts";
@@ -77,7 +84,7 @@ export class BrowserService {
         return () => clearTimeout(timer);
       },
     };
-    this.tabs = new TabBudget(options.maxTabs ?? 256);
+    this.tabs = new TabBudget(options.maxTabs ?? daemonTabLimit);
     this.acquisition = ownedHeadless(options, this.lifetime.signal);
     this.headless = this.acquisition.backend;
   }
@@ -134,7 +141,7 @@ export class BrowserService {
     const options: BrowserOpen = {
       ...requested,
       profile:
-        requested.profile ?? (await this.options.profilePreference?.(requested)) ?? "ephemeral",
+        requested.profile ?? (await this.options.profilePreference?.(requested)) ?? "persistent",
     };
     const preference = (await this.options.backendPreference?.(options)) ?? "auto";
     const lossPolicy = (await this.options.backendLoss?.(options)) ?? "pause";
@@ -144,25 +151,47 @@ export class BrowserService {
     );
     let backend = candidates[0] ?? this.headless;
     signal.throwIfAborted();
-    const profileLease = await this.profiles.acquire(options);
-    const { root, profile, dir, downloadDir } = profileLease;
+    const profileLease = await this.profiles.acquire();
+    const { profile, dir, downloadDir } = profileLease;
+    const store = this.options.tabStore;
+    const restoredTabs = this.restoredTabs(options.threadId);
     let context: BrowserBackendSession | undefined;
-    let recoveryProfile: string | undefined;
+    let recoveryGeneration = 0;
     let session: BrowserSession | undefined;
     let released = false;
     let backendLost = false;
+    const loss = new DesktopLoss(this.navigationClock, this.options.desktopReadoptionGraceMs);
     let opening: BackendOpen | undefined;
     const release = async () => {
       if (released) return;
       released = true;
+      loss.finish();
       if (session && this.sessions.get(options.threadId) === session)
         this.sessions.delete(options.threadId);
       scope.abort();
       if (this.policyScopes.get(options.threadId) === scope)
         this.policyScopes.delete(options.threadId);
-      await profileLease.release();
       if (this.resumable.get(options.threadId) === resume) this.resumable.delete(options.threadId);
-      if (recoveryProfile) await rm(recoveryProfile, { recursive: true, force: true });
+    };
+    /** Tells viewers the thread's pages are gone and why. */
+    const announce = (url: string, reason: string) => {
+      if (!session) return;
+      session.pagesLost();
+      const event: BrowserBackendLost = {
+        type: "browser.backend.lost",
+        threadId: options.threadId,
+        backend: "embedded",
+        recovery: lossPolicy,
+        url,
+        pageStateLost: true,
+        reason: reason.slice(0, 2048),
+      };
+      try {
+        this.options.onBackendLost?.(event);
+      } catch (error) {
+        this.options.onError?.(error);
+      }
+      this.subscriptions.backendLost(event);
     };
     /** Reopen the last URL; use the same desktop profile whenever the desktop is available. */
     const resume = (): Promise<void> => {
@@ -170,40 +199,41 @@ export class BrowserService {
       const running = this.recoveries.get(options.threadId);
       if (running) return running;
       if (!owned || !opening) return Promise.resolve();
+      // While the desktop may still hand its views back, only the desktop takes the page.
+      if (!this.embedded && loss.pending) return loss.settled().then(() => resume());
       const recoveryRequest = opening;
       this.resumable.delete(options.threadId);
       const native = this.embedded;
       const recover = async () => {
         await owned.releaseLostBackend();
-        if (recoveryProfile) {
-          await rm(recoveryProfile, { recursive: true, force: true });
-          recoveryProfile = undefined;
-        }
-        let replacementProfile: string | undefined;
-        if (!native)
-          return recoverHeadless({
+        const generation = ++recoveryGeneration;
+        if (!native) {
+          await recoverHeadless({
             request: recoveryRequest,
             backend: this.headless,
             session: owned,
-            root,
             url: owned.state.url,
-            profileCreated: (path) => {
-              recoveryProfile = path;
-              replacementProfile = path;
-            },
             lost: (reason) => {
-              if (signal.aborted || owned.state.closed || recoveryProfile !== replacementProfile)
-                return;
+              if (signal.aborted || owned.state.closed || recoveryGeneration !== generation) return;
               owned.suspend(reason);
               this.resumable.set(options.threadId, resume);
             },
           });
+          loss.finish();
+          return;
+        }
+        const url = owned.state.url;
         const replacement = await native.open(recoveryRequest);
         try {
-          replacement.privateMode?.(owned.state.takeoverMode === "private");
-          const url = owned.state.url;
-          if (url !== "about:blank") await replacement.navigate(url, 10_000);
-          await owned.replace(replacement, "embedded");
+          if (replacement.adopted) await owned.readopt(replacement);
+          else {
+            replacement.privateMode?.(owned.state.takeoverMode === "private");
+            if (url !== "about:blank") await replacement.navigate(url, 10_000);
+            await owned.replace(replacement, "embedded");
+            // A fresh view: the pages are gone, whether or not the grace had said so yet.
+            if (!loss.reported) announce(url, "The desktop opened a new page");
+          }
+          loss.finish();
           backend = native;
           backendLost = false;
         } catch (error) {
@@ -235,6 +265,10 @@ export class BrowserService {
       const request: BackendOpen = {
         id: this.id,
         reserveTab: () => this.tabs.reserve(),
+        maxTabs: threadTabLimit,
+        ...(restoredTabs.length
+          ? { restoreTabs: restoredTabs.map(({ tabId, url }) => ({ tabId, url })) }
+          : {}),
         changed: () => session?.changed(),
         downloadDir,
         ...(this.options.maxDownloadBytes
@@ -251,8 +285,8 @@ export class BrowserService {
             ? session.popup(url, target)
             : Promise.reject(new Error("Browser session not ready")),
         initiator: () => session?.initiatingHuman() ?? false,
-        navigation: () => session?.navigation(),
-        restarted: () => session?.restarted(),
+        navigation: (tabId) => session?.navigation(tabId),
+        restarted: (tabId) => session?.restarted(tabId),
         log: (entry) => session?.log(entry),
         permissionDenied: (denial) =>
           session?.log({
@@ -268,30 +302,32 @@ export class BrowserService {
           }),
         lost: (reason) => {
           if (!session || session.state.closed || signal.aborted) return;
-          if (backend.kind === "headless") {
+          // Only the desktop's views come back: ace's Chrome restarts its own pages, and the
+          // person's own browser must never be swapped for another (its logins would not follow).
+          if (backend.kind !== "embedded") {
             void session.close().catch((error) => this.options.onError?.(error));
             return;
           }
           if (backendLost) return;
           backendLost = true;
-          session.suspend(reason);
-          const event: BrowserBackendLost = {
-            type: "browser.backend.lost",
-            threadId: options.threadId,
-            backend: "embedded",
-            recovery: lossPolicy,
-            url: session.state.url,
-            pageStateLost: true,
-            reason: reason.slice(0, 2048),
+          const owned = session;
+          const url = owned.state.url;
+          this.resumable.set(options.threadId, resume);
+          const lose = () => {
+            if (owned.state.closed || signal.aborted) return;
+            announce(url, reason);
+            if (lossPolicy === "headless") void resume();
           };
-          try {
-            this.options.onBackendLost?.(event);
-          } catch (error) {
-            this.options.onError?.(error);
+          // A dropped link (the backend unregistered) keeps the desktop's views for re-adoption;
+          // a view that died with the link up is gone now.
+          if (this.embedded === backend) {
+            owned.suspend(reason);
+            loss.reported = true;
+            lose();
+            return;
           }
-          this.subscriptions.backendLost(event);
-          if (lossPolicy === "headless") void resume();
-          else this.resumable.set(options.threadId, resume);
+          owned.detach(reason);
+          loss.begin(lose);
         },
       };
       opening = request;
@@ -325,9 +361,35 @@ export class BrowserService {
         ...policies.session,
         artifact: (artifact) => this.options.onArtifact?.(options.threadId, artifact),
         state: (state) => this.emit(state),
+        annotation: (connectionId, event) =>
+          this.subscriptions.annotation(connectionId, {
+            type: "browser.annotation",
+            threadId: options.threadId,
+            event,
+          }),
         cleanup: async () => {
           await release();
         },
+        ...(restoredTabs.length ? { restoredTabs } : {}),
+        ...(store
+          ? {
+              persistTabs: (records) => {
+                try {
+                  store.save(options.threadId, records);
+                } catch (error) {
+                  this.options.onError?.(error);
+                }
+              },
+              forgetTabs: () => {
+                try {
+                  store.clear(options.threadId);
+                } catch (error) {
+                  this.options.onError?.(error);
+                }
+              },
+            }
+          : {}),
+        ...(backend.kind === "headless" ? this.lifecycle() : {}),
       });
       if (this.options.isPrivatePaused?.(options.threadId)) session.restorePrivate();
       await session.live.start();
@@ -343,6 +405,33 @@ export class BrowserService {
       await profileLease.discard();
       throw error;
     }
+  }
+  /** The thread's tabs from before a daemon restart; an unreadable store restores none. */
+  private restoredTabs(threadId: string) {
+    try {
+      return (this.options.tabStore?.load(threadId) ?? []).toSorted(
+        (a, b) => a.position - b.position,
+      );
+    } catch (error) {
+      this.options.onError?.(error);
+      return [];
+    }
+  }
+  /** Idle tabs in ace's Chrome freeze; the desktop's views manage themselves. */
+  private lifecycle(): { lifecycle?: LifecycleSchedule } {
+    const configured = this.options.tabLifecycle;
+    if (configured === false) return {};
+    return {
+      lifecycle: configured ?? {
+        policy: defaultTabLifecycle,
+        every: 60_000,
+        set: (delay, work) => {
+          const timer = setTimeout(work, delay);
+          timer.unref();
+          return () => clearTimeout(timer);
+        },
+      },
+    };
   }
   registerEmbedded(transport: EmbeddedTransport): EmbeddedBackend {
     if (this.closing) throw new Error("Browser service shutting down");
@@ -364,12 +453,13 @@ export class BrowserService {
     return backend;
   }
   /**
-   * The thread was deleted: close its browser and drop its persistent profile here and, when a
-   * desktop is registered, its native partition. `desktop` says whether the desktop purged.
+   * The thread was deleted: close its browser and, when a desktop is registered, drop its native
+   * partition. ace's own browser profile is shared by every thread and stays (ADR 0083).
+   * `desktop` says whether the desktop purged.
    */
   async forgetThread(threadId: string, workspaceId: string): Promise<{ desktop: boolean }> {
     await this.closeThread(threadId);
-    await this.profiles.forget(workspaceId, threadId);
+    this.options.tabStore?.clear(threadId);
     const embedded = this.embedded;
     if (!embedded) return { desktop: false };
     await embedded.purge(threadId, workspaceId);
@@ -402,22 +492,40 @@ export class BrowserService {
   ): Promise<unknown> {
     return this.get(threadId).execute(command, actor, signal);
   }
-  /** Bound JPEG bytes from the owned page, without interpreting an artifact path. */
-  screenshot(threadId: string, signal?: AbortSignal, tabId?: string): Promise<Uint8Array> {
-    return this.get(threadId).screenshot(signal, tabId);
+  /**
+   * Bound JPEG bytes from one tab's page, without interpreting an artifact path. The tab the
+   * person views does not change.
+   */
+  screenshot(
+    threadId: string,
+    signal?: AbortSignal,
+    tabId?: string,
+    options: { fullPage?: boolean | undefined; ref?: string | undefined } = {},
+    actor?: Actor,
+  ): Promise<Uint8Array> {
+    return this.get(threadId).screenshot(signal, tabId, options, actor);
   }
-  input(threadId: string, input: unknown, connectionId: string): Promise<void> {
-    return this.get(threadId).input(input, connectionId);
+  /** The agent's own tab, opening one if the viewed tab is another agent's. */
+  claimTab(threadId: string, actor: Actor): Promise<{ tabId: string; url: string; title: string }> {
+    return this.get(threadId).claim(actor);
+  }
+  /** The tab an agent's next command without `tabId` runs on. */
+  currentTab(threadId: string, actor: Actor): { tabId: string; url: string; title: string } {
+    return this.get(threadId).currentTab(actor);
+  }
+  input(threadId: string, input: unknown, connectionId: string, tabId?: string): Promise<void> {
+    return this.get(threadId).input(input, connectionId, tabId);
   }
   takeover(
     threadId: string,
     connectionId: string,
     mode: "shared" | "private" = "shared",
+    tabId?: string,
   ): BrowserState {
-    return this.get(threadId).takeover(connectionId, mode);
+    return this.get(threadId).takeover(connectionId, mode, tabId);
   }
-  handback(threadId: string, connectionId: string): BrowserState {
-    return this.get(threadId).handback(connectionId);
+  handback(threadId: string, connectionId: string, tabId?: string): BrowserState {
+    return this.get(threadId).handback(connectionId, tabId);
   }
   disconnect(connectionId: string): void {
     for (const session of this.sessions.values()) session.disconnect(connectionId);
@@ -427,14 +535,14 @@ export class BrowserService {
     connectionId: string,
     sink: FrameSink,
     onState: (state: BrowserState) => void,
-    onBackendEvent?: (event: BrowserBackendLost) => void,
+    onBackendEvent?: (event: BrowserBackendLost | BrowserAnnotationMessage) => void,
   ): () => void {
     const session = this.get(threadId);
     return this.subscriptions.add(threadId, session.live.fanout, session.state, {
       connectionId,
       sink,
       state: onState,
-      ...(onBackendEvent ? { backendLost: onBackendEvent } : {}),
+      ...(onBackendEvent ? { event: onBackendEvent } : {}),
     });
   }
   configureCapture(
@@ -472,6 +580,7 @@ export class BrowserService {
     if (actor && current) {
       await current.closeBy(actor, signal);
       this.sessions.delete(threadId);
+      this.options.tabStore?.clear(threadId);
       return;
     }
     signal?.throwIfAborted();
@@ -485,6 +594,8 @@ export class BrowserService {
       );
       this.sessions.delete(threadId);
     }
+    // A closed browser starts fresh next time; a daemon restart is not a close.
+    this.options.tabStore?.clear(threadId);
   }
   close(): Promise<void> {
     this.closing ??= (async () => {
@@ -499,6 +610,7 @@ export class BrowserService {
       this.sessions.clear();
       this.policyScopes.clear();
       this.subscriptions.clear();
+      await this.acquisition.close();
       const failed = results.find((result) => result.status === "rejected");
       if (failed?.status === "rejected") throw failed.reason;
     })();

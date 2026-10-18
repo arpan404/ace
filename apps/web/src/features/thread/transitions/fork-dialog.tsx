@@ -22,7 +22,13 @@ import { useThreadSources, type Selection, type ThreadRef } from "../sources/ind
  * Fork from a finished turn: a new thread with the history up to there, starting with the
  * person's next message. The source thread keeps going untouched.
  */
-export function ForkDialog(props: { thread: ThreadRef; point: ForkPoint; onClose(): void }) {
+export function ForkDialog(props: {
+  thread: ThreadRef;
+  point: ForkPoint;
+  /** The first message to start from: an edit of the person's message. */
+  text?: string | undefined;
+  onClose(): void;
+}) {
   const sources = useThreadSources();
   const toast = useToast();
   const navigate = useNavigate();
@@ -30,7 +36,7 @@ export function ForkDialog(props: { thread: ThreadRef; point: ForkPoint; onClose
   const [chosen, setSelection] = useState<Selection>();
   const selection = chosen ?? (meta && runsNow(meta));
   const [title, setTitle] = useState(() => `${props.thread.title} (fork)`.slice(0, 256));
-  const [text, setText] = useState("");
+  const [text, setText] = useState(props.text ?? "");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
   const fork = async () => {
@@ -64,9 +70,13 @@ export function ForkDialog(props: { thread: ThreadRef; point: ForkPoint; onClose
           }}
         >
           <DialogHeader>
-            <DialogTitle>Fork from here</DialogTitle>
+            <DialogTitle>
+              {props.text === undefined ? "Fork from here" : "Edit message"}
+            </DialogTitle>
             <DialogDescription>
-              A new thread starts with everything up to this turn. This thread carries on as it is.
+              {props.text === undefined
+                ? "A new thread starts with everything up to this turn. This thread carries on as it is."
+                : "A new thread starts with everything before this message, then your edit. This thread carries on as it is."}
             </DialogDescription>
           </DialogHeader>
           <label className="text-ui text-muted-foreground" htmlFor="fork-title">
@@ -100,7 +110,7 @@ export function ForkDialog(props: { thread: ThreadRef; point: ForkPoint; onClose
               {error}
             </p>
           )}
-          <DialogFooter>
+          <DialogFooter submitHint>
             <Button type="button" variant="ghost" disabled={sending} onClick={props.onClose}>
               Cancel
             </Button>

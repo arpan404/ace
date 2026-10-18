@@ -1,7 +1,17 @@
+import { cardEdge } from "@/components/ui/rules.ts";
 // oxlint-disable react/no-array-index-key -- lexer tokens have no identity; position is it.
 import { useCopy } from "../use-copy.ts";
 export { useCopy } from "../use-copy.ts";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { cn } from "@/lib/cn.ts";
 import type { CodeToken } from "./highlight.ts";
 
 import { useCodeLines } from "./use-code-lines.ts";
@@ -16,6 +26,8 @@ export { tokenTone } from "./code-tokens.tsx";
 
 /** Blocks this long get line numbers; shorter ones read fine without. */
 export const numberedFrom = 10;
+/** Lines a long block shows before "Show all" (a block barely past it shows whole). */
+export const cappedAt = 20;
 
 /** The line numbers beside a fence: one text node, so a long block costs one element. */
 function Gutter(props: { lines: number; className: string }) {
@@ -86,8 +98,13 @@ export function CodeBlock(props: {
   }, [props.code]);
   const onCopy = useCallback(() => copy(latest.current), [copy]);
   const numbered = lines.length >= numberedFrom;
+  // A long block shows its first lines until the reader asks for all of it.
+  const body = useId();
+  const [showAll, setShowAll] = useState(false);
+  const long = lines.length > cappedAt + 2;
+  const capped = long && !showAll;
   return (
-    <figure className="group/code my-3 overflow-hidden rounded-card bg-code shadow-[inset_0_0_0_1px_var(--border)]">
+    <figure className={`group/code overflow-hidden rounded-card bg-code ${cardEdge}`}>
       <CodeHeader
         file={info.file ?? (diff?.files.length === 1 ? diff.files[0] : undefined)}
         lang={info.lang}
@@ -153,17 +170,37 @@ export function CodeBlock(props: {
           </div>
         )
       ) : (
-        <div className="flex font-mono text-xs leading-[1.6]">
-          {numbered && <Gutter lines={lines.length} className="pt-2 pb-3" />}
-          <pre
-            className={`min-w-0 flex-1 overflow-x-auto pt-2 pr-3 pb-3 text-foreground ${numbered ? "" : "pl-3"}`}
+        <>
+          <div
+            id={body}
+            className={cn(
+              "flex font-mono text-xs leading-[1.55]",
+              // `cappedAt` lines and the top padding.
+              capped && "max-h-[calc(20lh+0.5rem)] overflow-hidden",
+            )}
           >
-            <code>
-              <CodeTokens tokens={tokens} />
-              {props.tail}
-            </code>
-          </pre>
-        </div>
+            {numbered && <Gutter lines={lines.length} className="pt-2 pb-3" />}
+            <pre
+              className={`min-w-0 flex-1 overflow-x-auto pt-2 pr-3 pb-3 text-foreground ${numbered ? "" : "pl-3"}`}
+            >
+              <code>
+                <CodeTokens tokens={tokens} />
+                {props.tail}
+              </code>
+            </pre>
+          </div>
+          {long && (
+            <button
+              type="button"
+              aria-expanded={!capped}
+              aria-controls={body}
+              onClick={() => setShowAll(capped)}
+              className="block w-full border-t border-border px-3 py-1.5 text-left text-xs text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground focus-ring-inset"
+            >
+              {capped ? `Show all ${lines.length} lines` : "Collapse"}
+            </button>
+          )}
+        </>
       )}
     </figure>
   );

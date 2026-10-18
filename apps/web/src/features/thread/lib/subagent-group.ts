@@ -3,6 +3,7 @@ import type { Agent, Item, ProviderKind } from "@ace/protocol";
 import {
   agentName,
   delegatedState,
+  resultLead,
   rollupSubagent,
   subagentState,
   subagentTerminal,
@@ -23,6 +24,8 @@ export interface SubagentEntry {
   state: SubagentState;
   startedAt: number;
   endedAt?: number | undefined;
+  /** The first line of its final result, once it has one. */
+  result?: string | undefined;
 }
 
 type Launch = Extract<Item, { type: "delegation.started" }>;
@@ -123,6 +126,7 @@ export function readSubagentGroup(
       state,
       startedAt: launch?.createdAt ?? agent?.createdAt ?? spawn?.createdAt ?? 0,
       endedAt: subagentTerminal(state) ? (end ?? spawn?.call.endedAt) : undefined,
+      result: finalResult(launch, spawn),
     };
   });
   return {
@@ -139,6 +143,15 @@ export function readSubagentGroup(
       ),
     ],
   };
+}
+
+/** The first line of a subagent's final result: its delegation outcome, or its spawn's reply. */
+function finalResult(launch: Launch | undefined, spawn: Spawn | undefined): string | undefined {
+  const text =
+    launch?.outcome?.result ??
+    spawn?.call.result?.content.find((part) => part.type === "text")?.text;
+  const lead = text ? resultLead(text) : "";
+  return lead || undefined;
 }
 
 type Branch = { state: SubagentState; end?: number };
@@ -225,7 +238,8 @@ export function subagentEntriesEqual(
         entry.title === other.title &&
         entry.state === other.state &&
         entry.startedAt === other.startedAt &&
-        entry.endedAt === other.endedAt
+        entry.endedAt === other.endedAt &&
+        entry.result === other.result
       );
     })
   );

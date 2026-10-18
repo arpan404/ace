@@ -1,0 +1,161 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserAnnotationEvent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": {},
+      "properties": {
+        "documentId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "const": "ready",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 8192,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "documentId",
+        "url",
+        "title"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": {},
+      "properties": {
+        "annotation": {
+          "$ref": "https://ace.local/protocol/v1/BrowserAnnotation.json"
+        },
+        "kind": {
+          "const": "saved",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "annotation"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": {},
+      "properties": {
+        "id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "const": "removed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": {},
+      "properties": {
+        "kind": {
+          "const": "discard",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": {},
+      "properties": {
+        "kind": {
+          "const": "screenshot",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": {},
+      "properties": {
+        "kind": {
+          "const": "send",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": {},
+      "properties": {
+        "kind": {
+          "const": "close",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": {},
+      "properties": {
+        "kind": {
+          "const": "bar",
+          "type": "string"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": {},
+      "properties": {
+        "kind": {
+          "const": "ended",
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "https://ace.local/protocol/v1/BrowserAnnotationEndReason.json"
+        }
+      },
+      "required": [
+        "kind",
+        "reason"
+      ],
+      "type": "object"
+    }
+  ]
+}

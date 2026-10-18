@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { rowClass } from "./transcript-row.tsx";
 
 /**
  * The subagents block's code: only threads that launch subagents show one, so it loads on first
@@ -15,13 +16,11 @@ export const DeferredSubagents = deferredComponent(() =>
  */
 function Holder() {
   return (
-    <div aria-hidden className="py-1">
-      <div className="flex min-h-(--row-height) pointer-coarse:min-h-11 items-center px-(--surface-inset) py-[calc(var(--setting-row-padding)/2)]">
-        <span className="block">
-          <span className="block text-ui">{"\u00a0"}</span>
-          <span className="block text-xs">{"\u00a0"}</span>
-        </span>
-      </div>
+    <div aria-hidden className={rowClass}>
+      <span className="block">
+        <span className="block text-ui">{"\u00a0"}</span>
+        <span className="block text-xs">{"\u00a0"}</span>
+      </span>
     </div>
   );
 }
