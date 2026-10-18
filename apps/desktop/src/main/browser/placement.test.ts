@@ -20,7 +20,6 @@ describe("embedded view placement", () => {
       host: undefined,
       bounds: undefined,
       visible: false,
-      owner: undefined,
     });
   });
 
@@ -31,7 +30,6 @@ describe("embedded view placement", () => {
       host: 1,
       bounds: panel,
       visible: false,
-      owner: undefined,
     });
   });
 
@@ -76,19 +74,7 @@ describe("embedded view placement", () => {
       host: 2,
       bounds: panel,
       visible: false,
-      owner: undefined,
     });
-  });
-
-  it("names the connection holding control only where a renderer shows the view", () => {
-    const book = new PlacementBook();
-    const shown = { bounds: panel, visible: true, owner: "web-1" };
-    expect(book.set("t1", 1, shown).owner).toBe("web-1");
-    // Hidden, the view takes no input, whoever holds control.
-    expect(book.set("t1", 1, { ...shown, visible: false }).owner).toBeUndefined();
-    // Another window shows it without control: its person's input doesn't reach the page.
-    book.set("t1", 1, shown);
-    expect(book.set("t1", 2, { bounds: other, visible: true }).owner).toBeUndefined();
   });
 
   it("keeps nothing of a released claim, unlike a hidden one", () => {
@@ -100,7 +86,6 @@ describe("embedded view placement", () => {
       host: undefined,
       bounds: undefined,
       visible: false,
-      owner: undefined,
     });
   });
 

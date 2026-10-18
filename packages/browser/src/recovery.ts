@@ -1,7 +1,10 @@
 import type { BrowserBackend, BackendOpen } from "./backend.ts";
 import type { BrowserSession } from "./session.ts";
 
-/** A fresh private page in ace's browser; only its URL and daemon-owned controller lease survive. */
+/**
+ * Fresh private pages in ace's browser. A request that restores tabs brings every tab back
+ * with its id and address; otherwise only the shown page's URL and privacy survive.
+ */
 export async function recoverHeadless(options: {
   request: BackendOpen;
   backend: BrowserBackend;
@@ -9,7 +12,8 @@ export async function recoverHeadless(options: {
   url: string;
   lost(reason: string): void;
 }): Promise<void> {
-  const { request, backend, session, url } = options;
+  const { request, backend, session } = options;
+  const url = request.restoreTabs?.length ? "about:blank" : options.url;
   request.signal.throwIfAborted();
   const lifetime = new AbortController();
   const signal = AbortSignal.any([request.signal, lifetime.signal]);
@@ -25,7 +29,7 @@ export async function recoverHeadless(options: {
   });
   try {
     signal.throwIfAborted();
-    replacement.privateMode?.(session.state.takeoverMode === "private");
+    replacement.privateMode?.(session.viewedPrivate);
     if (url !== "about:blank") {
       if (!(await request.allowed(url))) throw new Error("Browser recovery origin refused");
       signal.throwIfAborted();

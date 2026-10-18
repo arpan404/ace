@@ -1,6 +1,14 @@
-import type { BrowserTab } from "@ace/protocol";
+import type {
+  BrowserDialog,
+  BrowserDownload,
+  BrowserTab,
+  UserBrowserDownload,
+  UserBrowserTab,
+} from "@ace/protocol";
+import { downloadFlags } from "./headless-downloads.ts";
 import type {
   BackendOpen,
+  BackendRestoreTab,
   BrowserBackend,
   BrowserBackendPage,
   BrowserBackendSession,
@@ -8,18 +16,28 @@ import type {
   BrowserCdp,
 } from "./backend.ts";
 import type { UserChromeBackend, UserTabRef } from "./user-chrome.ts";
+import type { UserTabSession } from "./user-chrome-session.ts";
 
 /** One tab of a thread's browser in the person's Chrome. */
 interface Entry {
   /** A tab the person shared; absent for a tab an agent opened in the ace window. */
   shared?: UserTabRef;
+  /** An agent tab: where it is in the person's browser. */
+  ref?: UserTabRef;
+  /** A popup: the thread's tab whose page opened it. */
+  opener?: string;
   /** Attached: an agent tab always, a shared tab once a command first used it. */
-  session?: BrowserBackendSession;
-  claiming?: Promise<BrowserBackendSession> | undefined;
+  session?: UserTabSession;
+  claiming?: Promise<UserTabSession> | undefined;
   page: BrowserBackendPage;
+  /** An agent tab's place in the daemon-wide tab budget. */
+  release?: () => void;
+  /** Stops following the tab's downloads. */
+  unwatch?: () => void;
 }
 
 const sharedId = (ref: UserTabRef) => `shared-${ref.connectionId}-${ref.tabId}`;
+const refKey = (ref: UserTabRef) => `${ref.connectionId}-${ref.tabId}`;
 const lastTab = "Close the browser to close its last tab";
 
 /**
@@ -31,11 +49,13 @@ const lastTab = "Close the browser to close its last tab";
 export class UserChromeTabsBackend implements BrowserBackend {
   readonly kind = "user";
   private user: UserChromeBackend;
+  /** Agent tabs some thread holds (`refKey`), so two threads never take back the same one. */
+  private held = new Set<string>();
   constructor(user: UserChromeBackend) {
     this.user = user;
   }
   open(request: BackendOpen): Promise<BrowserBackendSession> {
-    return new UserTabs(this.user, request).start();
+    return new UserTabs(this.user, request, this.held).start();
   }
 }
 
@@ -44,24 +64,32 @@ class UserTabs {
   private claimed = new Map<string, Entry>();
   /** Shared tabs this thread let go of; listed again once the person shares them anew. */
   private released = new Set<string>();
+  /** Popups being adopted, or that could not be, by `refKey`. */
+  private adopting = new Set<string>();
+  private refused = new Set<string>();
+  /** What the thread's tabs downloaded, as the person's browser saved it (ADR 0086). */
+  private downloaded = new Map<string, BrowserDownload>();
   private activeId = "";
   private sequence = 0;
   private closed = false;
   private stopWatching = () => {};
   private user: UserChromeBackend;
   private request: BackendOpen;
-  constructor(user: UserChromeBackend, request: BackendOpen) {
+  private held: Set<string>;
+  constructor(user: UserChromeBackend, request: BackendOpen, held: Set<string>) {
     this.user = user;
     this.request = request;
+    this.held = held;
   }
   async start(): Promise<BrowserBackendSession> {
-    this.activeId = await this.openAgent();
+    this.activeId = (await this.restore()) ?? (await this.openAgent());
     this.stopWatching = this.user.onChange(() => {
       if (this.closed) return;
       const shared = new Set(this.user.sharedTabs().map(sharedId));
       for (const id of this.released) if (!shared.has(id)) this.released.delete(id);
       for (const [id, entry] of this.claimed)
         if (!entry.session && !entry.claiming && !shared.has(id)) this.claimed.delete(id);
+      this.adoptPopups();
       this.request.changed?.();
     });
     return this.session();
@@ -71,19 +99,152 @@ class UserTabs {
     return {
       ...this.request,
       navigation: () => this.request.navigation(id),
+      humanInput: () => this.request.humanInput?.(id),
+      leaveUnasked: () => this.request.leaveUnasked?.(id) ?? false,
       log: (entry) => this.request.log({ ...entry, tabId: id }),
       lost: (reason) => this.tabLost(id, reason),
     };
   }
-  private async openAgent(): Promise<string> {
-    const id = `agent-${++this.sequence}`;
-    const session = await this.user.open(this.tabRequest(id));
+  /** A place in the daemon-wide tab budget: agent tabs here count as ace's own do. */
+  private reserve(): () => void {
+    return this.request.reserveTab?.() ?? (() => {});
+  }
+  /**
+   * The thread's agent tabs from before a restart, with their ids, in order: each takes back a
+   * still-open agent tab at its address in the person's browser, or opens one there. Returns
+   * the first, which is shown. Tabs the person shared come back when they are listed again.
+   */
+  private async restore(): Promise<string | undefined> {
+    let first: string | undefined;
+    const entries = (this.request.restoreTabs ?? []).filter(
+      (entry) => !entry.tabId.startsWith("shared-"),
+    );
+    for (const entry of entries.slice(0, this.request.maxTabs ?? 16)) {
+      try {
+        const id = await this.reopen(entry);
+        first ??= id;
+      } catch {
+        // That tab stays gone; the others still come back.
+      }
+    }
+    return first;
+  }
+  private async reopen(entry: BackendRestoreTab): Promise<string> {
+    const numbered = /^agent-(\d+)$/.exec(entry.tabId);
+    if (numbered) this.sequence = Math.max(this.sequence, Number(numbered[1]));
+    const left = this.user
+      .agentTabs()
+      .find((ref) => ref.tab.url === entry.url && !this.held.has(refKey(ref)));
+    if (!left) {
+      const id = await this.openAgent(entry.tabId);
+      const page = this.agents.get(id)?.page;
+      if (page && entry.url !== "about:blank")
+        await page.navigate(entry.url, 30_000, this.request.signal).catch(() => {});
+      return id;
+    }
+    const release = this.reserve();
+    this.held.add(refKey(left));
+    try {
+      const session = await this.user.adopt(this.tabRequest(entry.tabId), left);
+      if (this.closed) {
+        await session.close();
+        throw new Error("Browser closed");
+      }
+      this.agents.set(entry.tabId, { session, page: session, ref: left, release });
+      return entry.tabId;
+    } catch (error) {
+      release();
+      this.held.delete(refKey(left));
+      throw error;
+    }
+  }
+  private async openAgent(restoredId?: string): Promise<string> {
+    const id = restoredId ?? `agent-${++this.sequence}`;
+    const release = this.reserve();
+    let session: UserTabSession & { ref: UserTabRef };
+    try {
+      session = await this.user.open(this.tabRequest(id));
+    } catch (error) {
+      release();
+      throw error;
+    }
     if (this.closed) {
+      release();
       await session.close();
       throw new Error("Browser closed");
     }
-    this.agents.set(id, { session, page: session });
+    this.agents.set(id, {
+      session,
+      page: session,
+      ref: session.ref,
+      release,
+      unwatch: this.watchDownloads(id, session.ref),
+    });
+    this.held.add(refKey(session.ref));
     return id;
+  }
+  /** An agent tab leaves the thread; its budget place goes with it. */
+  private dropAgent(id: string): Entry | undefined {
+    const entry = this.agents.get(id);
+    this.agents.delete(id);
+    entry?.release?.();
+    entry?.unwatch?.();
+    if (entry?.ref) this.held.delete(refKey(entry.ref));
+    return entry;
+  }
+  /**
+   * A page in one of this thread's agent tabs opened a tab (`target=_blank`, `window.open`):
+   * the extension made it an agent tab, and the thread takes it as its own, as ace's own
+   * browsers do, instead of leaving it out of reach in the person's browser.
+   */
+  private adoptPopups(): void {
+    const owned = new Map<string, string>();
+    for (const [id, entry] of this.agents) if (entry.ref) owned.set(refKey(entry.ref), id);
+    for (const popup of this.user.popups()) {
+      const key = refKey(popup);
+      const opener = owned.get(
+        refKey({ connectionId: popup.connectionId, tabId: popup.openerTabId }),
+      );
+      if (!opener || owned.has(key) || this.adopting.has(key) || this.refused.has(key)) continue;
+      this.adopting.add(key);
+      void this.adoptPopup(popup, opener).finally(() => this.adopting.delete(key));
+    }
+  }
+  private async adoptPopup(ref: UserTabRef, opener: string): Promise<void> {
+    const id = `agent-${++this.sequence}`;
+    let release: () => void;
+    try {
+      release = this.reserve();
+    } catch {
+      // The daemon-wide budget is full: the popup stays the person's browser's own business.
+      this.refused.add(refKey(ref));
+      return;
+    }
+    let session: UserTabSession;
+    try {
+      session = await this.user.adopt(this.tabRequest(id), ref);
+    } catch {
+      release();
+      this.refused.add(refKey(ref));
+      return;
+    }
+    // Over the thread's tab limit, or after the thread's browser closed: the popup goes.
+    if (this.closed || this.agents.size + this.claimed.size >= (this.request.maxTabs ?? 16)) {
+      release();
+      this.refused.add(refKey(ref));
+      await session.close();
+      return;
+    }
+    this.agents.set(id, {
+      session,
+      page: session,
+      ref,
+      opener,
+      release,
+      unwatch: this.watchDownloads(id, ref),
+    });
+    this.held.add(refKey(ref));
+    this.request.changed?.();
   }
   /**
    * A tab went away in the person's browser (closed, un-shared, Stop, a lost link). The thread
@@ -92,6 +253,13 @@ class UserTabs {
    */
   private tabLost(id: string, reason: string): void {
     if (this.closed) return;
+    // The whole browser went away: the session is lost with every agent tab still listed, so
+    // they are all kept for when it comes back, rather than dropped one by one.
+    const ref = this.agents.get(id)?.ref;
+    if (ref && !this.user.connected(ref.connectionId)) {
+      this.request.lost(reason);
+      return;
+    }
     this.claimed.delete(id);
     if (!this.agents.has(id)) {
       this.request.changed?.();
@@ -102,27 +270,60 @@ class UserTabs {
       this.request.lost(reason);
       return;
     }
-    this.agents.delete(id);
+    this.dropAgent(id);
     if (this.activeId === id) this.activeId = this.agents.keys().next().value ?? "";
     this.request.changed?.();
   }
-  private shared(): (UserTabRef & { tab: { url: string; title: string } })[] {
+  private shared(): (UserTabRef & { tab: UserBrowserTab })[] {
     return this.user.sharedTabs().filter((ref) => !this.released.has(sharedId(ref)));
   }
   private list(): BrowserTab[] {
     return [
-      ...[...this.agents].map(([tabId, entry]) => ({
-        tabId,
-        url: entry.page.url(),
-        title: "",
-      })),
-      ...this.shared().map((ref) => ({
-        tabId: sharedId(ref),
-        url: ref.tab.url,
-        title: ref.tab.title,
-        openedBy: { kind: "human" as const },
-      })),
+      ...[...this.agents].map(([tabId, entry]) => {
+        // The tab's sound, as the person's browser reports it.
+        const listed = entry.ref && this.user.tab(entry.ref);
+        return {
+          tabId,
+          url: entry.page.url(),
+          title: entry.session?.title() ?? "",
+          pending_dialog: this.dialogOf(tabId, entry),
+          audible: listed?.audible,
+          muted: listed?.muted,
+        };
+      }),
+      ...this.shared().map((ref) => {
+        const tabId = sharedId(ref);
+        const entry = this.claimed.get(tabId);
+        return {
+          tabId,
+          url: ref.tab.url,
+          title: ref.tab.title,
+          openedBy: { kind: "human" as const },
+          pending_dialog: entry && this.dialogOf(tabId, entry),
+          audible: ref.tab.audible,
+          muted: ref.tab.muted,
+        };
+      }),
     ];
+  }
+  private watchDownloads(id: string, ref: UserTabRef): () => void {
+    return this.user.onDownload(ref, (download) => {
+      if (this.closed) return;
+      const downloadId = `${ref.connectionId}-download-${download.id}`;
+      if (!this.downloaded.has(downloadId) && this.downloaded.size >= 128) return;
+      this.downloaded.set(downloadId, listedDownload(downloadId, id, download));
+      this.request.changed?.();
+    });
+  }
+  /** The tab's pending dialog, as the thread names it. */
+  private dialogOf(tabId: string, entry: Entry): BrowserDialog | undefined {
+    const dialog = entry.session?.dialog();
+    if (!dialog) return undefined;
+    const { serial, ...rest } = dialog;
+    return { dialogId: `${tabId}-dialog-${serial}`, tabId, ...rest };
+  }
+  private entries(): [string, Entry][] {
+    return [...this.agents, ...this.claimed];
   }
   private page(id: string): BrowserBackendPage {
     const entry = this.agents.get(id) ?? this.claimed.get(id);
@@ -134,7 +335,7 @@ class UserTabs {
   /** A shared tab's page, attached on its first command. */
   private sharedPage(id: string, ref: UserTabRef): BrowserBackendPage {
     const listeners: [string, (params: unknown) => void][] = [];
-    const attach = (): Promise<BrowserBackendSession> => {
+    const attach = (): Promise<UserTabSession> => {
       if (entry.session) return Promise.resolve(entry.session);
       entry.claiming ??= this.user.claim(this.tabRequest(id), ref).then(
         async (session) => {
@@ -143,6 +344,7 @@ class UserTabs {
             throw new Error("Browser tab unavailable");
           }
           entry.session = session;
+          entry.unwatch = this.watchDownloads(id, ref);
           for (const [method, listener] of listeners) session.cdp.on(method, listener);
           return session;
         },
@@ -167,6 +369,7 @@ class UserTabs {
     };
     const page: BrowserBackendPage = {
       cdp,
+      unclaimed: () => entry.session === undefined && entry.claiming === undefined,
       pageStatus: () => entry.session?.pageStatus?.() ?? { loading: false },
       url: () =>
         entry.session?.url() ??
@@ -181,6 +384,7 @@ class UserTabs {
       resize: async (width, height) => (await attach()).resize(width, height),
       viewport: () => entry.session?.viewport() ?? { width: 1280, height: 720 },
       media: async (scheme) => (await attach()).media(scheme),
+      frames: async () => (await attach()).frames?.() ?? [],
     };
     const entry: Entry = { shared: ref, page };
     this.claimed.set(id, entry);
@@ -205,7 +409,7 @@ class UserTabs {
         const agent = this.agents.get(id);
         if (agent) {
           if (this.agents.size === 1) throw new Error(lastTab);
-          this.agents.delete(id);
+          this.dropAgent(id);
           if (this.activeId === id) this.activeId = this.agents.keys().next().value ?? "";
           await agent.session?.close();
         } else {
@@ -217,9 +421,29 @@ class UserTabs {
         }
         this.request.changed?.();
       },
-      dialog: () => undefined,
-      answer: () => Promise.reject(new Error("Dialogs in your own browser are yours to answer")),
-      downloads: () => [],
+      dialog: () => {
+        for (const [id, entry] of this.entries()) {
+          const pending = this.dialogOf(id, entry);
+          if (pending) return pending;
+        }
+        return undefined;
+      },
+      answer: async (dialogId, accept, promptText) => {
+        const found = this.entries().find(
+          ([id, entry]) => this.dialogOf(id, entry)?.dialogId === dialogId,
+        );
+        if (!found?.[1].session) throw new Error("Dialog no longer pending");
+        await found[1].session.answerDialog(accept, promptText);
+      },
+      // The person's browser saves them where it always does; ace only lists them.
+      downloads: () => [...this.downloaded.values()],
+      opener: (id) => this.agents.get(id)?.opener,
+      mute: async (id, muted) => {
+        const ref =
+          this.agents.get(id)?.ref ?? this.shared().find((entry) => sharedId(entry) === id);
+        if (!ref) throw new Error("Browser tab unavailable");
+        await this.user.mute(ref, muted);
+      },
       page: (id) => this.page(id),
     };
   }
@@ -230,8 +454,9 @@ class UserTabs {
         return current().cdp;
       },
       tabs: this.tabs(),
-      pageStatus: () => current().pageStatus?.() ?? { loading: false },
-      url: () => current().url(),
+      // State is read after a lost tab too (a timer's last update): it reads as idle and blank.
+      pageStatus: () => this.read(() => current().pageStatus?.(), undefined) ?? { loading: false },
+      url: () => this.read(() => current().url(), "about:blank"),
       navigate: (url, timeout, signal) => current().navigate(url, timeout, signal),
       click: (x, y) => current().click(x, y),
       insertText: (text) => current().insertText(text),
@@ -241,18 +466,47 @@ class UserTabs {
       resize: (width, height) => current().resize(width, height),
       viewport: () => current().viewport(),
       media: (scheme) => current().media(scheme),
-      // The person controls their own browser directly; there is no lease to hand over.
-      controller: async () => {},
+      frames: async () => (await current().frames?.()) ?? [],
       close: () => this.close(),
     };
+  }
+  private read<T>(get: () => T, fallback: T): T {
+    try {
+      return get();
+    } catch {
+      return fallback;
+    }
   }
   private async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
     this.stopWatching();
     const entries = [...this.agents.values(), ...this.claimed.values()];
+    for (const entry of entries) entry.unwatch?.();
+    for (const entry of this.agents.values()) {
+      entry.release?.();
+      if (entry.ref) this.held.delete(refKey(entry.ref));
+    }
     this.agents.clear();
     this.claimed.clear();
     await Promise.allSettled(entries.map((entry) => entry.session?.close()));
   }
+}
+
+const states = { in_progress: "pending", complete: "complete", interrupted: "failed" } as const;
+function listedDownload(
+  downloadId: string,
+  tabId: string,
+  download: UserBrowserDownload,
+): BrowserDownload {
+  return {
+    downloadId,
+    tabId,
+    filename: download.filename,
+    bytes: download.bytes,
+    mimeType: download.mimeType,
+    flags: downloadFlags(download.filename, download.mimeType),
+    state: states[download.state],
+    ...(download.state === "complete" && download.path ? { path: download.path } : {}),
+  };
 }

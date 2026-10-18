@@ -2,6 +2,7 @@ import { expect, it, onTestFinished } from "vitest";
 import { z } from "zod";
 import { readdir } from "node:fs/promises";
 import { backendFixture, FakeHeadless } from "./backend-test-support.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 async function pageFixture() {
   const f = await backendFixture({ backendPreference: () => "headless" });
@@ -15,6 +16,17 @@ async function pageFixture() {
   if (!ref || !page || !backend) throw new Error("Missing page");
   return { ...f, ref, page, backend };
 }
+/** An agent's ref command across a privacy change: refused as private or as a stale ref. */
+const refused = expect.stringMatching(/^(human_private|stale_ref)$/);
+/** A ref from a fresh snapshot: privacy changes expire the old ones. */
+async function freshRef(f: Awaited<ReturnType<typeof pageFixture>>) {
+  const snapshot = z
+    .object({ nodes: z.array(z.object({ ref: z.string().optional() })) })
+    .parse(await f.service.execute("thread", { action: "snapshot" }));
+  const ref = snapshot.nodes[0]?.ref;
+  if (!ref) throw new Error("Missing ref");
+  return ref;
+}
 const actions = ["click", "type", "press"] as const;
 function command(action: (typeof actions)[number], ref: string) {
   return action === "type"
@@ -25,7 +37,7 @@ function command(action: (typeof actions)[number], ref: string) {
 }
 
 it.each(actions)(
-  "%s does not prepare or dispatch input when takeover happens during node resolution",
+  "%s does not prepare or dispatch input when the tab turns private during node resolution",
   async (action) => {
     const f = await pageFixture();
     const entered = Promise.withResolvers<void>();
@@ -39,16 +51,17 @@ it.each(actions)(
       }
       return send(method, params);
     };
+    // Turning private expires refs too: the command fails one way or the other, untouched.
     const rejected = expect(
       f.service.execute("thread", command(action, f.ref)),
-    ).rejects.toMatchObject({ code: "controller_changed" });
+    ).rejects.toMatchObject({ code: refused });
     await entered.promise;
-    f.service.takeover("thread", "person");
-    f.service.handback("thread", "person");
+    keepAgentsOut(f.service, "thread");
     release.resolve();
     await rejected;
     expect(f.page.effects).toEqual([]);
-    await f.service.execute("thread", command(action, f.ref));
+    keepAgentsOut(f.service, "thread", false);
+    await f.service.execute("thread", command(action, await freshRef(f)));
     expect(f.page.effects.length).toBeGreaterThan(0);
   },
 );
@@ -111,7 +124,7 @@ it.each(["DOM.resolveNode", "Runtime.releaseObject"])(
 );
 
 it.each(["hover", "drag", "select", "check", "uncheck", "focus"] as const)(
-  "%s refuses a lease that changed during target resolution",
+  "%s refuses input once privacy changed during target resolution",
   async (action) => {
     const f = await pageFixture(),
       entered = Promise.withResolvers<void>(),
@@ -132,18 +145,22 @@ it.each(["hover", "drag", "select", "check", "uncheck", "focus"] as const)(
         ...(action === "drag" ? { toRef: f.ref } : {}),
         ...(action === "select" ? { values: ["chosen"] } : {}),
       }),
-    ).rejects.toMatchObject({ code: "controller_changed" });
+    ).rejects.toMatchObject({ code: refused });
     await entered.promise;
-    f.service.takeover("thread", "person");
-    f.service.handback("thread", "person");
+    keepAgentsOut(f.service, "thread");
     release.resolve();
     await rejected;
     expect(f.page.effects).toEqual([]);
-    await f.service.execute("thread", { action: "type", ref: f.ref, text: "continued" });
+    keepAgentsOut(f.service, "thread", false);
+    await f.service.execute("thread", {
+      action: "type",
+      ref: await freshRef(f),
+      text: "continued",
+    });
     expect(f.page.text).toBe("continued");
   },
 );
-it("a snapshot started before private takeover cannot deliver private-period data after handback", async () => {
+it("a snapshot started before a tab turned private cannot deliver private-period data after agents are let back in", async () => {
   const f = await pageFixture(),
     entered = Promise.withResolvers<void>(),
     release = Promise.withResolvers<void>();
@@ -160,8 +177,8 @@ it("a snapshot started before private takeover cannot deliver private-period dat
     f.service.execute("thread", { action: "snapshot" }),
   ).rejects.toMatchObject({ code: "human_private" });
   await entered.promise;
-  f.service.takeover("thread", "person", "private");
-  f.service.handback("thread", "person");
+  keepAgentsOut(f.service, "thread");
+  keepAgentsOut(f.service, "thread", false);
   release.resolve();
   await rejected;
   expect(
@@ -172,7 +189,7 @@ it("a snapshot started before private takeover cannot deliver private-period dat
 });
 
 it.each(["screenshot", "recording"] as const)(
-  "an interrupted %s never writes private frames after handback",
+  "an interrupted %s never writes private frames after agents are let back in",
   async (action) => {
     const entered = Promise.withResolvers<void>(),
       release = Promise.withResolvers<void>();
@@ -198,8 +215,8 @@ it.each(["screenshot", "recording"] as const)(
         : f.service.startRecording("thread");
     const rejected = expect(request).rejects.toMatchObject({ code: "human_private" });
     await entered.promise;
-    f.service.takeover("thread", "person", "private");
-    f.service.handback("thread", "person");
+    keepAgentsOut(f.service, "thread");
+    keepAgentsOut(f.service, "thread", false);
     release.resolve();
     await rejected;
     expect(

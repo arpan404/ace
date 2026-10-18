@@ -153,7 +153,7 @@ export async function toolFixture(
             };
           },
           async screenshot() {
-            return bytes;
+            return { bytes };
           },
         }),
       ],

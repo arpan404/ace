@@ -143,7 +143,9 @@ export function MessageInput({
         createPortal(
           <MentionChip
             name={token.label}
-            kind={token.catalog?.kind ?? (token.thread ? "thread" : "file")}
+            kind={
+              token.catalog?.kind ?? (token.thread ? "thread" : token.browserTab ? "tab" : "file")
+            }
           />,
           node,
         ),

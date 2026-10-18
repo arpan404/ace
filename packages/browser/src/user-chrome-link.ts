@@ -3,6 +3,7 @@ import {
   UserBrowserExtensionMessage,
   type UserBrowserDaemonMessage,
   type UserBrowserDetachReason,
+  type UserBrowserDownload,
   type UserBrowserIdentity,
   type UserBrowserOperation,
   type UserBrowserTab,
@@ -21,6 +22,10 @@ export interface UserChromeTransport {
 /** A CDP surface for one tab of the person's browser, relayed through the extension. */
 export interface UserTabCdp extends BrowserCdp {
   readonly tabId: number;
+  /** One of the tab's out-of-process iframes, by its child session id. */
+  session(sessionId: string): BrowserCdp;
+  /** The iframe's session ended: its listeners go. */
+  endSession(sessionId: string): void;
   /** Called once when the tab stops being controllable, with the extension's reason. */
   onDetached(listener: (reason: UserBrowserDetachReason | "disconnected") => void): () => void;
   dispose(): void;
@@ -49,7 +54,8 @@ export class UserChromeLink {
   readonly browser: UserBrowserIdentity;
   readonly connectedAt: number;
   private transport: UserChromeTransport;
-  private clock: NavigationClock;
+  /** The daemon's monotonic clock, for timing on this browser's tabs. */
+  readonly clock: NavigationClock;
   private pending = new Map<string, Waiter>();
   private slots = new CommandSlots(64, 1024);
   private sequence = 0;
@@ -81,6 +87,11 @@ export class UserChromeLink {
     this.events.on("tabs", listener);
     return () => this.events.off("tabs", listener);
   }
+  /** Downloads one of this browser's tabs started, as the browser saved them (ADR 0086). */
+  onDownload(tabId: number, listener: (download: UserBrowserDownload) => void): () => void {
+    this.events.on(`download:${tabId}`, listener);
+    return () => this.events.off(`download:${tabId}`, listener);
+  }
   onClosed(listener: (reason: string) => void): () => void {
     this.events.on("closed", listener);
     return () => this.events.off("closed", listener);
@@ -105,7 +116,8 @@ export class UserChromeLink {
       this.tabList = event.tabs;
       this.events.emit("tabs");
     } else if (event.kind === "cdp")
-      this.events.emit(`cdp:${event.tabId}`, event.method, event.params);
+      this.events.emit(`cdp:${event.tabId}`, event.method, event.params, event.sessionId);
+    else if (event.kind === "download") this.events.emit(`download:${event.tabId}`, event.download);
     else this.events.emit(`detached:${event.tabId}`, event.reason);
   }
   command(operation: UserBrowserOperation, signal?: AbortSignal): Promise<unknown> {
@@ -142,10 +154,30 @@ export class UserChromeLink {
   }
   /** Relayed CDP for one tab. Events arrive only while the extension has the tab attached. */
   tab(tabId: number): UserTabCdp {
-    const listeners = new Map<string, Set<(params: unknown) => void>>();
-    const onCdp = (method: string, params: unknown) => {
-      for (const listener of listeners.get(method) ?? []) listener(params);
+    type Listeners = Map<string, Set<(params: unknown) => void>>;
+    const listeners: Listeners = new Map();
+    /** Each iframe session's listeners, by session id. */
+    const frames = new Map<string, Listeners>();
+    const onCdp = (method: string, params: unknown, sessionId?: string) => {
+      const target = sessionId === undefined ? listeners : frames.get(sessionId);
+      for (const listener of target?.get(method) ?? []) listener(params);
     };
+    const surface = (
+      target: Listeners,
+      send: BrowserCdp["send"],
+    ): Pick<BrowserCdp, "send" | "on" | "off"> => ({
+      send,
+      on(method, listener) {
+        let set = target.get(method);
+        if (!set) target.set(method, (set = new Set()));
+        set.add(listener);
+        return this;
+      },
+      off(method, listener) {
+        target.get(method)?.delete(listener);
+        return this;
+      },
+    });
     const detachedListeners = new Set<(reason: UserBrowserDetachReason | "disconnected") => void>();
     let detached = false;
     const detach = (reason: UserBrowserDetachReason | "disconnected") => {
@@ -163,24 +195,30 @@ export class UserChromeLink {
       this.events.off(`detached:${tabId}`, onDetach);
       this.events.off("closed", onClosed);
       listeners.clear();
+      frames.clear();
       detachedListeners.clear();
     };
-    return {
-      tabId,
-      send: (method, params) =>
+    const send =
+      (sessionId?: string): BrowserCdp["send"] =>
+      (method, params) =>
         detached
           ? Promise.reject(new Error("This tab is no longer shared with ace"))
-          : this.command({ op: "cdp", tabId, method, ...(params ? { params } : {}) }),
-      on(method, listener) {
-        let set = listeners.get(method);
-        if (!set) listeners.set(method, (set = new Set()));
-        set.add(listener);
-        return this;
+          : this.command({
+              op: "cdp",
+              tabId,
+              ...(sessionId === undefined ? {} : { sessionId }),
+              method,
+              ...(params ? { params } : {}),
+            });
+    return {
+      tabId,
+      ...surface(listeners, send()),
+      session(sessionId) {
+        let target = frames.get(sessionId);
+        if (!target) frames.set(sessionId, (target = new Map()));
+        return surface(target, send(sessionId));
       },
-      off(method, listener) {
-        listeners.get(method)?.delete(listener);
-        return this;
-      },
+      endSession: (sessionId) => void frames.delete(sessionId),
       onDetached(listener) {
         detachedListeners.add(listener);
         return () => detachedListeners.delete(listener);

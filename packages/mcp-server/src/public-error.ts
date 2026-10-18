@@ -34,9 +34,9 @@ export const PublicToolCode = z.enum([
   "access_unavailable",
   "effort_unavailable",
   "stale_ref",
-  "controller_changed",
-  "human_controlled",
+  "human_active",
   "human_private",
+  "needs_person",
   "browser_paused",
   "browser_closed",
   "backend_changed",
@@ -46,8 +46,18 @@ export const PublicToolCode = z.enum([
   "tab_crashed",
   "element_unavailable",
   "not_visible",
+  "not_hittable",
+  "covered",
+  "unsaved_changes",
   "evaluate_approval_required",
-  "page_text_limit",
+  "storage_restricted",
+  "evaluate_failed",
+  "page_unreachable",
+  "browser_restarted",
+  "browser_unavailable",
+  "recording_active",
+  "recording_inactive",
+  "recording_failed",
   "approval_required",
   "denied",
   "timeout",
@@ -207,21 +217,21 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
     message: "Stale or unknown element ref",
     hint: "Read fresh refs (browser_snapshot, screen_ui_tree or sim_ui, matching the tool you used) and retry with a current ref.",
   },
-  controller_changed: {
-    message: "Browser control changed while the action was queued",
-    hint: "Call browser_snapshot for fresh refs, then retry.",
+  human_active: {
+    message: "The person kept using this tab",
+    hint: "They are working in it right now. Take a fresh snapshot, then retry in a moment or use another tab.",
   },
   human_private: {
-    message: "Browser is private while a human has control",
-    hint: "Wait for explicit human handback of this tab; a disconnect does not restore agent access. Your other tabs keep working (browser_tabs open for a new one).",
+    message: "The person keeps agents out of this tab",
+    hint: "Use another tab (browser_tabs open for a new one), or ask the person to let agents into this one.",
   },
-  human_controlled: {
-    message: "Browser controlled by human",
-    hint: "The person holds this tab: wait for handback before input or closing it. Your other tabs keep working.",
+  needs_person: {
+    message: "This page needs the person",
+    hint: "The tab shows a certificate warning that only the person may proceed past. Tell them; they choose in ace's Browser panel. Navigate elsewhere or wait until they have.",
   },
   browser_paused: {
     message: "Browser backend paused",
-    hint: "Call browser_open to resume the page; if a person holds it, wait for their handback.",
+    hint: "Call browser_open to resume the page; if it stays paused, tell the person.",
   },
   browser_closed: {
     message: "Browser closed",
@@ -255,17 +265,57 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
     message: "Browser element is not visible",
     hint: 'Call browser_wait_for with the ref and state:"visible", or scroll with browser_act action:"scroll", then retry.',
   },
+  not_hittable: {
+    message: "Browser element cannot take the pointer",
+    hint: "It is outside the page's viewport or kept moving. Scroll it into view or wait for the page to settle, then snapshot again and retry.",
+  },
+  covered: {
+    message: "Another element covers the browser element",
+    hint: "An overlay, banner, dialog or sticky header sits over it, so the click would land there. Dismiss or close what covers it, then snapshot again and retry.",
+  },
+  unsaved_changes: {
+    message: "The person has unsaved changes on this page",
+    hint: "Leaving would discard what they entered. Dismiss the leave prompt to stay, ask the person, or open another tab with browser_tabs.",
+  },
   evaluate_approval_required: {
     message: "Browser evaluate was refused by the host policy",
     hint: "Read the page with browser_snapshot or browser_find instead.",
   },
-  page_text_limit: {
-    message: "Browser text search exceeds the bounded page limit",
-    hint: "Use browser_find with role or name, or browser_snapshot scoped to a ref. Text search reads at most 1024 nodes and 65536 characters.",
+  storage_restricted: {
+    message: "Agents can't read cookies or site storage in the person's own browser",
+    hint: "In Use my Chrome, evaluate runs without document.cookie, localStorage, sessionStorage, indexedDB or cookieStore. Read the page's DOM instead, or ask the person to allow it in Settings › Computer use › Use my Chrome.",
+  },
+  evaluate_failed: {
+    message: "The script threw, timed out or was refused",
+    hint: "Scripts run up to 10 seconds. mode read-only refuses anything with side effects (writes, calls into page code, promises); use unrestricted for those, or read the page with a snapshot. Fix the expression before calling again.",
+  },
+  page_unreachable: {
+    message: "The page could not be reached",
+    hint: "detail names the network error. ERR_CONNECTION_REFUSED: nothing listens there; is the dev server running on that port? ERR_NAME_NOT_RESOLVED: check the host name. ERR_ABORTED: the response was a download or empty. Fix the cause, then navigate again.",
+  },
+  browser_restarted: {
+    message: "The browser restarted",
+    hint: "The tab reopened at its last address, but form input, scroll position and refs are gone. Take a fresh snapshot and redo any steps that were lost.",
+  },
+  browser_unavailable: {
+    message: "ace's browser could not start",
+    hint: "Its first start downloads Chrome for Testing, which needs the network. Retry once; if it still fails, tell the person to check ace's browser in Settings.",
+  },
+  recording_active: {
+    message: "This browser is already recording",
+    hint: "Call browser_settings with action record_stop to finish that recording before starting another.",
+  },
+  recording_inactive: {
+    message: "Nothing is recording in this browser",
+    hint: "Call browser_settings with action record_start first, then record_stop when done.",
+  },
+  recording_failed: {
+    message: "The recording could not be saved",
+    hint: "It captured no frames (a private tab records none) or could not be written. Start a new recording and keep the tab shared with agents.",
   },
   approval_required: {
     message: "Browser origin was refused by the host policy",
-    hint: "This origin is blocked for agents here. Continue with an allowed URL (localhost always works), or tell the person which origin you need.",
+    hint: "ace's host does not allow agents on this site. Local addresses (localhost, 127.0.0.1) are always allowed. Do not retry the same address: use an allowed one, or ask the person to allow this site.",
   },
   denied: {
     message: "Browser refused the request",
@@ -340,8 +390,8 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
     hint: "Call sim_start for this simId. If a person is using it, wait until they hand it back.",
   },
   limit: {
-    message: "Device operation exceeds its limit",
-    hint: "Reduce the request or wait for current work to finish.",
+    message: "The request exceeds a size or count limit",
+    hint: "Ask for less at once (fewer or smaller files, a smaller capture, fewer items), or wait for current work to finish.",
   },
   machine_offline: {
     message: "That machine is offline",

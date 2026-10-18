@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { describe, expect, it, vi } from "vitest";
-import { BrowserBackend, type BackendOptions, type ControllerState } from "./backend.ts";
+import { BrowserBackend, type BackendOptions } from "./backend.ts";
 import {
   BrowserBackendClientMessage,
   BrowserBackendOperation,
@@ -15,11 +15,7 @@ import { fakeViews, screencastFrame } from "./test-support.ts";
  */
 function setup(options: Partial<BackendOptions> = {}) {
   const views = fakeViews();
-  const controllers: ControllerState[] = [];
-  const takeovers: string[] = [];
   const backend = new BrowserBackend(views.host, {
-    onController: (state) => controllers.push(state),
-    onTakeover: (threadId) => takeovers.push(threadId),
     log: () => {},
     ...options,
   });
@@ -76,7 +72,6 @@ function setup(options: Partial<BackendOptions> = {}) {
         kind: "open",
         options: { threadId, workspaceId: "w-1", profile },
         viewport: { width: 1280, height: 720 },
-        lease: { generation: 0, controller: "agent" },
       }),
     );
   return {
@@ -84,8 +79,6 @@ function setup(options: Partial<BackendOptions> = {}) {
     connect,
     views,
     sent,
-    controllers,
-    takeovers,
     request,
     response,
     responses,
@@ -174,117 +167,31 @@ describe("embedded browser backend", () => {
     expect(t.views.only().acks()).toBe(1);
   });
 
-  it("lets the person use a view only under a human lease held by this app's connection", async () => {
+  it("lets the person use the view at once and tells the daemon when they do", async () => {
     const t = setup();
     await t.open();
     const page = t.views.only();
-    expect(page.nativeInput).toBe(false);
-
-    const lease = (generation: number, controller: string, owner?: string) =>
-      t.response(
-        t.request("s-1", {
-          kind: "controller",
-          lease: { generation, controller, ...(owner ? { owner } : {}) },
-        }),
-      );
-    await lease(1, "human", "connection-1");
-    expect(page.nativeInput).toBe(true);
-    expect(t.controllers.at(-1)).toEqual({ threadId: "t-1", controller: "human", here: true });
-
-    // Another device's person holds it: native input here stays off.
-    await lease(2, "human", "phone-connection");
-    expect(page.nativeInput).toBe(false);
-    expect(t.controllers.at(-1)).toMatchObject({ controller: "human", here: false });
-
-    expect(await lease(1, "human", "connection-1")).toMatchObject({
-      error: "Obsolete controller lease generation",
-    });
-    expect(page.nativeInput).toBe(false);
-
-    await lease(3, "agent");
-    expect(page.nativeInput).toBe(false);
-  });
-
-  it("lets the person's input through a renderer's claim only while the lease is its connection's", async () => {
-    const t = setup();
-    await t.open();
-    const page = t.views.only();
-    const lease = (generation: number, controller: string, owner?: string) =>
-      t.response(
-        t.request("s-1", {
-          kind: "controller",
-          lease: { generation, controller, ...(owner ? { owner } : {}) },
-        }),
-      );
-
-    // Another device holds the page: the renderer's claim lets nothing through.
-    await lease(1, "human", "phone-connection");
-    t.backend.claimControl("t-1", "web-connection");
-    expect(page.nativeInput).toBe(false);
-    page.personClicks();
-    expect(t.takeovers).toEqual(["t-1"]);
-    // Its lease ends: the claim is revoked for good, even when the renderer's connection
-    // takes control later without claiming again.
-    await lease(2, "agent");
-    await lease(3, "human", "web-connection");
-    expect(page.nativeInput).toBe(false);
-  });
-
-  it("enables input once the renderer's own take-control lease arrives, and revokes it on handback", async () => {
-    const t = setup();
-    await t.open();
-    const page = t.views.only();
-    const lease = (generation: number, controller: string, owner?: string) =>
-      t.response(
-        t.request("s-1", {
-          kind: "controller",
-          lease: { generation, controller, ...(owner ? { owner } : {}) },
-        }),
-      );
-
-    // The renderer claims as its take-control reply arrives, before the lease reaches here.
-    t.backend.claimControl("t-1", "web-connection");
-    expect(page.nativeInput).toBe(false);
-    await lease(1, "human", "web-connection");
     expect(page.nativeInput).toBe(true);
     page.personClicks();
-    expect(t.takeovers).toEqual([]);
-
-    await lease(2, "agent");
-    expect(page.nativeInput).toBe(false);
+    expect(
+      t.sent.filter(
+        (message) =>
+          message.type === "browser.backend.event" && message.method === "ace.humanInput",
+      ),
+    ).toEqual([expect.objectContaining({ sessionId: "s-1", params: {} })]);
   });
 
-  it("stops the person's input when the renderer no longer claims the page", async () => {
+  it("follows the daemon's word on whether an agent uses the shown view", async () => {
     const t = setup();
     await t.open();
     const page = t.views.only();
-    await t.response(
-      t.request("s-1", {
-        kind: "controller",
-        lease: { generation: 1, controller: "human", owner: "web-connection" },
-      }),
-    );
-    t.backend.claimControl("t-1", "web-connection");
+    expect(page.agentControl).toBe(false);
+    await t.response(t.request("s-1", { kind: "agentUse", active: true }));
+    expect(page.agentControl).toBe(true);
+    // The person keeps their input while the agent works.
     expect(page.nativeInput).toBe(true);
-    t.backend.claimControl("t-1", undefined);
-    expect(page.nativeInput).toBe(false);
-  });
-
-  it("asks the daemon for control when the person uses a view they do not control", async () => {
-    const t = setup();
-    await t.open();
-    const page = t.views.only();
-    page.personClicks();
-    expect(t.takeovers).toEqual(["t-1"]);
-
-    await t.response(
-      t.request("s-1", {
-        kind: "controller",
-        lease: { generation: 1, controller: "human", owner: "connection-1" },
-      }),
-    );
-    page.personClicks();
-    expect(t.takeovers).toEqual(["t-1"]);
+    await t.response(t.request("s-1", { kind: "agentUse", active: false }));
+    expect(page.agentControl).toBe(false);
   });
 
   it("answers a result over the relay limit with an error instead of leaving the request open", async () => {

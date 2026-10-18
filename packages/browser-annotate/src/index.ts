@@ -47,3 +47,19 @@ export const annotationViewportExpression = "globalThis.aceAnnotate?.viewport() 
 
 /** Evaluates to the overlay's host element (as a remote object), for snapshot exclusion. */
 export const annotationHostExpression = "globalThis.aceAnnotate?.host() ?? null";
+
+export {
+  cursorApplyExpression,
+  cursorHostExpression,
+  cursorInstallExpression,
+  cursorSettledExpression,
+  cursorTeardownExpression,
+  cursorWorldName,
+  defaultCursorStyle,
+  maskedSecretValue,
+  secretFieldSelector,
+  type CursorOp,
+  type CursorPoint,
+  type CursorRect,
+  type CursorStyle,
+} from "./cursor.ts";

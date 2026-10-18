@@ -232,6 +232,12 @@ export const DesktopSettings = z.object({
   globalShortcut: z.string().max(64).nullable().default(null),
   /** Keep the machine awake while agents work. */
   preventSleep: z.boolean().default(false),
+  /**
+   * Where this app's own browser saves downloads; null uses the system's Downloads folder
+   * (`app.getPath("downloads")`, ~/Downloads on macOS). ace's Chrome on the daemon has its own
+   * setting.
+   */
+  browserDownloads: z.string().min(1).max(4096).nullable().default(null),
 });
 export type DesktopSettings = z.infer<typeof DesktopSettings>;
 /**
@@ -252,6 +258,7 @@ export const DesktopSettingsPatch = z.object({
   attention: z.boolean().optional(),
   globalShortcut: z.string().max(64).nullable().optional(),
   preventSleep: z.boolean().optional(),
+  browserDownloads: z.string().min(1).max(4096).nullable().optional(),
 });
 export type DesktopSettingsPatch = z.infer<typeof DesktopSettingsPatch>;
 
@@ -281,6 +288,11 @@ export const BrowserPlacement = z.object({
     })
     .optional(),
   threadId: z.string().min(1).max(256),
+  /**
+   * One tab of the thread, drawn here beside the shown one (split view). Omitted: whichever tab
+   * the thread shows.
+   */
+  tabId: z.string().min(1).max(256).optional(),
   bounds: z.object({
     x: z.number().min(0),
     y: z.number().min(0),
@@ -288,19 +300,21 @@ export const BrowserPlacement = z.object({
     height: z.number().min(0).max(16384),
   }),
   visible: z.boolean(),
-  /**
-   * The daemon connection through which this renderer holds the page's control lease, as its
-   * take-control reply named it. The person's input reaches the view only while the daemon's
-   * current lease is that connection's.
-   */
-  owner: z.string().min(1).max(256).optional(),
 });
 export type BrowserPlacement = z.infer<typeof BrowserPlacement>;
-/** The person clicked or typed on a view they don't control: the renderer should take control. */
-export const BrowserWantsControl = z.object({ threadId: z.string().min(1).max(256) });
-export type BrowserWantsControl = z.infer<typeof BrowserWantsControl>;
+/** Names a thread's embedded browser view (one tab of it with `tabId`). */
+export const BrowserThread = z.object({
+  threadId: z.string().min(1).max(256),
+  tabId: z.string().min(1).max(256).optional(),
+});
+export type BrowserThread = z.infer<typeof BrowserThread>;
+/** A thread view's picture as a PNG `data:` URL; null while nothing shows it. */
+export const BrowserSnapshot = z
+  .string()
+  .max(64 * 1024 * 1024)
+  .nullable();
 /** A toolbar shortcut from the thread's native page. */
-export const BrowserShortcut = BrowserWantsControl.extend({
+export const BrowserShortcut = BrowserThread.extend({
   accelerator: z.enum([
     "CmdOrCtrl+T",
     "CmdOrCtrl+L",
@@ -308,22 +322,31 @@ export const BrowserShortcut = BrowserWantsControl.extend({
     "CmdOrCtrl+R",
     "CmdOrCtrl+[",
     "CmdOrCtrl+]",
+    // Zoom in, out and back to 100% (the daemon keeps each tab's zoom).
+    "CmdOrCtrl+=",
+    "CmdOrCtrl+-",
+    "CmdOrCtrl+0",
   ]),
 });
 export type BrowserShortcut = z.infer<typeof BrowserShortcut>;
-/** Ask the daemon for control of a thread's embedded view (`human`) or give it back. */
-export const BrowserControlRequest = z.object({
-  threadId: z.string().min(1).max(256),
-  controller: z.enum(["agent", "human"]),
+/**
+ * What the desktop does to a thread's shown native tab: the system print dialog, or the tab's
+ * developer tools in their own window. `inspect` opens them at that point of the page.
+ */
+export const BrowserPageAction = BrowserThread.extend({
+  action: z.enum(["print", "devtools"]),
+  inspect: z.object({ x: z.number().finite(), y: z.number().finite() }).optional(),
 });
-export type BrowserControlRequest = z.infer<typeof BrowserControlRequest>;
-/** Who drives a thread's embedded view; `here` when the person in this app does. */
-export const BrowserController = z.object({
-  threadId: z.string().min(1).max(256),
-  controller: z.enum(["agent", "human", "none"]),
-  here: z.boolean(),
+export type BrowserPageAction = z.infer<typeof BrowserPageAction>;
+/**
+ * The person picked an item in a native page's context menu that the app carries out through
+ * the daemon (history, a new tab, annotate mode, the page source).
+ */
+export const BrowserContextAction = BrowserThread.extend({
+  action: z.enum(["back", "forward", "reload", "openTab", "annotate", "viewSource"]),
+  url: z.string().max(8192).optional(),
 });
-export type BrowserController = z.infer<typeof BrowserController>;
+export type BrowserContextAction = z.infer<typeof BrowserContextAction>;
 
 export const UpdateStatus = z.discriminatedUnion("state", [
   z.object({ state: z.literal("idle") }),

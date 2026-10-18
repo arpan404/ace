@@ -1,33 +1,50 @@
 import { z } from "zod";
-import type { UserBrowserTab } from "@ace/protocol";
+import { BrowserDialog, type UserBrowserTab } from "@ace/protocol";
 import type { BackendOpen, BrowserBackendSession } from "./backend.ts";
 import { cancellableCdp } from "./cancellable-cdp.ts";
 import { navigateCdp } from "./cdp-navigation.ts";
 import { chromeInput } from "./chrome-input.ts";
-import { consoleEntry } from "./console-entry.ts";
+import { consoleEntry, consoleEvents } from "./console-entry.ts";
 import { modelScreenshot } from "./model-screenshot.ts";
 import { pageStatus } from "./page-status.ts";
+import { countingDomNodes } from "./user-chrome-dom-counters.ts";
+import { userTabFrames } from "./user-chrome-frames.ts";
+import { personInputWatch } from "./person-input-watch.ts";
 import type { UserChromeLink } from "./user-chrome-link.ts";
 
 const Navigated = z.object({
   frame: z.object({ id: z.string(), url: z.string().max(8192), parentId: z.string().optional() }),
+});
+const FrameTree = z.object({
+  frameTree: z.object({ frame: z.object({ id: z.string(), url: z.string().max(8192) }) }),
 });
 const SameDocument = z.object({ frameId: z.string(), url: z.string().max(8192) });
 const Response = z.object({
   response: z.object({ url: z.string().max(8192), status: z.number() }),
 });
 const Failed = z.object({ errorText: z.string().max(8192) });
+const DialogOpening = z.object({
+  type: BrowserDialog.shape.type,
+  message: z.string(),
+  defaultPrompt: z.string().optional(),
+});
+/** A dialog the tab's page raised; `serial` tells one from the next. */
+export type UserTabDialog = Pick<BrowserDialog, "type" | "message" | "defaultPrompt"> & {
+  serial: number;
+};
+
+/** One tab of the person's browser: a backend session that also knows its title and dialog. */
+export interface UserTabSession extends BrowserBackendSession {
+  /** The browser's own id for the tab. */
+  readonly tabId: number;
+  title(): string;
+  /** An alert, confirm or prompt waiting for an answer. */
+  dialog(): UserTabDialog | undefined;
+  answerDialog(accept: boolean, promptText?: string): Promise<void>;
+}
 const Layout = z.object({
   cssLayoutViewport: z.object({ clientWidth: z.number(), clientHeight: z.number() }),
 });
-const Counted = z.object({ result: z.object({ value: z.number() }) });
-/** Counts the document's nodes, stopping just past the snapshot limit. */
-const countNodes = `(() => {
-  const walker = document.createTreeWalker(document, NodeFilter.SHOW_ALL);
-  let nodes = 1;
-  while (nodes <= 20001 && walker.nextNode()) nodes++;
-  return nodes;
-})()`;
 
 /** The daemon socket carries at most 1 MiB; a PNG near that is refused by the extension's host. */
 const Png = z.object({ data: z.string().max(960 * 1024) });
@@ -52,18 +69,13 @@ export async function userTabSession(
   tab: UserBrowserTab,
   request: BackendOpen,
   platform: NodeJS.Platform,
-): Promise<BrowserBackendSession> {
+): Promise<UserTabSession> {
   const tabCdp = link.tab(tab.tabId);
-  // Extensions get no Memory domain; the snapshot and text-wait size guards count nodes instead.
+  // The extension's debugger sees no real input: a watcher in the page reports the person's.
+  const person = personInputWatch(() => link.clock.now());
   const cdp: typeof tabCdp = {
     ...tabCdp,
-    send: async (method, params) => {
-      if (method !== "Memory.getDOMCounters") return tabCdp.send(method, params);
-      const counted = Counted.parse(
-        await tabCdp.send("Runtime.evaluate", { expression: countNodes, returnByValue: true }),
-      );
-      return { documents: 1, nodes: counted.result.value, jsEventListeners: 0 };
-    },
+    send: person.agentInput(countingDomNodes(tabCdp.send)),
   };
   const lifetime = new AbortController();
   const signal = AbortSignal.any([request.signal, lifetime.signal]);
@@ -71,6 +83,9 @@ export async function userTabSession(
   let mainFrame: string | undefined;
   let viewport = { width: 1280, height: 720 };
   let closing: Promise<void> | undefined;
+  let dialog: UserTabDialog | undefined;
+  let dialogs = 0;
+  let stopWatching: (() => void) | undefined;
   const stopDetached = cdp.onDetached((reason) => {
     if (closing) return;
     lifetime.abort(new Error(lossReasons[reason] ?? "Your browser tab is gone"));
@@ -89,7 +104,7 @@ export async function userTabSession(
     url = parsed.data.url;
     request.navigation();
   });
-  for (const method of ["Runtime.consoleAPICalled", "Runtime.exceptionThrown"])
+  for (const method of consoleEvents)
     cdp.on(method, (raw) => {
       const entry = consoleEntry(method, raw);
       if (entry) request.log(entry);
@@ -108,12 +123,43 @@ export async function userTabSession(
     if (parsed.success)
       request.log({ kind: "network", type: "failed", text: parsed.data.errorText });
   });
+  cdp.on("Page.javascriptDialogOpening", (raw) => {
+    const parsed = DialogOpening.safeParse(raw);
+    if (!parsed.success) return;
+    // An agent leaving a page only it used, in its own tab, goes unasked; else the person decides.
+    if (
+      parsed.data.type === "beforeunload" &&
+      tab.access === "agent" &&
+      request.leaveUnasked?.() === true
+    ) {
+      void cdp.send("Page.handleJavaScriptDialog", { accept: true }).catch(() => {});
+      return;
+    }
+    dialog = {
+      serial: ++dialogs,
+      type: parsed.data.type,
+      message: parsed.data.message.slice(0, 4096),
+      ...(parsed.data.defaultPrompt !== undefined
+        ? { defaultPrompt: parsed.data.defaultPrompt.slice(0, 4096) }
+        : {}),
+    };
+    request.changed?.();
+  });
+  // Answered here, by the person in their browser, or gone with the page.
+  cdp.on("Page.javascriptDialogClosed", () => {
+    if (!dialog) return;
+    dialog = undefined;
+    request.changed?.();
+  });
+  const frames = userTabFrames(tabCdp);
   const status = pageStatus(cdp, () => request.changed?.());
   const close = (): Promise<void> =>
     (closing ??= (async () => {
       lifetime.abort(new Error("Browser session closed"));
       stopDetached();
+      stopWatching?.();
       status.close();
+      frames.close();
       cdp.dispose();
       if (link.closed) return;
       // An agent's tab goes away with its session; a person's shared tab stays theirs.
@@ -124,8 +170,15 @@ export async function userTabSession(
       await link.command(operation).catch(() => {});
     })());
   try {
-    for (const domain of ["Page.enable", "Runtime.enable", "Network.enable"])
+    for (const domain of ["Page.enable", "Runtime.enable", "Network.enable", "Log.enable"])
       await cdp.send(domain);
+    stopWatching = await person.install(cdp, () => request.humanInput?.());
+    // The page may have committed before the debugger came (a popup the page just opened).
+    const tree = FrameTree.safeParse(await cdp.send("Page.getFrameTree"));
+    if (tree.success && mainFrame === undefined) {
+      mainFrame = tree.data.frameTree.frame.id;
+      url = tree.data.frameTree.frame.url;
+    }
     const layout = Layout.parse(await cdp.send("Page.getLayoutMetrics")).cssLayoutViewport;
     viewport = { width: Math.round(layout.clientWidth), height: Math.round(layout.clientHeight) };
     signal.throwIfAborted();
@@ -136,6 +189,18 @@ export async function userTabSession(
   const input = chromeInput(() => cdp, platform);
   const stopLoading = () => void cdp.send("Page.stopLoading").catch(() => {});
   return {
+    tabId: tab.tabId,
+    title: () => link.tabs().find((candidate) => candidate.tabId === tab.tabId)?.title ?? tab.title,
+    dialog: () => dialog,
+    answerDialog: async (accept, promptText) => {
+      await cdp.send("Page.handleJavaScriptDialog", {
+        accept,
+        ...(promptText !== undefined ? { promptText } : {}),
+      });
+      dialog = undefined;
+      request.changed?.();
+    },
+    frames: () => frames.list(cancellableCdp(cdp, signal)),
     get cdp() {
       return cancellableCdp(cdp, signal);
     },
@@ -177,8 +242,6 @@ export async function userTabSession(
         features: [{ name: "prefers-color-scheme", value: colorScheme }],
       });
     },
-    // The person controls their own browser directly; ace's control lease has nothing to hand over.
-    controller: async () => {},
     close,
   };
 }

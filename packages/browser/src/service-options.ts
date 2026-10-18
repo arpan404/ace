@@ -15,10 +15,23 @@ export interface BrowserServiceOptions {
   executablePath?: string;
   ffmpeg?: string;
   originPolicy?: OriginPolicy;
-  isPrivatePaused?: (threadId: string) => boolean;
-  /** Called before granting a private lease, as well as on its disconnect. */
-  onPrivatePaused?: (threadId: string) => void;
-  onPrivateResumed?: (threadId: string) => void;
+  /**
+   * Use my Chrome: whether the person lets agents' `evaluate` read the page's cookies and web
+   * storage (`browser.userChrome.storageReads`). Omitted: never.
+   */
+  userChromeStorageReads?: (threadId: string) => boolean | Promise<boolean>;
+  /**
+   * Draw agents' cursors in pages, in every engine (ADR 0082, agent cursor); omitted, none are
+   * drawn. Agent screenshots and recordings mask secret fields either way.
+   */
+  agentCursor?: {
+    /** How long a cursor glides before the agent's input lands; default 220 ms. */
+    glideMs?: number;
+    /** The agent's name for its cursor's label. */
+    name?(threadId: string, agentId: string | undefined): string | undefined;
+  };
+  /** How people and agents share tabs; omitted, `collaborationTiming`. */
+  collaboration?: import("./collaboration.ts").CollaborationTiming;
   evaluatePolicy?: (
     threadId: string,
     url: string,
@@ -40,8 +53,23 @@ export interface BrowserServiceOptions {
   workspaceRoot?: (threadId: string) => string | Promise<string>;
   /** Live tabs across every thread; default 48 (ADR 0083). */
   maxTabs?: number;
+  /**
+   * The daemon-wide tab budget, shared with another service (Use my Chrome's tabs count
+   * against the same 48 as ace's own). Omitted: a budget of `maxTabs` for this service.
+   */
+  tabBudget?: import("./tab-budget.ts").TabBudget;
+  /**
+   * The thread a thread was forked from, if any. A fork opening its browser for the first time
+   * starts with a copy of that thread's tabs (addresses and labels, new tab ids).
+   */
+  forkedFrom?: (threadId: string) => string | undefined;
   /** Where thread tabs are kept for restore after a daemon restart; omitted, nowhere. */
   tabStore?: import("./tab-store.ts").BrowserTabStore;
+  /**
+   * How the service notices the computer woke from sleep on its own (wall time running ahead of
+   * monotonic time); `false` turns it off. Default: every 10 s, a 30 s tolerance.
+   */
+  wakeWatch?: import("./wake-watch.ts").WakeWatch | false;
   /** Idle-tab freezing in ace's Chrome; `false` turns it off. */
   tabLifecycle?: import("./session-lifecycle.ts").LifecycleSchedule | false;
   maxDownloadBytes?: number;
@@ -74,6 +102,12 @@ export interface BrowserServiceOptions {
   profilePreference?: (
     options: BrowserOpen,
   ) => "persistent" | "ephemeral" | Promise<"persistent" | "ephemeral">;
+  /**
+   * Where ace's own Chrome saves what a thread downloads (the daemon's `browser.downloadDir`):
+   * an existing, writable folder on this machine. Undefined keeps downloads with the thread's
+   * browser session. Read for each download, so a change applies to the next one.
+   */
+  downloadFolder?: (options: BrowserOpen) => Promise<string | undefined>;
   /** A desktop backend registered; called after the registration reply is on its way. */
   onEmbeddedRegistered?: () => void;
   acquisition?: Omit<ChromiumAcquisitionOptions, "dataDir" | "signal" | "progress">;

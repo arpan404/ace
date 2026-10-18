@@ -205,6 +205,28 @@ export class CdpConnection {
     }
     return promise;
   }
+  /**
+   * Asks the browser whether it is alive (after the computer slept). One that does not answer
+   * in time is reported hung, which kills it so its sessions restart; resolves to whether it
+   * answered.
+   */
+  async ping(): Promise<boolean> {
+    if (this.reason) return false;
+    try {
+      await this.transmit(
+        "Browser.getVersion",
+        undefined,
+        "",
+        this.options.probeTimeoutMs ?? 5_000,
+        undefined,
+        false,
+      );
+      return true;
+    } catch {
+      if (!this.reason) this.options.hung("The browser stopped responding");
+      return false;
+    }
+  }
   /** Bypasses slots: a full backlog is exactly when liveness must still be checked. */
   private probe(): void {
     if (this.probing || this.reason) return;

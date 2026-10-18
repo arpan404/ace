@@ -4,6 +4,7 @@ import { CredentialRegistry, ToolRegistry, nodeScheduler } from "@ace/mcp-server
 import { McpScope } from "@ace/protocol";
 import { browserToolkit } from "./index.ts";
 import { executablePath, fixture, textRef, toolPort } from "./test-support.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 const Text = z.object({
   isError: z.boolean().optional(),
@@ -113,7 +114,6 @@ describe.skipIf(!executablePath)("ace browser tools on real Chromium", () => {
     try {
       expect(jsonOf(await f.call("browser_open", { url: page.url }))).toMatchObject({
         url: `${page.url}/`,
-        controller: "agent",
       });
       const snapshot = textOf(await f.call("browser_snapshot"));
       expect(snapshot).toMatch(/^- textbox "Name" \[ref=e\d+-\d+\]$/m);
@@ -130,7 +130,7 @@ describe.skipIf(!executablePath)("ace browser tools on real Chromium", () => {
       expect(await page.evaluate("document.getElementById('result').textContent")).toBe(
         "MCP input",
       );
-      page.service.takeover("thread", "human");
+      keepAgentsOut(page.service);
       expect(
         jsonOf(
           await f.call("browser_act", {
@@ -139,7 +139,15 @@ describe.skipIf(!executablePath)("ace browser tools on real Chromium", () => {
             text: "must not type",
           }),
         ),
-      ).toMatchObject({ code: "human_controlled" });
+      ).toMatchObject({ code: "human_private" });
+      // The person still reads the field; agents are what is kept out.
+      expect(
+        await page.service.execute(
+          "thread",
+          { action: "evaluate", expression: "document.querySelector('input').value" },
+          { kind: "human", connectionId: "person" },
+        ),
+      ).toBe("MCP input");
     } finally {
       f.close();
     }

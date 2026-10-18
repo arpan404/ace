@@ -28,7 +28,7 @@ export function toolPort(service: BrowserService): BrowserToolPort {
     },
     async screenshot(caller, options, signal) {
       const threadId = await ensure(caller);
-      return service.screenshot(threadId, signal, options.tabId, options, agentOf(caller));
+      return service.capture(threadId, signal, options.tabId, options, agentOf(caller));
     },
     close: (caller, signal) => service.closeThread(caller.threadId, agentOf(caller), signal),
   };

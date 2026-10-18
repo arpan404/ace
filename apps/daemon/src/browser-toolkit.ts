@@ -58,7 +58,7 @@ function port(service: BrowserService, store: Store, connected: () => void): Bro
     },
     async screenshot(caller, options, signal) {
       const threadId = await ensure(caller, signal);
-      return service.screenshot(threadId, signal, options.tabId, options, agentOf(caller));
+      return service.capture(threadId, signal, options.tabId, options, agentOf(caller));
     },
     async close(caller, signal) {
       signal.throwIfAborted();

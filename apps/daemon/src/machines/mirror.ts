@@ -45,6 +45,8 @@ export function labelled(request: InteractionRequest, name: string): Interaction
       return { ...request, title: `${name}: ${request.title ?? "Review the plan"}` };
     case "elicitation":
       return { ...request, title: `${name}: ${request.title ?? request.message}`.slice(0, 512) };
+    case "browser_help":
+      return { ...request, message: `${name}: ${request.message}`.slice(0, 1000) };
   }
 }
 

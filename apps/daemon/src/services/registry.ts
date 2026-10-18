@@ -37,6 +37,7 @@ import { PluginClientMessage } from "@ace/protocol/plugins";
 import { createNotificationsSession } from "./notifications.ts";
 import { createPluginsSession } from "./plugins.ts";
 import { createBrowserSession } from "./browser.ts";
+import { createBrowsingSession } from "./browsing.ts";
 import { createUserBrowserSession } from "./user-browser.ts";
 import { createContextSession } from "./context.ts";
 import { createSettingsSession } from "./settings.ts";
@@ -79,6 +80,7 @@ export const socketServiceFactories = [
   createNotificationsSession,
   createPluginsSession,
   createBrowserSession,
+  createBrowsingSession,
   createUserBrowserSession,
   createContextSession,
   createSettingsSession,

@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { connectBrowser } from "./index.ts";
 import { backendFixture } from "./backend-test-support.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 import type { BrowserServerMessage } from "@ace/protocol";
 
 function expectReopened(messages: BrowserServerMessage[]): void {
@@ -38,16 +39,16 @@ test("subscriber IDs retain browser delivery until the final subscriber leaves",
     await subscribe("second", "browser.subscribe");
     await subscribe("first", "browser.unsubscribe");
     const before = messages.length;
-    await f.service.takeover("thread", "tabs");
+    keepAgentsOut(f.service);
     expect(messages.slice(before)).toContainEqual(
       expect.objectContaining({
         type: "browser.state",
-        state: expect.objectContaining({ controller: "human" }),
+        state: expect.objectContaining({ closed: false }),
       }),
     );
     await subscribe("second", "browser.unsubscribe");
     const after = messages.length;
-    f.service.handback("thread", "tabs");
+    keepAgentsOut(f.service, "thread", false);
     expect(messages.slice(after).some((message) => message.type === "browser.state")).toBe(false);
   } finally {
     connection.close();
@@ -107,11 +108,11 @@ test("Preview rebinds after reopen and every joining subscriber receives state a
       requestId: "leave",
     });
     before = messages.length;
-    f.service.takeover("thread", "tabs");
+    keepAgentsOut(f.service);
     expect(messages.slice(before)).toContainEqual(
       expect.objectContaining({
         type: "browser.state",
-        state: expect.objectContaining({ controller: "human" }),
+        state: expect.objectContaining({ closed: false }),
       }),
     );
   } finally {
@@ -154,12 +155,18 @@ test("every Preview connection retains state and pixels when another connection 
     });
     expectReopened(first.slice(beforeA));
     expectReopened(second.slice(beforeB));
-    const takeover = first.length;
-    await b.handle({ type: "browser.takeover", threadId: "thread", requestId: "takeover" });
-    expect(first.slice(takeover)).toContainEqual(
+    const privately = first.length;
+    await b.handle({
+      type: "browser.tabs.private",
+      threadId: "thread",
+      tabId: "page",
+      private: true,
+      requestId: "private",
+    });
+    expect(first.slice(privately)).toContainEqual(
       expect.objectContaining({
         type: "browser.state",
-        state: expect.objectContaining({ controller: "human" }),
+        state: expect.objectContaining({ closed: false }),
       }),
     );
     await f.service.closeThread("thread");
@@ -176,12 +183,12 @@ test("every Preview connection retains state and pixels when another connection 
     });
     const afterA = first.length,
       afterB = second.length;
-    f.service.takeover("thread", "second");
+    keepAgentsOut(f.service);
     expect(first.slice(afterA).some((m) => m.type === "browser.state")).toBe(false);
     expect(second.slice(afterB)).toContainEqual(
       expect.objectContaining({
         type: "browser.state",
-        state: expect.objectContaining({ controller: "human" }),
+        state: expect.objectContaining({ closed: false }),
       }),
     );
     // Unsubscription must also remain effective on the next physical session.

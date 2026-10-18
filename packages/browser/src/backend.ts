@@ -1,10 +1,4 @@
-import type {
-  BrowserOpen,
-  BrowserControllerLease,
-  BrowserTab,
-  BrowserDownload,
-  BrowserDialog,
-} from "@ace/protocol";
+import type { BrowserOpen, BrowserTab, BrowserDownload, BrowserDialog } from "@ace/protocol";
 
 /** Opaque CDP results are parsed by their owning operation before use. */
 export interface BrowserCdp {
@@ -18,7 +12,17 @@ export interface BackendLog {
   requestId?: string;
   url?: string;
   status?: number;
+  /** A network request's HTTP method. */
+  method?: string;
+  /** Bytes a finished request received over the network. */
+  bytes?: number;
+  /** From the request being sent to it finishing or failing. */
+  durationMs?: number;
   kind: "console" | "network";
+  /**
+   * `loaded` is not an entry of its own: it completes the `response` entry with the same
+   * `requestId` with `bytes` and `durationMs` once the body has arrived.
+   */
   type: string;
   text: string;
 }
@@ -40,6 +44,8 @@ export interface BackendOpen {
   maxTabs?: number;
   changed?(): void;
   downloadDir?: string;
+  /** The folder ace's Chrome saves finished downloads in, when the person chose one. */
+  saveFolder?(): Promise<string | undefined>;
   maxDownloadBytes?: number;
   downloadAllowed?(url: string): Promise<boolean>;
   artifact?(artifact: import("@ace/protocol").BrowserArtifact): void | Promise<void>;
@@ -48,9 +54,19 @@ export interface BackendOpen {
   allowed(url: string, context?: { navigation?: boolean; human?: boolean }): Promise<boolean>;
   /** A page event submits navigation through the session owner before asking for approval. */
   popup?(url: string, target: PopupTarget): Promise<void>;
-  /** Initiating actor of active work, otherwise the current lease owner. */
+  /** Whether work without its own initiator (a page's own navigation) counts as the person's. */
   initiator?(): boolean;
+  /**
+   * Whether a `beforeunload` prompt on this tab may be accepted without asking anyone: an
+   * agent's command is leaving a page the person has not used since it loaded. Otherwise the
+   * prompt is the person's to answer (ADR 0067, "Leaving a page the person was editing").
+   */
+  leaveUnasked?(tabId?: string): boolean;
+  /** The person used a tab directly, in a view the daemon does not route (the desktop's). */
+  humanInput?(tabId?: string): void;
   navigation(tabId?: string): void;
+  /** The page called `window.print()` and no print dialog showed for it (ADR 0086). */
+  print?(tabId?: string): void;
   /** A renderer (with `tabId`) or the whole browser (without) came back; re-arm its pages. */
   restarted?(tabId?: string): void;
   log(entry: BackendLog): void;
@@ -86,12 +102,51 @@ export interface BrowserBackendTabs {
   close(tabId: string): Promise<void>;
   dialog(): BrowserDialog | undefined;
   answer(dialogId: string, accept: boolean, promptText?: string): Promise<void>;
-  downloads(): BrowserDownload[];
+  /**
+   * What the tabs downloaded. A backend without it cannot see downloads (the person's own
+   * browser saves them itself, ADR 0084): asking for them fails at once with `not_supported`.
+   */
+  downloads?(): BrowserDownload[];
+  /**
+   * The tab whose page opened this one (a popup the backend adopted as a tab of its own). The
+   * new tab counts as opened by whoever drove its opener.
+   */
+  opener?(tabId: string): string | undefined;
+  /**
+   * The person's answer to a site's sign-in prompt (the tab's `pending_auth`); omitted
+   * credentials cancel it. A backend whose engine prompts the person itself has none.
+   */
+  answerAuth?(
+    tabId: string,
+    authId: string,
+    credentials?: { username: string; password: string },
+  ): Promise<void>;
+  /**
+   * The person proceeds past the tab's certificate error to `url`, for that origin and
+   * certificate while the engine runs. Only the person's own request reaches this.
+   */
+  proceedCertificate?(tabId: string, url: string): Promise<void>;
+  /**
+   * The person's files for the tab's open file picker (`file_chooser`), as local paths; none
+   * cancels it.
+   */
+  chooseFiles?(tabId: string, chooserId: string, paths: readonly string[]): Promise<void>;
+  /** The person turns a tab's sound off or on (its `muted`). */
+  mute?(tabId: string, muted: boolean): Promise<void>;
   page?(tabId: string): BrowserBackendPage;
+  /** Drops an idle tab's page, keeping the tab listed at its address (ace's Chrome only). */
+  discard?(tabId: string): Promise<void>;
+  /** Reopens a discarded tab at its address, with the same id. */
+  revive?(tabId: string): Promise<void>;
 }
 /** One page's surface. Everything here acts on that page only. */
 export interface BrowserBackendPage {
   readonly cdp: BrowserCdp;
+  /**
+   * A tab the person shared from their own Chrome that no command has used yet: any CDP call
+   * claims it, so nothing may watch it before then (ADR 0084).
+   */
+  unclaimed?(): boolean;
   findText?(text: string, forward: boolean): Promise<unknown>;
   pageStatus?(): {
     loading: boolean;
@@ -99,6 +154,8 @@ export interface BrowserBackendPage {
     permissionDenied?: { origin: string; permission: string } | undefined;
   };
   networkBody?(requestId: string): Promise<unknown>;
+  /** This page's network requests still in flight, for network-idle waits. */
+  networkPending?(): number;
   frames?(): Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]>;
   url(): string;
   navigate(url: string, timeout: number, signal?: AbortSignal): Promise<void>;
@@ -110,6 +167,20 @@ export interface BrowserBackendPage {
   resize(width: number, height: number): Promise<void>;
   viewport(): { width: number; height: number };
   media(colorScheme: "light" | "dark" | "no-preference"): Promise<void>;
+  /**
+   * Take a device's size and scale (`emulate`) in a way the backend keeps with its own sizing
+   * and zoom. Absent: the page is resized, then given the device metrics over CDP.
+   */
+  emulate?(device: {
+    width: number;
+    height: number;
+    deviceScaleFactor: number;
+    mobile: boolean;
+  }): Promise<void>;
+  /** Page zoom (1 is 100%), as a browser's zoom. Absent: the backend cannot zoom. */
+  zoom?(factor: number): Promise<void>;
+  /** Clear cookies, cache and site storage of the page's profile. Absent: not supported. */
+  clearData?(): Promise<void>;
   /**
    * Why the page's renderer is down, while its backend has stopped bringing it back on its own
    * (the desktop after repeated crashes, ADR 0085). Only a navigation or a reload revives it.
@@ -126,10 +197,16 @@ export interface BrowserBackendSession extends BrowserBackendPage {
   readonly adopted?: boolean;
   privateMode?(enabled: boolean): void;
   /**
-   * Must apply the generation before resolving, reject obsolete generations. With `tabId` the
-   * lease is that tab's; without, it is the active tab's.
+   * An agent started or stopped using this tab. Optional: a backend may treat agent-used tabs
+   * differently (the desktop intercepts file choosers and keeps an unseen view rendering).
    */
-  controller(lease: BrowserControllerLease, tabId?: string): Promise<void>;
+  agentUse?(tabId: string, active: boolean): Promise<void>;
+  /**
+   * Checks the engine is alive (after the computer woke from sleep); resolves to whether it
+   * is. A dead one is reported through the open request's `lost`, or restarted with its tabs,
+   * as the backend recovers.
+   */
+  ping?(): Promise<boolean>;
   /** Agent-visible extensions, read-only. */
   extensions?(): Promise<{ id: string; name: string; version?: string; enabled: boolean }[]>;
   close(): Promise<void>;

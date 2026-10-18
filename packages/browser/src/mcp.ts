@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   BrowserMeasurementOptions,
+  BrowserScreenshotSet,
   BrowserTab,
   InteractionMeasurement,
   browserWaitLimitMs,
@@ -29,6 +30,8 @@ import {
   checkTabs,
   checkWait,
 } from "./mcp-schemas.ts";
+import { agentBrowserError } from "./agent-errors.ts";
+import type { AgentScreenshot } from "./session-images.ts";
 import {
   findText,
   json,
@@ -72,11 +75,12 @@ export interface BrowserToolPort {
     command: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<unknown>;
+  /** A model screenshot, with where its pixels lie on the page when the engine can say. */
   screenshot(
     caller: BrowserCaller,
     options: { tabId?: string; fullPage: boolean; ref?: string },
     signal: AbortSignal,
-  ): Promise<Uint8Array>;
+  ): Promise<AgentScreenshot>;
   /** Closes the whole browser and every tab in it. */
   close(caller: BrowserCaller, signal: AbortSignal): Promise<void>;
 }
@@ -181,7 +185,15 @@ const tabTools: Tool[] = [
       if (typeof args["url"] === "string") {
         const result = await port.execute(
           caller,
-          command("navigate", { url: args["url"], timeout: args["timeout"], tabId }),
+          command(
+            "navigate",
+            defined({
+              url: args["url"],
+              timeout: args["timeout"],
+              waitUntil: args["waitUntil"],
+              tabId,
+            }),
+          ),
           signal,
         );
         const pending = pendingDialog(result);
@@ -195,7 +207,7 @@ const tabTools: Tool[] = [
     name: "browser_tabs",
     title: "Open, switch or close browser tabs",
     description:
-      "List, open, select or close tabs in this thread's browser. list shows who opened and drives each tab and whether a person holds it; current marks yours. open gives you a new labelled tab that becomes your current tab. Parallel agents each work in a tab of their own: commands in different tabs run at the same time. Close the tabs you opened when done; closing the last tab closes the browser.",
+      "List, open, select, keep or close tabs in this thread's browser. list shows who opened and drives each tab, which agent works there (inUse), tabs the person keeps agents out of (private), and what waits on the person (pending_auth, certificate_error); current marks yours. open gives you a new labelled tab that becomes your current tab. Tabs you open are temporary and close when your turn ends: pass keep true on open, or action keep with tabId, for a tab the person should still find (a deliverable or handoff). Parallel agents each work in a tab of their own: commands in different tabs run at the same time. Closing the last tab closes the browser.",
     riskClass: "external-effect",
     input: browserTabsShape,
     refine: checkTabs,
@@ -217,6 +229,7 @@ const tabTools: Tool[] = [
       const { tabs: listed, tabId } = parsed.data;
       const tabs = listed.map(tabEntry);
       if (action === "list") return json({ tabs });
+      if (action === "keep") return json({ kept: args["keep"] !== false, tabId: args["tabId"] });
       if (action === "close")
         return json({ closed: true, tabId: args["tabId"], open: tabs.length });
       return json(tabs.find((tab) => tab.tabId === tabId) ?? { tabs });
@@ -229,7 +242,7 @@ const pageTools: Tool[] = [
     name: "browser_snapshot",
     title: "Read page structure",
     description:
-      'Read the page as compact indented text: one line per meaningful element, e.g. `- button "Save" [ref=e3-41]`. Refs feed browser_act and stay valid until the page navigates. At the default size it costs fewer tokens than a screenshot. Large pages are cut at maxNodes: narrow with ref (a container), interactiveOnly or browser_find.',
+      'Read the page as compact indented text: one line per meaningful element, e.g. `- button "Save" [ref=e3-41]`. Refs feed browser_act and stay valid until the page navigates. At the default size it costs fewer tokens than a screenshot. Large pages are cut at maxNodes: narrow with ref (a container), depth, interactiveOnly or browser_find. A very large page comes back as an outline of landmarks and headings to scope with ref.',
     riskClass: "read-only",
     input: browserSnapshotShape,
     timeoutMs: 60_000,
@@ -242,7 +255,7 @@ const pageTools: Tool[] = [
     name: "browser_act",
     title: "Act on page element",
     description:
-      "Click, type, fill a form, press a key, hover, select, check, uncheck, drag, focus, upload, scroll or answer a dialog, using refs from browser_snapshot or browser_find. After an action that navigates, call browser_wait_for, then browser_snapshot for new refs.",
+      "Click, type, fill a form, press a key, hover, select, check, uncheck, drag, focus, upload, scroll or answer a dialog, using refs from browser_snapshot or browser_find. A ref is clicked once it holds still and only where it takes the click itself: covered or not_hittable means nothing was clicked. While the person works in the tab, type and fill_form add after their text and leave their caret alone (kept_text), and your input waits while they are busy. Accepting a leave-page dialog on a page the person used fails with unsaved_changes. After an action that navigates, call browser_wait_for, then browser_snapshot for new refs.",
     riskClass: "external-effect",
     input: browserActShape,
     refine: checkAct,
@@ -259,8 +272,14 @@ const pageTools: Tool[] = [
       const pending = pendingDialog(result);
       if (pending) return pending;
       const after = await port.tab(caller, before.tabId, signal);
+      // The command's own facts (kept_text, popups it opened) come with the page's.
+      const facts =
+        typeof result === "object" && result !== null && !Array.isArray(result)
+          ? Object.fromEntries(Object.entries(result).filter(([key]) => key !== "ok"))
+          : {};
       return json({
         ok: true,
+        ...facts,
         tabId: after.tabId,
         url: after.url,
         ...(after.url !== before.url ? { note: "Page navigated; old refs expired." } : {}),
@@ -271,7 +290,7 @@ const pageTools: Tool[] = [
     name: "browser_wait_for",
     title: "Wait for page",
     description:
-      "Wait until the page reaches url (loaded through DOMContentLoaded), shows text, or ref reaches state visible/hidden; or, with downloads, until the tab's downloads finish. Pass exactly one of url, text, ref or downloads. Safe to call after the change already happened.",
+      "Wait until the page reaches url (exact, or a glob with *; loaded through DOMContentLoaded), shows text, or ref reaches state visible/hidden; until no request is in flight for 500 ms (networkIdle); for a fixed timeMs; or, with downloads, until the tab's downloads finish. Pass exactly one of url, text, ref, networkIdle, timeMs or downloads. Safe to call after the change already happened.",
     riskClass: "read-only",
     input: browserWaitShape,
     refine: checkWait,
@@ -310,7 +329,7 @@ const pageTools: Tool[] = [
     name: "browser_screenshot",
     title: "Screenshot page",
     description:
-      "See one tab as an image (JPEG, at most 1536 px): the viewport, fullPage for the whole page, or ref for one element. It never changes the tab the person sees. format pdf prints the tab to a PDF file and returns its path instead. Use browser_snapshot to read structure and get refs.",
+      "See one tab as an image (JPEG, at most 1536 px): the viewport, fullPage for the whole page, or ref for one element. It never changes the tab the person sees. Beside the image: its width, height, scale (CSS pixels per image pixel) and origin; to click image pixel (px, py) pass x = origin.x + px * scale, y = origin.y + py * scale. sizes checks a responsive layout instead: one image per size (phone, tablet, desktop), then the tab's own size comes back. format pdf prints the tab to a PDF file and returns its path. Use browser_snapshot to read structure and get refs.",
     riskClass: "read-only",
     input: browserScreenshotShape,
     refine: checkScreenshot,
@@ -323,7 +342,25 @@ const pageTools: Tool[] = [
           landscape: args["landscape"],
           printBackground: args["printBackground"],
         });
-      const bytes = await port.screenshot(
+      if (Array.isArray(args["sizes"])) {
+        const result = await port.execute(
+          caller,
+          command(
+            "screenshot",
+            defined({ tabId, sizes: args["sizes"], fullPage: args["fullPage"] }),
+          ),
+          signal,
+        );
+        signal.throwIfAborted();
+        const set = BrowserScreenshotSet.parse(result);
+        return {
+          content: set.images.flatMap((image) => [
+            { type: "text", text: `${image.size}: ${image.width}×${image.height} CSS px` },
+            { type: "image", mimeType: image.mimeType, data: image.data },
+          ]),
+        };
+      }
+      const { bytes, geometry } = await port.screenshot(
         caller,
         {
           ...(tabId ? { tabId } : {}),
@@ -340,6 +377,7 @@ const pageTools: Tool[] = [
             mimeType: "image/jpeg",
             data: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64"),
           },
+          ...(geometry ? [{ type: "text", text: JSON.stringify(geometry) }] : []),
         ],
       };
     },
@@ -370,7 +408,7 @@ const pageTools: Tool[] = [
     name: "browser_evaluate",
     title: "Run page script",
     description:
-      "Evaluate a JavaScript expression in the page and return its JSON value. Use mode read-only for reads. Prefer browser_snapshot or browser_find for reading content.",
+      "Evaluate a JavaScript expression in the page and return its JSON value. mode read-only runs in an isolated world and refuses anything with a side effect; use it for reads. Prefer browser_snapshot or browser_find for reading content.",
     riskClass: "external-effect",
     input: browserEvaluateShape,
     timeoutMs: waitTimeoutMs,
@@ -395,7 +433,7 @@ const pageTools: Tool[] = [
     name: "browser_settings",
     title: "Browser settings",
     description:
-      "Resize a tab's viewport, emulate a device (scale, mobile, touch, colour scheme), start or stop a recording attached to the thread, list installed extensions, or close the whole browser.",
+      "Resize a tab's viewport, emulate a device (scale, mobile, touch, colour scheme, user agent), record one tab (yours, or tabId) to a thread artifact with record_start and record_stop, list installed extensions, or close the whole browser.",
     riskClass: "external-effect",
     input: browserSettingsShape,
     refine: checkSettings,
@@ -409,7 +447,8 @@ const pageTools: Tool[] = [
       if (action === "resize") return run(port, caller, signal, "resize", { tabId, width, height });
       if (action === "emulate")
         return run(port, caller, signal, "emulate", { tabId, width, height, ...rest });
-      // Recordings follow the tab the person views; extensions belong to the whole browser.
+      if (action === "record_start") return run(port, caller, signal, "record_start", { tabId });
+      // A recording stops wherever it runs; extensions belong to the whole browser.
       return run(port, caller, signal, String(action), {});
     },
   },
@@ -483,12 +522,17 @@ export function browserToolkit(
                 context,
               );
             const target = browser === "user" && user ? user : port;
-            return tool.run(
-              args,
-              { threadId: caller.threadId, agentId: caller.agentId },
-              target,
-              signal,
-            );
+            try {
+              return await tool.run(
+                args,
+                { threadId: caller.threadId, agentId: caller.agentId },
+                target,
+                signal,
+              );
+            } catch (error) {
+              // Engine failures with a meaning reach the agent as their code and a next step.
+              throw agentBrowserError(error);
+            }
           },
         });
       }

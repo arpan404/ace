@@ -2,12 +2,16 @@ import { ArrowClockwiseIcon, ArrowLeftIcon, ArrowRightIcon, XIcon } from "@phosp
 import type { ReactNode } from "react";
 import { TooltipSide } from "@/components/ui/tooltip.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import { cn } from "@/lib/cn.ts";
 
-const tool = "size-7 rounded-sm";
+/** A round control inside a pill: 28px in the pill's 32px, so the corners stay concentric. */
+const tool = "size-7 rounded-full";
 /** What a toolbar narrower than 28rem leaves out so the address keeps its room. */
 export const narrowHidden = "@max-[28rem]:hidden";
 /** Navigation, the address taking the room that is left, the tab's actions. */
 const columns = { gridTemplateColumns: "auto minmax(0, 1fr) auto" };
+/** Controls grouped on one quiet capsule, as one object. */
+export const toolPill = "flex h-8 shrink-0 items-center gap-0.5 rounded-full bg-foreground/5 p-0.5";
 
 /** One navigation control: available with `onClick` unless `disabled`. */
 export interface NavControl {
@@ -16,10 +20,15 @@ export interface NavControl {
   keys?: string | undefined;
 }
 
+/** Controls grouped on one pill (Extensions and Downloads, say). */
+export function ToolPill(props: { children: ReactNode; className?: string }) {
+  return <div className={cn(toolPill, props.className)}>{props.children}</div>;
+}
+
 /**
- * Back, Forward and Reload (Stop while loading, which the relay can't do yet). Every page-like
- * tab draws the same three, so the toolbar never changes shape between a new tab, a page and a
- * preview.
+ * Back and Forward, then Reload (Stop while loading) past a hairline, on one pill. Every
+ * page-like tab draws the same pill, so the toolbar never changes shape between a new tab, a
+ * page and a preview. `after` sits beside it on its own (Annotate).
  */
 export function PageNav(props: {
   back: NavControl;
@@ -27,7 +36,7 @@ export function PageNav(props: {
   reload: NavControl;
   stop?: NavControl;
   loading?: boolean;
-  /** A page tool drawn right after Reload (Annotate). */
+  /** A page tool drawn beside the pill (Annotate). */
   after?: ReactNode;
 }) {
   const control = (
@@ -47,22 +56,25 @@ export function PageNav(props: {
     />
   );
   return (
-    <div className="flex shrink-0 items-center">
-      {control("Back", ArrowLeftIcon, props.back)}
-      {/* A narrow toolbar keeps the address's room: Forward stays on ⌘]. */}
-      {control("Forward", ArrowRightIcon, props.forward, narrowHidden)}
-      {props.loading
-        ? control("Stop", XIcon, props.stop ?? {})
-        : control("Reload", ArrowClockwiseIcon, props.reload)}
+    <div className="flex shrink-0 items-center gap-1.5">
+      <div className={toolPill}>
+        {control("Back", ArrowLeftIcon, props.back)}
+        {/* A narrow toolbar keeps the address's room: Forward stays on ⌘]. */}
+        {control("Forward", ArrowRightIcon, props.forward, narrowHidden)}
+        <span aria-hidden className="mx-0.5 h-4 w-px bg-border" />
+        {props.loading
+          ? control("Stop", XIcon, props.stop ?? {})
+          : control("Reload", ArrowClockwiseIcon, props.reload)}
+      </div>
       {props.after}
     </div>
   );
 }
 
 /**
- * The 40px toolbar over every page-like tab (a new tab, a browser page, a preview, a port):
- * navigation on the left, the address capsule in the room between, the tab's actions on the
- * right, and a thin progress bar along the bottom edge while the page loads.
+ * The toolbar over every page-like tab (a new tab, a browser page, a preview, a port): the
+ * navigation pill on the left, the address pill in the room between, the tab's own pills on
+ * the right, and a thin progress bar along the bottom edge while the page loads.
  */
 export function PageToolbar(props: {
   nav: ReactNode;
@@ -70,24 +82,16 @@ export function PageToolbar(props: {
   actions?: ReactNode;
   /** What is loading, for the progress bar's name; no bar when undefined. */
   progress?: string | undefined;
-  /** An agent drives the page: the toolbar's edge breathes in the working colour. */
-  agent?: boolean;
 }) {
   return (
     <TooltipSide value="top">
       <div
         style={columns}
-        className="@container relative grid h-10 shrink-0 items-center gap-1 border-b px-2"
+        className="@container relative grid h-11 shrink-0 items-center gap-2 border-b px-2"
       >
         {props.nav}
         {props.address}
-        <div className="flex shrink-0 items-center justify-end gap-0.5">{props.actions}</div>
-        {props.agent && props.progress === undefined && (
-          <span
-            aria-hidden
-            className="absolute inset-x-0 -bottom-px h-px animate-pulse bg-status-working"
-          />
-        )}
+        <div className="flex shrink-0 items-center justify-end gap-1.5">{props.actions}</div>
         {props.progress !== undefined && (
           <span
             role="progressbar"
@@ -102,4 +106,7 @@ export function PageToolbar(props: {
   );
 }
 
+/** A round button on its own (Annotate, ⋯): the pill's size, alone. */
+export const roundButton = "size-8 rounded-full bg-foreground/5 hover:bg-foreground/10";
+/** A round control inside a `ToolPill`. */
 export const toolbarButton = tool;

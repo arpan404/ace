@@ -6,8 +6,9 @@ import { browserToolkit } from "./index.ts";
 import { backendFixture } from "./backend-test-support.ts";
 import { toolPort } from "./tool-port-test-support.ts";
 import { TestNavigationClock } from "./navigation-test-clock.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 
-it("takeover and handback invalidate both queued and resolving agent input", async () => {
+it("keeping agents out of a tab fails both queued and resolving agent input there", async () => {
   const f = await backendFixture({ backendPreference: () => "headless" });
   await f.open();
   const raw = await f.service.execute("thread", { action: "snapshot" });
@@ -29,17 +30,24 @@ it("takeover and handback invalidate both queued and resolving agent input", asy
     return send(method, params);
   };
   const first = f.service.execute("thread", { action: "type", ref, text: "in-flight" });
-  const rejectedFirst = expect(first).rejects.toMatchObject({ code: "controller_changed" });
+  // Turning private expires refs too: each fails one way or the other, untouched.
+  const refused = expect.stringMatching(/^(human_private|stale_ref)$/);
+  const rejectedFirst = expect(first).rejects.toMatchObject({ code: refused });
   await entered.promise;
   const second = f.service.execute("thread", { action: "type", ref, text: "queued" });
-  const rejectedSecond = expect(second).rejects.toMatchObject({ code: "controller_changed" });
-  f.service.takeover("thread", "person");
-  f.service.handback("thread", "person");
+  const rejectedSecond = expect(second).rejects.toMatchObject({ code: refused });
+  keepAgentsOut(f.service);
+  keepAgentsOut(f.service, "thread", false);
   release.resolve();
   await rejectedFirst;
   await rejectedSecond;
   expect(page.text).toBe("");
-  await f.service.execute("thread", { action: "type", ref, text: "fresh" });
+  // Privacy changes expire refs: the agent snapshots again and carries on.
+  const fresh = z
+    .object({ nodes: z.array(z.object({ ref: z.string().optional() })) })
+    .parse(await f.service.execute("thread", { action: "snapshot" })).nodes[0]?.ref;
+  if (!fresh) throw new Error("Missing ref");
+  await f.service.execute("thread", { action: "type", ref: fresh, text: "fresh" });
   expect(page.text).toBe("fresh");
 });
 

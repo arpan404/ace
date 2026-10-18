@@ -70,7 +70,7 @@ async function runMeasurement(
       context.read();
       frames.accept(raw);
     } catch {
-      /* A private takeover discards pixels immediately. */
+      /* A tab turning private discards pixels immediately. */
     }
   };
   const completed = Promise.withResolvers<void>();

@@ -2,9 +2,13 @@
 export type { OpenTab, WorkspaceActions } from "./actions.ts";
 export { useWorkspaceCommands, type WorkspaceCommand } from "./commands.ts";
 export {
+  activateTab,
+  closeTab,
   findTab,
+  openTab,
   shownTab,
   tabKey,
+  updateTab,
   type OpenRequest,
   type ScopeWorkspace,
   type WorkspaceTab,
@@ -34,5 +38,6 @@ export {
 export { defaultSize, WorkspaceStore, type ClosedTab } from "./store.ts";
 
 export { fileTab, fileTabId } from "./file-tab.ts";
+export { tabDragType } from "./drag.ts";
 
 export { attachWorkspaceScroll } from "./scroll.ts";

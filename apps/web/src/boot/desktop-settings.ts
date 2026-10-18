@@ -28,6 +28,8 @@ export const DesktopPreferences = z.looseObject({
   preventSleep: z.boolean().default(false),
   attention: z.boolean().default(true),
   globalShortcut: z.string().max(64).nullable().default(null),
+  /** Where this app's own browser saves downloads; null: the system's Downloads folder. */
+  browserDownloads: z.string().max(4096).nullable().default(null),
   notifications: Notifications,
 });
 export type DesktopPreferences = z.infer<typeof DesktopPreferences>;
@@ -37,6 +39,7 @@ export interface DesktopPreferencesPatch {
   preventSleep?: boolean;
   attention?: boolean;
   globalShortcut?: string | null;
+  browserDownloads?: string | null;
   notifications?: DesktopPreferences["notifications"];
 }
 

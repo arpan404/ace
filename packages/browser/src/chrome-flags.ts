@@ -5,6 +5,8 @@
  * - Extension debugging is what lets the CDP Extensions domain load unpacked extensions later.
  * - Pages render while unseen: ace's tabs live in hidden headless windows that are never focused.
  * - The device scale factor is process-wide: per-tab emulation does not raise screencast resolution.
+ * - Sound is off: Chrome has no per-tab mute over CDP, and the screencast carries no audio, so a
+ *   page here (an agent's, or one nobody watches) never plays on the daemon's machine.
  */
 export function chromeArgs(options: {
   profileDir: string;
@@ -25,6 +27,7 @@ export function chromeArgs(options: {
     "--disable-background-timer-throttling",
     "--disable-renderer-backgrounding",
     "--disable-backgrounding-occluded-windows",
+    "--mute-audio",
     ...(options.platform === "darwin" ? ["--use-mock-keychain"] : []),
     ...(options.platform === "linux" ? ["--password-store=basic"] : []),
     ...(options.deviceScaleFactor === 1

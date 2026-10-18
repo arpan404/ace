@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { ref, Snapshot } from "./test-support.ts";
 import { setup, tabs, executablePath, cleanups } from "./parity-test-support.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 it.skipIf(!executablePath)(
   "an opened tab is its own page while agent popups reuse the page that opened them",
@@ -177,10 +178,10 @@ it.skipIf(!executablePath)(
   },
 );
 it.skipIf(!executablePath)(
-  "private takeover blocks all agent reads and disconnect keeps the thread paused",
+  "a private tab blocks all agent reads, and stays private after the person disconnects",
   async () => {
     const f = await setup();
-    f.service.takeover("thread", "human", "private");
+    keepAgentsOut(f.service, "thread");
     for (const command of [
       { action: "snapshot" },
       { action: "screenshot" },
@@ -205,18 +206,16 @@ it.skipIf(!executablePath)(
       expect.objectContaining({ url: "about:blank" }),
     ]);
     f.service.disconnect("human");
-    expect(f.service.state("thread").status).toBe("paused");
     await expect(f.execute({ action: "snapshot" })).rejects.toMatchObject({
       code: "human_private",
     });
-    f.service.takeover("thread", "reconnected", "private");
-    f.service.handback("thread", "reconnected");
+    keepAgentsOut(f.service, "thread", false);
     expect(Snapshot.parse(await f.execute({ action: "snapshot" })).nodes.length).toBeGreaterThan(0);
   },
 );
 
 it.skipIf(!executablePath)(
-  "private takeover cancels an in-flight download without publishing its bytes",
+  "keeping agents out cancels an in-flight download without publishing its bytes",
   async () => {
     const f = await setup();
     await f.execute({
@@ -224,11 +223,11 @@ it.skipIf(!executablePath)(
       ref: ref(await f.execute({ action: "snapshot" }), "Slow download"),
     });
     await f.until(() => f.service.state("thread").downloads?.[0]?.state === "pending");
-    f.service.takeover("thread", "human", "private");
+    keepAgentsOut(f.service, "thread");
     f.finishSlow();
     await f.until(() => f.service.state("thread").downloads?.[0]?.state === "denied");
     expect(f.artifacts).toEqual([]);
-    f.service.handback("thread", "human");
+    keepAgentsOut(f.service, "thread", false);
     expect(f.service.state("thread").downloads?.[0]?.path).toBeUndefined();
   },
 );

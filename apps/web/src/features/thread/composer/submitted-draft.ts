@@ -1,4 +1,4 @@
-import type { ContentPart, MessageContext } from "@ace/protocol";
+import type { ContentPart, MessageContext, MessageContextItem } from "@ace/protocol";
 import { composerInput, type ComposerDraft, type KeyValueStorage } from "@ace/ui-core";
 import { mentionsIn } from "./draft.ts";
 import { readDraft, writeDraft } from "./draft-store.ts";
@@ -13,7 +13,9 @@ export function composerContent(draft: ComposerDraft) {
   const tokens = draft.tokens ?? [];
   return {
     input: composerInput(draft.text, tokens),
-    threadRefs: tokens.flatMap((token) => (token.thread ? [token.thread] : [])),
+    threadRefs: tokens.flatMap((token): MessageContextItem[] =>
+      token.thread ? [token.thread] : token.browserTab ? [token.browserTab] : [],
+    ),
     mentions: [
       ...mentionsIn(draft.text, new Set(draft.mentions)).filter(
         (mention) => !tokens.some((token) => token.file?.path === mention.path),
@@ -33,7 +35,8 @@ export function composerContent(draft: ComposerDraft) {
 function content(sent: SubmittedDraft) {
   return {
     input: sent.input,
-    threadRefs: sent.context?.items ?? [],
+    // Annotation refs come from the draft's annotations, which this compares separately.
+    threadRefs: (sent.context?.items ?? []).filter((item) => item.type !== "browser_annotations"),
     mentions: sent.context?.mentions ?? [],
     attachments: sent.context?.attachments ?? [],
   };

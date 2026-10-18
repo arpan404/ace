@@ -22,6 +22,7 @@ import { startFiles } from "./files.ts";
 import { startRelayKeys } from "./relay.ts";
 import { startPlugins } from "./plugins.ts";
 import { startBrowser } from "./browser.ts";
+import { startBrowsing } from "./browsing.ts";
 import { startUserBrowser } from "./user-browser.ts";
 import { startContext } from "./context.ts";
 import { startSettings } from "./settings.ts";
@@ -72,6 +73,7 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     after: ["settings", "userBrowser"],
     start: startBrowser,
   },
+  { name: "browsing", phase: "core", requires: [], after: ["browser"], start: startBrowsing },
   {
     name: "workspaceActions",
     phase: "core",
@@ -225,7 +227,7 @@ export function readyServices(
   services.handler = {
     handle: (command, store) =>
       services.asks?.resolve(command) ??
-      services.browserPrivateAnswers?.(command) ??
+      services.browserHelp?.resolve(command) ??
       handler.handle(command, store),
   };
 }

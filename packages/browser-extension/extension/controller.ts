@@ -4,10 +4,15 @@ import type {
   UserBrowserOperation,
   UserBrowserTab,
 } from "@ace/protocol";
-import type { ChromeApi, ChromeTab, DebuggeeSource } from "./chrome-api.ts";
+import type { ChromeApi, ChromeTab, DebuggeeSource, DebuggerSession } from "./chrome-api.ts";
 import { cdpAllowed, cdpNavigation, pageAllowed } from "./policy.ts";
+import { DownloadReporter } from "./downloads.ts";
 
 const groupTitle = "ace";
+/** Out-of-process iframes one controlled tab may expose; more are left out of reach. */
+const frameLimit = 64;
+/** Child debugger sessions, flattened: each out-of-process iframe gets its own session id. */
+const autoAttach = { autoAttach: true, waitForDebuggerOnStart: false, flatten: true };
 
 /** What the popup shows: the link to ace and every tab ace may touch. */
 export interface ControllerState {
@@ -26,18 +31,26 @@ export class Controller {
   private shared = new Set<number>();
   private agent = new Set<number>();
   private attached = new Set<number>();
+  private attaching = new Map<number, Promise<void>>();
+  /** An agent tab's popups: the popup's tab id to the agent tab whose page opened it. */
+  private openers = new Map<number, number>();
+  /** Each controlled tab's out-of-process iframe sessions. */
+  private frames = new Map<number, Set<string>>();
   private aceWindow: number | undefined;
   private aceGroup: number | undefined;
   private linkState: ControllerState["link"] = "offline";
   private linkDetail: string | undefined;
   private listeners = new Set<() => void>();
+  private downloads: DownloadReporter;
   constructor(chrome: ChromeApi, post: (message: UserBrowserExtensionMessage) => void) {
     this.chrome = chrome;
     this.post = post;
+    this.downloads = new DownloadReporter(chrome, post, () => Date.now());
     chrome.debugger.onEvent.addListener((source, method, params) =>
       this.cdpEvent(source, method, params),
     );
     chrome.debugger.onDetach.addListener((source, reason) => this.debuggerDetached(source, reason));
+    chrome.tabs.onCreated.addListener((tab) => void this.created(tab));
     chrome.tabs.onRemoved.addListener((tabId) => this.removed(tabId));
     chrome.tabs.onUpdated.addListener((tabId, change) => void this.updated(tabId, change));
   }
@@ -89,6 +102,12 @@ export class Controller {
         await this.detach(operation.tabId, "revoked", false);
         await this.publish();
         return null;
+      case "tabs.mute":
+        if (!this.shared.has(operation.tabId) && !this.agent.has(operation.tabId))
+          throw new Error("That tab is not shared with ace");
+        await this.chrome.tabs.update(operation.tabId, { muted: operation.muted });
+        await this.publish();
+        return null;
       case "tabs.close":
         if (!this.agent.has(operation.tabId)) throw new Error("ace closes only tabs it opened");
         await this.detach(operation.tabId, "closed", false);
@@ -97,7 +116,7 @@ export class Controller {
         await this.publish();
         return null;
       case "cdp":
-        return this.cdp(operation.tabId, operation.method, operation.params);
+        return this.cdp(operation.tabId, operation.method, operation.params, operation.sessionId);
       case "stop":
         await this.stop();
         return null;
@@ -120,6 +139,9 @@ export class Controller {
       active: tab.active,
       access: this.agent.has(tabId) ? "agent" : "shared",
       attached: this.attached.has(tabId),
+      ...(this.openers.has(tabId) ? { openerTabId: this.openers.get(tabId) } : {}),
+      audible: tab.audible ?? false,
+      muted: tab.mutedInfo?.muted ?? false,
     };
   }
   /** A new agent tab in ace's own unfocused window, grouped as "ace". */
@@ -145,8 +167,13 @@ export class Controller {
     if (tab?.id === undefined) throw new Error("Your browser did not open a tab");
     const tabId = tab.id;
     this.agent.add(tabId);
+    await this.quiet(tabId);
     await this.group(tabId, tab.windowId);
     return this.attach(tabId);
+  }
+  /** Agents' tabs start muted: their pages never play over what the person is doing. */
+  private async quiet(tabId: number): Promise<void> {
+    await this.chrome.tabs.update(tabId, { muted: true }).catch(() => {});
   }
   private async group(tabId: number, windowId: number): Promise<void> {
     if (!this.chrome.tabGroups) return;
@@ -170,18 +197,74 @@ export class Controller {
     if (!pageAllowed(tab.url || tab.pendingUrl || ""))
       throw new Error("ace can't work on this page");
     if (!this.attached.has(tabId)) {
-      await this.chrome.debugger.attach({ tabId }, "1.3");
-      this.attached.add(tabId);
+      let attaching = this.attaching.get(tabId);
+      if (!attaching) {
+        attaching = this.debug(tabId).finally(() => this.attaching.delete(tabId));
+        this.attaching.set(tabId, attaching);
+      }
+      await attaching;
     }
     await this.publish();
     return this.describe(tabId, await this.chrome.tabs.get(tabId));
+  }
+  /** Attaches the debugger to the tab; its frames follow with ace's first command. */
+  private async debug(tabId: number): Promise<void> {
+    await this.chrome.debugger.attach({ tabId }, "1.3");
+    this.attached.add(tabId);
+  }
+  /**
+   * Child sessions start with ace's first command on the tab, once ace listens: frames the page
+   * already has are reported then. Without them (a browser before 125) cross-site frames stay
+   * out of reach.
+   */
+  private async framesOn(tabId: number): Promise<void> {
+    if (this.frames.has(tabId)) return;
+    this.frames.set(tabId, new Set());
+    await this.chrome.debugger
+      .sendCommand({ tabId }, "Target.setAutoAttach", autoAttach)
+      .catch(() => {});
+  }
+  /** A child session of a controlled tab appeared: only iframes are relayed to ace. */
+  private childAttached(tabId: number, params: unknown): void {
+    const child = childSession(params);
+    const frames = this.frames.get(tabId);
+    if (!child || !frames || child.type !== "iframe" || frames.size >= frameLimit) return;
+    frames.add(child.sessionId);
+    // A cross-site frame inside this one gets its own session too.
+    void this.chrome.debugger
+      .sendCommand({ tabId, sessionId: child.sessionId }, "Target.setAutoAttach", autoAttach)
+      .catch(() => {});
+  }
+  private childDetached(tabId: number, params: unknown): void {
+    const child = childSession(params);
+    if (child) this.frames.get(tabId)?.delete(child.sessionId);
+  }
+  /** An agent tab's page opened a tab: it is the agents' too, in ace's group, controlled. */
+  private async created(tab: ChromeTab): Promise<void> {
+    const opener = tab.openerTabId;
+    if (tab.id === undefined || opener === undefined) return;
+    if (!this.agent.has(opener) || !this.attached.has(opener)) return;
+    if (!pageAllowed(tab.pendingUrl || tab.url || "")) return;
+    const tabId = tab.id;
+    this.agent.add(tabId);
+    this.openers.set(tabId, opener);
+    await this.quiet(tabId);
+    await this.group(tabId, tab.windowId);
+    await this.attach(tabId).catch(async () => {
+      this.agent.delete(tabId);
+      this.openers.delete(tabId);
+      await this.publish();
+    });
   }
   private async cdp(
     tabId: number,
     method: string,
     params: Record<string, unknown> | undefined,
+    sessionId?: string,
   ): Promise<unknown> {
     if (!this.attached.has(tabId)) throw new Error("That tab is not controlled by ace");
+    if (sessionId !== undefined && !this.frames.get(tabId)?.has(sessionId))
+      throw new Error("That frame is not controlled by ace");
     if (!cdpAllowed(method)) throw new Error(`ace for Chrome does not allow ${method}`);
     const navigation = cdpNavigation(method, params);
     if (navigation !== undefined && !pageAllowed(navigation))
@@ -192,7 +275,10 @@ export class Controller {
       (method === "Page.captureScreenshot" || method === "Page.startScreencast")
     )
       await this.chrome.tabs.update(tabId, { active: true });
-    return this.chrome.debugger.sendCommand({ tabId }, method, params);
+    const target: DebuggerSession = sessionId === undefined ? { tabId } : { tabId, sessionId };
+    const result = await this.chrome.debugger.sendCommand(target, method, params);
+    await this.framesOn(tabId);
+    return result;
   }
   private async detach(
     tabId: number,
@@ -200,6 +286,7 @@ export class Controller {
     report = true,
   ): Promise<void> {
     if (!this.attached.delete(tabId)) return;
+    this.frames.delete(tabId);
     await this.chrome.debugger.detach({ tabId }).catch(() => {});
     if (report)
       this.post({ type: "user_browser.event", event: { kind: "detached", tabId, reason } });
@@ -208,16 +295,28 @@ export class Controller {
     await Promise.all([...this.attached].map((tabId) => this.detach(tabId, reason)));
   }
   private cdpEvent(source: DebuggeeSource, method: string, params: unknown): void {
-    const tabId = source.tabId;
-    if (tabId === undefined || source.sessionId !== undefined || !this.attached.has(tabId)) return;
+    const { tabId, sessionId } = source;
+    if (tabId === undefined || !this.attached.has(tabId)) return;
+    if (method === "Target.attachedToTarget") this.childAttached(tabId, params);
+    if (method === "Target.detachedFromTarget") this.childDetached(tabId, params);
+    // Events of a child session ace does not control (a worker) stay here.
+    if (sessionId !== undefined && !this.frames.get(tabId)?.has(sessionId)) return;
+    if (sessionId === undefined) this.downloads.pageEvent(tabId, method, params);
     this.post({
       type: "user_browser.event",
-      event: { kind: "cdp", tabId, method, params: params ?? {} },
+      event: {
+        kind: "cdp",
+        tabId,
+        ...(sessionId === undefined ? {} : { sessionId }),
+        method,
+        params: params ?? {},
+      },
     });
   }
   private debuggerDetached(source: DebuggeeSource, reason: string): void {
     const tabId = source.tabId;
     if (tabId === undefined || !this.attached.delete(tabId)) return;
+    this.frames.delete(tabId);
     this.post({
       type: "user_browser.event",
       event: {
@@ -236,6 +335,8 @@ export class Controller {
   private removed(tabId: number): void {
     const shared = this.shared.delete(tabId);
     const known = this.agent.delete(tabId) || shared;
+    this.openers.delete(tabId);
+    this.frames.delete(tabId);
     if (this.attached.delete(tabId))
       this.post({
         type: "user_browser.event",
@@ -245,7 +346,13 @@ export class Controller {
   }
   private async updated(
     tabId: number,
-    change: { url?: string; title?: string; groupId?: number },
+    change: {
+      url?: string;
+      title?: string;
+      groupId?: number;
+      audible?: boolean;
+      mutedInfo?: { muted: boolean };
+    },
   ): Promise<void> {
     if (!this.shared.has(tabId) && !this.agent.has(tabId)) return;
     if (change.url !== undefined && !pageAllowed(change.url)) {
@@ -261,7 +368,13 @@ export class Controller {
       // Dragged out of ace's group: the tab is the person's now.
       this.agent.delete(tabId);
       await this.detach(tabId, "revoked");
-    } else if (change.url === undefined && change.title === undefined) return;
+    } else if (
+      change.url === undefined &&
+      change.title === undefined &&
+      change.audible === undefined &&
+      change.mutedInfo === undefined
+    )
+      return;
     await this.publish();
   }
   private async publish(): Promise<void> {
@@ -275,4 +388,14 @@ export class Controller {
   private changed(): void {
     for (const listener of this.listeners) listener();
   }
+}
+
+/** A `Target.attachedToTarget` or `detachedFromTarget` event's session and target type. */
+function childSession(params: unknown): { sessionId: string; type: string } | undefined {
+  if (typeof params !== "object" || params === null) return undefined;
+  const sessionId: unknown = Reflect.get(params, "sessionId");
+  const info: unknown = Reflect.get(params, "targetInfo");
+  const type: unknown = typeof info === "object" && info !== null ? Reflect.get(info, "type") : "";
+  if (typeof sessionId !== "string" || !sessionId || sessionId.length > 128) return undefined;
+  return { sessionId, type: typeof type === "string" ? type : "" };
 }

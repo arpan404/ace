@@ -8,6 +8,7 @@ const unused = async () => {
   throw new Error("not called");
 };
 import { executablePath, fixture, ref } from "./test-support.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 if (!executablePath)
   console.warn("Skipping interaction measurements: no isolated Chromium executable is available.");
@@ -69,10 +70,10 @@ describe.skipIf(!executablePath)("browser interaction measurements", () => {
     expect(Buffer.from(data, "base64").subarray(0, 2)).toEqual(Buffer.from([255, 216]));
     expect(data.length).toBeLessThanOrEqual(1024 * 1024);
   }, 60_000);
-  it("allows shared observations during human control and blocks measured agent input", async () => {
+  it("observes while the person works in the tab and stops at a private tab", async () => {
     const f = await fixture();
     await f.navigate();
-    f.service.takeover("thread", "human");
+    await f.service.input("thread", { kind: "key", event: "char", key: "x" }, "person");
     const observed = InteractionMeasurement.parse(
       await f.execute({
         action: "measure_interaction",
@@ -82,15 +83,7 @@ describe.skipIf(!executablePath)("browser interaction measurements", () => {
       }),
     );
     expect(observed.repeat?.runs).toHaveLength(2);
-    await expect(
-      f.execute({
-        action: "measure_interaction",
-        interaction: { action: "scroll", x: 0, y: 100 },
-        observeMs: 300,
-        filmstrip: false,
-      }),
-    ).rejects.toMatchObject({ code: "human_controlled" });
-    f.service.takeover("thread", "human", "private");
+    keepAgentsOut(f.service, "thread");
     await expect(
       f.execute({ action: "measure_interaction", observeMs: 300, filmstrip: false }),
     ).rejects.toMatchObject({ code: "human_private" });
@@ -122,7 +115,7 @@ it("measurement MCP validates bounded inputs and returns numbers plus an image",
       throw new Error("not called");
     },
     execute: async () => model,
-    screenshot: async () => Buffer.from("unused"),
+    screenshot: async () => ({ bytes: Buffer.from("unused") }),
     close: unused,
   }).register(registry);
   const credentials = new CredentialRegistry(() => "a".repeat(64));

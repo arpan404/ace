@@ -1,83 +1,19 @@
-import { once } from "node:events";
 import { createServer } from "node:http";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { WebSocketServer } from "ws";
 import { z } from "zod";
-import {
-  BrowserService,
-  UserChromeBackend,
-  UserChromeHub,
-  detectChromium,
-  type BackendOpen,
-  type UserChromeLink,
-} from "@ace/browser";
-import { BrowserOpen, UserBrowserRegister } from "@ace/protocol";
-import { launchTestChrome } from "./chrome-pipe-test-support.ts";
-import { extensionId } from "./extension-id.ts";
-import { writeExtension } from "./extension-files.ts";
-import { extensionDir, hostCredentialPath } from "./host-files.ts";
-import { installNativeHost } from "./install.ts";
+import { BrowserService, UserChromeBackend, detectChromium, type BackendOpen } from "@ace/browser";
+import { BrowserOpen } from "@ace/protocol";
+import { connectedBrowser, until } from "./my-chrome-test-support.ts";
 
 /** Chrome for Testing (ace's pinned build) when the run names one; any Chromium otherwise. */
 const executable = process.env.ACE_CHROMIUM_PATH ?? (await detectChromium());
-const token = "c".repeat(64);
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup().catch(() => {});
 }, 60_000);
-
-const until = async (check: () => boolean | Promise<boolean>, what: string) => {
-  for (let attempt = 0; attempt < 300; attempt++) {
-    if (await check()) return;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error(`Timed out waiting for ${what}`);
-};
-
-/** The daemon's socket edge: hello with the host credential, then a browser link on the hub. */
-async function daemonSocket(hub: UserChromeHub) {
-  const server = new WebSocketServer({ host: "127.0.0.1", port: 0, maxPayload: 1024 * 1024 });
-  await once(server, "listening");
-  server.on("connection", (socket) => {
-    let link: UserChromeLink | undefined;
-    let welcomed = false;
-    socket.on("message", (data) => {
-      const message = z.looseObject({ type: z.string() }).parse(JSON.parse(data.toString()));
-      if (!welcomed) {
-        welcomed = message.token === token;
-        if (welcomed) socket.send(JSON.stringify({ type: "welcome" }));
-        else socket.close(4001, "unauthorized");
-        return;
-      }
-      if (message.type === "user_browser.register") {
-        link = hub.register(UserBrowserRegister.parse(message).browser, {
-          send: (outgoing) => {
-            socket.send(JSON.stringify(outgoing));
-            return true;
-          },
-          close: () => socket.close(),
-        });
-        socket.send(
-          JSON.stringify({
-            type: "user_browser.registered",
-            requestId: message.requestId,
-            connectionId: link.connectionId,
-          }),
-        );
-      } else link?.handle(message);
-    });
-    socket.on("close", () => link?.close("Your browser disconnected"));
-  });
-  cleanups.push(async () => {
-    for (const client of server.clients) client.terminate();
-    await new Promise((resolve) => server.close(resolve));
-  });
-  return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-}
 
 async function fixtureSite() {
   const server = createServer((request, response) => {
@@ -104,72 +40,9 @@ const ref = (raw: unknown, name: string) => {
   return found;
 };
 
-/**
- * The person's browser with ace for Chrome loaded unpacked and the real native host registered
- * under its profile, connected to a daemon-side hub.
- */
-async function connectedBrowser(chromePath: string) {
-  const root = await mkdtemp(join(tmpdir(), "ace-my-chrome-"));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
-  const dataDir = join(root, "ace");
-  const userDataDir = join(root, "chrome");
-  await mkdir(dataDir, { recursive: true });
-  const hub = new UserChromeHub({
-    now: Date.now,
-    clock: {
-      now: () => performance.now(),
-      set: (delay, work) => {
-        const timer = setTimeout(work, delay);
-        return () => clearTimeout(timer);
-      },
-    },
-  });
-  cleanups.push(async () => hub.closeAll("test finished"));
-  await writeFile(join(dataDir, "daemon-endpoint"), await daemonSocket(hub));
-  await mkdir(join(dataDir, "user-browser"), { recursive: true });
-  await writeFile(
-    hostCredentialPath(dataDir),
-    JSON.stringify({
-      device: {
-        id: "host-device",
-        name: "ace for Chrome",
-        scopes: ["user-browser"],
-        createdAt: 1,
-        lastSeenAt: 1,
-        revokedAt: null,
-      },
-      token,
-    }),
-  );
-  await writeExtension(extensionDir(dataDir));
-  await installNativeHost({
-    platform: process.platform,
-    home: root,
-    dataDir,
-    node: process.execPath,
-    // A browser started with --user-data-dir reads hosts only from its own profile.
-    extraDirs: [join(userDataDir, "NativeMessagingHosts")],
-  });
-  const chrome = await launchTestChrome(chromePath, userDataDir);
-  cleanups.push(() => chrome.close());
-  const loaded = z
-    .object({ id: z.string() })
-    .parse(await chrome.send("Extensions.loadUnpacked", { path: extensionDir(dataDir) }));
-  expect(loaded.id).toBe(extensionId);
-  await until(() => hub.preferred() !== undefined, "the extension to register through its host");
-  // The person's view of the extension: its popup page, which talks to the service worker.
-  const popup = z.object({ targetId: z.string() }).parse(
-    await chrome.send("Target.createTarget", {
-      url: `chrome-extension://${extensionId}/popup.html`,
-    }),
-  ).targetId;
-  const asPerson = (expression: string) => chrome.evaluate(popup, expression);
-  return { hub, chrome, asPerson, root };
-}
-
 describe.skipIf(!executable || process.platform === "win32")("Use my Chrome end to end", () => {
   test("an agent drives its own tab in the person's browser through daemon, host and extension", async () => {
-    const browser = await connectedBrowser(executable ?? "");
+    const browser = await connectedBrowser(executable ?? "", cleanups);
     const site = await fixtureSite();
     const backend = new UserChromeBackend(browser.hub, process.platform);
     const service = new BrowserService({
@@ -208,8 +81,108 @@ describe.skipIf(!executable || process.platform === "win32")("Use my Chrome end 
     );
   }, 120_000);
 
+  test("an agent's click waits while the person moves the mouse in their own Chrome", async () => {
+    const browser = await connectedBrowser(executable ?? "", cleanups);
+    const site = await fixtureSite();
+    const quietMs = 2_500;
+    const service = new BrowserService({
+      dataDir: join(browser.root, "service"),
+      headlessBackend: new UserChromeBackend(browser.hub, process.platform),
+      backendPreference: () => "headless",
+      collaboration: {
+        quietMs,
+        maxWaitMs: 10_000,
+        inUseMs: 1_000,
+        followAfterMs: 1_000,
+        presentMs: 1_000,
+      },
+    });
+    cleanups.push(() => service.close());
+    await service.open({ threadId: "thread", workspaceId: "workspace" });
+    await service.execute("thread", { action: "navigate", url: `${site}/agent` });
+    const button = ref(await service.execute("thread", { action: "snapshot" }), "Press me");
+    // The person's own pointer in their browser: real input the extension's debugger never sees.
+    const page = (await browser.chrome.targets()).find((t) => t.url === `${site}/agent`);
+    const { sessionId } = z.object({ sessionId: z.string() }).parse(
+      await browser.chrome.send("Target.attachToTarget", {
+        targetId: page?.targetId,
+        flatten: true,
+      }),
+    );
+    for (const x of [10, 20, 30])
+      await browser.chrome.send(
+        "Input.dispatchMouseEvent",
+        { type: "mouseMoved", x, y: 200 },
+        sessionId,
+      );
+    const moved = Date.now();
+    // The report travels page, extension, host, daemon: give it a moment to arrive.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await service.execute("thread", { action: "click", ref: button });
+    expect(Date.now() - moved).toBeGreaterThanOrEqual(quietMs - 200);
+    expect(
+      await service.execute("thread", {
+        action: "evaluate",
+        expression: "document.getElementById('out').textContent",
+      }),
+    ).toBe("Clicked");
+    // The agent's own click is not mistaken for the person: the next input runs at once.
+    const started = Date.now();
+    await service.execute("thread", { action: "click", ref: button });
+    expect(Date.now() - started).toBeLessThan(quietMs - 500);
+  }, 120_000);
+
+  test("a shared tab reports the person's own input in their Chrome, never an agent's", async () => {
+    const browser = await connectedBrowser(executable ?? "", cleanups);
+    const site = await fixtureSite();
+    const backend = new UserChromeBackend(browser.hub, process.platform);
+    const { targetId } = z
+      .object({ targetId: z.string() })
+      .parse(await browser.chrome.send("Target.createTarget", { url: `${site}/mine` }));
+    const findTab = () =>
+      browser.asPerson(
+        `chrome.tabs.query({}).then((tabs) => tabs.find((tab) => (tab.url ?? "").endsWith("/mine"))?.id ?? -1)`,
+      );
+    await until(async () => (await findTab()) !== -1, "the person's tab to load");
+    const tabId = z.number().parse(await findTab());
+    await browser.asPerson(`chrome.runtime.sendMessage({ kind: "share", tabId: ${tabId} })`);
+    await until(() => backend.sharedTabs().length === 1, "the shared tab to reach ace");
+    const connectionId = backend.sharedTabs()[0]?.connectionId ?? "";
+    const lifetime = new AbortController();
+    cleanups.push(async () => lifetime.abort());
+    let reports = 0;
+    const session = await backend.claim(
+      {
+        options: BrowserOpen.parse({ threadId: "shared-thread", workspaceId: "workspace" }),
+        profileDir: browser.root,
+        signal: lifetime.signal,
+        allowed: async () => true,
+        humanInput: () => reports++,
+        navigation: () => {},
+        log: () => {},
+        lost: () => {},
+      },
+      { connectionId, tabId },
+    );
+    // An agent clicks and types: none of it is the person's.
+    await session.click(20, 20);
+    await session.insertText("agent");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(reports).toBe(0);
+    // The person types in the page they had open before sharing it.
+    const { sessionId } = z
+      .object({ sessionId: z.string() })
+      .parse(await browser.chrome.send("Target.attachToTarget", { targetId, flatten: true }));
+    await browser.chrome.send(
+      "Input.dispatchKeyEvent",
+      { type: "keyDown", key: "a", text: "a" },
+      sessionId,
+    );
+    await until(() => reports > 0, "the person's key press to reach ace");
+  }, 120_000);
+
   test("only a tab the person shared can be claimed, cookies stay out of reach, and un-sharing ends control", async () => {
-    const browser = await connectedBrowser(executable ?? "");
+    const browser = await connectedBrowser(executable ?? "", cleanups);
     const site = await fixtureSite();
     const backend = new UserChromeBackend(browser.hub, process.platform);
     await browser.chrome.send("Target.createTarget", { url: `${site}/mine` });

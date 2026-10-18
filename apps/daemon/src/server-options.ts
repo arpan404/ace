@@ -47,6 +47,8 @@ export interface ServerOptions {
   /** Detected dev servers per thread (`preview.request` list with suggestions). */
   previewSuggestions?: import("./preview-suggestions/tracker.ts").SuggestionTracker;
   automations?: Pick<import("@ace/automations").AutomationService, "handle">;
+  /** Threads whose browser an agent works in now (`browser.browsing.watch`). */
+  browsing?: import("./browsing.ts").BrowsingThreads;
   /** The Activity read cursor (`activity.reads`). */
   activityReads?: import("./activity-reads.ts").ActivityReads;
   /** Site and app icons for browser and computer-use steps. */

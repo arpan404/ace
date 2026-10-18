@@ -23,9 +23,12 @@ interface StructureContext {
 function visibleTabs(context: StructureContext, actor: Actor) {
   const listed = context.tabs.list(actor);
   if (actor.kind === "human") return listed;
-  return listed.map((tab) =>
-    tab.lease?.mode === "private" ? Object.assign({}, tab, { url: "about:blank", title: "" }) : tab,
-  );
+  return listed.map((tab) => {
+    if (!tab.private) return tab;
+    const hidden = Object.assign({}, tab, { url: "about:blank", title: "" });
+    delete hidden.favicon;
+    return hidden;
+  });
 }
 function result(context: StructureContext, actor: Actor, tabId?: string) {
   return {
@@ -51,29 +54,33 @@ export async function executeTabs(
       context.ready();
       const runtime = await tabs.structural(() => {
         signal?.throwIfAborted();
-        return tabs.open(actor, { label: command.label });
+        return tabs.open(actor, { label: command.label, keep: command.keep });
       });
       context.changed();
       if (command.url) await context.navigate(runtime, command.url, actor, signal);
       return result(context, actor, runtime.id);
     }
-    case "select":
-    case "switch": {
+    case "select": {
       const tabId = command.tabId ?? (actor.kind === "agent" ? undefined : tabs.viewedId());
       if (tabId === undefined) throw new BrowserActionError("invalid_arguments");
+      tabs.get(tabId).readCheck(actor);
       const runtime = await tabs.structural(() => tabs.select(actor, tabId));
       context.changed();
       if (command.url) await context.navigate(runtime, command.url, actor, signal);
       return result(context, actor, runtime.id);
     }
+    case "keep": {
+      // A deliverable or handoff outlives the agent's turn; `keep: false` makes it scratch again.
+      const runtime = tabs.resolve(actor, command.tabId);
+      runtime.readCheck(actor);
+      tabs.keep(runtime.id, command.keep ?? true);
+      context.changed();
+      return result(context, actor, runtime.id);
+    }
     case "close": {
       const runtime = tabs.resolve(actor, command.tabId);
+      // People close any tab; agents any tab but a private one.
       if (actor.kind === "agent") runtime.check(actor, signal);
-      else if (
-        runtime.ownership.owner !== undefined &&
-        runtime.ownership.owner !== actor.connectionId
-      )
-        throw new Error("Browser controller mismatch");
       if (tabs.last(runtime.id)) {
         await context.closeBrowser(actor, signal);
         return { closed: true };
@@ -92,8 +99,11 @@ export async function executeDownloads(
   clock: NavigationClock,
   signal?: AbortSignal,
 ): Promise<{ downloads: BrowserDownload[] }> {
+  const tabs = context.backend().tabs;
+  // The backend's browser keeps its own downloads (the person's Chrome): say so at once.
+  if (tabs && !tabs.downloads) throw new BrowserActionError("not_supported");
   const read = () =>
-    (context.backend().tabs?.downloads() ?? []).filter(
+    (tabs?.downloads?.() ?? []).filter(
       (download) => !command.tabId || download.tabId === command.tabId,
     );
   if (command.operation === "list") return { downloads: read() };

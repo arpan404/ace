@@ -45,7 +45,7 @@ async function annotating() {
   await screen.findByRole("feed", { name: "Transcript" });
   await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await within(panel).findByText("is browsing", { exact: false });
+  await within(panel).findByRole("combobox", { name: "Address" });
   const browser = app.daemon.browser;
   // The agent is on a web page of the project's dev server.
   act(() => browser.drive(threadId, { url: "http://localhost:5173/settings/devices" }));
@@ -90,8 +90,8 @@ test("pinned comments join the draft with their crops, and the page's Send sends
 
   await userEvent.click(annotateButton(panel));
   await waitFor(() => expect(browser.view(threadId)?.annotation?.owner).toBeTruthy());
-  // Annotating takes the page from the agent for as long as it lasts.
-  expect(browser.view(threadId)?.controller).toBe("human");
+  // Annotating takes nothing from the agent: it keeps working in the tab.
+  expect(browser.tab(threadId)?.inUse).toMatchObject({ kind: "agent" });
   expect(annotateButton(panel).getAttribute("aria-pressed")).toBe("true");
 
   act(
@@ -132,9 +132,8 @@ test("pinned comments join the draft with their crops, and the page's Send sends
     "annotation-2.png",
   ]);
 
-  // Sending leaves annotate mode, hands the page back and empties the composer.
+  // Sending leaves annotate mode and empties the composer.
   await waitFor(() => expect(browser.view(threadId)?.annotation).toBeUndefined());
-  await waitFor(() => expect(browser.view(threadId)?.controller).toBe("agent"));
   expect(screen.queryByRole("button", { name: /^Show \d+ annotation/ })).toBeNull();
   expect(message.textContent).toBe("");
 
@@ -191,7 +190,7 @@ test("the bar's screenshot copies the page with its markers and says so on the p
   expect(clipboard[0]?.type).toBe("image/png");
 });
 
-test("closing annotate mode from the page hands the page back and keeps the annotations in the draft", async () => {
+test("closing annotate mode from the page ends it and keeps the annotations in the draft", async () => {
   const { panel, browser } = await annotating();
   await userEvent.click(annotateButton(panel));
   await waitFor(() => expect(browser.view(threadId)?.annotation?.owner).toBeTruthy());
@@ -199,7 +198,7 @@ test("closing annotate mode from the page hands the page back and keeps the anno
   await screen.findByRole("button", { name: "Show 1 annotation" });
 
   act(() => browser.annotations.emit(threadId, { kind: "close" }));
-  await waitFor(() => expect(browser.view(threadId)?.controller).toBe("agent"));
+  await waitFor(() => expect(browser.view(threadId)?.annotation).toBeUndefined());
   await waitFor(() => expect(annotateButton(panel).getAttribute("aria-pressed")).toBe("false"));
   expect(screen.getByRole("button", { name: "Show 1 annotation" })).toBeTruthy();
 });
@@ -247,7 +246,11 @@ test("a draft's annotations come back after the thread is reopened, and annotati
   await waitFor(() => expect(annotateButton(reopened).getAttribute("aria-disabled")).toBeNull());
   commands.length = 0;
   await userEvent.click(annotateButton(reopened));
-  await waitFor(() => expect(commands).toContainEqual({ op: "restore", annotations: [pinned] }));
+  // The record comes back as pinned, with the tab it was made in.
+  const tabId = browser.view(threadId)?.activeTabId;
+  await waitFor(() =>
+    expect(commands).toContainEqual({ op: "restore", annotations: [{ ...pinned, tabId }] }),
+  );
 });
 
 test("keys typed at the page never reach the composer, even once the page stops taking them", async () => {
@@ -261,13 +264,186 @@ test("keys typed at the page never reach the composer, even once the page stops 
   await screen.findByRole("button", { name: "Show 1 annotation" });
   expect(browser.inputs.filter((entry) => entry.input.kind === "key").length).toBeGreaterThan(0);
 
-  // Annotate mode ends from the page and the agent has it back while the person is at it.
+  // Annotate mode ends from the page while the person is at it.
   act(() => browser.annotations.emit(threadId, { kind: "close" }));
-  await waitFor(() => expect(browser.view(threadId)?.controller).toBe("agent"));
+  await waitFor(() => expect(browser.view(threadId)?.annotation).toBeUndefined());
   await userEvent.keyboard("Rounder");
   await userEvent.click(within(panel).getByRole("img", { name: /Live view/ }));
   await userEvent.keyboard("corners{Enter}");
 
   expect(message.textContent).toBe("");
   expect(userMessages(app).length).toBe(before);
+});
+
+/** A page element as a region record names it. */
+const contained = (tag: string, text: string) => ({
+  tag,
+  text,
+  selector: `#${tag}`,
+  xpath: `/html/body/${tag}`,
+  box: { x: 0, y: 0, width: 10, height: 10 },
+});
+
+test("a dragged-out region joins the draft as a region that lists what it holds", async () => {
+  const { panel, browser } = await annotating();
+  await userEvent.click(annotateButton(panel));
+  await waitFor(() => expect(browser.view(threadId)?.annotation?.owner).toBeTruthy());
+  act(() =>
+    browser.annotations.emit(threadId, {
+      kind: "saved",
+      annotation: {
+        id: "region-1",
+        kind: "region",
+        number: 1,
+        documentId: "doc",
+        url: "http://localhost:5173/settings/devices",
+        title: "Devices",
+        point: { x: 0.5, y: 0.5 },
+        comment: "Too cramped",
+        element: contained("section", "Pair a device"),
+        region: {
+          box: { x: 40, y: 80, width: 400, height: 200 },
+          elements: [contained("button", "Get started"), contained("p", "Cancel any time")],
+        },
+        styles: [],
+        viewport: { width: 760, height: 900, devicePixelRatio: 2, scrollX: 0, scrollY: 0 },
+      },
+    }),
+  );
+  await userEvent.click(await screen.findByRole("button", { name: "Show 1 annotation" }));
+  const list = await screen.findByRole("list", { name: "Annotations" });
+  expect(within(list).getByText("region")).toBeTruthy();
+  expect(within(list).getByText("button “Get started”, p “Cancel any time”")).toBeTruthy();
+  expect(within(list).getByText("Too cramped")).toBeTruthy();
+  // The section around the region is context for the agent, not the row's text.
+  expect(within(list).queryByText("Pair a device")).toBeNull();
+});
+
+/** Page screenshots wait here until released, as a busy or slow page makes them wait. */
+function holdPageCaptures(browser: Awaited<ReturnType<typeof annotating>>["browser"]) {
+  const held: (() => void)[] = [];
+  const execute = browser.annotations.execute.bind(browser.annotations);
+  browser.annotations.execute = (thread, connection, command) => {
+    const result = execute(thread, connection, command);
+    if (command.action !== "annotate_capture" || command.target.kind !== "page") return result;
+    return new Promise((resolve) => held.push(() => resolve(result)));
+  };
+  return {
+    waiting: () => held.length,
+    release: () => {
+      for (const release of held.splice(0)) release();
+    },
+  };
+}
+
+/** jsdom has no object URLs: these stand in for the browser's, at its boundary. */
+const objectUrls = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+function previews() {
+  let next = 0;
+  URL.createObjectURL = () => `blob:test/${++next}`;
+  URL.revokeObjectURL = () => {};
+}
+afterEach(() => {
+  URL.createObjectURL = objectUrls.create;
+  URL.revokeObjectURL = objectUrls.revoke;
+});
+
+async function pinnedOne() {
+  const setup = await annotating();
+  await userEvent.type(setup.message, "Fix the heading");
+  await userEvent.click(annotateButton(setup.panel));
+  await waitFor(() => expect(setup.browser.view(threadId)?.annotation?.owner).toBeTruthy());
+  const capture = holdPageCaptures(setup.browser);
+  act(() => void setup.browser.annotations.pin(threadId, { comment: "Make this bolder" }));
+  await screen.findByRole("button", { name: "Show 1 annotation" });
+  return { ...setup, capture };
+}
+
+test("pressing Send in the page ends annotate mode and removes the overlay, even while the page's screenshot is still being taken", async () => {
+  const { app, panel, browser, capture } = await pinnedOne();
+  const before = userMessages(app).length;
+  act(() => browser.annotations.emit(threadId, { kind: "send" }));
+  await waitFor(() => expect(capture.waiting()).toBe(1));
+  await waitFor(() => expect(browser.view(threadId)?.annotation).toBeUndefined());
+  await waitFor(() => expect(annotateButton(panel).getAttribute("aria-pressed")).toBe("false"));
+  // The screenshot taken meanwhile still goes with the message.
+  capture.release();
+  await waitFor(() => expect(userMessages(app).slice(before)[0]?.attachments).toHaveLength(2));
+}, 20_000);
+
+test("the sent message appears immediately with its annotation card while the screenshot is still being captured and uploaded", async () => {
+  const { app, browser, capture } = await pinnedOne();
+  const before = userMessages(app).length;
+  const feed = screen.getByRole("feed", { name: "Transcript" });
+  const pressed = performance.now();
+  act(() => browser.annotations.emit(threadId, { kind: "send" }));
+  const bubble = await waitFor(() => within(feed).getByText("Fix the heading"), { interval: 5 });
+  const shown = performance.now() - pressed;
+  const row = bubble.closest(".group\\/bubble");
+  if (!(row instanceof HTMLElement)) throw new Error("no bubble");
+  expect(within(row).getByText("1 annotation")).toBeTruthy();
+  expect(shown).toBeLessThan(100);
+  expect(userMessages(app).length).toBe(before);
+
+  // The screenshot arrives later; the message then goes with every image.
+  await waitFor(() => expect(capture.waiting()).toBe(1));
+  capture.release();
+  const sent = await waitFor(() => {
+    const [latest] = userMessages(app).slice(before);
+    if (!latest?.attachments?.length) throw new Error("not sent yet");
+    return latest;
+  });
+  expect(sent.attachments?.map((file) => file.name)).toEqual([
+    "annotated-page-1.png",
+    "annotation-1.png",
+  ]);
+}, 20_000);
+
+test("the pending bubble shows annotation thumbnails, the screenshot's once it is taken", async () => {
+  previews();
+  const { browser, capture } = await pinnedOne();
+  const feed = screen.getByRole("feed", { name: "Transcript" });
+  act(() => browser.annotations.emit(threadId, { kind: "send" }));
+  const crop = await within(feed).findByRole("img", { name: "annotation-1.png" });
+  expect(crop.getAttribute("src")).toMatch(/^blob:test\//);
+  expect(within(feed).queryByRole("img", { name: "annotated-page-1.jpg" })).toBeNull();
+
+  await waitFor(() => expect(capture.waiting()).toBe(1));
+  capture.release();
+  await waitFor(() =>
+    expect(
+      within(feed)
+        .getAllByRole("img")
+        .filter((image) => image.getAttribute("src")?.startsWith("blob:test/")),
+    ).toHaveLength(2),
+  );
+}, 20_000);
+test("an annotation names the tab it was made in, so the agent can find its element there", async () => {
+  const { app, panel, browser } = await annotating();
+  const items: unknown[] = [];
+  const receive = app.daemon.command.bind(app.daemon);
+  app.daemon.command = (command) => {
+    if (command.payload.type === "thread.send") items.push(command.payload.context?.items);
+    return receive(command);
+  };
+  const tabId = browser.view(threadId)?.activeTabId;
+  await userEvent.click(annotateButton(panel));
+  await waitFor(() => expect(browser.view(threadId)?.annotation?.owner).toBeTruthy());
+  act(
+    () =>
+      void browser.annotations.pin(threadId, { comment: "Bigger", tag: "button", text: "Pair" }),
+  );
+  await screen.findByRole("button", { name: "Show 1 annotation" });
+
+  act(() => browser.annotations.emit(threadId, { kind: "send" }));
+  await waitFor(() =>
+    expect(items.at(-1)).toEqual([
+      {
+        type: "browser_annotations",
+        tabId,
+        url: "http://localhost:5173/settings/devices",
+        annotations: [{ number: 1, text: "Pair" }],
+      },
+    ]),
+  );
 });

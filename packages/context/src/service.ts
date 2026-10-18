@@ -172,7 +172,8 @@ export class ContextService {
       "forbidden",
       "Thread access denied",
     );
-    const references = context.items ?? [];
+    // Browser tabs are the daemon's to expand when the message is delivered, not context's.
+    const references = (context.items ?? []).filter((item) => item.type === "thread_ref");
     requireContext(
       references.reduce((sum, item) => sum + item.budgetBytes, 0) <= 32768,
       "quota",

@@ -53,50 +53,6 @@ it("a detached desktop view rejects its pending read and reopens on the survivin
   expect(f.headless.pages).toHaveLength(0);
 });
 
-it("desktop disconnection still emits loss and recovers after a controller lease error paused the page", async () => {
-  const f = await backendFixture({ backendLoss: () => "headless" });
-  await f.open();
-  await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/page" });
-  const paused = Promise.withResolvers<void>(),
-    ready = Promise.withResolvers<void>();
-  const events: BrowserBackendLost[] = [];
-  f.service.subscribe(
-    "thread",
-    "viewer",
-    { send: () => true },
-    (state) => {
-      if (state.status === "paused" && state.reason === "Lease refused") paused.resolve();
-      if (state.status === "ready" && state.backend === "headless") ready.resolve();
-    },
-    (event) => {
-      if (event.type === "browser.backend.lost") events.push(event);
-    },
-  );
-  f.failController("Lease refused");
-  f.service.takeover("thread", "human");
-  await paused.promise;
-  expect(events).toEqual([]);
-  await f.disconnect();
-  await ready.promise;
-  expect(events).toEqual([
-    expect.objectContaining({
-      threadId: "thread",
-      recovery: "headless",
-      url: "http://localhost:3000/page",
-      reason: "Desktop disconnected",
-    }),
-  ]);
-  expect(f.service.state("thread")).toMatchObject({
-    backend: "headless",
-    status: "ready",
-    controller: "human",
-    owner: "human",
-    pageStateLost: true,
-  });
-  await f.service.input("thread", { kind: "key", event: "char", key: "x" }, "human");
-  expect(f.headless.pages[0]?.text).toBe("x");
-});
-
 it("a dropped desktop link reports the page lost only once the desktop has had its chance to come back", async () => {
   const f = await backendFixture({ backendLoss: () => "pause", desktopReadoptionGraceMs: 300 });
   await f.open();

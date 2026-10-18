@@ -5,6 +5,9 @@ Date: 2026-10-17. Status: accepted. Amends [ADR 0009](0009-browser-service.md),
 
 Amended 2026-10-17 by [ADR 0083](0083-browser-v2-daemon-chrome.md): in the daemon's Chrome the overlay is reinstalled after a renderer crash, and annotate mode belongs to one tab's runtime.
 
+Amended 2026-10-17 (#942): the same technique draws agents' cursors in the page in every engine;
+see "Agent cursor" below.
+
 ## Context
 
 People reviewing a page in ace's Browser want to point at things: "this heading", "this
@@ -53,6 +56,15 @@ events inside the overlay are handled by the overlay and stopped before page lis
 shortcuts cannot swallow typing. Page listeners registered on `window` in the capture phase
 before the overlay still run first; this is a known limit of injecting into a loaded page.
 
+A primary press that moves 4 px or more before release is a drag instead of a click: a dashed
+marquee follows it, and release makes a region annotation (below); the click that ends a drag
+picks nothing. While Space is held with focus on the page (not in a page text field, not in the
+overlay's editor), pointer input passes through to the page untouched: no outline, no picking,
+no drag, frames take input again, and markers let clicks through. The Space key events are kept
+from the page, so it neither scrolls nor activates a focused control. Releasing Space, or the
+window losing focus, resumes annotating; a press that began while Space was held still delivers
+its release to the page.
+
 **Markers.** A marker sits just outside its element's top-left corner, so it never covers the
 start of the element's text; an element at the very top or left of the document has no room
 there and gets its marker just inside. `point` records where the person clicked, not where the
@@ -60,6 +72,19 @@ marker is drawn. The comment editor opens below the element (else above its mark
 it) so live previews stay visible. Deleting an annotation closes the gap: later numbers move
 down by one and each renumbered record is reported with `saved`. The client's draft keeps the
 same rule, and after removing a record on its side sends `renumber` and the next number.
+
+**Regions.** A record's `kind` is `element` (the default, so older records read unchanged) or
+`region`. A region carries `region.box`, the dragged area in document CSS px, and
+`region.elements`: up to eight page elements whose boxes are at least 60% inside it, outermost
+first in document order; when that is a single wrapper its children are named instead. Subtrees
+whose box misses the area are not walked. `element` is the smallest element containing the
+whole area, for context. The region keeps a dashed outline and its marker sits on its
+bottom-right corner; both are placed from document coordinates, so they follow page scrolling
+but not scrolling inside inner containers. A drag thinner than 8 px picks the element where it
+started. A region's crop is the area exactly, without the element margin. The style inspector
+is element-only: its button is disabled for a region and says why. The agent reads a region as
+`[3] Region x,y w×h containing: <button> "Get started", …` followed by its box, the element
+holding it and one line per contained element with its selector.
 
 **Style inspector and live edits.** The editor's sliders button opens an inspector for the
 element: text (only for an element without child elements, so no markup is lost), colours,
@@ -78,25 +103,39 @@ script for new documents. A cross-document main-frame navigation (`Page.frameNav
 a parent) ends annotate mode. Same-document navigations keep it, and markers whose elements
 leave the DOM hide until the elements return.
 
-**Ownership.** Annotate mode belongs to the person holding the page's control lease. Starting,
-driving and capturing are `browser.execute` commands that need the lease (`operate` scope) and
-a human actor; agents get `lease_required` and no MCP tool exists for them. One connection owns
+**Ownership.** Annotate mode belongs to the person's connection that started it (amended
+2026-10-17: there is no control lease; ADR 0067, Collaboration). Starting, driving and capturing
+are `browser.execute` commands for a human actor (`operate` scope); agents get `lease_required`
+and no MCP tool exists for them. Agents keep working in the tab meanwhile. One connection owns
 a session: its events go only to that connection through its browser subscription. A session
 ends, with an `ended` event to its owner, when:
 
 | Reason       | Cause                                                                      |
 | ------------ | -------------------------------------------------------------------------- |
 | `navigated`  | The top document navigated.                                                |
-| `lease`      | The owner handed back control.                                             |
+| `lease`      | Another of the person's connections started annotate mode on the page.     |
 | `tab`        | The active tab changed.                                                    |
 | `restart`    | The backend was lost or replaced, or the overlay could not be reinstalled. |
 | `disconnect` | The owning connection went away.                                           |
-| `stopped`    | The owner stopped it, the page's ✕ closed it, or the browser closed.       |
+| `stopped`    | The owner stopped it, the page's ✕ closed it, Send, or the browser closed. |
 
 When the desktop recovers a crashed renderer (`ace.rendererRestarted`), the CDP session that
 held the world and binding is gone. The daemon reinstalls the overlay on the reloaded page; it
 reports `ready` again with a new `documentId`, and the client restores its markers with the
 `restore` command.
+
+**The person's lane.** A person's annotate commands (start, page commands, captures, stop)
+run on the tab's person's lane, in order with the person's own input there, never behind agent
+commands, which may be waiting for the person to pause in the agent-input lane (ADR 0067,
+Collaboration). Stop always runs, whatever the tab's state. Commands without a `tabId` go to
+the tab the connection is annotating.
+
+**Send.** The bar's Send leaves annotate mode. The client sends the message at once: the draft
+counts a page screenshot from the moment it is asked for, so one still being taken travels with
+the message and uploads behind its bubble, which shows each image's local preview as soon as
+its bytes exist. Then the client asks for stop; on the person's lane it runs after the captures
+already asked for, so they still show the markers. If the owner has not stopped within 3 s of
+`send`, the daemon ends the session itself.
 
 **The daemon keeps no records.** Annotation records are composer draft data on the person's
 device. The daemon installs the overlay, relays its events, runs page commands and captures
@@ -118,6 +157,41 @@ host's backend node and removes its accessibility subtree from the top document'
 versioned `<browser_annotations version="1">` text part and the images, last and in fixed order.
 No daemon, engine or adapter change is involved.
 
+## Agent cursor (amendment, 2026-10-17, #942)
+
+Agents' cursors used to be drawn only by clients over the screencast, so the desktop's native
+view and Use my Chrome (ADR 0084) showed none. They are now drawn **in the page**, by a second
+bundle from this package (`src/cursor`, `cursor-bundle.gen.ts`, checked by `check:annotate`)
+evaluated in its own isolated world, `ace-cursor`, through the same CDP calls as the annotate
+overlay. It works unchanged in the native view (through `ace.tabs.cdp`), ace's Chrome and the
+person's own Chrome. Its host (`<ace-agent-cursor>`, closed shadow root, top layer, no pointer
+events) never takes input. The world has no binding: it only draws.
+
+- **Shape and colour.** The "Pebble" (`@ace/design-tokens/glyphs`), filled with the person's
+  accent and outlined in the colour that reads on it, with a soft shadow. Viewers report the
+  accent on screen in `BrowserCaptureViewport.cursor` (`fill`, `outline`) and again when the
+  theme, mode or accent changes; the last report wins for every tab. Before any report the
+  cursor uses ace's own accent.
+- **One cursor per agent**, labelled with the agent's name (subagents by name or role, the
+  thread's agent as "Agent", unnamed agents numbered). It leaves `inUseMs` after the agent's last
+  action. The daemon (`PageCursor`, one per tab) keeps the state and replays it into a new layer
+  after a top-frame navigation, a renderer restart or a replaced page; stale layers on a
+  re-adopted desktop view are torn down with the annotate overlay's.
+- **Cues.** The cursor glides to a click, hover, check or drag start and the input waits for the
+  glide (`agentCursor.glideMs`, 220 ms) so it lands under it; a click pulses a ring; typing moves
+  the cursor to the field and rings it; a scroll shows an arrow; a drag draws a dashed trail from
+  its start while the cursor glides to the drop.
+- **Out of the way.** The layer fades while the person uses the tab and returns once they have
+  paused for `quietMs`. A private tab tears it down. Agent snapshots omit its subtree like the
+  annotate overlay's. Captures for agents (screenshots, the person's annotation captures) hide it
+  and wait two frames first; during a recording it stays hidden, so recordings never show it,
+  and clients draw their own cursor over the live frames meanwhile. `BrowserState.features`
+  contains `page-cursor` when the daemon draws cursors; clients then draw none over frames
+  unless a recording runs (`BrowserState.recording`). Without the feature, clients draw it.
+
+The screencast the person watches shows the in-page cursor; that is the person's own view and
+not a capture for an agent.
+
 ## Wire
 
 - `BrowserCommand` adds `{ action: "annotate", operation: "start", config }`,
@@ -129,7 +203,8 @@ No daemon, engine or adapter change is involved.
   unknown kinds and fields; clients decode it with `BrowserAnnotationEvent`.
 - Page commands: `configure`, `edit`, `remove`, `clear`, `renumber`, `toast`, `restore`.
 - Overlay events: `ready`, `saved`, `removed`, `discard`, `screenshot`, `send`, `close`, `bar`.
-  The daemon adds `ended`. After relaying `close` it ends the session.
+  The daemon adds `ended`. After relaying `close` it ends the session; after `send`, within 3 s
+  unless the owner stops first.
 
 ## Consequences
 

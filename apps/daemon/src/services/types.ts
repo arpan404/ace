@@ -64,6 +64,10 @@ export interface Services {
   screen?: ScreenManager;
   /** `ask` questions waiting on the person. */
   asks?: import("../asks.ts").Asks;
+  /** Threads whose browser an agent works in now (the task list's indicator). */
+  browsing?: import("../browsing.ts").BrowsingThreads;
+  /** `browser_request_help` requests waiting on the person. */
+  browserHelp?: import("../browser-help.ts").BrowserHelp;
   devices?: DevicesService;
   accounts?: AccountService;
   accountManagement?: import("../account-management.ts").AccountManagement;
@@ -93,10 +97,6 @@ export interface Services {
   userBrowser?: import("../user-browser.ts").UserBrowserService;
   /** Threads' browsers in the person's own Chrome, for agent calls with `browser: "user"`. */
   userBrowserSessions?: BrowserService;
-  /** Refuses answers to a private-takeover hold; only handback releases it. */
-  browserPrivateAnswers?: (
-    command: import("@ace/protocol").Command,
-  ) => import("@ace/protocol").CommandResult | undefined;
   context: ContextService;
   settings: SettingsService;
   models: ModelCatalog;

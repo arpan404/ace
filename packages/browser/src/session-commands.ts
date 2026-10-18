@@ -10,20 +10,28 @@ import { join } from "node:path";
 import { writeFile } from "node:fs/promises";
 import type { BrowserBackendPage } from "./backend.ts";
 import { pngScreenshot, printPdf, screenshotRegion } from "./page-capture.ts";
+import { captureAtSizes } from "./responsive-capture.ts";
 import { BrowserActionError } from "./action-error.ts";
 import { waitForBrowser } from "./wait.ts";
 import { BrowserOriginError, browserOrigin } from "./policy.ts";
 import { NavigationTask } from "./navigation.ts";
+import { documentLoaded, networkIdle } from "./load-wait.ts";
 import { evaluatePage, evaluateReadOnly } from "./evaluation.ts";
+import { evaluateWithoutStorage } from "./storage-guard.ts";
 import { measureBrowserInteraction } from "./measurement.ts";
 import { uploadPaths } from "./uploads.ts";
 import { dragRefs } from "./drag.ts";
+import { keptText } from "./typing.ts";
 import { executeAnnotation } from "./annotation-commands.ts";
+import { emulateDevice, executePageTool, resizePage, type TabView } from "./page-tools.ts";
+import { executeContextCommand } from "./page-context.ts";
 import type { AnnotationSession } from "./annotation-session.ts";
 import type { SnapshotRefs } from "./refs.ts";
 import type { SessionLogs } from "./logs.ts";
 import type { NavigationPolicies } from "./policy-waits.ts";
 import type { Actor, SessionOptions } from "./session-options.ts";
+/** The largest screenshot a person's request gets back inline (base64), besides the file. */
+const inlineScreenshotBytes = 3 * 1024 * 1024;
 /** Commands that act on one tab; tab structure, downloads and extensions belong to the thread. */
 export type TabCommand = Exclude<BrowserCommand, { action: "tabs" | "downloads" | "extensions" }>;
 /** Parses a command that runs on a tab, such as a measured interaction or a popup navigation. */
@@ -37,6 +45,12 @@ export function tabCommand(raw: unknown): TabCommand {
     throw new BrowserActionError("invalid_arguments");
   return command;
 }
+interface CommandCursor {
+  point(at: { x: number; y: number }, click?: boolean): Promise<void>;
+  drag(from: { x: number; y: number }, to: { x: number; y: number }): Promise<void>;
+  typing(field: { x: number; y: number; width: number; height: number }): Promise<void>;
+  scroll(dx: number, dy: number): void;
+}
 interface CommandContext {
   options: SessionOptions;
   /** The tab this command runs on, and its page. */
@@ -47,6 +61,8 @@ interface CommandContext {
   navigate?: (() => Promise<void>) | undefined;
   refs: SnapshotRefs;
   annotation: AnnotationSession;
+  /** The tab's device and zoom, kept on the tab and listed with it. */
+  view: TabView;
   logs: SessionLogs;
   policies: NavigationPolicies;
   state(): BrowserState;
@@ -60,6 +76,19 @@ interface CommandContext {
     signal: AbortSignal | undefined,
     generation: number,
   ): { prepare(): void; send(): void };
+  /** The person works in this tab now (`presentMs`): agent typing keeps their text and focus. */
+  personPresent?(): boolean;
+  /** The person used the tab within `quietMs`: an agent's multi-step input stops. */
+  personBusy?(): boolean;
+  /** An agent pointed at this spot (CSS pixels); viewers draw its cursor there. */
+  point?(point: { x: number; y: number }): void;
+  /**
+   * The agent's cursor in the page, while one is drawn; each resolves once the cursor has
+   * landed, so the input that follows happens under it.
+   */
+  cursor?: CommandCursor | undefined;
+  /** Runs a capture with ace's page layers hidden and secret fields masked. */
+  capture<T>(work: () => Promise<T>): Promise<T>;
   emit(): void;
   run(
     command: TabCommand,
@@ -68,7 +97,7 @@ interface CommandContext {
     generation: number,
     beforeInput?: () => void,
   ): Promise<unknown>;
-  beginRecording(check: () => void): Promise<void>;
+  beginRecording(check: () => void, by: Actor): Promise<void>;
   finishRecording(): Promise<BrowserArtifact>;
 }
 export async function executeBrowserCommand(
@@ -83,8 +112,10 @@ export async function executeBrowserCommand(
   const cdp = page.cdp;
   switch (command.action) {
     case "annotate":
-    case "annotate_capture":
       return executeAnnotation(command, actor, cdp, context.annotation);
+    case "annotate_capture":
+      // The person's capture goes to the agent: no cursor and no secret in it.
+      return context.capture(() => executeAnnotation(command, actor, cdp, context.annotation));
     case "measure_interaction":
       return measureBrowserInteraction(
         {
@@ -122,8 +153,11 @@ export async function executeBrowserCommand(
       return pageHistory(cdp);
     case "history":
       context.check(actor, signal, generation);
-      return traverseHistory(cdp, command.direction, () =>
-        context.check(actor, signal, generation),
+      return traverseHistory(
+        cdp,
+        command.direction,
+        () => context.check(actor, signal, generation),
+        context.options.navigationClock,
       );
     case "find_text":
       context.read();
@@ -169,6 +203,13 @@ export async function executeBrowserCommand(
             ? context.navigate()
             : page.navigate(command.url, command.timeout + 65_000, task.signal);
         });
+        // The navigation has reached DOMContentLoaded; later stages share its deadline.
+        if (command.waitUntil !== "domcontentloaded")
+          await task.run(async () => {
+            const clock = context.options.navigationClock;
+            await documentLoaded(page, clock, task.signal);
+            if (command.waitUntil === "networkidle") await networkIdle(page, clock, task.signal);
+          });
         return context.state();
       } catch (error) {
         if (task.blocked)
@@ -199,6 +240,7 @@ export async function executeBrowserCommand(
           ...(command.ref ? { scope: command.ref } : {}),
           interactiveOnly: command.interactiveOnly,
           maxNodes: command.maxNodes,
+          depth: command.depth,
         })),
       };
     case "find": {
@@ -262,28 +304,30 @@ export async function executeBrowserCommand(
     }
     case "hover": {
       const dispatch = context.refDispatch(command.ref, actor, signal, generation);
-      const rect = await context.refs.bounds(command.ref, dispatch.prepare);
+      const { point } = await context.refs.target(command.ref, dispatch.prepare);
       dispatch.send();
-      await cdp.send("Input.dispatchMouseEvent", {
-        type: "mouseMoved",
-        x: rect.x + rect.width / 2,
-        y: rect.y + rect.height / 2,
-      });
+      context.point?.(point);
+      await context.cursor?.point(point);
+      await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...point });
       return { ok: true };
     }
     case "drag": {
       const from = context.refDispatch(command.ref, actor, signal, generation),
         to = context.refDispatch(command.toRef, actor, signal, generation);
       const document = context.refs.documentGuard();
-      const start = await context.refs.bounds(command.ref, from.prepare),
-        end = await context.refs.bounds(command.toRef, to.prepare);
+      const start = (await context.refs.target(command.ref, from.prepare)).point,
+        end = (await context.refs.target(command.toRef, to.prepare)).point;
+      context.point?.(end);
+      await context.cursor?.drag(start, end);
       await dragRefs(
         cdp,
-        { x: start.x + start.width / 2, y: start.y + start.height / 2 },
-        { x: end.x + end.width / 2, y: end.y + end.height / 2 },
+        start,
+        end,
         () => {
           from.send();
           to.send();
+          // The person came back mid-drag: the agent lets go rather than drag across them.
+          if (context.personBusy?.()) throw new BrowserActionError("human_active");
         },
         () => {
           context.check(actor, undefined, generation);
@@ -298,9 +342,11 @@ export async function executeBrowserCommand(
       const dispatch = context.refDispatch(command.ref, actor, signal, generation);
       const desired = command.action === "check";
       if ((await context.refs.checked(command.ref, dispatch.prepare)) !== desired) {
-        const rect = await context.refs.bounds(command.ref, dispatch.prepare);
+        const { point } = await context.refs.target(command.ref, dispatch.prepare);
         dispatch.send();
-        await page.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
+        context.point?.(point);
+        await context.cursor?.point(point, true);
+        await page.click(point.x, point.y);
         if ((await context.refs.checked(command.ref, dispatch.prepare)) !== desired)
           throw new BrowserActionError("element_unavailable");
       }
@@ -310,7 +356,7 @@ export async function executeBrowserCommand(
       if (!page.networkBody) throw new BrowserActionError("not_supported");
       return page.networkBody(command.requestId);
     case "record_start":
-      await context.beginRecording(() => context.check(actor, signal, generation));
+      await context.beginRecording(() => context.check(actor, signal, generation), actor);
       return { recording: true };
     case "record_stop":
       return context.finishRecording();
@@ -320,30 +366,28 @@ export async function executeBrowserCommand(
         if (command.x !== undefined || command.y !== undefined)
           throw new BrowserActionError("invalid_arguments");
         const dispatch = context.refDispatch(command.ref, actor, signal, generation);
-        const rect = await context.refs.bounds(command.ref, dispatch.prepare);
+        // Only where the element itself would take the click, once it holds still.
+        point = (await context.refs.target(command.ref, dispatch.prepare)).point;
         dispatch.send();
-        if (rect.width <= 0 || rect.height <= 0) throw new BrowserActionError("not_visible");
-        point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
       } else {
         if (command.x === undefined || command.y === undefined)
           throw new BrowserActionError("invalid_arguments");
         context.check(actor, signal, generation);
         point = { x: command.x, y: command.y };
       }
+      context.point?.(point);
+      await context.cursor?.point(point, true);
       context.beforeInput?.();
       await clickAt(page, point, command);
       return { ok: true };
     }
     case "fill_form": {
       // Each field is its own type step: a stale ref stops the form where it went stale.
+      let kept = false;
       for (const field of command.fields) {
-        const dispatch = context.refDispatch(field.ref, actor, signal, generation);
-        await context.refs.select(field.ref, dispatch.prepare);
-        dispatch.send();
-        context.beforeInput?.();
-        await page.insertText(field.value);
+        kept = (await typeInto(context, field.ref, field.value, actor, signal, generation)) || kept;
       }
-      return { ok: true, filled: command.fields.length };
+      return { ok: true, filled: command.fields.length, ...(kept ? keptText : {}) };
     }
     case "pdf": {
       context.read();
@@ -352,14 +396,10 @@ export async function executeBrowserCommand(
       if (actor.kind === "human") await context.options.artifact(pdf);
       return pdf;
     }
-    case "type": {
-      const dispatch = context.refDispatch(command.ref, actor, signal, generation);
-      await context.refs.select(command.ref, dispatch.prepare);
-      dispatch.send();
-      context.beforeInput?.();
-      await page.insertText(command.text);
-      return { ok: true };
-    }
+    case "type":
+      return (await typeInto(context, command.ref, command.text, actor, signal, generation))
+        ? { ok: true, ...keptText }
+        : { ok: true };
     case "press": {
       const dispatch = command.ref
         ? context.refDispatch(command.ref, actor, signal, generation)
@@ -375,13 +415,14 @@ export async function executeBrowserCommand(
     }
     case "scroll":
       context.check(actor, signal, generation);
+      context.cursor?.scroll(command.x, command.y);
       context.beforeInput?.();
       await page.wheel(command.x, command.y);
       return { ok: true };
     case "wait_for":
       return waitForBrowser({
         command,
-        cdp,
+        page,
         refs: context.refs,
         clock: context.options.navigationClock,
         policies: context.policies,
@@ -399,38 +440,52 @@ export async function executeBrowserCommand(
         },
       });
     case "screenshot": {
+      if (command.sizes) {
+        if (command.ref) throw new BrowserActionError("invalid_arguments");
+        return screenshotAtSizes(command.sizes, command.fullPage, actor, context);
+      }
       const path = join(dir, `${id()}.png`);
       const region = await screenshotRegion(command, context.refs, context.read);
-      const bytes = await pngScreenshot(page, region);
+      const bytes = await context.capture(() => pngScreenshot(page, region));
       context.read();
       await writeFile(path, bytes, { mode: 0o600 });
       // A person's capture is kept like a recording; agents read theirs as tool images.
-      if (actor.kind === "human")
+      if (actor.kind === "human") {
         await context.options.artifact({ path, mimeType: "image/png", bytes: bytes.byteLength });
+        // Small enough to send back, the picture comes too, so the person can copy it.
+        if (bytes.byteLength <= inlineScreenshotBytes)
+          return { path, mimeType: "image/png", data: bytes.toString("base64") };
+      }
       return { path, mimeType: "image/png" };
     }
     case "logs":
       await context.logs.flush();
       return context.logs.read(command);
-    case "resize":
-      context.check(actor, signal, generation);
-      await page.resize(command.width, command.height);
+    case "resize": {
+      const before = context.view.emulation;
+      await resizePage(command, actor, page, context.view, () =>
+        context.check(actor, signal, generation),
+      );
+      if (before !== context.view.emulation) context.emit();
       return { ok: true };
+    }
     case "emulate":
-      context.check(actor, signal, generation);
-      await page.resize(command.width, command.height);
-      context.check(actor, signal, generation);
-      await cdp.send("Emulation.setDeviceMetricsOverride", {
-        width: command.width,
-        height: command.height,
-        deviceScaleFactor: command.deviceScaleFactor,
-        mobile: command.mobile,
-      });
-      context.check(actor, signal, generation);
-      await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: command.touch });
-      context.check(actor, signal, generation);
-      await page.media(command.colorScheme);
+      await emulateDevice(command, actor, page, context.view, () =>
+        context.check(actor, signal, generation),
+      );
+      context.emit();
       return { ok: true };
+    case "context_target":
+    case "image_data":
+      return executeContextCommand(command, actor, page, context.read);
+    case "zoom":
+    case "clear_data":
+    case "page_source":
+      return executePageTool(command, actor, page, context.view, {
+        check: () => context.check(actor, signal, generation),
+        read: context.read,
+        changed: () => context.emit(),
+      });
     case "evaluate": {
       const document = context.refs.documentGuard();
       if (
@@ -440,6 +495,16 @@ export async function executeBrowserCommand(
         throw new BrowserActionError("evaluate_approval_required");
       context.check(actor, signal, generation);
       document();
+      // The person's own browser keeps its cookies and storage from agents unless they allow it.
+      if (
+        actor.kind === "agent" &&
+        context.options.backendKind === "user" &&
+        !(await context.options.storageReads?.())
+      )
+        return evaluateWithoutStorage(cdp, command.expression, command.mode, () => {
+          context.check(actor, signal, generation);
+          document();
+        });
       return command.mode === "read-only"
         ? evaluateReadOnly(cdp, command.expression, () => {
             context.check(actor, signal, generation);
@@ -448,6 +513,76 @@ export async function executeBrowserCommand(
         : evaluatePage(cdp, command.expression);
     }
   }
+}
+
+/**
+ * Types into one field. While the person works in the tab, the field's text is kept and the
+ * person's focus and caret come back; otherwise the agent's text replaces the field's.
+ * Returns whether the field's text was kept.
+ */
+async function typeInto(
+  context: CommandContext,
+  ref: string,
+  text: string,
+  actor: Actor,
+  signal: AbortSignal | undefined,
+  generation: number,
+): Promise<boolean> {
+  const dispatch = context.refDispatch(ref, actor, signal, generation);
+  // The agent's cursor goes to the field first, so the text appears under it.
+  if (context.cursor) await context.cursor.typing(await context.refs.bounds(ref, dispatch.prepare));
+  if (actor.kind === "agent" && context.personPresent?.()) {
+    dispatch.send();
+    context.beforeInput?.();
+    return context.refs.typeKeeping(ref, text, dispatch.send);
+  }
+  await context.refs.select(ref, dispatch.prepare);
+  dispatch.send();
+  context.beforeInput?.();
+  await context.page.insertText(text);
+  return false;
+}
+
+/**
+ * The page at each responsive size, one image each. A person's captures are also kept at full
+ * resolution as thread artifacts; an agent gets the images only.
+ */
+async function screenshotAtSizes(
+  sizes: NonNullable<Extract<TabCommand, { action: "screenshot" }>["sizes"]>,
+  fullPage: boolean,
+  actor: Actor,
+  context: CommandContext,
+) {
+  const human = actor.kind === "human";
+  const captures = await captureAtSizes(context.page, sizes, {
+    fullPage,
+    png: human,
+    emulation: context.view.emulation,
+    check: () => context.read(),
+  });
+  context.read();
+  const images = [];
+  for (const capture of captures) {
+    let path: string | undefined;
+    if (capture.png) {
+      path = join(context.options.dir, `${context.options.id()}-${capture.size}.png`);
+      await writeFile(path, capture.png, { mode: 0o600 });
+      await context.options.artifact({
+        path,
+        mimeType: "image/png",
+        bytes: capture.png.byteLength,
+      });
+    }
+    images.push({
+      size: capture.size,
+      width: capture.width,
+      height: capture.height,
+      mimeType: "image/jpeg" as const,
+      data: capture.jpeg.toString("base64"),
+      ...(path ? { path } : {}),
+    });
+  }
+  return { images };
 }
 
 const modifierBits = { Alt: 1, Control: 2, Meta: 4, Shift: 8 } as const;

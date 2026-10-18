@@ -1,9 +1,9 @@
 import {
+  BrowserIcon,
   FileTextIcon,
   HardDriveIcon,
   BellIcon,
   CodeIcon,
-  CursorClickIcon,
   KeyboardIcon,
   LaptopIcon,
   PaletteIcon,
@@ -11,6 +11,7 @@ import {
   SlidersHorizontalIcon,
   WrenchIcon,
 } from "@phosphor-icons/react";
+import { ComputerUseIcon } from "@/components/ace-icons.tsx";
 import type { IconGlyph } from "@/components/icon.tsx";
 
 export type SettingsPath =
@@ -22,6 +23,7 @@ export type SettingsPath =
   | "/settings/source-control"
   | "/settings/remote"
   | "/settings/computer-use"
+  | "/settings/browser"
   | "/settings/keyboard"
   | "/settings/advanced"
   | "/settings/storage";
@@ -34,7 +36,8 @@ export const settingsPages: readonly { to: SettingsPath; title: string; icon: Ic
   { to: "/settings/notifications", title: "Notifications", icon: BellIcon },
   { to: "/settings/source-control", title: "Source control", icon: CodeIcon },
   { to: "/settings/remote", title: "Remote devices", icon: LaptopIcon },
-  { to: "/settings/computer-use", title: "Computer use", icon: CursorClickIcon },
+  { to: "/settings/computer-use", title: "Computer use", icon: ComputerUseIcon },
+  { to: "/settings/browser", title: "Browser", icon: BrowserIcon },
   { to: "/settings/keyboard", title: "Keyboard", icon: KeyboardIcon },
   { to: "/settings/storage", title: "Storage", icon: HardDriveIcon },
   { to: "/settings/advanced", title: "Advanced", icon: WrenchIcon },

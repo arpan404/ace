@@ -58,3 +58,18 @@ it("six consented downloads all complete with only four transferring at a time",
   for (const file of files.slice(2)) file.finish();
   expect(completed).toEqual(started);
 });
+
+it("the person's chosen folder travels with each download to the daemon, read when it starts", () => {
+  const events: unknown[] = [];
+  let folder: string | undefined = "/Users/me/Downloads";
+  const downloads = new NativeDownloads(
+    "/tmp/staging",
+    (method, params) => method === "ace.download.started" && events.push(params),
+    () => folder,
+  );
+  downloads.accept(new Download());
+  folder = undefined;
+  downloads.accept(new Download());
+  expect(events).toMatchObject([{ folder: "/Users/me/Downloads" }, {}]);
+  expect(events[1]).not.toHaveProperty("folder");
+});

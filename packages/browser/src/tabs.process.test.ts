@@ -13,7 +13,8 @@ const Tabs = z.object({
       url: z.string(),
       label: z.string().optional(),
       current: z.boolean().optional(),
-      lease: z.object({ controller: z.string(), mode: z.string() }).optional(),
+      private: z.boolean().optional(),
+      inUse: z.object({ kind: z.string(), agentId: z.string().optional() }).optional(),
     }),
   ),
 });
@@ -95,10 +96,10 @@ describe.skipIf(!executablePath)("tabs in one thread's browser", () => {
     expect(f.service.state("thread").activeTabId).toBe(viewed);
   }, 60_000);
 
-  it("a person holding one tab does not block an agent in another", async () => {
+  it("the person busy in one tab never slows an agent in another, which is marked in use", async () => {
     const f = await fixture();
     await f.navigate();
-    const held = f.service.state("thread").activeTabId;
+    const busy = f.service.state("thread").activeTabId;
     const free = Opened.parse(
       await f.service.execute(
         "thread",
@@ -106,39 +107,22 @@ describe.skipIf(!executablePath)("tabs in one thread's browser", () => {
         agent("worker"),
       ),
     ).tabId;
-    f.service.takeover("thread", "person", "shared", held);
-    const name = ref(
-      await f.service.execute("thread", { action: "snapshot", tabId: held }, agent("worker")),
-      "Name",
-    );
-    await expect(
-      f.service.execute(
-        "thread",
-        { action: "type", tabId: held, ref: name, text: "no" },
-        agent("worker"),
-      ),
-    ).rejects.toMatchObject({ code: "human_controlled" });
+    await f.service.input("thread", { kind: "key", event: "char", key: "x" }, "person", busy);
     const freeName = ref(
       await f.service.execute("thread", { action: "snapshot", tabId: free }, agent("worker")),
       "Name",
     );
+    const started = Date.now();
     await f.service.execute(
       "thread",
       { action: "type", tabId: free, ref: freeName, text: "yes" },
       agent("worker"),
     );
-    expect(
-      await f.service.execute(
-        "thread",
-        { action: "evaluate", tabId: free, expression: "document.querySelector('input').value" },
-        agent("worker"),
-      ),
-    ).toBe("yes");
-    expect(
-      Tabs.parse(await f.service.execute("thread", { action: "tabs" }, person)).tabs.find(
-        (tab) => tab.tabId === held,
-      ),
-    ).toMatchObject({ lease: { controller: "human", mode: "shared" } });
+    expect(Date.now() - started).toBeLessThan(1_000);
+    const tabs = Tabs.parse(await f.service.execute("thread", { action: "tabs" }, person)).tabs;
+    expect(tabs.find((tab) => tab.tabId === free)).toMatchObject({
+      inUse: { kind: "agent", agentId: "worker" },
+    });
   }, 60_000);
 
   it("a private tab refuses agents while they keep working in another tab", async () => {
@@ -152,7 +136,8 @@ describe.skipIf(!executablePath)("tabs in one thread's browser", () => {
         agent("worker"),
       ),
     ).tabId;
-    f.service.takeover("thread", "person", "private", hidden);
+    if (!hidden) throw new Error("No viewed tab");
+    f.service.setPrivate("thread", hidden, true);
     for (const command of [
       { action: "snapshot", tabId: hidden },
       { action: "evaluate", tabId: hidden, expression: "document.title", mode: "read-only" },
@@ -173,7 +158,7 @@ describe.skipIf(!executablePath)("tabs in one thread's browser", () => {
     const listed = Tabs.parse(
       await f.service.execute("thread", { action: "tabs" }, agent("worker")),
     ).tabs.find((tab) => tab.tabId === hidden);
-    expect(listed).toMatchObject({ url: "about:blank", lease: { mode: "private" } });
+    expect(listed).toMatchObject({ url: "about:blank", private: true });
   }, 60_000);
 
   it("an agent can open eight tabs and no more, while another agent still can", async () => {

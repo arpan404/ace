@@ -30,6 +30,12 @@ export function ref(raw: unknown, name: string): string {
   if (!node?.ref) throw new Error(`No snapshot ref for ${name}`);
   return node.ref;
 }
+/** A 1×1 PNG the fixture serves at /pixel.png. */
+export const pixelPng = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
 /** A ref from snapshot text lines such as `- button "Save" [ref=e1-12]`. */
 export function textRef(text: string, role: string, name: string): string {
   const quoted = JSON.stringify(name);
@@ -87,6 +93,11 @@ export async function fixture(options: Partial<BrowserServiceOptions> = {}) {
     }
     if (request.url === "/data") {
       response.end("response-data");
+      return;
+    }
+    if (request.url === "/pixel.png") {
+      response.setHeader("Content-Type", "image/png");
+      response.end(pixelPng);
       return;
     }
     if (request.url === "/iframe") {

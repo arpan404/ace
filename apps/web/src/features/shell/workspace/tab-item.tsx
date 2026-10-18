@@ -9,11 +9,15 @@ import {
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { Tip, Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
-import type { WorkspaceActions, WorkspaceDefinition, WorkspaceTab } from "@/lib/workspace/index.ts";
+import {
+  tabDragType,
+  type WorkspaceActions,
+  type WorkspaceDefinition,
+  type WorkspaceTab,
+} from "@/lib/workspace/index.ts";
 import { tabDomId } from "./tab-content.tsx";
 
-/** Dragged tabs carry their key under this type, so a strip can tell a tab drag from a file. */
-export const tabDragType = "application/x-ace-workspace-tab";
+export { tabDragType };
 
 export type DropSide = "before" | "after";
 

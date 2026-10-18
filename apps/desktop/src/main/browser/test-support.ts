@@ -18,7 +18,8 @@ export class FakePage implements ViewPage {
   orphaned = false;
   adoptions = 0;
   private events = new Set<(method: string, params: unknown) => void>();
-  private blocked = new Set<() => void>();
+  private humanInput = new Set<(tabId?: string) => void>();
+  agentControl = false;
   private navigationSequence = 0;
 
   async cdp(method: string, params?: Record<string, unknown>): Promise<unknown> {
@@ -43,9 +44,9 @@ export class FakePage implements ViewPage {
     this.events.add(listener);
     return () => this.events.delete(listener);
   }
-  onBlockedInput(listener: () => void): () => void {
-    this.blocked.add(listener);
-    return () => this.blocked.delete(listener);
+  onHumanInput(listener: (tabId?: string) => void): () => void {
+    this.humanInput.add(listener);
+    return () => this.humanInput.delete(listener);
   }
   async navigate(url: string): Promise<string> {
     this.address = url;
@@ -59,6 +60,9 @@ export class FakePage implements ViewPage {
   }
   setNativeInput(enabled: boolean): void {
     this.nativeInput = enabled;
+  }
+  setAgentControl(agent: boolean): void {
+    this.agentControl = agent;
   }
   url(): string {
     return this.address;
@@ -88,10 +92,10 @@ export class FakePage implements ViewPage {
   emit(method: string, params: unknown): void {
     for (const listener of this.events) listener(method, params);
   }
-  /** The person clicks in the view; the view reports it only while native input is off. */
+  /** The person clicks in the view, which reports it while it takes their input. */
   personClicks(): void {
-    if (this.nativeInput) return;
-    for (const listener of this.blocked) listener();
+    if (!this.nativeInput) return;
+    for (const listener of this.humanInput) listener();
   }
   acks(): number {
     return this.calls.filter((call) => call.method === "Page.screencastFrameAck").length;
@@ -131,10 +135,13 @@ export function screencastFrame(frameId: number, data: string) {
   return { sessionId: frameId, data, metadata: { deviceWidth: 1280, deviceHeight: 720 } };
 }
 
-/** One native tab's view: where its group last placed it and whether agents hold it. */
+/** One native tab's view: where its group last placed it and whether an agent uses it. */
 export class TabPage extends FakePage {
   shown = false;
   agent = true;
+  async picture() {
+    return this.shown ? "data:image/png;base64,AA==" : undefined;
+  }
   viewport() {
     return { width: 800, height: 600 };
   }
@@ -145,7 +152,7 @@ export class TabPage extends FakePage {
   isShown() {
     return this.shown;
   }
-  setAgentControl(agent: boolean) {
+  override setAgentControl(agent: boolean) {
     this.agent = agent;
   }
 }

@@ -26,7 +26,7 @@
     },
     "items": {
       "items": {
-        "$ref": "https://ace.local/protocol/v1/ThreadRefContextItem.json"
+        "$ref": "https://ace.local/protocol/v1/MessageContextItem.json"
       },
       "maxItems": 32,
       "type": "array"

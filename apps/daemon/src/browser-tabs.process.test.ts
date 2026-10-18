@@ -161,7 +161,7 @@ describe.skipIf(!executablePath)("browser tabs through the daemon", () => {
     );
   }, 90_000);
 
-  it("a restarted daemon brings a thread's tabs back with the same ids, labels and cookies", async () => {
+  it("a restarted daemon brings a thread's tabs back with the same ids, labels, privacy, keeps and cookies", async () => {
     const home = await mkdtemp(join(tmpdir(), "ace-browser-restore-"));
     onTestFinished(() => rm(home, { recursive: true, force: true }));
     const url = await site();
@@ -185,10 +185,11 @@ describe.skipIf(!executablePath)("browser tabs through the daemon", () => {
     const side = Opened.parse(
       await first.browser.execute(
         thread.id,
-        { action: "tabs", operation: "open", url: `${url}/side`, label: "side" },
+        { action: "tabs", operation: "open", url: `${url}/side`, label: "side", keep: true },
         worker,
       ),
     ).tabId;
+    first.browser.setPrivate(thread.id, side, true);
     const before = first.browser.state(thread.id).tabs?.map((tab) => [tab.tabId, tab.url]);
     await first.stop();
 
@@ -200,7 +201,12 @@ describe.skipIf(!executablePath)("browser tabs through the daemon", () => {
     expect(restored.tabs?.find((tab) => tab.tabId === side)).toMatchObject({
       label: "side",
       openedBy: { kind: "agent", agentId: "worker" },
+      private: true,
+      kept: true,
     });
+    await expect(
+      second.browser.execute(thread.id, { action: "snapshot", tabId: side }, worker),
+    ).rejects.toMatchObject({ code: "human_private" });
     expect(
       await second.browser.execute(thread.id, {
         action: "evaluate",

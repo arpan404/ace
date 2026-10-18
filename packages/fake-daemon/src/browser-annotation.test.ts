@@ -52,14 +52,12 @@ function fixture() {
   return { daemon, peer };
 }
 
-test("the fixture's annotate mode reports to its owner only, scripts pins and ends on handback", async () => {
+test("the fixture's annotate mode reports to its owner only, scripts pins and ends when another person starts", async () => {
   const { daemon, peer } = fixture();
   const person = peer("person");
   const viewer = peer("viewer");
   await viewer.call({ type: "browser.subscribe" });
-  expect((await person.call({ type: "browser.takeover" })).ok).toBe(true);
   const start = { type: "browser.execute", command: { action: "annotate", operation: "start" } };
-  expect((await viewer.call(start)).ok).toBe(false);
   const started = await person.call(start);
   expect(started).toMatchObject({ ok: true, result: { documentId: expect.any(String) } });
   expect(person.events()).toMatchObject([{ kind: "ready" }]);
@@ -74,8 +72,9 @@ test("the fixture's annotate mode reports to its owner only, scripts pins and en
     command: { action: "annotate_capture", target: { kind: "page" } },
   });
   expect(BrowserAnnotationCapture.parse(capture.result)).toMatchObject({ mimeType: "image/png" });
-  await person.call({ type: "browser.handback" });
+  // Another person's annotate mode replaces this one, for this person alone.
+  expect((await viewer.call(start)).ok).toBe(true);
   expect(person.events().at(-1)).toEqual({ kind: "ended", reason: "lease" });
-  expect(viewer.events()).toEqual([]);
-  expect(daemon.browser.view("thread")?.annotation).toBeUndefined();
+  expect(viewer.events()).toMatchObject([{ kind: "ready" }]);
+  expect(daemon.browser.view("thread")?.annotation).toEqual({ owner: expect.any(String) });
 });

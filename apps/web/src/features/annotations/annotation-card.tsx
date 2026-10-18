@@ -4,6 +4,7 @@ import { displayAddress } from "@ace/ui-core";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { annotationCount, changeSummary } from "./annotation-chip.tsx";
 import { MarkerNumber, TagBadge } from "./marker.tsx";
+import { badgeFor, regionContents } from "./region-summary.ts";
 
 /**
  * A sent message's browser annotations in the transcript: folded to their count, open to each
@@ -32,31 +33,35 @@ export function AnnotationsCard(props: { annotations: ParsedBrowserAnnotations }
             <ol className="flex flex-col gap-1.5">
               {items
                 .filter((item) => item.url === url)
-                .map((item) => (
-                  <li key={item.number} className="flex min-w-0 items-start gap-2">
-                    <span className="mt-0.5 flex shrink-0 items-center gap-1.5">
-                      <MarkerNumber number={item.number} />
-                      <TagBadge tag={item.tag} />
-                    </span>
-                    <span className="min-w-0 flex-1 text-ui">
-                      {item.text && (
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {item.text}
-                        </span>
-                      )}
-                      {item.comment && (
-                        <span className="block whitespace-pre-wrap text-foreground">
-                          {item.comment}
-                        </span>
-                      )}
-                      {(item.styles.length > 0 || item.textChange) && (
-                        <span className="block text-xs text-subtle-foreground">
-                          {changeSummary(item.styles.length, !!item.textChange)}
-                        </span>
-                      )}
-                    </span>
-                  </li>
-                ))}
+                .map((item) => {
+                  const excerpt =
+                    item.kind === "region" ? regionContents(item.elements ?? []) : item.text;
+                  return (
+                    <li key={item.number} className="flex min-w-0 items-start gap-2">
+                      <span className="mt-0.5 flex shrink-0 items-center gap-1.5">
+                        <MarkerNumber number={item.number} />
+                        <TagBadge tag={badgeFor(item.kind, item.tag)} />
+                      </span>
+                      <span className="min-w-0 flex-1 text-ui">
+                        {excerpt && (
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {excerpt}
+                          </span>
+                        )}
+                        {item.comment && (
+                          <span className="block whitespace-pre-wrap text-foreground">
+                            {item.comment}
+                          </span>
+                        )}
+                        {(item.styles.length > 0 || item.textChange) && (
+                          <span className="block text-xs text-subtle-foreground">
+                            {changeSummary(item.styles.length, !!item.textChange)}
+                          </span>
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
             </ol>
           </section>
         ))}

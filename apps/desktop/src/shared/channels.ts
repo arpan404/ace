@@ -5,11 +5,12 @@ import {
   AppInfo,
   AppIdentity,
   AppIdentityRequest,
-  BrowserControlRequest,
-  BrowserController,
   BrowserPlacement,
-  BrowserWantsControl,
+  BrowserSnapshot,
+  BrowserThread,
   BrowserShortcut,
+  BrowserPageAction,
+  BrowserContextAction,
   ClipboardImage,
   DaemonConnection,
   DaemonStatus,
@@ -90,13 +91,15 @@ export const requests = {
   "permissions.status": { request: None, result: Permissions },
   "permissions.open": { request: PermissionPane, result: z.boolean() },
   "browser.place": { request: BrowserPlacement, result: BrowserPlacementReceipt },
-  /** The new lease arrives as a `browser.controller` event once the daemon grants it. */
-  "browser.control": { request: BrowserControlRequest, result: None },
+  /** The shown view's picture, held in its place while an app overlay covers it. */
+  "browser.snapshot": { request: BrowserThread, result: BrowserSnapshot },
   /**
    * The page focused one of its own fields (the address bar): the OS focus leaves any native
    * browser view, and keys typed there since a ⌘L or ⌘F are typed into the field.
    */
   "browser.focus-app": { request: None, result: None },
+  /** Print or developer tools for the thread's shown native tab; false: no such view here. */
+  "browser.page": { request: BrowserPageAction, result: z.boolean() },
   "updates.check": { request: None, result: UpdateStatus },
 } as const;
 export type RequestChannel = keyof typeof requests;
@@ -111,10 +114,13 @@ export const events = {
   "theme.changed": NativeAppearance,
   "window.changed": WindowState,
   "settings.changed": DesktopSettings,
-  "browser.controller": BrowserController,
-  "browser.visibility": z.object({ threadId: z.string(), visible: z.boolean() }),
-  "browser.wants-control": BrowserWantsControl,
+  "browser.visibility": z.object({
+    threadId: z.string(),
+    tabId: z.string().optional(),
+    visible: z.boolean(),
+  }),
   "browser.shortcut": BrowserShortcut,
+  "browser.context": BrowserContextAction,
   "updates.status": UpdateStatus,
   /** The machine woke up; the renderer should reconnect now rather than wait for backoff. */
   "system.resumed": None,

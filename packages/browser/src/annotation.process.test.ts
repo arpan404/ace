@@ -38,7 +38,6 @@ test("a page with a strict CSP and required Trusted Types still mounts the overl
   const f = await annotationFixture();
   const person = f.connect("person");
   await person.subscribe();
-  await person.takeover();
   await person.execute({ action: "navigate", url: `${f.origin}/csp` });
   await person.execute({ action: "annotate", operation: "start" });
   expect(await person.event("ready")).toMatchObject({ url: `${f.origin}/csp`, title: "Locked" });
@@ -169,7 +168,6 @@ test("a click on an embedded frame pins the frame and never reaches the framed p
   const f = await annotationFixture();
   const person = f.connect("person");
   await person.subscribe();
-  await person.takeover();
   await person.execute({ action: "navigate", url: `${f.origin}/framed` });
   await person.execute({ action: "annotate", operation: "start" });
   await person.event("ready");

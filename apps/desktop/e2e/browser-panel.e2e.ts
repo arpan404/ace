@@ -30,30 +30,40 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       const pageView = nativePage(s.app, p, s.url);
       const geometry = pageView.geometry;
       await expect.poll(pageView.placed, { timeout: 30000 }).toBe(true);
-      await address.fill("127.0.0.1");
       const suggestions = p.getByRole("listbox", { name: "Suggested addresses" });
-      await suggestions.waitFor();
-      const suggestionBox = await suggestions.boundingBox();
-      const pageBox = await p.locator("[data-browser-page]").boundingBox();
-      if (!suggestionBox || !pageBox) throw new Error("Suggestion geometry missing");
-      await expect.poll(async () => (await geometry()).native?.visible).toBe(true);
+      // The page just loaded may still take the keyboard once, dropping a draft typed meanwhile.
+      await expect
+        .poll(async () => {
+          if (await suggestions.isVisible()) return true;
+          await address.fill("127.0.0.1");
+          return false;
+        })
+        .toBe(true);
+      // Suggestions and menus over the native page never move or resize it: the view hides
+      // behind its own still picture, drawn exactly where it was, until the overlay goes.
+      const heldInPlace = async () => {
+        const { box, native } = await geometry();
+        const picture = await p.locator("[data-frozen-page]").evaluateAll((elements) => {
+          const r = elements[0]?.getBoundingClientRect();
+          return r && { x: r.x, y: r.y, width: r.width, height: r.height };
+        });
+        return (
+          !!box &&
+          !!picture &&
+          !native.visible &&
+          (["x", "y", "width", "height"] as const).every(
+            (key) => Math.abs(picture[key] - box[key]) < 2,
+          )
+        );
+      };
+      await expect.poll(heldInPlace).toBe(true);
       await address.press("ArrowDown");
       await p.getByRole("option", { selected: true }).waitFor();
       await address.press("Escape");
-      await expect.poll(async () => (await geometry()).native?.visible).toBe(true);
+      await expect.poll(pageView.placed).toBe(true);
       await p.getByRole("button", { name: "Browser options" }).click();
-      await expect
-        .poll(async () => {
-          const native = (await geometry()).native;
-          const menu = await p.getByRole("menu").boundingBox();
-          return (
-            !!native?.visible &&
-            !!menu &&
-            (native.bounds.y >= menu.y + menu.height ||
-              native.bounds.x + native.bounds.width <= menu.x)
-          );
-        })
-        .toBe(true);
+      await p.getByRole("menu").waitFor();
+      await expect.poll(heldInPlace).toBe(true);
       await p.keyboard.press("Escape");
       await expect.poll(async () => (await geometry()).native?.visible).toBe(true);
       await p.getByRole("button", { name: "Hide sidebar" }).click();
@@ -85,11 +95,6 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await expect.poll(async () => (await geometry()).native?.visible ?? false).toBe(false);
       await p.getByRole("button", { name: "Right panel", exact: true }).click();
       await expect.poll(exact).toBe(true);
-      // The page left the person's view with the panel, which ends a shared hold: the agent
-      // drives again until the person takes over.
-      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.controller).toBe("agent");
-      await p.getByRole("button", { name: "Take over", exact: true }).click();
-      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.controller).toBe("human");
       const resize = p.getByRole("separator", { name: "Resize thread panel" });
       const grip = await resize.boundingBox();
       if (!grip) throw new Error("Splitter missing");
@@ -272,21 +277,29 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       if (!file) throw new Error("Download artifact missing");
       expect(await readFile(file, "utf8")).toBe("sandbox download\n");
       await expect.poll(async () => (await geometry()).native?.visible).toBe(true);
-      const pageSize = async (name: string | RegExp) => {
-        await p.getByRole("button", { name: "Browser options" }).click();
-        await p.getByRole("menuitemradio", { name }).click();
+      // The device toolbar (⋯ › Device toolbar) picks the page's device.
+      const toolbar = p.getByRole("toolbar", { name: "Device toolbar" });
+      await p.getByRole("button", { name: "Browser options" }).click();
+      await p.getByRole("menuitem", { name: "Device toolbar" }).click();
+      await p.getByRole("menuitemcheckbox", { name: "Show device toolbar" }).click();
+      // A checkbox item leaves the menu and its submenu open: Escape closes each.
+      while ((await p.getByRole("menu").count()) > 0) await p.keyboard.press("Escape");
+      await toolbar.waitFor();
+      const pageSize = async (name: string) => {
+        await toolbar.getByRole("combobox", { name: "Device" }).click();
+        await p.getByRole("option", { name, exact: true }).click();
       };
-      await pageSize(/iPhone 16 Pro/);
+      await pageSize("iPhone 16 Pro");
       await expect.poll(() => nativeRead("innerWidth")).toBe(402);
       await expect.poll(() => nativeRead("devicePixelRatio")).toBe(3);
-      await p.getByRole("menu").waitFor({ state: "hidden" });
       const emulated = (await geometry()).native?.bounds;
       if (!emulated) throw new Error("Native emulation missing");
       expect(emulated.width / emulated.height).toBeCloseTo(402 / 874, 2);
-      await pageSize(/Laptop/);
+      await pageSize("Laptop");
       await expect.poll(() => nativeRead("innerWidth")).toBe(1280);
       await expect.poll(() => nativeRead("devicePixelRatio")).toBe(1);
-      await pageSize("Fit the panel");
+      // Closing the toolbar gives the page the panel's size again.
+      await toolbar.getByRole("button", { name: "Close device toolbar" }).click();
       await expect.poll(exact).toBe(true);
       await p.getByRole("button", { name: "Browser options" }).click();
       await p.getByRole("menuitem", { name: "Copy address", exact: true }).click();
@@ -297,14 +310,20 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await p.getByRole("button", { name: "Browser options" }).click();
       await p.getByRole("menuitem", { name: "Record the page", exact: true }).click();
       await click("#click");
-      await p.getByRole("button", { name: "Make private", exact: true }).click();
-      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.takeoverMode).toBe("private");
       await p.getByRole("button", { name: "Browser options" }).click();
       await p.getByRole("menuitem", { name: "Stop recording", exact: true }).click();
       await p.getByText("Recording saved to this thread", { exact: true }).waitFor();
-      await p.getByRole("button", { name: "Hand back", exact: true }).click();
-      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.controller).toBe("agent");
-      await p.getByRole("button", { name: "Take over", exact: true }).click();
+      await p.getByRole("button", { name: "Browser options" }).click();
+      await p.getByRole("menuitemcheckbox", { name: "Keep agents out of this tab" }).click();
+      await expect
+        .poll(() => {
+          const state = s.daemon.browser.state(s.thread.id);
+          return state.tabs?.find((tab) => tab.tabId === state.activeTabId)?.private;
+        })
+        .toBe(true);
+      // A checkbox item leaves the menu open.
+      await p.keyboard.press("Escape");
+      await expect.poll(() => p.getByRole("menu").count()).toBe(0);
       await p.keyboard.press("Control+Shift+B");
       await expect.poll(async () => (await geometry()).native?.visible).toBe(false);
       await p.keyboard.press("Control+Shift+B");
@@ -312,8 +331,8 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await p.getByRole("button", { name: "Show sidebar", exact: true }).click();
       await p.getByRole("link", { name: /Other fixture/ }).click();
       await expect.poll(async () => !!(await geometry()).native?.visible).toBe(false);
-      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.controller).toBe("agent");
-      await s.daemon.browser.closeThread(s.thread.id, { kind: "agent" });
+      // The person kept agents out of the tab, so only the person can close it.
+      await s.daemon.browser.closeThread(s.thread.id, { kind: "human", connectionId: "e2e" });
       for (const thread of [s.thread, s.other]) {
         await s.daemon.browser.open({
           threadId: thread.id,
@@ -396,11 +415,6 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
         .toBe("Clicked 1");
       expect(await native.placed()).toBe(true);
 
-      const started = performance.now();
-      await p.getByRole("button", { name: "Take over", exact: true }).click();
-      await expect.poll(() => s.daemon.browser.state(threadId).controller).toBe("human");
-      const takeoverMs = performance.now() - started;
-      console.log(`[native-takeover] control changed hands in ${takeoverMs.toFixed(0)} ms`);
       // The same live page, never reloaded: the agent's click is still on it.
       expect(await native.contentsId()).toBe(page);
       expect(await native.read("document.querySelector('#click').textContent")).toBe("Clicked 1");
@@ -411,12 +425,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await expect
         .poll(() => native.read("document.querySelector('#click').textContent"))
         .toBe("Clicked 2");
-      await expect(
-        s.daemon.browser.execute(threadId, { action: "click", ref: marker }, agent),
-      ).rejects.toThrow(/controlled by human/);
-
-      await p.getByRole("button", { name: "Hand back", exact: true }).first().click();
-      await expect.poll(() => s.daemon.browser.state(threadId).controller).toBe("agent");
+      // The person and the agent share the page: the agent clicks again once they pause.
       const again = z
         .object({ nodes: z.array(z.object({ name: z.string(), ref: z.string().optional() })) })
         .parse(await s.daemon.browser.execute(threadId, { action: "snapshot" }, agent))

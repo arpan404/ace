@@ -3,7 +3,12 @@
  * their chip, and the card a sent message shows them in.
  */
 export type { AnnotationDriver } from "./driver.ts";
-export { useAnnotate, annotateUnavailable, type AnnotatablePage } from "./use-annotate.ts";
+export {
+  useAnnotate,
+  annotateUnavailable,
+  annotateHint,
+  type AnnotatablePage,
+} from "./use-annotate.ts";
 export {
   useDraftAnnotations,
   useAnnotationPort,

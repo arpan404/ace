@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from "react";
 
 /*
- * Which thread browsers this window shows are driven by an agent, or held privately by a person.
+ * Which thread browsers this window shows have an agent working in them, or a tab the person
+ * keeps agents out of.
  * The browser tool reports here and the rail's computer-use indicator reads it. The daemon only
  * sends a browser's state to a window that watches it, so this covers the pages open here.
  */
@@ -9,8 +10,12 @@ import { useSyncExternalStore } from "react";
 export interface BrowserControl {
   threadId: string;
   url: string;
-  controller: "agent" | "human" | "none";
+  /** An agent is working in one of the thread's tabs. */
+  agent: boolean;
+  /** The tab the person views is one they keep agents out of. */
   private: boolean;
+  /** The browser is being recorded; the indicator says so wherever the person is. */
+  recording?: boolean;
 }
 
 let controls: ReadonlyMap<string, BrowserControl> = new Map();
@@ -24,8 +29,9 @@ export function reportBrowserControl(threadId: string, control: BrowserControl |
     (before &&
       control &&
       before.url === control.url &&
-      before.controller === control.controller &&
-      before.private === control.private)
+      before.agent === control.agent &&
+      before.private === control.private &&
+      before.recording === control.recording)
   )
     return;
   const next = new Map(controls);

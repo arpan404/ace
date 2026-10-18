@@ -2,13 +2,13 @@ import {
   ArrowClockwiseIcon,
   BrowserIcon,
   ClockCounterClockwiseIcon,
-  GlobeSimpleIcon,
   PlayIcon,
   WarningCircleIcon,
   WifiSlashIcon,
 } from "@phosphor-icons/react";
 import {
   addressHost,
+  describeBrowserFailure,
   displayAddress,
   type AddressSuggestion,
   type BrowserFailure,
@@ -167,7 +167,7 @@ export function LoadFailed(props: {
       <div className="mt-6 flex gap-2">
         <Button size="sm" onClick={props.onReload}>
           <ArrowClockwiseIcon aria-hidden size={14} />
-          {props.failure.needsControl ? "Take control and reload" : (props.reloadLabel ?? "Reload")}
+          {props.reloadLabel ?? "Reload"}
         </Button>
         {props.extra}
       </div>
@@ -176,36 +176,41 @@ export function LoadFailed(props: {
 }
 
 /**
- * A tab kept from before (a restart, or the thread's page was closed) whose page isn't open
- * now: its address, its title and this card all name the same page, which opens again in one
- * click. Nothing opens by itself, since opening starts a browser.
+ * The page wasn't opened because its certificate isn't trusted (a self-signed dev server, say).
+ * The person may proceed anyway for this site and certificate until the browser restarts;
+ * agents never can.
  */
-export function Reopen(props: {
+export function CertificateWarning(props: {
   url: string;
-  /** Where the thread's live page is now, when it has one this tab isn't showing. */
-  liveUrl?: string | undefined;
-  disabled?: string | undefined;
-  onReopen(): void;
+  error: string;
+  onReload(): void;
+  onProceed(): void;
 }) {
-  const address = displayAddress(props.url) || props.url;
+  return (
+    <LoadFailed
+      url={props.url}
+      failure={describeBrowserFailure(`net::${props.error}`, props.url)}
+      onReload={props.onReload}
+      extra={
+        <Button size="sm" variant="ghost" onClick={props.onProceed}>
+          Proceed anyway (unsafe)
+        </Button>
+      }
+    />
+  );
+}
+
+/** The browser lost its pages (a crash, the desktop gone): one click opens them again. */
+export function Disconnected(props: { reason: string | undefined; onReopen(): void }) {
   return (
     <EmptyState
-      icon={GlobeSimpleIcon}
-      title={addressHost(props.url) ?? address}
-      description={
-        props.liveUrl === undefined
-          ? `This page isn't open right now. Open ${address} again to pick up where this tab left off.`
-          : `This thread's page is showing ${displayAddress(props.liveUrl) || "a blank page"}. Load ${address} here to bring it back to this tab.`
-      }
+      icon={WarningCircleIcon}
+      title="The browser disconnected"
+      description={props.reason ?? "Reopen it to continue where it left off."}
       action={
-        <Button
-          size="sm"
-          disabled={props.disabled !== undefined}
-          title={props.disabled}
-          onClick={props.onReopen}
-        >
+        <Button size="sm" onClick={props.onReopen}>
           <ArrowClockwiseIcon aria-hidden size={14} />
-          {props.liveUrl === undefined ? "Open again" : "Load it here"}
+          Reopen
         </Button>
       }
     />

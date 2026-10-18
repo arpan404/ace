@@ -12,6 +12,7 @@ const cases = [
   { nodes: 100, characters: 100 },
   { nodes: 500, characters: 500 },
   { nodes: 10000, characters: 10000 },
+  { nodes: 50000, characters: 50000 },
   { nodes: 1, characters: 65537 },
 ];
 const server = createServer((request, response) => {
@@ -39,16 +40,9 @@ try {
       url: `http://127.0.0.1:${address.port}/${index}`,
     });
     const latencies: number[] = [];
-    let limited = 0;
     for (let iteration = 0; iteration < 100; iteration++) {
       const start = performance.now();
-      try {
-        await browser.execute("bench", { action: "wait_for", text: "last marker" });
-      } catch (error) {
-        if (error instanceof Error && "code" in error && error.code === "page_text_limit")
-          limited++;
-        else throw error;
-      }
+      await browser.execute("bench", { action: "wait_for", text: "last marker" });
       latencies.push(performance.now() - start);
     }
     latencies.sort((a, b) => a - b);
@@ -56,7 +50,6 @@ try {
       JSON.stringify({
         ...sample,
         samples: latencies.length,
-        limited,
         p50Ms: latencies[49],
         p95Ms: latencies[94],
         rssBytes: process.memoryUsage().rss,

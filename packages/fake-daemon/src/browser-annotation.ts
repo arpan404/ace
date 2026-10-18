@@ -20,7 +20,8 @@ interface Page {
 
 /**
  * Annotate mode (ADR 0082) as a client sees it from the daemon: `ready` on start, `ended` when
- * the page, lease or connection changes, events only to the starting connection. There is no
+ * the page, another person's annotate mode or the connection changes, events only to the
+ * starting connection. There is no
  * page, so what the overlay would report is scripted with `emit` and `pin`.
  */
 export class FakeAnnotations {
@@ -43,14 +44,15 @@ export class FakeAnnotations {
   owner(threadId: string): string | undefined {
     return this.page(threadId)?.annotation?.owner;
   }
-  /** As the daemon's browser service, after its lease check: only the holder gets here. */
+  /** As the daemon's browser service: any person may annotate; agents never get here. */
   execute(threadId: string, connectionId: string, command: AnnotationCommand): unknown {
     const page = this.page(threadId);
     if (!page) throw new Error("Browser session not open");
     if (command.action === "annotate" && command.operation === "start") {
       const current = this.documents.get(threadId);
       if (current && page.annotation?.owner === connectionId) return { documentId: current.id };
-      this.end(threadId, "stopped");
+      // Another person's annotate mode gives way, as in the daemon.
+      this.end(threadId, page.annotation ? "lease" : "stopped");
       const id = `fake-document-${++this.sequence}`;
       this.documents.set(threadId, { id, numbers: command.config.nextNumber - 1 });
       page.annotation = { owner: connectionId };

@@ -83,14 +83,9 @@ test("a person's navigation needs control, and a local port nothing listens on f
         threadId,
         command: { action: "navigate", url },
       });
-    expect(await navigate("https://example.com")).toMatchObject({
-      ok: false,
-      error: "Browser controller mismatch",
-    });
-    await client.request({ type: "browser.takeover", threadId });
     expect(await navigate("https://example.com/docs")).toMatchObject({
       ok: true,
-      result: { url: "https://example.com/docs", controller: "human" },
+      result: { url: "https://example.com/docs" },
     });
     expect(await navigate("http://localhost:4321/")).toMatchObject({
       ok: false,

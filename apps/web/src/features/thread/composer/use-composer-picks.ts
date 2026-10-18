@@ -3,7 +3,11 @@ import { ThreadId, type CatalogMention, type Mention } from "@ace/protocol";
 import { editComposerTokens, type ComposerToken } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useEffectEvent, type RefObject } from "react";
-import { receiveComposerMentions } from "@/lib/composer-insert.ts";
+import {
+  receiveComposerMentions,
+  receiveComposerTabs,
+  type ComposerTab,
+} from "@/lib/composer-insert.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { useForkOpener } from "../transitions/fork-opener.ts";
@@ -15,6 +19,8 @@ import type { Suggestion } from "./suggestions.tsx";
 export type ComposerEdit = { text: string; caret: number; tokens?: readonly ComposerToken[] };
 
 const tooManyReferences = "This message has enough references. Remove one before adding another.";
+/** At most this many browser tabs mentioned in one message: each carries a snapshot and image. */
+const tabMentionLimit = 4;
 
 /**
  * What picking a suggestion does: a file, thread or catalog entry becomes a chip, an action
@@ -51,7 +57,7 @@ export function useComposerPicks(args: {
     at: Trigger,
     values?: NonNullable<CatalogMention["values"]>,
   ) => {
-    const label = item.entry || item.threadId ? item.label : `@${item.label}`;
+    const label = item.entry || item.threadId || item.tab ? item.label : `@${item.label}`;
     const next = accept(text, at, label);
     const catalog: CatalogMention | undefined = item.entry
       ? {
@@ -77,6 +83,16 @@ export function useComposerPicks(args: {
               type: "thread_ref",
               threadId: ThreadId.parse(item.threadId),
               budgetBytes: 4096,
+            },
+          }
+        : {}),
+      ...(item.tab
+        ? {
+            browserTab: {
+              type: "browser_tab",
+              tabId: item.tab.tabId,
+              url: item.tab.url,
+              title: item.tab.title,
             },
           }
         : {}),
@@ -133,7 +149,8 @@ export function useComposerPicks(args: {
     if (!trigger) return;
     if (
       tokens.length >= 64 ||
-      (item.threadId && tokens.filter((token) => token.thread).length >= 8)
+      (item.threadId && tokens.filter((token) => token.thread).length >= 8) ||
+      (item.tab && tokens.filter((token) => token.browserTab).length >= tabMentionLimit)
     ) {
       args.setNotice(tooManyReferences);
       return;
@@ -176,11 +193,42 @@ export function useComposerPicks(args: {
     });
     args.rememberMention(file.path);
   });
+  // "Ask agent about this page" from the Browser: the tab, mentioned where the caret is.
+  const insertTab = useEffectEvent((tab: ComposerTab) => {
+    if (
+      tokens.length >= 64 ||
+      tokens.filter((token) => token.browserTab).length >= tabMentionLimit
+    ) {
+      args.setNotice(tooManyReferences);
+      return;
+    }
+    const label = tab.title || tab.url;
+    const next = insertAt(text, args.caret, `${label} `);
+    const start = next.caret - label.length - 1;
+    edit({
+      ...next,
+      tokens: [
+        ...editComposerTokens(text, next.text, tokens),
+        {
+          start,
+          end: start + label.length,
+          label,
+          browserTab: { type: "browser_tab" as const, ...tab },
+        },
+      ].toSorted((a, b) => a.start - b.start),
+    });
+  });
   const threadId = args.thread.id;
   const draft = args.thread.draft;
   useEffect(() => {
     if (draft) return;
-    return receiveComposerMentions(threadId, (file) => insertMention(file));
+    const stops = [
+      receiveComposerMentions(threadId, (file) => insertMention(file)),
+      receiveComposerTabs(threadId, (tab) => insertTab(tab)),
+    ];
+    return () => {
+      for (const stop of stops) stop();
+    };
   }, [threadId, draft]);
   return { addToken, pick };
 }

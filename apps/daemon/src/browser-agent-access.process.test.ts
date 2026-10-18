@@ -25,9 +25,7 @@ async function agentBrowser(mode: AccessMode) {
       if (event.payload.type === "interaction.opened") {
         const interaction = event.payload.interaction;
         opened.push(interaction);
-        // A private takeover's hold is the person's control, not a question to answer.
-        if (!interaction.raw.some((raw) => raw.type === "ace.browser.private"))
-          asked.resolve("asked");
+        asked.resolve("asked");
       }
   });
   onTestFinished(stop);
@@ -64,27 +62,20 @@ it.each(["ask", "auto-review"] as const)(
   },
 );
 
-it("while a person holds the browser privately, agent navigation is refused until handback", async () => {
+it("a tab the person keeps private refuses agent navigation until they let agents back in", async () => {
   const f = await agentBrowser("ask");
-  f.browser.takeover(f.thread.id, "person", "private");
+  await f.call("browser_open", {});
+  const tabId = f.browser.state(f.thread.id).activeTabId ?? "page";
+  f.browser.setPrivate(f.thread.id, tabId, true);
   const refused = await f.call("browser_open", { url: "https://elsewhere.example/" });
   expect(refused).toMatchObject({
     isError: true,
     content: [{ text: expect.stringContaining("human_private") }],
   });
   expect(f.browser.state(f.thread.id).url).not.toContain("elsewhere.example");
-  const hold = f.opened.find((interaction) =>
-    interaction.raw.some((raw) => raw.type === "ace.browser.private"),
-  );
-  if (!hold) throw new Error("Private hold missing");
-  expect(f.resolve(hold, "allow_once")).toMatchObject({
-    ok: false,
-    error: "private_handback_required",
-  });
-  expect(succeeded(await f.call("browser_open", { url: "https://elsewhere.example/" }))).toBe(
-    false,
-  );
-  f.browser.handback(f.thread.id, "person");
+  // Privacy is the person's choice, not a question: nothing asks them anything.
+  expect(f.opened).toEqual([]);
+  f.browser.setPrivate(f.thread.id, tabId, false);
   expect(succeeded(await f.call("browser_open", { url: "https://elsewhere.example/" }))).toBe(true);
   expect(f.browser.state(f.thread.id).url).toBe("https://elsewhere.example/");
 });

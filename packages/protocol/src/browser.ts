@@ -1,7 +1,13 @@
 import { z } from "zod";
-import { BrowserTabList, BrowserDownload, BrowserDialog } from "./browser-features.ts";
+import {
+  BrowserTabList,
+  BrowserDownload,
+  BrowserDialog,
+  BrowserTabActor,
+} from "./browser-features.ts";
 import { BrowserInteractionAction, BrowserMeasurementOptions } from "./interaction-measurement.ts";
 import { ThreadId, WorkspaceId } from "./ids.ts";
+import { BlobHash } from "./context.ts";
 import {
   BrowserAnnotationCaptureTarget,
   BrowserAnnotationConfig,
@@ -14,6 +20,12 @@ const dimension = z.number().int().min(100).max(4096);
 const coordinate = z.number().finite().min(-100_000).max(100_000);
 /** Longest a navigate or wait_for may run; slow dev servers and cold builds need minutes. */
 export const browserWaitLimitMs = 120_000;
+/**
+ * The widths a multi-size screenshot lays the page out at: phone 390×844, tablet 768×1024 and
+ * desktop 1440×900 CSS pixels, phone and tablet as mobile devices.
+ */
+export const BrowserScreenshotSize = z.enum(["phone", "tablet", "desktop"]);
+export type BrowserScreenshotSize = z.infer<typeof BrowserScreenshotSize>;
 const timeout = z.number().int().min(1).max(browserWaitLimitMs).default(10_000);
 export const BrowserOpen = z.object({
   threadId: ThreadId,
@@ -43,7 +55,7 @@ const commandBase = z.object({
 });
 const [click, type, press, scroll, drag] = BrowserInteractionAction.options;
 const annotate = commandBase.extend({ action: z.literal("annotate") });
-/** Annotate mode belongs to the person holding the page's control lease (ADR 0082). */
+/** Annotate mode belongs to the person's connection that started it (ADR 0082). */
 const BrowserAnnotateCommand = z.discriminatedUnion("operation", [
   annotate.extend({
     operation: z.literal("start"),
@@ -66,7 +78,17 @@ export const BrowserCommand = z.discriminatedUnion("action", [
     text: z.string().max(4096),
     forward: z.boolean().default(true),
   }),
-  commandBase.extend({ action: z.literal("navigate"), url: z.string().max(8192), timeout }),
+  commandBase.extend({
+    action: z.literal("navigate"),
+    url: z.string().max(8192),
+    timeout,
+    waitUntil: z
+      .enum(["domcontentloaded", "load", "networkidle"])
+      .default("domcontentloaded")
+      .describe(
+        "When navigate returns: domcontentloaded (the HTML is parsed), load (images, styles and scripts too) or networkidle (load, then no request in flight for 500 ms).",
+      ),
+  }),
   commandBase.extend({
     action: click.shape.action,
     ref: short.optional().describe("Ref from the latest snapshot. Omit it to click at x, y."),
@@ -103,16 +125,36 @@ export const BrowserCommand = z.discriminatedUnion("action", [
       .max(2000)
       .default(120)
       .describe("Most lines to return; the result says when more exist."),
+    depth: z
+      .number()
+      .int()
+      .min(1)
+      .max(64)
+      .optional()
+      .describe("How many levels below the page (or ref) to read. Omitted: every level."),
   }),
   commandBase.extend({
     action: z.literal("screenshot"),
     fullPage: z.boolean().default(false).describe("The whole scrollable page, not the viewport."),
     ref: short.optional().describe("Only this element from the latest snapshot."),
+    sizes: z
+      .array(BrowserScreenshotSize)
+      .min(1)
+      .max(3)
+      .optional()
+      .describe(
+        "Responsive check: lay the page out at each size (phone 390, tablet 768, desktop 1440 CSS px wide), capture it there, then restore the tab's own size. One image per size. Not with ref.",
+      ),
   }),
   commandBase.extend({
     action: z.literal("evaluate"),
     expression: z.string().max(65_536),
-    mode: z.enum(["read-only", "unrestricted"]).default("unrestricted"),
+    mode: z
+      .enum(["read-only", "unrestricted"])
+      .default("unrestricted")
+      .describe(
+        "unrestricted: runs in the page like a script of its own and may change it (awaits promises). read-only: an isolated world where anything with a side effect (writes, calls into page code, promises) is refused; use it to read values.",
+      ),
   }),
   commandBase.extend({
     action: z.literal("wait_for"),
@@ -126,7 +168,7 @@ export const BrowserCommand = z.discriminatedUnion("action", [
       .max(8192)
       .optional()
       .describe(
-        "Exact destination URL. Also waits for DOMContentLoaded. Works before or after navigation commits.",
+        "Destination URL: exact, or a glob where * matches any characters (http://localhost:3000/orders/*). Also waits for DOMContentLoaded. Works before or after navigation commits.",
       ),
     text: z
       .string()
@@ -134,6 +176,17 @@ export const BrowserCommand = z.discriminatedUnion("action", [
       .max(4096)
       .optional()
       .describe("Visible page text to wait for, matched as a substring."),
+    networkIdle: z
+      .literal(true)
+      .optional()
+      .describe("Wait until no request is in flight for 500 ms, such as after a save."),
+    timeMs: z
+      .number()
+      .int()
+      .min(1)
+      .max(60_000)
+      .optional()
+      .describe("Just wait this many ms. Prefer a condition; use this for animations."),
     timeout,
   }),
   commandBase.extend({
@@ -153,13 +206,22 @@ export const BrowserCommand = z.discriminatedUnion("action", [
     mobile: z.boolean().default(false),
     touch: z.boolean().default(false),
     colorScheme: z.enum(["light", "dark", "no-preference"]).default("light"),
+    userAgent: z
+      .string()
+      .max(1024)
+      .optional()
+      .describe("A user agent string to send and report. Omitted: the browser's own."),
   }),
   commandBase.extend({
     action: z.literal("tabs"),
-    /** `switch` is the earlier name of `select`. */
-    operation: z.enum(["list", "open", "select", "switch", "close"]).default("list"),
+    operation: z.enum(["list", "open", "select", "close", "keep"]).default("list"),
     url: z.string().max(8192).optional(),
     label: z.string().min(1).max(64).optional(),
+    /**
+     * With `open`: the new tab is a deliverable or handoff that stays after your turn. With
+     * `keep`: `false` makes a kept tab temporary again. Omitted on `keep`: true.
+     */
+    keep: z.boolean().optional(),
   }),
   commandBase.extend({
     action: z.literal("fill_form"),
@@ -217,6 +279,23 @@ export const BrowserCommand = z.discriminatedUnion("action", [
   commandBase.extend({ action: z.literal("record_start") }),
   commandBase.extend({ action: z.literal("record_stop") }),
   BrowserAnnotateCommand,
+  /** Person-only: page zoom for the tab, as a factor of 1 (100%). Agents get no tool for it. */
+  commandBase.extend({ action: z.literal("zoom"), factor: z.number().min(0.25).max(5) }),
+  /** Person-only: clear cookies, cache and site storage of the tab's browser profile. */
+  commandBase.extend({ action: z.literal("clear_data") }),
+  /** Person-only: the tab's document source as the server sent it (bounded). */
+  commandBase.extend({ action: z.literal("page_source") }),
+  /**
+   * Person-only: what is under a point of the page (viewport CSS pixels) for ace's own
+   * right-click menu: the link it is in and the image it is, when they are web addresses.
+   */
+  commandBase.extend({
+    action: z.literal("context_target"),
+    x: z.number().min(0).max(100_000),
+    y: z.number().min(0).max(100_000),
+  }),
+  /** Person-only: the bytes of an image the page already loaded (base64), to copy or save. */
+  commandBase.extend({ action: z.literal("image_data"), url: z.string().min(1).max(8192) }),
   commandBase.extend({
     action: z.literal("annotate_capture"),
     target: BrowserAnnotationCaptureTarget,
@@ -263,8 +342,6 @@ export const BrowserOriginBlock = z.object({
 export type BrowserOriginBlock = z.infer<typeof BrowserOriginBlock>;
 export const BrowserState = z.object({
   threadId: ThreadId,
-  controller: z.enum(["agent", "human", "none"]),
-  owner: short.optional(),
   url: z.string().max(8192),
   closed: z.boolean(),
   /** `user`: the person's own browser through the ace extension (ADR 0084). */
@@ -282,10 +359,17 @@ export const BrowserState = z.object({
   tabs: BrowserTabList.optional(),
   downloads: z.array(BrowserDownload).max(128).optional(),
   pending_dialog: BrowserDialog.optional(),
-  takeoverMode: z.enum(["shared", "private"]).optional(),
   /** Set while a connection has annotate mode open on this page. */
   annotation: z.object({ owner: short }).optional(),
-  /** Optional page features this daemon supports, such as `annotate`. Unknown names are kept. */
+  /**
+   * A recording of the person's view runs, started by `by`. People see it and can stop it with
+   * `browser.recording.stop`; its frames hide agent cursors and mask secret fields.
+   */
+  recording: z.object({ by: BrowserTabActor }).optional(),
+  /**
+   * Optional page features this daemon supports, such as `annotate`; `page-cursor`: agents'
+   * cursors are drawn in the page itself, so clients draw none over frames. Unknown names are kept.
+   */
   features: z.array(z.string().max(64)).max(32).optional(),
 });
 export type BrowserState = z.infer<typeof BrowserState>;
@@ -307,8 +391,31 @@ export const BrowserArtifact = z.object({
   flags: z.array(z.enum(["executable", "archive"])).optional(),
 });
 export type BrowserArtifact = z.infer<typeof BrowserArtifact>;
+const hexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+/** One capture of a multi-size screenshot (`screenshot` with `sizes`). */
+export const BrowserSizedScreenshot = z.object({
+  size: BrowserScreenshotSize,
+  /** The captured area in CSS pixels (the page's whole height with `fullPage`). */
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  /** A JPEG within the model image limits, base64. */
+  mimeType: z.literal("image/jpeg"),
+  data: z.string().max(4 * 1024 * 1024),
+  /** A person's capture is also kept at full resolution as a thread artifact (PNG). */
+  path: z.string().optional(),
+});
+export type BrowserSizedScreenshot = z.infer<typeof BrowserSizedScreenshot>;
+export const BrowserScreenshotSet = z.object({
+  images: z.array(BrowserSizedScreenshot).min(1).max(3),
+});
+export type BrowserScreenshotSet = z.infer<typeof BrowserScreenshotSet>;
 export const BrowserCaptureViewport = z.object({
   nativeShown: z.boolean().optional(),
+  /**
+   * The person's accent on this viewer, for agents' cursors drawn in the page: `fill` is the
+   * accent, `outline` the colour that reads on it. The last viewer to report one sets it.
+   */
+  cursor: z.object({ fill: hexColour, outline: hexColour }).optional(),
   width: dimension,
   height: dimension,
   devicePixelRatio: z.number().finite().min(1).max(4),
@@ -332,18 +439,46 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
     accept: z.boolean(),
     promptText: z.string().max(4096).optional(),
   }),
+  /**
+   * The person answers a site's sign-in prompt. Without `credentials` the sign-in is cancelled.
+   * The credentials go to the browser engine for that request only; ace never stores them.
+   */
+  base.extend({
+    type: z.literal("browser.auth.answer"),
+    tabId: short,
+    authId: short,
+    credentials: z
+      .object({ username: z.string().max(4096), password: z.string().max(4096) })
+      .optional(),
+  }),
+  /**
+   * The person proceeds past a certificate error to `url` (the tab's `certificate_error`), for
+   * that origin and certificate until the browser restarts. Agents have no way to send this.
+   */
+  base.extend({
+    type: z.literal("browser.certificate.proceed"),
+    tabId: short,
+    url: z.string().max(8192),
+  }),
   base.extend({ type: z.literal("browser.execute"), command: BrowserCommand }),
   base.extend({ type: z.literal("browser.subscribe"), subscriberId: short.optional() }),
   base.extend({ type: z.literal("browser.capture"), viewport: BrowserCaptureViewport }),
   base.extend({ type: z.literal("browser.unsubscribe"), subscriberId: short.optional() }),
   base.extend({ type: z.literal("browser.ack"), sequence: z.number().int().nonnegative() }),
-  /** Control leases are per tab; omitted `tabId` means the tab the person is viewing. */
+  /**
+   * The person's files for the tab's `file_chooser`, uploaded first as thread attachments
+   * (`upload.begin` … `upload.commit`). No files cancels the picker.
+   */
   base.extend({
-    type: z.literal("browser.takeover"),
-    mode: z.enum(["shared", "private"]).default("shared"),
-    tabId: short.optional(),
+    type: z.literal("browser.files.choose"),
+    tabId: short,
+    chooserId: short,
+    files: z.array(z.object({ sha256: BlobHash, name: z.string().min(1).max(255) })).max(16),
   }),
-  base.extend({ type: z.literal("browser.handback"), tabId: short.optional() }),
+  /** The person turns a tab's sound off or on; it stays that way until they change it. */
+  base.extend({ type: z.literal("browser.tabs.mute"), tabId: short, muted: z.boolean() }),
+  /** "Keep agents out of this tab": agents can neither read nor drive a private tab. */
+  base.extend({ type: z.literal("browser.tabs.private"), tabId: short, private: z.boolean() }),
   base.extend({ type: z.literal("browser.input"), input: BrowserInput, tabId: short.optional() }),
   base.extend({ type: z.literal("browser.recording.start") }),
   base.extend({ type: z.literal("browser.recording.stop") }),

@@ -32,12 +32,23 @@
       ],
       "type": "string"
     },
+    "browser.downloadDefault": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "browser.downloadDir": {
+      "maxLength": 4096,
+      "type": "string"
+    },
     "browser.profile": {
       "enum": [
         "persistent",
         "ephemeral"
       ],
       "type": "string"
+    },
+    "browser.userChrome.storageReads": {
+      "type": "boolean"
     },
     "clients.keybindings": {
       "$ref": "https://ace.local/protocol/v1/JsonValue.json"
@@ -297,6 +308,9 @@
     "browser.backend",
     "browser.backendLoss",
     "browser.profile",
+    "browser.downloadDir",
+    "browser.downloadDefault",
+    "browser.userChrome.storageReads",
     "access.defaultMode",
     "access.nativeModes",
     "threads.useWorktree",

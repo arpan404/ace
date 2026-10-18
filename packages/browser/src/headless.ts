@@ -12,6 +12,7 @@ import type { ChromeCleanup, ChromeLaunch } from "./chrome-instance.ts";
 import { chromeInput } from "./chrome-input.ts";
 import { ChromeTabs, type TabHost } from "./chrome-tabs.ts";
 import { modelScreenshot } from "./model-screenshot.ts";
+import { clearHeadlessData } from "./browsing-data.ts";
 
 export interface ChromeBackendOptions {
   executable(signal: AbortSignal): Promise<string>;
@@ -146,6 +147,7 @@ export class ChromeBackend implements BrowserBackend {
         frames: () => tabs.frames(tabId()),
         pageStatus: () => tabs.pageStatus(tabId()),
         networkBody: (requestId) => tabs.inspection.body(requestId),
+        networkPending: () => tabs.inspection.pending(tabId()),
         url: () => tabs.url(tabId()),
         navigate: async (url, _timeout, navigation) => {
           // The session owns the load budget; it pauses during policy waits.
@@ -172,6 +174,9 @@ export class ChromeBackend implements BrowserBackend {
           return Buffer.from(data, "base64");
         },
         resize: (width, height) => tabs.resize(width, height, tabId()),
+        emulate: (device) => tabs.emulate(device, tabId()),
+        zoom: (factor) => tabs.zoom(factor, tabId()),
+        clearData: () => clearHeadlessData(cdp(), tabs.origins()),
         viewport: () => tabs.viewportSize(tabId()),
         media: async (colorScheme) => {
           await cdp().send("Emulation.setEmulatedMedia", {
@@ -208,15 +213,23 @@ export class ChromeBackend implements BrowserBackend {
         dialog: () => tabs.dialog(),
         answer: (id, accept, text) => tabs.answer(id, accept, text),
         downloads: () => tabs.downloads.transfers.list(),
+        discard: (id) => tabs.discard(id),
+        revive: (id) => tabs.revive(id),
+        opener: (id) => tabs.opener(id),
+        answerAuth: (id, authId, credentials) => tabs.answerAuth(id, authId, credentials),
+        proceedCertificate: (id, url) => tabs.proceedCertificate(id, url),
+        chooseFiles: (id, chooserId, paths) => tabs.chooseFiles(id, chooserId, paths),
         page,
       },
       privateMode: (enabled) => {
         tabs.inspection.privacy(enabled);
         tabs.downloads.transfers.privacy(enabled);
       },
-      controller: async (controller, tabId) => {
-        tabs.lease(controller.controller, tabId);
+      agentUse: async (tabId, active) => {
+        tabs.agentUse(tabId, active);
       },
+      // A browser that stopped answering (asleep, wedged) is killed and restarted with its tabs.
+      ping: async () => (await current?.instance.connection.ping()) ?? false,
       close,
     };
   }

@@ -120,7 +120,7 @@ it("a lost link orphans every tab and an adoption hands each a fresh session", a
   expect([...pages.values()].map((page) => page.adoptions)).toEqual([1, 1]);
 });
 
-it("a person's lease reaches only the shown tab; an unseen tab stays the agents'", async () => {
+it("whether an agent uses the tab reaches only the shown tab; an unseen tab stays the agents'", async () => {
   const { tabs, pages, panel } = group();
   await tabs.openTab();
   tabs.place({ ...panel, visible: true });
@@ -128,8 +128,46 @@ it("a person's lease reaches only the shown tab; an unseen tab stays the agents'
   tabs.setAgentControl(false);
   expect(pages.get("native-tab-1")?.agent).toBe(false);
   expect(pages.get("native-tab-2")?.agent).toBe(true);
-  // The daemon sends the newly shown tab's lease after a switch; until then the old one holds.
+  // The daemon says whether an agent uses the newly shown tab after a switch; until then the
+  // last word holds.
   await tabs.cdp("ace.tabs.switch", { tabId: "native-tab-2" });
   expect(pages.get("native-tab-1")?.agent).toBe(true);
   expect(pages.get("native-tab-2")?.agent).toBe(false);
+});
+
+it("the person's input is reported with the tab it landed in, and an agent there keeps its file choosers", async () => {
+  const { tabs, pages, panel } = group();
+  await tabs.openTab();
+  tabs.place({ ...panel, visible: true });
+  tabs.setNativeInput(true);
+  const heard: (string | undefined)[] = [];
+  tabs.onHumanInput((tabId) => heard.push(tabId));
+  pages.get("native-tab-1")?.personClicks();
+  expect(heard).toEqual(["native-tab-1"]);
+  // An agent using the shown tab changes nothing about the person's input.
+  tabs.setAgentControl(true);
+  expect(pages.get("native-tab-1")).toMatchObject({ agent: true, nativeInput: true });
+  pages.get("native-tab-1")?.personClicks();
+  expect(heard).toEqual(["native-tab-1", "native-tab-1"]);
+});
+
+it("split view shows two tabs side by side, each taking the person's input, whichever is selected", async () => {
+  const { tabs, pages } = group();
+  await tabs.openTab();
+  await tabs.cdp("ace.tabs.open");
+  tabs.setNativeInput(true);
+  const left = { window: undefined, bounds: { x: 0, y: 0, width: 400, height: 600 } };
+  const right = { window: undefined, bounds: { x: 400, y: 0, width: 400, height: 600 } };
+  tabs.place({ ...left, visible: true }, "native-tab-1");
+  tabs.place({ ...right, visible: true }, "native-tab-2");
+  for (const id of ["native-tab-1", "native-tab-2"])
+    expect(pages.get(id)).toMatchObject({ shown: true, nativeInput: true });
+  // The person moves to the right half: it becomes the selected tab; the left stays shown.
+  await tabs.cdp("ace.tabs.switch", { tabId: "native-tab-2" });
+  expect(pages.get("native-tab-1")).toMatchObject({ shown: true, nativeInput: true });
+  expect(pages.get("native-tab-2")).toMatchObject({ shown: true, nativeInput: true });
+  // One half closes: that tab is hidden, the other keeps its place.
+  tabs.place({ ...left, visible: false }, "native-tab-1");
+  expect(pages.get("native-tab-1")).toMatchObject({ shown: false, closed: false });
+  expect(pages.get("native-tab-2")?.shown).toBe(true);
 });

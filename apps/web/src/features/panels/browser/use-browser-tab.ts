@@ -1,206 +1,254 @@
-import { useConnectionState, useThreadMeta } from "@ace/client-react";
 import {
-  canStep,
   describeBrowserFailure,
   samePage,
-  stepHistory,
-  visitPage,
   type AddressSuggestion,
   type BrowserFailure,
 } from "@ace/ui-core";
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   findTab,
   useWorkspaceActions,
   useWorkspaceStore,
   type WorkspaceTab,
 } from "@/lib/workspace/index.ts";
+import { LocalStore, useLocal } from "../store.ts";
 import type { PreviewSource } from "../sources.ts";
-import { viewportById } from "./viewports.ts";
-import {
-  browserTabData,
-  tabHistory,
-  useVisited,
-  useVisitedStore,
-  type BrowserTabData,
-} from "./browser-state.ts";
+import { browserTabData, type BrowserTabData } from "./browser-data.ts";
+import { useVisited, useVisitedStore } from "./browser-state.ts";
 import { setLoading } from "./loading.ts";
+import type { BrowserTabs } from "./use-browser-tabs.ts";
 
-/** The thread's page as the browser service reports it, re-read on each change to the thread. */
-function usePage(source: PreviewSource, threadId: string) {
-  // The source's reads change with its version; read them again on each one.
-  "use no memo";
-  const subscribe = useCallback(
-    (changed: () => void) => source.subscribe(changed, threadId),
-    [source, threadId],
-  );
-  useSyncExternalStore(subscribe, () => source.version);
-  // Follow the thread's page and dev servers only while this tab shows them.
-  useEffect(() => source.watch(threadId), [source, threadId]);
-  return {
-    view: source.view(threadId),
-    frame: source.frame(threadId),
-    servers: source.servers(threadId),
-    download: source.download(),
-    /** The connection through which this client holds the page, while it does. */
-    heldAs: source.heldAs(threadId),
-  };
-}
-
+/** A navigation this window started in one tab, or how it failed. */
 type Phase =
   | { phase: "idle" }
-  | { phase: "loading"; url: string }
-  | { phase: "failed"; url: string; failure: BrowserFailure };
+  | { phase: "loading"; tabId: string | undefined; url: string }
+  | {
+      phase: "failed";
+      tabId: string | undefined;
+      url: string;
+      failure: BrowserFailure;
+      /** The tab's address when the navigation began, and whether the tab was still loading
+       * when the failure came. They tell a later commit from the page before. */
+      attempt: { from: string | undefined; loading: boolean };
+    };
+
+const idle: Phase = { phase: "idle" };
 
 /**
- * The thread's one browser page, with its address and history. Going somewhere opens the thread's browser if there is none (downloading Chromium the
- * first time) takes the control lease from an agent,
- * navigates, and records where the page landed. Back and Forward use the backend's document
- * history so forms and scroll position survive traversal.
+ * Each tab's navigation phase, by `threadId\0tab`: outside the view, because a new tab becomes
+ * the daemon tab it opened (a new panel tab) while its first page is still loading or failing.
  */
-export function useBrowserTab(source: PreviewSource, threadId: string, tab: WorkspaceTab) {
-  const page = usePage(source, threadId);
+const phases = new LocalStore<ReadonlyMap<string, Phase>>(new Map());
+const phaseKey = (threadId: string, tab: string) => `${threadId}\u0000${tab}`;
+function setPhase(key: string, phase: Phase) {
+  phases.set((current) => {
+    if (current.get(key) === phase) return current;
+    const next = new Map(current);
+    if (phase.phase === "idle") next.delete(key);
+    else next.set(key, phase);
+    return next;
+  });
+}
+
+const web = (url: string | undefined): url is string => !!url && /^https?:\/\//i.test(url);
+
+/**
+ * A failure the page has outlived: the navigation reported an error that isn't Chromium's own
+ * load error (a timeout, a cancelled wait), yet the tab has since committed a web document of
+ * its own (its address moved on, or the asked-for page finished loading) with no load error.
+ * The live page is what the person should see, not a card over it.
+ */
+function outlived(
+  state: Phase,
+  tab: { url: string; loading?: boolean | undefined } | undefined,
+  loadError: string | undefined,
+): boolean {
+  if (state.phase !== "failed" || state.failure.code) return false;
+  if (!tab || loadError || !web(tab.url)) return false;
+  if (tab.url !== state.attempt.from) return true;
+  // The same address as before: only the asked-for page, loaded since, outlives the failure.
+  return state.attempt.loading && !tab.loading && samePage(tab.url, state.url);
+}
+
+/**
+ * The page in the tab the person views: its address, Back, Forward, Reload and Stop, always in
+ * that exact tab (every command names it), never whichever tab happens to be shown when the
+ * daemon gets it. Going somewhere with no browser yet opens one. An address the panel tab was
+ * opened with (the launcher, Suggested, a link) opens once, in a new tab of its own.
+ */
+export function useBrowserTab(
+  source: PreviewSource,
+  threadId: string,
+  tab: WorkspaceTab,
+  tabs: BrowserTabs,
+) {
   const actions = useWorkspaceActions(threadId);
   const store = useWorkspaceStore();
-  const workspaceId = useThreadMeta(threadId)?.workspaceId;
-  const online = useConnectionState() === "ready";
   const visitedStore = useVisitedStore();
   const visited = useVisited(threadId);
-  const [state, setState] = useState<Phase>({ phase: "idle" });
   const data = browserTabData(tab);
-  const history = tabHistory(data);
-  const live = page.view && !page.view.closed ? page.view : undefined;
-  const bound = live !== undefined;
+  const { live, shown, shownId, online } = tabs;
+  const key = phaseKey(threadId, shownId ?? `new:${tab.key}`);
+  const reported = useLocal(
+    phases,
+    useCallback((all: ReadonlyMap<string, Phase>) => all.get(key) ?? idle, [key]),
+  );
+  const setState = (phase: Phase) => setPhase(key, phase);
+  // Once the tab has committed past a failure, the failure is over for good (adjusted while
+  // rendering, so the card is never drawn over the page).
+  const superseded =
+    reported.phase === "failed" &&
+    (reported.tabId === undefined || reported.tabId === shownId) &&
+    outlived(reported, shown, live?.loadError);
+  const state: Phase = superseded ? idle : reported;
+  useEffect(() => {
+    if (superseded) setPhase(key, idle);
+  }, [superseded, key]);
+  // The screencast follows the daemon's shown tab: it is this tab's picture only once shown.
+  // Another tab's half of a split view keeps that tab's last picture meanwhile.
+  const frame = !live
+    ? undefined
+    : live.activeTabId === shownId
+      ? source.frame(threadId)
+      : shownId
+        ? source.still?.(threadId, shownId)
+        : undefined;
 
-  /** Merge into the tab's data as it is now (a navigation spans several renders). */
+  /** Merge into the panel tab's data as it is now (a navigation spans several renders). */
   const save = (patch: Partial<BrowserTabData>) => {
     const found = findTab(store.get(threadId), tab.key);
-    const current = found ? browserTabData(found.tab) : {};
+    const current = browserTabData(found?.tab);
+    if (Object.entries(patch).every(([field, value]) => Reflect.get(current, field) === value))
+      return;
     actions.update(tab.key, { data: { ...current, ...patch } });
   };
 
-  // The page moved on its own (a link, a redirect, an agent): this tab follows it.
-  const liveUrl = bound ? live.url : undefined;
-  const [loadedHistory, setNativeHistory] = useState<{
-    key: string;
-    back: boolean;
-    forward: boolean;
-  }>();
-  const activeTab = live?.activeTabId;
-  const historyKey = `${threadId}|${activeTab ?? ""}|${liveUrl ?? ""}`;
-  const nativeHistory = loadedHistory?.key === historyKey ? loadedHistory : undefined;
+  // This window's phase belongs to the tab it was started in (or, opening a browser, to the
+  // tab that shows); another tab shows its own.
+  const own =
+    state.phase === "idle" || state.tabId === undefined || state.tabId === shownId ? state : idle;
+  const liveUrl = shown?.url;
+  const [history, setHistory] = useState<{ key: string; back: boolean; forward: boolean }>();
+  const historyKey = `${threadId}|${shownId ?? ""}|${liveUrl ?? ""}`;
   useEffect(() => {
     let current = true;
-    if (bound && source.navigationHistory)
+    if (shownId && source.navigationHistory)
       void source
-        .navigationHistory(threadId)
+        .navigationHistory(threadId, shownId)
         .then((value) => {
-          if (current) setNativeHistory({ ...value, key: historyKey });
+          if (current) setHistory({ ...value, key: historyKey });
         })
         .catch(() => {});
     return () => {
       current = false;
     };
-  }, [source, threadId, historyKey, bound]);
-  const navigateHistory = async (direction: "back" | "forward" | "reload") => {
-    try {
-      if (!source.heldAs(threadId)) await source.takeover(threadId);
-      await source.navigateHistory?.(threadId, direction);
-      setState({ phase: "idle" });
-    } catch (error) {
-      setState({
-        phase: "failed",
-        url: liveUrl ?? data.url ?? "",
-        failure: describeBrowserFailure(
-          error instanceof Error ? error.message : String(error),
-          liveUrl ?? "",
-        ),
-      });
-    }
-  };
-  useEffect(() => {
-    if (!liveUrl || liveUrl === "about:blank") return;
-    const current = history.entries[history.index];
-    if (current !== undefined && samePage(current, liveUrl)) return;
-    save({ url: liveUrl, history: visitPage(history, liveUrl) });
-    visitedStore.remember(threadId, liveUrl);
-    // Only a change of the page's address is news here.
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveUrl]);
+  }, [source, threadId, shownId, historyKey]);
+  const canStep = history?.key === historyKey ? history : { back: false, forward: false };
 
-  const go = async (url: string, next = visitPage(history, url)) => {
-    setLoading(threadId, tab.key, true);
-    setState({ phase: "loading", url });
-    save({ url, go: false });
+  // The thread remembers the web pages it showed, for the address bar's suggestions.
+  useEffect(() => {
+    if (liveUrl && /^https?:\/\//i.test(liveUrl)) visitedStore.remember(threadId, liveUrl);
+  }, [liveUrl, threadId, visitedStore]);
+
+  /** The tab's page as the daemon reports it now (`tabId` undefined: the shown one). */
+  const tabNow = (tabId: string | undefined) => {
+    const view = source.view(threadId);
+    const id = tabId ?? view?.activeTabId;
+    return view?.tabs?.find((each) => each.tabId === id);
+  };
+
+  /** Navigate `tabId` (its phase kept under its own key, whichever panel tab shows it). */
+  const run = async (tabId: string, url: string, work: () => Promise<unknown>) => {
+    const at = phaseKey(threadId, tabId);
+    const panelKey = `browser:${tabId}`;
+    const from = tabNow(tabId)?.url;
+    setLoading(threadId, panelKey, true);
+    setPhase(at, { phase: "loading", tabId, url });
     try {
-      if (!live || live.status === "paused") {
-        if (!workspaceId) throw new Error("The thread's project isn't known yet.");
-        // The new session's first page is this tab's.
-        await source.open(threadId, workspaceId);
-      }
-      if (!source.heldAs(threadId)) await source.takeover(threadId);
-      const emulation = viewportById(data.viewport).emulation;
-      if (!live && emulation) await source.emulate(threadId, emulation);
-      const reachedUrl = await source.navigate(threadId, url);
-      const landed = samePage(next.entries[next.index] ?? "", reachedUrl)
-        ? next
-        : visitPage(next, reachedUrl);
-      save({
-        url: reachedUrl,
-        history: landed,
-        go: false,
-        page: source.view(threadId)?.activeTabId,
-      });
-      visitedStore.remember(threadId, reachedUrl);
-      setState({ phase: "idle" });
+      await work();
+      setPhase(at, idle);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setState({ phase: "failed", url, failure: describeBrowserFailure(message, url) });
-      // The address stays, and so does where Back goes.
-      save({ url, history: next, go: false });
+      const now = tabNow(tabId);
+      setPhase(at, {
+        phase: "failed",
+        tabId,
+        url,
+        failure: describeBrowserFailure(message, url),
+        attempt: { from, loading: !!now?.loading },
+      });
+    } finally {
+      setLoading(threadId, panelKey, false);
+    }
+  };
+
+  /**
+   * A new tab's address: a daemon tab opens for it (with the thread's browser, the first time)
+   * and this panel tab becomes that tab, then the page loads there. A failure to open the
+   * browser stays on this new tab.
+   */
+  const openHere = async (url: string) => {
+    const pendingKey = phaseKey(threadId, `new:${tab.key}`);
+    setLoading(threadId, tab.key, true);
+    setPhase(pendingKey, { phase: "loading", tabId: undefined, url });
+    let tabId: string | undefined;
+    try {
+      tabId = await tabs.open();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setPhase(pendingKey, {
+        phase: "failed",
+        tabId: undefined,
+        url,
+        failure: describeBrowserFailure(message, url),
+        attempt: { from: undefined, loading: false },
+      });
+      return;
     } finally {
       setLoading(threadId, tab.key, false);
     }
+    setPhase(pendingKey, idle);
+    if (!tabId) return;
+    const opened = tabId;
+    const current = browserTabData(findTab(store.get(threadId), tab.key)?.tab);
+    const { open: _open, ...kept } = current;
+    actions.replace(tab.key, { kind: "browser", id: opened, data: kept });
+    await run(opened, url, () => source.navigate(threadId, url, opened));
   };
 
-  // Opened with an address (the launcher's bar, Suggested): go there once, as soon as the page
-  // can be reached: the thread's live page, or its project to open one in (the thread's details
-  // can arrive a moment after the tab mounts).
-  const pending = data.go === true && data.url ? data.url : undefined;
-  const reachable = live !== undefined || workspaceId !== undefined;
+  /** The shown tab goes to `url`; a new tab opens its daemon tab first. */
+  const go = (url: string) => {
+    const target = shownId;
+    if (!target) {
+      void openHere(url);
+      return;
+    }
+    void run(target, url, () => source.navigate(threadId, url, target));
+  };
+
+  const step = (direction: "back" | "forward" | "reload") => {
+    const target = shownId;
+    const traverse = source.navigateHistory;
+    if (!target || !traverse) return;
+    void run(target, liveUrl ?? "", () => traverse(threadId, direction, target));
+  };
+
+  // Opened with an address (the launcher's bar, Suggested, a link): it opens once, as soon as
+  // a browser can be reached. The request is dropped before it runs, so a re-render or another
+  // window can never open it twice.
+  const pending = data.open;
   useEffect(() => {
-    if (!pending || !online || !reachable) return;
-    let current = true;
-    void Promise.resolve().then(() => {
-      if (current) void go(pending);
-    });
-    return () => {
-      current = false;
-    };
-    // `go` closes over this render's page; the address is what matters.
+    if (!pending || shownId || !online || !tabs.reachable) return;
+    save({ open: undefined });
+    void openHere(pending);
+    // `openHere` closes over this render's browser; the address is what matters.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, online, reachable]);
+  }, [pending, online, tabs.reachable]);
 
-  // Refused navigation can leave the current document intact. Back dismisses that
-  // attempted address without traversing past (or reloading) the retained document.
-  const uncommittedFailure =
-    state.phase === "failed" && bound && liveUrl !== undefined && state.url !== liveUrl;
-  const back = () => {
-    if (uncommittedFailure && liveUrl !== undefined) {
-      save({ url: liveUrl, history: visitPage(stepHistory(history, -1), liveUrl) });
-      setState({ phase: "idle" });
-    } else if (source.navigateHistory && bound) void navigateHistory("back");
-    else step(-1);
-  };
-
-  const step = (delta: -1 | 1) => {
-    const next = stepHistory(history, delta);
-    const target = next.entries[next.index];
-    if (target !== undefined && next !== history) void go(target, next);
-  };
-
+  // A refused navigation can leave the tab's own page intact: Back dismisses the attempt.
+  const uncommitted = own.phase === "failed" && liveUrl !== undefined && own.url !== liveUrl;
   const suggestions: AddressSuggestion[] = [
-    ...page.servers.map((server) => ({
+    ...source.servers(threadId).map((server) => ({
       url: server.origin ?? `http://localhost:${server.port}`,
       label: server.name ?? `localhost:${server.port}`,
       detail: `Dev server · port ${server.port}`,
@@ -209,39 +257,27 @@ export function useBrowserTab(source: PreviewSource, threadId: string, tab: Work
   ];
 
   return {
-    ...page,
-    live,
-    bound,
-    online,
     data,
-    state,
+    frame,
+    state: own,
+    loading: own.phase === "loading" || !!shown?.loading || !!live?.loading,
+    /** The address the bar shows: what is loading or failed here, else the tab's own. */
+    shownUrl: own.phase === "idle" ? liveUrl : own.url,
     suggestions,
-    canBack: uncommittedFailure || (nativeHistory?.back ?? canStep(history, -1)),
-    canForward: nativeHistory?.forward ?? canStep(history, 1),
-    go: (url: string) => void go(url),
-    reopen: () => {
-      if (!workspaceId) return;
-      void source.open(threadId, workspaceId).catch((error) =>
-        setState({
-          phase: "failed",
-          url: live?.url ?? data.url ?? "",
-          failure: describeBrowserFailure(
-            error instanceof Error ? error.message : String(error),
-            live?.url ?? "",
-          ),
-        }),
-      );
-    },
+    download: source.download(),
+    canBack: uncommitted || canStep.back,
+    canForward: canStep.forward,
+    go,
+    back: () => (uncommitted ? setState(idle) : step("back")),
+    forward: () => step("forward"),
     reload: () => {
-      if (bound && source.navigateHistory && state.phase !== "failed") {
-        void navigateHistory("reload");
-        return;
-      }
-      const url = state.phase === "failed" ? state.url : (data.url ?? live?.url);
-      if (url) void go(url, history);
+      if (own.phase === "failed") go(own.url);
+      else step("reload");
     },
-    back,
-    forward: () => (source.navigateHistory && bound ? void navigateHistory("forward") : step(1)),
+    stop: () => {
+      const target = shownId;
+      if (target) void source.navigateHistory?.(threadId, "stop", target).catch(() => {});
+    },
     save,
   };
 }

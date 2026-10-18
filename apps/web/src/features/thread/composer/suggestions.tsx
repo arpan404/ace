@@ -1,4 +1,5 @@
-import { catalogDisplayName } from "@ace/ui-core";
+import { catalogDisplayName, displayAddress } from "@ace/ui-core";
+import { useMentionTabs, type MentionTab } from "@/features/panels/index.ts";
 import { useConnectionState, useSidebarIndex } from "@ace/client-react";
 import type { CatalogEntry, ThreadListEntry } from "@ace/protocol";
 import { useEffect, useMemo, useState } from "react";
@@ -14,6 +15,8 @@ export interface Suggestion {
   group: string;
   path?: string | undefined;
   threadId?: string | undefined;
+  /** A tab of this thread's browser. */
+  tab?: MentionTab | undefined;
   entry?: CatalogEntry | undefined;
 }
 export type Suggestions = (
@@ -52,6 +55,7 @@ export function useSuggestions(
   const ready = useConnectionState() === "ready";
   const threads = useSidebarIndex(threadReference, sameThread) ?? [];
   const { id, provider, instanceId, workspaceId, draft } = thread;
+  const tabs = useMentionTabs(draft ? undefined : id, trigger?.kind === "mention");
   const [revision, setRevision] = useState(0);
   const reference = useMemo(
     () => ({ id, provider, instanceId, workspaceId, draft, revision }),
@@ -104,6 +108,17 @@ export function useSuggestions(
       path,
     }));
     items.push(
+      ...tabs
+        .filter((tab) => tab.title.toLowerCase().includes(q) || tab.url.toLowerCase().includes(q))
+        .slice(0, 8)
+        .map((tab) => ({
+          kind,
+          group: "Browser tabs",
+          insert: `@${tab.title || displayAddress(tab.url)}`,
+          label: tab.title || displayAddress(tab.url),
+          detail: displayAddress(tab.url),
+          tab,
+        })),
       ...threads
         .filter(
           (t) =>

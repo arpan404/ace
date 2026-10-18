@@ -11,6 +11,17 @@
     "attached": {
       "type": "boolean"
     },
+    "audible": {
+      "type": "boolean"
+    },
+    "muted": {
+      "type": "boolean"
+    },
+    "openerTabId": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
     "tabId": {
       "maximum": 9007199254740991,
       "minimum": 0,

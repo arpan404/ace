@@ -38,24 +38,25 @@ test("the page cannot reach the overlay's binding, and its synthetic clicks are 
   expect(person.events().map((event) => event.kind)).toEqual(["ready"]);
 }, 60_000);
 
-test("only the person holding the lease can annotate, and handing back ends it for them alone", async () => {
+test("agents never annotate, and a second person's annotate mode replaces the first's for them alone", async () => {
   const f = await annotationFixture();
   await expect(
     f.service.execute("thread", { action: "annotate", operation: "start" }),
   ).rejects.toThrow();
+  const person = await f.annotating("person");
   const viewer = f.connect("viewer");
   await viewer.subscribe();
-  await expect(viewer.execute({ action: "annotate", operation: "start" })).rejects.toThrow();
-  const person = await f.annotating("person");
   await expect(
     viewer.execute({ action: "annotate", operation: "command", command: { op: "clear" } }),
   ).rejects.toThrow();
   await expect(
     viewer.execute({ action: "annotate_capture", target: { kind: "page" } }),
   ).rejects.toThrow();
-  await person.handback();
+  await viewer.execute({ action: "annotate", operation: "start" });
   expect(await person.event("ended")).toMatchObject({ reason: "lease" });
-  expect(viewer.events()).toEqual([]);
+  await viewer.event("ready");
+  expect(f.service.state("thread").annotation).toEqual({ owner: "viewer" });
+  await viewer.execute({ action: "annotate", operation: "stop" });
   expect(f.service.state("thread").annotation).toBeUndefined();
   await vi.waitFor(async () =>
     expect(

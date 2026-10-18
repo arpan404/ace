@@ -383,6 +383,12 @@ const browserSpecs: Record<string, AceToolSpec> = {
     (browserSettings[str(args, "action") ?? ""] ?? browserSettings["emulate"]!)(args),
   ),
   browser_measure: browser(() => say(verbs.measured)),
+  browser_request_help: browser(({ subject }) =>
+    say(
+      ["Asked you for help", "Asking you for help", "Ask you for help"],
+      ` on ${subject ?? "a page"}`,
+    ),
+  ),
 };
 
 /* ---------------------------------------------------------------------------------------- */

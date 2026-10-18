@@ -45,6 +45,8 @@ export async function relayDaemon(
   options: {
     clock?: RelayClock | undefined;
     register?: (backendId: string, transport: EmbeddedTransport) => EmbeddedBackend;
+    /** Every message the desktop sends, as the daemon's socket receives it. */
+    received?: (message: unknown) => void;
   } = {},
 ) {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
@@ -52,7 +54,6 @@ export async function relayDaemon(
   const address = server.address();
   if (typeof address !== "object" || !address) throw new Error("no address");
   const relays: EmbeddedBackend[] = [];
-  const takeovers: string[] = [];
   const sockets: ServerSocket[] = [];
   let connections = 0;
   const register =
@@ -66,6 +67,7 @@ export async function relayDaemon(
     const reply = (message: unknown) => socket.send(JSON.stringify(message));
     socket.on("message", (data) => {
       const message: unknown = JSON.parse(String(data));
+      options.received?.(message);
       if (typeof message !== "object" || message === null || !("type" in message)) return;
       if (message.type === "hello") {
         const valid =
@@ -77,8 +79,6 @@ export async function relayDaemon(
         return reply({ type: "welcome", hostId: "host", protocolVersion: 1, headSeq: 0 });
       }
       if (message.type === "ping") return reply({ type: "pong" });
-      if (message.type === "browser.takeover" && "threadId" in message)
-        return void takeovers.push(String(message.threadId));
       if (message.type === "browser.backend.register") {
         if (!("credential" in message) || message.credential !== credential.token)
           return reply({ type: "error", code: "browser_backend_denied", message: "denied" });
@@ -105,7 +105,7 @@ export async function relayDaemon(
   cleanups.push(() => new Promise((resolve) => server.close(resolve)));
   /** The link blips: the daemon's end of the newest socket drops without a goodbye. */
   const drop = () => sockets.at(-1)?.terminate();
-  return { url: `ws://127.0.0.1:${address.port}/`, relays, takeovers, drop };
+  return { url: `ws://127.0.0.1:${address.port}/`, relays, drop };
 }
 
 /** The desktop's real backend and connection, registered with `daemon` over the socket. */
@@ -117,10 +117,7 @@ export async function connectDesktop(
   const home = await mkdtemp(join(tmpdir(), "ace-desktop-relay-"));
   cleanups.push(() => rm(home, { recursive: true, force: true }));
   await writeFile(join(home, "browser-desktop.json"), JSON.stringify(credential));
-  const backend = new BrowserBackend(host, {
-    onTakeover: (threadId) => connection.takeover(threadId),
-    log: () => {},
-  });
+  const backend = new BrowserBackend(host, { log: () => {} });
   const connection = new BackendConnection(backend, {
     daemon: async () => ({ url: daemon.url, token }),
     credential: () => readDesktopCredential(home),

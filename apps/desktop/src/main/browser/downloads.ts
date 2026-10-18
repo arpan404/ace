@@ -20,13 +20,21 @@ export class NativeDownloads {
   private ready: string[] = [];
   private directory: string | undefined;
   private emit: (method: string, params: unknown) => void;
-  constructor(directory: string | undefined, emit: (method: string, params: unknown) => void) {
+  private folder: () => string | undefined;
+  /** `folder`: the person's downloads folder for this app's browser, read per download. */
+  constructor(
+    directory: string | undefined,
+    emit: (method: string, params: unknown) => void,
+    folder: () => string | undefined = () => undefined,
+  ) {
     this.directory = directory;
     this.emit = emit;
+    this.folder = folder;
   }
   accept(item: NativeDownload): boolean {
     if (!this.directory || this.items.size >= 128) return false;
     const guid = `native-${randomUUID()}`;
+    const folder = this.folder();
     item.setSavePath(join(this.directory, guid));
     item.pause();
     this.items.set(guid, item);
@@ -49,6 +57,7 @@ export class NativeDownloads {
       url: item.getURL().slice(0, 8192),
       filename: item.getFilename().slice(0, 256),
       mimeType: item.getMimeType().slice(0, 256),
+      ...(folder ? { folder } : {}),
     });
     return true;
   }

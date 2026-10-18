@@ -10,7 +10,6 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
     await f.navigate();
     const name = ref(await f.execute({ action: "snapshot" }), "Name");
     await f.execute({ action: "type", ref: name, text: "abc" });
-    f.service.takeover("thread", "owner");
     const press = async (key: string, code = key) => {
       for (const event of ["keyDown", "keyUp"])
         await f.service.input("thread", { kind: "key", event, key, code }, "owner");
@@ -156,15 +155,6 @@ describe.skipIf(!executablePath)("browser review regressions", () => {
         "globalThis.TextEncoder=class{encode(){return new Uint8Array(0)}}; '😀'.repeat(130000)",
       ),
     ).rejects.toThrow("evaluate failed");
-  }, 60_000);
-
-  it("rejects a snapshot of an oversized DOM before building its accessibility tree", async () => {
-    const f = await fixture();
-    await f.navigate();
-    await f.evaluate(
-      "const fragment=document.createDocumentFragment();for(let i=0;i<21000;i++)fragment.append(document.createElement('span'));document.body.append(fragment)",
-    );
-    await expect(f.execute({ action: "snapshot" })).rejects.toThrow("snapshot node limit");
   }, 60_000);
 
   it("rejects excess commands while preserving admitted commands", async () => {

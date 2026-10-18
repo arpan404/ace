@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { z } from "zod";
 import { setup, executablePath } from "./parity-test-support.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 it.skipIf(!executablePath)(
   "inspection returns filtered inline entries and redacts completed responses",
   async () => {
@@ -79,8 +80,8 @@ it.skipIf(!executablePath)(
           ).entries.length,
       )
       .toBeGreaterThan(0);
-    f.service.takeover("thread", "person", "private");
-    f.service.handback("thread", "person");
+    keepAgentsOut(f.service, "thread");
+    keepAgentsOut(f.service, "thread", false);
     await expect(
       f.execute({ action: "network_body", requestId: response?.requestId }),
     ).rejects.toThrow(/unavailable/);
@@ -120,5 +121,29 @@ it.skipIf(!executablePath)(
     expect(retained).toHaveLength(200);
     expect(retained.some((entry) => entry.requestId === old)).toBe(false);
     expect(Logs.parse(await f.execute({ action: "logs", limit: 3 })).entries).toHaveLength(3);
+  },
+);
+
+it.skipIf(!executablePath)(
+  "a finished request's entry says its method, size and how long it took, without a second entry",
+  async () => {
+    const f = await setup();
+    const Logs = z.object({
+      entries: z.array(
+        z.object({
+          type: z.string(),
+          method: z.string().optional(),
+          bytes: z.number().optional(),
+          durationMs: z.number().optional(),
+        }),
+      ),
+    });
+    const read = async () =>
+      Logs.parse(await f.execute({ action: "logs", kind: "network", url: "/body" })).entries;
+    await expect.poll(async () => (await read())[0]?.bytes).toBeGreaterThan(0);
+    const entries = await read();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ type: "response", method: "GET" });
+    expect(entries[0]?.durationMs).toBeGreaterThanOrEqual(0);
   },
 );

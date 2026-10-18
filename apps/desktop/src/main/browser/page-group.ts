@@ -12,8 +12,13 @@ const CdpCommand = TabCommand.extend({
   method: z.string().min(1).max(256),
   params: z.record(z.string(), z.unknown()).optional(),
 });
-/** `select` makes the new tab the one the panel shows; by default it opens in the background. */
-const OpenCommand = z.object({ select: z.boolean().optional() }).optional();
+/**
+ * `select` makes the new tab the one the panel shows; by default it opens in the background.
+ * `tabId` asks for the tab's id: the daemon restores a thread's tabs with the ids they had.
+ */
+const OpenCommand = z
+  .object({ select: z.boolean().optional(), tabId: z.string().min(1).max(256).optional() })
+  .optional();
 const ResizeCommand = TabCommand.extend({
   width: z.number().int().min(100).max(4096),
   height: z.number().int().min(100).max(4096),
@@ -22,7 +27,7 @@ type GroupPage = Pick<
   EmbeddedPage,
   | "cdp"
   | "onEvent"
-  | "onBlockedInput"
+  | "onHumanInput"
   | "navigate"
   | "press"
   | "resize"
@@ -34,8 +39,19 @@ type GroupPage = Pick<
   | "place"
   | "placementReady"
   | "isShown"
+  | "picture"
 > &
-  Partial<Pick<EmbeddedPage, "orphan" | "readopt" | "evacuate">>;
+  Partial<
+    Pick<EmbeddedPage, "orphan" | "readopt" | "evacuate" | "devtools" | "print" | "lastDriven">
+  >;
+
+interface Target {
+  window: BaseWindow | undefined;
+  bounds: Rect | undefined;
+  visible: boolean;
+  zoom?: number;
+  device?: NativeDevice | undefined;
+}
 
 interface Tab {
   id: string;
@@ -44,12 +60,12 @@ interface Tab {
   url: string;
   mainFrame?: string;
   stop(): void;
-  blocked(): void;
+  stopInput(): void;
 }
 
 /**
- * A thread's native tabs: one `WebContentsView` each, sharing the thread's partition and its
- * controller lease. Only the selected tab is placed in the Browser panel; the others stay
+ * A thread's native tabs: one `WebContentsView` each, sharing the thread's partition. Only the
+ * selected tab is placed in the Browser panel and takes the person's input; the others stay
  * alive unseen, and render in the parking window while an agent drives them (see `throttle.ts`).
  * Commands without a tab go to the selected tab; `ace.tabs.*` commands address any tab.
  */
@@ -58,19 +74,17 @@ export class EmbeddedPageGroup implements ViewPage {
   private active = "";
   private sequence = 0;
   private opening = 0;
+  /** Ids of tabs being created, so two opens never share one. */
+  private claimed = new Set<string>();
   private input = false;
-  private agent = true;
+  private agent = false;
   private closed = false;
   private closing: Promise<void> | undefined;
   private listeners = new Set<(method: string, params: unknown) => void>();
-  private blocked = new Set<() => void>();
-  private target: {
-    window: BaseWindow | undefined;
-    bounds: Rect | undefined;
-    visible: boolean;
-    zoom?: number;
-    device?: NativeDevice | undefined;
-  } = { window: undefined, bounds: undefined, visible: false };
+  private humanInput = new Set<(tabId?: string) => void>();
+  private target: Target = { window: undefined, bounds: undefined, visible: false };
+  /** Tabs placed by id beside the shown one (split view), each where its half of the panel is. */
+  private pinned = new Map<string, Target>();
   private create: (id: string) => Promise<GroupPage>;
   private finish: () => Promise<void>;
 
@@ -111,30 +125,55 @@ export class EmbeddedPageGroup implements ViewPage {
     this.emit("ace.tabs.changed", this.snapshot());
   }
 
+  /** The requested id when it is free, else the next generated one. */
+  private nextId(requested: string | undefined): string {
+    const taken = (id: string) => this.tabs.has(id) || this.claimed.has(id);
+    if (requested !== undefined && !taken(requested)) {
+      // Generated ids never collide with a restored one later.
+      const generated = /^native-tab-(\d+)$/.exec(requested);
+      if (generated) this.sequence = Math.max(this.sequence, Number(generated[1]));
+      return requested;
+    }
+    let id = `native-tab-${++this.sequence}`;
+    while (taken(id)) id = `native-tab-${++this.sequence}`;
+    return id;
+  }
+
   /** A new tab, in the background unless `select` or it is the thread's first. */
-  async openTab(options: { select?: boolean | undefined } = {}): Promise<string> {
+  async openTab(
+    options: { select?: boolean | undefined; tabId?: string | undefined } = {},
+  ): Promise<string> {
     if (this.closed) throw new Error("Browser closed");
     if (this.tabs.size + this.opening >= nativeTabLimit) throw new Error("Browser tab limit");
     this.opening++;
-    const id = `native-tab-${++this.sequence}`;
+    const id = this.nextId(options.tabId);
+    this.claimed.add(id);
     try {
       const page = await this.create(id);
       if (this.closed) {
         await page.close();
         throw new Error("Browser closed");
       }
-      const tab: Tab = { id, page, title: "", url: page.url(), stop: () => {}, blocked: () => {} };
+      const tab: Tab = {
+        id,
+        page,
+        title: "",
+        url: page.url(),
+        stop: () => {},
+        stopInput: () => {},
+      };
       this.tabs.set(id, tab);
       if (!this.active || options.select) this.active = id;
       tab.stop = page.onEvent((method, params) => this.tabEvent(tab, method, params));
-      tab.blocked = page.onBlockedInput(() => {
-        if (id === this.active) for (const notify of this.blocked) notify();
+      tab.stopInput = page.onHumanInput(() => {
+        for (const notify of this.humanInput) notify(id);
       });
       this.apply();
       this.changed();
       return id;
     } finally {
       this.opening--;
+      this.claimed.delete(id);
     }
   }
 
@@ -194,29 +233,55 @@ export class EmbeddedPageGroup implements ViewPage {
   }
 
   /**
-   * Only the selected tab is placed, takes the person's input and follows the lease the daemon
-   * sends (the shown tab's, ADR 0085). The person cannot reach an unseen tab, so it is always
-   * the agents': it renders while driven and intercepts its file choosers.
+   * The selected tab is placed where the panel shows the thread's page, and a tab placed by id
+   * (split view) where its half is; those take the person's input. Whether an agent uses the
+   * selected tab comes from the daemon (the shown tab's, ADR 0085). The person cannot reach an
+   * unseen tab, so it is always treated as the agents': it renders while driven and intercepts
+   * its file choosers.
    */
   private apply() {
     for (const [id, tab] of this.tabs) {
-      const shown = id === this.active;
-      tab.page.place({ ...this.target, visible: this.target.visible && shown });
+      const pin = this.pinned.get(id);
+      const target = pin?.visible ? pin : id === this.active ? this.target : (pin ?? this.target);
+      const shown = target.visible && (target === pin || id === this.active);
+      tab.page.place({ ...target, visible: shown });
       tab.page.setNativeInput(this.input && shown);
-      tab.page.setAgentControl(shown ? this.agent : true);
+      tab.page.setAgentControl(id === this.active ? this.agent : !shown);
     }
   }
 
-  async placementReady(): Promise<void> {
-    await this.tabs.get(this.active)?.page.placementReady();
+  /** The selected tab, or the one named. */
+  private placed(tabId: string | undefined): Tab | undefined {
+    return this.tabs.get(tabId ?? this.active);
   }
 
-  isShown(): boolean {
-    return this.tabs.get(this.active)?.page.isShown() ?? false;
+  /** The shown tab's developer tools, at an element when `at` is given. */
+  devtools(at?: { x: number; y: number }): void {
+    this.tabs.get(this.active)?.page.devtools?.(at);
   }
 
-  place(target: typeof this.target) {
-    this.target = target;
+  /** The system print dialog for the shown tab. */
+  print(): Promise<boolean> {
+    return this.tabs.get(this.active)?.page.print?.() ?? Promise.resolve(false);
+  }
+
+  async placementReady(tabId?: string): Promise<void> {
+    await this.placed(tabId)?.page.placementReady();
+  }
+
+  /** A shown tab's picture, held in its place while an app overlay covers it. */
+  picture(tabId?: string): Promise<string | undefined> {
+    return this.placed(tabId)?.page.picture() ?? Promise.resolve(undefined);
+  }
+
+  isShown(tabId?: string): boolean {
+    return this.placed(tabId)?.page.isShown() ?? false;
+  }
+
+  /** Where the selected tab goes, or with `tabId` where that one tab goes (split view). */
+  place(target: Target, tabId?: string) {
+    if (tabId === undefined) this.target = target;
+    else this.pinned.set(tabId, target);
     this.apply();
   }
 
@@ -255,8 +320,9 @@ export class EmbeddedPageGroup implements ViewPage {
   private async remove(id: string) {
     const tab = this.tab(id);
     this.tabs.delete(id);
+    this.pinned.delete(id);
     tab.stop();
-    tab.blocked();
+    tab.stopInput();
     await tab.page.close();
     if (this.active === id) this.active = this.tabs.keys().next().value ?? "";
     this.apply();
@@ -270,9 +336,10 @@ export class EmbeddedPageGroup implements ViewPage {
     return () => this.listeners.delete(listener);
   }
 
-  onBlockedInput(listener: () => void) {
-    this.blocked.add(listener);
-    return () => this.blocked.delete(listener);
+  /** The person used a tab directly; reports which one. */
+  onHumanInput(listener: (tabId?: string) => void) {
+    this.humanInput.add(listener);
+    return () => this.humanInput.delete(listener);
   }
 
   navigate(url: string, timeout: number) {
@@ -301,6 +368,14 @@ export class EmbeddedPageGroup implements ViewPage {
     return this.current().url;
   }
 
+  /** When the daemon last drove any of the thread's tabs. */
+  lastDriven(): number {
+    let latest = -Infinity;
+    for (const tab of this.tabs.values())
+      latest = Math.max(latest, tab.page.lastDriven?.() ?? -Infinity);
+    return latest;
+  }
+
   /** The window is closing: every tab in it moves to the parking window. */
   evacuate(closing: BaseWindow, park: (size: { width: number; height: number }) => BaseWindow) {
     for (const tab of this.tabs.values()) tab.page.evacuate?.(closing, park);
@@ -325,7 +400,7 @@ export class EmbeddedPageGroup implements ViewPage {
     await Promise.all(
       [...this.tabs.values()].map(async (tab) => {
         tab.stop();
-        tab.blocked();
+        tab.stopInput();
         await tab.page.close();
       }),
     );

@@ -13,7 +13,6 @@ describe.skipIf(!executablePath)("human numpad input", () => {
     await f.evaluate(
       "window.keys=[];document.querySelector('input').addEventListener('keydown',e=>keys.push({key:e.key,code:e.code,location:e.location}))",
     );
-    f.service.takeover("thread", "owner");
     const evaluate = (expression: string) =>
       f.service.execute(
         "thread",

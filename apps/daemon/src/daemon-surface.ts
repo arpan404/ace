@@ -70,6 +70,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "previewSuggestions",
     "automations",
     "activityReads",
+    "browsing",
     "icons",
     "storage",
     "devices",

@@ -7,7 +7,9 @@
     ".": "./src/index.ts",
     "./policy": "./src/policy.ts",
     "./policy-events": "./src/policy-events.ts",
-    "./testing": "./src/backend-test-support.ts"
+    "./zoom": "./src/zoom.ts",
+    "./testing": "./src/backend-test-support.ts",
+    "./conformance": "./src/conformance/index.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

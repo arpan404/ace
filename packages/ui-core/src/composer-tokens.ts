@@ -1,4 +1,5 @@
 import type {
+  BrowserTabContextItem,
   CatalogEntry,
   CatalogMention,
   ContentPart,
@@ -14,6 +15,8 @@ export interface ComposerToken {
   catalog?: CatalogMention | undefined;
   file?: Mention | undefined;
   thread?: ThreadRefContextItem | undefined;
+  /** A tab of the thread's browser (`@` a tab). */
+  browserTab?: BrowserTabContextItem | undefined;
 }
 
 /** An edit touching a reference removes it; edits around it preserve its position. */

@@ -11,31 +11,52 @@ import { matchesChord, parseChord } from "@/lib/hotkeys.ts";
 import { bindingsFor, scopeOf, useResolvedKeymap } from "@/lib/keybindings.ts";
 import { keymapIds } from "@/lib/keymap.ts";
 import { cn } from "@/lib/cn.ts";
-import type { BrowserView, ForwardedInput, PreviewSource, ScreenFrame } from "../sources.ts";
+import type {
+  BrowserTabView,
+  BrowserView,
+  ForwardedInput,
+  PreviewSource,
+  ScreenFrame,
+} from "../sources.ts";
+import { AgentCursor } from "./agent-cursor.tsx";
 import { useCaptureSize } from "../preview/use-capture-size.ts";
 import { useViewportSync } from "../preview/use-viewport-sync.ts";
+import { PageContextMenu, type PageMenu } from "./page-context-menu.tsx";
 
 /**
  * The page itself, edge to edge in the panel: the screencast frame on the panel's own surface,
- * never inside a pretend window. While this device holds control, pointer, wheel and keys go to
- * the page; otherwise it is a picture of what the agent sees. At "Fit the panel" the page is
- * sized to the pane so it renders 1:1; at a device size it is drawn whole, scaled to fit.
+ * never inside a pretend window. Pointer, wheel and keys go to the shown tab at once, whoever
+ * else works in it; an agent working there shows as a cursor gliding to where it points. At
+ * "Fit the panel" the page is sized to the pane so it renders 1:1; at a device size it is drawn
+ * whole, scaled to fit.
  */
 export function PageView(props: {
   source: PreviewSource;
   threadId: string;
   view: BrowserView;
+  /** The tab shown: input goes to exactly this tab. */
+  tab: BrowserTabView | undefined;
   frame: ScreenFrame;
   interactive: boolean;
   /** Native page acknowledged as visible; keep capture warm but do not paint a second copy. */
   nativeShown?: boolean;
   /** Follow the pane's size (responsive); false while a device size is set. */
   fit: boolean;
+  /** Drawn inside the device toolbar's frame, which it fills exactly. */
+  framed?: boolean;
+  /** The tab's zoom: the page is that much smaller in CSS pixels, drawn back at the pane's size. */
+  zoom?: number | undefined;
+  /** The right-click menu; without it, a right click goes to the page. */
+  menu?: PageMenu | undefined;
   /** Dimmed with a reason over it (offline, paused). */
   dimmed?: boolean;
 }) {
   const { frame } = props;
+  const tabId = props.tab?.tabId;
+  /** The person's input, to the shown tab by name. */
+  const forward = (input: ForwardedInput) => props.source.input(props.threadId, input, tabId);
   const pane = useRef<HTMLDivElement>(null);
+  const picture = useRef<HTMLImageElement>(null);
   const keymap = useResolvedKeymap();
   const appChords = useMemo(
     () =>
@@ -60,8 +81,10 @@ export function PageView(props: {
   };
   const send = (event: "mousePressed" | "mouseReleased") => (mouse: MouseEvent<HTMLElement>) => {
     if (mouse.button > 2) return;
+    // A right click opens ace's menu; with ⇧ it goes to the page (its own menus).
+    if (mouse.button === 2 && props.menu && !mouse.shiftKey) return;
     if (event === "mousePressed") mouse.currentTarget.focus();
-    props.source.input(props.threadId, {
+    forward({
       kind: "mouse",
       event,
       ...point(mouse),
@@ -82,11 +105,11 @@ export function PageView(props: {
     if (!scheduledMove.current)
       scheduledMove.current = requestAnimationFrame(() => {
         scheduledMove.current = 0;
-        if (move.current) props.source.input(props.threadId, move.current);
+        if (move.current) forward(move.current);
       });
   };
   const onWheel = (event: WheelEvent<HTMLElement>) => {
-    props.source.input(props.threadId, {
+    forward({
       kind: "scroll",
       ...point(event),
       deltaX: Math.round(event.deltaX),
@@ -104,13 +127,13 @@ export function PageView(props: {
         event.preventDefault();
         if (type === "keyDown" && props.source.selection && navigator.clipboard)
           void props.source
-            .selection(props.threadId)
+            .selection(props.threadId, tabId)
             .then(async (text) => {
               if (!text) return;
               await navigator.clipboard.writeText(text);
               if (key === "x")
                 for (const keyEvent of ["keyDown", "keyUp"] as const)
-                  props.source.input(props.threadId, {
+                  forward({
                     kind: "key",
                     event: keyEvent,
                     key: "Backspace",
@@ -122,7 +145,7 @@ export function PageView(props: {
       }
     }
     event.preventDefault();
-    props.source.input(props.threadId, {
+    forward({
       kind: "key",
       event: type,
       key: event.key,
@@ -137,16 +160,20 @@ export function PageView(props: {
         : {}),
     });
   };
+  // A zoomed page is smaller in CSS pixels; drawn at its zoomed size it fills the pane again.
+  const zoom = props.zoom ?? 1;
   const image = !props.nativeShown && (
     <img
+      ref={picture}
       src={frame.src}
       alt={`Live view of ${props.view.url}`}
       draggable={false}
-      width={frame.width}
-      height={frame.height}
+      width={Math.round(frame.width * zoom)}
+      height={Math.round(frame.height * zoom)}
       className={cn(
-        "block h-auto max-h-full w-auto max-w-full object-contain transition-opacity duration-(--motion-base)",
-        !props.fit && "rounded-md shadow-glass",
+        "block object-contain transition-opacity duration-(--motion-base)",
+        props.framed ? "size-full" : "h-auto max-h-full w-auto max-w-full",
+        !props.fit && !props.framed && "rounded-md shadow-glass",
         props.dimmed && "opacity-40",
       )}
     />
@@ -155,18 +182,21 @@ export function PageView(props: {
   // panel's surface. Space a frame doesn't cover is the panel itself, not a frame colour.
   const className = cn(
     "absolute inset-0 flex overflow-hidden",
-    props.fit ? "items-start justify-start" : "items-center justify-center p-6",
+    props.fit || props.framed ? "items-start justify-start" : "items-center justify-center p-6",
   );
   // One element whether or not the page takes input now, so focus stays on it when control or
   // annotate mode changes hands: dropped to <body>, the composer would take the next keys and
   // Enter would send it. While the page can't take them, keys typed here go nowhere.
   const live = props.interactive && !props.nativeShown;
+  // The daemon draws agents' cursors in the page, so the frames already show them; only a
+  // recording keeps them out of the page, and then they are drawn here instead.
+  const inPage = props.view.features?.includes("page-cursor") === true && !props.view.recording;
   const paste = (event: ClipboardEvent<HTMLElement>) => {
     event.preventDefault();
     const text = event.clipboardData.getData("text");
     void (async () => {
       for (let index = 0; index < Math.min(text.length, 65536); index += 256)
-        await props.source.input(props.threadId, {
+        await forward({
           kind: "key",
           event: "char",
           key: "Paste",
@@ -174,7 +204,7 @@ export function PageView(props: {
         });
     })();
   };
-  return (
+  const view = (
     // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- handlers attach only while live, when the pane is role="application"
     <div
       ref={pane}
@@ -187,13 +217,29 @@ export function PageView(props: {
       onMouseDown={live ? send("mousePressed") : undefined}
       onMouseUp={live ? send("mouseReleased") : undefined}
       onWheel={live ? onWheel : undefined}
-      onContextMenu={live ? (event) => event.preventDefault() : undefined}
+      onContextMenu={
+        !live
+          ? undefined
+          : props.menu
+            ? (event) => props.menu?.locate(point(event))
+            : (event) => event.preventDefault()
+      }
       onKeyDown={live ? onKey("keyDown") : undefined}
       onKeyUp={live ? onKey("keyUp") : undefined}
       onPaste={live ? paste : undefined}
       className={cn(className, "outline-none", live && "cursor-default focus-ring-inset")}
     >
       {image}
+      {image && props.tab?.inUse && props.tab.pointer && !inPage && (
+        <AgentCursor
+          threadId={props.threadId}
+          agentId={props.tab.inUse.agentId}
+          pointer={props.tab.pointer}
+          page={{ width: frame.width, height: frame.height }}
+          picture={picture}
+        />
+      )}
     </div>
   );
+  return props.menu && live ? <PageContextMenu menu={props.menu}>{view}</PageContextMenu> : view;
 }

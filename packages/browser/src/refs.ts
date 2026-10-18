@@ -6,6 +6,29 @@ import { compactTree, type CompactNode } from "./snapshot-compact.ts";
 import { snapshotLine } from "./snapshot-text.ts";
 import { z } from "zod";
 import { withoutSubtree } from "./snapshot-exclusion.ts";
+import { hitPoint, hitTargetFunction } from "./hit-target.ts";
+import { TypedKeeping, typeKeepingPerson } from "./typing.ts";
+import {
+  limitDepth,
+  outlineDomNodes,
+  outlineHint,
+  outlineRoles,
+  truncatedHint,
+} from "./snapshot-scope.ts";
+
+const DocumentRoot = z.object({ root: z.object({ backendNodeId: z.number().int() }) });
+/** Frame process swaps can detach an AX target between discovery and this read. */
+function staleFrame(error: unknown): never {
+  if (
+    error instanceof Error &&
+    /Frame with the given frameId is not found|Browser target command failed|No node with given id/.test(
+      error.message,
+    )
+  )
+    throw staleRef();
+  throw error;
+}
+import { maskSecretFields, secretFieldNodes } from "./secret-values.ts";
 
 /** About 1.5k tokens: a default snapshot stays cheaper than a 1536 px screenshot. */
 export const defaultSnapshotNodes = 120;
@@ -16,9 +39,17 @@ interface RefTarget {
   cdp: BrowserCdp;
   frameId?: string;
 }
+type Tree = z.infer<typeof AXTree>;
+interface SnapshotFrame {
+  frameId?: string;
+  cdp: BrowserCdp;
+  parentId?: string;
+}
 export interface SnapshotOptions {
   /** A ref from the latest snapshot: return only that element's subtree. */
   scope?: string;
+  /** How many accessibility levels below the page (or `scope`) to read; omitted: all. */
+  depth?: number | undefined;
   interactiveOnly?: boolean;
   maxNodes?: number;
   /** Keep only matching nodes (find); the budget counts matches only. */
@@ -29,11 +60,15 @@ export interface SnapshotResult {
   /** Matching nodes on the page, including those the budget left out. */
   total: number;
   truncated: boolean;
+  /** How to read more, when the page was too large to read whole. */
+  hint?: string | undefined;
 }
 
 /** One generation and one bounded snapshot; navigation cannot alias an old ref. */
 export class SnapshotRefs {
   private epoch = 0;
+  /** Reopened since the last snapshot (`restarted`). */
+  private reopened = false;
   private refs = new Map<string, RefTarget>();
   /** Short, document-stable names for child frames, so refs stay a few characters long. */
   private frameAliases = new Map<string, string>();
@@ -43,12 +78,12 @@ export class SnapshotRefs {
     | undefined;
   private cdp: BrowserCdp;
   private frameSessions = new Map<string, BrowserFrameSession>();
-  /** DOM node whose subtree snapshots omit: ace's annotate overlay in the top document. */
-  private excluded: () => Promise<number | undefined>;
+  /** DOM nodes whose subtrees snapshots omit: ace's own layers (annotate, agent cursor). */
+  private excluded: () => Promise<readonly (number | undefined)[]>;
   constructor(
     cdp: BrowserCdp,
     frames?: () => Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]> | undefined,
-    excluded: () => Promise<number | undefined> = async () => undefined,
+    excluded: () => Promise<readonly (number | undefined)[]> = async () => [],
   ) {
     this.frames = frames;
     this.cdp = cdp;
@@ -63,7 +98,24 @@ export class SnapshotRefs {
     this.refs.clear();
     this.frameAliases.clear();
   }
-  /** Bounded, compact snapshot of every frame; it replaces the actionable ref set. */
+  /**
+   * The page was reopened after its renderer, its browser or the daemon restarted. Refs from
+   * before fail with `browser_restarted` until the next snapshot, so the agent learns why its
+   * page state is gone.
+   */
+  restarted(): void {
+    this.invalidate();
+    this.reopened = true;
+  }
+  /** A ref that is not in the latest snapshot. */
+  private unknownRef(): BrowserActionError {
+    return this.reopened ? new BrowserActionError("browser_restarted") : staleRef();
+  }
+  /**
+   * Bounded, compact snapshot of every frame; it replaces the actionable ref set. Large pages
+   * degrade instead of failing: output is cut at the budget, and a page over `outlineDomNodes`
+   * lists only its landmarks and headings, each with a ref to scope a snapshot to.
+   */
   async snapshot(options: SnapshotOptions = {}): Promise<SnapshotResult> {
     for (let attempt = 0; ; attempt++) {
       try {
@@ -71,6 +123,8 @@ export class SnapshotRefs {
       } catch (error) {
         if (!(error instanceof BrowserActionError && error.code === "stale_ref") || attempt >= 4)
           throw error;
+        // A scoped snapshot's ref went stale: retrying cannot bring it back.
+        if (options.scope !== undefined) throw error;
       }
     }
   }
@@ -83,84 +137,126 @@ export class SnapshotRefs {
     }
     return alias;
   }
-  private async collect(options: SnapshotOptions): Promise<SnapshotResult> {
-    const epoch = this.epoch;
-    const scope = options.scope === undefined ? undefined : this.refs.get(options.scope);
-    if (options.scope !== undefined && !scope) throw staleRef();
+  private async listFrames(): Promise<SnapshotFrame[]> {
     const listed = this.frames?.();
-    const frames: { frameId?: string; cdp: BrowserCdp; parentId?: string }[] = listed
-      ? await listed
-      : [{ cdp: this.cdp }];
+    const frames: SnapshotFrame[] = listed ? await listed : [{ cdp: this.cdp }];
     this.frameSessions = new Map(
       frames
         .filter((frame): frame is BrowserFrameSession => frame.frameId !== undefined)
         .map((frame) => [frame.frameId, frame]),
     );
+    return frames;
+  }
+  private async collect(options: SnapshotOptions): Promise<SnapshotResult> {
+    const epoch = this.epoch;
+    const scope = options.scope === undefined ? undefined : this.refs.get(options.scope);
+    if (options.scope !== undefined && !scope) throw this.unknownRef();
+    const frames = await this.listFrames();
     let domNodes = 0;
-    for (const cdp of new Set(frames.map((frame) => frame.cdp))) {
+    for (const cdp of new Set(frames.map((frame) => frame.cdp)))
       domNodes += z
         .object({ nodes: z.number() })
         .parse(await cdp.send("Memory.getDOMCounters")).nodes;
-      if (domNodes > 20000) throw new Error("Browser document exceeds snapshot node limit");
-    }
-    const limit = options.maxNodes ?? defaultSnapshotNodes;
-    const nodes: CompactNode[] = [];
-    const refs = new Map<string, RefTarget>();
-    let total = 0,
-      bytes = 0;
+    // Reading a huge page's whole tree takes seconds and tens of megabytes: outline it.
+    if (!scope && domNodes > outlineDomNodes) return this.outline(frames, epoch, options);
     const excluded = await this.excluded();
-    for (const frame of frames) {
+    // Agents never read secret fields' values (ADR 0067, privacy): one lookup per session.
+    const secrets = new Map<BrowserCdp, Promise<Set<number>>>();
+    const secretsOf = (cdp: BrowserCdp) => {
+      let found = secrets.get(cdp);
+      if (!found) {
+        found = secretFieldNodes(cdp);
+        secrets.set(cdp, found);
+      }
+      return found;
+    };
+    const page = new CompactPage(options);
+    // A scoped read touches only its own frame; its refs join the latest snapshot's.
+    const read = scope
+      ? frames.filter((frame) => frame.cdp === scope.cdp && frame.frameId === scope.frameId)
+      : frames;
+    for (const frame of read) {
       const raw = AXTree.parse(
-        await frame.cdp
-          .send("Accessibility.getFullAXTree", frame.frameId ? { frameId: frame.frameId } : {})
-          .catch((error: unknown) => {
-            // Frame process swaps can detach an AX target between discovery and this read.
-            if (
-              error instanceof Error &&
-              /Frame with the given frameId is not found|Browser target command failed/.test(
-                error.message,
-              )
-            )
-              throw staleRef();
-            throw error;
-          }),
+        await (
+          scope
+            ? // Only the element's own subtree: work proportional to it, not to the page.
+              frame.cdp.send("Accessibility.queryAXTree", { backendNodeId: scope.backendNodeId })
+            : frame.cdp.send("Accessibility.getFullAXTree", {
+                ...(options.depth === undefined ? {} : { depth: options.depth }),
+                ...(frame.frameId ? { frameId: frame.frameId } : {}),
+              })
+        ).catch(staleFrame),
       );
-      // ace's annotate overlay lives in the top document only.
-      const tree = frame.parentId ? raw : withoutSubtree(raw, excluded);
+      // ace's own layers live in the top document only.
+      const tree = maskSecretFields(
+        frame.parentId ? raw : withoutSubtree(raw, excluded),
+        await secretsOf(frame.cdp),
+      );
       const prefix = this.alias(frame);
       const refOf = (backendNodeId: number) => `${prefix}e${epoch}-${backendNodeId}`;
-      const target = (backendNodeId: number): RefTarget => ({
-        backendNodeId,
-        cdp: frame.cdp,
-        ...(frame.frameId ? { frameId: frame.frameId } : {}),
-      });
       // Every DOM-backed node stays actionable, including ones the budget leaves out.
       for (const node of tree.nodes)
         if (node.backendDOMNodeId)
-          refs.set(refOf(node.backendDOMNodeId), target(node.backendDOMNodeId));
-      if (scope && (scope.cdp !== frame.cdp || scope.frameId !== frame.frameId)) continue;
-      const compact = compactTree(tree.nodes, {
+          page.refs.set(refOf(node.backendDOMNodeId), {
+            backendNodeId: node.backendDOMNodeId,
+            cdp: frame.cdp,
+            ...(frame.frameId ? { frameId: frame.frameId } : {}),
+          });
+      const scoped =
+        scope && options.depth !== undefined
+          ? subtree(tree, scope.backendNodeId, options.depth)
+          : tree;
+      const compact = compactTree(scoped.nodes, {
         refOf,
         ...(scope ? { scope: scope.backendNodeId } : {}),
         ...(options.interactiveOnly ? { interactiveOnly: true } : {}),
         ...(prefix && frame.frameId ? { frameId: frame.frameId } : {}),
       });
       if (!compact) throw staleRef();
-      for (const node of compact) {
-        if (options.match && !options.match(node)) continue;
-        total++;
-        if (nodes.length >= limit) continue;
-        bytes += snapshotLine(node).length + 1;
-        if (bytes > maxSnapshotBytes) {
-          bytes = Number.POSITIVE_INFINITY;
-          continue;
-        }
-        nodes.push(node);
-      }
+      page.add(compact);
     }
     if (epoch !== this.epoch) throw staleRef();
-    this.refs = refs;
-    return { nodes, total, truncated: nodes.length < total };
+    if (scope) for (const [key, target] of page.refs) this.refs.set(key, target);
+    else this.refs = page.refs;
+    this.reopened = false;
+    return page.result();
+  }
+  /** A page too large to read whole: its top document's landmarks and headings. */
+  private async outline(
+    frames: SnapshotFrame[],
+    epoch: number,
+    options: SnapshotOptions,
+  ): Promise<SnapshotResult> {
+    const top = frames.find((frame) => !frame.parentId) ?? { cdp: this.cdp };
+    const document = DocumentRoot.parse(await top.cdp.send("DOM.getDocument", { depth: 0 }));
+    const excluded = await this.excluded();
+    const secrets = await secretFieldNodes(top.cdp);
+    const page = new CompactPage(options);
+    const refOf = (backendNodeId: number) => `e${epoch}-${backendNodeId}`;
+    for (const role of outlineRoles) {
+      const raw = AXTree.parse(
+        await top.cdp
+          .send("Accessibility.queryAXTree", { backendNodeId: document.root.backendNodeId, role })
+          .catch(staleFrame),
+      );
+      // An outline lists nodes without their children: each is a line of its own.
+      const nodes = maskSecretFields(raw, secrets).nodes.filter(
+        (node) => node.backendDOMNodeId === undefined || !excluded.includes(node.backendDOMNodeId),
+      );
+      for (const node of nodes) node.childIds = [];
+      for (const node of nodes)
+        if (node.backendDOMNodeId)
+          page.refs.set(refOf(node.backendDOMNodeId), {
+            backendNodeId: node.backendDOMNodeId,
+            cdp: top.cdp,
+            ...(top.frameId ? { frameId: top.frameId } : {}),
+          });
+      page.add(compactTree(nodes, { refOf }) ?? []);
+    }
+    if (epoch !== this.epoch) throw staleRef();
+    this.refs = page.refs;
+    this.reopened = false;
+    return { ...page.result(), truncated: true, hint: outlineHint };
   }
 
   documentGuard(): () => void {
@@ -172,7 +268,7 @@ export class SnapshotRefs {
   guard(ref: string): () => void {
     const epoch = this.epoch;
     const node = this.refs.get(ref);
-    if (node === undefined) throw staleRef();
+    if (node === undefined) throw this.unknownRef();
     return () => {
       if (epoch !== this.epoch || this.refs.get(ref) !== node) throw staleRef();
     };
@@ -194,7 +290,7 @@ export class SnapshotRefs {
     args: unknown[] = [],
   ): Promise<unknown> {
     const target = this.refs.get(ref);
-    if (target === undefined) throw staleRef();
+    if (target === undefined) throw this.unknownRef();
     const { backendNodeId, cdp } = target;
     const epoch = this.epoch;
     const { object } = ResolvedNode.parse(await cdp.send("DOM.resolveNode", { backendNodeId }));
@@ -207,6 +303,7 @@ export class SnapshotRefs {
           objectId: object.objectId,
           functionDeclaration,
           returnByValue: true,
+          awaitPromise: true,
           arguments: args.map((value) => ({ value })),
         }),
       );
@@ -242,9 +339,28 @@ export class SnapshotRefs {
     });
     return { ...rect, x: rect.x + offset.x, y: rect.y + offset.y };
   }
+  /**
+   * Where an agent's pointer lands on `ref`: scrolled into view, its box steady across two
+   * frames, at a point where the element itself would take the click (`hit-target.ts`).
+   * Fails with `not_visible`, `not_hittable` or `covered`. Top-level CSS pixels.
+   */
+  async target(ref: string, beforeDispatch: () => void) {
+    const { rect, point } = hitPoint(await this.call(ref, hitTargetFunction, beforeDispatch));
+    const target = this.refs.get(ref);
+    if (!target?.frameId) return { rect, point };
+    const guard = this.guard(ref);
+    const offset = await frameOffset(target.frameId, this.frameSessions, () => {
+      beforeDispatch();
+      guard();
+    });
+    return {
+      rect: { ...rect, x: rect.x + offset.x, y: rect.y + offset.y },
+      point: { x: point.x + offset.x, y: point.y + offset.y },
+    };
+  }
   async upload(ref: string, files: string[], beforeDispatch: () => void): Promise<void> {
     const target = this.refs.get(ref);
-    if (!target) throw staleRef();
+    if (!target) throw this.unknownRef();
     const guard = this.guard(ref);
     await this.call(
       ref,
@@ -308,6 +424,13 @@ export class SnapshotRefs {
       beforeDispatch,
     );
   }
+  /**
+   * Adds `text` after the field's own text and gives the person back their focus and caret, in
+   * one page task. Returns whether the field already held text.
+   */
+  async typeKeeping(ref: string, text: string, beforeDispatch: () => void): Promise<boolean> {
+    return TypedKeeping.parse(await this.call(ref, typeKeepingPerson, beforeDispatch, [text])).kept;
+  }
   async visible(ref: string): Promise<boolean> {
     return z.boolean().parse(
       await this.call(
@@ -319,4 +442,49 @@ export class SnapshotRefs {
       ),
     );
   }
+}
+
+/** One snapshot's lines and refs, kept within the node and byte budgets as frames are added. */
+class CompactPage {
+  readonly refs = new Map<string, RefTarget>();
+  private nodes: CompactNode[] = [];
+  private total = 0;
+  private bytes = 0;
+  private limit: number;
+  private match: ((node: CompactNode) => boolean) | undefined;
+  constructor(options: SnapshotOptions) {
+    this.limit = options.maxNodes ?? defaultSnapshotNodes;
+    this.match = options.match;
+  }
+  add(compact: readonly CompactNode[]): void {
+    for (const node of compact) {
+      if (this.match && !this.match(node)) continue;
+      this.total++;
+      if (this.nodes.length >= this.limit) continue;
+      this.bytes += snapshotLine(node).length + 1;
+      if (this.bytes > maxSnapshotBytes) {
+        this.bytes = Number.POSITIVE_INFINITY;
+        continue;
+      }
+      this.nodes.push(node);
+    }
+  }
+  result(): SnapshotResult {
+    const truncated = this.nodes.length < this.total;
+    return {
+      nodes: this.nodes,
+      total: this.total,
+      truncated,
+      ...(truncated ? { hint: truncatedHint } : {}),
+    };
+  }
+}
+
+/** The subtree under `backendNodeId`, at most `depth` levels below it. */
+function subtree(tree: Tree, backendNodeId: number, depth: number): Tree {
+  const index = tree.nodes.findIndex((node) => node.backendDOMNodeId === backendNodeId);
+  if (index < 0) return tree;
+  const root = tree.nodes[index];
+  if (!root) return tree;
+  return limitDepth({ nodes: [root, ...tree.nodes.filter((_, at) => at !== index)] }, depth);
 }

@@ -77,7 +77,8 @@ test("an empty preview lists the detected dev servers above the manual port, and
 test("Open the Browser from an empty preview opens the Browser tool", async () => {
   const { panel } = await openPreview();
   await userEvent.click(await within(panel).findByRole("button", { name: "Open the Browser" }));
-  expect(await within(panel).findByRole("tab", { name: "Browser", selected: true })).toBeTruthy();
+  // A new browser tab, as the panel's + opens one.
+  expect(await within(panel).findByRole("tab", { name: "New tab", selected: true })).toBeTruthy();
   // Its start page is the address bar, with no narration.
   expect(await within(panel).findByRole("combobox", { name: "Address" })).toBeTruthy();
 });

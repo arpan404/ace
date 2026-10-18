@@ -34,6 +34,17 @@ interface Harness {
   resizeWindow(width: number, height: number): void;
   backgroundTab(): Promise<string>;
   rendering(tabId: string): Promise<{ frames: number; state: string }>;
+  split(left: Box, right: Box): Promise<{ receipts: string[]; boxes: Box[] }>;
+  pictureInPicture(
+    panel: Box,
+    floating: Box,
+  ): Promise<{
+    whileFloating: { receipt: string; bounds: Box; visible: boolean };
+    back: string;
+    visibility: boolean[];
+    navigations: number;
+    bounds: Box;
+  }>;
   blip(): Promise<unknown>;
   typeAfterAddressShortcut(): Promise<unknown>;
   crashRepeatedly(times: number): Promise<{ events: string[]; crashed: boolean }>;
@@ -145,6 +156,31 @@ describe.skipIf(!enabled)("embedded view lifecycle", () => {
     });
   });
 
+  it("moving the page into picture-in-picture and back never reloads it or hides it", async () => {
+    const loaded = await app.evaluate(() =>
+      (Reflect.get(globalThis, "harness") as Harness).loadedAt(),
+    );
+    const panel = { x: 300, y: 120, width: 600, height: 400 };
+    const floating = { x: 640, y: 420, width: 300, height: 200 };
+    const moved = await app.evaluate(
+      (_e, boxes: { panel: Box; floating: Box }) =>
+        (Reflect.get(globalThis, "harness") as Harness).pictureInPicture(
+          boxes.panel,
+          boxes.floating,
+        ),
+      { panel, floating },
+    );
+    expect(moved.whileFloating).toEqual({ receipt: "shown", bounds: floating, visible: true });
+    expect(moved.back).toBe("shown");
+    expect(moved.bounds).toEqual(panel);
+    // Never hidden on the way (no flash) and never navigated (no reload).
+    expect(moved.visibility).toEqual([]);
+    expect(moved.navigations).toBe(0);
+    expect(
+      await app.evaluate(() => (Reflect.get(globalThis, "harness") as Harness).loadedAt()),
+    ).toBe(loaded);
+  });
+
   it("a second tab renders while not selected", async () => {
     const tabId = await app.evaluate(() =>
       (Reflect.get(globalThis, "harness") as Harness).backgroundTab(),
@@ -159,6 +195,18 @@ describe.skipIf(!enabled)("embedded view lifecycle", () => {
     expect(
       await app.evaluate(() => (Reflect.get(globalThis, "harness") as Harness).where()),
     ).toMatchObject({ inAppWindow: true, visible: true });
+  });
+
+  it("split view draws two native tabs side by side", async () => {
+    const left = { x: 300, y: 120, width: 400, height: 400 };
+    const right = { x: 700, y: 120, width: 400, height: 400 };
+    const result = await app.evaluate(
+      (_e, boxes: { left: Box; right: Box }) =>
+        (Reflect.get(globalThis, "harness") as Harness).split(boxes.left, boxes.right),
+      { left, right },
+    );
+    expect(result.receipts).toEqual(["shown", "shown"]);
+    expect(result.boxes).toEqual([left, right]);
   });
 
   it("keys typed right after ⌘L in the page land in the address field, first character included", async () => {

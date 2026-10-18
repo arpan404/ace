@@ -95,9 +95,10 @@ export function createEditor(parent: HTMLElement, callbacks: EditorCallbacks) {
     if (!anchor) return;
     // Keep the element in view for its live previews: below it, else above its marker, else
     // beside the marker when the element fills the viewport.
-    const below = anchor.bottom + gap / 2;
-    const above = anchor.y - 11 - gap / 2 - height;
-    const edge = clamp(anchor.x - 11, 8, innerWidth - size - 8);
+    // A region's marker overhangs its bottom-right corner: the panel clears it and ends there.
+    const below = anchor.bottom + (anchor.end ? 11 : 0) + gap / 2;
+    const above = (anchor.end ? anchor.top : anchor.y - 11) - gap / 2 - height;
+    const edge = clamp(anchor.end ? anchor.x + 11 - size : anchor.x - 11, 8, innerWidth - size - 8);
     let left: number;
     let top: number;
     if (below + height <= innerHeight - 8) [left, top] = [edge, below];
@@ -140,6 +141,13 @@ export function createEditor(parent: HTMLElement, callbacks: EditorCallbacks) {
       moved = undefined;
       slot.replaceChildren();
       root.remove();
+    },
+    /** Enable the sliders button, or disable it saying why (a region has no one element). */
+    inspectable(reason: string | null): void {
+      sliders.disabled = !!reason;
+      const label = reason ?? "Edit styles";
+      sliders.setAttribute("aria-label", label);
+      sliders.title = label;
     },
     /** Host `panel` below the comment (the style inspector), or close it with null. */
     expand(panel: HTMLElement | null): void {

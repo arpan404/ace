@@ -1,3 +1,4 @@
+import { agentWork } from "../os/quit-guard.ts";
 import { RendererRecovery } from "./renderer-recovery.ts";
 import { NativeBasicAuth } from "./basic-auth.ts";
 import { NativePopups } from "./popups.ts";
@@ -10,7 +11,7 @@ import type { DownloadItem } from "electron";
 import { z } from "zod";
 import type { BaseWindow, Session, WebContents, WebContentsView } from "electron";
 import type { ViewPage } from "./backend.ts";
-import { appChord, browserChord } from "../shortcuts.ts";
+import { appChord, browserChord, pageChord } from "../shortcuts.ts";
 import { parseChord } from "./keys.ts";
 import { WebSocketGate } from "./socket-gate.ts";
 import { throttleDecision, type ViewPresence } from "./throttle.ts";
@@ -19,6 +20,13 @@ import { clearPartition } from "./partition-cleanup.ts";
 import { PausedRequests } from "./paused-requests.ts";
 import { CrashBackoff } from "./crash-backoff.ts";
 import { FocusHandoff, type ReplayedKey } from "./focus-handoff.ts";
+import { popupContextMenu } from "./context-menu.ts";
+import { openDevTools, printPage } from "./devtools.ts";
+import type { BrowserContextAction } from "../../shared/contract.ts";
+import { HumanInputReports } from "./human-input.ts";
+import { UnloadGuard } from "./unload.ts";
+import type { CertificateExceptions } from "./certificates.ts";
+import { audioMuted } from "./audio.ts";
 const throttleIdleMs = 30_000;
 /** The longest the view keeps keys for the app before giving them up. */
 const handoffMs = 1_000;
@@ -26,6 +34,8 @@ const blockServiceWorkers = `Object.defineProperty(Navigator.prototype, "service
 export interface PageOptions {
   view: WebContentsView;
   downloadDir?: string | undefined;
+  /** The folder the person chose for this app's browser downloads, read per download. */
+  downloadFolder?(): string | undefined;
   session: Session;
   /** Ephemeral sessions: the partition was cleared (or not) and may go back to its pool. */
   released: ((cleared: boolean) => void) | undefined;
@@ -36,25 +46,32 @@ export interface PageOptions {
   log(message: string): void;
   /** Replays an app shortcut the person pressed in the page into the app's own page. */
   forward(accelerator: string): void;
+  /** A context menu pick the app carries out (history, a new tab, annotate, page source). */
+  contextAction?(action: BrowserContextAction["action"], url?: string): void;
   forget(): void;
   authPreload?: string | undefined;
   rememberPopup?(contents: WebContents): () => void;
+  /** Asks the person whether to leave a page that warns of unsaved changes; true: leave. */
+  confirmLeave(window: BaseWindow): boolean;
+  /** Certificates the person trusted in this thread's browser (shared by its tabs). */
+  certificates?: CertificateExceptions | undefined;
 }
 
 export class EmbeddedPage implements ViewPage {
   private options: PageOptions;
   private contents: WebContents;
   private listeners = new Set<(method: string, params: unknown) => void>();
-  private blocked = new Set<() => void>();
+  private humanInput = new Set<() => void>();
   private gate = new WebSocketGate(new Set(["http:", "https:", "ws:", "wss:"]));
   private readonly recovery: RendererRecovery;
   private pageZoom = 1;
   private appliedZoom = 1;
   private appZoom = 1;
   private nativeInput = false;
-  private agentControl = true;
+  private agentControl = false;
+  /** A page writes the clipboard only on the person's own recent click or key press. */
   allowsClipboard(): boolean {
-    return this.nativeInput;
+    return this.nativeInput && this.activation.byPerson();
   }
   /**
    * Set only while this page itself dispatches an input event (a relayed CDP `Input.*`
@@ -63,7 +80,22 @@ export class EmbeddedPage implements ViewPage {
    * arrive as separate tasks and never see it set. See `inject`.
    */
   private injecting = 0;
-  private lastBlocked = 0;
+  /**
+   * The daemon holds an agent's input in this tab while the person is busy here (ADR 0067,
+   * collaboration).
+   */
+  private human = new HumanInputReports(
+    {
+      now: () => Date.now(),
+      set: (delayMs, run) => {
+        const timer = setTimeout(run, delayMs);
+        return () => clearTimeout(timer);
+      },
+    },
+    () => {
+      for (const listener of this.humanInput) listener();
+    },
+  );
   private placed = false;
   private placementPending = false;
   private placementGeneration = 0;
@@ -80,6 +112,8 @@ export class EmbeddedPage implements ViewPage {
   private closing: Promise<void> | undefined;
   private detachedSent = false;
   private lastDrivenAt = Date.now();
+  /** When an agent last read or acted in this view (`agentWork`); never: -∞. */
+  private drivenAt = -Infinity;
   private screencasting = false;
   private throttled = false;
   private throttleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -91,6 +125,14 @@ export class EmbeddedPage implements ViewPage {
   private crashed = false;
   private crashReload: ReturnType<typeof setTimeout> | undefined;
   private handoff = new FocusHandoff();
+  /** When the person last pressed the right button here: only their clicks open the menu. */
+  private humanContextAt = -Infinity;
+  private unload: UnloadGuard;
+  /** The certificate the shown document last failed on, for the person to proceed past. */
+  private certificateError: { url: string; fingerprint: string } | undefined;
+  /** The person's own sound choice for this tab, once they made one. */
+  private audioChoice: boolean | undefined;
+  private audioReported = "";
 
   constructor(options: PageOptions) {
     this.options = options;
@@ -101,18 +143,28 @@ export class EmbeddedPage implements ViewPage {
       },
       () => this.detached("The browser page could not restart. Reopen it to continue."),
     );
-    this.downloads = new NativeDownloads(options.downloadDir, (method, params) =>
-      this.emit(method, params),
+    this.downloads = new NativeDownloads(
+      options.downloadDir,
+      (method, params) => this.emit(method, params),
+      () => options.downloadFolder?.(),
     );
     this.contents = options.view.webContents;
     this.home = options.window;
     const contents = this.contents;
     this.auth = new NativeBasicAuth(contents, () => this.nativeInput, options.authPreload);
     this.dialogs = new NativeDialogs(contents, (method, params) => this.emit(method, params));
+    this.unload = new UnloadGuard(
+      contents,
+      () => ({ agentDriving: this.agentControl, personLeaving: this.activation.byPerson() }),
+      () => options.confirmLeave(this.home),
+      // The daemon's navigation fails at once instead of waiting for a load that never comes.
+      () => this.emit("ace.unloadRefused", {}),
+    );
+    // A sign-in popup (window.opener, OAuth) opens for the person and for an agent's tab alike.
     this.popups = new NativePopups({
       contents,
       authPreload: options.authPreload,
-      allowed: () => this.nativeInput,
+      allowed: () => this.popupsAllowed(),
       emit: (method, params) => this.emit(method, params),
       remember: (popup) => options.rememberPopup?.(popup) ?? (() => {}),
       navigate: (url) => {
@@ -128,38 +180,28 @@ export class EmbeddedPage implements ViewPage {
       this.emit("ace.title", { title: title.slice(0, 1024) }),
     );
     contents.on("will-attach-webview", (event) => event.preventDefault());
+    contents.on("certificate-error", (event, url, _error, certificate, callback, isMainFrame) => {
+      if (options.certificates?.allows(url, certificate.fingerprint)) {
+        event.preventDefault();
+        callback(true);
+        return;
+      }
+      if (isMainFrame) this.certificateError = { url, fingerprint: certificate.fingerprint };
+    });
     contents.on("before-input-event", (event, input) => {
       if (this.injecting === 0 && this.handoff.capture(Date.now(), input)) {
         event.preventDefault();
         return;
       }
-      if (
-        this.injecting === 0 &&
-        (options.platform === "darwin" ? input.meta : input.control) &&
-        ["+", "=", "-", "0"].includes(input.key)
-      ) {
+      // Zoom and developer tools are the tab's, kept per tab by the daemon: the app's
+      // toolbar (which shows the zoom) carries them out.
+      const page = this.injecting === 0 ? pageChord(input, options.platform) : undefined;
+      if (page) {
         event.preventDefault();
-        if (input.type === "keyDown") {
-          const zoom =
-            input.key === "0"
-              ? this.appZoom
-              : Math.min(
-                  5,
-                  Math.max(
-                    0.25,
-                    this.contents.getZoomFactor() * (input.key === "-" ? 1 / 1.2 : 1.2),
-                  ),
-                );
-          this.contents.setZoomFactor(zoom);
-          if (this.target)
-            this.place({
-              window: this.home,
-              bounds: this.target.bounds,
-              visible: this.placed,
-              zoom: this.appZoom,
-              device: this.target.device,
-            });
-        }
+        if (input.type !== "keyDown" || input.isAutoRepeat) return;
+        if (page === "CmdOrCtrl+P") void this.print();
+        else if (page === "Alt+CmdOrCtrl+I") this.devtools();
+        else options.forward(page);
         return;
       }
       // The app's shortcuts keep working while the page has focus, whoever controls it; keys
@@ -174,18 +216,26 @@ export class EmbeddedPage implements ViewPage {
         return;
       }
       if (this.allowInput()) {
-        if (input.type === "keyDown") this.activation.note();
+        if (input.type === "keyDown")
+          this.activation.note(this.injecting === 0 ? "person" : "agent");
+        if (this.injecting === 0 && input.type === "keyDown") this.unload.personUsed();
+        // Key up and IME composition count as much as key down.
+        if (this.injecting === 0) this.human.key();
         return;
       }
       event.preventDefault();
     });
     contents.on("before-mouse-event", (event, mouse) => {
+      if (this.injecting === 0 && mouse.type === "mouseDown" && mouse.button === "right")
+        this.humanContextAt = Date.now();
       if (this.allowInput()) {
-        if (mouse.type === "mouseDown") this.activation.note();
+        if (mouse.type === "mouseDown")
+          this.activation.note(this.injecting === 0 ? "person" : "agent");
+        if (this.injecting === 0 && mouse.type === "mouseDown") this.unload.personUsed();
+        if (this.injecting === 0) this.human.mouse(mouse.type, mouse.modifiers);
         return;
       }
       event.preventDefault();
-      if (mouse.type === "mouseDown") this.reportBlocked();
     });
     contents.debugger.on("message", (_event, method: string, params: unknown, sessionId) => {
       // Flattened child sessions are not part of the relay; the daemon uses
@@ -209,6 +259,32 @@ export class EmbeddedPage implements ViewPage {
       });
     });
     contents.on("render-process-gone", (_event, details) => this.rendererGone(details.reason));
+    // An agent's right click (a CDP mouse event) opens nothing on the person's screen.
+    contents.on("context-menu", (_event, params) => {
+      const person =
+        params.menuSourceType === "keyboard" || Date.now() - this.humanContextAt < 1_000;
+      if (!person || !this.allowInput() || this.closing) return;
+      popupContextMenu({
+        window: this.options.window,
+        contents,
+        params,
+        inspect: (at) => openDevTools(contents, at),
+        app: (action, url) => options.contextAction?.(action, url),
+      });
+    });
+    // Chromium keeps zoom per site: a new site would come up at its own level.
+    contents.on("did-navigate", () => {
+      if (!contents.isDestroyed() && contents.getZoomFactor() !== this.appliedZoom)
+        contents.setZoomFactor(this.appliedZoom);
+    });
+    contents.on("audio-state-changed", () => this.reportAudio());
+    // The person's own tab prints through the native dialog; an agent's or unseen tab, which no
+    // dialog can show for, has ace save the page as a PDF instead.
+    contents.ipc.on("ace:browser.print", () => {
+      if (this.nativeInput && this.placed) contents.print({});
+      else this.emit("ace.printRequested", {});
+    });
+    this.applyAudio();
     contents.on("destroyed", () => this.detached("Browser view destroyed"));
   }
 
@@ -386,8 +462,6 @@ export class EmbeddedPage implements ViewPage {
     if (this.placed) this.attach(this.home);
     if (target.bounds && (this.placed || this.presence !== "parked")) view.setBounds(target.bounds);
     if (target.visible && target.bounds) {
-      const observedZoom = this.contents.getZoomFactor();
-      if (observedZoom !== this.appliedZoom) this.pageZoom = observedZoom / this.appZoom;
       this.appZoom = target.zoom ?? 1;
       const zoom = this.appZoom * this.pageZoom;
       this.appliedZoom = zoom;
@@ -429,6 +503,7 @@ export class EmbeddedPage implements ViewPage {
     // Hidden views stay alive (and attached) but stop painting, and send no frames, unless an
     // agent drives them: then they render in the parking window (see `ViewPresence`).
     this.updateThrottle();
+    this.applyAudio();
   }
 
   async placementReady(): Promise<void> {
@@ -478,10 +553,12 @@ export class EmbeddedPage implements ViewPage {
       method === "Emulation.clearDeviceMetricsOverride"
     ) {
       return this.metrics.override(() => {
-        if (this.placed && this.agentControl)
-          throw new Error(
-            "The visible panel sets the page size. Hide the panel before emulating a device.",
-          );
+        // An agent's device on a shown page is drawn fitted into the panel; the person's
+        // device toolbar takes it up and places the page at that size (`ace.tabs` lists it).
+        if (this.placed && this.agentControl && this.target)
+          return method === "Emulation.setDeviceMetricsOverride"
+            ? this.send(method, this.fitted(params))
+            : this.send(method);
         if (this.placed && this.target) {
           const { device, bounds, zoom } = this.target;
           return device
@@ -497,8 +574,24 @@ export class EmbeddedPage implements ViewPage {
         return this.send(method, params);
       });
     }
+    if (method === "ace.zoom") {
+      this.pageZoom = z.object({ factor: z.number().min(0.25).max(5) }).parse(params).factor;
+      this.applyZoom();
+      return {};
+    }
+    if (method === "ace.clearData") {
+      if (!(await clearPartition(this.options.session)))
+        throw new Error("Browsing data could not be cleared");
+      return {};
+    }
     if (method === "ace.rendererReady") {
       this.recovery.ready();
+      return {};
+    }
+    if (method === "ace.certificate.proceed") return this.proceedCertificate(params);
+    if (method === "ace.audio.mute") {
+      this.audioChoice = z.object({ muted: z.boolean() }).parse(params).muted;
+      this.applyAudio();
       return {};
     }
     if (this.popups.command(method, params) || this.dialogs.answer(method, params)) return {};
@@ -515,6 +608,7 @@ export class EmbeddedPage implements ViewPage {
     }
     if (method === "Page.startScreencast") this.screencasting = true;
     else if (method === "Page.stopScreencast") this.screencasting = false;
+    if (agentWork(method)) this.drivenAt = Date.now();
     this.driven();
     this.gate.command(method, params);
     this.paused.command(method, params);
@@ -524,8 +618,7 @@ export class EmbeddedPage implements ViewPage {
 
   /**
    * Run a synchronous input dispatch whose events must pass the native gate: the daemon only
-   * relays input that its sender may give (an agent, or the person who holds the lease
-   * elsewhere). No time window is opened: an event the dispatch doesn't produce synchronously
+   * relays input from agents and from the person's other devices. No time window is opened: an event the dispatch doesn't produce synchronously
    * is treated as the person's and gated, so a change in Chromium fails closed.
    */
   private inject<T>(dispatch: () => T): T {
@@ -542,27 +635,48 @@ export class EmbeddedPage implements ViewPage {
     return () => this.listeners.delete(listener);
   }
 
-  onBlockedInput(listener: () => void): () => void {
-    this.blocked.add(listener);
-    return () => this.blocked.delete(listener);
+  /**
+   * The page as it is drawn now, as a PNG `data:` URL; undefined while it is not on screen.
+   * The renderer holds this picture exactly where the view is while one of its menus covers
+   * the view, so the page never moves or resizes to make room (ADR 0085).
+   */
+  async picture(): Promise<string | undefined> {
+    if (!this.placed || this.contents.isDestroyed()) return undefined;
+    const image = await this.contents.capturePage();
+    return image.isEmpty() ? undefined : image.toDataURL();
+  }
+
+  /** The person used the view: keys, IME, pointer moves, clicks, scrolls, drags (`HumanInputReports`). */
+  onHumanInput(listener: () => void): () => void {
+    this.humanInput.add(listener);
+    return () => this.humanInput.delete(listener);
   }
 
   navigate(url: string, timeoutMs: number): Promise<string> {
+    this.drivenAt = Date.now();
     if (this.crashed) return Promise.reject(new Error("The page crashed. Reload it to try again."));
     this.driven();
     const contents = this.contents;
     return new Promise((resolve, reject) => {
       let settled = false;
+      /** The reply's ERR_ABORTED: another navigation took over, or loading was stopped. */
+      let superseded: string | undefined;
       const finish = (error?: Error) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
         contents.off("dom-ready", ready);
         contents.off("did-fail-load", failed);
+        contents.off("did-stop-loading", stopped);
         if (error) reject(error);
         else resolve(contents.getURL());
       };
+      // Any main-frame document counts: the one asked for, or one that replaced it.
       const ready = () => finish();
+      // Nothing took over and nothing committed (Stop, a 204, a download).
+      const stopped = () => {
+        if (superseded) finish(new Error(superseded));
+      };
       const failed = (
         _event: unknown,
         code: number,
@@ -577,11 +691,16 @@ export class EmbeddedPage implements ViewPage {
       const timer = setTimeout(() => finish(new Error("Navigation timed out")), timeoutMs);
       contents.on("dom-ready", ready);
       contents.on("did-fail-load", failed);
+      contents.on("did-stop-loading", stopped);
       this.send("Page.navigate", { url })
         .then((result) => {
           if (typeof result !== "object" || result === null) return;
-          if ("errorText" in result && typeof result.errorText === "string" && result.errorText)
-            finish(new Error(result.errorText));
+          const errorText =
+            "errorText" in result && typeof result.errorText === "string" ? result.errorText : "";
+          if (errorText === "net::ERR_ABORTED") {
+            superseded = errorText;
+            if (!contents.isLoading()) stopped();
+          } else if (errorText) finish(new Error(errorText));
           // No loader: a same-document navigation, which fires no DOMContentLoaded.
           else if (!("loaderId" in result) || !result.loaderId) finish();
         })
@@ -592,6 +711,7 @@ export class EmbeddedPage implements ViewPage {
   }
 
   async press(key: string): Promise<void> {
+    this.drivenAt = Date.now();
     this.driven();
     const press = parseChord(key, this.options.platform);
     const { keyCode, modifiers } = press;
@@ -608,8 +728,15 @@ export class EmbeddedPage implements ViewPage {
   async resize(width: number, height: number): Promise<void> {
     this.driven();
     if (this.placed) {
+      // The panel sizes a shown page; an agent's size is drawn fitted into it until the
+      // person's device toolbar takes it up.
       if (this.agentControl)
-        throw new Error("The visible panel sets the page size. Hide the panel before resizing.");
+        await this.metrics.override(() =>
+          this.send(
+            "Emulation.setDeviceMetricsOverride",
+            this.fitted({ width, height, deviceScaleFactor: 0, mobile: false }),
+          ),
+        );
       return;
     }
     await this.metrics.override(() =>
@@ -628,17 +755,101 @@ export class EmbeddedPage implements ViewPage {
     this.options.view.setBounds({ x: 0, y: 0, width, height });
   }
 
+  /** The page zoom the daemon keeps for this tab, on top of the app window's own zoom. */
+  private applyZoom(): void {
+    const zoom = this.appZoom * this.pageZoom;
+    this.appliedZoom = zoom;
+    if (!this.contents.isDestroyed() && this.contents.getZoomFactor() !== zoom)
+      this.contents.setZoomFactor(zoom);
+    if (this.target && this.placed)
+      this.place({
+        window: this.home,
+        bounds: this.target.bounds,
+        visible: true,
+        zoom: this.appZoom,
+        device: this.target.device,
+      });
+  }
+
+  /** Device metrics scaled so the whole device fits the box the panel gives the page. */
+  private fitted(params: Record<string, unknown> | undefined): Record<string, unknown> {
+    const size = z
+      .object({ width: z.number().positive(), height: z.number().positive() })
+      .safeParse(params);
+    if (!size.success || !this.target) return params ?? {};
+    const { bounds, zoom } = this.target;
+    const scale = Math.min(
+      1,
+      bounds.width / (size.data.width * zoom),
+      bounds.height / (size.data.height * zoom),
+    );
+    return { deviceScaleFactor: 0, mobile: false, ...params, scale };
+  }
+
+  /** The tab's developer tools in their own window, at an element when `at` is given. */
+  devtools(at?: { x: number; y: number }): void {
+    openDevTools(this.contents, at);
+  }
+
+  print(): Promise<boolean> {
+    return printPage(this.contents);
+  }
+
   setNativeInput(enabled: boolean): void {
     this.nativeInput = enabled;
-    if (!enabled) {
-      this.popups.close();
-      this.auth.close();
-    }
+    if (!enabled) this.auth.close();
+    if (!this.popupsAllowed()) this.popups.close();
     this.updateThrottle();
+  }
+
+  /** Sound follows the person's view (see `audioMuted`); the daemon hears of every change. */
+  private applyAudio(): void {
+    if (this.contents.isDestroyed()) return;
+    const muted = audioMuted({
+      shown: this.placed,
+      agentControl: this.agentControl,
+      chosen: this.audioChoice,
+    });
+    if (this.contents.isAudioMuted() !== muted) this.contents.setAudioMuted(muted);
+    this.reportAudio();
+  }
+
+  private reportAudio(): void {
+    if (this.contents.isDestroyed()) return;
+    const audio = {
+      audible: this.contents.isCurrentlyAudible(),
+      muted: this.contents.isAudioMuted(),
+    };
+    const key = JSON.stringify(audio);
+    if (key === this.audioReported) return;
+    this.audioReported = key;
+    this.emit("ace.audio", audio);
+  }
+
+  /** Popups exist while the person or an agent uses the page, never for an idle unseen one. */
+  private popupsAllowed(): boolean {
+    return this.nativeInput || this.agentControl;
+  }
+
+  /**
+   * The person proceeds past the certificate error they were shown for `url`: this thread's
+   * browser trusts that origin's certificate (the one that failed) and loads the page again.
+   * Only the daemon's person-only request sends this; agents have no path to it.
+   */
+  private async proceedCertificate(params: unknown): Promise<unknown> {
+    const { url } = z.object({ url: z.string().max(8192) }).parse(params);
+    const failed = this.certificateError;
+    if (!failed || failed.url !== url || !this.options.certificates)
+      throw new Error("Certificate error no longer shown");
+    this.options.certificates.allow(failed.url, failed.fingerprint);
+    this.certificateError = undefined;
+    return this.send("Page.navigate", { url });
   }
 
   setAgentControl(agent: boolean): void {
     this.agentControl = agent;
+    if (!this.popupsAllowed()) this.popups.close();
+    this.applyAudio();
     void this.send("Page.setInterceptFileChooserDialog", { enabled: agent }).catch((error) =>
       this.options.log(String(error)),
     );
@@ -674,7 +885,8 @@ export class EmbeddedPage implements ViewPage {
     this.gate.close();
     this.downloads.close();
     this.listeners.clear();
-    this.blocked.clear();
+    this.humanInput.clear();
+    this.human.close();
     clearTimeout(this.throttleTimer);
     clearTimeout(this.crashReload);
     this.recovery.ready();
@@ -689,6 +901,11 @@ export class EmbeddedPage implements ViewPage {
   }
 
   /** The agent used the view: full speed now, and throttled again once it goes quiet. */
+  /** When an agent last worked in this view: agents mid-browse make Quit ask first. */
+  lastDriven(): number {
+    return this.drivenAt;
+  }
+
   private driven(): void {
     this.lastDrivenAt = Date.now();
     // An unseen, unrendered view starts rendering before the command reaches it.
@@ -702,7 +919,9 @@ export class EmbeddedPage implements ViewPage {
     this.throttleTimer = undefined;
     if (this.closing || this.contents.isDestroyed()) return;
     if (this.placementPending) {
-      this.show("hidden");
+      // A view already on screen stays there while its new box's metrics apply (a panel
+      // resizing, the page moving into picture-in-picture): hiding it meanwhile would flash.
+      if (!(this.placed && this.presence === "placed")) this.show("hidden");
       return;
     }
     const decision = throttleDecision(
@@ -732,14 +951,6 @@ export class EmbeddedPage implements ViewPage {
 
   private allowInput(): boolean {
     return this.nativeInput || this.injecting > 0;
-  }
-
-  /** At most one take-control request a second, however fast the person clicks. */
-  private reportBlocked(): void {
-    const now = Date.now();
-    if (now - this.lastBlocked < 1_000) return;
-    this.lastBlocked = now;
-    for (const listener of this.blocked) listener();
   }
 
   /** The view went away without the daemon asking: tell it once, as CDP would. */

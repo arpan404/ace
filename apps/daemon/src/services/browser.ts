@@ -1,8 +1,13 @@
 import { settingsScope } from "../settings.ts";
 import { z } from "zod";
-import { privateBrowserOwnership, refusePrivateBrowserAnswer } from "../browser-private.ts";
 import { join } from "node:path";
-import { BrowserService, UserChromeTabsBackend, type BrowserServiceOptions } from "@ace/browser";
+import {
+  BrowserService,
+  TabBudget,
+  UserChromeTabsBackend,
+  daemonTabLimit,
+  type BrowserServiceOptions,
+} from "@ace/browser";
 import {
   ItemId,
   ThreadId,
@@ -11,15 +16,16 @@ import {
   BrowserBackendLossPolicy,
 } from "@ace/protocol";
 import { desktopCredential } from "../browser-desktop.ts";
+import { daemonDownloadFolder, downloadsHost } from "../download-folder.ts";
 import { BrowserForget } from "../browser-forget.ts";
 import { SqliteBrowserTabStore } from "../browser-tab-store.ts";
+import { watchBrowserTurns, type BrowserTurnPort } from "../browser-turns.ts";
 import type { ServiceContext } from "./types.ts";
 const BrowserProfilePreference = z.enum(["persistent", "ephemeral"]);
 export async function startBrowser(context: ServiceContext): Promise<void> {
   const { config, options, store, now, id, resources, services } = context;
 
   await desktopCredential(config.dataDir, store.devices, now);
-  services.browserPrivateAnswers = (command) => refusePrivateBrowserAnswer(store, command);
   let forget: BrowserForget | undefined;
   const workspaceRoot: BrowserServiceOptions["workspaceRoot"] =
     options.browser?.workspaceRoot ??
@@ -52,11 +58,20 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
     if (files) await files.browserArtifacts.publish(threadId, artifact, append);
     else append();
   };
+  // ace's Chrome, the desktop's views and the person's own Chrome share one daemon-wide budget.
+  const tabBudget = new TabBudget(options.browser?.maxTabs ?? daemonTabLimit);
   const browser = new BrowserService({
     ...options.browser,
+    tabBudget,
     dataDir: config.dataDir,
-    ...privateBrowserOwnership(context),
     tabStore: options.browser?.tabStore ?? new SqliteBrowserTabStore((sql) => store.statement(sql)),
+    // A fork (not a delegated thread) starts its browser with a copy of its parent's tabs.
+    forkedFrom:
+      options.browser?.forkedFrom ??
+      ((threadId) => {
+        const thread = store.getThread(ThreadId.parse(threadId));
+        return thread && !thread.delegatedBy ? thread.lineage?.parentThreadId : undefined;
+      }),
     workspaceRoot,
     cleanup: {
       ...options.browser?.cleanup,
@@ -91,6 +106,15 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
             )
           )?.value ?? "persistent",
         )),
+    // ace's Chrome saves downloads in the folder chosen for this daemon, else this machine's
+    // Downloads folder; read per download, so a change applies to the next one. Global only:
+    // a project's settings file must not send downloads into another folder.
+    downloadFolder:
+      options.browser?.downloadFolder ??
+      (async () => {
+        const chosen = (await services.settings?.get("browser.downloadDir", {}))?.value;
+        return daemonDownloadFolder(typeof chosen === "string" ? chosen : "", downloadsHost());
+      }),
     onEmbeddedRegistered: () => {
       void forget?.flush().catch((error: unknown) => context.log.log("warn", String(error)));
       options.browser?.onEmbeddedRegistered?.();
@@ -107,17 +131,43 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
           )?.value ?? "pause",
         )),
     onArtifact,
+    agentCursor: options.browser?.agentCursor ?? {
+      // A subagent's cursor carries its name; the thread's own agent is just "Agent".
+      name: (threadId, agentId) => {
+        const thread = ThreadId.safeParse(threadId);
+        if (!agentId || !thread.success) return undefined;
+        const agent = store.getMcpAgent(thread.data, agentId);
+        return agent && agent.origin !== "root" ? (agent.name ?? agent.role) : undefined;
+      },
+    },
+    userChromeStorageReads:
+      options.browser?.userChromeStorageReads ??
+      (async (threadId) => {
+        try {
+          const setting = await services.settings?.get(
+            "browser.userChrome.storageReads",
+            settingsScope(store, { threadId: ThreadId.parse(threadId) }),
+          );
+          return setting?.value === true;
+        } catch {
+          // An unknown thread or unreadable settings keep the person's storage closed.
+          return false;
+        }
+      }),
   });
   resources.own(() => browser.close());
   const user = services.userBrowser;
   if (user) {
-    // The person's own Chrome (ADR 0084): no desktop views, no restore, no fallback. A lost
+    // The person's own Chrome (ADR 0084): no desktop views, no fallback. A lost
     // tab or browser closes the thread's session there; it never moves to ace's own browser.
     const sessions = new BrowserService({
       dataDir: join(config.dataDir, "user-browser", "threads"),
       headlessBackend: new UserChromeTabsBackend(user.backend),
       backendPreference: () => "headless",
       tabLifecycle: false,
+      tabBudget,
+      // Agent tabs there come back after a restart too, from their own table.
+      tabStore: new SqliteBrowserTabStore((sql) => store.statement(sql), "user_browser_tabs"),
       now,
       id,
       workspaceRoot,
@@ -126,10 +176,28 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
     resources.own(() => sessions.close());
     services.userBrowserSessions = sessions;
   }
-  forget = new BrowserForget(store, browser, (error) =>
-    context.log.log("warn", `Browser cleanup for a deleted thread: ${String(error)}`),
+  const forgetFailed = (error: unknown) =>
+    context.log.log("warn", `Browser cleanup for a deleted thread: ${String(error)}`);
+  forget = new BrowserForget(
+    store,
+    {
+      closeThread: (threadId) => browser.closeThread(threadId),
+      // The thread's browser data in the person's Chrome sessions goes too (#952).
+      forgetThread: async (threadId, workspaceId) => {
+        await services.userBrowserSessions?.forgetThread(threadId, workspaceId).catch(forgetFailed);
+        return browser.forgetThread(threadId, workspaceId);
+      },
+    },
+    forgetFailed,
   );
   resources.own(() => forget?.close());
+  const turns: BrowserTurnPort[] = [browser];
+  if (services.userBrowserSessions) turns.push(services.userBrowserSessions);
+  resources.own(
+    watchBrowserTurns(store, turns, (error) =>
+      context.log.log("warn", `Browser cleanup after an agent's turn: ${String(error)}`),
+    ),
+  );
   services.browser = browser;
 }
 
@@ -157,6 +225,20 @@ export function createBrowserSession(context: SocketContext): SocketService {
       );
     },
     send: (message, serialized) => sendBrowserMessage(socket, message, serialized),
+    // Files the person picks for a page's file input, uploaded by this device as attachments.
+    attachment: async (threadId, sha256) => {
+      const device = context.device();
+      const attachments = options.context;
+      const thread = ThreadId.parse(threadId);
+      const authorized = () =>
+        context.connected() &&
+        authorize("operate") &&
+        canReadThread(thread) &&
+        options.store.hasLiveThread(thread);
+      if (!device || !attachments?.downloadAttachment || !authorized())
+        throw new Error("Thread attachment unavailable");
+      return attachments.downloadAttachment(device, thread, sha256, 32 * 1024 * 1024, authorized);
+    },
   });
   return {
     close() {
@@ -200,6 +282,10 @@ export function createBrowserSession(context: SocketContext): SocketService {
                 connectionId: sessionId,
               }),
             );
+          } else if (backendMessage.data.type === "browser.backend.resumed") {
+            // The desktop's computer woke: check every engine, ace's Chrome included (#947).
+            if (!backend) throw new Error("Desktop backend not registered");
+            options.browser?.wake();
           } else {
             if (!backend) throw new Error("Desktop backend not registered");
             backend.handle(backendMessage.data);

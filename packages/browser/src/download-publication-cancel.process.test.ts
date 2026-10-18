@@ -4,9 +4,11 @@ import { join } from "node:path";
 import { expect, it, onTestFinished, vi } from "vitest";
 import type { BrowserArtifact } from "@ace/protocol";
 import { backendFixture } from "./backend-test-support.ts";
+import { sessionDirectories } from "./session-dirs-test-support.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 it.each(["published", "rejected"])(
-  "private takeover during artifact publication keeps the download denied when publication is %s",
+  "keeping agents out during artifact publication keeps the download denied when publication is %s",
   async (outcome) => {
     const entered = Promise.withResolvers<BrowserArtifact>();
     const finish = Promise.withResolvers<void>();
@@ -33,11 +35,9 @@ it.each(["published", "rejected"])(
     );
     await f.open();
     const sessionId = [...f.pages.keys()][0];
-    const sessionDir = (await readdir(join(f.home, "browser"))).find((name) =>
-      name.startsWith("session-"),
-    );
+    const [sessionDir] = await sessionDirectories(f.home);
     if (!sessionId || !sessionDir) throw new Error("Browser session missing");
-    const directory = join(f.home, "browser", sessionDir, "downloads");
+    const directory = join(sessionDir, "downloads");
     const guid = "native-11111111-1111-1111-1111-111111111111";
     await writeFile(join(directory, guid), "report bytes");
     const resumed = once(f.requests, "ace.download.resume");
@@ -58,7 +58,7 @@ it.each(["published", "rejected"])(
       params: { guid, bytes: 12, state: "completed" },
     });
     const artifact = await entered.promise;
-    f.service.takeover("thread", "owner", "private");
+    keepAgentsOut(f.service, "thread");
     await vi.waitFor(() =>
       expect(f.service.downloadsList("thread")).toMatchObject([{ state: "denied" }]),
     );
@@ -73,7 +73,7 @@ it.each(["published", "rejected"])(
       await vi.waitFor(async () => expect(await readdir(directory)).toEqual([]));
       expect(artifacts).toEqual([]);
     }
-    f.service.handback("thread", "owner");
+    keepAgentsOut(f.service, "thread", false);
     await f.service.execute("thread", { action: "press", key: "Enter" });
     expect(f.service.downloadsList("thread")).toMatchObject([{ state: "denied" }]);
     expect(f.service.downloadsList("thread")[0]).not.toHaveProperty("path");

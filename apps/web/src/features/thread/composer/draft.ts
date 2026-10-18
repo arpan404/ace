@@ -1,11 +1,12 @@
-import type { Mention, ContentPart, ThreadRefContextItem } from "@ace/protocol";
+import type { Mention, ContentPart, MessageContextItem } from "@ace/protocol";
 import type { LocalAttachment } from "@/components/attachment-format.ts";
 
 /** A message the composer hands over on Enter. */
 export interface Draft {
   text: string;
   input?: ContentPart[] | undefined;
-  threadRefs?: ThreadRefContextItem[] | undefined;
+  /** Other threads and browser tabs the message points at (`MessageContext.items`). */
+  threadRefs?: MessageContextItem[] | undefined;
   mentions: Mention[];
   /** Files the daemon already holds. */
   attachments: { sha256: string }[];
@@ -22,6 +23,11 @@ export interface Draft {
     outcomes: Promise<({ sha256: string; name: string } | { error: string })[]>;
     /** The files themselves, in `local`'s order, for an upload to be retried. */
     files: (File | undefined)[];
+    /**
+     * Files still being made when the message was sent (a browser annotation's screenshot),
+     * in `local`'s order; the bubble shows each once it arrives.
+     */
+    later?: (Promise<File | undefined> | undefined)[];
     release(): void;
     /** Return attachment ownership when the send handoff is refused. */
     restore?(): void;

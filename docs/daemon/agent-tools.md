@@ -19,17 +19,20 @@ person watch, or reading console and network evidence.
 
 1. `browser_open({url: "http://localhost:3000/"})` opens or joins the thread browser
    and loads the URL in the caller's own tab, waiting for the initial document. It
-   returns `tabId`, `url`, `title`, `controller` and `viewed` (whether the person is
-   looking at that tab), plus a short `tabs` list when there are several. Without `url`
-   it only reports. `tabId` loads the URL in another tab. Every other browser tool also
-   opens the browser lazily.
+   returns `tabId`, `url`, `title` and `viewed` (whether the person is looking at that
+   tab), plus a short `tabs` list when there are several. Without `url` it only reports.
+   `tabId` loads the URL in another tab; `waitUntil` (`domcontentloaded`, `load`,
+   `networkidle`) chooses when it returns. Every other browser tool also opens the
+   browser lazily.
 2. `browser_snapshot({})` returns compact indented text, one line per meaningful
    accessibility node: `- button "Save" [disabled] [ref=e3-41]`, with field values
    after a colon and headings marked `[level=n]`. Ignored nodes, wrappers and text that
    only repeats its element's name are dropped. `maxNodes` (default 120, max 2000) and
    a 48 KiB cap bound the result; a cut snapshot ends with a `[truncated: …]` line.
-   Narrow with `ref` (a container's subtree), `interactiveOnly: true`, or
-   `browser_find({role, name})`, which returns matching lines from every frame.
+   Narrow with `ref` (a container's subtree), `depth`, `interactiveOnly: true`, or
+   `browser_find({role, name})`, which returns matching lines from every frame. A page
+   over 50000 DOM nodes returns an outline of its landmarks and headings to scope with
+   `ref`. Secret fields (passwords, one-time codes, cards) read as `••••••••`.
 3. `browser_act({action, …})` performs `click` (ref, or x/y in CSS pixels with optional
    button, clickCount and modifiers), `hover`, `focus`, `check`, `uncheck` (ref), `type`
    (ref and text; replaces the field's contents), `fill_form` (fields: `{ref, value}`
@@ -37,16 +40,31 @@ person watch, or reading console and network evidence.
    toRef), `upload` (ref and files), `scroll` (x/y pixel deltas) and `dialog` (dialogId,
    accept, promptText). A field another action does not use is refused with
    `invalid_arguments`. The result is `{ok, tabId, url}`, plus a note when the page
-   navigated.
-4. After an action that navigates, `browser_wait_for` with exactly one of `url` (exact
-   destination through DOMContentLoaded), `text` (visible substring) or `ref` with
-   `state: "visible" | "hidden"`. These check the current document, so they work if
-   navigation already finished. Then snapshot again. `downloads: true` instead waits
-   until the tab's downloads finish.
+   navigated and `kept_text` when typing kept the person's text. A ref click waits for
+   the element to hold still, then presses the first point of it that takes the click
+   itself: something on top everywhere fails with `covered`, an element out of view or
+   still moving after 1 s with `not_hittable`, and nothing is clicked. Hover, check,
+   uncheck and drag do the same; a click at `x`, `y` is not checked. While the person
+   works in the tab, `type` and `fill_form` add the text after theirs and leave their
+   focus and caret alone.
+4. After an action that navigates, `browser_wait_for` with exactly one of `url` (a
+   destination through DOMContentLoaded: exact, or a glob where `*` matches any
+   characters), `text` (visible substring), `ref` with `state: "visible" | "hidden"`,
+   `networkIdle: true` (no request in flight for 500 ms) or `timeMs` (a fixed pause up
+   to 60000 ms). These check the current document, so they work if navigation already
+   finished. Then snapshot again. `downloads: true` instead waits until the tab's
+   downloads finish. Text waits work on pages of any size: each poll first checks the
+   document's text natively and walks only a document that contains it, and polls on
+   large pages are spaced so probing takes at most a fifth of the page's main thread.
 5. `browser_screenshot({})` returns an inline JPEG of the viewport, capped at 1536
    pixels on its longest side; `fullPage` captures the whole page and `ref` one element.
-   It never moves the person's view. `format: "pdf"` prints the tab to a PDF file and
-   returns its path. Use it for visuals; snapshots read structure.
+   It never moves the person's view. Beside the image comes its `width`, `height`,
+   `scale` (CSS pixels per image pixel) and `origin`: image pixel (px, py) is click point
+   (`origin.x + px * scale`, `origin.y + py * scale`). A capture too dense for 768 KB is
+   retaken at lower quality, then smaller. `sizes` lays the page out at phone, tablet
+   and desktop widths, one image each, and restores the tab's size. `format: "pdf"`
+   prints the tab to a PDF file and returns its path. Use it for visuals; snapshots read
+   structure.
 
 ### Tabs
 
@@ -57,13 +75,18 @@ Commands on different tabs run concurrently, and agent commands never move the t
 person views.
 
 `browser_tabs({action})`: `list` (the default; read-only) returns each tab's `tabId`,
-`url`, `title`, `label`, `openedBy`, `drivenBy`, its `lease` while a person holds it,
-a non-live `lifecycle`, `loading` and `pending_dialog`, with `current` on the caller's
-tab. Private tabs show no address or title. `open` (optional `url`, `label`) opens a
-tab of the caller's own and makes it current; `select` makes `tabId` current; `close`
-closes `tabId` (closing the last tab closes the browser). Parallel agents each open a
-labelled tab and pass its `tabId` to every call. Limits: 16 tabs per thread, 8 open per
-agent, 48 across the daemon (`tab_limit`).
+`url`, `title`, `label`, `openedBy`, `drivenBy`, `inUse` (the agent working there),
+`private`, `kept`, a non-live `lifecycle`, `loading`, `pending_dialog`, `pending_auth`
+and `certificate_error`, with `current` on the caller's tab. Private tabs show no
+address or title. `open` (optional `url`, `label`, `keep`) opens a tab of the caller's
+own and makes it current; `select` makes `tabId` current; `keep` keeps `tabId` after
+the turn (`keep: false` makes it temporary again); `close` closes `tabId` (closing the
+last tab closes the browser). Tabs an agent opens are temporary: they close when its
+turn ends unless kept, or the person opened, views, recently used or keeps agents out of
+them; a busy tab, one holding a dialog or a download, and the last tab stay too.
+Parallel agents each open a labelled tab and pass its `tabId` to every call. Limits: 16
+tabs per thread, 8 open per agent (popups included), 48 across the daemon, Use my Chrome
+tabs included (`tab_limit`).
 
 With "Use my Chrome" connected, every browser tool takes `browser: "user"` to act in
 the person's own Chrome: `browser_open` gives the agent its own tab in an "ace" window
@@ -72,8 +95,6 @@ releases it without closing it for the person. Calls never fall back to ace's br
 a disconnected Chrome answers `user_browser_unavailable`.
 
 Wait and navigation `timeout` values are milliseconds, default 10000, maximum 120000.
-Each text poll visits at most 1024 DOM nodes and 65536 characters; documents over the
-20000-node snapshot cap are refused with `page_text_limit`.
 
 Refs look like `e3-41` (main frame) or `f1:e3-41` (a child frame). They stay valid
 across snapshots of an unchanged element until the document navigates, and they work
@@ -85,7 +106,7 @@ A ref is not a CSS selector.
 | `browser_logs`     | optional kind (console, network, downloads), level, url substring, status, limit; `requestId` reads a body  |
 | `browser_evaluate` | `expression`, optional `mode: read-only / unrestricted`; bounded JSON                                       |
 | `browser_history`  | no args: recent entries and back/forward; `direction`: back, forward, reload or stop                        |
-| `browser_settings` | `action`: resize/emulate (width, height, scale, …), record_start/record_stop, extensions (read-only), close |
+| `browser_settings` | `action`: resize/emulate (width, height, scale, user agent, …), record_start/record_stop, extensions, close |
 | `browser_measure`  | optional interaction, observeMs, repeat, filmstrip; frame-timing metrics                                    |
 
 ## Sites and control
@@ -97,11 +118,13 @@ WebSockets reach any `http(s)`/`ws(s)` origin. Other schemes such as `file:` and
 screenshot, logs, history without direction, tabs list, settings extensions) are read-only; navigation and
 input are open-world but never destructive.
 
-Browser takeover and handback are authenticated human operations, not agent
-tools. Leases are per tab: a human lease blocks agent input and agent close on that
-tab only. Takeover invalidates
-queued input even if the human hands control back before it dispatches. A click
-already dispatched cannot be undone. Shared disconnect returns browser control; refresh the snapshot before continuing. Private takeover returns `human_private` for agent reads as well as input. A private disconnect pauses until explicit human handback; the agent must wait.
+People and agents share every tab; nobody takes over or hands back (ADR 0067,
+Collaboration). The person's input always lands at once. An agent's page input in a
+tab the person used within 1.5 s waits until they pause, up to 10 s, then fails with
+`human_active`: snapshot again, then retry or use another tab. Reads never wait. A
+tab the person marks "Keep agents out" refuses agent reads and input with
+`human_private`, and so does work that started before the tab turned private, even
+once agents are let back in. Refresh the snapshot before continuing.
 
 ## Files, dialogs and inspection
 
@@ -112,18 +135,33 @@ size, MIME and executable/archive flags. Never execute or open a flagged file by
 
 While a page dialog is open, every tool returns `pending_dialog` with dialogId and a
 hint. Answer with `browser_act({action: "dialog", dialogId, accept: true, promptText})`,
-or accept:false to dismiss. Agent-owned beforeunload is accepted automatically. Native
-permission prompts and file chooser windows do not grant capabilities.
+or accept:false to dismiss. A beforeunload on a page only agents used is accepted
+automatically; on a page the person used it waits for them, and accepting it fails with
+`unsaved_changes` (dismiss it to stay, ask the person, or use another tab). On the
+desktop's view an agent's navigation off such a page fails with `unsaved_changes` at
+once. Native permission prompts and file chooser windows do not grant capabilities.
+
+`browser_request_help({tabId,reason:"login",message:"Sign in with your work account"})`
+hands a tab to the person for what only they should do (login, captcha, two_factor, dialog,
+other). The thread needs the person until they press Done or Skip in the composer strip; the
+call returns `done`, `skipped`, or `pending` after `timeoutSeconds` (their answer then arrives
+as their next message). A new turn withdraws an unanswered request. Agents never type
+credentials.
 
 Evaluate defaults to unrestricted. Use mode read-only to read DOM in an isolated
 world with side-effect checking. It refuses mutation, navigation and network calls;
-it cannot read page-world variables and may refuse harmless operations.
+it cannot read page-world variables and may refuse harmless operations. With
+`browser: "user"` (the person's own Chrome, ADR 0084) evaluate runs apart from page
+scripts and cannot reach cookies or site storage unless the person allows it in Settings;
+a refused read fails with `storage_restricted`.
 
 `browser_logs({requestId})` reads one completed bounded text response from a request ID
 in the logs. Binary, incomplete, evicted or oversized bodies fail. Known secrets are
 redacted; arbitrary page text can still be sensitive. `browser_settings` record_start
-and record_stop reuse the recording/artifact pipeline. Recording captures the active
-view; private frames are excluded.
+and record_stop reuse the recording/artifact pipeline. A recording follows one tab (the
+caller's current tab, or `tabId`), whichever tab the person views; a private tab adds no
+frames. The person sees every recording and can stop it. While it runs, secret fields
+are masked and agent cursors hidden in every tab. Recording is not replay.
 
 The [UI wire handoff](browser-parity-ui.md) defines tab/download/dialog state
 and private reconnect.
@@ -210,8 +248,10 @@ Execution failures return MCP `isError: true` and text containing bounded JSON
 Only ace-authored public failure types expose fixed messages and remedies. Arbitrary
 backend messages, hints, stacks, strings and code-shaped objects become a fixed
 `execution_failed` response. Schema errors expose no private issue literals.
-Examples include `stale_ref`, `controller_changed`, `delegation_required`,
-`lease_required`, `denied`, and `invalid_arguments`. Malformed backend
+Examples include `stale_ref`, `human_active`, `covered`, `not_hittable`,
+`unsaved_changes`, `page_unreachable` (with `detail` naming the network error),
+`browser_restarted`, `delegation_required`, `lease_required`, `denied`, and
+`invalid_arguments`; each carries a `hint` that says what to do next. Malformed backend
 results return `invalid_data` so the agent is not told to change valid arguments. Allowlisted native screen
 error codes, including `target_gone` and `permission_denied`, are retained with
 fixed guidance. Unknown native codes use a generic failure.

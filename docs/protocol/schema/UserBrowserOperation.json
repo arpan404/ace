@@ -86,6 +86,28 @@
     },
     {
       "properties": {
+        "muted": {
+          "type": "boolean"
+        },
+        "op": {
+          "const": "tabs.mute",
+          "type": "string"
+        },
+        "tabId": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "op",
+        "tabId",
+        "muted"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "method": {
           "maxLength": 256,
           "minLength": 1,
@@ -101,6 +123,11 @@
             "type": "string"
           },
           "type": "object"
+        },
+        "sessionId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
         },
         "tabId": {
           "maximum": 9007199254740991,

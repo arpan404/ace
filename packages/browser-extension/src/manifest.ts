@@ -11,7 +11,8 @@ export function extensionManifest() {
     description: "Lets ace agents work in tabs you share with them.",
     key: extensionPublicKey,
     minimum_chrome_version: "125",
-    permissions: ["debugger", "nativeMessaging", "tabs", "tabGroups", "storage"],
+    // `downloads` reports what a controlled tab downloaded (name, state, size, where it is).
+    permissions: ["debugger", "nativeMessaging", "tabs", "tabGroups", "storage", "downloads"],
     background: { service_worker: "background.js" },
     action: { default_popup: "popup.html", default_title: "ace" },
     options_ui: { page: "popup.html", open_in_tab: false },

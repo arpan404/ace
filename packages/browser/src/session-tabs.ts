@@ -3,9 +3,8 @@ import { BrowserActionError } from "./action-error.ts";
 import { AgentCursors } from "./agent-cursors.ts";
 import type { BrowserBackendPage, BrowserBackendSession } from "./backend.ts";
 import type { Actor } from "./session-options.ts";
-import type { SessionOwnership } from "./session-ownership.ts";
 import { TabRuntime, type TabHost, type TabMeta } from "./tab-runtime.ts";
-import { tabOpenRefusal } from "./tab-limits.ts";
+import { agentTabLimit, tabOpenRefusal } from "./tab-limits.ts";
 import type { BrowserTabRecord } from "./tab-store.ts";
 
 /** The one page of a backend that reports no tabs. */
@@ -24,15 +23,21 @@ export function tabActor(actor: Actor): BrowserTabActor {
 export class SessionTabs {
   private runtimes = new Map<string, TabRuntime>();
   readonly cursors = new AgentCursors();
-  /** The person picked the tab they view; agent tabs stop taking the view. */
-  private pinned = false;
+  /** When the person last picked the tab they view; agent tabs leave the view alone a while. */
+  private pickedAt = -Infinity;
   private lock: Promise<unknown> = Promise.resolve();
+  /** Tabs being closed: work on them may fail on the way out without anything being wrong. */
+  private closingIds = new Set<string>();
   private host: TabHost;
   private backend: () => BrowserBackendSession;
   /** Metadata for tabs the backend has not reported yet (restored or being opened). */
   private pending = new Map<string, TabMeta>();
   /** The opener of the tab being opened right now; backends report the tab before returning. */
   private opening: TabMeta | undefined;
+  /** Tabs an agent kept as a deliverable or handoff; its other tabs close at its turn's end. */
+  private keptIds = new Set<string>();
+  /** Tabs reopened after a discard: their page state is gone until their next navigation. */
+  private lostIds = new Set<string>();
   constructor(host: TabHost, backend: () => BrowserBackendSession) {
     this.host = host;
     this.backend = backend;
@@ -69,10 +74,10 @@ export class SessionTabs {
     this.pending.set(tabId, meta);
   }
   /**
-   * Mirror the backend's tab list. New tabs get a runtime (the first one may carry an
-   * ownership forward from a replaced backend); vanished tabs are closed and lose their cursors.
+   * Mirror the backend's tab list. New tabs get a runtime (the first one may carry the viewed
+   * tab's privacy forward from a replaced backend); vanished tabs are closed and lose cursors.
    */
-  reconcile(carried?: SessionOwnership): { added: TabRuntime[]; removed: TabRuntime[] } {
+  reconcile(carried?: { private: boolean }): { added: TabRuntime[]; removed: TabRuntime[] } {
     const tabs = this.backend().tabs;
     const listed = tabs ? tabs.list() : [];
     const ids = tabs ? listed.map((tab) => tab.tabId) : [soleTab];
@@ -82,21 +87,31 @@ export class SessionTabs {
       if (!ids.includes(id)) {
         this.runtimes.delete(id);
         this.cursors.forget(id);
+        this.keptIds.delete(id);
+        this.lostIds.delete(id);
         removed.push(runtime);
       }
-    let ownership = carried;
+    let carry = carried;
     const ordered = new Map<string, TabRuntime>();
     for (const id of ids) {
       let runtime = this.runtimes.get(id);
       if (!runtime) {
         // A backend may say who opened a tab (the person's own shared tabs, ADR 0084).
         const reported = listed.find((tab) => tab.tabId === id)?.openedBy;
+        // A popup the backend adopted belongs to whoever drove the tab that opened it.
+        const openerId = tabs?.opener?.(id);
+        const opener = openerId === undefined ? undefined : this.runtimes.get(openerId);
+        const inherited: TabMeta | undefined = opener && {
+          openedBy: opener.drivenBy ?? opener.openedBy ?? { kind: "page" },
+          ...(opener.private ? { private: true } : {}),
+        };
         const meta = this.pending.get(id) ??
           (reported ? { openedBy: reported } : undefined) ??
+          inherited ??
           this.opening ?? { openedBy: { kind: "page" as const } };
-        if (!this.pending.delete(id) && !reported) this.opening = undefined;
-        runtime = new TabRuntime(this.host, id, meta, ownership);
-        ownership = undefined;
+        if (!this.pending.delete(id) && !reported && !inherited) this.opening = undefined;
+        runtime = new TabRuntime(this.host, id, carry?.private ? { ...meta, private: true } : meta);
+        carry = undefined;
         added.push(runtime);
       }
       ordered.set(id, runtime);
@@ -134,12 +149,23 @@ export class SessionTabs {
       const runtime = this.runtimes.get(tab.tabId);
       if (!runtime) return tab;
       const entry: BrowserTab & { current?: boolean } = Object.assign({}, tab, {
-        lease: runtime.lease(),
         lifecycle: runtime.crashed() ? "crashed" : runtime.lifecycle,
       });
+      if (runtime.private) entry.private = true;
+      const inUse = runtime.inUse();
+      if (inUse) entry.inUse = inUse;
+      const pointer = runtime.pointer();
+      if (pointer) entry.pointer = pointer;
       if (runtime.openedBy) entry.openedBy = runtime.openedBy;
       if (runtime.drivenBy) entry.drivenBy = runtime.drivenBy;
       if (runtime.label) entry.label = runtime.label;
+      if (runtime.identity.title) entry.title = runtime.identity.title;
+      if (runtime.identity.favicon) entry.favicon = runtime.identity.favicon;
+      if (runtime.view.zoom !== 1) entry.zoom = runtime.view.zoom;
+      if (runtime.view.emulation) entry.emulation = runtime.view.emulation;
+      if (this.keptIds.has(tab.tabId)) entry.kept = true;
+      if (this.lostIds.has(tab.tabId)) entry.pageStateLost = true;
+      if (runtime.identity.playing) entry.playing = true;
       const status = this.statusOf(tab.tabId);
       if (status) entry.loading = status.loading;
       if (cursor === tab.tabId) entry.current = true;
@@ -164,9 +190,11 @@ export class SessionTabs {
               tabId: tab.tabId,
               position,
               url: tab.url,
-              title: tab.title,
+              title: runtime.identity.title ?? tab.title,
               ...(runtime.label ? { label: runtime.label } : {}),
               ...(runtime.openedBy ? { openedBy: runtime.openedBy } : {}),
+              ...(runtime.private ? { private: true } : {}),
+              ...(this.keptIds.has(tab.tabId) ? { kept: true } : {}),
               lastActiveAt: runtime.lastActiveAt,
             },
           ]
@@ -181,9 +209,12 @@ export class SessionTabs {
   }
   /**
    * Opens a tab for `actor`. The person's view moves to it when they opened it, or when an
-   * agent opened it and the person has not picked a tab of their own.
+   * agent opened it and the person has not picked or used a tab lately.
    */
-  async open(actor: Actor, options: { label?: string | undefined }): Promise<TabRuntime> {
+  async open(
+    actor: Actor,
+    options: { label?: string | undefined; keep?: boolean | undefined },
+  ): Promise<TabRuntime> {
     const tabs = this.backend().tabs;
     if (!tabs) throw new BrowserActionError("not_supported");
     const opener = tabActor(actor);
@@ -213,9 +244,10 @@ export class SessionTabs {
     const runtime = this.get(id);
     runtime.openedBy = opener;
     if (options.label) runtime.label = options.label;
+    if (options.keep) this.keptIds.add(id);
     if (actor.kind === "agent") this.cursors.set(actor.agentId, id);
     if (follow && tabs.active() !== id) await tabs.switch(id);
-    if (actor.kind === "human") this.pinned = true;
+    if (actor.kind === "human") this.picked();
     return runtime;
   }
   async select(actor: Actor, tabId: string): Promise<TabRuntime> {
@@ -224,7 +256,7 @@ export class SessionTabs {
     if (actor.kind === "agent") {
       this.cursors.set(actor.agentId, tabId);
       if (!this.follows() || !tabs) return runtime;
-    } else this.pinned = true;
+    } else this.picked();
     if (tabs && tabs.active() !== tabId) await tabs.switch(tabId);
     return runtime;
   }
@@ -239,20 +271,68 @@ export class SessionTabs {
     const runtime = this.get(tabId);
     if (tabs.list().length <= 1)
       throw new BrowserActionError("not_supported", "Close the browser to close its last tab");
-    if (this.viewedId() === tabId) this.pinned = false;
-    await tabs.close(tabId);
+    this.closingIds.add(tabId);
+    try {
+      await tabs.close(tabId);
+    } finally {
+      this.closingIds.delete(tabId);
+    }
     this.reconcile();
     void runtime.close();
   }
-  /** Agent tabs take the view while the person has not picked one and is not holding it. */
+  /** Whether the tab is gone or on its way out. */
+  leaving(tabId: string): boolean {
+    return this.closingIds.has(tabId) || !this.find(tabId);
+  }
+  private picked(): void {
+    this.pickedAt = this.host.options.navigationClock.now();
+  }
+  /**
+   * Agent tabs take the view only while the person has neither picked a tab nor used the one
+   * they view within `followAfterMs`: an agent never pulls the page out from under them.
+   */
   private follows(): boolean {
-    if (this.pinned) return false;
-    const viewed = this.viewed();
-    return !viewed || viewed.ownership.controller === "agent";
+    const window = this.host.timing.followAfterMs;
+    if (this.host.options.navigationClock.now() - this.pickedAt < window) return false;
+    return !this.viewed()?.humanWithin(window);
+  }
+  /** Marks a tab kept past its agent's turn, or temporary again. */
+  keep(tabId: string, value: boolean): void {
+    if (value) this.keptIds.add(tabId);
+    else this.keptIds.delete(tabId);
+  }
+  kept(tabId: string): boolean {
+    return this.keptIds.has(tabId);
+  }
+  /** A discarded tab came back at its address, without its page state. */
+  stateLost(tabId: string, value: boolean): void {
+    if (value) this.lostIds.add(tabId);
+    else this.lostIds.delete(tabId);
+  }
+  /**
+   * New tabs that put their agent over its own tab limit: popups adopted from an agent's tab
+   * count as that agent's, so a page cannot open tabs past what the agent itself may.
+   */
+  overAgentLimit(added: readonly TabRuntime[]): TabRuntime[] {
+    const over: TabRuntime[] = [];
+    for (const tab of added) {
+      const opener = tab.openedBy;
+      if (opener?.kind !== "agent") continue;
+      const own = this.all().filter(
+        (other) =>
+          other.openedBy?.kind === "agent" &&
+          other.openedBy.agentId === opener.agentId &&
+          !over.includes(other),
+      ).length;
+      if (own > agentTabLimit) over.push(tab);
+    }
+    return over;
   }
   clear(): void {
     this.runtimes.clear();
     this.cursors.clear();
     this.pending.clear();
+    this.keptIds.clear();
+    this.lostIds.clear();
   }
 }

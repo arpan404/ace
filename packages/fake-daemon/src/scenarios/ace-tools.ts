@@ -278,9 +278,9 @@ export function aceToolsBrowser(): Scenario {
             "browser_act",
             { action: "press", key: "Meta+L" },
             failure(
-              "human_controlled",
-              "Browser controlled by human",
-              "Wait for handback before input or closing.",
+              "human_active",
+              "The person kept using this tab",
+              "They are working in it right now. Take a fresh snapshot, then retry in a moment or use another tab.",
             ),
             true,
           ),

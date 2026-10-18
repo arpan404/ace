@@ -50,4 +50,13 @@ export const settingKeys = {
   autoDraftCommits: setting("generation.autoDraftCommits", z.boolean(), true),
   keybindings: setting<Keybindings>("clients.keybindings", Keybindings, {}),
   limitPolicy: setting<LimitPolicy>("threads.limitPolicy", LimitPolicy, "manual"),
+  browserEngine: setting("browser.backend", SettingsValues.shape["browser.backend"], "auto"),
+  browserProfile: setting("browser.profile", SettingsValues.shape["browser.profile"], "persistent"),
+  browserLoss: setting("browser.backendLoss", SettingsValues.shape["browser.backendLoss"], "pause"),
+  browserDownloads: setting("browser.downloadDir", SettingsValues.shape["browser.downloadDir"], ""),
+  browserDownloadDefault: setting(
+    "browser.downloadDefault",
+    SettingsValues.shape["browser.downloadDefault"],
+    "",
+  ),
 };

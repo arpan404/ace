@@ -28,6 +28,8 @@ const Rect = z
     y: z.number().finite(),
     width: z.number().finite(),
     height: z.number().finite(),
+    /** A region crops exactly (0); an element keeps the default margin. */
+    margin: z.number().finite().min(0).max(64).optional(),
   })
   .nullable();
 const Shot = z.object({ data: z.string() });
@@ -97,10 +99,11 @@ export async function captureAnnotation(
       (await evaluateInWorld(cdp, contextId, annotationRectExpression(target.id))).value,
     );
     if (!rect) throw new BrowserActionError("element_unavailable");
-    const left = Math.max(0, rect.x - cropPadding);
-    const top = Math.max(0, rect.y - cropPadding);
-    const right = Math.min(viewport.width, rect.x + rect.width + cropPadding);
-    const bottom = Math.min(viewport.height, rect.y + rect.height + cropPadding);
+    const margin = rect.margin ?? cropPadding;
+    const left = Math.max(0, rect.x - margin);
+    const top = Math.max(0, rect.y - margin);
+    const right = Math.min(viewport.width, rect.x + rect.width + margin);
+    const bottom = Math.min(viewport.height, rect.y + rect.height + margin);
     if (right - left < 1 || bottom - top < 1) throw new BrowserActionError("not_visible");
     const width = right - left;
     const height = bottom - top;

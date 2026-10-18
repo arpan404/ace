@@ -9,13 +9,31 @@ import { barPositions, composerPorts, sessionPorts } from "./store.ts";
 /** How long the page settles after a change before its screenshot is taken again. */
 const pageSettleMs = 400;
 
+/**
+ * A page's Send, once per press: every Browser view of the thread hears the same event, and
+ * only one of them may send the message.
+ */
+const sent = new WeakSet<BrowserAnnotationEvent>();
+
 /** The page as annotate mode needs to know it. */
 export interface AnnotatablePage {
   url: string;
+  /** The browser tab showing it, so each annotation says which tab it was made in. */
+  tabId?: string | undefined;
   closed: boolean;
   status?: "ready" | "paused" | "recovering" | undefined;
   features?: readonly string[] | undefined;
 }
+
+/**
+ * How annotate mode is used, for the Annotate button's tooltip. The overlay
+ * implements each part: click pins an element, a drag selects an area, Space lends the page.
+ */
+export const annotateHint = {
+  text: "Click anywhere to annotate, or drag to select an area. Hold Space to temporarily use the webpage.",
+  /** The key the hint names, for drawing it as a key cap. */
+  key: "Space",
+} as const;
 
 /** Why the person can't annotate this page now, in words for the button's tooltip. */
 export function annotateUnavailable(input: {
@@ -40,28 +58,29 @@ const theme = (): "light" | "dark" =>
   document.documentElement.dataset["scheme"] === "light" ? "light" : "dark";
 
 /**
- * Annotate mode for a thread's page (ADR 0082). Turning it on takes a temporary control hold
- * and starts the overlay; every pinned comment goes into the thread composer's draft with its
- * element crop, and the page's screenshot follows once the page settles. The bar's Send sends
- * the composer's message, its screenshot button copies the page, and leaving the mode (✕,
- * Send, the toggle, a navigation, losing control) hands the page back.
+ * Annotate mode for a thread's page (ADR 0082). Turning it on starts the overlay; every pinned
+ * comment goes into the thread composer's draft with its element crop, and the page's screenshot
+ * follows once the page settles. The bar's Send sends the composer's message, its screenshot
+ * button copies the page, and leaving the mode (its close button, Send, the toggle, a navigation, another
+ * device annotating) ends it. Nobody takes control: agents keep working beside it.
  */
 export function useAnnotate(options: {
   threadId: string;
   driver: AnnotationDriver | undefined;
-  temporaryControl(threadId: string): { ready: Promise<void>; release(): Promise<void> };
   /** The page shown now; `unavailable` says why annotating can't start. */
   url: string | undefined;
+  /** The tab showing it. */
+  tabId?: string | undefined;
   unavailable: string | undefined;
 }) {
   const { threadId, driver } = options;
   const toast = useToast();
   const [mode, setMode] = useState<"off" | "starting" | "on">("off");
   const session = useRef<{
-    hold?: { release(): Promise<void> } | undefined;
+    /** This start's token, from Annotate until the mode ends. */
+    started?: object | undefined;
     url?: string | undefined;
     timer?: ReturnType<typeof setTimeout> | undefined;
-    capture?: Promise<void> | undefined;
     edit?: string | undefined;
     live: boolean;
   }>({ live: false });
@@ -69,14 +88,8 @@ export function useAnnotate(options: {
   const finish = () => {
     const current = session.current;
     clearTimeout(current.timer);
-    const hold = current.hold;
     session.current = { live: false };
     setMode("off");
-    void hold
-      ?.release()
-      .catch((error: unknown) =>
-        toast.error({ title: "Couldn't hand back the page", description: reason(error) }),
-      );
   };
   const command = (input: Parameters<AnnotationDriver["command"]>[1]) =>
     driver?.command(threadId, input).catch(() => {});
@@ -93,9 +106,14 @@ export function useAnnotate(options: {
       .filter((annotation) => annotation.url === url)
       .map((annotation) => annotation.number);
     if (!numbers.length) return;
-    current.capture = driver.capture(threadId, { kind: "page" }).then(
-      (capture) => port.page(url, captureFile(capture, `annotated-page-${Math.min(...numbers)}`)),
-      () => {},
+    const name = `annotated-page-${Math.min(...numbers)}`;
+    port.page(
+      url,
+      name,
+      driver.capture(threadId, { kind: "page" }).then(
+        (capture) => captureFile(capture, name),
+        () => undefined,
+      ),
     );
   };
   const schedulePage = () => {
@@ -103,9 +121,8 @@ export function useAnnotate(options: {
     session.current.timer = setTimeout(capturePage, pageSettleMs);
   };
   /** Take the page's screenshot now if a change is waiting for it. */
-  const flushPage = async () => {
+  const flushPage = () => {
     if (session.current.timer !== undefined) capturePage();
-    await session.current.capture;
   };
 
   const screenshot = () => {
@@ -120,12 +137,11 @@ export function useAnnotate(options: {
   };
 
   const start = async () => {
-    if (!driver || session.current.hold) return;
+    if (!driver || session.current.started) return;
     setMode("starting");
-    const hold = options.temporaryControl(threadId);
-    session.current.hold = hold;
+    const started = {};
+    session.current.started = started;
     try {
-      await hold.ready;
       const numbers =
         composerPorts
           .get(threadId)
@@ -138,17 +154,27 @@ export function useAnnotate(options: {
         ...(bar ? { bar } : {}),
       });
     } catch (error) {
-      if (session.current.hold !== hold) return;
+      if (session.current.started !== started) return;
       toast.error({ title: "Couldn't start annotating", description: reason(error) });
       finish();
     }
   };
-  const stop = async () => {
-    if (!session.current.hold) return;
-    await driver?.stop(threadId).catch(() => {});
-    if (session.current.hold) finish();
+  /**
+   * Leave annotate mode at once. The daemon runs the person's annotate commands in order, so
+   * images asked for before this still see the markers, and the overlay goes after them.
+   */
+  const stop = () => {
+    const current = session.current;
+    if (!current.started && !current.live) return;
+    void driver?.stop(threadId).catch(() => {});
+    finish();
   };
 
+  // The tab the page is in, stamped on each annotation as it is saved.
+  const annotatedTab = useRef(options.tabId);
+  useLayoutEffect(() => {
+    annotatedTab.current = options.tabId;
+  });
   const onEvent = useEffectEvent((event: BrowserAnnotationEvent) => {
     const port = composerPorts.get(threadId);
     switch (event.kind) {
@@ -165,7 +191,8 @@ export function useAnnotate(options: {
       }
       case "saved": {
         if (!port || !driver) return;
-        const { annotation } = event;
+        const tabId = event.annotation.tabId ?? annotatedTab.current;
+        const annotation = tabId ? { ...event.annotation, tabId } : event.annotation;
         const known = port.annotations().some((existing) => existing.id === annotation.id);
         if (known) return port.save(annotation);
         port.save(
@@ -189,17 +216,21 @@ export function useAnnotate(options: {
         screenshot();
         return;
       case "send":
-        void flushPage().then(() => {
-          composerPorts.get(threadId)?.submit();
-          void stop();
-        });
+        // The message goes at once: a screenshot still being taken follows it, uploading
+        // behind its bubble. Then annotate mode ends.
+        if (!session.current.started && !session.current.live) return;
+        if (sent.has(event)) return void stop();
+        sent.add(event);
+        flushPage();
+        port?.submit();
+        stop();
         return;
       case "bar":
         barPositions.set(threadId, { x: event.x, y: event.y });
         return;
       case "close":
       case "ended":
-        if (session.current.hold || session.current.live) finish();
+        if (session.current.started || session.current.live) finish();
         return;
     }
   });
@@ -246,11 +277,11 @@ export function useAnnotate(options: {
     });
   }, [driver, threadId]);
 
-  // Leaving the tab leaves annotate mode and hands the page back.
+  // Leaving the tab leaves annotate mode.
   const end = useEffectEvent(finish);
   useEffect(
     () => () => {
-      if (!session.current.hold) return;
+      if (!session.current.started) return;
       void driver?.stop(threadId).catch(() => {});
       end();
     },

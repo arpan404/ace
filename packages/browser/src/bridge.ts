@@ -28,6 +28,9 @@ function requiredAccess(message: BrowserClientMessage): BrowserAccess {
       "navigation_history",
       "find_text",
       "selection",
+      "page_source",
+      "context_target",
+      "image_data",
     ].includes(message.command.action)
   )
     return "read";
@@ -47,6 +50,14 @@ export function connectBrowser(
       access: BrowserAccess,
     ) => boolean;
     send: (message: BrowserServerMessage, serialized?: string) => boolean;
+    /**
+     * Opens a thread attachment this connection uploaded (the files a person picks for a page's
+     * file input). Without it, picking files is refused.
+     */
+    attachment?: (
+      threadId: string,
+      sha256: string,
+    ) => Promise<{ chunks: AsyncIterable<Uint8Array>; close(): Promise<void> }>;
   },
 ): { handle(raw: unknown): Promise<void>; close(): void } {
   type Subscription = { stop(): void; subscribers: Set<string> };
@@ -161,11 +172,55 @@ export function connectBrowser(
             await service.input(threadId, message.input, options.connectionId, message.tabId);
             respond(null);
             break;
-          case "browser.takeover":
-            respond(service.takeover(threadId, options.connectionId, message.mode, message.tabId));
+          case "browser.auth.answer":
+            respond(
+              await service.asPerson(threadId, {
+                kind: "auth",
+                tabId: message.tabId,
+                authId: message.authId,
+                credentials: message.credentials,
+              }),
+            );
             break;
-          case "browser.handback":
-            respond(service.handback(threadId, options.connectionId, message.tabId));
+          case "browser.certificate.proceed":
+            respond(
+              await service.asPerson(threadId, {
+                kind: "certificate",
+                tabId: message.tabId,
+                url: message.url,
+              }),
+            );
+            break;
+          case "browser.files.choose": {
+            const open = options.attachment;
+            if (!open && message.files.length) throw new Error("Picking files is unavailable here");
+            respond(
+              await service.asPerson(threadId, {
+                kind: "files",
+                tabId: message.tabId,
+                chooserId: message.chooserId,
+                files: message.files.map((file) => ({
+                  name: file.name,
+                  open: () => {
+                    if (!open) throw new Error("Picking files is unavailable here");
+                    return open(threadId, file.sha256);
+                  },
+                })),
+              }),
+            );
+            break;
+          }
+          case "browser.tabs.mute":
+            respond(
+              await service.asPerson(threadId, {
+                kind: "mute",
+                tabId: message.tabId,
+                muted: message.muted,
+              }),
+            );
+            break;
+          case "browser.tabs.private":
+            respond(service.setPrivate(threadId, message.tabId, message.private));
             break;
           case "browser.subscribe": {
             const subscriber = message.subscriberId ?? "legacy";
@@ -207,7 +262,10 @@ export function connectBrowser(
             service.acknowledge(threadId, options.connectionId, message.sequence);
             break;
           case "browser.recording.start":
-            await service.startRecording(threadId);
+            await service.startRecording(threadId, {
+              kind: "human",
+              connectionId: options.connectionId,
+            });
             respond(null);
             break;
           case "browser.recording.stop":

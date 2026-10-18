@@ -4,6 +4,7 @@ import { mkdir } from "node:fs/promises";
 import { EmbeddedTabs } from "./embedded-tabs.ts";
 import { decodeNativeTabs } from "./native-tabs.ts";
 import { modelScreenshot } from "./model-screenshot.ts";
+import { restoreEmbeddedTabs } from "./embedded-restore.ts";
 import { EventEmitter } from "node:events";
 import { z } from "zod";
 import {
@@ -61,8 +62,8 @@ interface RemoteSession {
   pending: Set<string>;
   mainFrame?: string | undefined;
   lost?: boolean;
-  /** A liveness ping in flight after a command timed out. */
-  probing?: boolean;
+  /** A liveness ping in flight after a command timed out; resolves to whether it lives. */
+  probing?: Promise<boolean> | undefined;
   cleanup(): void;
 }
 interface Waiter {
@@ -124,28 +125,32 @@ export class EmbeddedBackend implements BrowserBackend {
     return this.slots.run(() => this.dispatch(sessionId, operation, signal), signal);
   }
   /**
-   * A command got no answer in time. It fails alone: a slow page (a long script, a dialog, a
+   * A command got no answer in time, or the computer woke from sleep. It fails alone: a slow page (a long script, a dialog, a
    * busy renderer) is not a lost one. Only when the desktop also misses a liveness ping is the
    * view lost, and closed so the daemon can recover the thread.
    */
-  private timedOut(sessionId: string): void {
+  private timedOut(sessionId: string): Promise<boolean> {
     const session = this.sessions.get(sessionId);
-    if (!session || session.lost || session.probing || this.closed) return;
-    session.probing = true;
-    this.dispatch(sessionId, { kind: "cdp", method: "ace.ping" }, undefined, {
+    if (!session || session.lost || this.closed) return Promise.resolve(false);
+    if (session.probing) return session.probing;
+    const probing = this.dispatch(sessionId, { kind: "cdp", method: "ace.ping" }, undefined, {
       deadlineMs: pingDeadlineMs,
       timedOut: () => this.unresponsive(sessionId),
-    }).then(
-      () => {
-        session.probing = false;
-      },
-      (error: unknown) => {
-        session.probing = false;
-        // Any answer but "no such session" (an older desktop's unknown method too) is alive.
-        if (error instanceof Error && error.message === "Unknown browser session")
-          this.unresponsive(sessionId);
-      },
-    );
+    })
+      .then(
+        () => !session.lost,
+        (error: unknown) => {
+          // Any answer but "no such session" (an older desktop's unknown method too) is alive.
+          if (error instanceof Error && error.message === "Unknown browser session")
+            this.unresponsive(sessionId);
+          return !session.lost;
+        },
+      )
+      .finally(() => {
+        session.probing = undefined;
+      });
+    session.probing = probing;
+    return probing;
   }
   private unresponsive(sessionId: string): void {
     this.loseSession(sessionId, "Desktop browser command timed out");
@@ -167,7 +172,7 @@ export class EmbeddedBackend implements BrowserBackend {
     signal?: AbortSignal,
     deadline: { deadlineMs: number; timedOut(): void } = {
       deadlineMs: relayDeadline(operation),
-      timedOut: () => this.timedOut(sessionId),
+      timedOut: () => void this.timedOut(sessionId),
     },
   ): Promise<unknown> {
     if (signal?.aborted) return Promise.reject(signal.reason);
@@ -251,7 +256,13 @@ export class EmbeddedBackend implements BrowserBackend {
   }
   handle(raw: unknown): void {
     const message = BrowserBackendClientMessage.parse(raw);
-    if (message.type === "browser.backend.register" || message.backendId !== this.id || this.closed)
+    // Registration and wake notices are the connection's business, not a session's.
+    if (
+      message.type === "browser.backend.register" ||
+      message.type === "browser.backend.resumed" ||
+      message.backendId !== this.id ||
+      this.closed
+    )
       return;
     if (message.type === "browser.backend.response") {
       const waiter = this.pending.get(message.id);
@@ -319,6 +330,12 @@ export class EmbeddedBackend implements BrowserBackend {
         session.request.permissionDenied?.(result.data);
         session.events.emit(message.method, result.data);
       }
+      return;
+    }
+    if (message.method === "ace.humanInput") {
+      // The person used the shown view directly; agent input in that tab waits for a pause.
+      const input = z.object({ tabId: z.string().max(256).optional() }).safeParse(message.params);
+      if (input.success) session.request.humanInput?.(input.data.tabId);
       return;
     }
     if (message.method === "ace.downloadDenied") {
@@ -456,10 +473,16 @@ export class EmbeddedBackend implements BrowserBackend {
     let tabs: EmbeddedTabs | undefined;
     const currentCdp = () => tabs?.current().cdp ?? cdp;
     let viewport = { width: 1280, height: 720 };
-    /** The open sent generation 0; every lease after it rises on the wire. */
-    let leaseGeneration = 0;
-    /** Each tab's newest lease generation, so an older one is refused as the desktop would. */
-    const leases = new Map<string, number>();
+    /** Tabs an agent uses; the desktop hears about the shown one (ADR 0085). */
+    const agentTabs = new Set<string>();
+    let agentShown: boolean | undefined;
+    const showAgent = async () => {
+      // Without tabs the thread browser calls its one page "page".
+      const shown = agentTabs.has(tabs?.active() ?? "page");
+      if (shown === agentShown) return;
+      agentShown = shown;
+      await call({ kind: "agentUse", active: shown });
+    };
     let closing: Promise<void> | undefined;
     let guard: Awaited<ReturnType<typeof installOriginGuard>> | undefined;
     const close = (): Promise<void> =>
@@ -506,7 +529,6 @@ export class EmbeddedBackend implements BrowserBackend {
             options: request.options,
             ...(request.downloadDir ? { downloadDir: request.downloadDir } : {}),
             viewport,
-            lease: { generation: 0, controller: "agent" },
           }),
         );
       remote.url = opened.url;
@@ -514,6 +536,9 @@ export class EmbeddedBackend implements BrowserBackend {
       if (opened.activeTabId !== undefined && opened.tabs) {
         tabs = new EmbeddedTabs(cdp, request);
         await tabs.start({ activeTabId: opened.activeTabId, tabs: opened.tabs }, opened.adopted);
+        // Fresh views (not kept ones) take back the thread's tabs from before.
+        if (!opened.adopted && request.restoreTabs?.length)
+          await restoreEmbeddedTabs(tabs, request.restoreTabs, request.signal, this.clock);
       } else guard = await installOriginGuard(cdp, request.allowed, request.initiator);
       await cdp.send("Page.enable");
       await cdp.send("Runtime.enable");
@@ -586,7 +611,7 @@ export class EmbeddedBackend implements BrowserBackend {
         },
         async screenshot(format) {
           if (format === "jpeg") return modelScreenshot(currentCdp());
-          const result = z.object({ data: z.string().max(768 * 1024) }).parse(
+          const result = z.object({ data: z.string().max(32 * 1024 * 1024) }).parse(
             await currentCdp().send("Page.captureScreenshot", {
               format,
             }),
@@ -598,20 +623,24 @@ export class EmbeddedBackend implements BrowserBackend {
           viewport = { width, height };
         },
         viewport: () => tabs?.current().viewport ?? viewport,
+        zoom: async (factor) => {
+          await currentCdp().send("ace.zoom", { factor });
+        },
+        clearData: async () => {
+          await currentCdp().send("ace.clearData");
+        },
         media: async (colorScheme) => {
           await currentCdp().send("Emulation.setEmulatedMedia", {
             features: [{ name: "prefers-color-scheme", value: colorScheme }],
           });
         },
-        // The desktop applies one lease to the view it shows: the shown tab's. Each tab counts
-        // its own generations, so the wire carries one rising count for the whole session.
-        controller: async (lease, tabId) => {
-          const owner = tabId ?? tabs?.active() ?? "";
-          if ((leases.get(owner) ?? -Infinity) > lease.generation)
-            throw new Error("Obsolete controller lease generation");
-          leases.set(owner, lease.generation);
-          if (tabId !== undefined && tabs && tabId !== tabs.active()) return;
-          await call({ kind: "controller", lease: { ...lease, generation: ++leaseGeneration } });
+        // After sleep: a desktop that misses the liveness ping loses the page, which recovers.
+        ping: () => this.timedOut(sessionId),
+        // The desktop treats every unshown view as an agent's; only the shown one varies.
+        agentUse: async (tabId, active) => {
+          if (active) agentTabs.add(tabId);
+          else agentTabs.delete(tabId);
+          await showAgent();
         },
         close,
       };
@@ -640,6 +669,8 @@ function embeddedTabList(
     dialog: () => tabs.dialog(),
     answer: (id, accept, text) => tabs.answer(id, accept, text),
     downloads: () => tabs.downloads(),
+    proceedCertificate: (id, url) => tabs.proceedCertificate(id, url),
+    mute: (id, muted) => tabs.mute(id, muted),
     page: (id) => {
       tabs.tab(id);
       let page = pages.get(id);
@@ -664,6 +695,7 @@ function embeddedTabSurface(
       }),
     ),
     networkBody: tabs.inspection.body.bind(tabs.inspection),
+    networkPending: () => tabs.inspection.pending(tabs.active()),
     frames: () => tabs.frames(),
   };
 }

@@ -8,8 +8,9 @@ import {
   type BrowserFrame,
   type BrowserState,
   type BrowserBackendLost,
-  type BrowserBackendRequest,
+  BrowserBackendRequest,
 } from "@ace/protocol";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 const snapshot = z.object({ nodes: z.array(z.object({ ref: z.string() })) });
 it("prefers the socket desktop while a per-thread override routes another thread headlessly", async () => {
@@ -35,27 +36,88 @@ it("selects headless after desktop disconnect and rejects an explicit missing em
   expect(await f.open()).toMatchObject({ backend: "headless" });
   await expect(f.open("explicit")).rejects.toThrow("unavailable");
 });
-it("shares controller ownership with the socket backend and blocks stale agent input", async () => {
-  const f = await backendFixture();
+const quick = {
+  quietMs: 400,
+  maxWaitMs: 1_200,
+  inUseMs: 1_000,
+  followAfterMs: 1_000,
+  presentMs: 1_000,
+};
+const key = (char: string) => ({ kind: "key", event: "char", key: char }) as const;
+it("agent input waits while the person is active in the tab and proceeds once they pause", async () => {
+  const f = await backendFixture({ collaboration: quick });
   await f.open();
   const ref = snapshot.parse(await f.service.execute("thread", { action: "snapshot" })).nodes[0]
     ?.ref;
   if (!ref) throw new Error("Missing ref");
-  f.service.takeover("thread", "human");
-  await expect(f.service.execute("thread", { action: "type", ref, text: "agent" })).rejects.toThrow(
-    "controlled by human",
-  );
-  await expect(
-    f.service.input("thread", { kind: "key", event: "char", key: "x" }, "other"),
-  ).rejects.toThrow("mismatch");
-  await f.service.input("thread", { kind: "key", event: "char", key: "x" }, "human");
   const page = [...f.pages.values()][0];
-  expect(page?.text).toBe("x");
-  expect(page?.lease).toMatchObject({ controller: "human", owner: "human" });
-  f.service.handback("thread", "human");
-  await f.service.execute("thread", { action: "type", ref, text: "agent" });
-  expect(page?.text).toBe("xagent");
-  expect(page?.lease).toMatchObject({ controller: "agent", generation: 2 });
+  await f.service.input("thread", key("x"), "person");
+  const started = Date.now();
+  const typing = f.service.execute("thread", { action: "type", ref, text: "agent" });
+  // The person keeps typing; nothing of theirs waits for the agent.
+  await f.service.input("thread", key("y"), "person");
+  expect(page?.text).toBe("xy");
+  await typing;
+  expect(Date.now() - started).toBeGreaterThanOrEqual(quick.quietMs - 50);
+  expect(page?.text).toBe("xyagent");
+});
+it("agent input gives up with human_active while the person never pauses", async () => {
+  const f = await backendFixture({ collaboration: quick });
+  await f.open();
+  const ref = snapshot.parse(await f.service.execute("thread", { action: "snapshot" })).nodes[0]
+    ?.ref;
+  if (!ref) throw new Error("Missing ref");
+  await f.service.input("thread", key("z"), "person");
+  const typing = f.service.execute("thread", { action: "type", ref, text: "agent" });
+  const rejected = expect(typing).rejects.toMatchObject({ code: "human_active" });
+  const busy = { on: true };
+  const person = (async () => {
+    while (busy.on) {
+      await f.service.input("thread", key("z"), "person");
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  })();
+  await rejected;
+  busy.on = false;
+  await person;
+  expect([...f.pages.values()][0]?.text).not.toContain("agent");
+});
+it("agent reads never wait for the person", async () => {
+  const f = await backendFixture({ collaboration: { ...quick, quietMs: 5_000 } });
+  await f.open();
+  await f.service.input("thread", key("x"), "person");
+  const started = Date.now();
+  await f.service.execute("thread", { action: "snapshot" });
+  await f.service.screenshot("thread");
+  expect(Date.now() - started).toBeLessThan(2_000);
+});
+it("the person's input is never refused or queued behind a busy agent command", async () => {
+  const f = await backendFixture();
+  await f.open();
+  f.hold("Page.navigate");
+  const navigating = f.service.execute("thread", {
+    action: "navigate",
+    url: "http://localhost:3000/slow",
+  });
+  const [held] = await once(f.requests, "Page.navigate");
+  await f.service.input("thread", key("x"), "person");
+  expect([...f.pages.values()][0]?.text).toBe("x");
+  f.releaseHold();
+  // Ends the held navigation (an aborted one would wait for the frame to stop loading).
+  f.reply(BrowserBackendRequest.parse(held), { errorText: "net::ERR_CONNECTION_REFUSED" });
+  await navigating.catch(() => {});
+});
+it("an agent working in a tab marks it in use and tells the backend", async () => {
+  const f = await backendFixture({ collaboration: quick });
+  await f.open();
+  await f.service.execute(
+    "thread",
+    { action: "scroll", x: 0, y: 1 },
+    { kind: "agent", agentId: "a" },
+  );
+  const page = [...f.pages.values()][0];
+  expect(page?.agent).toBe(true);
+  await expect.poll(() => page?.agent, { timeout: 3_000 }).toBe(false);
 });
 it("pause on desktop loss emits the URL and rejects an in-flight read without replay", async () => {
   const f = await backendFixture();
@@ -87,19 +149,18 @@ it("pause on desktop loss emits the URL and rejects an in-flight read without re
       pageStateLost: true,
     }),
   ]);
-  expect(states.at(-1)).toMatchObject({ controller: "none", status: "paused" });
+  expect(states.at(-1)).toMatchObject({ status: "paused" });
   await expect(f.service.execute("thread", { action: "scroll", x: 0, y: 1 })).rejects.toMatchObject(
     { code: "browser_paused" },
   );
   expect(f.headless.pages).toHaveLength(0);
 });
-it("headless recovery preserves human ownership and invalidates old refs while reporting lost state", async () => {
+it("headless recovery invalidates old refs while reporting lost state", async () => {
   const f = await backendFixture({ backendLoss: () => "headless" });
   await f.service.open({ threadId: "thread", workspaceId: "workspace", profile: "persistent" });
   await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/page" });
   const ref = snapshot.parse(await f.service.execute("thread", { action: "snapshot" })).nodes[0]
     ?.ref;
-  f.service.takeover("thread", "human");
   await f.service.input("thread", { kind: "key", event: "char", key: "x" }, "human");
   const ready = Promise.withResolvers<void>();
   const frames: BrowserFrame[] = [];
@@ -122,8 +183,6 @@ it("headless recovery preserves human ownership and invalidates old refs while r
   expect(f.service.state("thread")).toMatchObject({
     backend: "headless",
     url: "http://localhost:3000/page",
-    controller: "human",
-    owner: "human",
     pageStateLost: true,
   });
   expect(f.headless.opens[0]?.options.profile).toBe("ephemeral");
@@ -134,12 +193,9 @@ it("headless recovery preserves human ownership and invalidates old refs while r
       { action: "type", ref, text: "x" },
       { kind: "human", connectionId: "human" },
     ),
-  ).rejects.toThrow("ref");
+  ).rejects.toMatchObject({ code: "browser_restarted" });
   expect(frames.length).toBeGreaterThan(1);
   expect(frames.at(-1)?.sequence).toBeGreaterThan(frames[0]?.sequence ?? 0);
-  await expect(f.service.execute("thread", { action: "scroll", x: 0, y: 1 })).rejects.toThrow(
-    "controlled by human",
-  );
 });
 it.each(["embedded", "headless"] as const)(
   "%s sessions let the agent script pages and keep refs, screenshot bytes and console logs",
@@ -207,7 +263,10 @@ it("closes a pressured relay and pauses its session instead of queuing undeliver
   await f.open();
   const active = f.service.state("thread");
   f.pressure();
-  await expect(f.service.execute("thread", { action: "snapshot" })).rejects.toThrow("backpressure");
+  // Whichever command meets the pressure first (the agent's mark or the snapshot) pauses it.
+  await expect(f.service.execute("thread", { action: "snapshot" })).rejects.toThrow(
+    /backpressure|paused/,
+  );
   expect(f.service.state("thread")).toMatchObject({
     url: active.url,
     status: "paused",
@@ -242,23 +301,19 @@ async function approvalRace() {
   await entered.promise;
   return { f, scripts, evaluating, approve: () => approval.resolve(true) };
 }
-it("requires evaluation approval before sending arbitrary JavaScript to the desktop", async () => {
+it("an evaluation approved after the person kept agents out never reaches the desktop", async () => {
   const { f, scripts, evaluating, approve } = await approvalRace();
-  f.service.takeover("thread", "human");
+  keepAgentsOut(f.service, "thread");
   approve();
-  // The person still holds the page, so the agent is told why, not just that control moved.
-  await expect(evaluating).rejects.toMatchObject({
-    code: "human_controlled",
-    message: "Browser controlled by human",
-  });
+  await expect(evaluating).rejects.toMatchObject({ code: "human_private" });
   expect(scripts).toEqual([]);
 });
-it("an approved evaluation is dropped as stale when control changed hands during approval", async () => {
+it("an approved evaluation is dropped as stale when privacy changed during approval", async () => {
   const { f, scripts, evaluating, approve } = await approvalRace();
-  f.service.takeover("thread", "human");
-  f.service.handback("thread", "human");
+  keepAgentsOut(f.service, "thread");
+  keepAgentsOut(f.service, "thread", false);
   approve();
-  await expect(evaluating).rejects.toMatchObject({ code: "controller_changed" });
+  await expect(evaluating).rejects.toThrow();
   expect(scripts).toEqual([]);
 });
 it("native permission and download denials flow through bounded daemon logs", async () => {

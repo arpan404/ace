@@ -12,6 +12,8 @@ import { useMachines } from "@/lib/machines.ts";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
+import { useThreadBrowsing } from "@/lib/browsing.ts";
+import { GlobeSimpleIcon } from "@phosphor-icons/react";
 
 /*
  * Shared row pieces render the card facts. RowTime reads the shared clock for elapsed time;
@@ -43,6 +45,23 @@ export function threadDetails(card: ThreadCard): string[] {
 }
 
 export { ProjectMark } from "@/components/project-mark.tsx";
+
+/** A quiet globe in the working colour while an agent works in the thread's browser. */
+export function BrowsingMark(props: { threadId: string }) {
+  if (!useThreadBrowsing(props.threadId)) return null;
+  return (
+    <Tip label="An agent is browsing">
+      <span
+        role="img"
+        aria-label="An agent is browsing"
+        data-tone="working"
+        className="inline-flex shrink-0 text-status-working"
+      >
+        <GlobeSimpleIcon aria-hidden size={12} />
+      </span>
+    </Tip>
+  );
+}
 
 /** State is also spoken, so the PR's colour is never the only clue. */
 export function PullRequest(props: { card: ThreadCard }) {

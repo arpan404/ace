@@ -2,6 +2,7 @@ import { expect, it, onTestFinished } from "vitest";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { FakeHeadless, FakePage, backendFixture } from "./backend-test-support.ts";
+import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 function tabBackend() {
   const backend = new FakeHeadless(),
@@ -49,7 +50,7 @@ function tabBackend() {
 }
 
 it.each(["resize", "metrics", "touch"] as const)(
-  "emulation stops subsequent effects when takeover crosses %s",
+  "emulation stops subsequent effects when the tab turns private across %s",
   async (barrier) => {
     const backend = new FakeHeadless(),
       open = backend.open.bind(backend);
@@ -96,11 +97,11 @@ it.each(["resize", "metrics", "touch"] as const)(
       colorScheme: "dark",
     };
     const rejected = expect(f.service.execute("thread", command)).rejects.toMatchObject({
-      code: "controller_changed",
+      code: "human_private",
     });
     await entered.promise;
-    f.service.takeover("thread", "person");
-    f.service.handback("thread", "person");
+    keepAgentsOut(f.service, "thread");
+    keepAgentsOut(f.service, "thread", false);
     release.resolve();
     await rejected;
     expect(effects).toEqual(
@@ -116,7 +117,7 @@ it.each(["resize", "metrics", "touch"] as const)(
   },
 );
 
-it("a delayed screencast frame captured during private control never enters the recording after handback", async () => {
+it("a delayed screencast frame captured while the tab was private never enters the recording after agents are let back in", async () => {
   const b = tabBackend();
   let now = 1000;
   const f = await backendFixture({
@@ -140,9 +141,9 @@ it("a delayed screencast frame captured during private control never enters the 
   const initial = b.pages[0];
   if (!initial) throw new Error("pages");
   now = 2000;
-  f.service.takeover("thread", "person", "private");
+  keepAgentsOut(f.service, "thread");
   now = 3000;
-  f.service.handback("thread", "person");
+  keepAgentsOut(f.service, "thread", false);
   now = 4000;
   initial.events.emit("Page.screencastFrame", {
     sessionId: 1,

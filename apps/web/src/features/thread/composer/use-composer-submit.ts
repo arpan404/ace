@@ -69,6 +69,8 @@ export function useComposerSubmit(args: {
     const draft: Draft = {
       text: current.text,
       ...content,
+      // Annotated tabs travel as context, so the agent gets each marker's element in its tab.
+      threadRefs: [...content.threadRefs, ...(annotated?.items ?? [])],
       input: message.input,
       files: {
         ...message.files,

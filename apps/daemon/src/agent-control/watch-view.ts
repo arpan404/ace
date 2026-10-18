@@ -80,6 +80,8 @@ export function requestPrompt(request: InteractionRequest): string {
       return request.title ?? "Review the plan";
     case "elicitation":
       return request.title ?? request.message;
+    case "browser_help":
+      return request.message || "Help in the browser";
   }
 }
 

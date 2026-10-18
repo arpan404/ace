@@ -18,6 +18,8 @@ async function openColdStart(storage = memoryKeyValue()) {
   app.play(coldStartReplay()).runThrough("turn-2");
   app.play(failingSubagent()).step();
   seedPanels(app.daemon);
+  // These tests are about the panel's own tabs: with no browser, no browser tab joins them.
+  app.daemon.browser.close("thread-cold-start");
   const view = await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: coldStart });
   return { app, view, storage };

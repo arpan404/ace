@@ -22,13 +22,13 @@ import {
   HammerIcon,
   ListChecksIcon,
   MagnifyingGlassIcon,
-  MonitorIcon,
   NotePencilIcon,
   PlugIcon,
   RobotIcon,
   TerminalIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
+import { BrowserUseIcon, ComputerUseIcon } from "@/components/ace-icons.tsx";
 import { memo, useCallback, useId, useMemo, useState } from "react";
 import { OpenStepsContext, useGroupOpen, useOpenSteps, useStepOpen } from "./step-open.ts";
 import { Icon } from "@/components/icon.tsx";
@@ -193,8 +193,8 @@ const groupIcons: Record<GroupIcon, PhosphorIcon> = {
   mixed: HammerIcon,
   edit: NotePencilIcon,
   command: TerminalIcon,
-  computer: MonitorIcon,
-  browser: GlobeIcon,
+  computer: ComputerUseIcon,
+  browser: BrowserUseIcon,
   fetch: GlobeIcon,
   websearch: GlobeIcon,
   read: FileTextIcon,

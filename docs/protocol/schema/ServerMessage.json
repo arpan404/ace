@@ -1041,6 +1041,9 @@
       "$ref": "https://ace.local/protocol/v1/BrowserAnnotationMessage.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/BrowserBrowsing.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ModelsResult.json"
     },
     {

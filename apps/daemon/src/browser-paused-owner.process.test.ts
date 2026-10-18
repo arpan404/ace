@@ -8,7 +8,7 @@ import { startDaemonMcp } from "./mcp.ts";
 import { browserToolkit } from "./browser-toolkit.ts";
 import { invoke, Result } from "./browser-mcp-test-support.ts";
 
-it("MCP cannot close a suspended browser that retains a human controller", async () => {
+it("MCP cannot close a suspended browser holding a private tab", async () => {
   const lost = Promise.withResolvers<void>();
   const f = await backendFixture({
     backendPreference: () => "embedded",
@@ -40,7 +40,7 @@ it("MCP cannot close a suspended browser that retains a human controller", async
   );
   const connection = { url: mcp.url, bearer: lease.bearer };
   await f.open(thread.id);
-  f.service.takeover(thread.id, "person");
+  f.service.setPrivate(thread.id, f.service.state(thread.id).activeTabId ?? "page", true);
   await f.disconnect();
   await lost.promise;
   const result = Result.parse(
@@ -48,15 +48,13 @@ it("MCP cannot close a suspended browser that retains a human controller", async
   ).result;
   expect(result).toMatchObject({
     isError: true,
-    content: [{ text: expect.stringContaining("human_controlled") }],
+    content: [{ text: expect.stringContaining("human_private") }],
   });
   expect(f.service.state(thread.id)).toMatchObject({
     status: "paused",
-    controller: "none",
-    owner: "person",
     closed: false,
   });
-  f.service.handback(thread.id, "person");
+  f.service.setPrivate(thread.id, f.service.state(thread.id).activeTabId ?? "page", false);
   expect(
     Result.parse(await (await invoke(connection, "browser_settings", { action: "close" })).json())
       .result.isError,

@@ -15,15 +15,12 @@ export interface ResolvedPlacement {
   /** In window DIPs; undefined until a renderer has placed the view. */
   bounds: Rect | undefined;
   visible: boolean;
-  /** The connection the renderer showing the view holds the page through, if it does. */
-  owner: string | undefined;
 }
 
 interface Claim {
   device?: NativeDevice | undefined;
   bounds: Rect;
   visible: boolean;
-  owner: string | undefined;
   order: number;
 }
 
@@ -59,7 +56,6 @@ export class PlacementBook {
     claim: {
       bounds: Rect;
       visible: boolean;
-      owner?: string | undefined;
       device?: NativeDevice | undefined;
     },
   ): ResolvedPlacement {
@@ -69,7 +65,6 @@ export class PlacementBook {
       bounds: claim.bounds,
       device: claim.device,
       visible: claim.visible,
-      owner: claim.owner,
       order: ++this.order,
     });
     return this.resolve(threadId);
@@ -113,9 +108,8 @@ export class PlacementBook {
         host: shown[0],
         bounds: shown[1].bounds,
         visible: true,
-        owner: shown[1].owner,
         device: shown[1].device,
       };
-    return { host: latest?.[0], bounds: latest?.[1].bounds, visible: false, owner: undefined };
+    return { host: latest?.[0], bounds: latest?.[1].bounds, visible: false };
   }
 }

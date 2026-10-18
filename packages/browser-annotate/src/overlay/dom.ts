@@ -22,7 +22,11 @@ export function h<K extends keyof HTMLElementTagNameMap>(
 }
 
 /** Inline CSSOM writes; `important` beats page rules aimed at the host element. */
-export function place(node: HTMLElement, styles: Record<string, string>, important = false): void {
+export function place(
+  node: ElementCSSInlineStyle,
+  styles: Record<string, string>,
+  important = false,
+): void {
   for (const [name, value] of Object.entries(styles))
     node.style.setProperty(name, value, important ? "important" : "");
 }

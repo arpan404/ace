@@ -9,7 +9,13 @@ import {
   type DraftEntries,
   type KeyValueStorage,
 } from "@ace/ui-core";
-import { BrowserAnnotation, CatalogMention, Mention, ThreadRefContextItem } from "@ace/protocol";
+import {
+  BrowserAnnotation,
+  BrowserTabContextItem,
+  CatalogMention,
+  Mention,
+  ThreadRefContextItem,
+} from "@ace/protocol";
 import { z as classic } from "zod";
 import * as z from "zod/mini";
 
@@ -24,6 +30,7 @@ const Token = classic.object({
   catalog: CatalogMention.optional(),
   file: Mention.optional(),
   thread: ThreadRefContextItem.optional(),
+  browserTab: BrowserTabContextItem.optional(),
 });
 const Held = classic.object({ sha256: classic.string(), name: classic.string() });
 const Annotated = classic.object({ annotation: BrowserAnnotation, crop: Held.optional() });

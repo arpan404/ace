@@ -10,14 +10,14 @@ import { EmbeddedViews } from "../../src/main/browser/views.ts";
 
 /*
  * An Electron main for `native-input.e2e.ts`: the app's real browser backend and embedded view
- * host in a window, driven the way the daemon drives them (backend requests: open, controller
- * leases, CDP and key presses), with a page that records what reaches it. `globalThis.harness`
+ * host in a window, driven the way the daemon drives them (backend requests: open, agent use,
+ * CDP and key presses), with a page that records what reaches it. `globalThis.harness`
  * is called from the test through Playwright's `app.evaluate`.
  */
 
 if (process.env.ACE_E2E_USER_DATA) app.setPath("userData", process.env.ACE_E2E_USER_DATA);
 
-/** This app's backend connection; a lease owned by it is the person's here. */
+/** This app's backend connection. */
 const connectionId = "desktop-connection";
 const backendId = "backend-1";
 const sessionId = "session-1";
@@ -143,7 +143,6 @@ const harness = {
       kind: "open",
       options: { threadId: "thread-1", workspaceId: "workspace-1", profile: "ephemeral" },
       viewport: { width: 600, height: 500 },
-      lease: { generation: 0, controller: "agent" },
     });
     contents = webContents.getAllWebContents().find((each) => !known.has(each.id));
     views.place(
@@ -156,12 +155,9 @@ const harness = {
       timeout: 15_000,
     });
   },
-  /** The daemon's controller lease for the page; `desktop-connection` is this app's. */
-  async lease(generation: number, controller: "agent" | "human", owner?: string): Promise<void> {
-    await request({
-      kind: "controller",
-      lease: { generation, controller, ...(owner ? { owner } : {}) },
-    });
+  /** Whether the daemon says an agent uses the page; the person's input reaches it either way. */
+  async agentUse(active: boolean): Promise<void> {
+    await request({ kind: "agentUse", active });
   },
   localInput,
   /** Relayed input in flight (a CDP click and a key press) while the person clicks and types. */

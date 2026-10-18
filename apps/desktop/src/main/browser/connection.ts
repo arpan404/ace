@@ -49,7 +49,7 @@ const capabilities = {
   targets: true,
   permissions: true,
   downloads: true,
-  controllerLease: true,
+  humanInput: true,
 } as const;
 
 /**
@@ -104,19 +104,21 @@ export class BackendConnection {
     else void this.disconnect();
   }
 
-  /** The daemon (re)started or the machine woke: try again now. */
+  /** Writes to the registered socket, if there is one. */
+  private notify: ((serialized: string) => boolean) | undefined;
+
+  /**
+   * The daemon (re)started or the machine woke: try again now, or, while registered, tell the
+   * daemon the machine woke so it checks its browser engines (#947).
+   */
   wake(): void {
+    if (this.registered && this.notify) {
+      this.notify(JSON.stringify({ type: "browser.backend.resumed" }));
+      return;
+    }
     if (!this.wanted || this.socket) return;
     this.attempt = 0;
     void this.connect();
-  }
-
-  /** The person asked for control of a thread's view from this app. */
-  takeover(threadId: string): void {
-    this.sendBrowser("browser.takeover", threadId);
-  }
-  handback(threadId: string): void {
-    this.sendBrowser("browser.handback", threadId);
   }
 
   /** Quit: unregister and close every view; resolves once they are closed. */
@@ -216,6 +218,7 @@ export class BackendConnection {
       ) {
         stopHandshake();
         this.registered = socket;
+        this.notify = write;
         this.attempt = 0;
         this.backend.attach({
           backendId: message.data.backendId,
@@ -231,6 +234,7 @@ export class BackendConnection {
       stopPing?.();
       if (this.registered === socket) {
         this.registered = undefined;
+        this.notify = undefined;
         this.backend.detach();
       }
       if (this.socket !== socket) return;
@@ -249,6 +253,7 @@ export class BackendConnection {
     const socket = this.socket;
     this.socket = undefined;
     if (this.registered) this.registered = undefined;
+    this.notify = undefined;
     // Close the views now; the socket's close event may arrive later.
     const closed = this.backend.closeAll();
     socket?.close();
@@ -269,12 +274,6 @@ export class BackendConnection {
   private clearRetry(): void {
     this.cancelRetry?.();
     this.cancelRetry = undefined;
-  }
-
-  private sendBrowser(type: "browser.takeover" | "browser.handback", threadId: string): void {
-    const socket = this.registered;
-    if (!socket || socket.readyState !== WebSocket.OPEN) return;
-    socket.send(JSON.stringify({ type, requestId: this.ports.id(), threadId }));
   }
 
   private setState(state: BackendState): void {

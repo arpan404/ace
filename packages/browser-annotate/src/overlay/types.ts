@@ -12,12 +12,14 @@ export type OverlayCommand = BrowserAnnotationPageCommand;
 export type OverlayAnnotation = BrowserAnnotation;
 export type OverlayElement = BrowserAnnotationElement;
 
-/** Viewport box of an annotated element, in CSS px. */
+/** Viewport box of an annotated element or region, in CSS px. */
 export interface CaptureRect {
   x: number;
   y: number;
   width: number;
   height: number;
+  /** Space kept around the box in a crop; the daemon's default when absent. */
+  margin?: number;
 }
 
 /** The visual viewport: its offset in the document (for CDP clips), size and pixel ratio. */

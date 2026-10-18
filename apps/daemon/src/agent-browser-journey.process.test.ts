@@ -18,7 +18,9 @@ function ref(text: string, name: string) {
 import { invoke, Result } from "./browser-mcp-test-support.ts";
 
 const image = z.object({
-  result: z.object({ content: z.array(z.object({ type: z.literal("image"), data: z.string() })) }),
+  result: z.object({
+    content: z.tuple([z.object({ type: z.literal("image"), data: z.string() })], z.unknown()),
+  }),
 });
 
 it("an agent completes a form navigation, reads results, rejects stale refs and resumes after human control", async (test) => {
@@ -161,22 +163,23 @@ it("an agent completes a form navigation, reads results, rejects stale refs and 
   expect(await call("browser_logs")).toMatchObject({ entries: expect.any(Array) });
   const browser = f.daemon.browser;
   if (!browser) throw new Error("Browser missing");
-  browser.takeover(thread.id, "person");
+  const tabId = browser.state(thread.id).activeTabId ?? "page";
+  browser.setPrivate(thread.id, tabId, true);
   expect(
     Result.parse(await (await invoke(connection, "browser_settings", { action: "close" })).json())
       .result,
   ).toMatchObject({
     isError: true,
-    content: [{ text: expect.stringContaining("controlled by human") }],
+    content: [{ text: expect.stringContaining("human_private") }],
   });
   expect(
     Result.parse(await (await invoke(connection, "browser_open", { url: f.browserUrl })).json())
       .result,
   ).toMatchObject({
     isError: true,
-    content: [{ text: expect.stringContaining("controlled by human") }],
+    content: [{ text: expect.stringContaining("human_private") }],
   });
-  browser.handback(thread.id, "person");
+  browser.setPrivate(thread.id, tabId, false);
   await call("browser_open", { url: f.browserUrl });
   await call("browser_settings", { action: "close" });
   lease.end();

@@ -33,6 +33,8 @@ async function setup(clock?: RelayClock) {
   const relay = daemon.relays.at(-1);
   if (!relay) throw new Error("not registered");
   const lost: string[] = [];
+  /** The tabs the person used directly, as the daemon heard (`ace.humanInput`). */
+  const human: string[] = [];
   const open = (into: EmbeddedBackend) => {
     const abort = new AbortController();
     cleanups.push(() => abort.abort());
@@ -44,10 +46,11 @@ async function setup(clock?: RelayClock) {
       navigation: () => {},
       log: () => {},
       lost: (reason: string) => lost.push(reason),
+      humanInput: (tabId?: string) => human.push(tabId ?? "page"),
     });
   };
   const session = await open(relay);
-  return { daemon, views, connection, relay, session, lost, open, page: views.only() };
+  return { daemon, views, connection, relay, session, lost, human, open, page: views.only() };
 }
 
 describe("embedded backend against the daemon relay", () => {
@@ -64,23 +67,21 @@ describe("embedded backend against the daemon relay", () => {
     expect(session.url()).toBe("http://localhost:5173/");
   });
 
-  it("turns the person's native input on only under a human lease for this app's connection", async () => {
+  it("keeps the person's input on while the daemon says an agent uses the view", async () => {
     const { session, page } = await start();
-    await session.controller({ generation: 1, controller: "human", owner: "connection-1" });
     expect(page.nativeInput).toBe(true);
-    await session.controller({ generation: 2, controller: "human", owner: "connection-9" });
-    expect(page.nativeInput).toBe(false);
-    await expect(
-      session.controller({ generation: 1, controller: "human", owner: "connection-1" }),
-    ).rejects.toThrow();
-    await session.controller({ generation: 3, controller: "agent" });
-    expect(page.nativeInput).toBe(false);
+    await session.agentUse?.("page", true);
+    expect(page.agentControl).toBe(true);
+    expect(page.nativeInput).toBe(true);
+    await session.agentUse?.("page", false);
+    expect(page.agentControl).toBe(false);
   });
 
-  it("asks the daemon for control when the person clicks a view the agent drives", async () => {
-    const { daemon, page } = await start();
+  it("tells the daemon when the person clicks a view an agent is using", async () => {
+    const { session, page, human } = await start();
+    await session.agentUse?.("page", true);
     page.personClicks();
-    await eventually(() => expect(daemon.takeovers).toEqual(["t-1"]));
+    await eventually(() => expect(human).toEqual(["page"]));
   });
 
   it("delivers the first and then only the newest screencast frame as the relay acknowledges", async () => {

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { BrowserDialog, type BrowserState, type BrowserTab } from "@ace/protocol";
 import type { CompactNode } from "./snapshot-compact.ts";
 import { renderSnapshot, snapshotLine } from "./snapshot-text.ts";
+import { truncatedHint } from "./snapshot-scope.ts";
 
 export type ToolContent = { type: "text"; text: string } | Record<string, unknown>;
 export interface ToolResult {
@@ -21,7 +22,7 @@ export function pendingDialog(raw: unknown): ToolResult | undefined {
   });
 }
 
-/** One tab as an agent reads it: who opened and drives it, and whether a person holds it. */
+/** One tab as an agent reads it: who opened and works in it, and what waits on the person. */
 export function tabEntry(tab: BrowserTab & { current?: boolean | undefined }) {
   return {
     tabId: tab.tabId,
@@ -31,11 +32,16 @@ export function tabEntry(tab: BrowserTab & { current?: boolean | undefined }) {
     ...(tab.current ? { current: true } : {}),
     ...(tab.openedBy ? { openedBy: tab.openedBy } : {}),
     ...(tab.drivenBy ? { drivenBy: tab.drivenBy } : {}),
-    // Agents act unless a person holds the tab; only say so when one does.
-    ...(tab.lease && tab.lease.controller === "human" ? { lease: tab.lease } : {}),
+    ...(tab.inUse ? { inUse: tab.inUse } : {}),
+    // The person keeps agents out of a private tab; only say so when they do.
+    ...(tab.private ? { private: true } : {}),
+    ...(tab.kept ? { kept: true } : {}),
     ...(tab.lifecycle && tab.lifecycle !== "live" ? { lifecycle: tab.lifecycle } : {}),
+    ...(tab.pageStateLost ? { pageStateLost: true } : {}),
     ...(tab.loading ? { loading: true } : {}),
     ...(tab.pending_dialog ? { pending_dialog: tab.pending_dialog } : {}),
+    ...(tab.pending_auth ? { pending_auth: tab.pending_auth } : {}),
+    ...(tab.certificate_error ? { certificate_error: tab.certificate_error } : {}),
   };
 }
 
@@ -53,7 +59,7 @@ export function pageSummary(
     tabId: tab.tabId,
     url: entry?.url ?? tab.url,
     ...((entry?.title ?? tab.title) ? { title: entry?.title ?? tab.title } : {}),
-    controller: entry?.lease?.controller ?? state.controller,
+    ...(entry?.private ? { private: true } : {}),
     ...(viewed ? { viewed: true } : {}),
     ...(entry?.loading || (viewed && state.loading) ? { loading: true } : {}),
     ...(viewed && state.loadError ? { loadError: state.loadError } : {}),
@@ -66,7 +72,7 @@ export function pageSummary(
           tabs: state.tabs.map((other) => ({
             tabId: other.tabId,
             // Agents never read a private tab's address or title.
-            title: other.lease?.mode === "private" ? "" : other.title,
+            title: other.private ? "" : other.title,
             ...(other.label ? { label: other.label } : {}),
             ...(other.openedBy ? { openedBy: other.openedBy.kind } : {}),
           })),
@@ -91,6 +97,8 @@ const Snapshot = z.object({
   ),
   total: z.number().int().nonnegative(),
   truncated: z.boolean(),
+  /** Set when the page was too large to read whole (an outline of landmarks and headings). */
+  hint: z.string().optional(),
 });
 export function snapshotText(raw: unknown, scoped: boolean): ToolResult {
   const snapshot = Snapshot.parse(raw);
@@ -98,7 +106,9 @@ export function snapshotText(raw: unknown, scoped: boolean): ToolResult {
   const tab = snapshot.tabId ? ` [tab=${snapshot.tabId}]` : "";
   const lines = [snapshot.url ? `Page: ${snapshot.url}${tab}` : "", renderSnapshot(snapshot.nodes)];
   if (!snapshot.nodes.length) lines.push("(no accessible content)");
-  if (snapshot.truncated)
+  // The outline's hint says what the page is; a cut snapshot gets counts and the ways to narrow.
+  if (snapshot.hint && snapshot.hint !== truncatedHint) lines.push(`[${snapshot.hint}]`);
+  else if (snapshot.truncated)
     lines.push(
       `[truncated: ${snapshot.nodes.length} of ${snapshot.total} nodes shown. Narrow with ${scoped ? "a smaller container ref" : "ref=<a container's ref>"}, interactiveOnly:true or browser_find, or raise maxNodes.]`,
     );

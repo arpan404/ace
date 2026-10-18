@@ -69,7 +69,11 @@ Rejected:
   extensions and sign-ins are shared. A thread may opt into a private throwaway context
   (`profile: "ephemeral"`, a `Target.createBrowserContext` context in the same browser). This
   replaces "threads never share cookies" from ADRs 0067 and 0069. Deleting a thread no longer
-  removes a profile.
+  removes a profile; it removes the thread's session folders (`<dataDir>/browser/threads/<hash
+of the thread id>/session-*`: downloads, logs), never what the person saved elsewhere (#952).
+- **Forks** (#952): a forked thread's first browser starts with a copy of its parent's tabs
+  (addresses, titles, labels; new tab ids; private tabs stay behind), taken from the parent's
+  open browser or its records. Delegated threads start empty.
 - **Import extensions from Chrome** copies extension code only, never cookies, passwords or
   `Local Extension Settings`.
 - **Agents may list extensions** and nothing more: no triggering extension actions, no cookie or
@@ -121,8 +125,10 @@ The request guard pauses only document requests (top-level and frame navigations
 their redirect hops) and `file:` URLs. Navigation policy and the person/agent initiator still
 see every document load; ordinary http(s) subresources, fetches, WebSockets and worker traffic
 go straight to the network. Scheme checks stay: non-web URLs never load. Service and shared
-workers run (they are released from the guard instead of being closed), which MV3 extensions and
-many sites need. An embedder's origin hook now governs documents, not subresources.
+workers run, which MV3 extensions and many sites need. Amended for #953: a page's http(s) worker
+is checked once against the origin policy on its script URL before it first runs; an admitted
+one is released and stays attached (released and detached at once, workers never ran), a refused
+one is closed. An embedder's origin hook now governs documents and workers, not subresources.
 
 ### Display density
 
@@ -140,36 +146,70 @@ Phase 3 revisits this with measured per-viewer frame sizes.
 A thread's browser holds ordered tabs on whichever backend serves it.
 
 - **TabRuntime** per tab (`tab-runtime.ts`): its own page surface, command queue (32 pending,
-  128 across a thread), element refs, annotate mode, control lease (shared or private takeover is
-  per tab) and lifecycle. Commands on different tabs run concurrently; a dialog holds only its own
+  128 across a thread), the person's lane (their input and annotate commands, ADR 0082), the
+  agent-input lane (agent input waiting for the person, ADR 0067), element refs, annotate mode,
+  privacy ("Keep agents out") and lifecycle.
+  People and agents share it (ADR 0067, Collaboration, amended for H4). Commands on different tabs run concurrently; a dialog holds only its own
   tab. Logs and downloads stay thread-wide and carry the tab id.
 - **Routing** (`session-tabs.ts`): an explicit `tabId`, else the calling agent's own tab (its
   cursor, keyed by the MCP scope's `agentId`: the last tab it opened or selected), else the tab
   the person views. An identified agent whose fallback would land on another agent's tab gets a
   tab of its own. Only open, close and select take a short per-thread lock.
 - **The person's view** is the backend's active tab. Agent commands, screenshots included, never
-  move it. An agent's opened or selected tab takes the view only while the person has not picked
-  a tab and is not holding the viewed one. Live capture and recording follow the viewed tab;
-  frames carry `tabId`.
-- **Tabs** report `openedBy`, `drivenBy`, `label`, `lease`, `lifecycle` and `loading`. A backend
+  move it. An agent's opened or selected tab takes the view only while the person has neither
+  picked a tab nor used the viewed one in the last 30 seconds. Live capture follows the viewed
+  tab; frames carry `tabId`. A recording follows the one tab it was started on (ADR 0067,
+  "Privacy in captures").
+- **Tabs** report `openedBy`, `drivenBy`, `label`, `inUse` (the agent working there), `pointer`
+  (where it last pointed), `private`, `lifecycle` and `loading`. A backend
   may report who opened a tab (the person's shared tabs in their own Chrome, ADR 0084).
   `lifecycle` is `crashed` while a desktop tab's renderer stays down (ADR 0085).
-- **Desktop tabs** follow the contract in ADR 0085: the lease, native keys and the panel size are
-  the shown tab's; every other tab is driven through `ace.tabs.cdp`.
+- **Desktop tabs** follow the contract in ADR 0085: whether an agent uses the tab (`agentUse`),
+  native keys and the panel size are the shown tab's; every other tab is driven through `ace.tabs.cdp`.
 - **Limits**: 16 tabs per thread (popups included), 8 open per agent, 48 live across the daemon.
+  A popup adopted from an agent's tab counts as that agent's and closes past its 8. Agent tabs
+  in the person's own Chrome (ADR 0084) share the daemon's 48 (one `TabBudget`).
+- **Turn end** (amended for #943): tabs an agent opens are temporary. When the daemon sees the
+  agent settle (`agent.status` idle, interrupted or failed; never while it waits on subagents,
+  background work or a person), its temporary tabs close and its cursor is released, so a
+  finished agent never pushes the next one into an extra tab. A tab stays when the agent kept
+  it (`browser_tabs` `keep`, or `keep` on open: a deliverable or handoff), when the person
+  opened it, views it, used it in the last 10 minutes or keeps agents out, and while it is
+  busy, holds a dialog or is downloading; the thread's last tab never closes this way. `kept`
+  is restored after a restart.
 - **Lifecycle** (`tab-lifecycle.ts`, pure, injected clock): an unviewed, idle, unpinned tab
-  freezes after 15 minutes (`Page.setWebLifecycleState`) and wakes before its next command. The
-  policy also marks tabs due for discard after 2 hours; this is not applied yet, so page state is
-  never dropped behind an agent's back. Freezing runs only in ace's Chrome.
+  freezes after 15 minutes (`Page.setWebLifecycleState`) and wakes before its next command.
+  Amended for #953: after 2 hours idle it is discarded (its target closed, its budget place
+  freed, the tab still listed at its address) and reopens at that address with the same id on
+  its next command or when the person shows it, listed with `pageStateLost` until it navigates.
+  A dialog, a download still arriving or a recording pins a tab against both. Freezing and
+  discarding run only in ace's Chrome.
 - **Restore**: tabs are kept in the daemon's SQLite `browser_tabs` table (thread, tab id,
   position, URL, title, label, opener, last activity) behind the `BrowserTabStore` port. A
   restarted daemon reopens them lazily, on the first viewer or tool call, with the same tab ids;
   cookies survive in the profile. Closing the browser clears the records. Each tab is its own
   top-level target in its own window with focus emulation: background tabs in a shared window
   render no frames. A tab's CDP surface (`TabCdp`) survives browser restarts.
+  Amended for #946: every backend restores. The desktop opens fresh views with the recorded
+  ids (`ace.tabs.open {tabId}`, ADR 0085) and loads each address; a desktop that cannot choose
+  ids keeps its own. Use my Chrome keeps its records in `user_browser_tabs`: a thread takes back
+  an agent tab still open at the same address in the person's browser (after a dropped link or
+  a crash) or opens one there; tabs the person shared come back when they are listed again. A
+  dropped Use my Chrome link loses the session with every agent tab still recorded. When the
+  desktop is lost and comes back with fresh views, or the thread moves to ace's Chrome, the
+  recovery reopens every tab with its id, not just the one that was shown.
 
-Not yet built: eager restore for threads with a working agent, discarding, the sleep/wake
-browser ping, and per-viewer capture of different tabs.
+**Sleep and wake** (amended for #947). The service notices a wake itself (`watchWake`: wall
+time running more than 30 s ahead of monotonic time between 10-second checks, with injected
+clocks) and from the desktop (`powerMonitor` resume sends `browser.backend.resumed` on the
+backend socket). Each open thread browser then gives navigations and page waits in flight their
+remaining time again (`NavigationTask.rearm`), pings its engine (`Browser.getVersion` on ace's
+Chrome, `ace.ping` on the desktop; one that misses it is killed and restarted with its tabs, or
+lost and recovered) and restarts the live capture on a live engine. A whole-browser restart
+also lifts a pause left by work that failed while the browser was down.
+
+Not yet built: eager restore for threads with a working agent, and per-viewer capture of
+different tabs.
 
 ## Spike evidence
 
@@ -233,7 +273,7 @@ failing at its deadline while later commands run; a stopped (`SIGSTOP`) browser 
 key chords; the shared profile surviving a browser restart while a private context sees none of
 it. Tab tests (`tabs.process.test.ts`, daemon `browser-tabs.process.test.ts`) drive real Chrome
 with local fixtures: two agents typing in their own tabs at once, a slow tab not holding up
-another, a screenshot of one tab leaving the view alone, a held or private tab blocking agents
-only there, the per-agent and daemon limits, freeze and wake, MCP routing by tab id and cursor,
+another, a screenshot of one tab leaving the view alone, a private tab blocking agents only
+there, the person busy in one tab never slowing an agent in another, the per-agent and daemon limits, freeze and wake, MCP routing by tab id and cursor,
 and a daemon restart restoring tab ids, labels and cookies through SQLite. CI installs the pinned Chrome for Testing with the same acquisition code and points the
 suites at it.

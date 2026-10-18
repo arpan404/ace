@@ -102,6 +102,10 @@ function pageContents(): WebContents {
   );
 }
 
+function expect(actual: unknown, wanted: unknown): void {
+  if (actual !== wanted) throw new Error(`Expected ${String(wanted)}, got ${String(actual)}`);
+}
+
 function place(bounds: { x: number; y: number; width: number; height: number }) {
   const host = required(window, "window");
   return views.place(
@@ -147,11 +151,86 @@ const harness = {
       kind: "open",
       options: { threadId, workspaceId: "workspace-1", profile: "ephemeral" },
       viewport: { width: 600, height: 400 },
-      lease: { generation: 0, controller: "agent" },
     });
     await request({ kind: "navigate", url: marked, timeout: 15_000 });
   },
   place,
+  /**
+   * The page moves from the panel into a small floating frame (scaled from the panel's size,
+   * as picture-in-picture places it) and back. Returns every visibility change of its view and
+   * each main-frame navigation meanwhile, and where it was while floating.
+   */
+  async pictureInPicture(
+    panel: { x: number; y: number; width: number; height: number },
+    floating: { x: number; y: number; width: number; height: number },
+  ) {
+    const host = required(window, "window");
+    const contents = pageContents();
+    expect(await place(panel), "shown");
+    const view = host.contentView.children.find(
+      (child) => "webContents" in child && child.webContents === contents,
+    );
+    if (!view) throw new Error("No view in the app window");
+    const visibility: boolean[] = [];
+    const setVisible = view.setVisible.bind(view);
+    view.setVisible = (visible: boolean) => {
+      if (visible !== view.getVisible()) visibility.push(visible);
+      setVisible(visible);
+    };
+    let navigations = 0;
+    const navigated = (details: { isMainFrame: boolean }) => {
+      if (details.isMainFrame) navigations++;
+    };
+    contents.on("did-start-navigation", navigated);
+    try {
+      const pip = await views.place(
+        {
+          threadId,
+          bounds: floating,
+          visible: true,
+          device: { width: panel.width, height: panel.height },
+        },
+        { id: host.webContents.id, window: host, zoom: 1 },
+      );
+      const whileFloating = { receipt: pip, bounds: view.getBounds(), visible: view.getVisible() };
+      const back = await place(panel);
+      return { whileFloating, back, visibility, navigations, bounds: view.getBounds() };
+    } finally {
+      contents.off("did-start-navigation", navigated);
+      view.setVisible = setVisible;
+    }
+  },
+  /**
+   * Split view: the selected tab and a new one placed by id side by side. Returns each view's
+   * box and visibility as the window holds them.
+   */
+  async split(
+    left: { x: number; y: number; width: number; height: number },
+    right: { x: number; y: number; width: number; height: number },
+  ) {
+    const host = required(window, "window");
+    const listed = z
+      .object({ activeTabId: z.string(), tabs: z.array(z.object({ tabId: z.string() })) })
+      .parse(await request({ kind: "cdp", method: "ace.tabs.list" }));
+    // Another tab of the thread: the one already open beside it, else a new one.
+    const tabId =
+      listed.tabs.find((tab) => tab.tabId !== listed.activeTabId)?.tabId ??
+      Opened.parse(await request({ kind: "cdp", method: "ace.tabs.open" })).tabId;
+    const at = { id: host.webContents.id, window: host, zoom: 1 };
+    const receipts = [
+      await views.place({ threadId, tabId: listed.activeTabId, bounds: left, visible: true }, at),
+      await views.place({ threadId, tabId, bounds: right, visible: true }, at),
+    ];
+    const boxes = host.contentView.children
+      .filter((child) => child.getVisible())
+      .map((child) => child.getBounds())
+      .toSorted((a, b) => a.x - b.x);
+    // Back to one tab for what follows.
+    await views.place({ threadId, tabId, bounds: right, visible: false }, at);
+    await views.place({ threadId, tabId: listed.activeTabId, bounds: left, visible: false }, at);
+    await place(left);
+    return { receipts, boxes };
+  },
   /** The page's own load mark: unchanged as long as the document was never reloaded. */
   loadedAt: () => evaluate("window.loadedAt"),
   closeWindow(): Promise<void> {
@@ -267,7 +346,6 @@ const harness = {
       kind: "open",
       options: { threadId, workspaceId: "workspace-1", profile: "ephemeral" },
       viewport: { width: 600, height: 400 },
-      lease: { generation: 0, controller: "agent" },
     });
   },
   /** Frames a tab drew in half a second, and whether it thinks it is visible. */

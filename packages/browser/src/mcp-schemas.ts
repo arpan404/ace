@@ -26,25 +26,27 @@ export const browserOpenShape = {
     .describe(
       "Absolute http(s) URL to load, localhost included. Omit to report the page you are on.",
     ),
-  tabId: tabId.describe(
-    "Load url in this tab (from browser_tabs). Omit for your current tab; if the person is viewing another agent's tab, you get a tab of your own.",
-  ),
+  tabId: tabId.describe("Load url in this tab (from browser_tabs). Omit for your own tab."),
   timeout,
+  waitUntil: z
+    .enum(["domcontentloaded", "load", "networkidle"])
+    .optional()
+    .describe("With url: when to return (default domcontentloaded)."),
 };
 
 export const browserTabsShape = {
   action: z
-    .enum(["list", "open", "select", "close"])
+    .enum(["list", "open", "select", "keep", "close"])
     .default("list")
     .describe(
-      "list: every tab with who opened it, who drives it and its control lease; current marks yours. open: a new tab of your own (url, label) that becomes your current tab. select: make tabId your current tab. close: close tabId.",
+      "list: every tab with who opened it, who works in it and what waits on the person; current marks yours. open: a new tab of your own (url, label, keep) that becomes your current tab. select: make tabId your current tab. keep: tabId stays after your turn (keep false makes it temporary again). close: close tabId.",
     ),
   tabId: z
     .string()
     .min(1)
     .max(256)
     .optional()
-    .describe("select, close: a tabId from list. Required for both."),
+    .describe("select, keep, close: a tabId from list. Required for these."),
   url: url.optional().describe("open: an http(s) URL to load in the new tab."),
   label: z
     .string()
@@ -52,10 +54,17 @@ export const browserTabsShape = {
     .max(64)
     .optional()
     .describe("open: a short name the person sees on the tab, such as checkout or admin."),
+  keep: z
+    .boolean()
+    .optional()
+    .describe(
+      "open, keep: true keeps the tab after your turn ends (a deliverable or handoff); tabs you open are otherwise closed then.",
+    ),
 };
 type Refine = (input: Record<string, unknown>, context: z.RefinementCtx) => void;
 export const checkTabs: Refine = (input, context) => {
-  if ((input["action"] === "select" || input["action"] === "close") && !input["tabId"])
+  const needsTab = ["select", "keep", "close"].includes(String(input["action"]));
+  if (needsTab && !input["tabId"])
     context.addIssue({
       code: "custom",
       path: ["tabId"],
@@ -79,6 +88,13 @@ export const browserSnapshotShape = {
     .max(2000)
     .default(120)
     .describe("Most lines to return; the result says when more exist."),
+  depth: z
+    .number()
+    .int()
+    .min(1)
+    .max(64)
+    .optional()
+    .describe("How many levels below the page (or ref) to read. Omit to read every level."),
 };
 
 const actKinds = [
@@ -197,7 +213,7 @@ export const browserWaitShape = {
   url: url
     .optional()
     .describe(
-      "Exact destination URL; also waits for DOMContentLoaded. Works before or after navigation commits.",
+      "Destination URL: exact, or a glob where * matches any characters (http://localhost:3000/orders/*). Also waits for DOMContentLoaded. Works before or after navigation commits.",
     ),
   text: z
     .string()
@@ -207,6 +223,17 @@ export const browserWaitShape = {
     .describe("Visible page text to wait for, matched as a substring."),
   ref: ref.optional().describe("Element ref from the latest snapshot; use with state."),
   state: z.enum(["visible", "hidden"]).optional().describe("Required with ref."),
+  networkIdle: z
+    .literal(true)
+    .optional()
+    .describe("Wait until no request is in flight for 500 ms, such as after a save."),
+  timeMs: z
+    .number()
+    .int()
+    .min(1)
+    .max(60_000)
+    .optional()
+    .describe("Just wait this many ms. Prefer a condition; use this for animations."),
   downloads: z
     .literal(true)
     .optional()
@@ -216,12 +243,14 @@ export const browserWaitShape = {
 
 /** One condition per wait, so a stray field never silently changes what is awaited. */
 export const checkWait: Refine = (input, context) => {
-  const given = ["url", "text", "ref", "downloads"].filter((field) => input[field] !== undefined);
+  const given = ["url", "text", "ref", "networkIdle", "timeMs", "downloads"].filter(
+    (field) => input[field] !== undefined,
+  );
   if (given.length !== 1)
     context.addIssue({
       code: "custom",
       path: [given[1] ?? "url"],
-      message: "pass exactly one of url, text, ref or downloads",
+      message: "pass exactly one of url, text, ref, networkIdle, timeMs or downloads",
     });
   if (input["state"] !== undefined && input["ref"] === undefined)
     context.addIssue({ code: "custom", path: ["state"], message: "state needs ref" });
@@ -254,6 +283,14 @@ export const browserScreenshotShape = {
   ...tab,
   fullPage: z.boolean().default(false).describe("The whole scrollable page, not the viewport."),
   ref: ref.optional().describe("Only this element, by its ref from the latest snapshot."),
+  sizes: z
+    .array(z.enum(["phone", "tablet", "desktop"]))
+    .min(1)
+    .max(3)
+    .optional()
+    .describe(
+      "Responsive check: lay the page out at each size (phone 390, tablet 768, desktop 1440 CSS px wide), capture it there, then restore the tab's own size. One image per size. Not with ref or pdf.",
+    ),
   format: z
     .enum(["jpeg", "pdf"])
     .default("jpeg")
@@ -267,14 +304,17 @@ export const browserScreenshotShape = {
 export const checkScreenshot: Refine = (input, context) => {
   const pdf = input["format"] === "pdf";
   const unused = pdf
-    ? ["ref", ...(input["fullPage"] === true ? ["fullPage"] : [])]
-    : ["landscape", "printBackground"];
+    ? ["ref", "sizes", ...(input["fullPage"] === true ? ["fullPage"] : [])]
+    : ["landscape", "printBackground", ...(input["sizes"] !== undefined ? ["ref"] : [])];
   for (const field of unused)
     if (input[field] !== undefined)
       context.addIssue({
         code: "custom",
         path: [field],
-        message: `not used with format ${pdf ? "pdf" : "jpeg"}`,
+        message:
+          field === "ref" && !pdf
+            ? "not used with sizes"
+            : `not used with format ${pdf ? "pdf" : "jpeg"}`,
       });
 };
 
@@ -335,7 +375,7 @@ export const browserSettingsShape = {
   action: z
     .enum(["resize", "emulate", "record_start", "record_stop", "extensions", "close"])
     .describe(
-      "resize: a tab's viewport width/height. emulate: device metrics, touch, colour scheme. record_start/record_stop: record the tab the person views, attached to the thread. extensions: list the installed extensions (read-only). close: close the whole browser and every tab.",
+      "resize: a tab's viewport width/height. emulate: device metrics, touch, colour scheme, user agent. record_start: record one tab (yours, or tabId) whichever tab the person views; record_stop saves it as a thread artifact. extensions: list the installed extensions (read-only). close: close the whole browser and every tab.",
     ),
   width: dimension.optional().describe("resize/emulate: viewport width in CSS pixels."),
   height: dimension.optional().describe("resize/emulate: viewport height in CSS pixels."),
@@ -346,6 +386,11 @@ export const browserSettingsShape = {
     .enum(["light", "dark", "no-preference"])
     .default("light")
     .describe("emulate: prefers-color-scheme."),
+  userAgent: z
+    .string()
+    .max(1024)
+    .optional()
+    .describe("emulate: a user agent string to send and report. Omit for the browser's own."),
 };
 export const checkSettings: Refine = (input, context) => {
   if (input["action"] !== "resize" && input["action"] !== "emulate") return;
