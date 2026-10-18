@@ -154,6 +154,20 @@ export function createBrowserSession(context: SocketContext): SocketService {
       );
     },
     send: (message, serialized) => sendBrowserMessage(socket, message, serialized),
+    // Files the person picks for a page's file input, uploaded by this device as attachments.
+    attachment: async (threadId, sha256) => {
+      const device = context.device();
+      const attachments = options.context;
+      const thread = ThreadId.parse(threadId);
+      const authorized = () =>
+        context.connected() &&
+        authorize("operate") &&
+        canReadThread(thread) &&
+        options.store.hasLiveThread(thread);
+      if (!device || !attachments?.downloadAttachment || !authorized())
+        throw new Error("Thread attachment unavailable");
+      return attachments.downloadAttachment(device, thread, sha256, 32 * 1024 * 1024, authorized);
+    },
   });
   return {
     close() {

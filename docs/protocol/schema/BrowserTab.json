@@ -15,6 +15,9 @@
       "maxLength": 8192,
       "type": "string"
     },
+    "file_chooser": {
+      "$ref": "https://ace.local/protocol/v1/BrowserFileChooser.json"
+    },
     "inUse": {
       "$ref": "https://ace.local/protocol/v1/BrowserTabActor.json"
     },

@@ -14,6 +14,7 @@ import { FindPage } from "./find-page.tsx";
 import { AddressBar } from "./address-bar.tsx";
 import { PageDialog } from "./page-dialog.tsx";
 import { PageSignIn } from "./page-sign-in.tsx";
+import { PageFileChooser } from "./page-file-chooser.tsx";
 import { useBrowserFeatures } from "./use-browser-features.ts";
 import { BrowserActions } from "./browser-actions.tsx";
 import { DownloadsButton } from "./downloads.tsx";
@@ -317,6 +318,7 @@ function Browser(props: TabViewProps) {
       />
       {live && !live.closed && <PageDialog view={live} browser={browser} />}
       {live && !live.closed && <PageSignIn view={live} browser={browser} />}
+      {live && !live.closed && <PageFileChooser view={live} browser={browser} />}
       {finding && live && (
         <FindPage
           source={source}

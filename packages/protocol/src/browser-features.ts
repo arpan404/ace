@@ -30,6 +30,12 @@ export const BrowserCertificateError = z.object({
 });
 export type BrowserCertificateError = z.infer<typeof BrowserCertificateError>;
 /**
+ * The page opened a file picker (a file input). The person picks files on their own device;
+ * agents use `upload` with the input's ref instead.
+ */
+export const BrowserFileChooser = z.object({ chooserId: id, tabId: id, multiple: z.boolean() });
+export type BrowserFileChooser = z.infer<typeof BrowserFileChooser>;
+/**
  * Who opened or is driving a tab. `page` is a popup the page itself opened. Unknown kinds decode
  * to undefined on the field that carries them, so a newer daemon never breaks an older client.
  */
@@ -61,6 +67,7 @@ export const BrowserTab = z.object({
   pending_dialog: BrowserDialog.optional(),
   pending_auth: BrowserAuthChallenge.optional(),
   certificate_error: BrowserCertificateError.optional(),
+  file_chooser: BrowserFileChooser.optional(),
   openedBy: BrowserTabActor.optional(),
   /** The actor whose command ran on this tab most recently. */
   drivenBy: BrowserTabActor.optional(),

@@ -211,6 +211,7 @@ export class ChromeBackend implements BrowserBackend {
         opener: (id) => tabs.opener(id),
         answerAuth: (id, authId, credentials) => tabs.answerAuth(id, authId, credentials),
         proceedCertificate: (id, url) => tabs.proceedCertificate(id, url),
+        chooseFiles: (id, chooserId, paths) => tabs.chooseFiles(id, chooserId, paths),
         page,
       },
       privateMode: (enabled) => {

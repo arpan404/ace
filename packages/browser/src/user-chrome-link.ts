@@ -3,6 +3,7 @@ import {
   UserBrowserExtensionMessage,
   type UserBrowserDaemonMessage,
   type UserBrowserDetachReason,
+  type UserBrowserDownload,
   type UserBrowserIdentity,
   type UserBrowserOperation,
   type UserBrowserTab,
@@ -85,6 +86,11 @@ export class UserChromeLink {
     this.events.on("tabs", listener);
     return () => this.events.off("tabs", listener);
   }
+  /** Downloads one of this browser's tabs started, as the browser saved them (ADR 0086). */
+  onDownload(tabId: number, listener: (download: UserBrowserDownload) => void): () => void {
+    this.events.on(`download:${tabId}`, listener);
+    return () => this.events.off(`download:${tabId}`, listener);
+  }
   onClosed(listener: (reason: string) => void): () => void {
     this.events.on("closed", listener);
     return () => this.events.off("closed", listener);
@@ -110,6 +116,7 @@ export class UserChromeLink {
       this.events.emit("tabs");
     } else if (event.kind === "cdp")
       this.events.emit(`cdp:${event.tabId}`, event.method, event.params, event.sessionId);
+    else if (event.kind === "download") this.events.emit(`download:${event.tabId}`, event.download);
     else this.events.emit(`detached:${event.tabId}`, event.reason);
   }
   command(operation: UserBrowserOperation, signal?: AbortSignal): Promise<unknown> {

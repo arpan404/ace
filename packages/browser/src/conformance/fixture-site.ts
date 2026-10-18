@@ -93,6 +93,20 @@ function serve(request: IncomingMessage, response: ServerResponse): void {
     response.end("conformance-download");
     return;
   }
+  if (url.pathname === "/policy") {
+    // The browser's own warnings: a CSP-blocked image, besides a page's console.warn.
+    response.writeHead(200, {
+      "Content-Type": "text/html",
+      "Content-Security-Policy": "img-src 'none'",
+    });
+    response.end(
+      html(
+        "Policy",
+        `<p>Policy page</p><img alt="" src="/blocked.png"><script>console.warn('conformance-warning-marker')</script>`,
+      ),
+    );
+    return;
+  }
   if (url.pathname === "/api/ping") {
     response.setHeader("Content-Type", "text/plain");
     response.end("pong");

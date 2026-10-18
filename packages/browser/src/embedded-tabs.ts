@@ -252,6 +252,8 @@ export class EmbeddedTabs {
         // enables Runtime (for the tab's console log) first, to find the old overlay's world.
         if (adopted) await removeStaleOverlays(cdp);
         else await cdp.send("Runtime.enable");
+        // The browser's own warnings about the page (mixed content, CSP, certificates).
+        await cdp.send("Log.enable");
         await this.inspection.attach(cdp, item.tabId);
       })();
     }

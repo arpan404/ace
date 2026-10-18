@@ -99,6 +99,8 @@ export interface BrowserTabView {
   /** "Keep agents out of this tab": agents can neither read nor drive it. */
   private?: boolean | undefined;
   pendingDialog?: BrowserDialogView | undefined;
+  /** The page opened a file picker; the person picks files on this device. */
+  fileChooser?: { chooserId: string; tabId: string; multiple: boolean } | undefined;
   /** The page plays sound; `muted` says whether it is heard. */
   audible?: boolean | undefined;
   muted?: boolean | undefined;

@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { NavigationPolicies } from "./policy-waits.ts";
 import { BrowserActionError } from "./action-error.ts";
 import type { BackendLog, BrowserBackendSession, PopupTarget } from "./backend.ts";
@@ -350,7 +351,9 @@ export class BrowserSession {
   async asPerson(request: PersonRequest): Promise<BrowserState> {
     this.tab(request.tabId);
     this.lastActivity = this.options.now();
-    await requestAsPerson(this.options.backend.tabs, request);
+    await requestAsPerson(this.options.backend.tabs, request, async () =>
+      join(this.options.dir, "chosen-files", this.options.id()),
+    );
     this.emit();
     return this.state;
   }

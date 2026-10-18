@@ -45,6 +45,12 @@ function route(request: IncomingMessage, response: ServerResponse): void {
       response,
       `<title>Provider</title><button onclick="window.opener.postMessage('abc123','*');window.close()">Allow</button>`,
     );
+  if (path === "/upload")
+    return html(
+      response,
+      `<title>Upload</title><label>Avatar <input type="file" aria-label="Avatar"></label><p id="out">none</p>
+<script>document.querySelector('input').addEventListener('change',async(event)=>{const file=event.target.files[0];document.getElementById('out').textContent='picked '+file.name+': '+(await file.text())})</script>`,
+    );
   if (path === "/new-tab")
     return html(response, `<title>Links</title><a href="/consent" target="_blank">Docs</a>`);
   html(response, "<title>Home</title><p>Home page</p>");
@@ -74,9 +80,21 @@ export async function pageEdges(options: Partial<BrowserServiceOptions> = {}) {
     ...options,
   });
   const messages: BrowserServerMessage[] = [];
+  /** Files the person's device uploaded as thread attachments, by sha256. */
+  const attachments = new Map<string, Buffer>();
   const bridge = connectBrowser(service, {
     connectionId: "person",
     authorize: () => true,
+    attachment: async (_threadId, sha256) => {
+      const bytes = attachments.get(sha256);
+      if (!bytes) throw new Error("Thread attachment unavailable");
+      return {
+        chunks: (async function* () {
+          yield bytes;
+        })(),
+        close: async () => {},
+      };
+    },
     send: (message) => {
       messages.push(message);
       return true;
@@ -100,6 +118,7 @@ export async function pageEdges(options: Partial<BrowserServiceOptions> = {}) {
   return {
     service,
     home,
+    attachments,
     url: `http://127.0.0.1:${port(server)}`,
     secureUrl: `https://localhost:${port(secure)}`,
     agent: (command: Record<string, unknown>) => service.execute("thread", command, agent),

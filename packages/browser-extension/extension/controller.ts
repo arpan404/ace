@@ -6,6 +6,7 @@ import type {
 } from "@ace/protocol";
 import type { ChromeApi, ChromeTab, DebuggeeSource, DebuggerSession } from "./chrome-api.ts";
 import { cdpAllowed, cdpNavigation, pageAllowed } from "./policy.ts";
+import { DownloadReporter } from "./downloads.ts";
 
 const groupTitle = "ace";
 /** Out-of-process iframes one controlled tab may expose; more are left out of reach. */
@@ -40,9 +41,11 @@ export class Controller {
   private linkState: ControllerState["link"] = "offline";
   private linkDetail: string | undefined;
   private listeners = new Set<() => void>();
+  private downloads: DownloadReporter;
   constructor(chrome: ChromeApi, post: (message: UserBrowserExtensionMessage) => void) {
     this.chrome = chrome;
     this.post = post;
+    this.downloads = new DownloadReporter(chrome, post, () => Date.now());
     chrome.debugger.onEvent.addListener((source, method, params) =>
       this.cdpEvent(source, method, params),
     );
@@ -298,6 +301,7 @@ export class Controller {
     if (method === "Target.detachedFromTarget") this.childDetached(tabId, params);
     // Events of a child session ace does not control (a worker) stay here.
     if (sessionId !== undefined && !this.frames.get(tabId)?.has(sessionId)) return;
+    if (sessionId === undefined) this.downloads.pageEvent(tabId, method, params);
     this.post({
       type: "user_browser.event",
       event: {

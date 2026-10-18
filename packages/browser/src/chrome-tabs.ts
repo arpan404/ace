@@ -6,7 +6,7 @@ import { navigateCdp } from "./cdp-navigation.ts";
 import { ChromeDownloads } from "./chrome-downloads.ts";
 import type { ChromeInstance } from "./chrome-instance.ts";
 import type { AttachedTarget } from "./chrome-targets.ts";
-import { consoleEntry } from "./console-entry.ts";
+import { consoleEntry, consoleEvents } from "./console-entry.ts";
 import { sizeHeadlessTab } from "./headless-size.ts";
 import { BrowserInspection } from "./inspection.ts";
 import { installOriginGuard } from "./origin-guard.ts";
@@ -16,6 +16,7 @@ import { TabCdp } from "./tab-cdp.ts";
 import { threadTabLimit } from "./tab-limits.ts";
 import { SignInPrompt, type SignInCredentials } from "./sign-in-prompt.ts";
 import { certificateErrors } from "./certificate-errors.ts";
+import { FileChooserPrompt } from "./file-chooser.ts";
 import { needsOpener, opensWindow, PopupPairing, type PopupKind } from "./popup-kind.ts";
 
 const Navigated = z.object({
@@ -60,6 +61,7 @@ interface Tab {
   url: string;
   dialog?: BrowserDialog | undefined;
   signIn: SignInPrompt;
+  files: FileChooserPrompt;
   certificates: ReturnType<typeof certificateErrors>;
   /** The tab whose page opened this one, for a popup adopted as a tab. */
   openerId?: string | undefined;
@@ -200,6 +202,7 @@ export class ChromeTabs {
       title: tab.title,
       pending_dialog: tab.dialog,
       pending_auth: tab.signIn.challenge(),
+      file_chooser: tab.files.chooser(),
       certificate_error: tab.certificates.read(),
       loading: tab.status.read().loading,
     }));
@@ -212,6 +215,12 @@ export class ChromeTabs {
     const tab = this.tabs.get(id);
     if (!tab) throw new Error("Browser tab unavailable");
     await tab.signIn.answer(authId, credentials);
+  }
+  /** The person's files for the tab's open file picker, already on this machine. */
+  async chooseFiles(id: string, chooserId: string, paths: readonly string[]): Promise<void> {
+    const tab = this.tabs.get(id);
+    if (!tab) throw new Error("Browser tab unavailable");
+    await tab.files.choose(chooserId, paths);
   }
   /**
    * The person proceeds past the certificate error shown for `url`. Chrome's own interstitial
@@ -386,9 +395,20 @@ export class ChromeTabs {
         () => this.request.changed?.(),
       ),
       certificates: certificateErrors(cdp, () => this.request.changed?.()),
+      files: new FileChooserPrompt(cdp, id, () => this.request.id?.() ?? String(++this.sequence), {
+        changed: () => this.request.changed?.(),
+        opened: () =>
+          this.request.log({
+            kind: "console",
+            type: "file.chooser",
+            tabId: id,
+            text: "The page needs a file. Use ace_browser_upload with the file input's snapshot ref.",
+          }),
+      }),
     };
     tab.stops.push(
       () => tab.signIn.close(),
+      () => tab.files.close(),
       () => tab.certificates.close(),
       () => tab.popups.clear((popup) => void this.host?.instance.targets.close(popup.targetId)),
     );
@@ -430,7 +450,7 @@ export class ChromeTabs {
     });
     for (const method of ["Page.domContentEventFired", "Page.loadEventFired"])
       on(method, () => this.title(tab));
-    for (const method of ["Runtime.consoleAPICalled", "Runtime.exceptionThrown"])
+    for (const method of consoleEvents)
       on(method, (raw) => {
         const entry = consoleEntry(method, raw);
         if (entry) this.request.log({ ...entry, tabId: tab.id });
@@ -503,6 +523,9 @@ export class ChromeTabs {
     tab.stops.push(stopPopups);
     await tab.cdp.send("Page.enable");
     await tab.cdp.send("Runtime.enable");
+    await tab.cdp.send("Log.enable");
+    // No native picker here: the person's own device picks the files (`chooseFiles`).
+    await tab.cdp.send("Page.setInterceptFileChooserDialog", { enabled: true });
     await tab.cdp.send("Emulation.setFocusEmulationEnabled", { enabled: true });
     await sizeHeadlessTab(tab.cdp, tab.viewport, this.deviceScaleFactor);
     tab.guard = await installOriginGuard(
@@ -522,6 +545,7 @@ export class ChromeTabs {
   }
   private unbind(tab: Tab): void {
     tab.signIn.forget();
+    tab.files.forget();
     tab.guard?.close();
     tab.guard = undefined;
     this.inspection.detach(tab.cdp);

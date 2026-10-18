@@ -70,3 +70,15 @@ test("a tab playing sound gets a speaker the person turns on and off", async () 
   await userEvent.click(await within(tabs).findByRole("button", { name: /^Mute / }));
   await waitFor(() => expect(browser.tab(thread, tabId)?.muted).toBe(true));
 });
+
+test("a page's file picker takes the files the person picks on this device", async () => {
+  const { panel, browser, tabId } = await openBrowser();
+  act(() => void browser.fileChooserOpen(thread, tabId, false));
+  const ask = await within(panel).findByRole("dialog", { name: /asks for a file$/ });
+  const file = new File(["hello"], "notes.txt", { type: "text/plain" });
+  await userEvent.upload(within(ask).getByLabelText("Files for the page"), file);
+  await waitFor(() =>
+    expect(browser.chosenFiles).toEqual([[{ sha256: expect.any(String), name: "notes.txt" }]]),
+  );
+  await waitFor(() => expect(within(panel).queryByRole("dialog", { name: /asks for/ })).toBeNull());
+});

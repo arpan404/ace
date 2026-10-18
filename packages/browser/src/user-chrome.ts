@@ -1,4 +1,4 @@
-import { UserBrowserTab } from "@ace/protocol";
+import { UserBrowserTab, type UserBrowserDownload } from "@ace/protocol";
 import type { BackendOpen, BrowserBackend } from "./backend.ts";
 import type { UserChromeHub } from "./user-chrome-hub.ts";
 import type { UserChromeLink } from "./user-chrome-link.ts";
@@ -65,6 +65,10 @@ export class UserChromeBackend implements BrowserBackend {
       .get(ref.connectionId)
       ?.tabs()
       .find((tab) => tab.tabId === ref.tabId);
+  }
+  /** Downloads the tab started, as the person's browser reports them. */
+  onDownload(ref: UserTabRef, listener: (download: UserBrowserDownload) => void): () => void {
+    return this.hub.get(ref.connectionId)?.onDownload(ref.tabId, listener) ?? (() => {});
   }
   /** The person turns a tab's sound off or on in their own browser. */
   async mute(ref: UserTabRef, muted: boolean): Promise<void> {

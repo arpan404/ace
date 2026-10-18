@@ -2695,6 +2695,30 @@ Example:
 }
 ```
 
+### browser.files.choose
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.files.choose"` |  |
+| tabId | yes | string | {"minLength":1,"maxLength":256} |
+| chooserId | yes | string | {"minLength":1,"maxLength":256} |
+| files | yes | array | {"maxItems":16,"items":{"type":"object","properties":{"sha256":{"$ref":"https://ace.local/protocol/v1/BlobHash.json"},"name":{"type":"string","minLength":1,"maxLength":255}},"required":["sha256","name"]}} |
+
+Example:
+
+```json
+{
+  "chooserId": "example",
+  "files": [],
+  "requestId": "example",
+  "tabId": "example",
+  "threadId": "example",
+  "type": "browser.files.choose"
+}
+```
+
 ### browser.tabs.mute
 
 | Field | Required | Type | Constraints |

@@ -138,9 +138,9 @@ size. Closing an agent session closes its tab; closing a shared session only det
 Alerts, confirms and prompts are reported as the tab's `pending_dialog` and answered with
 `Page.handleJavaScriptDialog` (the person can still answer them in their browser; a
 `beforeunload` in an agent tab is accepted). Snapshots and refs reach same-origin frames through
-the tab and cross-site frames through their child sessions. Downloads are not reported: the
-person's browser saves them itself, so `ace_browser_downloads` fails at once with
-`not_supported` instead of waiting for a download it can never see. Loss of a
+the tab and cross-site frames through their child sessions. Downloads a controlled tab starts are reported (amended by ADR 0086): the extension pairs the
+tab's `Page.downloadWillBegin` with `chrome.downloads` and sends `download` events (name, state,
+size, final path); the files stay where the person's browser saved them and are not artifacts instead of waiting for a download it can never see. Loss of a
 tab, link or browser closes the thread's session; it never falls back to ace's own browsers,
 because the page's logins would not come with it.
 
@@ -225,4 +225,5 @@ on a real link: the agent's tab opens in the person's browser, a shared tab is l
 person's and attached only on first use, a lost browser closes the thread's session there, and
 ace's own browser is never opened. The shared browser conformance suite
 (`packages/browser-extension/src/conformance.process.test.ts`) runs every engine scenario against
-this backend, with downloads declared `not_supported`.
+this backend; its downloads scenario is skipped there (no artifact) and covered by
+`my-chrome-page-edges.process.test.ts`.

@@ -106,6 +106,11 @@ export interface BrowserBackendTabs {
    * certificate while the engine runs. Only the person's own request reaches this.
    */
   proceedCertificate?(tabId: string, url: string): Promise<void>;
+  /**
+   * The person's files for the tab's open file picker (`file_chooser`), as local paths; none
+   * cancels it.
+   */
+  chooseFiles?(tabId: string, chooserId: string, paths: readonly string[]): Promise<void>;
   /** The person turns a tab's sound off or on (its `muted`). */
   mute?(tabId: string, muted: boolean): Promise<void>;
   page?(tabId: string): BrowserBackendPage;

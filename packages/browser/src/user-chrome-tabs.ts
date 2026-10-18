@@ -1,4 +1,11 @@
-import type { BrowserDialog, BrowserTab, UserBrowserTab } from "@ace/protocol";
+import type {
+  BrowserDialog,
+  BrowserDownload,
+  BrowserTab,
+  UserBrowserDownload,
+  UserBrowserTab,
+} from "@ace/protocol";
+import { downloadFlags } from "./headless-downloads.ts";
 import type {
   BackendOpen,
   BrowserBackend,
@@ -22,6 +29,8 @@ interface Entry {
   session?: UserTabSession;
   claiming?: Promise<UserTabSession> | undefined;
   page: BrowserBackendPage;
+  /** Stops following the tab's downloads. */
+  unwatch?: () => void;
 }
 
 const sharedId = (ref: UserTabRef) => `shared-${ref.connectionId}-${ref.tabId}`;
@@ -53,6 +62,8 @@ class UserTabs {
   /** Popups being adopted, or that could not be, by `refKey`. */
   private adopting = new Set<string>();
   private refused = new Set<string>();
+  /** What the thread's tabs downloaded, as the person's browser saved it (ADR 0086). */
+  private downloaded = new Map<string, BrowserDownload>();
   private activeId = "";
   private sequence = 0;
   private closed = false;
@@ -92,7 +103,12 @@ class UserTabs {
       await session.close();
       throw new Error("Browser closed");
     }
-    this.agents.set(id, { session, page: session, ref: session.ref });
+    this.agents.set(id, {
+      session,
+      page: session,
+      ref: session.ref,
+      unwatch: this.watchDownloads(id, session.ref),
+    });
     return id;
   }
   /**
@@ -128,7 +144,13 @@ class UserTabs {
       await session.close();
       return;
     }
-    this.agents.set(id, { session, page: session, ref, opener });
+    this.agents.set(id, {
+      session,
+      page: session,
+      ref,
+      opener,
+      unwatch: this.watchDownloads(id, ref),
+    });
     this.request.changed?.();
   }
   /**
@@ -184,6 +206,15 @@ class UserTabs {
       }),
     ];
   }
+  private watchDownloads(id: string, ref: UserTabRef): () => void {
+    return this.user.onDownload(ref, (download) => {
+      if (this.closed) return;
+      const downloadId = `${ref.connectionId}-download-${download.id}`;
+      if (!this.downloaded.has(downloadId) && this.downloaded.size >= 128) return;
+      this.downloaded.set(downloadId, listedDownload(downloadId, id, download));
+      this.request.changed?.();
+    });
+  }
   /** The tab's pending dialog, as the thread names it. */
   private dialogOf(tabId: string, entry: Entry): BrowserDialog | undefined {
     const dialog = entry.session?.dialog();
@@ -213,6 +244,7 @@ class UserTabs {
             throw new Error("Browser tab unavailable");
           }
           entry.session = session;
+          entry.unwatch = this.watchDownloads(id, ref);
           for (const [method, listener] of listeners) session.cdp.on(method, listener);
           return session;
         },
@@ -277,6 +309,7 @@ class UserTabs {
         if (agent) {
           if (this.agents.size === 1) throw new Error(lastTab);
           this.agents.delete(id);
+          agent.unwatch?.();
           if (this.activeId === id) this.activeId = this.agents.keys().next().value ?? "";
           await agent.session?.close();
         } else {
@@ -302,7 +335,8 @@ class UserTabs {
         if (!found?.[1].session) throw new Error("Dialog no longer pending");
         await found[1].session.answerDialog(accept, promptText);
       },
-      // No `downloads`: the person's browser saves what its tabs download itself.
+      // The person's browser saves them where it always does; ace only lists them.
+      downloads: () => [...this.downloaded.values()],
       opener: (id) => this.agents.get(id)?.opener,
       mute: async (id, muted) => {
         const ref =
@@ -320,8 +354,9 @@ class UserTabs {
         return current().cdp;
       },
       tabs: this.tabs(),
-      pageStatus: () => current().pageStatus?.() ?? { loading: false },
-      url: () => current().url(),
+      // A closed browser has no tabs left; state reads after close see an idle blank page.
+      pageStatus: () => (this.closed ? undefined : current().pageStatus?.()) ?? { loading: false },
+      url: () => (this.closed ? "about:blank" : current().url()),
       navigate: (url, timeout, signal) => current().navigate(url, timeout, signal),
       click: (x, y) => current().click(x, y),
       insertText: (text) => current().insertText(text),
@@ -340,8 +375,27 @@ class UserTabs {
     this.closed = true;
     this.stopWatching();
     const entries = [...this.agents.values(), ...this.claimed.values()];
+    for (const entry of entries) entry.unwatch?.();
     this.agents.clear();
     this.claimed.clear();
     await Promise.allSettled(entries.map((entry) => entry.session?.close()));
   }
+}
+
+const states = { in_progress: "pending", complete: "complete", interrupted: "failed" } as const;
+function listedDownload(
+  downloadId: string,
+  tabId: string,
+  download: UserBrowserDownload,
+): BrowserDownload {
+  return {
+    downloadId,
+    tabId,
+    filename: download.filename,
+    bytes: download.bytes,
+    mimeType: download.mimeType,
+    flags: downloadFlags(download.filename, download.mimeType),
+    state: states[download.state],
+    ...(download.state === "complete" && download.path ? { path: download.path } : {}),
+  };
 }

@@ -55,6 +55,7 @@ const view = (state: BrowserState): BrowserView => ({
     private: tab.private,
     pendingDialog: tab.pending_dialog,
     pendingAuth: tab.pending_auth,
+    fileChooser: tab.file_chooser,
     audible: tab.audible,
     muted: tab.muted,
     certificateError: tab.certificate_error,

@@ -111,6 +111,26 @@ export class BrowserFeaturesClient {
       options,
     );
   }
+  /** The person's files (thread attachments) for the tab's open file picker; none cancels it. */
+  chooseFiles(
+    threadId: string,
+    tabId: string,
+    chooserId: string,
+    files: readonly { sha256: string; name: string }[],
+    options?: RequestOptions,
+  ) {
+    return this.read(
+      {
+        type: "browser.files.choose",
+        threadId: ThreadId.parse(threadId),
+        tabId,
+        chooserId,
+        files: [...files],
+      },
+      BrowserState,
+      options,
+    );
+  }
   /** Turn a tab's sound off or on; it stays that way until the person changes it. */
   muteTab(threadId: string, tabId: string, muted: boolean, options?: RequestOptions) {
     return this.read(

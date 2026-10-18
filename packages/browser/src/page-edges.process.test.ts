@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { expect, it } from "vitest";
 import { executablePath, pageEdges, siteUser } from "./page-edges-test-support.ts";
 import { ref } from "./test-support.ts";
@@ -126,6 +127,34 @@ it.skipIf(!executablePath)(
     const f = await pageEdges();
     await f.agent({ action: "navigate", url: f.url });
     expect((await chromeProcesses(f.home)).commandLine).toContain("--mute-audio");
+  },
+  60_000,
+);
+
+it.skipIf(!executablePath)(
+  "a page's file picker waits for the person's files, which the page then reads",
+  async () => {
+    const f = await pageEdges();
+    await f.agent({ action: "navigate", url: `${f.url}/upload` });
+    await f.agent({ action: "click", ref: ref(await f.agent({ action: "snapshot" }), "Avatar") });
+    await expect
+      .poll(() => f.tabs()[0]?.file_chooser, { timeout: 15_000 })
+      .toMatchObject({
+        multiple: false,
+      });
+    const [tab] = f.tabs();
+    const sha256 = createHash("sha256").update("hello from my laptop").digest("hex");
+    f.attachments.set(sha256, Buffer.from("hello from my laptop"));
+    await f.person({
+      type: "browser.files.choose",
+      tabId: tab?.tabId,
+      chooserId: tab?.file_chooser?.chooserId,
+      files: [{ sha256, name: "notes.txt" }],
+    });
+    await expect
+      .poll(() => f.text(), { timeout: 15_000 })
+      .toContain("picked notes.txt: hello from my laptop");
+    expect(f.tabs()[0]?.file_chooser).toBeUndefined();
   },
   60_000,
 );

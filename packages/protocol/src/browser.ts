@@ -2,6 +2,7 @@ import { z } from "zod";
 import { BrowserTabList, BrowserDownload, BrowserDialog } from "./browser-features.ts";
 import { BrowserInteractionAction, BrowserMeasurementOptions } from "./interaction-measurement.ts";
 import { ThreadId, WorkspaceId } from "./ids.ts";
+import { BlobHash } from "./context.ts";
 import {
   BrowserAnnotationCaptureTarget,
   BrowserAnnotationConfig,
@@ -332,6 +333,16 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
   base.extend({ type: z.literal("browser.capture"), viewport: BrowserCaptureViewport }),
   base.extend({ type: z.literal("browser.unsubscribe"), subscriberId: short.optional() }),
   base.extend({ type: z.literal("browser.ack"), sequence: z.number().int().nonnegative() }),
+  /**
+   * The person's files for the tab's `file_chooser`, uploaded first as thread attachments
+   * (`upload.begin` … `upload.commit`). No files cancels the picker.
+   */
+  base.extend({
+    type: z.literal("browser.files.choose"),
+    tabId: short,
+    chooserId: short,
+    files: z.array(z.object({ sha256: BlobHash, name: z.string().min(1).max(255) })).max(16),
+  }),
   /** The person turns a tab's sound off or on; it stays that way until they change it. */
   base.extend({ type: z.literal("browser.tabs.mute"), tabId: short, muted: z.boolean() }),
   /** "Keep agents out of this tab": agents can neither read nor drive a private tab. */

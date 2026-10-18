@@ -60,6 +60,26 @@ Background tabs and agents' tabs are muted; the tab the person watches plays. Ta
   lists `audible`/`muted`, republishes when they change and takes the new `tabs.mute` operation
   for shared and agent tabs. The person's shared tabs keep their own sound.
 
+### Files, downloads and the browser's warnings (950)
+
+- **File picker (H).** ace's Chrome intercepts every file chooser
+  (`Page.setInterceptFileChooserDialog`) and lists it as the tab's `file_chooser` (`multiple`);
+  agents get the existing log hint to use `upload`. The web panel offers "Choose file…": the
+  person's files go up as thread attachments (the composer's resumable upload, now shared in
+  `lib/context-requests.ts`), then `browser.files.choose` names them. The daemon's socket reads
+  each attachment for that device (`downloadAttachment`, 32 MiB each), writes it under its own
+  name in the thread browser's directory and sets it with `DOM.setFileInputFiles`; the client
+  releases the attachments afterwards. No files cancels. D keeps the native picker.
+- **Use my Chrome downloads (U).** The extension (now with the `downloads` permission) reports
+  only downloads a controlled tab started: it pairs the tab's `Page.downloadWillBegin` URL with
+  the browser's download item and sends `download` events (name, state, size, final path) as it
+  progresses. The thread lists them in Downloads and the agent's `downloads`; files stay where
+  the browser saved them, so they are not artifacts.
+- **The browser's own warnings (D, H, U).** Every engine enables `Log`; `Log.entryAdded` becomes a
+  console log line typed by its level (`warning`, `error`, …) and prefixed with its source
+  (`[security] …`), so mixed-content, CSP and certificate warnings reach the agent's logs
+  alongside `console.warn`.
+
 ## Verification
 
 Real-Chrome process tests (`page-edges.process.test.ts`) with local fixtures: a basic-auth
@@ -68,7 +88,9 @@ the person and refused to the agent, and an OAuth-style popup posting back to it
 `window.opener.postMessage`. Web tests drive the sign-in card, the certificate warning and the tab speaker against the fake
 daemon; desktop unit tests cover `CertificateExceptions` and `audioMuted`. ace's Chrome is checked
 to run muted; a Use my Chrome process test (real extension) opens an agent tab muted and unmutes
-it from ace.
+it from ace, and lists a download where the browser saved it. A file input in ace's Chrome takes
+the person's file (read back by the page), the web panel uploads a picked file and names it, and
+the conformance scenario `browser-warnings` (a CSP-blocked image) runs in every engine.
 
 Not covered by tests: Electron's `certificate-error` and audio paths and the native popup for an
 agent's tab (no Electron in the test run).

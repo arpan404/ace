@@ -3,6 +3,7 @@ import { BrowserArtifact, ThreadId } from "@ace/protocol";
 import { useClient } from "@ace/client-react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { LocalStore } from "../store.ts";
+import { askContext, uploadContextFile } from "@/lib/context-requests.ts";
 
 /** Threads whose page this window started recording (the daemon has no "is recording" read). */
 export const recordingThreads = new LocalStore<ReadonlySet<string>>(new Set());
@@ -47,6 +48,35 @@ export function useBrowserFeatures(threadId: string) {
       attempt("Couldn't answer the sign-in", () =>
         features.answerAuth(threadId, tabId, authId, credentials),
       ),
+    /**
+     * The person's files for a page's file picker: uploaded as thread attachments, set on the
+     * page's input by the daemon, then let go of (the browser keeps its own copy).
+     */
+    chooseFiles: (tabId: string, chooserId: string, files: readonly File[]) =>
+      attempt("Couldn't give the page your files", async () => {
+        const uploaded = [];
+        for (const file of files)
+          uploaded.push(await uploadContextFile(client, { threadId }, file, () => {}));
+        try {
+          return await features.chooseFiles(
+            threadId,
+            tabId,
+            chooserId,
+            uploaded.map((attachment) => ({
+              sha256: attachment.sha256,
+              name: attachment.name || "file",
+            })),
+          );
+        } finally {
+          const ask = askContext(client);
+          for (const attachment of uploaded)
+            void ask({
+              op: "attachment.release",
+              threadId: ThreadId.parse(threadId),
+              sha256: attachment.sha256,
+            }).catch(() => {});
+        }
+      }),
     muteTab: (tabId: string, muted: boolean) =>
       attempt(muted ? "Couldn't mute the tab" : "Couldn't unmute the tab", () =>
         features.muteTab(threadId, tabId, muted),

@@ -47,6 +47,14 @@ export function connectBrowser(
       access: BrowserAccess,
     ) => boolean;
     send: (message: BrowserServerMessage, serialized?: string) => boolean;
+    /**
+     * Opens a thread attachment this connection uploaded (the files a person picks for a page's
+     * file input). Without it, picking files is refused.
+     */
+    attachment?: (
+      threadId: string,
+      sha256: string,
+    ) => Promise<{ chunks: AsyncIterable<Uint8Array>; close(): Promise<void> }>;
   },
 ): { handle(raw: unknown): Promise<void>; close(): void } {
   type Subscription = { stop(): void; subscribers: Set<string> };
@@ -180,6 +188,25 @@ export function connectBrowser(
               }),
             );
             break;
+          case "browser.files.choose": {
+            const open = options.attachment;
+            if (!open && message.files.length) throw new Error("Picking files is unavailable here");
+            respond(
+              await service.asPerson(threadId, {
+                kind: "files",
+                tabId: message.tabId,
+                chooserId: message.chooserId,
+                files: message.files.map((file) => ({
+                  name: file.name,
+                  open: () => {
+                    if (!open) throw new Error("Picking files is unavailable here");
+                    return open(threadId, file.sha256);
+                  },
+                })),
+              }),
+            );
+            break;
+          }
           case "browser.tabs.mute":
             respond(
               await service.asPerson(threadId, {

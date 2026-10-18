@@ -440,6 +440,29 @@ export class FakeBrowser {
     )?.pending_dialog;
     this.changed();
   }
+  /** The tab's page opened its file picker. */
+  fileChooserOpen(threadId: string, tabId: string, multiple: boolean): string {
+    const tab = this.tab(threadId, tabId);
+    if (!tab) throw new Error("Browser tab unavailable");
+    const chooserId = `${tabId}-files`;
+    tab.file_chooser = { chooserId, tabId, multiple };
+    this.changed();
+    return chooserId;
+  }
+  /** What the page's input received: the picked files' names and hashes ([] for Cancel). */
+  readonly chosenFiles: { sha256: string; name: string }[][] = [];
+  chooseFiles(
+    threadId: string,
+    tabId: string,
+    chooserId: string,
+    files: { sha256: string; name: string }[],
+  ): void {
+    const tab = this.tab(threadId, tabId);
+    if (tab?.file_chooser?.chooserId !== chooserId) throw new Error("File picker no longer open");
+    delete tab.file_chooser;
+    this.chosenFiles.push(files);
+    this.changed();
+  }
   /** The tab's page plays sound or stops; agents' and background tabs start muted. */
   sound(threadId: string, tabId: string, audible: boolean, muted: boolean): void {
     const tab = this.tab(threadId, tabId);

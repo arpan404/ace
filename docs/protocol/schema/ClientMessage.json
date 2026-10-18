@@ -2293,6 +2293,62 @@
     },
     {
       "properties": {
+        "chooserId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "files": {
+          "items": {
+            "properties": {
+              "name": {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              "sha256": {
+                "$ref": "https://ace.local/protocol/v1/BlobHash.json"
+              }
+            },
+            "required": [
+              "sha256",
+              "name"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.files.choose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type",
+        "tabId",
+        "chooserId",
+        "files"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "muted": {
           "type": "boolean"
         },

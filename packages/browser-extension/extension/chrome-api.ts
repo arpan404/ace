@@ -70,7 +70,24 @@ export interface ChromeTabs {
     ) => void
   >;
 }
+export interface ChromeDownloadItem {
+  id: number;
+  url: string;
+  finalUrl?: string;
+  referrer?: string;
+  /** The absolute path the browser saves to; empty until it is chosen. */
+  filename: string;
+  state: "in_progress" | "complete" | "interrupted";
+  bytesReceived: number;
+  totalBytes: number;
+  mime: string;
+}
 export interface ChromeApi {
+  downloads?: {
+    search(query: { id: number }): Promise<ChromeDownloadItem[]>;
+    onCreated: ChromeEvent<(item: ChromeDownloadItem) => void>;
+    onChanged: ChromeEvent<(delta: { id: number }) => void>;
+  };
   runtime: {
     connectNative(application: string): ChromePort;
     getManifest(): { version: string };
