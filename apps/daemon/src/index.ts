@@ -28,7 +28,8 @@ import { randomUUID } from "node:crypto";
 import { writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { logError, logFields, createHealthMonitor } from "@ace/diagnostics";
-import { installFatalLogFlush } from "./fatal-log.ts";
+import { installFatalLogFlush, installRejectionGuard } from "./fatal-log.ts";
+import { isStoreRetry } from "./store-busy.ts";
 import { buildFields, daemonLogDirectory, logStartupRefusal, openDaemonLog } from "./daemon-log.ts";
 import { logHomeBackup } from "./home-backup-log.ts";
 import { sqliteFailureDetails, systemDiskSpace } from "./sqlite-failure.ts";
@@ -150,6 +151,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       sqliteFailureDetails(error, config.dataDir, diskSpace),
     ),
   );
+  resources.own(installRejectionGuard(process, log, isStoreRetry));
   let stopping: { reason: StopReason; at: number } | undefined;
   // Disposers run in reverse: this record is the last line before the log closes.
   resources.own(() => {

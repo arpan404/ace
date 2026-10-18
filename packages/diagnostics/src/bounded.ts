@@ -20,12 +20,36 @@ class ErrorEvidence {
 export function logError(error: unknown): object {
   return new ErrorEvidence(error);
 }
+/** SQLite's extended result code, when an Error carries one, says which failure it was. */
+function errcode(error: unknown): number | undefined {
+  const value = error instanceof Error ? ownData(error, "errcode") : undefined;
+  return typeof value === "number" ? value : undefined;
+}
+/** The innermost Error in a short `cause` chain: wrappers name the operation, it names why. */
+function rootCause(error: unknown): Error | undefined {
+  let cause: Error | undefined;
+  let next = error instanceof Error ? ownData(error, "cause") : undefined;
+  for (let hops = 0; hops < 4 && next instanceof Error; hops++) {
+    cause = next;
+    next = ownData(next, "cause");
+  }
+  return cause;
+}
+/** Flat fields only, so a nested error keeps its cause within the normalizer's depth bound. */
 function preparedError(error: unknown, redact: (text: string) => string): object {
   const summary = errorSummary(error, redact);
+  const cause = rootCause(error);
+  const causeSummary = cause ? errorSummary(cause, redact) : undefined;
+  const code = errcode(error);
+  const causeCode = errcode(cause);
   return logFields([
     ["message", summary.message],
     ...(summary.code === undefined ? [] : [["code", summary.code] as const]),
+    ...(code === undefined ? [] : [["errcode", code] as const]),
     ...(summary.name === undefined ? [] : [["name", summary.name] as const]),
+    ...(causeSummary ? [["cause", causeSummary.message] as const] : []),
+    ...(causeSummary?.code === undefined ? [] : [["causeCode", causeSummary.code] as const]),
+    ...(causeCode === undefined ? [] : [["causeErrcode", causeCode] as const]),
   ]);
 }
 function own(input: object, key: string): unknown {
