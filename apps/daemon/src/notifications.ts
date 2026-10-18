@@ -59,7 +59,7 @@ export function createDaemonNotifications(
     {
       cursor: () => service.cursor(signal),
       // Admitted ingestion remains durable shutdown work, not cancellable startup.
-      ingest: (events) => service.ingest(events),
+      ingest: (events, coverage) => service.ingest(events, coverage),
       async drain() {
         for (const entry of store.readMcpIntents(64, "mcp.notify")) {
           if (entry.intent.type !== "mcp.notify") continue;
