@@ -123,7 +123,8 @@ async function openEmbeddedBrowser() {
   await screen.findByRole("heading", { level: 1, name: scenario.thread.title });
   await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await within(panel).findByRole("tablist", { name: "Browser tabs" }, { timeout: 10000 });
+  // The agent's tab is the panel's shown tab, marked with its cursor.
+  await within(panel).findByRole("img", { name: /is using this tab$/ }, { timeout: 10000 });
   return { panel, browser: app.daemon.browser };
 }
 
@@ -205,6 +206,19 @@ test("a layout that settles after the window's last resize event still moves the
   // The panel clamps to the new width a moment later, with no event of its own.
   pageX = 640;
   await waitFor(() => expect(last()?.bounds.x).toBe(640));
+});
+test("the native page follows the panel as it slides in and rests where the slide ends", async () => {
+  const { panel } = await openEmbeddedBrowser();
+  await waitFor(() => expect(last()?.bounds.x).toBe(500));
+  // The panel's entrance animation moves it with no resize or mutation of its own.
+  act(() => panel.dispatchEvent(new Event("animationstart", { bubbles: true })));
+  pageX = 520;
+  await waitFor(() => expect(last()?.bounds.x).toBe(520));
+  pageX = 510;
+  await waitFor(() => expect(last()?.bounds.x).toBe(510));
+  pageX = 500;
+  act(() => panel.dispatchEvent(new Event("animationend", { bubbles: true })));
+  await waitFor(() => expect(last()?.bounds.x).toBe(500));
 });
 
 test("focusing the address bar takes the keyboard from the native page first", async () => {

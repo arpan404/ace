@@ -16,6 +16,15 @@ interface Size {
 
 /** The space a device-sized page keeps around it, as the picture's `p-6` does. */
 const devicePadding = 24;
+/** Where the page area may move without a resize: a transition or animation on it or above. */
+const motionEvents = [
+  "transitionrun",
+  "transitionend",
+  "transitioncancel",
+  "animationstart",
+  "animationend",
+  "animationcancel",
+] as const;
 /** How long after a window's last resize event the page area is measured again. */
 const resizeSettleMs = 150;
 
@@ -191,6 +200,7 @@ export function useNativeView(
       });
     };
     let frame = 0;
+    /** Transitions and animations running on the area or an ancestor (a panel sliding in). */
     const transitions = new Set<string>();
     const measure = () => {
       frame = 0;
@@ -214,15 +224,16 @@ export function useNativeView(
         attributeFilter: ["class", "style", "hidden", "aria-hidden"],
       });
     }
-    const transition = (event: TransitionEvent) => {
+    // Followed frame by frame until they end: a moving box raises no resize or mutation.
+    const transition = (event: TransitionEvent | AnimationEvent) => {
       if (!(event.target instanceof HTMLElement) || !ancestors.includes(event.target)) return;
-      const key = `${ancestors.indexOf(event.target)}:${event.propertyName}`;
-      if (event.type === "transitionrun") transitions.add(key);
+      const name = "propertyName" in event ? event.propertyName : event.animationName;
+      const key = `${ancestors.indexOf(event.target)}:${event.type[0]}:${name}`;
+      if (event.type === "transitionrun" || event.type === "animationstart") transitions.add(key);
       else transitions.delete(key);
       schedule();
     };
-    for (const type of ["transitionrun", "transitionend", "transitioncancel"] as const)
-      document.addEventListener(type, transition);
+    for (const type of motionEvents) document.addEventListener(type, transition);
     // A window resize can settle the layout a frame or more after its last event (panel sizes
     // clamp to the new width in an effect): measure once more after it goes quiet.
     let settle: ReturnType<typeof setTimeout> | undefined;
@@ -241,8 +252,7 @@ export function useNativeView(
       mutations.disconnect();
       removeEventListener("resize", resized);
       document.removeEventListener("scroll", schedule, true);
-      for (const type of ["transitionrun", "transitionend", "transitioncancel"] as const)
-        document.removeEventListener(type, transition);
+      for (const type of motionEvents) document.removeEventListener(type, transition);
     };
     const stopVisibility = views.onVisibility((id, visible) => controller.visibility(id, visible));
     const stopOverlays = observeOverlays(element, schedule);
