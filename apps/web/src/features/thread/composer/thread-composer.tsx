@@ -167,7 +167,6 @@ export function ThreadComposer({
     ...inherited?.options,
     ...(inheritedEffort !== undefined ? { effort: inheritedEffort } : {}),
   });
-  const selectionWaiting = busy && (!!followUpOptions || meta?.switch?.state === "queued");
 
   // A model this thread continues on in a new thread: the next message starts it there.
   const sources = useThreadSources();
@@ -210,13 +209,8 @@ export function ThreadComposer({
     // While the agent works the delivery is said outright, so this window knows at once
     // whether the message is a bubble (steered in) or a pill (queued).
     const other = followUp === "steer" ? "queue" : "steer";
-    const delivery = busy
-      ? selectionWaiting
-        ? "queue"
-        : draft.opposite
-          ? other
-          : (followUp ?? "queue")
-      : undefined;
+    // A steer always steers: a new model or effort on it takes effect from the next turn.
+    const delivery = busy ? (draft.opposite ? other : (followUp ?? "queue")) : undefined;
     const selection = runsOn(meta);
     const model = currentModelChoice(modelChoices, selection);
     const explicit = sent?.options ?? selection?.options;
@@ -351,9 +345,9 @@ export function ThreadComposer({
         draftKey={`thread:${props.thread.id}`}
         keepsAttachments
         busy={busy}
-        followUp={selectionWaiting ? "queue" : followUp}
+        followUp={followUp}
         steerPending={steerPending}
-        canSteer={canSteer && !selectionWaiting}
+        canSteer={canSteer}
         onSubmit={submit}
         recall={() => (transcript ? lastSentText(transcript) : undefined)}
         onStop={canStop ? stop : undefined}

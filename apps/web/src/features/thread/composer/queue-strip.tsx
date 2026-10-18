@@ -1,6 +1,6 @@
 import type { ThreadReader } from "@ace/client";
 import type { QueuedMessage } from "@ace/protocol";
-import { useThread, useThreadMeta } from "@ace/client-react";
+import { useThread } from "@ace/client-react";
 import type { ReactNode } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useThreadSources } from "../sources/index.ts";
@@ -44,19 +44,17 @@ export function QueueStrip(props: {
       sources.context.list({ id: props.threadId, workspaceId: "", title: "" }, signal),
   });
   const hold = useThread(props.threadId, ["queue"], queueOf);
-  const selectionWaiting = useThreadMeta(props.threadId)?.switch?.state === "queued";
   const stopping = useStopping(props.threadId);
+  // A pending model or account switch never holds a steer: it applies at the next turn.
   const steerReason = !queue.canSteer
     ? "This provider doesn't support steering."
-    : selectionWaiting
-      ? "Wait for the model or account switch to finish."
-      : stopping
-        ? "The turn is stopping."
-        : (hold?.paused ?? queue.page?.paused)
-          ? "Resume the queue before steering."
-          : queue.failed || !queue.page || (hold && hold.revision !== queue.page.revision)
-            ? "Wait for the queue to refresh."
-            : undefined;
+    : stopping
+      ? "The turn is stopping."
+      : (hold?.paused ?? queue.page?.paused)
+        ? "Resume the queue before steering."
+        : queue.failed || !queue.page || (hold && hold.revision !== queue.page.revision)
+          ? "Wait for the queue to refresh."
+          : undefined;
   return (
     <QueuedTray
       threadId={props.threadId}

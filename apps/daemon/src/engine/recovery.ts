@@ -1,4 +1,4 @@
-import { hasNextTurnSelection, restatesSelection } from "./input-delivery.ts";
+import { restatesSelection } from "./input-delivery.ts";
 import { handleQueue } from "./queue-commands.ts";
 import { lostWork } from "./lost-work.ts";
 import { z } from "zod";
@@ -97,14 +97,11 @@ export class Recovery {
       return undefined;
     const sent = this.withoutRestatedSelection(command, id);
     const p = sent.payload;
-    return p.type === "thread.send" && (p.delivery === undefined || hasNextTurnSelection(p))
+    // A steer that also changes the model or options is split by `admitSteer`.
+    return p.type === "thread.send" && p.delivery === undefined
       ? Command.parse({
-          ...command,
-          payload: {
-            ...p,
-            // A selection belongs to the next turn, never a steer into the active run.
-            delivery: hasNextTurnSelection(p) ? "queue" : this.preferences(id).followUpBehavior,
-          },
+          ...sent,
+          payload: { ...p, delivery: this.preferences(id).followUpBehavior },
         })
       : sent;
   }

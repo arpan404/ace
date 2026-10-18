@@ -18,10 +18,14 @@ export function forkPointError(host: ThreadHost, point: ForkPoint): string | und
   return item && (!("complete" in item) || item.complete) ? undefined : "fork_point_unavailable";
 }
 
-/** Apply a queued switch once nothing runs: the thread continues on the new selection. */
+/** Publish a selection split off a steer, then apply a queued switch once nothing runs. */
 export function switchEvents(host: ThreadHost, at: number): EventPayload[] {
-  const pending = host.view.thread.switch;
-  if (pending?.state !== "queued" || busy(host)) return [];
+  const split = host.steerSwitch;
+  host.steerSwitch = undefined;
+  const queued = split && { selection: split, state: "queued" as const, lossy: false, at };
+  const published: EventPayload[] = queued ? [{ type: "thread.updated", switch: queued }] : [];
+  const pending = queued ?? host.view.thread.switch;
+  if (pending?.state !== "queued" || busy(host)) return published;
   const { selection } = pending;
   if (host.queue.reason === "model_unavailable") {
     host.queue.paused = false;
@@ -29,6 +33,7 @@ export function switchEvents(host: ThreadHost, at: number): EventPayload[] {
     host.queueDirty = true;
   }
   return [
+    ...published,
     {
       type: "thread.updated",
       provider: selection.provider,

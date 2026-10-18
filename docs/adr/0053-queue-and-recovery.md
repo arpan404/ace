@@ -174,8 +174,9 @@ the agent the person talks to, the root:
   it starts the next turn.
 
 Stop and the other holds (`paused`, `limited`, recovery) are unchanged: a held queue sends on
-the person's Resume or next message. A message that changes the model or options still waits
-for the whole tree, because the switch may reopen the session and end its background work.
+the person's Resume or next message. A queued message that changes the model or options still
+waits for the whole tree, because the switch may reopen the session and end its background work
+(a steer that changes them goes in at once; see the 2026-10-18 amendment).
 Forks, switches and merges keep the stricter whole-tree readiness.
 
 Each provider takes a new turn with its background work alive:
@@ -188,3 +189,30 @@ Each provider takes a new turn with its background work alive:
 | Cursor   | With no SDK operation active, a send starts a new operation.                                                                                    |
 | Pi       | `prompt`; `streamingBehavior` only matters while a run streams, so an idle harness starts a run.                                                |
 | ACP      | No steer; the queued message is delivered as the next prompt once the previous one has returned.                                                |
+
+## Amendment 2026-10-18: a steer always steers
+
+A steer that also named a model or effort was rewritten to a queued message, so it waited for the
+whole tree and the composer greyed Steer out whenever a new selection was picked. A queued
+message changed to steer from the tray waited the same way. The person asked to steer and the
+agent never heard them until everything finished.
+
+A person's steer now always steers, wherever it comes from (the composer, the queue tray's
+Steer, an edit that changes a queued message to steer):
+
+- **Its text goes in at once**, under the same rules as any steer: into the running root turn,
+  or as the next turn when the root is between turns. A foreground tool still holds it until
+  that tool finishes, and the holds above (`paused`, `limited`, recovery) still apply.
+- **Its selection waits for the boundary a switch needs.** While the tree works, the model or
+  options change is split off as the thread's pending `thread.switch` (ADR 0051), ordered right
+  behind the steer: last selection wins, clients see it queued, and it applies at the next
+  whole-tree quiescence before the next queued send. Messages queued after the steer wait behind
+  it, as they waited behind the selecting message before. The change is never applied mid-run
+  and never lost.
+- **With nothing running**, the selection belongs to the turn the message starts, so the message
+  keeps it and is delivered with it at once, as before.
+- **A provider that can't steer** queues the message with its selection, which waits for the
+  whole tree as before: that is the provider's limit, not a choice.
+
+The split happens when the steer is admitted (`admitSteer` in the engine), and a pending switch
+never blocks a steer into a working tree.
