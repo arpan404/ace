@@ -139,6 +139,8 @@ test("a snapshot exceeding the wire item budget fails its scope instead of retai
           ...event.view,
           items: Object.fromEntries(items.map((item) => [item.id, item])),
           itemOrder: [items[0]?.id],
+          // Well-formed apart from its size: every item carries its creation sequence.
+          itemSeqs: Object.fromEntries(items.map((item, i) => [item.id, i + 1])),
         },
       }),
     );
