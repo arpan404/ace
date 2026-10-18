@@ -30,7 +30,7 @@ const actions = {
   click: {
     riskClass: "external-effect",
     description:
-      "Click a ref from ace_browser_snapshot, or a point x, y in CSS pixels (with button, clickCount, modifiers). After a navigation-triggering click, wait_for url or text, then snapshot again. Old document refs expire.",
+      "Click a ref from ace_browser_snapshot, or a point x, y in CSS pixels (with button, clickCount, modifiers). A ref is clicked once it holds still, only where it would take the click itself; covered or not_hittable means nothing was clicked. After a navigation-triggering click, wait_for url or text, then snapshot again. Old document refs expire.",
   },
   fill_form: {
     riskClass: "external-effect",

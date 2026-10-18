@@ -252,9 +252,8 @@ export async function executeBrowserCommand(
     }
     case "hover": {
       const dispatch = context.refDispatch(command.ref, actor, signal, generation);
-      const rect = await context.refs.bounds(command.ref, dispatch.prepare);
+      const { point } = await context.refs.target(command.ref, dispatch.prepare);
       dispatch.send();
-      const point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
       context.point?.(point);
       await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...point });
       return { ok: true };
@@ -263,13 +262,13 @@ export async function executeBrowserCommand(
       const from = context.refDispatch(command.ref, actor, signal, generation),
         to = context.refDispatch(command.toRef, actor, signal, generation);
       const document = context.refs.documentGuard();
-      const start = await context.refs.bounds(command.ref, from.prepare),
-        end = await context.refs.bounds(command.toRef, to.prepare);
-      context.point?.({ x: end.x + end.width / 2, y: end.y + end.height / 2 });
+      const start = (await context.refs.target(command.ref, from.prepare)).point,
+        end = (await context.refs.target(command.toRef, to.prepare)).point;
+      context.point?.(end);
       await dragRefs(
         cdp,
-        { x: start.x + start.width / 2, y: start.y + start.height / 2 },
-        { x: end.x + end.width / 2, y: end.y + end.height / 2 },
+        start,
+        end,
         () => {
           from.send();
           to.send();
@@ -289,10 +288,10 @@ export async function executeBrowserCommand(
       const dispatch = context.refDispatch(command.ref, actor, signal, generation);
       const desired = command.action === "check";
       if ((await context.refs.checked(command.ref, dispatch.prepare)) !== desired) {
-        const rect = await context.refs.bounds(command.ref, dispatch.prepare);
+        const { point } = await context.refs.target(command.ref, dispatch.prepare);
         dispatch.send();
-        context.point?.({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
-        await page.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
+        context.point?.(point);
+        await page.click(point.x, point.y);
         if ((await context.refs.checked(command.ref, dispatch.prepare)) !== desired)
           throw new BrowserActionError("element_unavailable");
       }
@@ -312,10 +311,9 @@ export async function executeBrowserCommand(
         if (command.x !== undefined || command.y !== undefined)
           throw new BrowserActionError("invalid_arguments");
         const dispatch = context.refDispatch(command.ref, actor, signal, generation);
-        const rect = await context.refs.bounds(command.ref, dispatch.prepare);
+        // Only where the element itself would take the click, once it holds still.
+        point = (await context.refs.target(command.ref, dispatch.prepare)).point;
         dispatch.send();
-        if (rect.width <= 0 || rect.height <= 0) throw new BrowserActionError("not_visible");
-        point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
       } else {
         if (command.x === undefined || command.y === undefined)
           throw new BrowserActionError("invalid_arguments");

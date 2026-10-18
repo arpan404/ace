@@ -30,6 +30,16 @@ const pages: Record<string, (host: string) => string> = {
 <input aria-label="Keys" onkeydown="if(event.key==='Enter')out.textContent='Entered '+this.value">
 <div id="out" role="status" aria-label="Result"></div>`,
     ),
+  "/covered": () =>
+    html(
+      "Covered",
+      `<header style="position:fixed;top:0;left:0;right:0;height:80px;background:#eee;z-index:2" onclick="out.textContent='Header clicked'">Header</header>
+<div style="height:200px"></div>
+<button style="position:fixed;top:40px;left:10px;height:60px;z-index:1" onclick="out.textContent='Peeked'">Peek</button>
+<button onclick="out.textContent='Bought'">Buy</button>
+<div style="position:fixed;inset:150px 0 0 0;background:rgba(0,0,0,.5);z-index:3" onclick="out.textContent='Banner clicked'">Cookie banner</div>
+<div id="out" role="status" aria-label="Result" style="position:fixed;top:0;right:0;z-index:4">Ready</div>`,
+    ),
   "/dialogs": () =>
     html(
       "Dialogs",

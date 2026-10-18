@@ -233,6 +233,25 @@ The audit found ways an agent could still trip over the person. The rules above 
   field wait. A drag checks before each pointer step; if the person used the tab within
   `quietMs` it releases the button where it is and fails with `human_active`.
 
+### Clicks land where they aim (amendment, 2026-10-17, browser audit)
+
+An agent's pointer input on a ref (click, hover, check, uncheck, both ends of a drag) used to
+measure the element's box once and press its centre, so a layout shift or an overlay took the
+click. Now, in the element's own document and in every engine (`hit-target.ts`):
+
+- **It waits for the element to hold still.** The element is scrolled into view and its box
+  read once per frame (or every 100 ms where frames do not run), in page coordinates, until the
+  centre has stayed put for two frames in a row. A button pulsing in place counts as still; one
+  still sliding after 1 s fails with `not_hittable`.
+- **It hit-tests before pressing.** Candidate points inside the visible part of the box, the
+  centre first and then the centres of its four quarters, are checked with `elementFromPoint`
+  (through open shadow roots). The first point whose hit is the element, a descendant, or one
+  of its labels is pressed; an element with `pointer-events: none` accepts a hit on an
+  ancestor. If something else is on top at every point the command fails with `covered`
+  ("dismiss or close what covers it"); if no point is inside the viewport, with `not_hittable`.
+  Nothing is dispatched in either case. Clicks at x, y are the agent's own aim and are not
+  checked.
+
 ## Private takeover and recording (superseded by Collaboration above)
 
 Takeover has shared and private modes. Shared takeover retains the existing
