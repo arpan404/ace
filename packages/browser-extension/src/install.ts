@@ -22,8 +22,11 @@ export interface InstallOptions {
   extraDirs?: readonly string[];
 }
 
-/** The host entry Chrome runs through the launcher. */
-export const hostEntry = fileURLToPath(new URL("./host-main.ts", import.meta.url));
+/**
+ * The host entry Chrome runs through the launcher. Resolved on use, not at import: the daemon's
+ * package graph also loads under test environments whose `import.meta.url` is not a file URL.
+ */
+const hostEntry = (): string => fileURLToPath(new URL("./host-main.ts", import.meta.url));
 const manifestName = `${userBrowserHostName}.json`;
 const ManifestFile = z.object({ name: z.literal(userBrowserHostName), path: z.string() });
 
@@ -58,7 +61,7 @@ export async function installNativeHost(options: InstallOptions): Promise<Native
   await mkdir(dirname(launcher), { recursive: true, mode: 0o700 });
   await writeFile(
     launcher,
-    launcherScript({ node: options.node, entry: hostEntry, dataDir: options.dataDir }),
+    launcherScript({ node: options.node, entry: hostEntry(), dataDir: options.dataDir }),
     { mode: 0o755 },
   );
   await chmod(launcher, 0o755);
