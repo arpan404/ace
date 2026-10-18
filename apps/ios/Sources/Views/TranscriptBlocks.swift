@@ -5,6 +5,8 @@ import SwiftUI
 struct TranscriptLinks {
     let openThread: (String) -> Void
     let openAgent: (BlockRow.Agents.Entry) -> Void
+    /// Where a settled log reads its turn's full steps; nil shows the steps already loaded.
+    var steps: StepsLinks? = nil
 }
 
 /// One transcript block. Items render through their own observed rows, so streaming text
@@ -16,7 +18,7 @@ struct BlockView: View {
     var body: some View {
         let row = block.row
         switch row.kind {
-        case "work": WorkBlockView(row: row, thread: thread)
+        case "work": WorkBlockView(row: row, blockId: block.id, thread: thread, steps: links.steps)
         case "subagents": if let agents = row.agents { SubagentGroupView(agents: agents, open: open) }
         case "live": LiveLine(thread: thread)
         case "end": if let ending = row.ending { EndingLine(ending: ending) }
@@ -135,7 +137,9 @@ struct StepRow: View {
 struct WorkBlockView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let row: BlockRow
+    var blockId = ""
     let thread: ThreadModel
+    var steps: StepsLinks? = nil
     @State private var expanded = false
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
@@ -166,10 +170,14 @@ struct WorkBlockView: View {
             }
             if expanded {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
-                    ForEach(row.items, id: \.self) { id in
-                        if let item = thread.items[id] { WorkStep(item: item) }
+                    if let ordinal = row.ordinal, let steps {
+                        DaemonSteps(ordinal: ordinal, blockId: blockId, links: steps)
+                    } else {
+                        ForEach(row.items, id: \.self) { id in
+                            if let item = thread.items[id] { WorkStep(item: item) }
+                        }
+                        if row.items.isEmpty { Text("No steps recorded.").aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground) }
                     }
-                    if row.items.isEmpty { Text("No steps recorded.").aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground) }
                 }
                 .padding(.leading, AceTheme.Spacing.md)
                 .overlay(alignment: .leading) { Rectangle().fill(AceTheme.Colours.separator).frame(width: AceTheme.Dimensions.border) }

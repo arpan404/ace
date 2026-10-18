@@ -17,6 +17,8 @@ import CryptoKit
     var cursor = 0
     var loaded = false
     let screen = ThreadScreenModel()
+    /// What this thread last showed, kept on screen while its reopened session catches up.
+    var placeholder: ThreadModel?
     @ObservationIgnored var positions: [String: Int] = [:]
     init(id: String) { self.id = id }
     var approvals: [ApprovalRow] { interactions.values.filter { $0.state == "pending" }.sorted { $0.id < $1.id } }
@@ -44,6 +46,8 @@ import CryptoKit
     /// The open thread's Agents and Changes sheets (`bridge/sheets.ts`).
     let sheets = ThreadSheetsModel()
     @ObservationIgnored private var generation = 0
+    /// Threads left for a child, so going back shows them until their session's first patch.
+    @ObservationIgnored private var trail = ThreadTrail()
     @ObservationIgnored private var runtime: (any ClientSession)?
     @ObservationIgnored private let makeRuntime: ClientSessionFactory
     @ObservationIgnored private var connectionEpoch = 0
@@ -151,14 +155,20 @@ import CryptoKit
                     if row?.state != "pending", let submission = approvalSubmissions.removeValue(forKey: interactionId) { approvalRequests[submission.requestId] = nil }
                 }
             case .cursor(let id, let epoch, let cursor): if thread?.id == id, thread?.epoch == epoch { thread?.cursor = cursor }
-            case .ready(let id, let epoch, _): if thread?.id == id, thread?.epoch == epoch { thread?.loaded = true }
+            case .ready(let id, let epoch, _): if thread?.id == id, thread?.epoch == epoch { thread?.loaded = true; thread?.placeholder = nil }
             case .block, .blockPosition, .controls, .history, .models, .queue:
-                if let thread, let scope = patch.screenScope, scope.thread == thread.id, scope.epoch == thread.epoch { thread.screen.apply(patch) }
+                if let thread, let scope = patch.screenScope, scope.thread == thread.id, scope.epoch == thread.epoch {
+                    // The reopened session's first block replaces what was last shown of it.
+                    if case .block = patch { thread.placeholder = nil }
+                    thread.screen.apply(patch)
+                }
             case .agents(let id, let epoch, let sheet): if thread?.id == id, thread?.epoch == epoch { sheets.agents = sheet }
             case .changesSummary(let id, let epoch, let summary): if thread?.id == id, thread?.epoch == epoch { sheets.changes = summary }
             case .changesFile(let id, let epoch, let path, let diff):
                 if thread?.id == id, thread?.epoch == epoch { sheets.file = .init(path: path, diff: diff) }
             case .gitResult(let id, let ok, let message): sheets.outcomes[id] = GitOutcome(ok: ok, message: message)
+            case .screen(let id, let epoch, let screen):
+                if let thread, thread.id == id, thread.epoch == epoch { thread.screen.apply(screen) }
             }
         }
         thread?.screen.commit()
@@ -172,11 +182,13 @@ import CryptoKit
     func open(_ id: String) {
         generation += 1
         sheets.reset()
-        thread = ThreadModel(id: id)
-        thread?.epoch = generation
+        let opened = ThreadModel(id: id)
+        opened.epoch = generation
+        opened.placeholder = trail.reopen(id, leaving: thread)
+        thread = opened
         action(["type": "open", "threadId": id])
     }
-    func back() { generation += 1; action(["type": "back"]); thread = nil; sheets.reset() }
+    func back() { generation += 1; action(["type": "back"]); thread = nil; trail.clear(); sheets.reset() }
     /// A sheet action for the open thread (`bridge/sheets.ts`).
     @discardableResult func sheet(_ value: [String: Any]) -> Bool { action(["type": "sheet", "action": value]) }
     /// Durable stop through the SDK's outbox: true once admitted on this device. `agentId` nil

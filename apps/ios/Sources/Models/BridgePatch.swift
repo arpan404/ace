@@ -58,6 +58,9 @@ struct ApprovalRow: Codable, Sendable, Identifiable {
     var others: [Other]? = nil
     var questions: [Question]? = nil
     var unanswerable: Bool? = nil
+    var plan: PlanRequest? = nil
+    var form: FormRequest? = nil
+    var help: HelpRequest? = nil
 }
 struct PendingRow: Codable, Sendable, Identifiable {
     let id: String; let threadId: String; let state: String; let waiting: Bool; let text: String
@@ -115,6 +118,8 @@ enum BridgePatch: Decodable, Sendable {
     case changesSummary(String, Int, ChangesSummary)
     case changesFile(String, Int, String, FileDiff)
     case gitResult(String, Bool, String)
+    /// Steps, effort and speed, attachments and lanes (`ScreenPatch`).
+    case screen(String, Int, ScreenPatch)
 
     private enum Keys: String, CodingKey { case type, id, row, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff }
     init(from decoder: any Decoder) throws {
@@ -168,6 +173,9 @@ enum BridgePatch: Decodable, Sendable {
             let (id, epoch) = try scope()
             self = .changesFile(id, epoch, try box.decode(String.self, forKey: .path), try box.decode(FileDiff.self, forKey: .diff))
         case "git.result": self = .gitResult(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
+        case let kind where ScreenPatch.types.contains(kind):
+            let (id, epoch) = try scope()
+            self = .screen(id, epoch, try ScreenPatch(type: kind, from: decoder))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: box, debugDescription: "Unknown bridge patch")
         }
     }

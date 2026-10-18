@@ -10,7 +10,7 @@ struct ThreadView: View {
     @State private var showModels = false
     @State private var lane: BlockRow.Agents.Entry?
     @State private var scrolledToTail = false
-    private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
+    private var metadata: ThreadRow? { thread.metadata ?? thread.placeholder?.metadata ?? model.inbox[thread.id] }
     private var screen: ThreadScreenModel { thread.screen }
     var body: some View {
         ScrollViewReader { proxy in
@@ -21,11 +21,13 @@ struct ThreadView: View {
                         .listRowSeparator(.hidden)
                         .accessibilityLabel("Loading earlier messages")
                 }
-                if !thread.loaded { ProgressView("Loading conversation…").listRowSeparator(.hidden) }
-                let links = TranscriptLinks(openThread: openThread, openAgent: { lane = $0 })
-                ForEach(screen.blockOrder, id: \.self) { id in
-                    if let block = screen.blocks[id] {
-                        BlockView(block: block, thread: thread, links: links)
+                // Back from a child: what this thread last showed stays until its session's first patch.
+                let shown = thread.placeholder ?? thread
+                if !thread.loaded && thread.placeholder == nil { ProgressView("Loading conversation…").listRowSeparator(.hidden) }
+                let links = TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: screen))
+                ForEach(shown.screen.blockOrder, id: \.self) { id in
+                    if let block = shown.screen.blocks[id] {
+                        BlockView(block: block, thread: shown, links: links)
                             .id(id).listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: AceTheme.Spacing.sm, leading: AceTheme.Spacing.xl, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.xl))
                     }
@@ -47,11 +49,19 @@ struct ThreadView: View {
                 VStack(spacing: AceTheme.Spacing.none) {
                     // One card at a time above the composer: the oldest open request.
                     if let request = thread.approvals.first {
-                        if request.kind == "question" {
-                            QuestionCard(interaction: request, submission: model.approvalSubmissions[request.id], canAct: model.canOperate) { model.answer(request, answers: $0, dismissed: $1) }
+                        let submission = model.approvalSubmissions[request.id]
+                        switch request.kind {
+                        case "question":
+                            QuestionCard(interaction: request, submission: submission, canAct: model.canOperate) { model.answer(request, answers: $0, dismissed: $1) }
                                 .id(request.id)
-                        } else {
-                            ApprovalCard(approval: request, submission: model.approvalSubmissions[request.id], canAct: model.canOperate) { model.approve(request, option: $0) }
+                        case "plan_review":
+                            PlanReviewCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
+                        case "elicitation":
+                            FormRequestCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
+                        case "browser_help":
+                            BrowserHelpCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
+                        default:
+                            ApprovalCard(approval: request, submission: submission, canAct: model.canOperate) { model.approve(request, option: $0) }
                         }
                     }
                     if let queue = screen.queue, !queue.messages.isEmpty {
@@ -61,6 +71,7 @@ struct ThreadView: View {
                         }
                     }
                     if model.canOperate {
+                        ComposerAccessories(model: model, screen: screen)
                         ComposerView(controls: screen.controls, stopping: screen.stopping,
                                      placeholder: thread.approvals.isEmpty ? "Steer or follow up…" : "Reply instead…",
                                      send: { await model.sendMessage($0, alternate: $1) }, stop: { model.stopTree() },
@@ -83,7 +94,7 @@ struct ThreadView: View {
             .sheet(isPresented: $showModels) {
                 ModelPickerSheet(screen: screen, load: { model.requestModels() }, choose: { await model.switchModel($0) })
             }
-            .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, thread: thread) }
+            .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
             #if DEBUG
             .overlay(alignment: .topLeading) {
                 if SpikeConfiguration.enabled {
