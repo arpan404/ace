@@ -29,12 +29,14 @@ export interface ComposerProps {
   initialText?: string | undefined;
   /** Uploaded files outlive a reload only where the daemon keeps them: an existing thread. */
   keepsAttachments?: boolean | undefined;
-  /** The agent is busy: Stop shows beside send, and a message follows up. */
+  /** The agent is busy: an empty draft shows Stop; a draft shows its follow-up action. */
   busy: boolean;
   /** What Enter does with a follow-up while busy; ⌘↵ does the other. Defaults to queue. */
   followUp?: "queue" | "steer" | undefined;
   /** ⌘↵ does the other follow-up; false when the provider can't steer (both queue). */
   canSteer?: boolean | undefined;
+  /** A foreground tool is running: a steer queues until that tool finishes. */
+  steerPending?: boolean | undefined;
   /**
    * Take the message. Resolves false when this device couldn't save it: the composer puts it
    * back if nothing new was typed meanwhile.

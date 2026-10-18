@@ -1,4 +1,4 @@
-import { longHistory, replayCursor } from "@ace/fake-daemon";
+import { facts as scenarioFacts, longHistory, replayCursor } from "@ace/fake-daemon";
 import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -673,3 +673,39 @@ test("an explicit effort change disables promotion while an ordinary queued foll
   await userEvent.click(within(row).getByRole("button", { name: "Steer" }));
   expect(await daemonQueue(app)).toEqual(["Ordinary follow-up", "High effort next turn"]);
 });
+
+test.each(["steer", "queue"] as const)(
+  "%s preference shows Queue during a command and keeps its delivery intent",
+  async (followUp) => {
+    const { app, feed, message } = await openBusy({ followUp });
+    act(() =>
+      app.daemon.apply(threadId, [
+        scenarioFacts.tool("root", "foreground-build", {
+          kind: "shell",
+          title: "Build",
+          detail: { kind: "shell", command: "build" },
+        }),
+      ]),
+    );
+    await userEvent.type(message, "Check the build result");
+    expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
+    await userEvent.click(await screen.findByRole("button", { name: "Queue message" }));
+    expect(await daemonQueue(app)).toEqual(["Check the build result"]);
+    expect(within(feed).queryByText("Check the build result")).toBeNull();
+    act(() => app.daemon.apply(threadId, [scenarioFacts.toolDone("root", "foreground-build")]));
+    if (followUp === "steer") {
+      expect(await within(feed).findByText("Check the build result")).toBeTruthy();
+      expect(await daemonQueue(app)).toEqual([]);
+    } else {
+      expect(await daemonQueue(app)).toEqual(["Check the build result"]);
+      expect(within(feed).queryByText("Check the build result")).toBeNull();
+    }
+    await userEvent.type(message, "Next follow-up");
+    expect(
+      await screen.findByRole("button", {
+        name: followUp === "steer" ? "Steer message" : "Queue message",
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
+  },
+);

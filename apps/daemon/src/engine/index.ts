@@ -35,7 +35,12 @@ import { IntentDelivery } from "./intent-delivery.ts";
 import { ThreadTransitions, type TransitionIO } from "./transitions.ts";
 import { Sessions } from "./sessions.ts";
 import { randomUUID } from "node:crypto";
-import { deriveThreadStatus, readyForChildResults, type IdSource } from "@ace/core";
+import {
+  deriveThreadStatus,
+  readyForChildResults,
+  hasRunningForegroundCommand,
+  type IdSource,
+} from "@ace/core";
 import type { CommandHandler } from "../commands.ts";
 import type { Store } from "../store.ts";
 import type { AgentId, Thread, Command, QueueSnapshot, QueueGet } from "@ace/protocol";
@@ -1295,6 +1300,7 @@ export class Engine {
       return false;
     if (this.repo.transitions.guarded(intent.threadId)) return false;
     const state = this.repo.requireState(intent.threadId);
+    if (hasRunningForegroundCommand(state)) return false;
     if (
       this.repo.pending.transition(intent.threadId) &&
       (this.repo.pending.running(intent.threadId) || this.repo.quiescent(state))

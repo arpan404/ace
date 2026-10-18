@@ -127,7 +127,8 @@ test("subagents open inline as the agents started, and the agent tree is one cli
   expect(within(tree).getByRole("link", { name: "Open reconnect-audit, Running" })).toBeTruthy();
   expect(within(tree).getByRole("link", { name: "Open regression-test, Running" })).toBeTruthy();
 
-  await userEvent.click(screen.getByRole("button", { name: "Open the summary" }));
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /Open agent tree/ }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(within(panel).getByRole("tab", { selected: true }).textContent).toBe("Summary");
 });

@@ -31,7 +31,7 @@ export const chipControl = `${control} min-w-(--composer-control) shrink px-2.5`
  * edge is a border with a soft lift shadow (styles/glass.css, "Depth"). Popovers opened
  * from it are solid.
  */
-export const composerSurface = "ace-glass-dock border border-sidebar-border outline-none";
+export const composerSurface = "ace-glass-dock border border-input outline-none";
 
 /** The top card's inset, overlap and lower padding share the surface spacing tokens. */
 export const attachedInset = "mx-[calc(var(--surface-gap)*2)]";

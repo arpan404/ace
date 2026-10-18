@@ -1,6 +1,6 @@
 import { useThreadMeta } from "@ace/client-react";
 import { listTreeFacts, treeWorking } from "@ace/ui-core";
-import { ArticleIcon } from "@phosphor-icons/react";
+import { ListChecksIcon } from "@phosphor-icons/react";
 import {
   Suspense,
   useLayoutEffect,
@@ -31,7 +31,7 @@ export const workSurface =
 const composerGap = 12;
 
 /**
- * The header's thread details icon (a page with lines, as T3 draws it): a live dot while the thread's tree works, an amber one while
+ * The header's thread details icon: a live dot while the thread's tree works, an amber one while
  * something waits on the person. Beside a roomy thread area it toggles the side card; in a
  * narrow one it opens the card as a popover from the icon, never reaching the composer.
  */
@@ -66,7 +66,7 @@ export function WorkButton(props: { threadId: string }) {
       <span className="relative inline-flex">
         <IconButton
           ref={button}
-          icon={ArticleIcon}
+          icon={ListChecksIcon}
           label={
             dot === "needs-you"
               ? "Thread details, something needs you"
