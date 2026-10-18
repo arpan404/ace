@@ -93,6 +93,10 @@ export interface BrowserBackendTabs {
    */
   opener?(tabId: string): string | undefined;
   page?(tabId: string): BrowserBackendPage;
+  /** Drops an idle tab's page, keeping the tab listed at its address (ace's Chrome only). */
+  discard?(tabId: string): Promise<void>;
+  /** Reopens a discarded tab at its address, with the same id. */
+  revive?(tabId: string): Promise<void>;
 }
 /** One page's surface. Everything here acts on that page only. */
 export interface BrowserBackendPage {

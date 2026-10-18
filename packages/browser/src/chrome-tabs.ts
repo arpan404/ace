@@ -58,6 +58,9 @@ interface Tab {
   dialog?: BrowserDialog | undefined;
   popupKinds: boolean[];
   recovering?: Promise<void> | undefined;
+  /** Idle long enough that its page was dropped; it reopens at its address on next use. */
+  discarded?: boolean | undefined;
+  reviving?: Promise<void> | undefined;
   release(): void;
   stops: (() => void)[];
 }
@@ -121,8 +124,9 @@ export class ChromeTabs {
   async restore(host: TabHost): Promise<void> {
     if (this.stopped) throw new Error("Browser closed");
     this.attachHost(host);
-    const tabs = [...this.tabs.values()];
-    if (!tabs.length) throw new Error("Browser tab unavailable");
+    if (!this.tabs.size) throw new Error("Browser tab unavailable");
+    // A discarded tab has no page to bring back; it reopens when next used.
+    const tabs = [...this.tabs.values()].filter((tab) => !tab.discarded);
     for (const tab of tabs) {
       this.unbind(tab);
       tab.dialog = undefined;
@@ -226,6 +230,52 @@ export class ChromeTabs {
     });
     tab.dialog = undefined;
     this.request.changed?.();
+  }
+  /**
+   * Drops an idle tab's page to free its memory and its place in the daemon's tab budget (ADR
+   * 0083 lifecycle). The tab stays listed at its address and title; `revive` reopens it there.
+   */
+  async discard(id: string): Promise<void> {
+    const tab = this.tabs.get(id);
+    const target = tab?.target;
+    if (!tab || !target || tab.discarded || tab.reviving) return;
+    tab.discarded = true;
+    tab.dialog = undefined;
+    // Unbound first, so the target's detach does not count as the tab closing.
+    this.unbind(tab);
+    tab.release();
+    tab.release = () => {};
+    await this.host?.instance.targets.close(target.targetId);
+    this.request.changed?.();
+  }
+  /** Reopens a discarded tab at its address, with the same id; its page state is gone. */
+  revive(id: string): Promise<void> {
+    const tab = this.tabs.get(id);
+    if (!tab?.discarded) return Promise.resolve();
+    tab.reviving ??= (async () => {
+      const host = this.host;
+      if (!host || this.stopped) throw new Error("Browser closed");
+      tab.release = this.request.reserveTab?.() ?? (() => {});
+      let target: AttachedTarget | undefined;
+      try {
+        target = await host.instance.targets.create({
+          ...tab.viewport,
+          browserContextId: host.browserContextId,
+        });
+        await this.bind(tab, target);
+      } catch (error) {
+        if (target) void host.instance.targets.close(target.targetId);
+        tab.release();
+        tab.release = () => {};
+        throw error;
+      }
+      tab.discarded = false;
+      await this.reopen(tab);
+      this.request.changed?.();
+    })().finally(() => {
+      tab.reviving = undefined;
+    });
+    return tab.reviving;
   }
   /** Whether an agent uses this tab (ADR 0067, collaboration). */
   agentUse(id: string, active: boolean): void {

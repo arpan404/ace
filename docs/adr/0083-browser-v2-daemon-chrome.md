@@ -125,8 +125,10 @@ The request guard pauses only document requests (top-level and frame navigations
 their redirect hops) and `file:` URLs. Navigation policy and the person/agent initiator still
 see every document load; ordinary http(s) subresources, fetches, WebSockets and worker traffic
 go straight to the network. Scheme checks stay: non-web URLs never load. Service and shared
-workers run (they are released from the guard instead of being closed), which MV3 extensions and
-many sites need. An embedder's origin hook now governs documents, not subresources.
+workers run, which MV3 extensions and many sites need. Amended for #953: a page's http(s) worker
+is checked once against the origin policy on its script URL before it first runs; an admitted
+one is released and stays attached (released and detached at once, workers never ran), a refused
+one is closed. An embedder's origin hook now governs documents and workers, not subresources.
 
 ### Display density
 
@@ -172,9 +174,12 @@ A thread's browser holds ordered tabs on whichever backend serves it.
   opened it, views it, used it in the last 10 minutes or keeps agents out, and while it is
   busy, holds a dialog or is downloading. `kept` is restored after a restart.
 - **Lifecycle** (`tab-lifecycle.ts`, pure, injected clock): an unviewed, idle, unpinned tab
-  freezes after 15 minutes (`Page.setWebLifecycleState`) and wakes before its next command. The
-  policy also marks tabs due for discard after 2 hours; this is not applied yet, so page state is
-  never dropped behind an agent's back. Freezing runs only in ace's Chrome.
+  freezes after 15 minutes (`Page.setWebLifecycleState`) and wakes before its next command.
+  Amended for #953: after 2 hours idle it is discarded (its target closed, its budget place
+  freed, the tab still listed at its address) and reopens at that address with the same id on
+  its next command or when the person shows it, listed with `pageStateLost` until it navigates.
+  A dialog, a download still arriving or a recording pins a tab against both. Freezing and
+  discarding run only in ace's Chrome.
 - **Restore**: tabs are kept in the daemon's SQLite `browser_tabs` table (thread, tab id,
   position, URL, title, label, opener, last activity) behind the `BrowserTabStore` port. A
   restarted daemon reopens them lazily, on the first viewer or tool call, with the same tab ids;
@@ -199,8 +204,8 @@ Chrome, `ace.ping` on the desktop; one that misses it is killed and restarted wi
 lost and recovered) and restarts the live capture on a live engine. A whole-browser restart
 also lifts a pause left by work that failed while the browser was down.
 
-Not yet built: eager restore for threads with a working agent, discarding, and per-viewer
-capture of different tabs.
+Not yet built: eager restore for threads with a working agent, and per-viewer capture of
+different tabs.
 
 ## Spike evidence
 

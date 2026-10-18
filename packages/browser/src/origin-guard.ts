@@ -16,7 +16,7 @@ const Paused = z.object({
 const FrameTree = z.object({ frameTree: z.object({ frame: z.object({ id: z.string() }) }) });
 const Attached = z.object({
   sessionId: z.string(),
-  targetInfo: z.object({ targetId: z.string(), type: z.string() }),
+  targetInfo: z.object({ targetId: z.string(), type: z.string(), url: z.string().optional() }),
 });
 const Received = z.object({ sessionId: z.string(), message: z.string().max(1024 * 1024) });
 const Response = z.object({
@@ -41,7 +41,12 @@ const guarded = {
     { urlPattern: "file:*", requestStage: "Request" },
   ],
 };
-/** Workers that outlive a page (service and shared workers) run unguarded and are released. */
+/**
+ * Workers that outlive a page (service and shared workers). Their requests are not paused, so
+ * the origin policy decides once, on the worker's own script URL, before it first runs (#953):
+ * an admitted worker is released to run, a refused one never starts. (Before #953 every worker
+ * was released and detached at once, which in practice kept them from ever running.)
+ */
 const released = new Set(["service_worker", "shared_worker"]);
 
 /** Fetch must be enabled on out-of-process frames and dedicated workers too.
@@ -117,6 +122,16 @@ export async function installOriginGuard(
       });
     };
   }
+  /** Web workers answer to the origin policy as their pages do; extension workers are ace's. */
+  async function admitWorker(url: string | undefined): Promise<boolean> {
+    if (stopped) return false;
+    if (!url || !/^https?:/i.test(url)) return true;
+    try {
+      return await allowed(url);
+    } catch {
+      return false;
+    }
+  }
   function paused(send: Send, raw: unknown): void {
     const request = Paused.safeParse(raw);
     if (!request.success) return;
@@ -159,11 +174,19 @@ export async function installOriginGuard(
     if (!parsed.success) return;
     const { sessionId, targetInfo } = parsed.data;
     if (released.has(targetInfo.type)) {
-      void parent("Target.sendMessageToTarget", {
-        sessionId,
-        message: JSON.stringify({ id: ++nextId, method: "Runtime.runIfWaitingForDebugger" }),
-      })
-        .then(() => parent("Target.detachFromTarget", { sessionId }))
+      void admitWorker(targetInfo.url)
+        .then((admitted) => {
+          if (!admitted) {
+            // Closed, or at worst left paused before its first script: it never runs.
+            refuse(targetInfo);
+            return;
+          }
+          // It stays attached: detaching a worker this early stops it from ever running.
+          return parent("Target.sendMessageToTarget", {
+            sessionId,
+            message: JSON.stringify({ id: ++nextId, method: "Runtime.runIfWaitingForDebugger" }),
+          });
+        })
         .catch(() => {});
       return;
     }

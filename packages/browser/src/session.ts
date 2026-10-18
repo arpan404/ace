@@ -13,7 +13,7 @@ import type { NavigationTask } from "./navigation.ts";
 import { SessionTabs } from "./session-tabs.ts";
 import { TabRuntime, type TabHost } from "./tab-runtime.ts";
 import { executeDownloads, executeTabs } from "./session-structure.ts";
-import { freezeIdleTabs, wakeTab } from "./session-lifecycle.ts";
+import { settleIdleTabs, wakeTab } from "./session-lifecycle.ts";
 import { tabCommand } from "./session-commands.ts";
 import { collaborationTiming } from "./collaboration.ts";
 import { keepAfterPersonMs, temporaryTabs } from "./turn-end.ts";
@@ -124,6 +124,14 @@ export class BrowserSession {
     this.persist();
     this.scheduleLifecycle();
   }
+  /** A frozen tab runs again, a discarded one reopens (its page state reported lost). */
+  private async wakeIdle(tabId: string): Promise<void> {
+    const runtime = this.tabs.find(tabId);
+    if (!runtime) return;
+    const woke = await wakeTab(runtime, this.options.backend.tabs);
+    if (woke === "reopened") this.tabs.stateLost(tabId, true);
+    if (woke) this.emit();
+  }
   private viewedPage() {
     return this.tabs.page(this.tabs.viewedId());
   }
@@ -159,10 +167,7 @@ export class BrowserSession {
         this.options.backend.privateMode?.(this.tabs.all().some((tab) => tab.private));
         this.persist();
       },
-      wake: async (tabId) => {
-        const runtime = this.tabs.find(tabId);
-        if (runtime && (await wakeTab(runtime))) this.emit();
-      },
+      wake: (tabId) => this.wakeIdle(tabId),
       beginRecording: (check) => this.recordings.start(check),
       finishRecording: () => this.recordings.stop(),
       annotation: (connectionId: string, event: BrowserAnnotationEvent) =>
@@ -283,6 +288,8 @@ export class BrowserSession {
       .then(async () => {
         if (token !== this.captureToken || this.closed || this.paused) return;
         target = this.tabs.viewedId();
+        // The person picked a tab dropped while idle: it reopens before it is shown.
+        await this.wakeIdle(target);
         await this.live.replace(this.viewedPage().cdp);
         if (token === this.captureToken) this.emit();
       })
@@ -540,12 +547,14 @@ export class BrowserSession {
       const dialogs = new Set(
         this.options.backend.tabs?.list().flatMap((tab) => (tab.pending_dialog ? [tab.tabId] : [])),
       );
-      void freezeIdleTabs(
+      // A dialog, a download still arriving or a recording keeps a tab as it is.
+      void settleIdleTabs(
         this.tabs.all(),
         this.tabs.viewedId(),
         this.options.now(),
         lifecycle.policy,
-        (tab) => dialogs.has(tab.id) || this.recordings.active,
+        (tab) => dialogs.has(tab.id) || this.downloading(tab.id) || this.recordings.active,
+        this.options.backend.tabs,
       )
         .then((changed) => {
           if (changed) this.emit();
