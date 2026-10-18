@@ -320,6 +320,8 @@ export class Recovery {
             this.clock.now(),
           );
       })
+      // The notice itself is a write; a store that refuses it is reported, never unhandled.
+      .catch((error: unknown) => (this.ports.onError ?? console.error)(error))
       .finally(() => this.pendingPolicy.delete(id));
     this.pendingPolicy.set(id, task);
   }

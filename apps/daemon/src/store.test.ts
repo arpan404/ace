@@ -69,8 +69,13 @@ it.each([false, true])(
         if (!(failure instanceof AggregateError)) throw new Error("Missing cleanup failures");
         expect(
           failure.errors.map((error: unknown) => (error instanceof Error ? error.message : error)),
-        ).toEqual(["Store is busy", "search stop failed"]);
-      } else expect(failure).toMatchObject({ message: "Store is busy" });
+        ).toEqual(["Live writes are retrying a failed batch", "search stop failed"]);
+        // A refused row is not contention; the real failure travels as the cause.
+      } else
+        expect(failure).toMatchObject({
+          message: "Live writes are retrying a failed batch",
+          cause: expect.objectContaining({ message: "disk unavailable" }),
+        });
       expect(database.isOpen).toBe(false);
       const reported = [...errors];
       vi.advanceTimersByTime(10000);

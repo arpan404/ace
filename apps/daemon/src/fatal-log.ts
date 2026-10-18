@@ -6,6 +6,10 @@ export interface FatalEvents {
   off(event: "uncaughtExceptionMonitor", listener: (error: unknown) => void): unknown;
   off(event: "exit", listener: () => void): unknown;
 }
+export interface RejectionEvents {
+  on(event: "unhandledRejection", listener: (reason: unknown) => void): unknown;
+  off(event: "unhandledRejection", listener: (reason: unknown) => void): unknown;
+}
 interface FlushingLog {
   log(level: "error", message: string, data?: unknown): void;
   flushSync(): void;
@@ -43,4 +47,22 @@ export function installFatalLogFlush(
     events.off("uncaughtExceptionMonitor", fatal);
     events.off("exit", exit);
   };
+}
+
+/**
+ * Last resort for a rejection nobody caught. A transient store failure (busy, or a live batch
+ * still retrying) heals on its own, so it is logged and the daemon keeps every agent running.
+ * Anything else is rethrown and stays fatal, through the same uncaught-error path as before.
+ */
+export function installRejectionGuard(
+  events: RejectionEvents,
+  log: { log(level: "error", message: string, data?: unknown): void },
+  transient: (reason: unknown) => boolean,
+): () => void {
+  const rejected = (reason: unknown) => {
+    if (!transient(reason)) throw reason;
+    log.log("error", "Unhandled store failure; continuing", logError(reason));
+  };
+  events.on("unhandledRejection", rejected);
+  return () => events.off("unhandledRejection", rejected);
 }

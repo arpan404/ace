@@ -3,7 +3,7 @@ import { hasRunningForegroundCommand, type Fact } from "@ace/core";
 import type { Frame, ProviderSession, Translator } from "@ace/engine-api";
 import type { ThreadId, EventPayload, Capabilities } from "@ace/protocol";
 import { z } from "zod";
-import { isStoreBusy } from "../store-busy.ts";
+import { isStoreRetry } from "../store-busy.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import type { EngineLimits } from "./limits.ts";
@@ -236,10 +236,14 @@ export class ThreadActor {
         run();
         return;
       } catch (error) {
-        if (!isStoreBusy(error)) throw error;
+        if (!isStoreRetry(error)) throw error;
         await new Promise<void>((resolve) => this.clock.setTimer(resolve, 100));
       }
     }
+  }
+  /** The store dropped this thread's live output: stop the session with a visible notice. */
+  quarantine(error: Error): void {
+    if (!this.poisoned) this.fail(error);
   }
   private fail(error: unknown): void {
     this.poisoned = true;
