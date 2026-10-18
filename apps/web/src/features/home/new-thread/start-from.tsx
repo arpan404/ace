@@ -1,7 +1,11 @@
 import { useState } from "react";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import type { ForgeIssueList, ForgePrList } from "@ace/protocol";
-import { useOpenIssues, useOpenPullRequests } from "@/features/forge/index.ts";
+import {
+  useFailingPullRequests,
+  useOpenIssues,
+  useOpenPullRequests,
+} from "@/features/forge/index.ts";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useDebouncedValue } from "@/lib/debounced.ts";
@@ -118,6 +122,8 @@ const searching = "opacity-60 transition-opacity duration-(--motion-fast)";
 
 function PullRequests(props: ListProps<ForgePrList>) {
   const found = useOpenPullRequests(props.project, props.search, props.search !== "");
+  // Failing PRs lead the unsearched list even when older than its first page.
+  const failing = useFailingPullRequests(props.project).data?.items ?? [];
   // A failed search shows no rows rather than the unsearched list it would pass for.
   const list = !props.search ? props.all : found.isError ? undefined : (found.data ?? props.all);
   const busy = !!props.search && found.isFetching;
@@ -125,7 +131,7 @@ function PullRequests(props: ListProps<ForgePrList>) {
     <div aria-busy={busy} className={cn(busy && searching)}>
       <StartRows
         key={props.search}
-        rows={list ? pullRequestRows(list.items) : []}
+        rows={list ? pullRequestRows(list.items, props.search ? [] : failing) : []}
         chosen={props.chosen}
         none={found.isError ? "Couldn't search pull requests." : "No open pull requests match."}
         onPick={props.onPick}

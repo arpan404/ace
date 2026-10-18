@@ -11,8 +11,8 @@ import { readForge } from "./source.ts";
 const fresh = 60_000;
 
 /**
- * The project's open pull requests matching `search` (all when empty), newest activity first:
- * the first page of up to 25, and the total. Fails when the project has no forge.
+ * The project's open pull requests, drafts included, matching `search` (all when empty), newest
+ * activity first: the first page of up to 25, and the total. Fails when the project has no forge.
  */
 export function useOpenPullRequests(workspaceId: string, search = "", enabled = true) {
   return useDaemonQuery<ForgePrList>({
@@ -25,7 +25,36 @@ export function useOpenPullRequests(workspaceId: string, search = "", enabled = 
     read: async (client, signal) => {
       const value = await readForge(
         client,
-        { op: "forge.pr.list", workspaceId, query: ForgePrSearch.parse({ search }) },
+        {
+          op: "forge.pr.list",
+          workspaceId,
+          query: ForgePrSearch.parse({ state: "active", search }),
+        },
+        signal,
+      );
+      if (value.resource !== "prList") throw new Error("No pull request list.");
+      return value.value;
+    },
+  });
+}
+
+/**
+ * The project's open pull requests whose checks failed, newest activity first, however long ago
+ * they were last touched: the first page of up to 25. Fails when the project has no forge.
+ */
+export function useFailingPullRequests(workspaceId: string) {
+  return useDaemonQuery<ForgePrList>({
+    queryKey: ["forge", workspaceId, "failingPullRequests"],
+    retry: false,
+    staleTime: fresh,
+    read: async (client, signal) => {
+      const value = await readForge(
+        client,
+        {
+          op: "forge.pr.list",
+          workspaceId,
+          query: ForgePrSearch.parse({ state: "active", ci: "failure" }),
+        },
         signal,
       );
       if (value.resource !== "prList") throw new Error("No pull request list.");

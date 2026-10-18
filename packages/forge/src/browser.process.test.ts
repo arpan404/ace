@@ -117,6 +117,48 @@ test("repository search keeps literal words scoped and returns counts, draft row
   }
 });
 
+test("an active search finds open PRs drafts included, and a failing-checks search asks GitHub for failures", async () => {
+  const query = ForgePrSearch.parse({ state: "active", ci: "failure" });
+  const params = new URLSearchParams({
+    q: "repo:octo/ace is:pr is:open status:failure",
+    sort: "updated",
+    order: "desc",
+    per_page: "25",
+    page: "1",
+  });
+  const f = await fakeGh({
+    [`search/issues?${params}`]: [
+      { body: { total_count: 1, incomplete_results: false, items: [row] } },
+    ],
+    graphql: [
+      {
+        body: {
+          data: {
+            ...counts.data,
+            repository: {
+              p0: {
+                comments: { totalCount: 0 },
+                reviews: { totalCount: 0 },
+                statusCheckRollup: { state: "FAILURE" },
+              },
+            },
+          },
+        },
+      },
+    ],
+  });
+  try {
+    const result = await f.forge.listPrs(query, signal());
+    expect(result).toMatchObject({
+      items: [{ ref: { repository, number: 7 }, state: "draft", ci: "failure" }],
+      total: 1,
+      counts: { open: 2, draft: 1, closed: 3, merged: 4 },
+    });
+  } finally {
+    await f.cleanup();
+  }
+});
+
 test("full PR detail includes hosted branch identities, description, reviews and fork identity", async () => {
   const fixtures = standard();
   fixtures["repos/octo/ace/pulls/7"] = [{ body: richPr }];

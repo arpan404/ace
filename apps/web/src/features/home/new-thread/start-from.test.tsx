@@ -14,13 +14,18 @@ import { harness } from "@/test/harness.tsx";
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "ace" } as const;
 const workspaceId = WorkspaceId.parse("ace");
 
-function pr(number: number, title: string, ci: "success" | "failure" | "pending") {
+function pr(
+  number: number,
+  title: string,
+  ci: "success" | "failure" | "pending",
+  state: "open" | "draft" = "open",
+) {
   return {
     ref: { repository, number },
     title,
     url: `https://github.com/acme/ace/pull/${number}`,
     author: "dev",
-    state: "open" as const,
+    state,
     labels: [],
     updatedAt: "2026-10-18T10:00:00Z",
     ci,
@@ -45,7 +50,7 @@ type App = ReturnType<typeof harness>;
 /** What the daemon answers for the project's open pull requests matching `search`. */
 function seedPullRequests(app: App, search: string, items: ReturnType<typeof pr>[], total: number) {
   app.daemon.workspace.setForgeRead(
-    { op: "forge.pr.list", workspaceId, query: ForgePrSearch.parse({ search }) },
+    { op: "forge.pr.list", workspaceId, query: ForgePrSearch.parse({ state: "active", search }) },
     {
       resource: "prList",
       value: {
@@ -76,7 +81,7 @@ function withOpenWork() {
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   const lists = { total: 2, incomplete: false, truncated: false };
   app.daemon.workspace.setForgeRead(
-    { op: "forge.pr.list", workspaceId, query: ForgePrSearch.parse({}) },
+    { op: "forge.pr.list", workspaceId, query: ForgePrSearch.parse({ state: "active" }) },
     {
       resource: "prList",
       value: {
@@ -241,4 +246,48 @@ test("a short list has no search box", async () => {
   const work = await screen.findByRole("region", { name: "Open work" });
   await within(work).findByRole("tab", { name: "Pull requests 2" });
   expect(within(work).queryByRole("searchbox")).toBeNull();
+});
+
+test("a failing PR older than the first page leads the list, and drafts are listed", async () => {
+  const app = withManyPullRequests();
+  const stale = pr(3, "Old change with broken checks", "failure");
+  app.daemon.workspace.setForgeRead(
+    {
+      op: "forge.pr.list",
+      workspaceId,
+      query: ForgePrSearch.parse({ state: "active", ci: "failure" }),
+    },
+    {
+      resource: "prList",
+      value: {
+        repository,
+        items: [stale],
+        total: 1,
+        counts: { open: 1, draft: 0, closed: 0, merged: 0 },
+        incomplete: false,
+        truncated: false,
+      },
+    },
+  );
+  seedPullRequests(app, "draft", [pr(150, "Sketch the new sidebar", "success", "draft")], 1);
+  await app.open("/new?project=ace");
+  const work = await screen.findByRole("region", { name: "Open work" });
+  await waitFor(() =>
+    expect(within(work).getAllByRole("button", { name: /^#\d+/ })[0]?.textContent).toMatch(
+      /^#3Old change with broken checksChecks failing/,
+    ),
+  );
+  // Still the first five rows, the failing one included.
+  expect(within(work).getAllByRole("button", { name: /^#\d+/ })).toHaveLength(5);
+  await userEvent.type(
+    within(work).getByRole("searchbox", { name: "Search pull requests" }),
+    "draft",
+  );
+  await waitFor(() =>
+    expect(
+      within(work)
+        .getAllByRole("button", { name: /^#\d+/ })
+        .map((row) => row.textContent),
+    ).toEqual([expect.stringMatching(/^#150Sketch the new sidebarDraft/)]),
+  );
 });
