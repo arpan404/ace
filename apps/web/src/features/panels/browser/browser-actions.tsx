@@ -9,6 +9,7 @@ import {
   RecordIcon,
   ShieldSlashIcon,
   StopCircleIcon,
+  TerminalWindowIcon,
   XCircleIcon,
 } from "@phosphor-icons/react";
 import { openExternal, revealer } from "@/boot/open-external.ts";
@@ -53,6 +54,9 @@ export function BrowserActions(props: {
   onFind(): void;
   onKeepPrivate(value: boolean): void;
   onCloseTab(): void;
+  /** The console and network drawer shows under the page. */
+  drawer: boolean;
+  onDrawer(open: boolean): void;
 }) {
   const toast = useToast();
   const { shownUrl, external, viewport, browser, tab } = props;
@@ -150,6 +154,16 @@ export function BrowserActions(props: {
             </MenuRadioGroup>
           </MenuContent>
         </MenuSub>
+        <MenuCheckboxItem
+          checked={props.drawer}
+          disabled={!live}
+          onCheckedChange={(checked) => props.onDrawer(checked)}
+        >
+          <span className="flex items-center gap-2">
+            <Icon icon={TerminalWindowIcon} />
+            Console and network
+          </span>
+        </MenuCheckboxItem>
         <MenuCheckboxItem
           checked={privately}
           disabled={!live || !props.online}

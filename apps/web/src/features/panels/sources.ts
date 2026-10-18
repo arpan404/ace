@@ -118,6 +118,25 @@ export interface BrowserExtensionView {
   version?: string | undefined;
   enabled: boolean;
 }
+/**
+ * One line of a tab's console or network log, as agents read it (BrowserCommand `logs`). A
+ * network entry is a response (`status`) or a failure; `bytes` and `durationMs` arrive once the
+ * request finishes. `at` is when the daemon recorded it, in milliseconds.
+ */
+export interface BrowserLogEntry {
+  kind: "console" | "network";
+  /** The console level (`log`, `warning`, `error`, `pageerror`…) or `response` / `failed`. */
+  type: string;
+  text: string;
+  at: number;
+  tabId?: string | undefined;
+  requestId?: string | undefined;
+  url?: string | undefined;
+  status?: number | undefined;
+  method?: string | undefined;
+  bytes?: number | undefined;
+  durationMs?: number | undefined;
+}
 /** A device the page can pretend to be (BrowserCommand `emulate`). */
 export interface Emulation {
   width: number;
@@ -256,6 +275,8 @@ export interface PreviewSource {
   closeTab(threadId: string, tabId: string): Promise<void>;
   /** "Keep agents out of this tab", or let them back in. */
   keepPrivate(threadId: string, tabId: string, value: boolean): Promise<void>;
+  /** A tab's console and network log, oldest first (the same entries agents read). */
+  logs?(threadId: string, tabId: string): Promise<readonly BrowserLogEntry[]>;
   /** Extensions the tab's engine runs, as its backend reports them (read-only). */
   extensions?(threadId: string): Promise<readonly BrowserExtensionView[]>;
   /** The person's own input; it lands at once, whoever else works in the tab. */

@@ -24,6 +24,7 @@ import { documentVisibility, type PageVisibility } from "@/lib/page-visibility.t
 import { daemonAnnotate } from "./daemon-annotate.ts";
 import { decodeFrame, type FrameDecoder } from "./frames.ts";
 import { SuggestionStore } from "./preview-suggestions.ts";
+import { readBrowserLogs } from "./browser-logs.ts";
 
 /** How often a watched thread without a browser asks again, and re-reads its dev servers. */
 const retryMs = 5_000;
@@ -571,6 +572,9 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         private: value,
       });
       if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
+    },
+    async logs(threadId, tabId) {
+      return readBrowserLogs(await execute(threadId, { action: "logs", tabId, limit: 200 }));
     },
     async extensions(threadId): Promise<readonly BrowserExtensionView[]> {
       return Extensions.parse(await execute(threadId, { action: "extensions" })).extensions;

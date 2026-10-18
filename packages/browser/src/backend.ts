@@ -12,7 +12,17 @@ export interface BackendLog {
   requestId?: string;
   url?: string;
   status?: number;
+  /** A network request's HTTP method. */
+  method?: string;
+  /** Bytes a finished request received over the network. */
+  bytes?: number;
+  /** From the request being sent to it finishing or failing. */
+  durationMs?: number;
   kind: "console" | "network";
+  /**
+   * `loaded` is not an entry of its own: it completes the `response` entry with the same
+   * `requestId` with `bytes` and `durationMs` once the body has arrived.
+   */
   type: string;
   text: string;
 }

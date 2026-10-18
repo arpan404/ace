@@ -27,6 +27,7 @@ import { ConnectionMark } from "./connection-mark.tsx";
 import { useBrowserTab } from "./use-browser-tab.ts";
 import { useBrowserTabs } from "./use-browser-tabs.ts";
 import { viewportById } from "./viewports.ts";
+import { ConsoleDrawer, drawerHeights } from "./console-drawer.tsx";
 
 const permissionLabel = (permission: string) =>
   ({
@@ -84,6 +85,9 @@ function Browser(props: TabViewProps) {
   }, [unopened]);
 
   const viewport = viewportById(page.data.viewport);
+  // Live while dragging; saved with the tab when the drag ends.
+  const [drawerHeight, setDrawerHeight] = useState<number>();
+  const drawer = page.data.drawer;
   const shownUrl = page.shownUrl;
   const blank = !shownUrl || shownUrl === "about:blank";
   const offline = online ? undefined : "ace is offline";
@@ -298,6 +302,8 @@ function Browser(props: TabViewProps) {
               onFind={() => setFinding(true)}
               onKeepPrivate={(value) => shown && tabs.keepPrivate(shown.tabId, value)}
               onCloseTab={() => shown && tabs.close(shown.tabId)}
+              drawer={drawer !== undefined}
+              onDrawer={(open) => page.save({ drawer: open ? "console" : undefined })}
             />
           </>
         }
@@ -339,6 +345,21 @@ function Browser(props: TabViewProps) {
           />
         )}
       </div>
+      {drawer && shown && (
+        <ConsoleDrawer
+          source={source}
+          threadId={threadId}
+          tabId={shown.tabId}
+          section={drawer}
+          onSection={(section) => page.save({ drawer: section })}
+          height={drawerHeight ?? page.data.drawerHeight ?? drawerHeights.initial}
+          onHeight={(height, persist) => {
+            setDrawerHeight(persist ? undefined : height);
+            if (persist) page.save({ drawerHeight: height });
+          }}
+          onClose={() => page.save({ drawer: undefined })}
+        />
+      )}
     </div>
   );
 }

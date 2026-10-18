@@ -186,7 +186,7 @@ export function fakeBrowserSession(
           else if (command.action === "emulate") browser.resize(id, command.width, command.height);
           else if (command.action === "snapshot") result = { text: "Synthetic fixture page" };
           else if (command.action === "screenshot") result = browser.frame(id);
-          else if (command.action === "logs") result = { entries: [], limit: command.limit };
+          else if (command.action === "logs") result = browser.logs.read(id, command);
           else if (command.action === "annotate" || command.action === "annotate_capture")
             result = browser.annotations.execute(id, connectionId, command);
           else if (command.action === "evaluate")

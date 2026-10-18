@@ -123,3 +123,27 @@ it.skipIf(!executablePath)(
     expect(Logs.parse(await f.execute({ action: "logs", limit: 3 })).entries).toHaveLength(3);
   },
 );
+
+it.skipIf(!executablePath)(
+  "a finished request's entry says its method, size and how long it took, without a second entry",
+  async () => {
+    const f = await setup();
+    const Logs = z.object({
+      entries: z.array(
+        z.object({
+          type: z.string(),
+          method: z.string().optional(),
+          bytes: z.number().optional(),
+          durationMs: z.number().optional(),
+        }),
+      ),
+    });
+    const read = async () =>
+      Logs.parse(await f.execute({ action: "logs", kind: "network", url: "/body" })).entries;
+    await expect.poll(async () => (await read())[0]?.bytes).toBeGreaterThan(0);
+    const entries = await read();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ type: "response", method: "GET" });
+    expect(entries[0]?.durationMs).toBeGreaterThanOrEqual(0);
+  },
+);

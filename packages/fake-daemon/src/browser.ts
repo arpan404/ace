@@ -8,6 +8,7 @@ import type {
 } from "@ace/protocol";
 import { BrowserDocumentHistory } from "./browser-history.ts";
 import { FakeAnnotations } from "./browser-annotation.ts";
+import { FakeBrowserLogs } from "./browser-logs.ts";
 import { pairPhoneFrame, sitePage } from "./preview-page.ts";
 
 /**
@@ -82,6 +83,8 @@ export class FakeBrowser {
     (threadId) => this.entries.get(threadId)?.view,
     () => this.changed(),
   );
+  /** Each thread's console and network log (`logs`); tests add what a page logged. */
+  readonly logs = new FakeBrowserLogs();
   private watchers = new Set<() => void>();
   private revision = 0;
   readonly available = true;
