@@ -1,3 +1,4 @@
+import { quitNeedsConfirmation } from "./os/quit-guard.ts";
 import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { notificationOutbox } from "./link/notification-outbox.ts";
@@ -291,6 +292,16 @@ export class Background {
     this.attention.refresh();
     this.link?.updatePreferences();
     this.reviewLifetime();
+  }
+
+  /** Quitting now would close browser pages that working agents just used (#952). */
+  agentsBrowsing(now: number, systemShutdown: boolean): boolean {
+    return quitNeedsConfirmation({
+      working: this.working,
+      lastAgentBrowse: this.browser?.views.lastDriven() ?? -Infinity,
+      now,
+      systemShutdown,
+    });
   }
 
   wake(): void {

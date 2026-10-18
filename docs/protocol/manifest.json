@@ -417,8 +417,8 @@
       "sha256": "bf3c298763ae5a8f456697c535557300b61cb95470807a066c841ade50f9155f"
     },
     "schema/BrowserBackendClientMessage.json": {
-      "bytes": 414,
-      "sha256": "3f66cd89dee786d3c260553528e034aaa9741e6e3c13418dd922d28991a03c31"
+      "bytes": 500,
+      "sha256": "3a2a916a484227cb7af3a1a6592a409c7815065c4a6f74096a9cd24368992463"
     },
     "schema/BrowserBackendEvent.json": {
       "bytes": 651,
@@ -456,6 +456,10 @@
       "bytes": 705,
       "sha256": "2d29b3715cae9ac65d2269f5b42d2e942e96f14bfd2270313d16f274e8100436"
     },
+    "schema/BrowserBackendResumed.json": {
+      "bytes": 293,
+      "sha256": "d660b81917a010719a05743e44f494e271c0e1b4df7abadabb35da80a55cec3c"
+    },
     "schema/BrowserBackendServerMessage.json": {
       "bytes": 1514,
       "sha256": "12c91a2e75386adca32e55f3d00467e96cd996113d0c9888336985c1107cebf0"
@@ -469,8 +473,8 @@
       "sha256": "853a0e225cb759241fcf98c764e19809a3e76413d668b1ec8ac35f0ec5ab7d92"
     },
     "schema/BrowserCommand.json": {
-      "bytes": 31134,
-      "sha256": "817c6221bf4d814dd679f24130c392d3c957a28d1fa4110136b435e5a2e2281b"
+      "bytes": 31211,
+      "sha256": "ab1271a9c3a489af69c1487771f6e05a9ac18ad98514b9d88a2ed733f67cf6f6"
     },
     "schema/BrowserDialog.json": {
       "bytes": 724,
@@ -517,8 +521,8 @@
       "sha256": "2b80de752e976005867dd29a2989494dc1685164bf7d74d09c8fc2d8b85d2dc0"
     },
     "schema/BrowserTab.json": {
-      "bytes": 1431,
-      "sha256": "c92d5b02581c89b76204181b507ad3da6bd06dace1eb8a2528655a7c1c047b47"
+      "bytes": 1530,
+      "sha256": "df2ab517523c85eaa5eaa600faab022e9c464556db7b434e809c75efdb6f04e9"
     },
     "schema/BrowserTabActor.json": {
       "bytes": 412,
@@ -3849,10 +3853,10 @@
       "sha256": "eadd796e5214ab35199731ca1c2f0faa3dd65dab3d6150142a57acda545ef06d"
     },
     "types.md": {
-      "bytes": 804401,
-      "sha256": "ee858555d5e3b2bf85832bb85d05fe005351a1b8e7b609cb0b88ff8e9db508e2"
+      "bytes": 805327,
+      "sha256": "23f46ec3a397e89ff11e89d61675fdcf12958d8cdba1fddd1b2555e6a2264ce9"
     }
   },
-  "input": "88d43cb40a25ba1b35131a8cc478043137ae7dcdc3e9465f6a372220c907068c",
+  "input": "7d549f4cd5aa44d98ab07a49938e8aaf0db5c75798563b497718967c8ac892c1",
   "version": 1
 }

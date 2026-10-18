@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import type { BrowserArtifact, BrowserBackendLost } from "@ace/protocol";
 import { backendFixture } from "./backend-test-support.ts";
+import { sessionDirectories } from "./session-dirs-test-support.ts";
 import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 it("failed private download cancellation exposes browser loss, removes bytes, and leaves a sibling usable", async () => {
@@ -20,11 +21,9 @@ it("failed private download cancellation exposes browser loss, removes bytes, an
   );
   await f.open();
   const sessionId = [...f.pages.keys()][0];
-  const sessionDir = (await readdir(join(f.home, "browser"))).find((name) =>
-    name.startsWith("session-"),
-  );
+  const [sessionDir] = await sessionDirectories(f.home);
   if (!sessionId || !sessionDir) throw new Error("Browser session missing");
-  const directory = join(f.home, "browser", sessionDir, "downloads");
+  const directory = join(sessionDir, "downloads");
   const guid = "native-11111111-1111-1111-1111-111111111111";
   await writeFile(join(directory, guid), "private bytes");
   await f.open("sibling");

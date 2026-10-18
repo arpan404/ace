@@ -290,9 +290,22 @@ function main(target: DaemonTarget): void {
   });
 
   let quitting = false;
+  let systemShutdown = false;
   app.on("before-quit", (event) => {
     if (quitting) return;
     event.preventDefault();
+    // One clear question, only while agents are mid-browse; an answer of Quit is final.
+    if (background.agentsBrowsing(Date.now(), systemShutdown)) {
+      const choice = dialog.showMessageBoxSync({
+        type: "warning",
+        buttons: ["Quit", "Cancel"],
+        defaultId: 1,
+        cancelId: 1,
+        message: "Agents are using the browser",
+        detail: "Quitting closes the pages they are working in, and they stop where they are.",
+      });
+      if (choice !== 0) return;
+    }
     quitting = true;
     globalShortcut.unregisterAll();
     // The browser backend tells the daemon first, then the daemon this app started stops.
@@ -402,6 +415,9 @@ function main(target: DaemonTarget): void {
     nativeTheme.on("updated", () => emit(contents(), "theme.changed", appearance()));
     runtime.onStatus((status) => emit(contents(), "daemon.status", status));
     settings.onChange(applySettings);
+    powerMonitor.on("shutdown", () => {
+      systemShutdown = true;
+    });
     powerMonitor.on("resume", () => {
       background.wake();
       emit(contents(), "system.resumed", undefined);

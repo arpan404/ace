@@ -35,9 +35,11 @@ The parking window no longer decides when the app quits. A pure rule (`appLifeti
 with no window, macOS stays open as before; Windows and Linux stay running, with the tray icon
 as the way back in and out, while any thread has a native page or any agent works (the
 daemon link's work summary), and quit as before once neither holds, unless the background
-setting keeps the app anyway. Quit is explicit and unchanged: the backend closes every view,
+setting keeps the app anyway. Quit is explicit: the backend closes every view,
 waiting for them (Electron does not finish quitting with a page alive), within the existing
-two-second grace.
+two-second grace. Amended for #952: while agents work and one of them read or acted in a native page in the
+last minute (`quitNeedsConfirmation`), Quit asks once ("Agents are using the browser": Quit or
+Cancel). Nothing asks otherwise, nor during a system shutdown.
 
 ### Re-adoption after a lost link
 
@@ -88,14 +90,14 @@ The `cdp` operation's tab methods, for the daemon's tab runtime:
 
 This is the one tab contract the desktop and the daemon's tab runtime (ADR 0083) both keep:
 
-| Method            | Params                                     | Result                                 |
-| ----------------- | ------------------------------------------ | -------------------------------------- |
-| `ace.tabs.list`   | none                                       | `{activeTabId, tabs}`                  |
-| `ace.tabs.open`   | `{select?: boolean}` (default: background) | `{activeTabId, tabs, tabId}` (the new) |
-| `ace.tabs.switch` | `{tabId}`                                  | `{activeTabId, tabs}`                  |
-| `ace.tabs.close`  | `{tabId}`; the last tab cannot be closed   | `{activeTabId, tabs}`                  |
-| `ace.tabs.resize` | `{tabId, width, height}` (100 to 4096)     | `{activeTabId, tabs}`                  |
-| `ace.tabs.cdp`    | `{tabId, method, params?}`                 | the CDP result of that tab             |
+| Method            | Params                                    | Result                                 |
+| ----------------- | ----------------------------------------- | -------------------------------------- |
+| `ace.tabs.list`   | none                                      | `{activeTabId, tabs}`                  |
+| `ace.tabs.open`   | `{select?, tabId?}` (default: background) | `{activeTabId, tabs, tabId}` (the new) |
+| `ace.tabs.switch` | `{tabId}`                                 | `{activeTabId, tabs}`                  |
+| `ace.tabs.close`  | `{tabId}`; the last tab cannot be closed  | `{activeTabId, tabs}`                  |
+| `ace.tabs.resize` | `{tabId, width, height}` (100 to 4096)    | `{activeTabId, tabs}`                  |
+| `ace.tabs.cdp`    | `{tabId, method, params?}`                | the CDP result of that tab             |
 
 - **Opening.** The daemon sends `select: true` only when the new tab should take the person's
   view (they opened it, or an agent did while they had not picked a tab). A new tab is blank and
@@ -114,6 +116,10 @@ This is the one tab contract the desktop and the daemon's tab runtime (ADR 0083)
   the person cannot reach them. An unseen tab takes CDP key events and is sized with
   `ace.tabs.resize`.
 - **Closing.** Any tab but the last; the last goes with the browser.
+- **Restoring** (#946). `tabId` on `ace.tabs.open` asks for that id, granted when it is free:
+  the daemon reopens a thread's recorded tabs in fresh views with the ids they had, then
+  navigates each. The blank first view gives way to them (or is reused when it already has the
+  first id). An older desktop ignores `tabId`.
 
 ### Crashed renderers back off
 

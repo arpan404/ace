@@ -45,6 +45,8 @@ export async function relayDaemon(
   options: {
     clock?: RelayClock | undefined;
     register?: (backendId: string, transport: EmbeddedTransport) => EmbeddedBackend;
+    /** Every message the desktop sends, as the daemon's socket receives it. */
+    received?: (message: unknown) => void;
   } = {},
 ) {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
@@ -65,6 +67,7 @@ export async function relayDaemon(
     const reply = (message: unknown) => socket.send(JSON.stringify(message));
     socket.on("message", (data) => {
       const message: unknown = JSON.parse(String(data));
+      options.received?.(message);
       if (typeof message !== "object" || message === null || !("type" in message)) return;
       if (message.type === "hello") {
         const valid =

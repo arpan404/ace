@@ -76,8 +76,11 @@ export const BrowserBackendEvent = session.extend({
   method: id,
   params: z.unknown(),
 });
+/** The desktop's computer woke from sleep: the daemon checks every browser engine (#947). */
+export const BrowserBackendResumed = z.object({ type: z.literal("browser.backend.resumed") });
 export const BrowserBackendClientMessage = z.discriminatedUnion("type", [
   BrowserBackendRegister,
+  BrowserBackendResumed,
   BrowserBackendResponse,
   BrowserBackendEvent,
 ]);

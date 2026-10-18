@@ -26,6 +26,11 @@ export class UserChromeBackend implements BrowserBackend {
   available(): boolean {
     return this.hub.preferred() !== undefined;
   }
+  /** Whether the browser behind this link id is still connected. */
+  connected(connectionId: string): boolean {
+    const link = this.hub.get(connectionId);
+    return link !== undefined && !link.closed;
+  }
   /** Browsers connected or left, or the tabs the person shared changed. */
   onChange(listener: () => void): () => void {
     return this.hub.onChange(listener);
@@ -58,6 +63,19 @@ export class UserChromeBackend implements BrowserBackend {
           : [],
       ),
     );
+  }
+  /**
+   * Agent tabs in every connected browser. They outlive the daemon: after a restart a thread
+   * takes back the ones it had instead of opening new ones.
+   */
+  agentTabs(): (UserTabRef & { tab: UserBrowserTab })[] {
+    return this.hub
+      .connections()
+      .flatMap((connection) =>
+        connection.tabs
+          .filter((tab) => tab.access === "agent")
+          .map((tab) => ({ connectionId: connection.connectionId, tabId: tab.tabId, tab })),
+      );
   }
   async open(request: BackendOpen): Promise<UserTabSession & { ref: UserTabRef }> {
     request.signal.throwIfAborted();

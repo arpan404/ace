@@ -1,3 +1,4 @@
+import { agentWork } from "../os/quit-guard.ts";
 import { RendererRecovery } from "./renderer-recovery.ts";
 import { NativeBasicAuth } from "./basic-auth.ts";
 import { NativePopups } from "./popups.ts";
@@ -107,6 +108,8 @@ export class EmbeddedPage implements ViewPage {
   private closing: Promise<void> | undefined;
   private detachedSent = false;
   private lastDrivenAt = Date.now();
+  /** When an agent last read or acted in this view (`agentWork`); never: -∞. */
+  private drivenAt = -Infinity;
   private screencasting = false;
   private throttled = false;
   private throttleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -572,6 +575,7 @@ export class EmbeddedPage implements ViewPage {
     }
     if (method === "Page.startScreencast") this.screencasting = true;
     else if (method === "Page.stopScreencast") this.screencasting = false;
+    if (agentWork(method)) this.drivenAt = Date.now();
     this.driven();
     this.gate.command(method, params);
     this.paused.command(method, params);
@@ -616,6 +620,7 @@ export class EmbeddedPage implements ViewPage {
   }
 
   navigate(url: string, timeoutMs: number): Promise<string> {
+    this.drivenAt = Date.now();
     if (this.crashed) return Promise.reject(new Error("The page crashed. Reload it to try again."));
     this.driven();
     const contents = this.contents;
@@ -673,6 +678,7 @@ export class EmbeddedPage implements ViewPage {
   }
 
   async press(key: string): Promise<void> {
+    this.drivenAt = Date.now();
     this.driven();
     const press = parseChord(key, this.options.platform);
     const { keyCode, modifiers } = press;
@@ -818,6 +824,11 @@ export class EmbeddedPage implements ViewPage {
   }
 
   /** The agent used the view: full speed now, and throttled again once it goes quiet. */
+  /** When an agent last worked in this view: agents mid-browse make Quit ask first. */
+  lastDriven(): number {
+    return this.drivenAt;
+  }
+
   private driven(): void {
     this.lastDrivenAt = Date.now();
     // An unseen, unrendered view starts rendering before the command reaches it.

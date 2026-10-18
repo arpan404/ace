@@ -13,6 +13,7 @@ import { detectFfmpeg } from "./discovery.ts";
 import { ownedHeadless } from "./owned-backend.ts";
 import { BrowserProfiles } from "./profiles.ts";
 import { TabBudget } from "./tab-budget.ts";
+import { forkTabRecords, type BrowserTabRecord } from "./tab-store.ts";
 import { daemonTabLimit, threadTabLimit } from "./tab-limits.ts";
 import { defaultTabLifecycle } from "./tab-lifecycle.ts";
 import type { LifecycleSchedule } from "./session-lifecycle.ts";
@@ -35,6 +36,7 @@ import { BrowserSubscriptions } from "./subscriptions.ts";
 const defaultGlideMs = 220;
 
 import { PolicyGate } from "./policy-call.ts";
+import { watchWake } from "./wake-watch.ts";
 import { setMaxListeners } from "node:events";
 import type { BrowserServiceOptions } from "./service-options.ts";
 export type { BrowserServiceOptions } from "./service-options.ts";
@@ -60,6 +62,8 @@ export class BrowserService {
   private headless: BrowserBackend;
   private acquisition: ReturnType<typeof ownedHeadless>;
   private recoveries = new Map<string, Promise<void>>();
+  /** Forks that already took their parent's tabs in this daemon's lifetime. */
+  private seeded = new Set<string>();
   /** Sessions paused by desktop loss, with a single-flight recovery on the available backend. */
   private resumable = new Map<string, () => Promise<void>>();
   get hasActiveSessions(): boolean {
@@ -75,6 +79,7 @@ export class BrowserService {
   }
   private policyScopes = new Map<string, AbortController>();
   private navigationClock: import("./navigation.ts").NavigationClock;
+  private stopWakeWatch = () => {};
   constructor(options: BrowserServiceOptions) {
     this.options = options;
     this.profiles = new BrowserProfiles(options.dataDir);
@@ -91,9 +96,32 @@ export class BrowserService {
         return () => clearTimeout(timer);
       },
     };
-    this.tabs = new TabBudget(options.maxTabs ?? daemonTabLimit);
+    this.tabs = options.tabBudget ?? new TabBudget(options.maxTabs ?? daemonTabLimit);
     this.acquisition = ownedHeadless(options, this.lifetime.signal);
     this.headless = this.acquisition.backend;
+    if (options.wakeWatch !== false)
+      this.stopWakeWatch = watchWake(
+        { wall: this.now, monotonic: () => this.navigationClock.now() },
+        options.wakeWatch ?? {
+          every: 10_000,
+          toleranceMs: 30_000,
+          set: (delay, work) => {
+            const timer = setTimeout(work, delay);
+            timer.unref();
+            return () => clearTimeout(timer);
+          },
+        },
+        () => this.wake(),
+      );
+  }
+  /**
+   * The computer woke from sleep (the desktop said so, or the clocks did): every open thread
+   * browser checks its engine, recovers a dead one and restarts its live capture; navigations
+   * in flight do not fail for the time spent asleep.
+   */
+  wake(): void {
+    for (const session of this.sessions.values())
+      void session.wake().catch((error: unknown) => this.options.onError?.(error));
   }
   async open(raw: unknown): Promise<BrowserState> {
     if (this.closing) throw new Error("Browser service shutting down");
@@ -158,7 +186,7 @@ export class BrowserService {
     );
     let backend = candidates[0] ?? this.headless;
     signal.throwIfAborted();
-    const profileLease = await this.profiles.acquire();
+    const profileLease = await this.profiles.acquire(options.threadId);
     const { profile, dir, downloadDir } = profileLease;
     const store = this.options.tabStore;
     const restoredTabs = this.restoredTabs(options.threadId);
@@ -208,10 +236,15 @@ export class BrowserService {
       if (!owned || !opening) return Promise.resolve();
       // While the desktop may still hand its views back, only the desktop takes the page.
       if (!this.embedded && loss.pending) return loss.settled().then(() => resume());
-      const recoveryRequest = opening;
+      const opened = opening;
       this.resumable.delete(options.threadId);
       const native = this.embedded;
       const recover = async () => {
+        // Every tab comes back with its id and address, not just the one that was shown.
+        const restoreTabs = owned.tabRecords().map(({ tabId, url }) => ({ tabId, url }));
+        const recoveryRequest: BackendOpen = restoreTabs.length
+          ? { ...opened, restoreTabs }
+          : opened;
         await owned.releaseLostBackend();
         const generation = ++recoveryGeneration;
         if (!native) {
@@ -235,7 +268,9 @@ export class BrowserService {
           if (replacement.adopted) await owned.readopt(replacement);
           else {
             replacement.privateMode?.(owned.viewedPrivate);
-            if (url !== "about:blank") await replacement.navigate(url, 10_000);
+            // A backend with tabs reopened them itself; a one-page desktop loads the last URL.
+            if (url !== "about:blank" && !(restoreTabs.length && replacement.tabs))
+              await replacement.navigate(url, 10_000);
             await owned.replace(replacement, "embedded");
             // A fresh view: the pages are gone, whether or not the grace had said so yet.
             if (!loss.reported) announce(url, "The desktop opened a new page");
@@ -431,16 +466,35 @@ export class BrowserService {
       throw error;
     }
   }
-  /** The thread's tabs from before a daemon restart; an unreadable store restores none. */
-  private restoredTabs(threadId: string) {
+  /**
+   * The thread's tabs from before a daemon restart, or a fork's copy of its parent's; an
+   * unreadable store restores none.
+   */
+  private restoredTabs(threadId: string): BrowserTabRecord[] {
     try {
-      return (this.options.tabStore?.load(threadId) ?? []).toSorted(
+      const own = (this.options.tabStore?.load(threadId) ?? []).toSorted(
         (a, b) => a.position - b.position,
       );
+      return own.length ? own : this.forkTabs(threadId);
     } catch (error) {
       this.options.onError?.(error);
       return [];
     }
+  }
+  /**
+   * A fork's first browser starts with the tabs its parent has now (open or recorded): their
+   * addresses, titles and labels under new tab ids. Tabs the person keeps agents out of stay
+   * behind, and the copies belong to no agent, so no turn's end closes them.
+   */
+  private forkTabs(threadId: string): BrowserTabRecord[] {
+    if (this.seeded.has(threadId)) return [];
+    const parent = this.options.forkedFrom?.(threadId);
+    if (!parent) return [];
+    this.seeded.add(threadId);
+    const live = this.sessions.get(parent);
+    const source =
+      live && !live.state.closed ? live.tabRecords() : (this.options.tabStore?.load(parent) ?? []);
+    return forkTabRecords(source, () => `tab-${this.id()}`, this.now());
   }
   /** Idle tabs in ace's Chrome freeze; the desktop's views manage themselves. */
   private lifecycle(): { lifecycle?: LifecycleSchedule } {
@@ -485,10 +539,21 @@ export class BrowserService {
   async forgetThread(threadId: string, workspaceId: string): Promise<{ desktop: boolean }> {
     await this.closeThread(threadId);
     this.options.tabStore?.clear(threadId);
+    // Its downloads and logs in ace's data go too; what the person saved elsewhere stays.
+    await this.profiles.forget(threadId);
     const embedded = this.embedded;
     if (!embedded) return { desktop: false };
     await embedded.purge(threadId, workspaceId);
     return { desktop: true };
+  }
+  /**
+   * An agent's turn ended (from the daemon's orchestrator): its temporary tabs in the thread's
+   * browser close and its tab cursor is released. Nothing happens without an open browser.
+   */
+  async agentFinished(threadId: string, agentId: string): Promise<void> {
+    const session = this.sessions.get(threadId);
+    if (!session || session.state.closed) return;
+    await session.finishAgent(agentId);
   }
   private get(threadId: string): BrowserSession {
     const session = this.sessions.get(threadId);
@@ -633,6 +698,7 @@ export class BrowserService {
   close(): Promise<void> {
     this.closing ??= (async () => {
       this.lifetime.abort();
+      this.stopWakeWatch();
       this.embedded?.disconnect("Browser service shutting down");
       await Promise.allSettled(this.recoveries.values());
       await Promise.allSettled(this.opening.values());

@@ -54,7 +54,7 @@ export async function executeTabs(
       context.ready();
       const runtime = await tabs.structural(() => {
         signal?.throwIfAborted();
-        return tabs.open(actor, { label: command.label });
+        return tabs.open(actor, { label: command.label, keep: command.keep });
       });
       context.changed();
       if (command.url) await context.navigate(runtime, command.url, actor, signal);
@@ -67,6 +67,14 @@ export async function executeTabs(
       const runtime = await tabs.structural(() => tabs.select(actor, tabId));
       context.changed();
       if (command.url) await context.navigate(runtime, command.url, actor, signal);
+      return result(context, actor, runtime.id);
+    }
+    case "keep": {
+      // A deliverable or handoff outlives the agent's turn; `keep: false` makes it scratch again.
+      const runtime = tabs.resolve(actor, command.tabId);
+      runtime.readCheck(actor);
+      tabs.keep(runtime.id, command.keep ?? true);
+      context.changed();
       return result(context, actor, runtime.id);
     }
     case "close": {

@@ -20,6 +20,10 @@ export class AgentCursors {
       if (agent !== own && agent !== "" && cursor === tabId) return true;
     return false;
   }
+  /** A finished agent leaves no cursor behind, so no later agent counts its tab as taken. */
+  release(agentId: string | undefined): void {
+    this.cursors.delete(AgentCursors.key(agentId));
+  }
   /** A closed tab leaves no cursor behind. */
   forget(tabId: string): void {
     for (const [agent, cursor] of this.cursors) if (cursor === tabId) this.cursors.delete(agent);

@@ -14,9 +14,10 @@ import type { NavigationTask } from "./navigation.ts";
 import { SessionTabs } from "./session-tabs.ts";
 import { TabRuntime, type TabHost } from "./tab-runtime.ts";
 import { executeDownloads, executeTabs } from "./session-structure.ts";
-import { freezeIdleTabs, wakeTab } from "./session-lifecycle.ts";
+import { settleIdleTabs, wakeTab } from "./session-lifecycle.ts";
 import { tabCommand } from "./session-commands.ts";
 import { collaborationTiming } from "./collaboration.ts";
+import { keepAfterPersonMs, temporaryTabs } from "./turn-end.ts";
 
 import type { Actor, SessionOptions } from "./session-options.ts";
 import type { BrowserTabActor } from "@ace/protocol";
@@ -115,6 +116,8 @@ export class BrowserSession {
         lastActiveAt: record.lastActiveAt,
         private: record.private,
       });
+    for (const record of options.restoredTabs ?? [])
+      if (record.kept) this.tabs.keep(record.tabId, true);
     this.tabs.reconcile();
     // Tabs reopened after a daemon restart: their page state and refs are gone.
     for (const record of options.restoredTabs ?? []) this.tabs.find(record.tabId)?.refs.restarted();
@@ -136,6 +139,14 @@ export class BrowserSession {
     );
     this.persist();
     this.scheduleLifecycle();
+  }
+  /** A frozen tab runs again, a discarded one reopens (its page state reported lost). */
+  private async wakeIdle(tabId: string): Promise<void> {
+    const runtime = this.tabs.find(tabId);
+    if (!runtime) return;
+    const woke = await wakeTab(runtime, this.options.backend.tabs);
+    if (woke === "reopened") this.tabs.stateLost(tabId, true);
+    if (woke) this.emit();
   }
   private viewedPage() {
     return this.tabs.page(this.tabs.viewedId());
@@ -172,10 +183,7 @@ export class BrowserSession {
         this.options.backend.privateMode?.(this.tabs.all().some((tab) => tab.private));
         this.persist();
       },
-      wake: async (tabId) => {
-        const runtime = this.tabs.find(tabId);
-        if (runtime && (await wakeTab(runtime))) this.emit();
-      },
+      wake: (tabId) => this.wakeIdle(tabId),
       beginRecording: async (tabId, check, by) => {
         await this.recordings.start(check, this.recordedTab(tabId), tabActor(by));
         this.emit();
@@ -209,7 +217,15 @@ export class BrowserSession {
     const records = this.tabs.records();
     // Activity times alone do not warrant a write.
     const signature = JSON.stringify(
-      records.map((tab) => [tab.tabId, tab.url, tab.title, tab.label, tab.openedBy, tab.private]),
+      records.map((tab) => [
+        tab.tabId,
+        tab.url,
+        tab.title,
+        tab.label,
+        tab.openedBy,
+        tab.private,
+        tab.kept,
+      ]),
     );
     if (signature === this.persisted) return;
     this.persisted = signature;
@@ -217,6 +233,7 @@ export class BrowserSession {
   }
   navigation(tabId?: string): void {
     this.blocked = undefined;
+    if (tabId !== undefined) this.tabs.stateLost(tabId, false);
     (tabId === undefined ? this.tabs.viewed() : this.tabs.find(tabId))?.invalidate();
     this.emit();
   }
@@ -270,6 +287,14 @@ export class BrowserSession {
   restarted(tabId?: string): void {
     const tabs = tabId === undefined ? this.tabs.all() : [this.tabs.find(tabId)];
     for (const tab of tabs) tab?.restarted();
+    // The whole browser is back with every tab (a crash, or a wedge found after sleep): work that
+    // failed while it was down, such as a capture in flight, no longer holds the thread paused.
+    if (tabId === undefined && this.paused && !this.reattaching && !this.closed) {
+      this.paused = false;
+      this.reason = undefined;
+      this.lastUrl = undefined;
+      this.pageStateLost = true;
+    }
     if (tabId !== undefined && tabId !== this.captured) return;
     this.recapture("The page could not reconnect");
   }
@@ -284,6 +309,8 @@ export class BrowserSession {
       .then(async () => {
         if (token !== this.captureToken || this.closed || this.paused) return;
         target = this.tabs.viewedId();
+        // The person picked a tab dropped while idle: it reopens before it is shown.
+        await this.wakeIdle(target);
         await this.live.replace(this.viewedPage().cdp);
         if (token === this.captureToken) this.emit();
       })
@@ -395,6 +422,14 @@ export class BrowserSession {
     // A popup of a private page is private too.
     for (const tab of added)
       if (tab.openedBy?.kind === "page" && viewed?.private) tab.setPrivate(true);
+    // A popup from an agent's tab is that agent's, and past its own tab limit it goes.
+    for (const tab of this.tabs.overAgentLimit(added))
+      void this.tabs
+        .structural(async () => {
+          if (!this.closed && !this.tabs.leaving(tab.id) && !this.tabs.last(tab.id))
+            await this.tabs.close(tab.id);
+        })
+        .catch(() => {});
     const viewedId = this.tabs.viewedId();
     if (viewedId !== this.captured && !this.paused) {
       this.tabs.find(this.captured ?? "")?.annotation.end("tab");
@@ -586,18 +621,60 @@ export class BrowserSession {
       const dialogs = new Set(
         this.options.backend.tabs?.list().flatMap((tab) => (tab.pending_dialog ? [tab.tabId] : [])),
       );
-      void freezeIdleTabs(
+      // A dialog, a download still arriving or a recording keeps a tab as it is.
+      void settleIdleTabs(
         this.tabs.all(),
         this.tabs.viewedId(),
         this.options.now(),
         lifecycle.policy,
-        (tab) => dialogs.has(tab.id) || this.recordings.active,
+        (tab) => dialogs.has(tab.id) || this.downloading(tab.id) || this.recordings.active,
+        this.options.backend.tabs,
       )
         .then((changed) => {
           if (changed) this.emit();
         })
         .finally(() => this.scheduleLifecycle());
     });
+  }
+  /** A download still arriving in this tab: the tab must not freeze, discard or close under it. */
+  private downloading(tabId: string): boolean {
+    return (this.options.backend.tabs?.downloads?.() ?? []).some(
+      (download) => download.tabId === tabId && download.state === "pending",
+    );
+  }
+  /**
+   * `agentId`'s turn ended. Its cursor goes, so no later agent finds its tab taken, and the
+   * temporary tabs it opened close. Kept tabs stay, as do tabs the person views, used lately
+   * or keeps private, and tabs still busy, holding a dialog or downloading.
+   */
+  async finishAgent(agentId: string): Promise<void> {
+    if (this.closed) return;
+    this.tabs.cursors.release(agentId);
+    const viewedId = this.tabs.viewedId();
+    const dialogs = new Set(
+      this.options.backend.tabs?.list().flatMap((tab) => (tab.pending_dialog ? [tab.tabId] : [])),
+    );
+    const doomed = temporaryTabs(
+      this.tabs.all().map((tab) => ({
+        tabId: tab.id,
+        openedBy: tab.openedBy,
+        kept: this.tabs.kept(tab.id),
+        private: tab.private,
+        viewed: tab.id === viewedId,
+        busy: tab.busy,
+        pinned: dialogs.has(tab.id) || this.downloading(tab.id),
+        usedByPerson: tab.humanWithin(keepAfterPersonMs),
+      })),
+      agentId,
+    );
+    for (const tabId of doomed)
+      await this.tabs
+        .structural(async () => {
+          if (!this.closed && !this.tabs.leaving(tabId) && !this.tabs.last(tabId))
+            await this.tabs.close(tabId);
+        })
+        .catch(() => {});
+    if (!this.closed) this.changed();
   }
   close(): Promise<void> {
     this.closing ??= (async () => {
@@ -625,6 +702,24 @@ export class BrowserSession {
     if (this.closed) throw new BrowserActionError("browser_closed");
     await this.onTab(actor, undefined, async (runtime) => runtime.readCheck(actor));
     return this.currentTab(actor);
+  }
+  /**
+   * The computer woke from sleep. Navigations in flight get their time again, the engine is
+   * asked whether it is alive (a dead one recovers through the backend), and the live capture
+   * restarts on the shown tab, as a screencast may have stalled while asleep.
+   */
+  async wake(): Promise<void> {
+    if (this.closed) return;
+    this.policies.wake();
+    const backend = this.options.backend;
+    const alive = (await backend.ping?.()) ?? true;
+    // A dead engine re-arms capture itself once it is back (`restarted`, or a replacement).
+    if (alive && !this.closed && !this.paused && this.options.backend === backend)
+      this.recapture("The page could not reconnect after sleep");
+  }
+  /** The thread's tabs as a restore brings them back: ids, addresses, labels, order. */
+  tabRecords(): import("./tab-store.ts").BrowserTabRecord[] {
+    return this.tabs.records();
   }
   /** The tab an agent's next command without `tabId` would use, with its address. */
   currentTab(actor: Actor): { tabId: string; url: string; title: string } {

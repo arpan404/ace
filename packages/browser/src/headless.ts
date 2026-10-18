@@ -213,6 +213,8 @@ export class ChromeBackend implements BrowserBackend {
         dialog: () => tabs.dialog(),
         answer: (id, accept, text) => tabs.answer(id, accept, text),
         downloads: () => tabs.downloads.transfers.list(),
+        discard: (id) => tabs.discard(id),
+        revive: (id) => tabs.revive(id),
         page,
       },
       privateMode: (enabled) => {
@@ -222,6 +224,8 @@ export class ChromeBackend implements BrowserBackend {
       agentUse: async (tabId, active) => {
         tabs.agentUse(tabId, active);
       },
+      // A browser that stopped answering (asleep, wedged) is killed and restarted with its tabs.
+      ping: async () => (await current?.instance.connection.ping()) ?? false,
       close,
     };
   }

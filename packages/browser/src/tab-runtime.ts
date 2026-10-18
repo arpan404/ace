@@ -153,6 +153,8 @@ export class TabRuntime {
     this.identity = new PageIdentity(() => host.emit());
     this.watchIdentity();
   }
+  /** The page identity waits for a command to claim the tab (`watchIdentity`). */
+  private identityWaits = false;
   /** Follow the title and favicon on the session that reaches the page now. */
   private watchIdentity(): void {
     let page: BrowserBackendPage;
@@ -162,6 +164,10 @@ export class TabRuntime {
       // A backend without per-tab pages reaches only the shown tab: its title is the backend's.
       return;
     }
+    // A shared tab of the person's Chrome is claimed by its first command, not by watching it;
+    // until then its title is the one their Chrome lists.
+    this.identityWaits = page.unclaimed?.() === true;
+    if (this.identityWaits) return;
     this.identity.watch(page.cdp);
   }
   get page(): BrowserBackendPage {
@@ -451,6 +457,8 @@ export class TabRuntime {
         if (error instanceof BrowserOriginError) this.host.blockedNavigation(error.blocked);
         throw error;
       }
+      // The command claimed a shared tab: its title and favicon can be watched now.
+      if (this.identityWaits) this.watchIdentity();
       this.readCheck(actor, privateEpoch);
       const after = this.host.flags();
       if (after.paused || (generation !== this.access.generation && after.pageStateLost))

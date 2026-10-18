@@ -101,10 +101,19 @@ export interface BrowserBackendTabs {
    */
   opener?(tabId: string): string | undefined;
   page?(tabId: string): BrowserBackendPage;
+  /** Drops an idle tab's page, keeping the tab listed at its address (ace's Chrome only). */
+  discard?(tabId: string): Promise<void>;
+  /** Reopens a discarded tab at its address, with the same id. */
+  revive?(tabId: string): Promise<void>;
 }
 /** One page's surface. Everything here acts on that page only. */
 export interface BrowserBackendPage {
   readonly cdp: BrowserCdp;
+  /**
+   * A tab the person shared from their own Chrome that no command has used yet: any CDP call
+   * claims it, so nothing may watch it before then (ADR 0084).
+   */
+  unclaimed?(): boolean;
   findText?(text: string, forward: boolean): Promise<unknown>;
   pageStatus?(): {
     loading: boolean;
@@ -159,6 +168,12 @@ export interface BrowserBackendSession extends BrowserBackendPage {
    * differently (the desktop intercepts file choosers and keeps an unseen view rendering).
    */
   agentUse?(tabId: string, active: boolean): Promise<void>;
+  /**
+   * Checks the engine is alive (after the computer woke from sleep); resolves to whether it
+   * is. A dead one is reported through the open request's `lost`, or restarted with its tabs,
+   * as the backend recovers.
+   */
+  ping?(): Promise<boolean>;
   /** Agent-visible extensions, read-only. */
   extensions?(): Promise<{ id: string; name: string; version?: string; enabled: boolean }[]>;
   close(): Promise<void>;

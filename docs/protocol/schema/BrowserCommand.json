@@ -643,6 +643,9 @@
           "const": "tabs",
           "type": "string"
         },
+        "keep": {
+          "type": "boolean"
+        },
         "label": {
           "maxLength": 64,
           "minLength": 1,
@@ -654,7 +657,8 @@
             "list",
             "open",
             "select",
-            "close"
+            "close",
+            "keep"
           ],
           "type": "string"
         },

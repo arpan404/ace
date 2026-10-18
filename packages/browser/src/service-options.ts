@@ -53,8 +53,23 @@ export interface BrowserServiceOptions {
   workspaceRoot?: (threadId: string) => string | Promise<string>;
   /** Live tabs across every thread; default 48 (ADR 0083). */
   maxTabs?: number;
+  /**
+   * The daemon-wide tab budget, shared with another service (Use my Chrome's tabs count
+   * against the same 48 as ace's own). Omitted: a budget of `maxTabs` for this service.
+   */
+  tabBudget?: import("./tab-budget.ts").TabBudget;
+  /**
+   * The thread a thread was forked from, if any. A fork opening its browser for the first time
+   * starts with a copy of that thread's tabs (addresses and labels, new tab ids).
+   */
+  forkedFrom?: (threadId: string) => string | undefined;
   /** Where thread tabs are kept for restore after a daemon restart; omitted, nowhere. */
   tabStore?: import("./tab-store.ts").BrowserTabStore;
+  /**
+   * How the service notices the computer woke from sleep on its own (wall time running ahead of
+   * monotonic time); `false` turns it off. Default: every 10 s, a 30 s tolerance.
+   */
+  wakeWatch?: import("./wake-watch.ts").WakeWatch | false;
   /** Idle-tab freezing in ace's Chrome; `false` turns it off. */
   tabLifecycle?: import("./session-lifecycle.ts").LifecycleSchedule | false;
   maxDownloadBytes?: number;

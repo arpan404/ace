@@ -12,8 +12,13 @@ const CdpCommand = TabCommand.extend({
   method: z.string().min(1).max(256),
   params: z.record(z.string(), z.unknown()).optional(),
 });
-/** `select` makes the new tab the one the panel shows; by default it opens in the background. */
-const OpenCommand = z.object({ select: z.boolean().optional() }).optional();
+/**
+ * `select` makes the new tab the one the panel shows; by default it opens in the background.
+ * `tabId` asks for the tab's id: the daemon restores a thread's tabs with the ids they had.
+ */
+const OpenCommand = z
+  .object({ select: z.boolean().optional(), tabId: z.string().min(1).max(256).optional() })
+  .optional();
 const ResizeCommand = TabCommand.extend({
   width: z.number().int().min(100).max(4096),
   height: z.number().int().min(100).max(4096),
@@ -36,7 +41,9 @@ type GroupPage = Pick<
   | "isShown"
   | "picture"
 > &
-  Partial<Pick<EmbeddedPage, "orphan" | "readopt" | "evacuate" | "devtools" | "print">>;
+  Partial<
+    Pick<EmbeddedPage, "orphan" | "readopt" | "evacuate" | "devtools" | "print" | "lastDriven">
+  >;
 
 interface Tab {
   id: string;
@@ -59,6 +66,8 @@ export class EmbeddedPageGroup implements ViewPage {
   private active = "";
   private sequence = 0;
   private opening = 0;
+  /** Ids of tabs being created, so two opens never share one. */
+  private claimed = new Set<string>();
   private input = false;
   private agent = false;
   private closed = false;
@@ -112,12 +121,29 @@ export class EmbeddedPageGroup implements ViewPage {
     this.emit("ace.tabs.changed", this.snapshot());
   }
 
+  /** The requested id when it is free, else the next generated one. */
+  private nextId(requested: string | undefined): string {
+    const taken = (id: string) => this.tabs.has(id) || this.claimed.has(id);
+    if (requested !== undefined && !taken(requested)) {
+      // Generated ids never collide with a restored one later.
+      const generated = /^native-tab-(\d+)$/.exec(requested);
+      if (generated) this.sequence = Math.max(this.sequence, Number(generated[1]));
+      return requested;
+    }
+    let id = `native-tab-${++this.sequence}`;
+    while (taken(id)) id = `native-tab-${++this.sequence}`;
+    return id;
+  }
+
   /** A new tab, in the background unless `select` or it is the thread's first. */
-  async openTab(options: { select?: boolean | undefined } = {}): Promise<string> {
+  async openTab(
+    options: { select?: boolean | undefined; tabId?: string | undefined } = {},
+  ): Promise<string> {
     if (this.closed) throw new Error("Browser closed");
     if (this.tabs.size + this.opening >= nativeTabLimit) throw new Error("Browser tab limit");
     this.opening++;
-    const id = `native-tab-${++this.sequence}`;
+    const id = this.nextId(options.tabId);
+    this.claimed.add(id);
     try {
       const page = await this.create(id);
       if (this.closed) {
@@ -143,6 +169,7 @@ export class EmbeddedPageGroup implements ViewPage {
       return id;
     } finally {
       this.opening--;
+      this.claimed.delete(id);
     }
   }
 
@@ -324,6 +351,14 @@ export class EmbeddedPageGroup implements ViewPage {
 
   url() {
     return this.current().url;
+  }
+
+  /** When the daemon last drove any of the thread's tabs. */
+  lastDriven(): number {
+    let latest = -Infinity;
+    for (const tab of this.tabs.values())
+      latest = Math.max(latest, tab.page.lastDriven?.() ?? -Infinity);
+    return latest;
   }
 
   /** The window is closing: every tab in it moves to the parking window. */

@@ -1,6 +1,7 @@
 import type { BrowserDialog, BrowserTab } from "@ace/protocol";
 import type {
   BackendOpen,
+  BackendRestoreTab,
   BrowserBackend,
   BrowserBackendPage,
   BrowserBackendSession,
@@ -22,6 +23,8 @@ interface Entry {
   session?: UserTabSession;
   claiming?: Promise<UserTabSession> | undefined;
   page: BrowserBackendPage;
+  /** An agent tab's place in the daemon-wide tab budget. */
+  release?: () => void;
 }
 
 const sharedId = (ref: UserTabRef) => `shared-${ref.connectionId}-${ref.tabId}`;
@@ -37,11 +40,13 @@ const lastTab = "Close the browser to close its last tab";
 export class UserChromeTabsBackend implements BrowserBackend {
   readonly kind = "user";
   private user: UserChromeBackend;
+  /** Agent tabs some thread holds (`refKey`), so two threads never take back the same one. */
+  private held = new Set<string>();
   constructor(user: UserChromeBackend) {
     this.user = user;
   }
   open(request: BackendOpen): Promise<BrowserBackendSession> {
-    return new UserTabs(this.user, request).start();
+    return new UserTabs(this.user, request, this.held).start();
   }
 }
 
@@ -59,12 +64,14 @@ class UserTabs {
   private stopWatching = () => {};
   private user: UserChromeBackend;
   private request: BackendOpen;
-  constructor(user: UserChromeBackend, request: BackendOpen) {
+  private held: Set<string>;
+  constructor(user: UserChromeBackend, request: BackendOpen, held: Set<string>) {
     this.user = user;
     this.request = request;
+    this.held = held;
   }
   async start(): Promise<BrowserBackendSession> {
-    this.activeId = await this.openAgent();
+    this.activeId = (await this.restore()) ?? (await this.openAgent());
     this.stopWatching = this.user.onChange(() => {
       if (this.closed) return;
       const shared = new Set(this.user.sharedTabs().map(sharedId));
@@ -87,15 +94,85 @@ class UserTabs {
       lost: (reason) => this.tabLost(id, reason),
     };
   }
-  private async openAgent(): Promise<string> {
-    const id = `agent-${++this.sequence}`;
-    const session = await this.user.open(this.tabRequest(id));
+  /** A place in the daemon-wide tab budget: agent tabs here count as ace's own do. */
+  private reserve(): () => void {
+    return this.request.reserveTab?.() ?? (() => {});
+  }
+  /**
+   * The thread's agent tabs from before a restart, with their ids, in order: each takes back a
+   * still-open agent tab at its address in the person's browser, or opens one there. Returns
+   * the first, which is shown. Tabs the person shared come back when they are listed again.
+   */
+  private async restore(): Promise<string | undefined> {
+    let first: string | undefined;
+    const entries = (this.request.restoreTabs ?? []).filter(
+      (entry) => !entry.tabId.startsWith("shared-"),
+    );
+    for (const entry of entries.slice(0, this.request.maxTabs ?? 16)) {
+      try {
+        const id = await this.reopen(entry);
+        first ??= id;
+      } catch {
+        // That tab stays gone; the others still come back.
+      }
+    }
+    return first;
+  }
+  private async reopen(entry: BackendRestoreTab): Promise<string> {
+    const numbered = /^agent-(\d+)$/.exec(entry.tabId);
+    if (numbered) this.sequence = Math.max(this.sequence, Number(numbered[1]));
+    const left = this.user
+      .agentTabs()
+      .find((ref) => ref.tab.url === entry.url && !this.held.has(refKey(ref)));
+    if (!left) {
+      const id = await this.openAgent(entry.tabId);
+      const page = this.agents.get(id)?.page;
+      if (page && entry.url !== "about:blank")
+        await page.navigate(entry.url, 30_000, this.request.signal).catch(() => {});
+      return id;
+    }
+    const release = this.reserve();
+    this.held.add(refKey(left));
+    try {
+      const session = await this.user.adopt(this.tabRequest(entry.tabId), left);
+      if (this.closed) {
+        await session.close();
+        throw new Error("Browser closed");
+      }
+      this.agents.set(entry.tabId, { session, page: session, ref: left, release });
+      return entry.tabId;
+    } catch (error) {
+      release();
+      this.held.delete(refKey(left));
+      throw error;
+    }
+  }
+  private async openAgent(restoredId?: string): Promise<string> {
+    const id = restoredId ?? `agent-${++this.sequence}`;
+    const release = this.reserve();
+    let session: UserTabSession & { ref: UserTabRef };
+    try {
+      session = await this.user.open(this.tabRequest(id));
+    } catch (error) {
+      release();
+      throw error;
+    }
     if (this.closed) {
+      release();
       await session.close();
       throw new Error("Browser closed");
     }
-    this.agents.set(id, { session, page: session, ref: session.ref });
+    this.agents.set(id, { session, page: session, ref: session.ref, release });
+    this.held.add(refKey(session.ref));
     return id;
+  }
+  /** An agent tab leaves the thread; its budget place goes with it. */
+  private dropAgent(id: string): Entry | undefined {
+    const entry = this.agents.get(id);
+    this.agents.delete(id);
+    entry?.release?.();
+    if (entry?.ref) this.held.delete(refKey(entry.ref));
+    return entry;
   }
   /**
    * A page in one of this thread's agent tabs opened a tab (`target=_blank`, `window.open`):
@@ -117,20 +194,31 @@ class UserTabs {
   }
   private async adoptPopup(ref: UserTabRef, opener: string): Promise<void> {
     const id = `agent-${++this.sequence}`;
+    let release: () => void;
+    try {
+      release = this.reserve();
+    } catch {
+      // The daemon-wide budget is full: the popup stays the person's browser's own business.
+      this.refused.add(refKey(ref));
+      return;
+    }
     let session: UserTabSession;
     try {
       session = await this.user.adopt(this.tabRequest(id), ref);
     } catch {
+      release();
       this.refused.add(refKey(ref));
       return;
     }
     // Over the thread's tab limit, or after the thread's browser closed: the popup goes.
     if (this.closed || this.agents.size + this.claimed.size >= (this.request.maxTabs ?? 16)) {
+      release();
       this.refused.add(refKey(ref));
       await session.close();
       return;
     }
-    this.agents.set(id, { session, page: session, ref, opener });
+    this.agents.set(id, { session, page: session, ref, opener, release });
+    this.held.add(refKey(ref));
     this.request.changed?.();
   }
   /**
@@ -140,6 +228,13 @@ class UserTabs {
    */
   private tabLost(id: string, reason: string): void {
     if (this.closed) return;
+    // The whole browser went away: the session is lost with every agent tab still listed, so
+    // they are all kept for when it comes back, rather than dropped one by one.
+    const ref = this.agents.get(id)?.ref;
+    if (ref && !this.user.connected(ref.connectionId)) {
+      this.request.lost(reason);
+      return;
+    }
     this.claimed.delete(id);
     if (!this.agents.has(id)) {
       this.request.changed?.();
@@ -150,7 +245,7 @@ class UserTabs {
       this.request.lost(reason);
       return;
     }
-    this.agents.delete(id);
+    this.dropAgent(id);
     if (this.activeId === id) this.activeId = this.agents.keys().next().value ?? "";
     this.request.changed?.();
   }
@@ -231,6 +326,7 @@ class UserTabs {
     };
     const page: BrowserBackendPage = {
       cdp,
+      unclaimed: () => entry.session === undefined && entry.claiming === undefined,
       pageStatus: () => entry.session?.pageStatus?.() ?? { loading: false },
       url: () =>
         entry.session?.url() ??
@@ -270,7 +366,7 @@ class UserTabs {
         const agent = this.agents.get(id);
         if (agent) {
           if (this.agents.size === 1) throw new Error(lastTab);
-          this.agents.delete(id);
+          this.dropAgent(id);
           if (this.activeId === id) this.activeId = this.agents.keys().next().value ?? "";
           await agent.session?.close();
         } else {
@@ -336,6 +432,10 @@ class UserTabs {
     this.closed = true;
     this.stopWatching();
     const entries = [...this.agents.values(), ...this.claimed.values()];
+    for (const entry of this.agents.values()) {
+      entry.release?.();
+      if (entry.ref) this.held.delete(refKey(entry.ref));
+    }
     this.agents.clear();
     this.claimed.clear();
     await Promise.allSettled(entries.map((entry) => entry.session?.close()));
