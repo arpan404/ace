@@ -557,8 +557,21 @@ export class BrowserService {
     }
     return message;
   }
+  private stateObservers = new Set<(state: BrowserState) => void>();
+  /** Every thread's browser state as it changes, for daemon-wide views (who is browsing). */
+  observeStates(observer: (state: BrowserState) => void): () => void {
+    this.stateObservers.add(observer);
+    return () => void this.stateObservers.delete(observer);
+  }
   private emit(state: BrowserState): void {
     this.subscriptions.state(state);
+    for (const observer of this.stateObservers) {
+      try {
+        observer(state);
+      } catch (error) {
+        this.options.onError?.(error);
+      }
+    }
   }
   startRecording(threadId: string): Promise<void> {
     return this.get(threadId).startRecording();

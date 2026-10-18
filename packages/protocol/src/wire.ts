@@ -75,6 +75,7 @@ import {
 import { WorkspaceActionRequest, WorkspaceActionResult } from "./workspace-actions.ts";
 import { PluginClientMessage, PluginServerMessage } from "./plugins.ts";
 import { BrowserClientMessage, BrowserServerMessage } from "./browser.ts";
+import { BrowserBrowsing, BrowserBrowsingWatch } from "./browser-browsing.ts";
 import {
   DiagnosticsHealthRequest,
   DiagnosticsHealthResult,
@@ -245,6 +246,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ScreenClientMessage,
   DeviceClientMessage,
   ...BrowserClientMessage.options,
+  BrowserBrowsingWatch,
   ModelsListRequest,
   ModelsRefreshRequest,
   ModelsResolveRequest,
@@ -330,6 +332,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ...ScreenServerMessage.options,
   ...DeviceServerMessage.options,
   ...BrowserServerMessage.options,
+  BrowserBrowsing,
   ModelsResult,
   ModelsChanged,
   NotificationConfigResult,

@@ -4451,6 +4451,42 @@ Example:
 }
 ```
 
+## BrowserBrowsing
+
+[JSON Schema](schema/BrowserBrowsing.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"browser.browsing"` |  |
+| threads | yes | array | {"maxItems":512,"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}} |
+
+Example:
+
+```json
+{
+  "threads": [],
+  "type": "browser.browsing"
+}
+```
+
+## BrowserBrowsingWatch
+
+[JSON Schema](schema/BrowserBrowsingWatch.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"browser.browsing.watch"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "browser.browsing.watch"
+}
+```
+
 ## BrowserCaptureViewport
 
 [JSON Schema](schema/BrowserCaptureViewport.json), input validation.

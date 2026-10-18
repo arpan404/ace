@@ -33,6 +33,7 @@ import { roundButton } from "./page-toolbar.tsx";
 import { recordingThreads, type BrowserFeatures } from "./use-browser-features.ts";
 import { extensionsHidden } from "./extensions-menu.tsx";
 import { viewportById, viewports } from "./viewports.ts";
+import { AskAgentItem } from "./ask-agent-item.tsx";
 
 const icon = (glyph: typeof PlusIcon) => <Icon icon={glyph} />;
 
@@ -134,6 +135,7 @@ export function BrowserActions(props: {
         <MenuItem icon={icon(ArrowSquareOutIcon)} disabled={!external} onClick={openOutside}>
           Open in your browser
         </MenuItem>
+        <AskAgentItem threadId={props.threadId} tab={tab} />
         <MenuSeparator />
         <MenuSub>
           <MenuSubTrigger icon={icon(DevicesIcon)}>Page size</MenuSubTrigger>
