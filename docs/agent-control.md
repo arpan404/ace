@@ -1,26 +1,29 @@
 # Agent control
 
-ace exposes `delegate_task` and scoped `ace_thread_*` tools through each native session's loopback MCP lease. Child threads keep independent native provider histories. The parent's summary agent has `childThreadId`, and its status follows the entire child tree.
+ace exposes `delegate` and scoped thread tools (`threads_find`, `thread_read`, `thread_start`, `thread_control` and others) through each native session's loopback MCP lease. Child threads keep independent native provider histories. The parent's summary agent has `childThreadId`, and its status follows the entire child tree.
 
 ```json
 {
-  "requestId": "implement-parser",
-  "provider": "codex",
-  "model": "available-codex-model",
-  "role": "implementer: follow the plan and report evidence",
-  "task": "Implement the parser described in this thread.",
-  "options": { "effort": "high" },
-  "wait": false
+  "tasks": [
+    {
+      "requestId": "implement-parser",
+      "provider": "codex",
+      "model": "available-codex-model",
+      "role": "implementer: follow the plan and report evidence",
+      "task": "Implement the parser described in this thread.",
+      "effort": "high"
+    }
+  ]
 }
 ```
 
-Use available local model identifiers. `accountId` selects an accounts-scheduler instance; omitted selection uses eligible managed instances or the user's default logged-in CLI when no instances exist. Options are adapter capabilities: Codex supports effort and service tier; Claude supports its SDK effort values. Other adapters reject unsupported options. ACP sessions receive ace MCP through their advertised HTTP or stdio transport.
+Input is always a batch of 1 to 64 tasks. Use model identifiers from `models`. The provider defaults to the caller's. The daemon resolves the model to an accounts-scheduler instance; with no managed instances it uses the user's default logged-in CLI. Options are adapter capabilities: Codex supports effort and service tier; Claude supports its SDK effort values. Other adapters reject unsupported options. ACP sessions receive ace MCP through their advertised HTTP or stdio transport.
 
-`wait: true` observes settlement inside the call. `wait: false` returns the child ID immediately. Both produce a durable, coalesced result turn with trigger `subagent_result`. A timed-out observer leaves accepted work running. Follow-up messages retain the same native child thread and use a new durable result generation. Retrying a completed follow-up does not start another turn. Results contain small excerpts and transcript paging pointers. A parent can receive one completed child's result while other children remain active; its own approval or background task still prevents delivery.
+`waitSeconds` observes settlement inside the call, with `waitFor` `all` (default) or `any`. Without it the call returns the child IDs immediately. Both produce a durable, coalesced result turn with trigger `subagent_result`. A timed-out observer leaves accepted work running. Follow-up messages retain the same native child thread and use a new durable result generation. Retrying a completed follow-up does not start another turn. Results contain small excerpts and transcript paging pointers. A parent can receive one completed child's result while other children remain active; its own approval or background task still prevents delivery.
 
 `thread.create` prepares a child without opening a provider session. `thread.launch` starts it. Message, interrupt, read, search, and wait operate on independent threads. Reads are limited to the workspace or delegation family. Mutations require the caller's thread or a descendant. A child cannot mutate a parent or sibling. Only `question.answer` can resolve interactions: both the incoming answer and stored request must be questions. Approval, plan approval and elicitation resolution are unavailable.
 
-Title, GitHub PR link, archive/settle, snooze and project name operations use the existing store and notification APIs. PR metadata is returned with paged thread reads. Settling requires a settled or unlaunched thread. Search uses the existing search API with a thread filter applied before ranking. `ace_thread_read_output` pages retained text/output sources by byte offset, returning lossless base64 bytes and the next offset; the stream must belong to the requested authorized thread.
+Title, GitHub PR link, archive/settle, snooze and project name operations use the existing store and notification APIs. PR metadata is returned with paged thread reads. Settling requires a settled or unlaunched thread. Search (`threads_find`) uses the existing search API with a thread filter applied before ranking. `thread_read` also pages retained text/output sources by byte offset, returning lossless base64 bytes and the next offset; the stream must belong to the requested authorized thread.
 
 Fork checks the adapter's `fork` capability and calls the host's registered extension. Merge and queue tools require their owning extension. This checkout has no fork/queue executors, so these operations return `unsupported`; native capability alone does not fabricate an executor.
 
@@ -58,37 +61,24 @@ MCP fork/merge operations still need a registered host bridge: their existing sc
 
 ## Delegate to another connected device
 
-`ace_device_list` returns available paired hosts, their projects, models/accounts
-and native permission modes. Use those exact identities in `ace_device_delegate`:
+`machines` lists the paired machines that let this device's agents in, with their
+projects, tool groups and providers. Pass a listed name as `machine` and one of its
+projects as `project` in a `delegate` task:
 
 ```json
 {
-  "requestId": "review-api-on-build-box",
-  "hostId": "<host ID from ace_device_list>",
-  "workspaceId": "<project ID on that host>",
-  "provider": "codex",
-  "model": "<advertised model>",
-  "accountId": "<advertised account>",
-  "role": "Review API",
-  "task": "Review the API against the attached design and report findings.",
-  "context": {
-    "attachments": ["<source thread image SHA-256>"],
-    "files": ["docs/api-design.md"],
-    "threadBudgetBytes": 4096
-  }
+  "tasks": [
+    {
+      "requestId": "review-api-on-build-box",
+      "machine": "studio",
+      "project": "api",
+      "role": "Review API",
+      "task": "Review the API against docs/api-design.md and report findings."
+    }
+  ]
 }
 ```
 
-The target receives a parent transcript snapshot and immutable selected files
-through the encrypted files relay. Paths in `context.files` are relative to the
-source thread environment; they are never interpreted on the target. Selected
-attachments must already belong to the source thread. Use `ace_device_task_status`,
-`ace_device_task_wait` and `ace_device_task_cancel` with the returned `id` as `taskId`.
-Only the originating parent agent can inspect or control that task.
-
-A connected client brokers the existing paired-host workers, so client or device
-disconnection shows unavailable until recovery. A target files relay must be
-configured for context transfer. Status and bounded text results return to the
-originating agent; output artifacts remain on the producing device. This does
-not copy workspaces or merge remote changes. Cross-device descendants cannot
-recursively delegate to a third host. See [ADR0071](adr/0071-cross-device-agent-delegation.md).
+The child is an ordinary thread on the target. `agents_status`, `wait` and
+`agent_cancel` work on it with the returned thread ID. The client-brokered device
+tools of ADR 0071 are removed. See [ADR 0078](adr/0078-multi-device-mcp.md).

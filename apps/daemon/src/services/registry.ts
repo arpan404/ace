@@ -2,8 +2,6 @@ import { createCliControlSession } from "./cli-control.ts";
 import { createStorageSession } from "./storage.ts";
 import { createRepositoriesSession } from "./repositories.ts";
 import { createSourceControlSession } from "./source-control.ts";
-import { createRemoteIncomingSession } from "../agent-control/remote-incoming.ts";
-import { createRemoteDelegationSession } from "./remote-delegation.ts";
 import { createPromptFilesSession } from "./prompt-files.ts";
 import { createProviderInstallsSession } from "./provider-install.ts";
 import { createProviderLoginSession } from "./provider-login.ts";
@@ -52,8 +50,6 @@ export const socketServiceFactories = [
   createStorageSession,
   createSourceControlSession,
   createRepositoriesSession,
-  createRemoteDelegationSession,
-  createRemoteIncomingSession,
   createHostIdentitySession,
   createLongThreadSession,
   createPreviewClientSession,

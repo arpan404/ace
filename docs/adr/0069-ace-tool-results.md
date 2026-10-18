@@ -28,7 +28,9 @@ deletion permits collection. Results contain at most 16 blocks, 32 KiB of text a
 call slots cover capture as well as execution. Attachment failures leave a fixed
 unavailable-image message and preserve the action's actual outcome.
 
-Normalise ace namespaces once in core, before raw data is capped. Conservatively
+Normalise ace namespaces once in core, before raw data is capped. The canonical name
+is the bare tool name: `mcp__ace__context`, `ace_context` and a legacy `ace_`-prefixed
+toolkit name all read as `context`. Conservatively
 redact all stored ace text-input arguments, approval previews and raw envelopes, and omit input
 result snapshots and images. Providers can echo input before the helper identifies
 a secure field, so conditional redaction after dispatch would be too late. Text

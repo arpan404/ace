@@ -15,7 +15,7 @@ test.each(["claude", "codex"] as const)(
         "utf8",
       );
       expect(skill).toContain("invalid_html");
-      expect(skill).toContain("ace_html_render");
+      expect(skill).toContain("mcp__ace__html_render");
       if (provider === "claude")
         expect(session.directories).toEqual([join(root, "generated/plugins/ace-builtins")]);
       else {

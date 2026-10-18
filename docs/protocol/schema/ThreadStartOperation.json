@@ -73,8 +73,7 @@
     "requestId",
     "title",
     "text",
-    "workspace",
-    "provider"
+    "workspace"
   ],
   "type": "object"
 }

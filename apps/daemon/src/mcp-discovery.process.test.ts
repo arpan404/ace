@@ -79,17 +79,23 @@ it("agents discover ace through initialize, resources and status even when compu
       clientInfo: { name: "discovery-test", version: "1" },
       capabilities: {},
     });
-    expect(initialized.instructions).toEqual(expect.stringContaining("ace_"));
-    expect(initialized.instructions).toEqual(expect.stringContaining("ace_guide"));
+    expect(initialized.instructions).toEqual(expect.stringContaining("context first"));
+    expect(initialized.instructions).toEqual(expect.stringContaining("guide with topic"));
     expect(initialized.capabilities).toMatchObject({ resources: {}, tools: {} });
     expect((await request("resources/list")).resources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ uri: "ace://status", mimeType: "application/json" }),
       ]),
     );
+    const Status = z.looseObject(McpStatus.shape);
     const status = async () =>
-      McpStatus.parse(
-        (await request("tools/call", { name: "ace_status", arguments: {} })).structuredContent,
+      Status.parse(
+        z
+          .object({ status: z.unknown() })
+          .parse(
+            (await request("tools/call", { name: "context", arguments: { topics: ["status"] } }))
+              .structuredContent,
+          ).status,
       );
     const disabled = await status();
     expect(disabled).toMatchObject({
@@ -107,7 +113,7 @@ it("agents discover ace through initialize, resources and status even when compu
     const resource = z
       .array(z.object({ text: z.string() }))
       .parse((await request("resources/read", { uri: "ace://status" })).contents);
-    expect(McpStatus.parse(JSON.parse(resource[0]?.text ?? ""))).toEqual(disabled);
+    expect(Status.parse(JSON.parse(resource[0]?.text ?? ""))).toEqual(disabled);
     const tools = z
       .array(z.object({ name: z.string(), description: z.string() }))
       .parse((await request("tools/list")).tools);
@@ -155,15 +161,15 @@ it("agents discover ace through initialize, resources and status even when compu
         Accept: "application/json, text/event-stream",
         "MCP-Protocol-Version": "2026-07-28",
         "Mcp-Method": "tools/call",
-        "Mcp-Name": "ace_status",
+        "Mcp-Name": "context",
       },
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: ++id,
         method: "tools/call",
         params: {
-          name: "ace_status",
-          arguments: {},
+          name: "context",
+          arguments: { topics: ["status"] },
           _meta: {
             "io.modelcontextprotocol/protocolVersion": "2026-07-28",
             "io.modelcontextprotocol/clientInfo": { name: "current-test", version: "1" },
@@ -174,8 +180,9 @@ it("agents discover ace through initialize, resources and status even when compu
     });
     expect(current.status).toBe(200);
     expect(
-      z.object({ result: z.object({ structuredContent: McpStatus }) }).parse(await current.json())
-        .result.structuredContent,
+      z
+        .object({ result: z.object({ structuredContent: z.object({ status: Status }) }) })
+        .parse(await current.json()).result.structuredContent.status,
     ).toEqual(disabled);
     const revoked = await fetch(daemon.mcp.url, {
       method: "POST",

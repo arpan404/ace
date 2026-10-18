@@ -255,36 +255,30 @@ export function aceToolsBrowser(): Scenario {
           aceCall(
             "root",
             "open",
-            "ace_browser_open",
+            "browser_open",
             { url: "https://github.com/login" },
             json({
               tabId: "tab-1",
               url: "https://github.com/login",
             }),
           ),
-          aceCall("root", "snapshot", "ace_browser_snapshot", {}, json(snapshot)),
-          aceCall(
-            "root",
-            "type",
-            "ace_browser_type",
-            { ref: "e1-12", text: "octocat" },
-            json(null),
-          ),
-          aceCall("root", "click", "ace_browser_click", { ref: "e1-13" }, json(null)),
+          aceCall("root", "snapshot", "browser_snapshot", {}, json(snapshot)),
+          aceCall("root", "type", "browser_type", { ref: "e1-12", text: "octocat" }, json(null)),
+          aceCall("root", "click", "browser_click", { ref: "e1-13" }, json(null)),
           aceCall(
             "root",
             "wait",
-            "ace_browser_wait_for",
+            "browser_wait_for",
             { url: "https://github.com/sessions/two-factor" },
             json(null),
           ),
-          aceCall("root", "shot", "ace_browser_screenshot", {}, [
+          aceCall("root", "shot", "browser_screenshot", {}, [
             { type: "image", mimeType: "image/png", data: pageShot },
           ]),
           aceCall(
             "root",
             "press",
-            "ace_browser_press",
+            "browser_press",
             { key: "Meta+L" },
             failure(
               "human_controlled",
@@ -296,7 +290,7 @@ export function aceToolsBrowser(): Scenario {
           aceCall(
             "root",
             "notify",
-            "ace_notify_user",
+            "notify",
             {
               text: "Sign-in reached two-factor; it needs your code.",
             },
@@ -425,12 +419,16 @@ export function aceToolsDevices(): Scenario {
           aceCall(
             "root",
             "delegate",
-            "delegate_task",
+            "delegate",
             {
-              requestId: "review-1",
-              task: "Review the Shop sign-in screen for accessibility labels",
-              role: "review-signin-screen",
-              provider: "claude",
+              tasks: [
+                {
+                  requestId: "review-1",
+                  task: "Review the Shop sign-in screen for accessibility labels",
+                  role: "review-signin-screen",
+                  provider: "claude",
+                },
+              ],
             },
             json({ intentId: "delegation-1", accepted: true }),
           ),

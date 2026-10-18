@@ -90,7 +90,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   target_busy: {
     message: "App is controlled by another session",
-    hint: "Inspect screen sessions and ask the holder to hand back control.",
+    hint: "Another agent or the person holds this app. Work on another app, or call screen_open_app again once they release it.",
   },
   foreground_required: {
     message: "App requires foreground input",
@@ -102,7 +102,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   window_minimized: {
     message: "Target window is minimized",
-    hint: "Ask the human to restore the window.",
+    hint: "Call screen_list_windows and pick a visible window with screen_select_window; if it is the only one, ask the person to restore it.",
   },
   window_offscreen: {
     message: "Foreground pointer input cannot reach this off-display window",
@@ -142,31 +142,31 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   invalid_html: {
     message: "The page has unsupported content and was not published",
-    hint: "Fix each problem in issues, then call ace_html_render again with the corrected page.",
+    hint: "Fix each problem in issues, then call html_render again with the corrected page.",
   },
   invalid_data: {
     message: "Invalid tool or backend data",
-    hint: "Retry once. If the error persists, report it to the user.",
+    hint: "Retry once. If it fails again, tell the person and do the work another way.",
   },
   provider_unavailable: {
     message: "Provider CLI is unavailable",
-    hint: "Install the provider CLI on the daemon host, set its binary path in provider settings, and check its login.",
+    hint: "That provider's CLI is not installed here. Call models for the providers you can use and pick one; tell the person if this one is needed.",
   },
   provider_disabled: {
     message: "Provider is disabled",
-    hint: "Enable this provider and account in provider settings before delegating.",
+    hint: "Call models for the enabled providers and pick one; only the person can enable this one.",
   },
   model_unavailable: {
     message: "Requested model is unavailable",
-    hint: "Refresh the selected provider account's model catalog and choose an available model.",
+    hint: "Call models and pass a listed id, or omit model for the provider's default.",
   },
   account_unavailable: {
     message: "Provider account is unavailable",
-    hint: "Check the selected account, its CLI login and quota, or choose another account.",
+    hint: "Retry with another provider from models, or without naming an account; the person fixes logins and quota.",
   },
   admission_closed: {
     message: "Daemon is not accepting agent work",
-    hint: "Wait for daemon startup or maintenance to finish before retrying.",
+    hint: "ace is starting or shutting down. Retry the same call, with the same requestId, in a few seconds.",
   },
   delegation_cancelled: {
     message: "This agent is being stopped",
@@ -178,11 +178,11 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   workspace_unavailable: {
     message: "Workspace is unavailable for agent creation",
-    hint: "Check that the workspace exists and finish any workspace or worktree change before retrying.",
+    hint: "Retry without workspace (this project's checkout), or call context with topics [changes] to check the branch first.",
   },
   delegation_denied: {
     message: "Child permissions exceed the parent permission ceiling",
-    hint: "Choose an access mode allowed by the parent thread.",
+    hint: "Retry with access inherit, or a mode no broader than yours.",
   },
   access_escalation_denied: {
     message: "The requested access is broader than the parent thread's",
@@ -202,7 +202,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   stale_ref: {
     message: "Stale or unknown element ref",
-    hint: "Refresh ace_browser_snapshot, screen_ui_tree or device_ui_tree for the affected tool and use a current ref.",
+    hint: "Call browser_snapshot, screen_ui_tree or device_ui_tree again and use a ref from it.",
   },
   controller_changed: {
     message: "Browser control changed while the action was queued",
@@ -222,7 +222,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   browser_closed: {
     message: "Browser closed",
-    hint: "Call ace_browser_open to open a new session.",
+    hint: "Call browser_open to open a new session.",
   },
   backend_changed: {
     message: "Browser backend changed during command",
@@ -258,7 +258,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   read_only: {
     message: "Read-only mode refuses agent navigation",
-    hint: "Ask the user to change the permission mode before navigating.",
+    hint: "This thread is read-only, so it cannot navigate. Tell the person if a page needs opening.",
   },
   timeout: {
     message: "Tool operation timed out",
@@ -306,7 +306,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   tool_unavailable: {
     message: "This ace tool is not available to this thread",
-    hint: "Its ace group is off here or the name is wrong. ace_status lists the groups that are on and ace_guide the tools for each task; if the group is off, tell the person. Your own tools are unaffected.",
+    hint: "The name is wrong or its ace group is off here. Call context with topics [status] for the groups that are on, or guide for each task's tools; if a group is off, tell the person. Your own tools are unaffected.",
   },
   tool_missing: {
     message: "Required device tool is unavailable",
@@ -314,7 +314,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   not_found: {
     message: "Approved device was not found",
-    hint: "Refresh device_list and ask the user to check the device.",
+    hint: "Call device_list and use a listed deviceId.",
   },
   not_booted: { message: "Device is not booted", hint: "Call device_boot for an approved device." },
   command_failed: {
@@ -323,7 +323,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   lease_required: {
     message: "Device controller lease required",
-    hint: "Ask the user to delegate the device controller again after expiry or takeover.",
+    hint: "Call device_start to take the device again. If a person is controlling it, wait until they hand it back.",
   },
   limit: {
     message: "Device operation exceeds its limit",
@@ -331,15 +331,15 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   machine_offline: {
     message: "That machine is offline",
-    hint: "Ask the person to wake it and start ace there, then call ace_machines again, or do the work on this machine.",
+    hint: "Do the work on this machine (omit machine), or call machines later. Only the person can wake it.",
   },
   machine_unavailable: {
     message: "That machine is not available to agents",
-    hint: "Call ace_machines for the machines you may use. The person turns on agent access in Settings › Remote devices on that machine.",
+    hint: "Call machines for the machines you may use, or do the work on this machine.",
   },
   machine_forbidden: {
     message: "Not allowed on that machine",
-    hint: "Its agent access or pairing is read-only, or this thread is read-only. Use a read-only tool, or ask the person to change access.",
+    hint: "Its agent access or pairing is read-only, or this thread is read-only. Use a read-only tool there, or do the work on this machine.",
   },
   machine_disconnected: {
     message: "The connection to that machine dropped during the call",

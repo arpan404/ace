@@ -10,7 +10,7 @@ test("OpenCode v2 native processes preserve user MCP servers and isolate thread 
   const credentials = new CredentialRegistry(() => (++id).toString(16).padStart(64, "0"));
   const registry = new ToolRegistry({ scheduler: nodeScheduler });
   registry.register({
-    name: "ace_scope",
+    name: "scope",
     description: "Observe authority",
     capability: "thread_control",
     timeoutMs: 1000,
@@ -62,7 +62,7 @@ test("OpenCode v2 native processes preserve user MCP servers and isolate thread 
       expect(response).toMatchObject({
         data: {
           instructions: {
-            "ace.tool-guidance": expect.stringContaining("OpenCode prefixes every ace MCP tool"),
+            "ace.tool-guidance": expect.stringContaining("OpenCode names ace tools ace_<tool>"),
           },
         },
       });
@@ -183,7 +183,9 @@ test("OpenCode waits for ace status to reach its native tool catalog before acce
     const session = await opened;
     expect(await h.control("/test/mcp-tools")).toMatchObject({
       readinessRequested: true,
-      tools: [{ name: "ace_ace_status", description: expect.stringContaining("ace://status") }],
+      tools: [
+        { name: "ace_context", description: expect.stringContaining("What ace already knows") },
+      ],
       plugins: ["user-plugin", expect.any(String)],
     });
     await session.close("shutdown");

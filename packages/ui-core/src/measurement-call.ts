@@ -1,7 +1,8 @@
 import type { ToolCall } from "@ace/protocol";
+import { bareToolName } from "@ace/provider-kit/ace-tool-names";
 
-/** ace's own smoothness tools, as an MCP server names them. */
-const tools = new Set(["screen_measure_interaction", "ace_browser_measure_interaction"]);
+/** ace's own smoothness tools, by bare name. */
+const tools = new Set(["screen_measure_interaction", "browser_measure_interaction"]);
 
 /**
  * Whether a step is one of ace's interaction measurements, which the work log shows as a
@@ -9,5 +10,9 @@ const tools = new Set(["screen_measure_interaction", "ace_browser_measure_intera
  */
 export function isMeasurementCall(call: Pick<ToolCall, "detail">): boolean {
   const { detail } = call;
-  return detail.kind === "mcp" && /^ace$|^ace[-_]/.test(detail.server) && tools.has(detail.tool);
+  return (
+    detail.kind === "mcp" &&
+    /^ace$|^ace[-_]/.test(detail.server) &&
+    tools.has(bareToolName(detail.tool))
+  );
 }

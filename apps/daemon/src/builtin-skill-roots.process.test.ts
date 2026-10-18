@@ -59,7 +59,7 @@ test("a detached provider keeps its skill projection after daemon SIGKILL, and r
     const errors: unknown[] = [];
     await collect(Promise.resolve(), (error) => errors.push(error));
     expect(errors).toEqual([]);
-    expect(await readFile(skillPath(ready.root), "utf8")).toContain("ace_html_render");
+    expect(await readFile(skillPath(ready.root), "utf8")).toContain("html_render");
     process.kill(provider.pid, "SIGKILL");
     await expect
       .poll(
@@ -92,11 +92,11 @@ test("restart waits for recovery and preserves projections created after its sta
     builtinSkillProcessLease(active).close(); // Eligible but outside the startup snapshot.
     const recovered = Promise.withResolvers<void>();
     const collecting = collect(recovered.promise, () => {});
-    expect(await readFile(skillPath(abandoned), "utf8")).toContain("ace_html_render");
+    expect(await readFile(skillPath(abandoned), "utf8")).toContain("html_render");
     recovered.resolve();
     await collecting;
     await expect(readFile(skillPath(abandoned))).rejects.toMatchObject({ code: "ENOENT" });
-    expect(await readFile(skillPath(active), "utf8")).toContain("ace_html_render");
+    expect(await readFile(skillPath(active), "utf8")).toContain("html_render");
     expect(await readFile(join(unowned, "person.md"), "utf8")).toBe("Keep this file");
   } finally {
     await rm(dataDir, { recursive: true, force: true });
@@ -122,12 +122,12 @@ test("missing ownership evidence, interrupted spawn recording and unverifiable l
     });
     await collect(Promise.resolve(), () => {});
     for (const root of [legacy, pending, unavailable])
-      expect(await readFile(skillPath(root), "utf8")).toContain("ace_html_render");
+      expect(await readFile(skillPath(root), "utf8")).toContain("html_render");
     // A working inspector still cannot establish whether the interrupted spawn produced a child.
     const retry = await builtinSkillRecovery(dataDir);
     await retry(Promise.resolve(), () => {});
-    expect(await readFile(skillPath(pending), "utf8")).toContain("ace_html_render");
-    expect(await readFile(skillPath(legacy), "utf8")).toContain("ace_html_render");
+    expect(await readFile(skillPath(pending), "utf8")).toContain("html_render");
+    expect(await readFile(skillPath(legacy), "utf8")).toContain("html_render");
     await expect(readFile(skillPath(unavailable))).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     await rm(dataDir, { recursive: true, force: true });
@@ -142,7 +142,7 @@ test("failed recovery leaves the previous projection available", async () => {
     await expect(collect(Promise.reject(new Error("Recovery failed")), () => {})).rejects.toThrow(
       "Recovery failed",
     );
-    expect(await readFile(skillPath(abandoned), "utf8")).toContain("ace_html_render");
+    expect(await readFile(skillPath(abandoned), "utf8")).toContain("html_render");
   } finally {
     await rm(dataDir, { recursive: true, force: true });
   }
@@ -177,7 +177,7 @@ test("changed UID or group retains a live provider, while a recycled PID does no
       }, // Original group disappeared, but the same process still lives.
     });
     await changed(Promise.resolve(), () => {});
-    expect(await readFile(skillPath(root), "utf8")).toContain("ace_html_render");
+    expect(await readFile(skillPath(root), "utf8")).toContain("html_render");
     await provider.stop({ graceMs: 0 });
     const recycled = await builtinSkillRecovery(dataDir, {
       ...skillProcessRuntime,

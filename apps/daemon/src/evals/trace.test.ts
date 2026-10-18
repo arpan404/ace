@@ -15,9 +15,9 @@ test("a failed call repeated with the same arguments in any key order counts as 
   const metrics = summarize(
     context,
     [
-      call("ace_thread_rename", { title: "x", threadId: "t" }, true),
-      call("ace_thread_rename", { threadId: "t", title: "x" }, true),
-      call("ace_thread_rename", { threadId: "t", title: "y" }, false),
+      call("thread_control", { title: "x", threadId: "t" }, true),
+      call("thread_control", { threadId: "t", title: "x" }, true),
+      call("thread_control", { threadId: "t", title: "y" }, false),
     ],
     3,
     true,
@@ -29,8 +29,8 @@ test("repeating a successful call is not a retry, and own-tool calls are not ace
   const metrics = summarize(
     context,
     [
-      call("ace_status", {}, false),
-      call("ace_status", {}, false),
+      call("context", {}, false),
+      call("context", {}, false),
       call("shell", { command: "git branch" }, false, true),
     ],
     2,
@@ -41,7 +41,7 @@ test("repeating a successful call is not a retry, and own-tool calls are not ace
 
 test("context tokens grow with instructions, descriptors and call traffic", () => {
   const empty = summarize(context, [], 1, true);
-  const busy = summarize(context, [call("ace_status", { a: "x".repeat(400) }, false)], 2, true);
+  const busy = summarize(context, [call("context", { a: "x".repeat(400) }, false)], 2, true);
   expect(empty.tokens).toBe(2);
   expect(busy.tokens).toBeGreaterThan(empty.tokens + 100);
 });

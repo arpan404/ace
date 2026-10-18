@@ -761,7 +761,7 @@ it("model socket retries show network waiting while MCP failures remain tool err
   h.event("session.tool.failed", {
     id: "call",
     assistantMessageID: "message",
-    name: "ace_ace_thread_info",
+    name: "ace_thread_read",
     error: { message: "MCP transport closed" },
   });
   expect(h.view.thread.status.state).toBe("working");

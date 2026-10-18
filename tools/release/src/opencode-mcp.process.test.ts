@@ -57,7 +57,9 @@ try {
   });
   expect(JSON.parse(result.stdout)).toMatchObject({
     output: {
-      tools: [{ name: "ace_ace_status", description: expect.stringContaining("ace://status") }],
+      tools: [
+        { name: "ace_context", description: expect.stringContaining("What ace already knows") },
+      ],
     },
   });
 });

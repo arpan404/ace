@@ -75,8 +75,7 @@ test("omitted historical pages remain reachable even when no excerpt fits", () =
   expect(result.omittedItems).toBe(999999);
   expect(result.history).toEqual({
     type: "items.page",
-    tool: "ace_read_handoff",
-    chunkTool: "ace_read_handoff_chunk",
+    tool: "handoff_read",
     threadId,
     before: 901,
     limit: 50,

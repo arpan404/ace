@@ -1,0 +1,59 @@
+{
+  "$id": "https://ace.local/protocol/v1/thread_start.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "access": {
+      "$ref": "https://ace.local/protocol/v1/AccessRequest.json",
+      "description": "Default inherit; never broader than yours."
+    },
+    "effort": {
+      "description": "Reasoning effort, such as high.",
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
+    "model": {
+      "description": "A model id from `models`.",
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json",
+      "description": "Default: yours."
+    },
+    "requestId": {
+      "description": "Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice.",
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "text": {
+      "description": "The first message, standing on its own.",
+      "maxLength": 262144,
+      "minLength": 1,
+      "type": "string"
+    },
+    "title": {
+      "description": "The sidebar title.",
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "workspace": {
+      "$ref": "https://ace.local/protocol/v1/AgentWorkspace.json",
+      "default": {
+        "kind": "project"
+      },
+      "description": "Where it works. Default: this project's checkout; new_worktree starts a Git worktree from base."
+    }
+  },
+  "required": [
+    "requestId",
+    "title",
+    "text"
+  ],
+  "type": "object"
+}

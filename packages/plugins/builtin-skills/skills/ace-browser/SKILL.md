@@ -34,4 +34,4 @@ When the person takes over, tools pause with `human_controlled` or `human_privat
 
 ## Another machine
 
-Every browser tool takes `machine` (a name from `ace_machines`) to act in that machine's ace browser, for example to test a dev server running there.
+Every browser tool takes `machine` (a name from `machines`) to act in that machine's ace browser, for example to test a dev server running there.

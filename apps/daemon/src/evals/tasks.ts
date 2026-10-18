@@ -55,26 +55,16 @@ const whereAmI: EvalTask = {
           : `saw ${JSON.stringify(seen)}, truth ${JSON.stringify(truth)}`,
       };
     }
+    // Without a brief, context's status and changes topics plus one thread search cover it.
     await agent.turn(async () => {
-      const [status, info] = await Promise.all([
-        agent.call("ace_status", {}),
-        agent.call("ace_thread_info", {}),
+      const [known, list] = await Promise.all([
+        agent.call("context", { topics: ["status", "changes"] }),
+        agent.call("threads_find", {}),
       ]);
-      seen["access"] = record(status.data)?.["access"] ?? null;
-      const own = record(record(info.data)?.["thread"]);
-      const details = record(own?.["details"]);
-      seen["project"] = record(details?.["workspace"])?.["name"];
-      seen["branch"] = details?.["branch"] ?? null;
-      seen["workspaceId"] = own?.["workspaceId"];
-    });
-    await agent.turn(async () => {
-      const [list, project] = await Promise.all([
-        agent.call("ace_threads_list", {}),
-        seen["project"] === undefined
-          ? agent.call("ace_project_read", { workspaceId: seen["workspaceId"] })
-          : undefined,
-      ]);
-      if (project) seen["project"] = record(control(project).data?.data)?.["name"];
+      const status = record(record(known.data)?.["status"]);
+      seen["access"] = status?.["access"] ?? null;
+      seen["project"] = record(status?.["project"])?.["name"];
+      seen["branch"] = record(record(known.data)?.["changes"])?.["branch"] ?? null;
       seen["liveSiblings"] = countLive(control(list).data?.data, threadId);
     });
     // ace did not say which branch: the model asks git with its own shell.
@@ -82,7 +72,7 @@ const whereAmI: EvalTask = {
       seen["branch"] = await agent.turn(async () =>
         agent.ownTool("shell", { command: "git branch --show-current" }, world.branch),
       );
-    const { workspaceId: _id, ...answer } = seen;
+    const answer = seen;
     const success = JSON.stringify(sorted(answer)) === JSON.stringify(sorted(truth));
     return {
       metrics: agent.finish(success),
@@ -103,13 +93,13 @@ const delegateTwo: EvalTask = {
     const provider = listed
       ? "claude"
       : await agent.turn(async () => {
-          const catalog = control(await agent.call("ace_agents_catalog", {}));
-          const instances = z
+          const catalog = control(await agent.call("models", {}));
+          const providers = z
             .object({
-              instances: z.array(z.object({ provider: z.string(), installed: z.boolean() })),
+              providers: z.array(z.object({ provider: z.string(), installed: z.boolean() })),
             })
-            .safeParse(catalog.data?.data).data?.instances;
-          return instances?.find((entry) => entry.installed && entry.provider === "claude")
+            .safeParse(catalog.data?.data).data?.providers;
+          return providers?.find((entry) => entry.installed && entry.provider === "claude")
             ?.provider;
         });
     if (!provider) return { metrics: agent.finish(false), note: "no provider found" };
@@ -117,17 +107,16 @@ const delegateTwo: EvalTask = {
       { requestId: "fix-header", task: "Fix the header spacing", answer: "Header spacing fixed" },
       { requestId: "fix-footer", task: "Fix the footer links", answer: "Footer links fixed" },
     ];
-    // delegate_task's description: one batch with await "all" starts both and returns results.
+    // delegate's description: one call with waitSeconds starts both and returns results.
     const result = await agent.turn(async () => {
-      const call = agent.call("delegate_task", {
+      const call = agent.call("delegate", {
         tasks: tasks.map((task) => ({
           requestId: task.requestId,
           task: task.task,
           role: `eval-${task.requestId}`,
           provider,
         })),
-        await: "all",
-        timeoutSeconds: 120,
+        waitSeconds: 120,
       });
       // The children finish while the parent waits.
       await world.answerChildren(new Map(tasks.map((task) => [task.task, task.answer])));
@@ -173,15 +162,15 @@ const recentWork: EvalTask = {
     await world.finishedThread("Fix the login redirect loop", outcome);
     const { agent, threadId } = await world.agent({});
     // One read when ace offers project context.
-    if (agent.has("ace_context")) {
-      const context = await agent.turn(() => agent.call("ace_context", { topics: ["recent"] }));
+    if (agent.has("context")) {
+      const context = await agent.turn(() => agent.call("context", { topics: ["recent"] }));
       const success = context.text.includes(outcome);
       return { metrics: agent.finish(success), note: success ? "outcome found" : "outcome missed" };
     }
-    const list = await agent.turn(() => agent.call("ace_threads_list", {}));
+    const list = await agent.turn(() => agent.call("threads_find", {}));
     const other = threadEntries(control(list).data?.data).find((entry) => entry.id !== threadId);
     if (!other) return { metrics: agent.finish(false), note: "no earlier thread found" };
-    const read = await agent.turn(() => agent.call("ace_thread_read", { threadId: other.id }));
+    const read = await agent.turn(() => agent.call("thread_read", { threadId: other.id }));
     const success = read.text.includes(outcome);
     return { metrics: agent.finish(success), note: success ? "outcome found" : "outcome missed" };
   },
@@ -195,10 +184,7 @@ const visualize: EvalTask = {
     const { agent } = await world.agent({});
     const html = `<!doctype html><style>table{font:14px system-ui}</style><table><tr><th>Plan</th><th>Calls</th></tr><tr><td>Before</td><td>6</td></tr><tr><td>After</td><td>2</td></tr></table>`;
     const page = { title: "Calls per plan", html };
-    // Guidance says to preview before rendering, when a separate preview tool exists.
-    if (agent.has("ace_html_preview"))
-      await agent.turn(() => agent.call("ace_html_preview", { html }));
-    const rendered = await agent.turn(() => agent.call("ace_html_render", page));
+    const rendered = await agent.turn(() => agent.call("html_render", page));
     const itemId = record(rendered.data)?.["itemId"];
     return {
       metrics: agent.finish(!rendered.failed && typeof itemId === "string"),
@@ -223,27 +209,31 @@ const recoverBadArgument: EvalTask = {
       intended: Record<string, unknown>;
     }[] = [
       {
-        tool: "ace_thread_rename",
-        sent: { threadId, titel: "Login page" },
-        intended: { threadId, title: "Login page" },
+        tool: "thread_control",
+        sent: { action: "rename", threadId, titel: "Login page" },
+        intended: { action: "rename", threadId, title: "Login page" },
       },
       {
-        tool: "delegate_task",
-        sent: { requestId: "slip", task: "Add tests", role: "tester", provider: "gpt-5" },
-        intended: { requestId: "slip", task: "Add tests", role: "tester", provider: "claude" },
+        tool: "delegate",
+        sent: {
+          tasks: [{ requestId: "slip", task: "Add tests", role: "tester", provider: "gpt-5" }],
+        },
+        intended: {
+          tasks: [{ requestId: "slip", task: "Add tests", role: "tester", provider: "claude" }],
+        },
       },
-      { tool: "ace_threads_list", sent: { limit: 500 }, intended: { limit: 10 } },
+      { tool: "threads_find", sent: { limit: 500 }, intended: { limit: 10 } },
       {
-        tool: "ace_thread_search",
-        sent: { threadId, q: "login" },
+        tool: "threads_find",
+        sent: { threadId, query: "" },
         intended: { threadId, query: "login" },
       },
       {
-        tool: "ace_html_render",
+        tool: "html_render",
         sent: { title: "x", html: "<p>x</p>", mode: "fancy" },
         intended: { title: "x", html: "<p>x</p>", mode: "static" },
       },
-      { tool: "ace_notify_user", sent: { message: "done" }, intended: { text: "done" } },
+      { tool: "notify", sent: { message: "done" }, intended: { text: "done" } },
     ];
     let recovered = 0;
     for (const entry of cases) {
@@ -267,20 +257,27 @@ const childWaitingOnHuman: EvalTask = {
   async run(world) {
     const { agent } = await world.agent({});
     const started = await agent.turn(() =>
-      agent.call("delegate_task", {
-        requestId: "asks",
-        task: "Pick a login provider",
-        role: "pick-login-provider",
-        provider: "claude",
+      agent.call("delegate", {
+        tasks: [
+          {
+            requestId: "asks",
+            task: "Pick a login provider",
+            role: "pick-login-provider",
+            provider: "claude",
+          },
+        ],
       }),
     );
-    const child = record(control(started).data?.data)?.["threadId"];
+    const child = z
+      .array(z.string())
+      .catch([])
+      .parse(record(control(started).data?.data)?.["threadIds"])[0];
     if (typeof child !== "string") return { metrics: agent.finish(false), note: "not started" };
     await world.askHuman(child as ThreadId);
-    // The documented way to collect a child: ace_wait. It must return early, naming the human
+    // The documented way to collect a child: wait. It must return early, naming the human
     // wait, and never report the child done.
     const waited = await agent.turn(() =>
-      agent.call("ace_wait", { threadIds: [child], timeoutSeconds: 5 }),
+      agent.call("wait", { threadIds: [child], timeoutSeconds: 5 }),
     );
     const wait = record(control(waited).data?.data);
     const watched = z
@@ -288,8 +285,9 @@ const childWaitingOnHuman: EvalTask = {
       .catch([])
       .parse(wait?.["threads"])
       .find((entry) => entry.threadId === child);
-    const result = await agent.turn(() => agent.call("ace_agent_result", { threadId: child }));
-    const resultReady = control(result).data?.ok === true;
+    // agents_status carries a result only once the child has settled.
+    const result = await agent.turn(() => agent.call("agents_status", { threadId: child }));
+    const resultReady = record(control(result).data?.data)?.["outcome"] !== undefined;
     const claimedDone = agent.calls.some(
       (call) =>
         call.resultText.includes(child) &&
@@ -319,7 +317,7 @@ export const evalTasks: readonly EvalTask[] = [
   childWaitingOnHuman,
 ];
 
-/** `ace_threads_list` returns search hits: one per thread, with its status. */
+/** `threads_find` returns search hits: one per thread, with its status. */
 const ThreadHit = z.object({ threadId: z.string(), status: z.string().optional() });
 function threadEntries(data: unknown): { id: string; state: string }[] {
   const hits = z.array(z.unknown()).catch([]).parse(record(data)?.["hits"]);
@@ -364,7 +362,7 @@ export function readBrief(instructions: string) {
     branch: pick(/(?:branch|worktree) "([^"]*)"/) ?? null,
     access: accessLabels[pick(/Access: (Read-only|Ask|Auto review|Full access)/) ?? ""] ?? null,
     liveSiblings: Number(pick(/Live: (\d+) other thread/) ?? Number.NaN),
-    delegates: (pick(/Delegate with delegate_task to: ([^\n]*)/) ?? "")
+    delegates: (pick(/Delegate \(tool delegate\) to: ([^\n]*)/) ?? "")
       .split(";")
       .map((entry) => /[a-z]+/.exec(entry)?.[0] ?? ""),
   };

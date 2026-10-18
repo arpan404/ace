@@ -50,7 +50,7 @@ test.each(["codex", "claude", "opencode", "cursor", "pi", "acp"])(
         requestInit: { headers: { Authorization: `Bearer ${lease.bearer}` } },
       }),
     );
-    expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(["ace_status"]);
+    expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(["context"]);
     expect(await client.callTool({ name: "screen_open_app", arguments: {} })).toMatchObject({
       isError: true,
     });
@@ -58,11 +58,13 @@ test.each(["codex", "claude", "opencode", "cursor", "pi", "acp"])(
       isError: true,
     });
     expect(effects).toBe(0);
-    expect(await client.callTool({ name: "ace_status", arguments: {} })).toMatchObject({
+    expect(await client.callTool({ name: "context", arguments: {} })).toMatchObject({
       structuredContent: {
-        groups: expect.arrayContaining([
-          { name: "screen", enabled: false, reason: "Computer use is disabled." },
-        ]),
+        status: {
+          groups: expect.arrayContaining([
+            { name: "screen", enabled: false, reason: "Computer use is disabled." },
+          ]),
+        },
       },
     });
   },
@@ -141,9 +143,9 @@ test.each([
     if (mode === "modern") await client.listen({ toolsListChanged: true });
     else await stream.promise;
     if (nativeInstructions) expect(client.getInstructions()).toBeUndefined();
-    else expect(client.getInstructions()).toContain("ace_browser_open");
+    else expect(client.getInstructions()).toContain("browser_open");
     const listed = async () => (await client.listTools()).tools;
-    expect((await listed()).map((tool) => tool.name)).toEqual(["ace_status"]);
+    expect((await listed()).map((tool) => tool.name)).toEqual(["context"]);
     const change = async (mutate: () => void) => {
       const changed = Promise.withResolvers<void>();
       notifications.push(changed.resolve);
@@ -156,7 +158,7 @@ test.each([
       await change(() => {
         enabled = true;
       }),
-    ).toEqual(["ace_status", "screen_open_app", "device_list"]);
+    ).toEqual(["context", "screen_open_app", "device_list"]);
     for (const tool of await listed())
       expect(tool.description).not.toContain("ace tools add ace-specific actions");
     expect(await client.callTool({ name: "screen_open_app", arguments: {} })).not.toMatchObject({
@@ -167,7 +169,7 @@ test.each([
       await change(() => {
         readOnly = true;
       }),
-    ).toEqual(["ace_status", "screen_open_app", "device_list"]);
+    ).toEqual(["context", "screen_open_app", "device_list"]);
     expect(await client.callTool({ name: "device_list", arguments: {} })).not.toMatchObject({
       isError: true,
     });
@@ -176,7 +178,7 @@ test.each([
       await change(() => {
         enabled = false;
       }),
-    ).toEqual(["ace_status"]);
+    ).toEqual(["context"]);
     expect(await client.callTool({ name: "screen_open_app", arguments: {} })).toMatchObject({
       isError: true,
     });
@@ -218,7 +220,7 @@ test("legacy notification streams cannot be reused with another lease and end on
       },
     });
   expect((await request(other.bearer)).status).toBe(404);
-  expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(["ace_status"]);
+  expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(["context"]);
   lease.end();
   expect((await request(lease.bearer)).status).toBe(401);
   expect((await request(other.bearer)).status).toBe(404);
@@ -256,7 +258,9 @@ test("status names why a group is off without pointing at a setting that does no
     }),
   );
   const status = McpStatus.parse(
-    (await client.callTool({ name: "ace_status", arguments: {} })).structuredContent,
+    z
+      .object({ status: z.unknown() })
+      .parse((await client.callTool({ name: "context", arguments: {} })).structuredContent).status,
   );
   expect(status.groups).toContainEqual({
     name: "browser",

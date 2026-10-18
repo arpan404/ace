@@ -3,7 +3,7 @@ import { parse, type ParseError } from "jsonc-parser";
 import { z } from "zod";
 import type { OpenCodeClient } from "@opencode/client";
 import type { Runtime } from "./runtime.ts";
-import { mcpReadyRpc } from "./mcp-ready-contract.ts";
+import { aceReadinessTool, mcpReadyRpc } from "./mcp-ready-contract.ts";
 
 export function mcpReadyPluginDirectory(): string {
   return fileURLToPath(new URL("./mcp-ready-plugin", import.meta.url));
@@ -60,12 +60,8 @@ export async function waitForAceTools(
           .rpc(mcpReadyRpc)
           .ready({}, { location: { directory }, signal: controller.signal }),
       );
-    if (
-      !catalog.tools.some(
-        (tool) => tool.name === "ace_ace_status" && tool.description.includes("ace://status"),
-      )
-    )
-      throw new Error("OpenCode ace status tool is missing from its native catalog");
+    if (!catalog.tools.some((tool) => tool.name === aceReadinessTool && tool.description))
+      throw new Error("OpenCode ace context tool is missing from its native catalog");
   } finally {
     cancel();
   }

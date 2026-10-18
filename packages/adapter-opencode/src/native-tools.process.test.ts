@@ -32,7 +32,7 @@ async function openFullAccess() {
   const credentials = new CredentialRegistry(() => "f".repeat(64));
   const registry = new ToolRegistry({ scheduler: nodeScheduler });
   registry.register({
-    name: "ace_scope",
+    name: "scope",
     description: "Observe authority",
     capability: "thread_control",
     timeoutMs: 1000,
@@ -158,7 +158,7 @@ test("OpenCode is told its own tools are direct tools beside ace's, outside Code
       expect(native).toContain(tool);
     expect(guidance).toContain("never through execute");
     expect(guidance).toContain("never replace them");
-    expect(guidance).toContain("Delegate parallel work with ace_delegate_task");
+    expect(guidance).toContain("Delegate parallel work with ace_delegate,");
     expect(guidance).toContain("Link any PR you open with ace_thread_link_pr");
   } finally {
     await close();

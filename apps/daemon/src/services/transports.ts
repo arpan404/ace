@@ -19,7 +19,6 @@ export async function startRelayTransport(
   const host = await startFilesRelay({
     url: relay.url,
     keys: relay.keys,
-    remoteDelegation: options,
     get providerLogin() {
       return options.providerLogin;
     },

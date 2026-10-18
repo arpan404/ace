@@ -194,7 +194,9 @@ error codes, including `target_gone` and `permission_denied`, are retained with
 fixed guidance. Unknown native codes use a generic failure.
 Capacity, cancellation and result-limit failures also return readable text.
 Stack traces, input dumps and echoed ace bearer credentials are not returned.
-Read the error before retrying; human control and disabled groups require the person.
+A hint names the agent's next call, such as `lease_required` → "Call device_start
+to take the device again." It names the person only when they are truly
+required, such as human control or a disabled group. Read the error before retrying.
 
 Daemon tool deadlines include lazy browser startup. Device installs
 allow ten minutes of native execution and another 30 seconds for dispatch and completion.
@@ -214,15 +216,15 @@ Pi reads the same private storage mechanism into its extension closure and delet
 the file-path environment variable before registering agent tools. Neither the Pi
 MCP bearer nor its rollback control secret is inherited by shell commands.
 
-OpenCode's direct status tool is `ace_ace_status`, because it prefixes MCP tool
-names with their server name. Claude uses `mcp__ace__ace_status`; other
-providers use their advertised ace server/tool prefix. Call status or read
-`ace://status` to check availability. A disabled tool group does not imply
+ace's tool names are bare, and each provider prefixes them with the server
+name `ace`. OpenCode shows `ace_context`; Claude shows `mcp__ace__context`; other
+providers use their advertised ace server/tool prefix. Call `context` with topic
+`status`, or read `ace://status`, to check availability. A disabled tool group does not imply
 that ace is absent.
 
 OpenCode also receives a credential-free native readiness plugin through its
 runtime configuration. Session admission waits for the actual native
-`ace_ace_status` registration, because MCP connection status precedes the
+`ace_context` registration, because MCP connection status precedes the
 provider's debounced tool reload. The plugin carries no MCP authority, changes
 no user configuration files and is staged in standalone releases. See the
 [isolated CLI results](../research/providers/opencode-ace-tools.md).

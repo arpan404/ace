@@ -152,7 +152,12 @@ const mcpLaunch = (id: string): Fact[] => [
   facts.tool("root", `mcp-${id}`, {
     kind: "mcp",
     title: "Delegate work",
-    detail: { kind: "mcp", server: "ace", tool: "delegate_task", arguments: { task: id } },
+    detail: {
+      kind: "mcp",
+      server: "ace",
+      tool: "delegate",
+      arguments: { tasks: [{ requestId: id, task: id, role: id }] },
+    },
   }),
   {
     type: "item.upsert",

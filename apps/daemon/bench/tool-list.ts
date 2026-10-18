@@ -121,7 +121,7 @@ try {
   );
   if (!instructions?.[1]) throw new Error("Missing baseline instructions");
   const before = [
-    after.find((entry) => entry.name === "ace_status"),
+    after.find((entry) => entry.name === "context"),
     ...full.map((entry) => ({
       ...entry,
       description: `${oldDescriptions.get(entry.name) ?? entry.description}${registry?.capability(entry.name) === "screen" ? " Computer use is disabled. Ask the person to enable it in Settings → Computer use." : registry?.capability(entry.name) === "devices" ? " Devices are disabled. Ask the person to enable devices in the thread's Devices panel." : ""}`,
@@ -129,7 +129,7 @@ try {
   ].filter((entry) => entry !== undefined);
   // Computer use on and devices off: every screen tool is offered at once.
   const screenOn = [
-    after.find((entry) => entry.name === "ace_status"),
+    after.find((entry) => entry.name === "context"),
     ...full.filter((entry) => registry?.capability(entry.name) !== "devices"),
   ].filter((entry) => entry !== undefined);
   console.log(

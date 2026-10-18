@@ -21,7 +21,10 @@ function fixture() {
 }
 it.each([
   ["ace_screen_click", "screen_click"],
-  ["ace_ace_browser_open", "ace_browser_open"],
+  ["ace_context", "context"],
+  ["ace_ace_browser_open", "browser_open"],
+  ["ace_browser_open", "browser_open"],
+  ["mcp__ace__thread_control", "thread_control"],
   ["screen_click", "screen_click"],
   ["device_screenshot", "device_screenshot"],
 ])("custom %s calls render as canonical ace MCP calls", (native, canonical) => {
@@ -48,6 +51,45 @@ it.each([
         detail: { kind: "mcp", server: "ace", tool: canonical, arguments: { x: 12, y: 16 } },
       },
     },
+  });
+});
+it("a bare custom call that shares an ace tool's name stays the provider's own", () => {
+  const feed = fixture();
+  const events = feed({
+    type: "item.upsert",
+    agent: "root",
+    item: "call",
+    draft: {
+      type: "tool_call",
+      call: {
+        kind: "custom",
+        title: "context",
+        detail: { kind: "custom" },
+        raw: [{ type: "provider.call", data: { name: "context", input: { topic: "x" } } }],
+      },
+    },
+  });
+  expect(events.find((entry) => entry.type === "item.created")).toMatchObject({
+    item: { call: { kind: "custom", detail: { kind: "custom" } } },
+  });
+});
+it("an ace MCP call reported under its old ace_ prefix reads as the bare tool", () => {
+  const feed = fixture();
+  const events = feed({
+    type: "item.upsert",
+    agent: "root",
+    item: "call",
+    draft: {
+      type: "tool_call",
+      call: {
+        kind: "mcp",
+        title: "ace_browser_snapshot",
+        detail: { kind: "mcp", server: "ace", tool: "ace_browser_snapshot", arguments: {} },
+      },
+    },
+  });
+  expect(events.find((entry) => entry.type === "item.created")).toMatchObject({
+    item: { call: { detail: { server: "ace", tool: "browser_snapshot" } } },
   });
 });
 it("later custom completion frames preserve the original arguments and another MCP server keeps its identity", () => {
@@ -159,6 +201,24 @@ it("approval previews redact ace input without redacting another server's reques
       });
     } else expect(JSON.stringify(events)).toContain("visible-other-text");
   }
+});
+
+it("a Claude-spelled html_render approval hides the page markup", () => {
+  const feed = fixture();
+  const events = feed({
+    type: "interaction.opened",
+    agent: "root",
+    interaction: "render",
+    blocking: true,
+    request: {
+      kind: "approval",
+      title: "Render",
+      target: { tool: "mcp__ace__html_render", input: { html: "<p>private</p>" }, access: "write" },
+      options: [{ id: "allow", label: "Allow", kind: "allow_once" }],
+    },
+    raw: [],
+  });
+  expect(JSON.stringify(events)).not.toContain("<p>private</p>");
 });
 
 it("custom input streams use completed argument JSON without treating result text as arguments", () => {

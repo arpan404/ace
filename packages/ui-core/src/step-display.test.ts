@@ -92,10 +92,17 @@ test("ace's own tools read as what they did, with their key argument", () => {
   expect(
     mcpToolLabel("ace", "ace_browser_open", { url: "https://www.youtube.com/" }),
   ).toMatchObject({ verb: "Opened", target: "youtube.com", running: "Opening" });
-  expect(mcpToolLabel("ace", "delegate_task", { tasks: [{ task: "a" }, { task: "b" }] }).verb).toBe(
+  expect(mcpToolLabel("ace", "delegate", { tasks: [{ task: "a" }, { task: "b" }] }).verb).toBe(
     "Delegated 2 tasks",
   );
-  expect(mcpToolLabel("ace", "ace_thread_read", { threadId: "thread-1" }).verb).toBe("Read thread");
+  expect(mcpToolLabel("ace", "thread_read", { threadId: "thread-1" }).verb).toBe("Read a thread");
+});
+
+test("another server's tool that shares an ace tool's bare name is not read as ace's", () => {
+  expect(mcpToolLabel("docs", "context", { topics: ["status"] }).verb).toBe("Used a tool");
+  expect(mcpToolLabel("docs", "mcp__ace__context", { topics: ["status"] }).verb).toBe(
+    "Checked ace's status",
+  );
 });
 
 test("other servers describe the action without native names; computer use is named", () => {
@@ -108,21 +115,16 @@ test("other servers describe the action without native names; computer use is na
   expect(namedToolLabel("browser", "Pair a phone")).toMatchObject({ verb: "Browsed", icon: "web" });
 });
 
-test.each([
-  ["ace_device_list", "Listed connected devices"],
-  ["ace_device_delegate", "Delegated work to another device"],
-  ["ace_device_task_publish", "Returned results from another device"],
-  ["ace_device_task_status", "Checked work on another device"],
-  ["ace_device_task_wait", "Waited for work on another device"],
-  ["ace_device_task_cancel", "Stopped work on another device"],
-])("%s describes the action without exposing task or host identifiers", (tool, expected) => {
-  const shown = mcpToolLabel("ace", tool, { hostId: "private-host-id", taskId: "private-task-id" });
-  expect([shown.verb, shown.target].filter(Boolean).join(" ")).toBe(expected);
+test("work delegated to a paired machine names the machine but no host identifiers", () => {
+  const shown = mcpToolLabel("ace", "delegate", {
+    tasks: [{ task: "Run the iOS suite", machine: "studio", hostId: "private-host-id" }],
+  });
+  expect(shown.verb).toBe("Delegated “Run the iOS suite” on studio");
   expect(shown.running).not.toContain("private-");
 });
 
 test("unknown custom tool titles never expose provider namespaces", () => {
-  for (const title of ["docs › search_pages", "ace_status", "mcp__docs__search_pages"]) {
+  for (const title of ["docs › search_pages", "ace_context", "mcp__docs__search_pages"]) {
     expect(namedToolLabel("custom", title)).toMatchObject({
       verb: "Used a tool",
       target: undefined,

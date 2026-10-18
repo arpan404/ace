@@ -252,7 +252,7 @@ export class ThreadTransitions {
                 selection,
                 state: "applied",
                 lossy: crossProvider,
-                ...(crossProvider ? { recommendation: "delegate_task" } : {}),
+                ...(crossProvider ? { recommendation: "delegate" } : {}),
                 at: this.now(),
               },
             },

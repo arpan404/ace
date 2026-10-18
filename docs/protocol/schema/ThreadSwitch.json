@@ -13,7 +13,7 @@
       "type": "boolean"
     },
     "recommendation": {
-      "const": "delegate_task",
+      "const": "delegate",
       "type": "string"
     },
     "selection": {

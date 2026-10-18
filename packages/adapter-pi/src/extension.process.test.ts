@@ -30,7 +30,8 @@ test("Pi forwards scoped tools with long install deadlines, structured results a
   const credentials = new CredentialRegistry(() => randomBytes(32).toString("hex"));
   let effect = "";
   registry.register({
-    name: "ace_echo",
+    name: "echo",
+    toolset: "ace-threads",
     description: "Echo",
     input: z.object({ value: z.string() }),
     output: z.object({ value: z.string() }),
@@ -42,7 +43,8 @@ test("Pi forwards scoped tools with long install deadlines, structured results a
     },
   });
   registry.register({
-    name: "ace_failure",
+    name: "failure",
+    toolset: "ace-threads",
     description: "Failure",
     input: z.object({}),
     output: z.object({}),
@@ -86,9 +88,9 @@ test("Pi forwards scoped tools with long install deadlines, structured results a
       ),
     });
     expect(instructions).toMatchObject({
-      systemPrompt: expect.stringContaining("plus the rest of its tools: ace_guide"),
+      systemPrompt: expect.stringContaining("guide is ace_guide"),
     });
-    // ace_echo and ace_failure belong to the threads family, outside Pi's core list.
+    // echo and failure (ace_echo, ace_failure in Pi) belong to the threads family, outside Pi's core list.
     expect(tools.has("ace_echo")).toBe(false);
     await openFamilies(tools, ["ace-threads"], ["ace_echo", "ace_failure"]);
     const echo = tools.get("ace_echo"),
@@ -164,9 +166,9 @@ test("Pi executes authorized browser, screen and device tools and projects their
     await openFamilies(
       tools,
       ["ace-browser", "ace-computer-use"],
-      ["ace_browser_click", "screen_ui_act", "device_tap"],
+      ["ace_browser_click", "ace_screen_ui_act", "ace_device_tap"],
     );
-    for (const name of ["ace_browser_click", "screen_ui_act", "device_tap"]) {
+    for (const name of ["ace_browser_click", "ace_screen_ui_act", "ace_device_tap"]) {
       const tool = tools.get(name);
       if (!tool) throw new Error(`Missing authorized feature tool: ${name}`);
       const result = await tool.execute("native", { value: "input" }, undefined);
@@ -176,7 +178,7 @@ test("Pi executes authorized browser, screen and device tools and projects their
     }
     expect(effects).toEqual(["ace_browser_click:input", "screen_ui_act:input", "device_tap:input"]);
     lease.end();
-    const tap = tools.get("device_tap");
+    const tap = tools.get("ace_device_tap");
     if (!tap) throw new Error("No device tool");
     await expect(tap.execute("revoked", { value: "blocked" }, undefined)).rejects.toThrow();
     expect(effects).toHaveLength(3);
@@ -236,7 +238,7 @@ test("Pi adds computer use when it turns on, its other tools once used, and with
   onTestFinished(host.shutdown);
   await host.start((pi) => registerAcePiExtension(pi, { ACE_PI_SESSION_FILE: config.path }));
   expect(host.errors).toEqual([]);
-  expect(host.active()).toEqual(["read", "bash", "ace_status"]);
+  expect(host.active()).toEqual(["read", "bash", "ace_context"]);
   const refresh = async (mutate: () => void) => {
     const next = Promise.withResolvers<void>();
     changed = next.resolve;
@@ -249,19 +251,25 @@ test("Pi adds computer use when it turns on, its other tools once used, and with
     enabled = true;
   });
   // Only the entry point is listed upfront; opening an app brings the rest of computer use.
-  expect(host.active()).toEqual(["read", "bash", "ace_status", "screen_open_app"]);
-  const open = host.tools.get("screen_open_app");
+  expect(host.active()).toEqual(["read", "bash", "ace_context", "ace_screen_open_app"]);
+  const open = host.tools.get("ace_screen_open_app");
   if (!open) throw new Error("Missing screen_open_app");
   const opened = Promise.withResolvers<void>();
   changed = opened.resolve;
   await open.execute("open", {}, undefined);
   await opened.promise;
   changed = undefined;
-  expect(host.active()).toEqual(["read", "bash", "ace_status", "screen_open_app", "screen_type"]);
+  expect(host.active()).toEqual([
+    "read",
+    "bash",
+    "ace_context",
+    "ace_screen_open_app",
+    "ace_screen_type",
+  ]);
   await refresh(() => {
     enabled = false;
   });
-  expect(host.active()).toEqual(["read", "bash", "ace_status"]);
+  expect(host.active()).toEqual(["read", "bash", "ace_context"]);
 });
 
 test("Pi still starts with ace's commands when ace's tool server is unreachable, reporting the failure at session start", async () => {
@@ -320,7 +328,8 @@ test("Pi runs 80 ace tool calls at once without refusing any past a call cap", a
   let started = 0;
   const gate = Promise.withResolvers<void>();
   registry.register({
-    name: "ace_hold",
+    name: "hold",
+    toolset: "ace-threads",
     description: "Hold",
     input: z.object({ value: z.string() }),
     output: z.object({ value: z.string() }),

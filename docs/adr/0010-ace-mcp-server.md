@@ -52,10 +52,11 @@ and AbortSignal. The registry validates input and output and exposes only tools
 the caller can use. Read-only thread inspection needs no extra capability.
 Capabilities are `browser`, `preview`, `terminal`, `notify`, `agents`, `forge`.
 
-The built-ins are `ace_notify_user`, `ace_thread_info` and `ace_list_agents`.
+The first built-ins were a notify tool, a thread-info tool and an agent list.
+They are now `notify`, `context` and `agents_status`.
 Notification acceptance must persist the notice and notification intent
-together through a host port. Child work starts only through `delegate_task`
-(ADR 0052); the earlier `ace_spawn_agent` built-in was retired before release. The orchestration
+together through a host port. Child work starts only through `delegate`
+(ADR 0052); the earlier spawn built-in was retired before release. The orchestration
 workstream owns execution and its state transitions. Thread and agent reads
 use bounded pages, preserve canonical status, and never recompute tree status.
 
@@ -100,7 +101,7 @@ while waiting for a writer, without introducing a stat/open race.
 There is no replay buffer or permanent MCP transport session map. A non-gating
 benchmark measures credential lookup and dispatch throughput and peak RSS.
 
-The server's mandatory `ace_status` discovery tool uses a separate registry capped
+The server's mandatory `context` discovery tool uses a separate registry capped
 at one tool and 64 active reads. `maxTools` continues to bound the caller's backend
 registry, including registered toolkit built-ins; starting the HTTP server does
 not consume or increase that capacity. Status resources and tool descriptions use
@@ -138,7 +139,7 @@ enter the plugin or its readiness RPC.
 
 ## Amendment: native guidance and changing availability (2026-10-07)
 
-Capabilities on a lease are an immutable ceiling. Runtime enablement, read-only thread mode and app grants further restrict both discovery and execution. Disabled screen/device groups are absent; enabled screen initially exposes only `screen_request_app`. `ace_status` explains unavailable groups. Browser computer use needs a person's turn or thread grant, never an Always grant. An agent's `screen_request_app` for a browser opens the same approval in the thread as any app (Allow once, Allow for this thread, Deny) and waits for the answer.
+Capabilities on a lease are an immutable ceiling. Runtime enablement, read-only thread mode and app grants further restrict both discovery and execution. Disabled screen/device groups are absent; enabled screen initially exposes only `screen_request_app`. `context` (topic `status`) explains unavailable groups. Browser computer use needs a person's turn or thread grant, never an Always grant. An agent's `screen_request_app` for a browser opens the same approval in the thread as any app (Allow once, Allow for this thread, Deny) and waits for the answer.
 
 Deliver guidance through each provider's native instruction mechanism. Codex opts out of MCP discovery instructions with `X-Ace-Instructions: native` because it otherwise prefixes every tool description. Cursor loads an always-applied rule from a private temporary additional workspace rather than replacing its system prompt. ACP has no portable system-instruction field, so its native prompt carries labeled guidance context.
 
@@ -174,10 +175,32 @@ reinitialization retains at most four transports per principal.
 ## Amendment: groups are what ace serves (2026-10-13)
 
 The capability enum listed `preview`, `terminal` and `forge`, and status added a
-`files` pseudo-group, but no toolkit ever registered tools for them. `ace_status`
+`files` pseudo-group, but no toolkit ever registered tools for them. Status
 reported them as disabled, and an agent read "terminal disabled" as "I cannot edit
 files". The enum now holds only groups with registered tools. Files and shell belong
-to the provider's own workspace tools; the instructions and `ace_status` description
+to the provider's own workspace tools; the instructions and the `context` description
 say so, and no ace group limits them. A disabled group's reason states the actual
 cause and never points at a setting that does not exist. Status reports the
 thread's effective native permission selector instead of a fixed placeholder.
+
+## Amendment: bare tool names (2026-10-17)
+
+Tool names are bare: `context`, `delegate`, `thread_read`. The server is named
+`ace`, and each provider adds that namespace. Claude and Codex show
+`mcp__ace__<tool>`; OpenCode and Pi show `ace_<tool>`. The old `ace_` prefix
+made names like `mcp__ace__ace_status` repeat the namespace. The registry
+compares names in bare form, so a toolkit that still registers an `ace_` prefix
+(the browser toolkit's `ace_browser_*`, renamed separately) resolves to the
+same tool. The status tool became `context` with topic `status`; the
+`ace://status` resource still exists. [ADR 0082](0082-agent-facing-mcp-tools.md)
+records the full rename, the tool families and core mode.
+
+Only OpenCode and Pi send `X-Ace-Tools: core`, because both reload tools on
+`tools/list_changed`: OpenCode 2.0.22 reloads with a debounce
+(`packages/core/src/tool/mcp.ts`), and Pi's extension re-registers. Cursor's SDK
+1.0.35 caches tools and ignores the notification, and ACP leaves it to each
+agent, so Cursor, ACP and Antigravity list every tool. In core mode `guide` also
+returns its family's schemas inline. Claude Code always loads `context`,
+`guide`, `delegate`, `wait`, `browser_open` and `html_render`; it defers the
+rest behind its tool search. Codex prompts only for the destructive ace tools,
+`thread_merge` and `automation_remove`.

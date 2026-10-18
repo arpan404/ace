@@ -192,7 +192,7 @@ export async function evalWorld(options: { browser: boolean }) {
     editFile(name: string, text: string) {
       writeFileSync(join(project, name), text);
     },
-    /** The thread's status once its ace_ask question is open. */
+    /** The thread's status once its ask question is open. */
     async whileAsking(thread: ThreadId) {
       for (let attempt = 0; attempt < 400; attempt++) {
         const open = daemon.store.atomic((db) =>
@@ -204,7 +204,7 @@ export async function evalWorld(options: { browser: boolean }) {
       await engine.flush();
       return daemon.store.getThread(thread)?.status.state;
     },
-    /** The person answers a pending ace_ask on `thread`, from their own device. */
+    /** The person answers a pending ask on `thread`, from their own device. */
     async answerAsk(thread: ThreadId, text: string) {
       const pending = () =>
         daemon.store.atomic((db) =>

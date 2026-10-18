@@ -1,0 +1,13 @@
+{
+  "$id": "https://ace.local/protocol/v1/agents_status.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "threadId": {
+      "description": "One child to read in full, with its result once settled.",
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

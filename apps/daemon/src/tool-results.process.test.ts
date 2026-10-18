@@ -269,18 +269,18 @@ it("identical ambiguous provider steps do not receive another step's result", as
   }
 });
 
-it("ace_status captures its structured result despite using the discovery registry", async () => {
-  const f = await toolFixture("claude", { tool: "ace_status", input: {} });
+it("context captures its structured result despite using the discovery registry", async () => {
+  const f = await toolFixture("claude", { tool: "context", input: { topics: ["status"] } });
   try {
     const item = Object.values(f.daemon.store.snapshotThread(f.thread.id).items).find(
       (entry) => entry.type === "tool_call",
     );
     expect(item).toMatchObject({
       call: {
-        detail: { kind: "mcp", server: "ace", tool: "ace_status" },
+        detail: { kind: "mcp", server: "ace", tool: "context" },
         result: {
           isError: false,
-          structuredContent: { threadId: f.thread.id, groups: expect.any(Array) },
+          structuredContent: { status: { threadId: f.thread.id, groups: expect.any(Array) } },
         },
       },
     });

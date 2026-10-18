@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
-import { aceToolName, aceToolInput } from "@ace/core";
+import { aceToolInput } from "@ace/core";
 import type { Item, ToolCall } from "@ace/protocol";
+import { bareToolName } from "@ace/provider-kit/ace-tool-names";
 
+/** The bare name of a measuring tool, from any spelling of ace's tool name. */
 export function measurementTool(name: string): string | undefined {
-  const tool = aceToolName(name);
-  return tool === "screen_measure_interaction" || tool === "ace_browser_measure_interaction"
+  const tool = bareToolName(name);
+  return tool === "screen_measure_interaction" || tool === "browser_measure_interaction"
     ? tool
     : undefined;
 }

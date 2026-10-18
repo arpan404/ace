@@ -114,9 +114,9 @@ test.each(["default", "registered"])(
             name: "ace",
             validAceConnection: true,
             aceTools: expect.arrayContaining([
-              "delegate_task",
-              "ace_question_answer",
-              "ace_thread_message",
+              "delegate",
+              "question_answer",
+              "agent_message",
               "ace_browser_open",
             ]),
           }),
@@ -194,11 +194,7 @@ test.each(["default", "registered"])(
       expect(await controls.status()).toEqual([
         expect.objectContaining({
           name: "ace",
-          aceTools: expect.arrayContaining([
-            "delegate_task",
-            "ace_thread_message",
-            "ace_browser_open",
-          ]),
+          aceTools: expect.arrayContaining(["delegate", "agent_message", "ace_browser_open"]),
         }),
       ]);
       await engine.close();

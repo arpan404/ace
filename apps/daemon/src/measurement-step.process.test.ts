@@ -121,7 +121,7 @@ it("browser MCP uses the same daemon evidence and attachment path with a large f
       throw new Error("No browser evidence");
     expect(item.call.detail).toMatchObject({
       kind: "mcp",
-      tool: "ace_browser_measure_interaction",
+      tool: "browser_measure_interaction",
     });
     expect(item.measurement).toMatchObject({
       source: "browser-trace",

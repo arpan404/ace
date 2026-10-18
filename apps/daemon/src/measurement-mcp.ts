@@ -105,8 +105,9 @@ export function measurementObserver(runtime: Runtime) {
       for (const row of rows) correlate(String(row.id));
     }
   });
-  const observeCall: CallObserver = (name, input, { caller }) => {
-    if (!measurementTool(name) || privateAceInput(name, input)) return;
+  const observeCall: CallObserver = (called, input, { caller }) => {
+    const name = measurementTool(called);
+    if (!name || privateAceInput(name, input)) return;
     const key = argumentKey(input);
     const started = runtime.now();
     const since = store.headSeq();

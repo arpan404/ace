@@ -1,0 +1,33 @@
+{
+  "$id": "https://ace.local/protocol/v1/html_render.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "height": {
+      "$ref": "https://ace.local/protocol/v1/HtmlHeight.json",
+      "description": "Frame height in CSS pixels; default fits the content."
+    },
+    "html": {
+      "description": "A complete self-contained HTML document: inline CSS, JS, SVG and data: images, no network.",
+      "maxLength": 262144,
+      "minLength": 1,
+      "type": "string"
+    },
+    "mode": {
+      "$ref": "https://ace.local/protocol/v1/HtmlMode.json",
+      "description": "interactive runs its scripts in a sandbox; static strips them (charts, diagrams). Default: inferred."
+    },
+    "title": {
+      "description": "A short caption shown above the page.",
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "\\S",
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "html"
+  ],
+  "type": "object"
+}

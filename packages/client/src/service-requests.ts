@@ -16,19 +16,17 @@ type Replies<T extends ServerMessage["type"]> = Extract<ServerMessage, { type: T
 // queue storage, removal, context leases and recovery remain with that owner.
 export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "cli.request"
   ? Replies<"cli.result">
-  : Q["type"] extends `delegation.broker.${string}` | `delegation.remote.${string}`
-    ? Replies<"delegation.broker.result">
-    : Q["type"] extends `provider.accounts.${string}`
-      ? Replies<"provider.accounts.result">
-      : Q["type"] extends `provider.install.${string}`
-        ? Replies<"provider.install.result">
-        : Q["type"] extends `provider.login.${string}` | "provider.logout"
-          ? Replies<"provider.login.result">
-          : Q["type"] extends `onboarding.${string}`
-            ? Replies<"onboarding.result">
-            : Q["type"] extends "worktree.creation.request"
-              ? Replies<"worktree.creation.result">
-              : LegacyServiceResponse<Q>;
+  : Q["type"] extends `provider.accounts.${string}`
+    ? Replies<"provider.accounts.result">
+    : Q["type"] extends `provider.install.${string}`
+      ? Replies<"provider.install.result">
+      : Q["type"] extends `provider.login.${string}` | "provider.logout"
+        ? Replies<"provider.login.result">
+        : Q["type"] extends `onboarding.${string}`
+          ? Replies<"onboarding.result">
+          : Q["type"] extends "worktree.creation.request"
+            ? Replies<"worktree.creation.result">
+            : LegacyServiceResponse<Q>;
 
 type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "storage.request"
   ? Replies<"storage.result">
@@ -153,16 +151,6 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
 
 const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage["type"][]>> = {
   "cli.request": ["cli.result"],
-  "delegation.remote.output": ["delegation.broker.result"],
-  "delegation.broker.return": ["delegation.broker.result"],
-  "delegation.remote.transport": ["delegation.broker.result"],
-  "delegation.remote.context": ["delegation.broker.result"],
-  "delegation.remote.start": ["delegation.broker.result"],
-  "delegation.remote.status": ["delegation.broker.result"],
-  "delegation.remote.cancel": ["delegation.broker.result"],
-  "delegation.broker.register": ["delegation.broker.result"],
-  "delegation.broker.poll": ["delegation.broker.result"],
-  "delegation.broker.report": ["delegation.broker.result"],
   "notification.config": ["notification.config.result"],
   "notification.register": ["notification.register.result"],
   "prompts.request": ["prompts.result"],

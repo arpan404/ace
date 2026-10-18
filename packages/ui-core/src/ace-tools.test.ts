@@ -128,7 +128,7 @@ test("ace tools a provider reports as custom, with prefixed names, read the same
       id: "c",
       agentId: "root",
       kind: "custom",
-      title: "ace_ace_browser_open",
+      title: "ace_browser_open",
       status: "succeeded",
       detail: { kind: "custom" },
       startedAt: 1,
@@ -163,8 +163,75 @@ test("a call made on another paired machine names that machine on its row", () =
   expect(opened?.past).toMatch(/^On studio, /);
   expect(opened?.target).toContain("docs.example.test");
   expect(
-    aceStep(mcp("delegate_task", { task: "Review the release notes", machine: "studio" }))?.words
-      .past,
+    aceStep(
+      mcp("delegate", {
+        tasks: [
+          { requestId: "r1", task: "Review the release notes", role: "w", machine: "studio" },
+        ],
+      }),
+    )?.words.past,
   ).toBe("Delegated “Review the release notes” on studio");
   expect(aceStep(mcp("ace_browser_snapshot", {}))?.words.past).not.toContain("studio");
+});
+
+const controlWords = (args: Record<string, unknown>) =>
+  aceStep(mcp("mcp__ace__thread_control", args, { server: "claude" }))?.words.past;
+
+test("a Claude-spelled thread_control call reads as the action it took", () => {
+  const words = controlWords;
+  expect(words({ action: "rename", title: "Login flow" })).toBe(
+    "Renamed the thread to “Login flow”",
+  );
+  expect(words({ action: "rename" })).toBe("Retitled the thread");
+  expect(words({ action: "fork", requestId: "r" })).toBe("Forked a thread");
+  expect(words({ action: "interrupt", requestId: "r" })).toBe("Stopped a thread");
+  expect(words({ action: "snooze", until: null })).toBe("Unmuted a thread");
+  expect(words({ action: "rename_project", name: "Billing" })).toBe(
+    "Renamed the project to “Billing”",
+  );
+});
+
+test("delegating several tasks counts them; one task quotes its words", () => {
+  const tasks = [
+    { requestId: "a", task: "Write the parser", role: "parser" },
+    { requestId: "b", task: "Write the tests", role: "tests" },
+  ];
+  expect(aceStep(mcp("delegate", { tasks }))?.words.past).toBe("Delegated 2 tasks");
+  expect(aceStep(mcp("delegate", { tasks: tasks.slice(0, 1) }))?.words.past).toBe(
+    "Delegated “Write the parser”",
+  );
+});
+
+const messageWords = (delivery: string) =>
+  aceStep(mcp("agent_message", { threadId: "t", requestId: "r", text: "Use v2", delivery }))?.words;
+
+test("a message to a subagent reads by how it is delivered", () => {
+  const message = messageWords;
+  expect(message("queue")).toMatchObject({ past: "Messaged a subagent", target: "Use v2" });
+  expect(message("steer")?.past).toBe("Steered a subagent");
+  expect(message("restart")?.past).toBe("Restarted a subagent");
+});
+
+test("linking and unlinking a PR read from the one link tool and its answer", () => {
+  expect(aceStep(mcp("thread_link_pr", { number: 12 }))?.words.past).toBe("Linked PR #12");
+  expect(aceStep(mcp("thread_link_pr", { unlink: true, all: true }))?.words.past).toBe(
+    "Unlinked all PRs",
+  );
+  const answered = mcp("thread_link_pr", { unlink: true, url: "https://x.test/o/r/pull/7" });
+  if (answered.type === "tool_call")
+    Object.assign(answered.call, {
+      result: { structuredContent: { ok: true, data: { number: 7 } }, content: [] },
+    });
+  expect(aceStep(answered)).toMatchObject({
+    words: { past: "Unlinked PR #7" },
+    mark: { glyph: "pr" },
+  });
+});
+
+test("an old ace_-prefixed browser tool and its bare name read alike", () => {
+  const url = { url: "https://github.com/" };
+  expect(aceStep(mcp("ace_browser_open", url))?.words).toEqual(
+    aceStep(mcp("browser_open", url))?.words,
+  );
+  expect(aceStep(mcp("browser_open", url))?.words).toMatchObject({ target: "github.com" });
 });

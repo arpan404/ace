@@ -34,7 +34,7 @@ async function host() {
   };
 }
 
-test("the installed OpenCode tool-list shape makes described ace tools available through readiness", async () => {
+test("readiness answers with ace's native tools once OpenCode registers ace_context, leaving OpenCode's own tools out", async () => {
   const fixture = z
     .object({
       tools: z.array(
@@ -49,31 +49,36 @@ test("the installed OpenCode tool-list shape makes described ace tools available
         ),
       ),
     );
+  // The recorded 2.0.22 catalog supplies OpenCode's own tools in their installed shape. It
+  // predates ace's bare tool names, so ace's entries follow OpenCode's `<server>_<tool>` rule.
+  const native = fixture.tools
+    .filter((tool) => !tool.function.name.startsWith("ace_"))
+    .map((tool) => ({
+      id: tool.function.name,
+      description: tool.function.description,
+      options: { namespace: "builtin" },
+    }));
+  const ace = [
+    { id: "ace_context", description: "What ace already knows", options: { namespace: "ace" } },
+    { id: "ace_threads_find", description: "Find threads", options: { namespace: "ace" } },
+  ];
+  expect(native.some((tool) => tool.id === "shell")).toBe(true);
   const h = await host();
   const signal = new AbortController().signal;
   const ready = h.rpc.ready({}, { signal });
-  h.reload(
-    fixture.tools.map((tool) => ({
-      id: tool.function.name,
-      description: tool.function.description,
-      options: { namespace: tool.function.name.startsWith("ace_") ? "ace" : "builtin" },
-    })),
-  );
+  h.reload(native);
+  h.reload([...native, ...ace]);
   const result = await ready;
-  expect(result.tools).toEqual(
-    expect.arrayContaining([
-      { name: "ace_ace_status", description: expect.stringContaining("ace://status") },
-      { name: "ace_ace_thread_info", description: expect.any(String) },
-      { name: "ace_ace_list_agents", description: expect.any(String) },
-    ]),
-  );
-  expect(result.tools.some((tool) => tool.name === "shell")).toBe(false);
+  expect(result.tools).toEqual([
+    { name: "ace_context", description: "What ace already knows" },
+    { name: "ace_threads_find", description: "Find threads" },
+  ]);
 });
 
-test("a connected MCP client with no native status tool cannot pass readiness and can be cancelled", async () => {
+test("a connected MCP client with no native context tool cannot pass readiness and can be cancelled", async () => {
   const h = await host();
   h.reload([
-    { id: "ace_ace_thread_info", description: "Thread info", options: { namespace: "ace" } },
+    { id: "ace_threads_find", description: "Find threads", options: { namespace: "ace" } },
   ]);
   const controller = new AbortController();
   const ready = h.rpc.ready({}, { signal: controller.signal });

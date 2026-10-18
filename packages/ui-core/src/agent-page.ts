@@ -2,7 +2,7 @@ import type { Item } from "@ace/protocol";
 import { aceCallOf } from "./ace-tools.ts";
 
 /** ace's browser tools that put a page in front of the agent (and so in front of the person). */
-const pageTools = new Set(["ace_browser_open", "ace_browser_navigate"]);
+const pageTools = new Set(["browser_open", "browser_navigate"]);
 
 /**
  * Whether an item is an agent opening or moving a page in the thread's browser: the side panel

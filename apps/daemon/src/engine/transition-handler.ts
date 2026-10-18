@@ -204,7 +204,7 @@ export function acceptTransition(
                 selection,
                 state: "queued",
                 lossy,
-                ...(lossy ? { recommendation: "delegate_task" } : {}),
+                ...(lossy ? { recommendation: "delegate" } : {}),
                 at: now,
               },
             },

@@ -79,7 +79,7 @@ export type Block =
   | { kind: "files"; key: string; itemIds: string[] }
   | { kind: "item"; key: string; itemId: string }
   /**
-   * A conversation the agent started with ace's `ace_thread_start`: a card that opens it, where
+   * A conversation the agent started with ace's `thread_start`: a card that opens it, where
    * it was started and never folded. Its step stays in the work log too.
    */
   | { kind: "started"; key: string; itemId: string }

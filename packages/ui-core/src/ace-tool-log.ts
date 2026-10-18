@@ -64,8 +64,8 @@ const readsRefs = new Set([
   "screen_click",
   "screen_type",
   "screen_key",
-  "ace_browser_snapshot",
-  "ace_browser_find",
+  "browser_snapshot",
+  "browser_find",
   "device_ui_tree",
   "device_find",
 ]);

@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/notify.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "level": {
+      "default": "info",
+      "description": "info (default), warning or error.",
+      "enum": [
+        "info",
+        "warning",
+        "error"
+      ],
+      "type": "string"
+    },
+    "text": {
+      "description": "What happened, in one or two sentences.",
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "text"
+  ],
+  "type": "object"
+}

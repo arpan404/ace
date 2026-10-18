@@ -103,7 +103,7 @@ test("a granted historical stream and preview remain frozen when the source appe
   const fork = await h.fork(source, { type: "turn", runId: point.id });
   const call = caller(h, fork);
   const initial = HandoffPage.parse(
-    (await call("ace_read_handoff", { sourceThreadId: source })).structuredContent,
+    (await call("handoff_read", { sourceThreadId: source })).structuredContent,
   );
   const shell = initial.items.find((item) => item.type === "tool_call");
   if (
@@ -117,19 +117,19 @@ test("a granted historical stream and preview remain frozen when the source appe
   appendFuture(h, source, point.nativeId);
   await h.engine.flush();
   const page = HandoffPage.parse(
-    (await call("ace_read_handoff", { sourceThreadId: source })).structuredContent,
+    (await call("handoff_read", { sourceThreadId: source })).structuredContent,
   );
   expect(JSON.stringify(page)).not.toContain("future shell secret");
   expect(JSON.stringify(page)).not.toContain("future message secret");
   expect(JSON.stringify(page)).not.toContain("Future revised build");
   const chunk = HandoffChunk.parse(
-    (await call("ace_read_handoff_chunk", { sourceThreadId: source, streamId })).structuredContent,
+    (await call("handoff_read", { sourceThreadId: source, streamId })).structuredContent,
   );
   expect(Buffer.from(chunk.bytes, "base64").toString("utf8")).toBe("before cutoff\n");
   expect(chunk.eof).toBe(true);
   const beyond = HandoffChunk.parse(
     (
-      await call("ace_read_handoff_chunk", {
+      await call("handoff_read", {
         sourceThreadId: source,
         streamId,
         offset: chunk.nextOffset,
@@ -150,7 +150,7 @@ test("an older fork created after later source updates receives the original con
   expect(h.inputs.at(-1)?.text).not.toContain("future message secret");
   await h.restart();
   const page = HandoffPage.parse(
-    (await caller(h, fork)("ace_read_handoff", { sourceThreadId: source })).structuredContent,
+    (await caller(h, fork)("handoff_read", { sourceThreadId: source })).structuredContent,
   );
   expect(JSON.stringify(page)).toContain("launch build before cutoff");
   expect(JSON.stringify(page)).not.toContain("future message secret");
@@ -201,7 +201,7 @@ test("an item fork includes the item's completed revision rather than its initia
   expect(h.inputs.at(-1)?.text).toContain("finished selected content");
   expect(h.inputs.at(-1)?.text).not.toContain("initial draft");
   const page = HandoffPage.parse(
-    (await caller(h, fork)("ace_read_handoff", { sourceThreadId: source })).structuredContent,
+    (await caller(h, fork)("handoff_read", { sourceThreadId: source })).structuredContent,
   );
   expect(page.items.at(-1)).toMatchObject({
     complete: true,

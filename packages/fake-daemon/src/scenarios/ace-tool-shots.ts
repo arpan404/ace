@@ -24,7 +24,7 @@ export const phoneShot =
   "aNACDVqgQYMWaNACDRq0QIMWaNCgBRq0QIMGLdCgBRo0aIEGLdCgQQs0aIEGDVqgQQs0aNACDVqgQYMWaNACDTp2H+16OTqI" +
   "nkb1AAAAAElFTkSuQmCC";
 
-/** A web sign-in page, as `ace_browser_screenshot` returns it. */
+/** A web sign-in page, as `browser_screenshot` returns it. */
 export const pageShot =
   "iVBORw0KGgoAAAANSUhEUgAAAUAAAADICAIAAAAWZq/8AAACfElEQVR42u3boQ2AMBRF0W6CwaCYgP0YD4frDFWEYGCKNv+H" +
   "83ImKFzXlnlZgaSKIwABAwIGBAwCBgQMCBgQMAgYEDAgYBAwIGBAwICAQcCAgAEBAwIGAQMCBgQMAgYEDAgYEDAIGAgY8HU/" +

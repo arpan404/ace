@@ -2,17 +2,12 @@ import type { z } from "zod";
 import { parseToolArguments } from "./tool-failure.ts";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { withinJsonBudget, ResultBudgetExceeded } from "./json-budget.ts";
-import type { ToolContext } from "./registry.ts";
+import type { ToolContext, ToolMetadata } from "./registry.ts";
 import type { McpCapability } from "@ace/protocol";
 import { maxRichResultBytes } from "./result-budgets.ts";
-export interface ContentToolDefinition<I extends z.ZodType> {
-  name: string;
-  riskClass?: import("@ace/protocol").ApprovalTarget["riskClass"];
-  destructive?: boolean;
-  description: string;
+export interface ContentToolDefinition<I extends z.ZodType> extends ToolMetadata {
   input: I;
   capability: McpCapability;
-  timeoutMs: number;
   run(input: z.output<I>, context: ToolContext): Promise<unknown>;
 }
 /** Rich results have a separate bounded API, so structured tools keep their 256 KiB cap. */

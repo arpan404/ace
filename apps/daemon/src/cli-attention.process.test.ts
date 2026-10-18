@@ -120,6 +120,8 @@ test("unresponsive delegated work is uncertain in public task status", async () 
       f.caller.threadId,
       "--provider",
       "claude",
+      "--role",
+      "silent",
       "--json",
     ]);
     const id = ThreadId.parse(

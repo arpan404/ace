@@ -46,7 +46,7 @@ test.each(["read-only", "ask", "auto-review", "full-access"] as const)(
         {
           on: "send",
           frames: [
-            frames.frame(start, ...approval("ace_thread_read", { threadId: "child", limit: 20 })),
+            frames.frame(start, ...approval("thread_read", { threadId: "child", limit: 20 })),
           ],
         },
         {
@@ -76,7 +76,7 @@ test.each(["read-only", "ask", "auto-review", "full-access"] as const)(
       expect(interaction).toMatchObject({
         state: "pending",
         request: {
-          target: { tool: "ace_thread_read", origin: "ace", riskClass: "read-only" },
+          target: { tool: "thread_read", origin: "ace", riskClass: "read-only" },
         },
       });
       expect(
@@ -142,7 +142,7 @@ test.each(["full-access", "auto-review"] as const)(
   async (mode) => {
     const frames = scriptFrames();
     const h = await harness(
-      [{ on: "send", frames: [frames.frame(start, ...codexGate("ace_thread_merge", merge))] }],
+      [{ on: "send", frames: [frames.frame(start, ...codexGate("thread_merge", merge))] }],
       frames,
       { permissionSettings: async () => ({ access: mode }) },
     );
@@ -155,7 +155,7 @@ test.each(["full-access", "auto-review"] as const)(
       expect(interaction).toMatchObject({
         state: "pending",
         toolCallId: call?.id,
-        request: { target: { tool: "ace_thread_merge", origin: "ace" } },
+        request: { target: { tool: "thread_merge", origin: "ace" } },
       });
     } finally {
       await h.close();
@@ -214,7 +214,7 @@ test.each([
       [
         {
           on: "send",
-          frames: [frames.frame(start, ...approval("ace_thread_read", input, server))],
+          frames: [frames.frame(start, ...approval("thread_read", input, server))],
         },
       ],
       frames,

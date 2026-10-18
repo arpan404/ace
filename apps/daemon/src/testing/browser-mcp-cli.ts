@@ -175,8 +175,7 @@ if (mode === "opencode") {
       ) {
         const entry = z.object({ value: z.string() }).parse(body);
         // OpenCode reads ace's guidance from MCP instructions; this entry teaches its tool names.
-        if (!entry.value.includes("ace_ace_guide"))
-          throw new Error("Native tool guidance is missing");
+        if (!entry.value.includes("ace_guide")) throw new Error("Native tool guidance is missing");
         response.writeHead(204).end();
       } else if (path === "/api/session/native/prompt") {
         reply({ data: { id: body.id, sessionID: "native" } });

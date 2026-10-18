@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { bareToolName } from "@ace/provider-kit/ace-tool-names";
 import type { ToolCallDraft } from "./facts.ts";
 import type { ToolCall, RawPayload, InteractionRequest } from "@ace/protocol";
 type CallInput = {
@@ -25,25 +26,27 @@ const screen = new Set([
   "request_foreground",
 ]);
 
-/** Provider namespaces wrap the same daemon tool names. Other servers are never reclassified. */
+const namespaced = /^(?:mcp__ace__|ace_)/;
+const toolName = /^[a-z][a-z0-9_]{0,100}$/;
+
+/**
+ * The bare name of an un-namespaced call (a provider `custom` call or a title) when it is one of
+ * ace's: it carries ace's namespace (`mcp__ace__`, `ace_`) or is a computer-use or device tool,
+ * which some providers report bare. Any other bare name belongs to someone else.
+ */
 export function aceToolName(name: string): string | undefined {
-  if (name.startsWith("mcp__ace__")) name = name.slice(10);
-  if (
-    name === "ace_device_list" ||
-    name === "ace_device_delegate" ||
-    name.startsWith("ace_device_task_")
-  )
-    return name;
-  if (
-    name.startsWith("ace_screen_") ||
-    name.startsWith("ace_device_") ||
-    name.startsWith("ace_ace_") ||
-    name === "ace_delegate_task"
-  )
-    name = name.slice(4);
-  if (name.startsWith("screen_") && screen.has(name.slice(7))) return name;
-  if (/^(?:ace_|device_)[a-z0-9_]{1,100}$/.test(name) || name === "delegate_task") return name;
-  return undefined;
+  const bare = bareToolName(name);
+  if (!toolName.test(bare)) return undefined;
+  if (namespaced.test(name)) return bare;
+  if (bare.startsWith("screen_") && screen.has(bare.slice(7))) return bare;
+  return bare.startsWith("device_") ? bare : undefined;
+}
+
+/** The tool an MCP detail names, when the server is ace's or the provider did not report one. */
+function aceMcpToolName(server: string | undefined, tool: string | undefined): string | undefined {
+  if (!["ace", "unknown", ""].includes(server ?? "")) return undefined;
+  const bare = bareToolName(tool ?? "");
+  return toolName.test(bare) ? bare : undefined;
 }
 
 export function aceToolInput(call: CallInput): { name: string; input: unknown } | undefined {
@@ -56,8 +59,7 @@ export function aceToolInput(call: CallInput): { name: string; input: unknown } 
     })
     .safeParse(call.detail).data;
   if (detail?.kind === "mcp") {
-    if (!["ace", "unknown", ""].includes(detail.server ?? "")) return;
-    const name = aceToolName(detail.tool ?? "");
+    const name = aceMcpToolName(detail.server, detail.tool);
     if (name) return { name, input: detail.arguments ?? {} };
   }
   if (detail?.kind !== "custom" && call.kind !== "custom") return;
@@ -111,22 +113,23 @@ export function aceToolInput(call: CallInput): { name: string; input: unknown } 
   return title ? { name: title, input: {} } : undefined;
 }
 
-export function privateAceInput(name: string, input?: unknown): boolean {
+/** Whether a call's input is typed text or markup that must never be stored. Any spelling. */
+export function privateAceInput(tool: string, input?: unknown): boolean {
+  const name = bareToolName(tool);
   const payload = record.safeParse(input).data;
   const action = record.safeParse(payload?.action ?? payload?.interaction).data;
   if (name.endsWith("measure_interaction") && action && ("text" in action || "value" in action))
     return true;
   return [
-    "ace_html_preview",
-    "ace_html_render",
+    "html_render",
     "screen_type",
     "screen_paste",
     "screen_ui_act",
     "device_type",
     "device_ui_act",
     "device_act",
-    "ace_browser_type",
-    "ace_browser_fill",
+    "browser_type",
+    "browser_fill",
   ].includes(name);
 }
 export function redactAceArguments(name: string, value: unknown): unknown {
@@ -191,12 +194,12 @@ export function normalizeAceCall(call: CallInput, previous?: ToolCall): CallInpu
 export function redactAceApproval(request: InteractionRequest): InteractionRequest {
   if (request.kind !== "approval" || !request.target) return request;
   const target = request.target;
-  const name = aceToolName(target.tool);
   const owned =
     target.origin === "ace" ||
     target.tool.startsWith("mcp__ace__") ||
     request.mcpServer?.name === "ace";
-  if (!owned || !name || !privateAceInput(name, target.input)) return request;
+  const name = owned ? bareToolName(target.tool) : undefined;
+  if (!name || !privateAceInput(name, target.input)) return request;
   return {
     ...request,
     title: "Approve computer input",

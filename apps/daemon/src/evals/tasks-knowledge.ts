@@ -15,10 +15,8 @@ const prAndChanges: EvalTask = {
     world.editFile("login.ts", "export const login = () => true;\n");
     let pr: number | undefined;
     let files: string[] = [];
-    if (agent.has("ace_context")) {
-      const context = await agent.turn(() =>
-        agent.call("ace_context", { topics: ["prs", "changes"] }),
-      );
+    if (agent.has("context")) {
+      const context = await agent.turn(() => agent.call("context", { topics: ["prs", "changes"] }));
       const data = record(context.data);
       const prs = Array.isArray(data?.["prs"]) ? data["prs"] : [];
       pr = Number(record(prs[0])?.["number"]) || undefined;
@@ -26,7 +24,7 @@ const prAndChanges: EvalTask = {
       files = Array.isArray(changes?.["files"]) ? changes["files"].map(String) : [];
     } else {
       // Today: the linked PR from the thread read, uncommitted files from the model's shell.
-      const read = await agent.turn(() => agent.call("ace_thread_read", { limit: 1 }));
+      const read = await agent.turn(() => agent.call("thread_read", { limit: 1 }));
       const linked = record(control(read).data?.data)?.["linkedPrs"];
       pr = Number(record(Array.isArray(linked) ? linked[0] : undefined)?.["number"]) || undefined;
       files = await agent.turn(async () =>
@@ -56,8 +54,7 @@ const notesRespected: EvalTask = {
     const lesson = "Run tests with `bun run test`; never `bun test`.";
     // Thread 1 learned the lesson the hard way and records it if ace lets it.
     const { agent: first } = await world.agent({ prompt: "fix the login test" });
-    if (first.has("ace_note_add"))
-      await first.turn(() => first.call("ace_note_add", { text: lesson }));
+    if (first.has("note_add")) await first.turn(() => first.call("note_add", { text: lesson }));
     // Thread 2 is asked to run the tests.
     const { agent } = await world.agent({ prompt: "run the tests" });
     const knows = agent.instructions.includes("bun run test");
@@ -86,20 +83,25 @@ const askWaitsOnPerson: EvalTask = {
   async run(world) {
     const { agent: parent } = await world.agent({});
     const started = await parent.turn(() =>
-      parent.call("delegate_task", {
-        requestId: "asker",
-        task: "Ask which login provider to use",
-        role: "ask-login-provider",
-        provider: "claude",
+      parent.call("delegate", {
+        tasks: [
+          {
+            requestId: "asker",
+            task: "Ask which login provider to use",
+            role: "ask-login-provider",
+            provider: "claude",
+          },
+        ],
       }),
     );
-    const child = record(control(started).data?.data)?.["threadId"];
+    const ids = record(control(started).data?.data)?.["threadIds"];
+    const child = Array.isArray(ids) ? ids[0] : undefined;
     if (typeof child !== "string")
       return { metrics: parent.finish(false), note: "child not started" };
     const { agent } = await world.attach(child as ThreadId);
-    if (!agent.has("ace_ask"))
-      return { metrics: agent.finish(false), note: "no ace_ask for a child thread" };
-    const asked = agent.call("ace_ask", {
+    if (!agent.has("ask"))
+      return { metrics: agent.finish(false), note: "no ask for a child thread" };
+    const asked = agent.call("ask", {
       question: "Which login provider?",
       options: ["Email", "GitHub"],
       timeoutSeconds: 30,

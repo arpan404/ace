@@ -3,7 +3,7 @@ import { field, mcpResultParts } from "./mcp-result.ts";
 import { providerNames } from "./providers.ts";
 
 /*
- * A conversation an agent started with ace's `ace_thread_start` tool, read from the call: the new
+ * A conversation an agent started with ace's `thread_start` tool, read from the call: the new
  * thread's id from ace's answer, and its title, provider, model and account from the answer or,
  * for answers that only carry the id, from the call's arguments. Provider payloads are searched
  * with the same bounds as every MCP result. Pure.
@@ -18,15 +18,22 @@ export interface StartedThread {
   account: string | undefined;
 }
 
-/** Claude's `mcp__ace__ace_thread_start`, OpenCode's `ace_ace_thread_start`, or the bare name. */
-const toolName = /^(?:mcp__ace__)?(?:ace_)?ace_thread_start$/;
+/** Claude's `mcp__ace__thread_start` or OpenCode's and Pi's `ace_thread_start`. */
+const namespaced = /^(?:mcp__ace__|ace_)(?:ace_)*thread_start$/;
 
-/** Whether an item is a call of `ace_thread_start`, in any provider's naming. */
+/**
+ * Whether an item is a call of ace's `thread_start`, in any provider's naming. The bare name
+ * counts only from ace's own server: another server may have a `thread_start` of its own.
+ */
 export function isThreadStartCall(item: Item | undefined): boolean {
   if (item?.type !== "tool_call") return false;
   const { detail, title } = item.call;
-  if (detail.kind === "mcp") return toolName.test(detail.tool);
-  return detail.kind === "custom" && toolName.test(title.trim());
+  if (detail.kind === "mcp")
+    return (
+      namespaced.test(detail.tool) ||
+      (/^ace$|^ace[-_]/.test(detail.server) && detail.tool === "thread_start")
+    );
+  return detail.kind === "custom" && namespaced.test(title.trim());
 }
 
 const text = (value: unknown, max = 256): string | undefined =>
@@ -68,7 +75,7 @@ function argumentsOf(item: Extract<Item, { type: "tool_call" }>): unknown {
   return undefined;
 }
 
-/** The thread an `ace_thread_start` call started, once ace answered with its id. */
+/** The thread a `thread_start` call started, once ace answered with its id. */
 export function startedThreadOf(item: Item | undefined): StartedThread | undefined {
   if (item?.type !== "tool_call" || !isThreadStartCall(item)) return undefined;
   if (item.call.status !== "succeeded") return undefined;

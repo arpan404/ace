@@ -1,5 +1,5 @@
 /**
- * An interactive learning page an agent published with ace_html_render: a binary search
+ * An interactive learning page an agent published with html_render: a binary search
  * explainer with a target slider, a step-through and a quick check. It uses only the theme
  * variables ace passes in, so it follows every theme and mode.
  */

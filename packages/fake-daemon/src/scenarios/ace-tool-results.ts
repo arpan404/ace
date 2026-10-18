@@ -30,7 +30,11 @@ function call(
   result: ToolResult,
 ): Fact {
   const nativeName =
-    provider === "claude" ? `mcp__ace__${name}` : provider === "opencode" ? `ace_${name}` : name;
+    provider === "claude"
+      ? `mcp__ace__${name}`
+      : ["opencode", "pi"].includes(provider)
+        ? `ace_${name}`
+        : name;
   const custom = ["opencode", "pi", "acp"].includes(provider);
   const native =
     provider === "claude"
@@ -38,7 +42,7 @@ function call(
       : provider === "opencode"
         ? { type: "session.tool.called", data: { name: nativeName, input: args } }
         : provider === "pi"
-          ? { type: "tool_execution_start", toolName: name, args }
+          ? { type: "tool_execution_start", toolName: nativeName, args }
           : provider === "acp"
             ? { title: name, rawInput: args }
             : provider === "cursor"

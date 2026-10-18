@@ -138,7 +138,7 @@ const familyIcons: Record<AceToolFamily, ToolLabel["icon"]> = {
   ace: "note",
 };
 
-/** ace's own tools (ace_*, screen_*, device_*), by the registry's words (A4). */
+/** ace's own tools (ace's server, or an ace-namespaced name), by the registry's words (A4). */
 function aceToolLabel(server: string, tool: string, args: unknown): ToolLabel | undefined {
   const spec = aceToolSpec(server, tool);
   const words = spec && aceToolWords(server, tool, args);
@@ -150,7 +150,7 @@ const computerUse = /^(cua|computer[-_ ]?use|computer)(?:[-_]|$)/i;
 
 /**
  * An MCP tool step (A4): ace's own tools by what they do, computer-use as "the computer", and
- * any other server as a tool action with its key argument. Never "ace.ace_browser_open".
+ * any other server as a tool action with its key argument. Never "ace.browser_open".
  */
 export function mcpToolLabel(server: string, tool: string, args?: unknown): ToolLabel {
   const own = aceToolLabel(server, tool, args);

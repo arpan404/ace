@@ -210,81 +210,81 @@ const historyWords: Record<string, ToolWords> = {
 };
 
 const browserSpecs: Record<string, AceToolSpec> = {
-  ace_browser_open: browser(({ args }) => {
+  browser_open: browser(({ args }) => {
     const url = str(args, "url");
     return url ? say(verbs.opened, "", shortUrl(url)) : say(verbs.opened, " a browser tab");
   }),
-  ace_browser_navigate: browser(({ args }) => {
+  browser_navigate: browser(({ args }) => {
     const url = str(args, "url");
     return say(["Went to", "Going to", "Go to"], url ? "" : " a page", url && shortUrl(url));
   }),
-  ace_browser_close: browser(() => say(verbs.closed, " the browser tab")),
-  ace_browser_snapshot: browser(() => say(verbs.read, " the page")),
-  ace_browser_screenshot: browser(({ subject }) =>
+  browser_close: browser(() => say(verbs.closed, " the browser tab")),
+  browser_snapshot: browser(() => say(verbs.read, " the page")),
+  browser_screenshot: browser(({ subject }) =>
     say(verbs.took, ` a screenshot of ${subject ?? "the page"}`),
   ),
-  ace_browser_click: browser(
+  browser_click: browser(
     (facts) => say(verbs.clicked, ` ${element(facts, "on the page")}`),
     "click",
   ),
-  ace_browser_type: browser((facts) => {
+  browser_type: browser((facts) => {
     const text = str(facts.args, "text");
     const into = facts.element ? ` into ${quote(facts.element)}` : "";
     return say(verbs.typed, `${text ? ` ${quote(text)}` : ""}${into}`);
   }, "type"),
-  ace_browser_press: browser(({ args }) => {
+  browser_press: browser(({ args }) => {
     const key = str(args, "key");
     return say(verbs.pressed, ` ${key ? playwrightChord(key) : "a key"}`);
   }, "key"),
-  ace_browser_scroll: browser(() => say(verbs.scrolled, " the page"), "scroll"),
-  ace_browser_hover: browser((facts) =>
+  browser_scroll: browser(() => say(verbs.scrolled, " the page"), "scroll"),
+  browser_hover: browser((facts) =>
     say(["Hovered over", "Hovering over", "Hover over"], ` ${element(facts, "an element")}`),
   ),
-  ace_browser_drag: browser((facts) =>
+  browser_drag: browser((facts) =>
     say(["Dragged", "Dragging", "Drag"], ` ${element(facts, "an element")}`),
   ),
-  ace_browser_select: browser((facts) =>
+  browser_select: browser((facts) =>
     say(
       ["Chose", "Choosing", "Choose"],
       ` an option${facts.element ? ` in ${quote(facts.element)}` : ""}`,
     ),
   ),
-  ace_browser_check: browser((facts) => say(verbs.checked, ` ${element(facts, "a box")}`)),
-  ace_browser_uncheck: browser((facts) =>
+  browser_check: browser((facts) => say(verbs.checked, ` ${element(facts, "a box")}`)),
+  browser_uncheck: browser((facts) =>
     say(["Unchecked", "Unchecking", "Uncheck"], ` ${element(facts, "a box")}`),
   ),
-  ace_browser_focus: browser((facts) =>
+  browser_focus: browser((facts) =>
     say(["Focused", "Focusing", "Focus"], ` ${element(facts, "an element")}`),
   ),
-  ace_browser_tabs: browser(({ args }) =>
+  browser_tabs: browser(({ args }) =>
     (tabWords[str(args, "operation") ?? "list"] ?? tabWords["list"]!)(args),
   ),
-  ace_browser_wait_for: browser((facts) => {
+  browser_wait_for: browser((facts) => {
     const url = str(facts.args, "url");
     if (url) return say(verbs.waited, "", shortUrl(url));
     const text = str(facts.args, "text");
     if (text) return say(verbs.waited, ` ${quote(text)}`);
     return say(verbs.waited, ` ${element(facts, "the page")}`);
   }),
-  ace_browser_find: browser(({ args }) => {
+  browser_find: browser(({ args }) => {
     const wanted = str(args, "name") ?? str(args, "role");
     return say(verbs.lookedFor, ` ${wanted ? quote(wanted) : "elements"} on the page`);
   }),
-  ace_browser_find_text: browser(({ args }) => {
+  browser_find_text: browser(({ args }) => {
     const text = str(args, "text");
     return say(
       ["Searched the page for", "Searching the page for", "Search the page for"],
       ` ${text ? quote(text) : "text"}`,
     );
   }),
-  ace_browser_evaluate: browser(() => say(["Ran", "Running", "Run"], " a script on the page")),
-  ace_browser_logs: browser(() => say(verbs.read, " the console")),
-  ace_browser_network_body: browser(() => say(verbs.read, " a network response")),
-  ace_browser_history: browser(
+  browser_evaluate: browser(() => say(["Ran", "Running", "Run"], " a script on the page")),
+  browser_logs: browser(() => say(verbs.read, " the console")),
+  browser_network_body: browser(() => say(verbs.read, " a network response")),
+  browser_history: browser(
     ({ args }) => historyWords[str(args, "direction") ?? ""] ?? historyWords["reload"]!,
   ),
-  ace_browser_navigation_history: browser(() => say(verbs.checked, " the page history")),
-  ace_browser_resize: browser(({ args }) => {
+  browser_navigation_history: browser(() => say(verbs.checked, " the page history")),
+  browser_resize: browser(({ args }) => {
     const width = num(args, "width");
     const height = num(args, "height");
     return say(
@@ -292,18 +292,16 @@ const browserSpecs: Record<string, AceToolSpec> = {
       ` the browser${width && height ? ` to ${width}×${height}` : ""}`,
     );
   }),
-  ace_browser_emulate: browser(() =>
-    say(["Changed", "Changing", "Change"], " the device emulation"),
-  ),
-  ace_browser_upload: browser(() => say(["Uploaded", "Uploading", "Upload"], " a file")),
-  ace_browser_dialog: browser(({ args }) =>
+  browser_emulate: browser(() => say(["Changed", "Changing", "Change"], " the device emulation")),
+  browser_upload: browser(() => say(["Uploaded", "Uploading", "Upload"], " a file")),
+  browser_dialog: browser(({ args }) =>
     args["accept"] === false
       ? say(["Dismissed", "Dismissing", "Dismiss"], " a dialog")
       : say(["Answered", "Answering", "Answer"], " a dialog"),
   ),
-  ace_browser_record_start: browser(() => say(verbs.started, " recording the browser")),
-  ace_browser_record_stop: browser(() => say(verbs.stopped, " recording the browser")),
-  ace_browser_measure_interaction: browser(() => say(verbs.measured)),
+  browser_record_start: browser(() => say(verbs.started, " recording the browser")),
+  browser_record_stop: browser(() => say(verbs.stopped, " recording the browser")),
+  browser_measure_interaction: browser(() => say(verbs.measured)),
 };
 
 /* ---------------------------------------------------------------------------------------- */

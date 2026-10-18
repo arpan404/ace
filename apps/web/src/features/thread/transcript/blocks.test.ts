@@ -66,7 +66,7 @@ const mcpTool = (id: string, at: number) =>
       agentId: "root",
       kind: "mcp",
       title: "Delegate work",
-      detail: { kind: "mcp", server: "ace", tool: "delegate_task" },
+      detail: { kind: "mcp", server: "ace", tool: "delegate" },
       status: "succeeded",
       startedAt: at,
       raw: [],

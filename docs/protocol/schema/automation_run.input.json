@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/automation_run.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "description": "The automation's id, as you named it in automation_put.",
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "requestId": {
+      "description": "Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice.",
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "variables": {
+      "$ref": "https://ace.local/protocol/v1/TriggerVariables.json",
+      "default": {},
+      "description": "Values for {{name}} placeholders in its prompt."
+    }
+  },
+  "required": [
+    "id",
+    "requestId"
+  ],
+  "type": "object"
+}

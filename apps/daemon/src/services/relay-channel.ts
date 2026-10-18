@@ -1,6 +1,4 @@
 import { fileExportSource } from "../file-export-source.ts";
-import { remoteOutputRead } from "../agent-control/remote-return.ts";
-import { remoteContextTransfer } from "../agent-control/remote-context-transfer.ts";
 import { providerAuthRelay } from "./provider-auth-relay.ts";
 import {
   connectDevices,
@@ -33,7 +31,6 @@ import { contextScope } from "./context-scope.ts";
  * as sign-in publish, so a copy taken then would miss them for the daemon's whole life.
  */
 export interface RelayServices {
-  remoteDelegation?: import("../server-options.ts").ServerOptions | undefined;
   providerLogin?: import("@ace/accounts").ProviderLoginSessions | undefined;
   accountManagement?: import("../account-management.ts").AccountManagement | undefined;
   files?: FilesService | undefined;
@@ -277,29 +274,6 @@ export function attachRelayService(
           code: "NOT_FOUND",
           message: "Attachment streaming unavailable",
         });
-        return;
-      }
-      if (message.type === "delegation.remote.output") {
-        if (!options.remoteDelegation) throw new Error("Remote output unavailable");
-        await channel.send(
-          await remoteOutputRead(
-            options.remoteDelegation,
-            message,
-            (thread) => authorize("read") && (!thread || threadAccess(thread)),
-          ),
-        );
-        return;
-      }
-      if (message.type === "delegation.remote.context") {
-        if (!options.remoteDelegation) throw new Error("Remote task context unavailable");
-        const scope = message.operation.op === "read" ? "read" : "operate";
-        await channel.send(
-          await remoteContextTransfer(
-            options.remoteDelegation,
-            message,
-            (thread) => authorize(scope) && (!thread || threadAccess(thread)),
-          ),
-        );
         return;
       }
       if (message.type === "context.request") {

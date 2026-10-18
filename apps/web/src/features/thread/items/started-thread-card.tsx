@@ -6,7 +6,7 @@ import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { buttonVariants } from "@/components/ui/button.tsx";
 
 /**
- * The conversation an agent started with `ace_thread_start`, where it started it: "New thread",
+ * The conversation an agent started with `thread_start`, where it started it: "New thread",
  * its title and where it runs, and Open. The title and model follow the thread once the sidebar
  * knows it (a rename, a model switch); before then, ace's answer names them. Nothing shows until
  * ace answers with the thread, and nothing for a call that failed: its step says so.

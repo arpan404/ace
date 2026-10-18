@@ -292,11 +292,6 @@ test("relay starts and stops on saved settings without replacing the host socket
       remoteAccess: { enabled: true, transport: "relay" },
     });
     expect(PairingResponse.parse(await f.local("/v1/pairings", {})).url).toContain("/pair#");
-    f.client.send({ type: "delegation.remote.transport", requestId: "live-relay" });
-    expect(await f.client.next()).toMatchObject({
-      ok: true,
-      relay: { url: relay.url, pinnedFingerprint: pin },
-    });
     expect(await f.set("remote.transport", "lan")).toMatchObject({ ok: true });
     expect(await f.local("/v1/status")).toMatchObject({
       remoteAccess: { enabled: true, transport: "relay" },
@@ -431,10 +426,6 @@ test("a rejected saved relay leaves startup, local conversations and direct pair
       }),
     );
     expect(paired.device.name).toBe("My laptop");
-    f.client.send({ type: "delegation.remote.transport", requestId: "no-live-relay" });
-    const transport = await f.client.next();
-    expect(transport).toMatchObject({ ok: true });
-    expect("relay" in transport).toBe(false);
     expect(retries[0]).toBe(1000);
   } finally {
     await f.close();
