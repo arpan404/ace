@@ -193,9 +193,9 @@ const tabTools: Tool[] = [
   },
   {
     name: "browser_tabs",
-    title: "Browser tabs",
+    title: "Open, switch or close browser tabs",
     description:
-      "List, open, select or close tabs in this thread's browser. list shows who opened and drives each tab and whether a person holds it; current marks yours. open gives you a new labelled tab that becomes your current tab. Commands in different tabs run at the same time. Close the tabs you opened when done; closing the last tab closes the browser.",
+      "List, open, select or close tabs in this thread's browser. list shows who opened and drives each tab and whether a person holds it; current marks yours. open gives you a new labelled tab that becomes your current tab. Parallel agents each work in a tab of their own: commands in different tabs run at the same time. Close the tabs you opened when done; closing the last tab closes the browser.",
     riskClass: "external-effect",
     input: browserTabsShape,
     refine: checkTabs,
