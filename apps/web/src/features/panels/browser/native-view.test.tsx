@@ -416,3 +416,26 @@ test("closing the panel while the agent browses moves the embedded page into pic
   expect(placed.slice(before).some((placement) => !placement.visible)).toBe(false);
   expect(last()?.visible).toBe(true);
 });
+
+const latest = (tabId: string) => placed.findLast((placement) => placement.tabId === tabId);
+
+test("split view places each half's own native tab, both on screen at once", async () => {
+  const { panel, browser } = await openEmbeddedBrowser();
+  const thread = "thread-cold-start";
+  const first = browser.view(thread)?.activeTabId ?? "";
+  act(() => browser.tabSelect(thread, first));
+  const before = within(panel).getAllByRole("tab").length;
+  let second = "";
+  act(() => {
+    second = browser.tabOpen(thread, "https://docs.example/guide", { agentId: "a" });
+    browser.pageIdentity(thread, { title: "Guide" }, second);
+  });
+  await waitFor(() => expect(within(panel).getAllByRole("tab")).toHaveLength(before + 1));
+  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Open in split view" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Guide" }));
+  await waitFor(() => {
+    expect(latest(first)?.visible).toBe(true);
+    expect(latest(second)?.visible).toBe(true);
+  });
+});

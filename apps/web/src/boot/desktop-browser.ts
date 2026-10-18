@@ -9,6 +9,8 @@ export interface PageBox {
 /** Where the desktop app draws a thread's embedded browser view over this page. */
 export interface NativeViewPlacement {
   threadId: string;
+  /** One tab of the thread (split view); omitted: the tab the thread shows. */
+  tabId?: string | undefined;
   bounds: PageBox;
   device?:
     | {
@@ -30,14 +32,16 @@ export type BrowserAccelerator =
   | "CmdOrCtrl+]";
 
 export interface DesktopBrowserViews {
-  onVisibility(listener: (threadId: string, visible: boolean) => void): () => void;
+  onVisibility(
+    listener: (threadId: string, visible: boolean, tabId: string | undefined) => void,
+  ): () => void;
   onShortcut(listener: (threadId: string, accelerator: BrowserAccelerator) => void): () => void;
   place(placement: NativeViewPlacement): Promise<"shown" | "hidden" | "unavailable" | "superseded">;
   /**
    * The thread's shown view as a still picture (a `data:` URL), to hold in its place while a
    * menu covers it; undefined when nothing shows it or the app can't capture.
    */
-  snapshot(threadId: string): Promise<string | undefined>;
+  snapshot(threadId: string, tabId?: string): Promise<string | undefined>;
   /**
    * This page focused one of its own fields: the OS focus leaves any native view now, and keys
    * typed there since a native ⌘L or ⌘F land in the field.
@@ -94,7 +98,11 @@ export function desktopBrowserViews(scope: object = globalThis): DesktopBrowserV
             "visible" in event &&
             typeof event.visible === "boolean"
           )
-            listener(event.threadId, event.visible);
+            listener(
+              event.threadId,
+              event.visible,
+              "tabId" in event && typeof event.tabId === "string" ? event.tabId : undefined,
+            );
         },
       ]);
       return () => {
@@ -134,10 +142,10 @@ export function desktopBrowserViews(scope: object = globalThis): DesktopBrowserV
       if (receipt === "shown" || receipt === "hidden" || receipt === "superseded") return receipt;
       return receipt === true ? "shown" : "unavailable";
     },
-    snapshot: async (threadId) => {
+    snapshot: async (threadId, tabId) => {
       if (typeof snapshot !== "function") return undefined;
       const picture: unknown = await Promise.resolve(
-        Reflect.apply(snapshot, browser, [{ threadId }]),
+        Reflect.apply(snapshot, browser, [{ threadId, ...(tabId ? { tabId } : {}) }]),
       ).catch(() => undefined);
       return typeof picture === "string" && picture.startsWith("data:image/") ? picture : undefined;
     },

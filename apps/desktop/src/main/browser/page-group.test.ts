@@ -150,3 +150,24 @@ it("the person's input is reported with the tab it landed in, and an agent there
   pages.get("native-tab-1")?.personClicks();
   expect(heard).toEqual(["native-tab-1", "native-tab-1"]);
 });
+
+it("split view shows two tabs side by side, each taking the person's input, whichever is selected", async () => {
+  const { tabs, pages } = group();
+  await tabs.openTab();
+  await tabs.cdp("ace.tabs.open");
+  tabs.setNativeInput(true);
+  const left = { window: undefined, bounds: { x: 0, y: 0, width: 400, height: 600 } };
+  const right = { window: undefined, bounds: { x: 400, y: 0, width: 400, height: 600 } };
+  tabs.place({ ...left, visible: true }, "native-tab-1");
+  tabs.place({ ...right, visible: true }, "native-tab-2");
+  for (const id of ["native-tab-1", "native-tab-2"])
+    expect(pages.get(id)).toMatchObject({ shown: true, nativeInput: true });
+  // The person moves to the right half: it becomes the selected tab; the left stays shown.
+  await tabs.cdp("ace.tabs.switch", { tabId: "native-tab-2" });
+  expect(pages.get("native-tab-1")).toMatchObject({ shown: true, nativeInput: true });
+  expect(pages.get("native-tab-2")).toMatchObject({ shown: true, nativeInput: true });
+  // One half closes: that tab is hidden, the other keeps its place.
+  tabs.place({ ...left, visible: false }, "native-tab-1");
+  expect(pages.get("native-tab-1")).toMatchObject({ shown: false, closed: false });
+  expect(pages.get("native-tab-2")?.shown).toBe(true);
+});

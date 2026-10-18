@@ -18,6 +18,7 @@ import { LocalStore, useLocal } from "../store.ts";
 import { BrowserPip } from "./browser-pip.tsx";
 import { pipPage } from "./pip-rules.ts";
 import { useWatchMode } from "./use-watch-mode.ts";
+import { splits } from "./split-view.tsx";
 
 /** Threads whose picture-in-picture the person closed, until their Browser shows again. */
 const dismissedPip = new LocalStore<ReadonlySet<string>>(new Set());
@@ -41,7 +42,12 @@ function ThreadBrowser(props: { threadId: string }) {
   );
   useSyncExternalStore(subscribe, () => source.version);
   useEffect(() => source.watch(threadId), [source, threadId]);
-  const memory = useRef<{ active: string | undefined; closing: Set<string>; seen: boolean }>({
+  const memory = useRef<{
+    active: string | undefined;
+    closing: Set<string>;
+    seen: boolean;
+    split?: readonly string[] | undefined;
+  }>({
     active: undefined,
     closing: new Set(),
     seen: false,
@@ -64,6 +70,8 @@ function ThreadBrowser(props: { threadId: string }) {
       tabs: view.tabs ?? [],
       activeTabId: view.activeTabId,
     };
+    const split = splits.get().get(threadId);
+    memory.current.split = split ? [split.left, split.right] : undefined;
     store.update(threadId, (current) => syncBrowserTabs(current, daemon, memory.current));
     if (!daemon) return;
     const listed = new Set(daemon.closed ? [] : daemon.tabs.map((tab) => tab.tabId));

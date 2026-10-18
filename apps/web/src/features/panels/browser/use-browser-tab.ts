@@ -105,7 +105,14 @@ export function useBrowserTab(
     if (superseded) setPhase(key, idle);
   }, [superseded, key]);
   // The screencast follows the daemon's shown tab: it is this tab's picture only once shown.
-  const frame = live && live.activeTabId === shownId ? source.frame(threadId) : undefined;
+  // Another tab's half of a split view keeps that tab's last picture meanwhile.
+  const frame = !live
+    ? undefined
+    : live.activeTabId === shownId
+      ? source.frame(threadId)
+      : shownId
+        ? source.still?.(threadId, shownId)
+        : undefined;
 
   /** Merge into the panel tab's data as it is now (a navigation spans several renders). */
   const save = (patch: Partial<BrowserTabData>) => {

@@ -38,6 +38,14 @@ type GroupPage = Pick<
 > &
   Partial<Pick<EmbeddedPage, "orphan" | "readopt" | "evacuate">>;
 
+interface Target {
+  window: BaseWindow | undefined;
+  bounds: Rect | undefined;
+  visible: boolean;
+  zoom?: number;
+  device?: NativeDevice | undefined;
+}
+
 interface Tab {
   id: string;
   page: GroupPage;
@@ -65,13 +73,9 @@ export class EmbeddedPageGroup implements ViewPage {
   private closing: Promise<void> | undefined;
   private listeners = new Set<(method: string, params: unknown) => void>();
   private humanInput = new Set<(tabId?: string) => void>();
-  private target: {
-    window: BaseWindow | undefined;
-    bounds: Rect | undefined;
-    visible: boolean;
-    zoom?: number;
-    device?: NativeDevice | undefined;
-  } = { window: undefined, bounds: undefined, visible: false };
+  private target: Target = { window: undefined, bounds: undefined, visible: false };
+  /** Tabs placed by id beside the shown one (split view), each where its half of the panel is. */
+  private pinned = new Map<string, Target>();
   private create: (id: string) => Promise<GroupPage>;
   private finish: () => Promise<void>;
 
@@ -202,35 +206,45 @@ export class EmbeddedPageGroup implements ViewPage {
   }
 
   /**
-   * Only the selected tab is placed and takes the person's input; whether an agent uses it
-   * comes from the daemon (the shown tab's, ADR 0085). The person cannot reach an unseen tab,
-   * so it is always treated as the agents': it renders while driven and intercepts its file
-   * choosers.
+   * The selected tab is placed where the panel shows the thread's page, and a tab placed by id
+   * (split view) where its half is; those take the person's input. Whether an agent uses the
+   * selected tab comes from the daemon (the shown tab's, ADR 0085). The person cannot reach an
+   * unseen tab, so it is always treated as the agents': it renders while driven and intercepts
+   * its file choosers.
    */
   private apply() {
     for (const [id, tab] of this.tabs) {
-      const shown = id === this.active;
-      tab.page.place({ ...this.target, visible: this.target.visible && shown });
+      const pin = this.pinned.get(id);
+      const target = pin?.visible ? pin : id === this.active ? this.target : (pin ?? this.target);
+      const shown = target.visible && (target === pin || id === this.active);
+      tab.page.place({ ...target, visible: shown });
       tab.page.setNativeInput(this.input && shown);
-      tab.page.setAgentControl(shown ? this.agent : true);
+      tab.page.setAgentControl(id === this.active ? this.agent : !shown);
     }
   }
 
-  async placementReady(): Promise<void> {
-    await this.tabs.get(this.active)?.page.placementReady();
+  /** The selected tab, or the one named. */
+  private placed(tabId: string | undefined): Tab | undefined {
+    return this.tabs.get(tabId ?? this.active);
   }
 
-  /** The shown tab's picture, held in its place while an app overlay covers it. */
-  picture(): Promise<string | undefined> {
-    return this.tabs.get(this.active)?.page.picture() ?? Promise.resolve(undefined);
+  async placementReady(tabId?: string): Promise<void> {
+    await this.placed(tabId)?.page.placementReady();
   }
 
-  isShown(): boolean {
-    return this.tabs.get(this.active)?.page.isShown() ?? false;
+  /** A shown tab's picture, held in its place while an app overlay covers it. */
+  picture(tabId?: string): Promise<string | undefined> {
+    return this.placed(tabId)?.page.picture() ?? Promise.resolve(undefined);
   }
 
-  place(target: typeof this.target) {
-    this.target = target;
+  isShown(tabId?: string): boolean {
+    return this.placed(tabId)?.page.isShown() ?? false;
+  }
+
+  /** Where the selected tab goes, or with `tabId` where that one tab goes (split view). */
+  place(target: Target, tabId?: string) {
+    if (tabId === undefined) this.target = target;
+    else this.pinned.set(tabId, target);
     this.apply();
   }
 
@@ -269,6 +283,7 @@ export class EmbeddedPageGroup implements ViewPage {
   private async remove(id: string) {
     const tab = this.tab(id);
     this.tabs.delete(id);
+    this.pinned.delete(id);
     tab.stop();
     tab.stopInput();
     await tab.page.close();

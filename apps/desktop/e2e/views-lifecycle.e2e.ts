@@ -34,6 +34,7 @@ interface Harness {
   resizeWindow(width: number, height: number): void;
   backgroundTab(): Promise<string>;
   rendering(tabId: string): Promise<{ frames: number; state: string }>;
+  split(left: Box, right: Box): Promise<{ receipts: string[]; boxes: Box[] }>;
   pictureInPicture(
     panel: Box,
     floating: Box,
@@ -194,6 +195,18 @@ describe.skipIf(!enabled)("embedded view lifecycle", () => {
     expect(
       await app.evaluate(() => (Reflect.get(globalThis, "harness") as Harness).where()),
     ).toMatchObject({ inAppWindow: true, visible: true });
+  });
+
+  it("split view draws two native tabs side by side", async () => {
+    const left = { x: 300, y: 120, width: 400, height: 400 };
+    const right = { x: 700, y: 120, width: 400, height: 400 };
+    const result = await app.evaluate(
+      (_e, boxes: { left: Box; right: Box }) =>
+        (Reflect.get(globalThis, "harness") as Harness).split(boxes.left, boxes.right),
+      { left, right },
+    );
+    expect(result.receipts).toEqual(["shown", "shown"]);
+    expect(result.boxes).toEqual([left, right]);
   });
 
   it("keys typed right after ⌘L in the page land in the address field, first character included", async () => {

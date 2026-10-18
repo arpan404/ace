@@ -2,6 +2,7 @@ import {
   ArrowSquareOutIcon,
   CameraIcon,
   CopyIcon,
+  SquareSplitHorizontalIcon,
   DevicesIcon,
   DotsThreeIcon,
   EyeIcon,
@@ -64,6 +65,11 @@ export function BrowserActions(props: {
   /** Watch mode: on, off, or unavailable (no agent browses). */
   watching: boolean | undefined;
   onWatch(): void;
+  /** The thread's other tabs this one can open beside; undefined while already split. */
+  splitWith: readonly { tabId: string; title: string }[] | undefined;
+  onSplit(tabId: string): void;
+  /** In split view: close this half. */
+  onLeaveSplit: (() => void) | undefined;
 }) {
   const toast = useToast();
   const { shownUrl, external, viewport, browser, tab } = props;
@@ -148,6 +154,28 @@ export function BrowserActions(props: {
         {props.watching !== undefined && (
           <MenuItem icon={icon(EyeIcon)} onClick={props.onWatch}>
             {props.watching ? "Stop watching the agent" : "Watch the agent"}
+          </MenuItem>
+        )}
+        {props.splitWith && (
+          <MenuSub>
+            <MenuSubTrigger
+              icon={icon(SquareSplitHorizontalIcon)}
+              disabled={props.splitWith.length === 0}
+            >
+              Open in split view
+            </MenuSubTrigger>
+            <MenuContent side="inline-start" align="start" sideOffset={4}>
+              {props.splitWith.map((other) => (
+                <MenuItem key={other.tabId} onClick={() => props.onSplit(other.tabId)}>
+                  <span className="max-w-60 truncate">{other.title}</span>
+                </MenuItem>
+              ))}
+            </MenuContent>
+          </MenuSub>
+        )}
+        {props.onLeaveSplit && (
+          <MenuItem icon={icon(SquareSplitHorizontalIcon)} onClick={props.onLeaveSplit}>
+            Close split view
           </MenuItem>
         )}
         <MenuSeparator />

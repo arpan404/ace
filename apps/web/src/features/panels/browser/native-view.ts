@@ -104,7 +104,12 @@ export function useNativeView(
   threadId: string,
   area: RefObject<HTMLElement | null>,
   active: boolean,
-  options: { device: NativeViewPlacement["device"]; padding?: number },
+  options: {
+    device: NativeViewPlacement["device"];
+    padding?: number;
+    /** One tab of the thread (split view); omitted: the tab the thread shows. */
+    tabId?: string | undefined;
+  },
 ): { shown: boolean; frozen: FrozenPage | undefined } {
   const [shown, setShown] = useState(false);
   const [frozen, setFrozen] = useState<FrozenPage>();
@@ -113,6 +118,7 @@ export function useNativeView(
   const deviceMobile = options.device?.mobile;
   const deviceScaleFactor = options.device?.deviceScaleFactor;
   const padding = options.padding;
+  const tabId = options.tabId;
   useLayoutEffect(() => {
     const views = desktopBrowserViews();
     const element = area.current;
@@ -148,7 +154,7 @@ export function useNativeView(
       attempted = true;
       const origin = rect;
       void views
-        .snapshot(threadId)
+        .snapshot(threadId, tabId)
         .then(async (src) => {
           if (!src) return undefined;
           // Decoded before it is shown, so it paints in the same frame it is placed.
@@ -199,6 +205,7 @@ export function useNativeView(
       const hidden = placement.covered && !capturing;
       controller.place({
         threadId,
+        ...(tabId === undefined ? {} : { tabId }),
         bounds: placement.bounds,
         visible: placement.visible && !hidden,
         ...(size ? { device: size } : {}),
@@ -259,7 +266,9 @@ export function useNativeView(
       document.removeEventListener("scroll", schedule, true);
       for (const type of motionEvents) document.removeEventListener(type, transition);
     };
-    const stopVisibility = views.onVisibility((id, visible) => controller.visibility(id, visible));
+    const stopVisibility = views.onVisibility((id, visible, tab) =>
+      controller.visibility(id, visible, tab),
+    );
     const stopOverlays = observeOverlays(element, schedule);
     return () => {
       alive = false;
@@ -270,6 +279,16 @@ export function useNativeView(
       stopVisibility();
       stopOverlays();
     };
-  }, [threadId, area, active, deviceWidth, deviceHeight, deviceMobile, deviceScaleFactor, padding]);
+  }, [
+    threadId,
+    area,
+    active,
+    deviceWidth,
+    deviceHeight,
+    deviceMobile,
+    deviceScaleFactor,
+    padding,
+    tabId,
+  ]);
   return { shown: active && shown, frozen: active ? frozen : undefined };
 }

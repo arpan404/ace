@@ -56,6 +56,14 @@ const relayoutEvents = [
 ] as const;
 const relayoutSettleMs = 100;
 
+/** A placement's key: the thread's shown tab, or one tab of it by id (split view). */
+const placementKey = (threadId: string, tabId?: string) =>
+  tabId === undefined ? threadId : `${threadId}\u0000${tabId}`;
+const placementOf = (key: string): { threadId: string; tabId?: string } => {
+  const at = key.indexOf("\u0000");
+  return at < 0 ? { threadId: key } : { threadId: key.slice(0, at), tabId: key.slice(at + 1) };
+};
+
 const digest = (value: string) => createHash("sha256").update(value).digest("hex").slice(0, 32);
 /** One persistent partition per thread, never shared with another thread or the app. */
 const persistentName = (workspaceId: string, threadId: string) =>
@@ -79,6 +87,8 @@ export class EmbeddedViews implements ViewHost {
   private hosts = new Map<number, PlacementHost>();
   private generations = new Map<string, number>();
   private ready = new Map<string, number>();
+  /** Each thread's placement keys that name a tab (split view). */
+  private tabKeys = new Map<string, Set<string>>();
   /** Never shown or focused; unseen views render here while an agent drives them. */
   private parking: BaseWindow | undefined;
   /** App windows whose size changes re-apply the views placed in them. */
@@ -172,10 +182,13 @@ export class EmbeddedViews implements ViewHost {
       async () => {
         if (this.pages.get(threadId) === group) {
           this.pages.delete(threadId);
-          this.placements.forget(threadId);
-          this.generations.delete(threadId);
-          this.ready.delete(threadId);
-          this.reportVisibility(threadId);
+          for (const key of [threadId, ...(this.tabKeys.get(threadId) ?? [])]) {
+            this.placements.forget(key);
+            this.generations.delete(key);
+            this.ready.delete(key);
+            this.reportVisibility(key);
+          }
+          this.tabKeys.delete(threadId);
           this.options.onPages?.(this.pages.size);
         }
         // An idle hidden window must not outlive the views it holds.
@@ -230,9 +243,9 @@ export class EmbeddedViews implements ViewHost {
   }
 
   /** Threads with a native page here; the app stays running while there are any. */
-  /** The shown tab of a thread's view as a PNG `data:` URL, while it is on screen. */
-  async snapshot(threadId: string): Promise<string | undefined> {
-    return this.pages.get(threadId)?.picture();
+  /** A thread's shown tab (or the tab named) as a PNG `data:` URL, while it is on screen. */
+  async snapshot(threadId: string, tabId?: string): Promise<string | undefined> {
+    return this.pages.get(threadId)?.picture(tabId);
   }
 
   count(): number {
@@ -254,49 +267,59 @@ export class EmbeddedViews implements ViewHost {
   async place(placement: BrowserPlacement, host: PlacementHost): Promise<BrowserPlacementReceipt> {
     this.hosts.set(host.id, host);
     this.watch(host.window);
-    const { threadId } = placement;
+    const { threadId, tabId } = placement;
+    const key = placementKey(threadId, tabId);
     // Hiding a thread with no view here releases the claim: nothing of it is kept.
     if (!placement.visible && !this.pages.has(threadId)) {
-      this.placements.release(threadId, host.id);
+      this.placements.release(key, host.id);
       return "hidden";
     }
+    if (tabId !== undefined) {
+      const keys = this.tabKeys.get(threadId) ?? new Set();
+      this.tabKeys.set(threadId, keys.add(key));
+    }
     const bounds = toWindowBounds(placement.bounds, host.zoom);
-    this.placements.set(threadId, host.id, {
+    this.placements.set(key, host.id, {
       bounds,
       visible: placement.visible,
       device: placement.device,
     });
-    this.apply(threadId);
+    this.apply(key);
     try {
-      await this.pages.get(threadId)?.placementReady();
+      await this.pages.get(threadId)?.placementReady(tabId);
     } catch {
       return "unavailable";
     }
     if (!placement.visible) return "hidden";
-    if (this.shownIn(threadId) !== host.id) return "superseded";
-    return this.ready.get(threadId) === this.generations.get(threadId) &&
-      (this.pages.get(threadId)?.isShown() ?? false)
+    if (this.shownIn(key) !== host.id) return "superseded";
+    return this.ready.get(key) === this.generations.get(key) &&
+      (this.pages.get(threadId)?.isShown(tabId) ?? false)
       ? "shown"
       : "unavailable";
   }
 
-  private reportVisibility(threadId: string): void {
+  private reportVisibility(key: string): void {
+    const { threadId, tabId } = placementOf(key);
     const shown =
-      this.ready.has(threadId) &&
-      this.ready.get(threadId) === this.generations.get(threadId) &&
-      this.pages.get(threadId)?.isShown()
-        ? this.shownIn(threadId)
+      this.ready.has(key) &&
+      this.ready.get(key) === this.generations.get(key) &&
+      this.pages.get(threadId)?.isShown(tabId)
+        ? this.shownIn(key)
         : undefined;
     for (const [id] of this.hosts) {
       const contents = webContents.fromId(id);
       if (contents && !contents.isDestroyed())
-        emit(contents, "browser.visibility", { threadId, visible: id === shown });
+        emit(contents, "browser.visibility", {
+          threadId,
+          ...(tabId === undefined ? {} : { tabId }),
+          visible: id === shown,
+        });
     }
   }
 
-  /** The renderer (`webContents.id`) showing a thread's view now, if any shows it. */
-  shownIn(threadId: string): number | undefined {
-    const placement = this.placements.resolve(threadId);
+  /** The renderer (`webContents.id`) showing a placement (`placementKey`) now, if any. */
+  shownIn(key: string): number | undefined {
+    const placement = this.placements.resolve(key);
     return placement.visible ? placement.host : undefined;
   }
 
@@ -315,10 +338,11 @@ export class EmbeddedViews implements ViewHost {
     const relayout = () => {
       timer = undefined;
       if (window.isDestroyed()) return;
-      for (const [threadId] of this.pages) {
-        const host = this.placements.resolve(threadId).host;
-        if (host !== undefined && this.hosts.get(host)?.window === window) this.apply(threadId);
-      }
+      for (const [threadId] of this.pages)
+        for (const key of [threadId, ...(this.tabKeys.get(threadId) ?? [])]) {
+          const host = this.placements.resolve(key).host;
+          if (host !== undefined && this.hosts.get(host)?.window === window) this.apply(key);
+        }
     };
     const settle = () => {
       clearTimeout(timer);
@@ -374,30 +398,34 @@ export class EmbeddedViews implements ViewHost {
     handoff?.page.takeHandoff();
   }
 
-  private apply(threadId: string): void {
+  /** Apply a placement (`placementKey`): the thread's shown tab, or one tab by id. */
+  private apply(key: string): void {
+    const { threadId, tabId } = placementOf(key);
     const page = this.pages.get(threadId);
     if (!page) return;
-    const placement = this.placements.resolve(threadId);
+    const placement = this.placements.resolve(key);
     const host = placement.host === undefined ? undefined : this.hosts.get(placement.host);
     const window = host?.window;
-    const generation = (this.generations.get(threadId) ?? 0) + 1;
-    this.generations.set(threadId, generation);
-    page.place({
-      window: window && !window.isDestroyed() ? window : undefined,
-      bounds: placement.bounds,
-      visible: placement.visible,
-      zoom: host?.zoom ?? 1,
-      device: placement.device,
-    });
-    if (page.isShown()) this.ready.set(threadId, generation);
-    else this.ready.delete(threadId);
-    this.reportVisibility(threadId);
-    void page.placementReady().then(
+    const generation = (this.generations.get(key) ?? 0) + 1;
+    this.generations.set(key, generation);
+    page.place(
+      {
+        window: window && !window.isDestroyed() ? window : undefined,
+        bounds: placement.bounds,
+        visible: placement.visible,
+        zoom: host?.zoom ?? 1,
+        device: placement.device,
+      },
+      tabId,
+    );
+    if (page.isShown(tabId)) this.ready.set(key, generation);
+    else this.ready.delete(key);
+    this.reportVisibility(key);
+    void page.placementReady(tabId).then(
       () => {
-        if (this.pages.get(threadId) !== page || this.generations.get(threadId) !== generation)
-          return;
-        this.ready.set(threadId, generation);
-        this.reportVisibility(threadId);
+        if (this.pages.get(threadId) !== page || this.generations.get(key) !== generation) return;
+        this.ready.set(key, generation);
+        this.reportVisibility(key);
       },
       () => {},
     );

@@ -110,7 +110,11 @@ export const events = {
   "theme.changed": NativeAppearance,
   "window.changed": WindowState,
   "settings.changed": DesktopSettings,
-  "browser.visibility": z.object({ threadId: z.string(), visible: z.boolean() }),
+  "browser.visibility": z.object({
+    threadId: z.string(),
+    tabId: z.string().optional(),
+    visible: z.boolean(),
+  }),
   "browser.shortcut": BrowserShortcut,
   "updates.status": UpdateStatus,
   /** The machine woke up; the renderer should reconnect now rather than wait for backoff. */

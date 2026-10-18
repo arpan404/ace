@@ -31,6 +31,8 @@ import { ConsoleDrawer, drawerHeights } from "./console-drawer.tsx";
 import { ResponsiveScreenshotDialog } from "./responsive-screenshot.tsx";
 import { rememberPageSize } from "./page-size.ts";
 import { WatchButton, useWatchToggle } from "./watch-button.tsx";
+import { SplitBrowser, openSplit, splits, type SplitPane } from "./split-view.tsx";
+import { useSplitDrop } from "./split-drop.tsx";
 
 const permissionLabel = (permission: string) =>
   ({
@@ -48,7 +50,8 @@ const permissionLabel = (permission: string) =>
  * cursor on the panel tab and over the page. The page fills the panel on ace's own surface (or
  * the desktop's native view); a failed load keeps its address with Reload.
  */
-function Browser(props: TabViewProps) {
+function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
+  const pane = props.pane;
   const [finding, setFinding] = useState(false);
   const [sizing, setSizing] = useState(false);
   const threadId = props.scope;
@@ -77,10 +80,11 @@ function Browser(props: TabViewProps) {
   // showing it asks: when the daemon later shows another tab, the panel follows it instead.
   const reachable = !!live && live.status !== "paused";
   useEffect(() => {
-    if (ownId && reachable) tabs.select(ownId);
+    // In split view only the half the person works in is the shown tab.
+    if (ownId && reachable && (pane?.focused ?? true)) tabs.select(ownId);
     // `tabs.select` reads the daemon's shown tab of this render.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [ownId, reachable]);
+  }, [ownId, reachable, pane?.focused]);
   // A tab kept from before a daemon restart: its browser opens again, with the same tabs.
   const unopened = ownId !== undefined && !live && online && tabs.reachable;
   useEffect(() => {
@@ -89,6 +93,9 @@ function Browser(props: TabViewProps) {
   }, [unopened]);
 
   const watch = useWatchToggle(threadId, live);
+  const drop = useSplitDrop(pane ? undefined : ownId, (other) => {
+    if (ownId) openSplit(threadId, ownId, other);
+  });
   const viewport = viewportById(page.data.viewport);
   // Live while dragging; saved with the tab when the drag ends.
   const [drawerHeight, setDrawerHeight] = useState<number>();
@@ -109,7 +116,7 @@ function Browser(props: TabViewProps) {
       live.status !== "recovering" &&
       online &&
       page.state.phase !== "failed",
-    { device: viewport.emulation },
+    { device: viewport.emulation, ...(pane ? { tabId: pane.tabId } : {}) },
   );
   const nativeShown = native.shown || native.frozen !== undefined;
   // Picture-in-picture lays the page out at the size it had here.
@@ -238,7 +245,14 @@ function Browser(props: TabViewProps) {
   else content = <StartPage suggestions={page.suggestions} disabled={offline} onGo={page.go} />;
 
   return (
-    <div ref={root} className="flex h-full min-h-0 flex-col" onKeyDownCapture={onKeyDown}>
+    <div
+      ref={root}
+      data-browser-tab=""
+      className="relative flex h-full min-h-0 flex-col"
+      onKeyDownCapture={onKeyDown}
+      {...drop.handlers}
+    >
+      {drop.indicator}
       <PageToolbar
         nav={
           <PageNav
@@ -323,6 +337,15 @@ function Browser(props: TabViewProps) {
               onScreenshotSizes={() => setSizing(true)}
               watching={watch.watching}
               onWatch={watch.toggle}
+              splitWith={
+                pane || !ownId
+                  ? undefined
+                  : tabs.tabs
+                      .filter((tab) => tab.tabId !== ownId)
+                      .map((tab) => ({ tabId: tab.tabId, title: tab.title || tab.url }))
+              }
+              onSplit={(other) => ownId && openSplit(threadId, ownId, other)}
+              onLeaveSplit={pane?.onLeave}
             />
           </>
         }
@@ -391,10 +414,26 @@ function Browser(props: TabViewProps) {
   );
 }
 
+/** One tab, or the two of a split view this tab is part of. */
+function BrowserOrSplit(props: TabViewProps) {
+  const own = daemonTabId(props.tab);
+  const split = useLocal(splits, (all) => all.get(props.scope));
+  if (split && own && (split.left === own || split.right === own))
+    return (
+      <SplitBrowser
+        threadId={props.scope}
+        split={split}
+        from={own}
+        render={(tab, pane) => <Browser {...props} key={tab.key} tab={tab} pane={pane} />}
+      />
+    );
+  return <Browser {...props} />;
+}
+
 export default function BrowserTab(props: TabViewProps) {
   return (
     <WithServices>
-      <Browser {...props} />
+      <BrowserOrSplit {...props} />
     </WithServices>
   );
 }

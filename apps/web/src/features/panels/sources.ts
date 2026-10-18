@@ -225,6 +225,11 @@ export interface PreviewSource {
   watch(threadId: string): () => void;
   view(threadId: string): BrowserView | undefined;
   frame(threadId: string): ScreenFrame | undefined;
+  /**
+   * A tab's last frame from when it was the shown one (the screencast follows the shown tab),
+   * for split view's other half; undefined when this client never saw it.
+   */
+  still?(threadId: string, tabId: string): ScreenFrame | undefined;
   servers(threadId: string): readonly PreviewServer[];
   /**
    * The thread's detected dev servers, printed ones first. Kept current while `watch(threadId)`

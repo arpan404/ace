@@ -200,6 +200,37 @@ const harness = {
       view.setVisible = setVisible;
     }
   },
+  /**
+   * Split view: the selected tab and a new one placed by id side by side. Returns each view's
+   * box and visibility as the window holds them.
+   */
+  async split(
+    left: { x: number; y: number; width: number; height: number },
+    right: { x: number; y: number; width: number; height: number },
+  ) {
+    const host = required(window, "window");
+    const listed = z
+      .object({ activeTabId: z.string(), tabs: z.array(z.object({ tabId: z.string() })) })
+      .parse(await request({ kind: "cdp", method: "ace.tabs.list" }));
+    // Another tab of the thread: the one already open beside it, else a new one.
+    const tabId =
+      listed.tabs.find((tab) => tab.tabId !== listed.activeTabId)?.tabId ??
+      Opened.parse(await request({ kind: "cdp", method: "ace.tabs.open" })).tabId;
+    const at = { id: host.webContents.id, window: host, zoom: 1 };
+    const receipts = [
+      await views.place({ threadId, tabId: listed.activeTabId, bounds: left, visible: true }, at),
+      await views.place({ threadId, tabId, bounds: right, visible: true }, at),
+    ];
+    const boxes = host.contentView.children
+      .filter((child) => child.getVisible())
+      .map((child) => child.getBounds())
+      .toSorted((a, b) => a.x - b.x);
+    // Back to one tab for what follows.
+    await views.place({ threadId, tabId, bounds: right, visible: false }, at);
+    await views.place({ threadId, tabId: listed.activeTabId, bounds: left, visible: false }, at);
+    await place(left);
+    return { receipts, boxes };
+  },
   /** The page's own load mark: unchanged as long as the document was never reloaded. */
   loadedAt: () => evaluate("window.loadedAt"),
   closeWindow(): Promise<void> {
