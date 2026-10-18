@@ -1,7 +1,7 @@
 import { preview } from "./presentation.ts";
 import { CommandPayload } from "@ace/protocol";
 import type { ClientCore } from "@ace/client";
-import type { PatchPump } from "./patches.ts";
+import type { PatchSink } from "./agents.ts";
 
 type Receipt = { ok: boolean; error?: string | undefined };
 
@@ -43,7 +43,7 @@ export async function dispatchCommand(
   owner: ClientCore,
   raw: unknown,
   requestId: string,
-  pump: PatchPump,
+  pump: PatchSink,
 ): Promise<void> {
   try {
     await submitCommand(

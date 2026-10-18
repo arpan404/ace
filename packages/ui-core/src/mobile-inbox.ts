@@ -75,16 +75,45 @@ export function inboxGroup(thread: InboxThread, now: number): InboxGroupKey | un
   return "working";
 }
 
+/** What a settled row says once its snooze has passed but its machine hasn't woken it yet. */
+export const snoozeEndedLabel = "Snooze ended";
+
+/**
+ * The snooze's time has passed on this phone's clock. The daemon clears `snoozedUntil` when it
+ * wakes a thread; until a machine that was offline reports that, the phone's copy still holds it.
+ */
+export function snoozeEnded(entry: ThreadListEntry, now: number): boolean {
+  return entry.snoozedUntil !== undefined && entry.snoozedUntil <= now;
+}
+
 /**
  * The status a row shows: a recovery the person must act on ("Not sent", "Review a message"),
- * else the daemon's status, or Syncing while the copy is unconfirmed.
+ * else the daemon's status, or Syncing while the copy is unconfirmed. A settled thread whose
+ * snooze has run out says so ("Snooze ended") in its done colour; any live state outranks it.
  */
-export function inboxStatus(thread: InboxThread): StatusDisplay {
+export function inboxStatus(thread: InboxThread, now: number): StatusDisplay {
   const { entry } = thread;
   if (thread.unconfirmed && entry.status.state !== "needs_you") return syncingStatus;
   const recovery = recoveryAttention(entry, undefined);
   if (recovery) return { label: recovery.label, token: toneToken(recovery.tone) };
-  return mobileStatus(entry.status);
+  const status = mobileStatus(entry.status);
+  if (entry.status.state === "done" && snoozeEnded(entry, now))
+    return { label: snoozeEndedLabel, token: status.token };
+  return status;
+}
+
+/**
+ * The next time the inbox changes without any new data: the soonest snooze still to run out.
+ * Clients regroup then, so a snooze ends on time even while its machine is offline.
+ */
+export function inboxNextChange(threads: Iterable<InboxThread>, now: number): number | undefined {
+  let next: number | undefined;
+  for (const { entry } of threads) {
+    const until = entry.snoozedUntil;
+    if (until === undefined || until <= now || isRemoved(entry)) continue;
+    if (next === undefined || until < next) next = until;
+  }
+  return next;
 }
 
 /** Sends the SDK still holds for delivery; accepted and delivered ones are the daemon's now. */

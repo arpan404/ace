@@ -1,6 +1,7 @@
 import type { ChangeTap, ClientCore, PendingSend, SidebarSource } from "@ace/client";
 import {
   inboxGroupRank,
+  inboxNextChange,
   inboxSections,
   inboxStatus,
   snoozePresets,
@@ -13,7 +14,15 @@ import { z } from "zod";
 import { host } from "./host.ts";
 import { preview, threadRow } from "./presentation.ts";
 import { dispatchCommand } from "./commands.ts";
-import type { PatchPump } from "./patch-pump.ts";
+import type { PatchSink } from "./agents.ts";
+
+/** The phone's clock and timers, injected so a snooze's end is testable without waiting. */
+export interface InboxClock {
+  now(): number;
+  set(delayMs: number, run: () => void): () => void;
+}
+/** Native timers take 32-bit delays; a longer wait re-arms when it fires. */
+const longestWait = 2 ** 31 - 1;
 
 /*
  * The inbox as native rows: each thread's row with its ready-made status, the shared grouping
@@ -27,7 +36,12 @@ function inboxThread(store: SidebarSource, machineId: string, id: string): Inbox
   return entry && { key: id, machineId, entry, unconfirmed: store.unconfirmed === true };
 }
 
-export function followInbox(owner: ClientCore, machineId: string, pump: PatchPump): () => void {
+export function followInbox(
+  owner: ClientCore,
+  machineId: string,
+  pump: PatchSink,
+  clock: InboxClock,
+): () => void {
   const store = owner.threads().store;
   const sends = owner.pendingSends();
   const connection = owner.connectionState();
@@ -41,24 +55,46 @@ export function followInbox(owner: ClientCore, machineId: string, pump: PatchPum
           ? {
               ...threadRow(thread.entry),
               machineId,
-              status: inboxStatus(thread),
+              status: inboxStatus(thread, clock.now()),
               activityAt: thread.entry.activityAt ?? thread.entry.updatedAt,
+              archivedAt: thread.entry.archivedAt ?? null,
             }
           : null,
       };
     });
+  // A snooze runs out on this phone's clock even while its machine is offline (and so can't
+  // wake it): at the soonest end, the rows it ends say so and the sections regroup.
+  let wake: { at: number; cancel: () => void } | undefined;
+  const arm = (at: number | undefined) => {
+    if (wake?.at === at) return;
+    wake?.cancel();
+    wake = undefined;
+    if (at === undefined) return;
+    const cancel = clock.set(Math.min(longestWait, Math.max(0, at - clock.now())), () => {
+      wake = undefined;
+      const now = clock.now();
+      for (const id of store.ids) {
+        const until = store.thread(id)?.snoozedUntil;
+        if (until !== undefined && until <= now) row(id);
+      }
+      sections();
+    });
+    wake = { at, cancel };
+  };
   // Read at delivery, so a burst of changes costs one grouping per frame.
   const sections = () =>
     pump.put("inbox:sections", () => {
+      const now = clock.now();
       const threads: InboxThread[] = [];
       for (const id of store.ids) {
         const thread = inboxThread(store, machineId, id);
         if (thread) threads.push(thread);
       }
+      arm(inboxNextChange(threads, now));
       const unsent = sends.getSnapshot().map((send) => ({ key: send.commandId, machineId, send }));
       return {
         type: "inbox.sections",
-        sections: inboxSections(threads, unsent, host.now()).map((section) => ({
+        sections: inboxSections(threads, unsent, now).map((section) => ({
           key: section.key,
           label: section.label,
           ids: section.keys,
@@ -66,8 +102,9 @@ export function followInbox(owner: ClientCore, machineId: string, pump: PatchPum
           ranks: section.ranks,
           order: inboxGroupRank(section.key),
         })),
-        more: store.window?.before != null,
-        snooze: snoozePresets(host.now()).map((preset) => ({ id: preset.id, label: preset.label })),
+        // The inbox pages home; while the archive is open the store's own window is the archive's.
+        more: (store.homeWindow ?? store.window)?.before != null,
+        snooze: snoozePresets(now).map((preset) => ({ id: preset.id, label: preset.label })),
       };
     });
   const pending = (id: string) =>
@@ -101,6 +138,7 @@ export function followInbox(owner: ClientCore, machineId: string, pump: PatchPum
   change("all");
   return () => {
     for (const stop of stops) stop();
+    arm(undefined);
   };
 }
 
@@ -153,7 +191,7 @@ export function inboxAction(
   owner: ClientCore,
   raw: unknown,
   requestId: string,
-  pump: PatchPump,
+  pump: PatchSink,
 ): void {
   const parsed = InboxAction.safeParse(raw);
   if (!parsed.success) {

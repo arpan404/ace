@@ -3,6 +3,7 @@ import type { PendingSend } from "@ace/client";
 import { expect, test } from "vitest";
 import { entry } from "./test-entries.fixture.ts";
 import {
+  inboxNextChange,
   inboxSections,
   inboxStatus,
   unsentStatus,
@@ -48,7 +49,7 @@ test("a finished root whose child still works stays Working, even once settled",
     Working: ["mac/tree"],
     Done: ["mac/done"],
   });
-  expect(inboxStatus(thread)).toEqual({ label: "Working", token: "working" });
+  expect(inboxStatus(thread, now)).toEqual({ label: "Working", token: "working" });
 });
 
 test("requests lead, a snoozed request stays exposed and a failure asks the person to look", () => {
@@ -86,6 +87,53 @@ test("snoozed threads list the soonest wake first and return to their group once
   });
 });
 
+test("a snooze that runs out before its offline machine wakes it reads Snooze ended in Done", () => {
+  // The machine is offline: this phone's copy still holds the snooze the daemon would clear.
+  const napping = on(
+    "mac",
+    entry("nap", { state: "done" }, now - 9 * minute, { snoozedUntil: now + minute }),
+  );
+  expect(sections([napping])).toEqual({ Snoozed: ["mac/nap"] });
+  expect(inboxStatus(napping, now)).toEqual({ label: "Done", token: "done" });
+  const later = now + minute;
+  expect(sections([napping], [], later)).toEqual({ Done: ["mac/nap"] });
+  expect(inboxStatus(napping, later)).toEqual({ label: "Snooze ended", token: "done" });
+});
+
+test("a live state outranks Snooze ended, and a request still leads", () => {
+  const late = now + 2 * minute;
+  const busy = on(
+    "mac",
+    entry("busy", { state: "working", agents: 1 }, now, { snoozedUntil: now + minute }),
+  );
+  const asks = on(
+    "mac",
+    entry("asks", { state: "needs_you", interactions: 1 }, now, { snoozedUntil: now + minute }),
+  );
+  expect(sections([busy, asks], [], late)).toEqual({
+    "Needs you": ["mac/asks"],
+    Working: ["mac/busy"],
+  });
+  expect(inboxStatus(busy, late)).toEqual({ label: "Working", token: "working" });
+  expect(inboxStatus(asks, late).label).toBe("Needs you");
+});
+
+test("the inbox next changes when the soonest pending snooze runs out", () => {
+  const threads = [
+    on("mac", entry("past", { state: "done" }, now, { snoozedUntil: now - minute })),
+    on("mac", entry("later", { state: "done" }, now, { snoozedUntil: now + 90 * minute })),
+    on("linux", entry("soon", { state: "done" }, now, { snoozedUntil: now + 5 * minute })),
+    on(
+      "mac",
+      entry("gone", { state: "done" }, now, { snoozedUntil: now + minute, archivedAt: now }),
+    ),
+    on("mac", entry("awake", { state: "done" }, now)),
+  ];
+  expect(inboxNextChange(threads, now)).toBe(now + 5 * minute);
+  expect(inboxNextChange(threads, now + 5 * minute)).toBe(now + 90 * minute);
+  expect(inboxNextChange(threads, now + 90 * minute)).toBeUndefined();
+});
+
 test("an unconfirmed copy claims neither done nor working, but keeps a request exposed", () => {
   const done = on("mac", entry("done", { state: "done" }, now), true);
   const working = on("mac", entry("busy", { state: "working", agents: 1 }, now), true);
@@ -94,8 +142,8 @@ test("an unconfirmed copy claims neither done nor working, but keeps a request e
     "Needs you": ["mac/asks"],
     Syncing: ["mac/busy", "mac/done"],
   });
-  expect(inboxStatus(done)).toEqual({ label: "Syncing", token: "neutral" });
-  expect(inboxStatus(asks)).toEqual({ label: "Needs you", token: "needsYou" });
+  expect(inboxStatus(done, now)).toEqual({ label: "Syncing", token: "neutral" });
+  expect(inboxStatus(asks, now)).toEqual({ label: "Needs you", token: "needsYou" });
 });
 
 test("the same thread id on two machines stays two rows", () => {
@@ -149,7 +197,7 @@ test("a recovery the person must act on outranks the settled status word", () =>
     }),
   );
   expect(sections([stuck])).toEqual({ "Needs you": ["mac/stuck"] });
-  expect(inboxStatus(stuck)).toEqual({ label: "Not sent", token: "failed" });
+  expect(inboxStatus(stuck, now)).toEqual({ label: "Not sent", token: "failed" });
 });
 
 test("limited reads in the waiting colour, unresponsive keeps its own, new claims nothing", () => {

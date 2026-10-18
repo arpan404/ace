@@ -5,6 +5,7 @@ import { DeviceId, HostId } from "@ace/protocol";
 import { call, scheduler } from "./host.ts";
 import { PatchPump, followThread } from "./patches.ts";
 import { followInbox, inboxAction } from "./inbox.ts";
+import { ArchiveBrowser } from "./archive.ts";
 import { dispatchCommand } from "./commands.ts";
 import { ThreadSession } from "./thread-session.ts";
 import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
@@ -41,6 +42,8 @@ const Action = z.discriminatedUnion("type", [
     action: z.unknown(),
     requestId: z.string().min(1).max(64),
   }),
+  /** The archive browser (`archive.ts`). */
+  z.object({ type: z.literal("archive"), action: z.unknown() }),
 ]);
 let client: ClientCore | undefined;
 let notifications: NotificationBridge | undefined;
@@ -51,6 +54,7 @@ let epoch = 0;
 let itemLimit = 200;
 let historyAbort: AbortController | undefined;
 let machine: MachineProviders | undefined;
+let archive: ArchiveBrowser | undefined;
 const pump = new PatchPump();
 const trust = new TrustMonitor();
 const sheets = new Sheets(pump, preview);
@@ -110,9 +114,10 @@ async function start(json: string): Promise<void> {
       problem: connectionProblem(connection.getSnapshot(), owner.error, trust),
     }));
   });
-  followInbox(client, config.hostId, pump);
+  followInbox(client, config.hostId, pump, { now: () => host.now(), set: scheduler.set });
   followMachine(client, pump, trust);
   machine = new MachineProviders(client, pump);
+  archive = new ArchiveBrowser(client, pump);
   await client.start();
 }
 async function hydrate(
@@ -224,6 +229,9 @@ function action(json: string): void {
         break;
       case "inbox":
         inboxAction(client, value.action, value.requestId, pump);
+        break;
+      case "archive":
+        if (!archive?.handle(value.action)) error();
         break;
       case "sheet": {
         const thread =

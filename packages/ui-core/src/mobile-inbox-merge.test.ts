@@ -80,8 +80,8 @@ test("the same thread id on two machines keeps two rows with their own status", 
     "Needs you": ["mac/t1"],
     Done: ["linux/t1"],
   });
-  expect(inboxStatus(ours).label).toBe("Needs you");
-  expect(inboxStatus(theirs).label).toBe("Done");
+  expect(inboxStatus(ours, now).label).toBe("Needs you");
+  expect(inboxStatus(theirs, now).label).toBe("Done");
 });
 
 test("an unconfirmed copy from an unreachable machine reads Syncing; the other machine is untouched", () => {
@@ -97,7 +97,7 @@ test("an unconfirmed copy from an unreachable machine reads Syncing; the other m
     Snoozed: ["linux/nap", "mac/nap"],
   });
   for (const thread of offline.filter((row) => !row.key.endsWith("/asks")))
-    expect(inboxStatus(thread)).toEqual({ label: "Syncing", token: "neutral" });
+    expect(inboxStatus(thread, now)).toEqual({ label: "Syncing", token: "neutral" });
 });
 
 function send(machineId: string, id: string): InboxUnsent {
