@@ -1,10 +1,17 @@
 import {
   ArrowSquareOutIcon,
+  BroomIcon,
+  CameraIcon,
+  ClockCounterClockwiseIcon,
+  CodeIcon,
   CopyIcon,
   DevicesIcon,
   DotsThreeIcon,
+  DownloadSimpleIcon,
+  FileCodeIcon,
+  GearSixIcon,
   MagnifyingGlassIcon,
-  PlusIcon,
+  PrinterIcon,
   PuzzlePieceIcon,
   RecordIcon,
   ShieldSlashIcon,
@@ -17,8 +24,6 @@ import {
   MenuCheckboxItem,
   MenuContent,
   MenuItem,
-  MenuRadioGroup,
-  MenuRadioItem,
   MenuSeparator,
   MenuSub,
   MenuSubTrigger,
@@ -32,13 +37,18 @@ import type { BrowserTabView } from "../sources.ts";
 import { roundButton } from "./page-toolbar.tsx";
 import { recordingThreads, type BrowserFeatures } from "./use-browser-features.ts";
 import { extensionsHidden } from "./extensions-menu.tsx";
-import { viewportById, viewports } from "./viewports.ts";
+import { useAlwaysShowDevices } from "./device-settings.ts";
+import type { PageActions } from "./use-page-actions.ts";
+import type { PageTools } from "./use-page-tools.ts";
+import { ZoomRow } from "./zoom-controls.tsx";
 
-const icon = (glyph: typeof PlusIcon) => <Icon icon={glyph} />;
+const icon = (glyph: typeof CopyIcon) => <Icon icon={glyph} />;
 
 /**
- * The page's ⋯ menu: Find, Copy address, Open in your browser, Page size, Keep agents out of
- * this tab, Record the page and Close tab. Everything acts on the tab the person views.
+ * The page's ⋯ menu, grouped as a browser's: Find, Print, Zoom, the device toolbar and a
+ * screenshot; Downloads, History and clearing data; the developer tools; the tab's own choices
+ * (keep agents out, record, copy or open the address); Browser settings and Close tab.
+ * Everything acts on the tab the person views.
  */
 export function BrowserActions(props: {
   threadId: string;
@@ -46,20 +56,27 @@ export function BrowserActions(props: {
   tab: BrowserTabView | undefined;
   shownUrl: string | undefined;
   external: string | undefined;
-  viewport: ReturnType<typeof viewportById>;
-  onViewport(id: string): void;
   online: boolean;
   browser: BrowserFeatures;
+  tools: PageTools;
+  actions: PageActions;
   onFind(): void;
+  onDownloads(): void;
+  onHistory(): void;
+  onClearData(): void;
+  onSettings(): void;
   onKeepPrivate(value: boolean): void;
   onCloseTab(): void;
 }) {
   const toast = useToast();
-  const { shownUrl, external, viewport, browser, tab } = props;
+  const { shownUrl, external, browser, tab, tools, actions } = props;
   const recording = useLocal(recordingThreads, (threads) => threads.has(props.threadId));
   const hidden = useLocal(extensionsHidden, (value) => value);
+  const [always, setAlways] = useAlwaysShowDevices();
   const live = tab !== undefined;
+  const usable = live && props.online;
   const privately = tab?.private === true;
+  const noPage = live ? undefined : "No page is open";
   const setRecording = (on: boolean) =>
     recordingThreads.set((threads) => {
       const next = new Set(threads);
@@ -97,6 +114,7 @@ export function BrowserActions(props: {
         description: error instanceof Error ? error.message : undefined,
       }),
     );
+  const pageTool = usable && actions.available;
   return (
     <Menu>
       <MenuTrigger
@@ -108,15 +126,106 @@ export function BrowserActions(props: {
       >
         <DotsThreeIcon aria-hidden size={16} weight="bold" />
       </MenuTrigger>
-      <MenuContent align="end">
+      <MenuContent align="end" className="min-w-64">
         <MenuItem
           icon={icon(MagnifyingGlassIcon)}
           keys="mod+f"
           resolve={false}
-          disabled={!live || !props.online}
+          disabled={!usable}
           onClick={props.onFind}
         >
           Find in page
+        </MenuItem>
+        <MenuItem
+          icon={icon(PrinterIcon)}
+          keys="mod+p"
+          resolve={false}
+          disabled={!pageTool}
+          onClick={actions.print}
+        >
+          Print…
+        </MenuItem>
+        <ZoomRow tools={tools} />
+        <MenuSub>
+          <MenuSubTrigger icon={icon(DevicesIcon)} disabled={!usable || !tools.supported}>
+            Device toolbar
+          </MenuSubTrigger>
+          <MenuContent side="inline-start" align="start" sideOffset={4}>
+            <MenuCheckboxItem
+              checked={tools.toolbar}
+              onCheckedChange={(checked) => tools.showToolbar(checked)}
+            >
+              Show device toolbar
+            </MenuCheckboxItem>
+            <MenuCheckboxItem checked={always} onCheckedChange={(checked) => setAlways(checked)}>
+              Always show in new tabs
+            </MenuCheckboxItem>
+          </MenuContent>
+        </MenuSub>
+        <MenuSub>
+          <MenuSubTrigger icon={icon(CameraIcon)} disabled={!pageTool}>
+            Take a screenshot
+          </MenuSubTrigger>
+          <MenuContent side="inline-start" align="start" sideOffset={4}>
+            <MenuItem onClick={() => actions.screenshot(false)}>Visible area</MenuItem>
+            <MenuItem onClick={() => actions.screenshot(true)}>Full page</MenuItem>
+          </MenuContent>
+        </MenuSub>
+        <MenuSeparator />
+        <MenuItem icon={icon(DownloadSimpleIcon)} disabled={!live} onClick={props.onDownloads}>
+          Downloads
+        </MenuItem>
+        <MenuItem
+          icon={icon(ClockCounterClockwiseIcon)}
+          keys="mod+y"
+          resolve={false}
+          onClick={props.onHistory}
+        >
+          History
+        </MenuItem>
+        <MenuItem icon={icon(BroomIcon)} disabled={!pageTool} onClick={props.onClearData}>
+          Clear browsing data…
+        </MenuItem>
+        <MenuSeparator />
+        <MenuItem
+          icon={icon(CodeIcon)}
+          keys="mod+alt+i"
+          resolve={false}
+          disabled={!usable || actions.devtoolsReason !== undefined}
+          reason={live ? actions.devtoolsReason : undefined}
+          onClick={() => actions.devtools()}
+        >
+          Developer tools
+        </MenuItem>
+        <MenuItem
+          icon={icon(FileCodeIcon)}
+          keys="mod+alt+u"
+          resolve={false}
+          disabled={!pageTool}
+          onClick={actions.viewSource}
+        >
+          View page source
+        </MenuItem>
+        <MenuSeparator />
+        <MenuCheckboxItem
+          checked={privately}
+          disabled={!usable}
+          onCheckedChange={(checked) => props.onKeepPrivate(checked)}
+        >
+          <span className="flex items-center gap-[9px]">
+            <Icon icon={ShieldSlashIcon} />
+            Keep agents out of this tab
+          </span>
+        </MenuCheckboxItem>
+        <MenuItem
+          icon={icon(recording ? StopCircleIcon : RecordIcon)}
+          disabled={!usable || (privately && !recording)}
+          reason={
+            privately && !recording ? "Tabs agents are kept out of are never recorded" : noPage
+          }
+          onClick={() => void toggleRecording()}
+        >
+          {recording ? "Stop recording" : "Record the page"}
         </MenuItem>
         <MenuItem
           icon={icon(CopyIcon)}
@@ -134,57 +243,20 @@ export function BrowserActions(props: {
         <MenuItem icon={icon(ArrowSquareOutIcon)} disabled={!external} onClick={openOutside}>
           Open in your browser
         </MenuItem>
-        <MenuSeparator />
-        <MenuSub>
-          <MenuSubTrigger icon={icon(DevicesIcon)}>Page size</MenuSubTrigger>
-          <MenuContent side="inline-start" align="start" sideOffset={4}>
-            <MenuRadioGroup
-              value={viewport.id}
-              onValueChange={(value) => props.onViewport(String(value))}
-            >
-              {viewports.map((each) => (
-                <MenuRadioItem closeOnClick key={each.id} value={each.id}>
-                  {each.label}
-                </MenuRadioItem>
-              ))}
-            </MenuRadioGroup>
-          </MenuContent>
-        </MenuSub>
-        <MenuCheckboxItem
-          checked={privately}
-          disabled={!live || !props.online}
-          onCheckedChange={(checked) => props.onKeepPrivate(checked)}
-        >
-          <span className="flex items-center gap-2">
-            <Icon icon={ShieldSlashIcon} />
-            Keep agents out of this tab
-          </span>
-        </MenuCheckboxItem>
-        <MenuItem
-          icon={icon(recording ? StopCircleIcon : RecordIcon)}
-          disabled={!live || !props.online || (privately && !recording)}
-          reason={
-            privately && !recording
-              ? "Tabs agents are kept out of are never recorded"
-              : live
-                ? undefined
-                : "No page is open"
-          }
-          onClick={() => void toggleRecording()}
-        >
-          {recording ? "Stop recording" : "Record the page"}
-        </MenuItem>
         {hidden && (
           <MenuItem icon={icon(PuzzlePieceIcon)} onClick={() => extensionsHidden.set(() => false)}>
             Show extensions in the toolbar
           </MenuItem>
         )}
         <MenuSeparator />
+        <MenuItem icon={icon(GearSixIcon)} onClick={props.onSettings}>
+          Browser settings
+        </MenuItem>
         <MenuItem
           danger
           icon={icon(XCircleIcon)}
-          disabled={!live || !props.online}
-          reason={live ? undefined : "No page is open"}
+          disabled={!usable}
+          reason={noPage}
           onClick={props.onCloseTab}
         >
           Close tab

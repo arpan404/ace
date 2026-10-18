@@ -36,6 +36,11 @@ export interface ContextEntry {
 }
 
 const web = (url: string) => /^https?:\/\//i.test(url);
+const entry = (command: ContextCommand, label: string, enabled = true): ContextEntry => ({
+  command,
+  label,
+  enabled,
+});
 
 /**
  * The page's context menu, grouped like a browser's: what was clicked (link, image, text or a
@@ -44,11 +49,6 @@ const web = (url: string) => /^https?:\/\//i.test(url);
  */
 export function contextEntries(facts: ContextFacts): (ContextEntry | "separator")[] {
   const groups: ContextEntry[][] = [];
-  const entry = (command: ContextCommand, label: string, enabled = true): ContextEntry => ({
-    command,
-    label,
-    enabled,
-  });
   if (facts.linkURL)
     groups.push([
       entry("openLink", "Open link in new tab", web(facts.linkURL)),
@@ -76,5 +76,10 @@ export function contextEntries(facts: ContextFacts): (ContextEntry | "separator"
     ]);
   groups.push([entry("annotate", "Annotate this element")]);
   groups.push([entry("viewSource", "View page source"), entry("inspect", "Inspect")]);
-  return groups.flatMap((group, index) => (index === 0 ? group : ["separator" as const, ...group]));
+  const entries: (ContextEntry | "separator")[] = [];
+  for (const group of groups) {
+    if (entries.length) entries.push("separator");
+    entries.push(...group);
+  }
+  return entries;
 }

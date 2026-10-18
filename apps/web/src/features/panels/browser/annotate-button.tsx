@@ -9,6 +9,7 @@ import {
 import { cn } from "@/lib/cn.ts";
 import type { PreviewSource } from "../sources.ts";
 import { roundButton } from "./page-toolbar.tsx";
+import { useAnnotateRequests } from "./annotate-request.ts";
 
 /**
  * Annotate, a round toggle beside the navigation pill, tinted with the accent while the page
@@ -36,6 +37,9 @@ export function AnnotateButton(props: {
     unavailable,
   });
   const on = annotate.mode !== "off";
+  useAnnotateRequests(threadId, () => {
+    if (!on && !unavailable) annotate.toggle();
+  });
   return (
     <IconButton
       icon={SelectionIcon}

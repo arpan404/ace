@@ -89,6 +89,9 @@ test("a tab the person keeps agents out of is never recorded, and is marked in t
   );
   await waitFor(() => expect(browser.tab(threadId)?.private).toBe(true));
   expect(await within(panel).findByRole("img", { name: "Agents kept out" })).toBeTruthy();
+  // A checkbox item leaves the menu open; close it before opening it again.
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
   const record = await screen.findByRole("menuitem", { name: /Record the page/ });
   expect(record.getAttribute("aria-disabled")).toBe("true");
@@ -98,23 +101,6 @@ test("a tab the person keeps agents out of is never recorded, and is marked in t
   expect(browser.tab(threadId)?.private).toBe(true);
 });
 
-test("picking a page size from the options closes the menu so the page can receive input again", async () => {
-  const { panel } = await openBrowser();
-  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Page size" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: /iPhone 16 Pro/ }));
-  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
-  expect(
-    within(panel).getByRole("button", { name: "Browser options" }).getAttribute("aria-expanded"),
-  ).toBe("false");
-  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Page size" }));
-  const sizes = await screen.findAllByRole("menuitemradio");
-  expect(
-    sizes.filter((size) => size.getAttribute("aria-checked") === "true").map((s) => s.textContent),
-  ).toEqual([expect.stringMatching(/iPhone 16 Pro/)]);
-});
-
 test("the browser options read like the app's other menus: shortcuts announced, no narration", async () => {
   const { panel } = await openBrowser();
   await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
@@ -122,10 +108,23 @@ test("the browser options read like the app's other menus: shortcuts announced, 
   const find = within(menu).getByRole("menuitem", { name: "Find in page" });
   expect(find.getAttribute("aria-keyshortcuts")).toMatch(/^(Meta|Control)\+F$/);
   expect(
-    within(menu).getByRole("menuitem", { name: "Page size" }).getAttribute("aria-haspopup"),
+    within(menu).getByRole("menuitem", { name: "Device toolbar" }).getAttribute("aria-haspopup"),
   ).toBe("menu");
-  // The page sizes live in their own submenu, not as a flat list in this one.
-  expect(within(menu).queryByRole("menuitemradio")).toBeNull();
+  // Browser parity: the page tools a browser's own menu has, in one place.
+  for (const name of [
+    "Print…",
+    "Take a screenshot",
+    "Downloads",
+    "History",
+    "Clear browsing data…",
+    "View page source",
+    "Copy address",
+    "Open in your browser",
+    "Browser settings",
+  ])
+    expect(within(menu).getByRole("menuitem", { name })).toBeTruthy();
+  expect(within(menu).getByRole("menuitem", { name: /^Developer tools/ })).toBeTruthy();
+  expect(within(menu).getByRole("group", { name: "Zoom" })).toBeTruthy();
   expect(
     within(menu).getByRole("menuitemcheckbox", { name: "Keep agents out of this tab" }),
   ).toBeTruthy();

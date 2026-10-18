@@ -15,8 +15,6 @@ export const BrowserTabData = z.object({
   open: z.optional(z.string()),
   /** The shown page's address, for the panel tab's title and the composer's page list. */
   url: z.optional(z.string()),
-  /** A device size from `viewports.ts`; absent follows the panel. */
-  viewport: z.optional(z.string()),
   /** An agent is working in one of the tabs (the panel tab's working dot). */
   agent: z.optional(z.boolean()),
 });

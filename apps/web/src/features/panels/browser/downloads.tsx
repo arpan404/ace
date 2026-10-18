@@ -119,7 +119,12 @@ function DownloadRow(props: {
  * on the daemon's machine and never open on their own; Show in Finder works when that machine
  * is this one.
  */
-export function DownloadsButton(props: { downloads: readonly BrowserDownloadView[] }) {
+export function DownloadsButton(props: {
+  downloads: readonly BrowserDownloadView[];
+  /** Opened from elsewhere too (the ⋯ menu's Downloads). */
+  open?: boolean;
+  onOpenChange?(open: boolean): void;
+}) {
   const reveal = useReveal();
   const { downloads } = props;
   const pending = downloads.filter((download) => download.state === "pending").length;
@@ -130,7 +135,10 @@ export function DownloadsButton(props: { downloads: readonly BrowserDownloadView
       : "Downloads";
   const newest = downloads.findLast((download) => download.state === "complete" && download.path);
   return (
-    <Popover>
+    <Popover
+      {...(props.open === undefined ? {} : { open: props.open })}
+      onOpenChange={(open) => props.onOpenChange?.(open)}
+    >
       <Tip label={label}>
         <PopoverTrigger
           aria-label={label}
