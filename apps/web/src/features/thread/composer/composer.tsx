@@ -271,8 +271,14 @@ function ComposerBody({
       stopKey: canStop && !props.stopping ? props.onStopKey : undefined,
       submit: (modified) => submit(modified && props.canSteer !== false),
     });
-  // Busy, a message follows up (queued or steered) and Stop sits beside it; idle, it sends.
-  const mode = props.busy ? (props.followUp === "steer" ? "steer" : "queue") : "send";
+  // The visible action agrees with the engine's tool boundary, retaining steering intent.
+  const mode = !props.busy
+    ? "send"
+    : props.followUp !== "steer"
+      ? "queue"
+      : props.steerPending
+        ? "steer-pending"
+        : "steer";
   const placeholder =
     props.unavailable?.short ??
     (compact ? (props.shortPlaceholder ?? props.placeholder) : props.placeholder) ??
@@ -391,7 +397,7 @@ function ComposerBody({
               off={!!off}
               canSteer={props.canSteer !== false}
               describedBy={props.unavailable?.describedBy ?? props.sendBlocked?.describedBy}
-              canStop={canStop}
+              canStop={canStop && empty}
               stopping={!!props.stopping}
               onSend={footer.onSend}
               onStop={footer.onStop}

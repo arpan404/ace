@@ -1,4 +1,4 @@
-import { ArrowBendUpRightIcon, ArrowUpIcon, StopIcon, TrayIcon } from "@phosphor-icons/react";
+import { ArrowBendUpRightIcon, ArrowUpIcon, StopIcon, QueueIcon } from "@phosphor-icons/react";
 import { memo } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -6,16 +6,22 @@ import { cn } from "@/lib/cn.ts";
 import { formatKeys } from "@/lib/keymap.ts";
 import { iconControl } from "./composer-styles.ts";
 
-export type PrimaryMode = "send" | "queue" | "steer";
+export type PrimaryMode = "send" | "queue" | "steer" | "steer-pending";
 
 const labels: Record<PrimaryMode, string> = {
   send: "Send",
   queue: "Queue message",
   steer: "Steer message",
+  "steer-pending": "Queue message",
 };
 
 /** Queue and Steer read apart from Send, in the queue strip's own glyphs. */
-const icons = { send: ArrowUpIcon, queue: TrayIcon, steer: ArrowBendUpRightIcon };
+const icons = {
+  send: ArrowUpIcon,
+  queue: QueueIcon,
+  steer: ArrowBendUpRightIcon,
+  "steer-pending": QueueIcon,
+};
 
 /**
  * What Enter does now, and what ⌘↵ does instead while the agent works. A provider that can't
@@ -23,10 +29,12 @@ const icons = { send: ArrowUpIcon, queue: TrayIcon, steer: ArrowBendUpRightIcon 
  */
 function hint(mode: PrimaryMode, canSteer: boolean): string {
   const mod = formatKeys("mod+enter");
+  if (mode === "steer-pending")
+    return `Queue until the current tool finishes, then steer automatically · ${mod} queues for the next turn instead`;
   if (mode === "steer") return `Steer into the running turn · ${mod} queues it instead`;
   if (mode === "queue")
     return canSteer
-      ? `Queue for after this turn · ${mod} steers it in now`
+      ? `Queue for after this turn · ${mod} steers when ready`
       : "Queue for after this turn";
   return "Send";
 }
@@ -34,7 +42,7 @@ function hint(mode: PrimaryMode, canSteer: boolean): string {
 /**
  * The composer's send control, always in the same place: Send, or Queue or Steer while the
  * agent works (by the daemon's follow-up setting). Unavailable, it stays focusable and its
- * tooltip says why. Stop sits beside it (`StopAction`), never in its place.
+ * tooltip says why. An empty busy draft shows Stop in this same slot.
  */
 export const PrimaryAction = memo(function PrimaryAction(props: {
   mode: PrimaryMode;
@@ -79,8 +87,8 @@ export const PrimaryAction = memo(function PrimaryAction(props: {
 });
 
 /**
- * Stop, beside the send control for as long as the agent works, a draft or not: stopping never
- * waits for the message to be cleared. "Stopping…" until the turn ends.
+ * Stop occupies the primary slot while the agent works and the draft is empty.
+ * "Stopping…" until the turn ends; the stop shortcut also works with a draft.
  */
 export const StopAction = memo(function StopAction(props: { stopping: boolean; onStop(): void }) {
   return props.stopping ? (

@@ -1,4 +1,9 @@
-import { acceptsPersonInput, deriveThreadStatus, type Fact } from "@ace/core";
+import {
+  acceptsPersonInput,
+  deriveThreadStatus,
+  hasRunningForegroundCommand,
+  type Fact,
+} from "@ace/core";
 import { CommandId, type ContentPart, type MessageContext } from "@ace/protocol";
 import type { ThreadHost } from "./thread-host.ts";
 
@@ -135,7 +140,12 @@ export function sendFacts(
       ],
     };
   }
-  if (payload.delivery === "steer" && !host.queue.paused && plain)
+  if (
+    payload.delivery === "steer" &&
+    !host.queue.paused &&
+    plain &&
+    !hasRunningForegroundCommand(host.state)
+  )
     return {
       ok: true,
       facts: [
@@ -168,7 +178,9 @@ export function drainQueue(host: ThreadHost): Fact[] {
   const root = host.state.rootKey;
   const next = host.queued[0];
   if (root === undefined || !next || host.queue.paused) return [];
-  if (!takesMessage(host, next.model === undefined && next.options === undefined)) return [];
+  const plain = next.model === undefined && next.options === undefined;
+  const steer = next.delivery === "steer" && plain && !hasRunningForegroundCommand(host.state);
+  if (!steer && !takesMessage(host, plain)) return [];
   host.queued.shift();
   host.queueDirty = true;
   host.nextSelection = {
@@ -177,8 +189,14 @@ export function drainQueue(host: ThreadHost): Fact[] {
   };
   return [
     { type: "queue.changed", count: host.queued.length },
-    ...admissionFacts(host, next.key, next.input, next.attachments),
-    ...startTurn(host, next.key, next.text),
+    ...admissionFacts(
+      host,
+      next.key,
+      next.input,
+      next.attachments,
+      steer && host.state.agents[root]?.activeRun ? "steer" : "person",
+    ),
+    ...(steer ? steerOrStart(host, next.key, next.text) : startTurn(host, next.key, next.text)),
   ];
 }
 

@@ -44,3 +44,9 @@ export {
   type SwitchRoute,
   type SwitchSide,
 } from "./switch-route.ts";
+
+export {
+  isRunningShellTool,
+  hasForegroundShellCommand,
+  hasRunningForegroundCommand,
+} from "./steering.ts";

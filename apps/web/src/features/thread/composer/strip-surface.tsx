@@ -62,7 +62,7 @@ export function StripSurface(props: { slot: string; children: ReactNode }) {
               "max-h-[50vh] overflow-y-auto overscroll-contain",
               // A request card keeps its room for its buttons; the one-line rows are dense.
               props.slot === "request"
-                ? cn("px-2 pt-1.5", attachedCardPadding)
+                ? cn("px-4 pt-3", attachedCardPadding)
                 : cn("px-1.5 pt-1", attachedStripCardPadding),
             )}
           >

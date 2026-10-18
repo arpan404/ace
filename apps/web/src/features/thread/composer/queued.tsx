@@ -3,7 +3,7 @@ import {
   ArrowBendUpRightIcon,
   DotsSixVerticalIcon,
   PencilSimpleIcon,
-  TrayIcon,
+  QueueIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import { Suspense, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
@@ -107,7 +107,7 @@ export function QueuedTray(props: {
     <>
       <section aria-label="Message queue" className="w-full text-xs text-muted-foreground">
         <div className="flex h-5.5 min-w-0 items-center gap-1.5 px-1">
-          <Icon icon={TrayIcon} size={12} className="shrink-0" />
+          <Icon icon={QueueIcon} size={12} className="shrink-0" />
           <span className="min-w-0 truncate">
             Queued
             {count > 0 && (

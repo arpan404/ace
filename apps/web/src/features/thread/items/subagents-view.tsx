@@ -8,14 +8,11 @@ import {
 import { cardEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { useAgentFacts } from "@/lib/use-agent-facts.ts";
-import { useCallback, useId, useState, type CSSProperties } from "react";
+import { useCallback, useId, useState } from "react";
+import { StatusGlyph } from "@/components/status-glyph.tsx";
 import { useThreadLiveState } from "../lib/live-state.ts";
-import {
-  readSubagentGroup,
-  subagentEntriesEqual,
-  type SubagentEntry,
-} from "../lib/subagent-group.ts";
-import { SubagentAvatar, SubagentElapsed, SubagentRow, subagentTones } from "./subagent-row.tsx";
+import { readSubagentGroup, subagentEntriesEqual } from "../lib/subagent-group.ts";
+import { SubagentElapsed, SubagentRow, subagentTones } from "./subagent-row.tsx";
 import { TranscriptRow, cardRowClass } from "./transcript-row.tsx";
 
 const groupTones: Record<SubagentGroupStatus, string> = {
@@ -27,7 +24,7 @@ const groupTones: Record<SubagentGroupStatus, string> = {
 
 /**
  * A launch's subagents in the transcript. One subagent is just its row. Several fold into one
- * two-line row (their stacked avatars, "3 subagents", then each status count in its tone),
+ * two-line row (a group status glyph, "3 subagents", then each status count in its tone),
  * opening to a hairline card of their rows. The group reads as its worst child: needs you,
  * failed, working, done, so it never reads done while any child works or waits.
  */
@@ -65,7 +62,13 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
         onToggle={() => setOpen(!open)}
         label={title}
         tone="strong"
-        lead={<AvatarStack entries={entries} />}
+        lead={
+          <StatusGlyph
+            state={status === "working" ? "subagents" : status === "human" ? "needs-you" : status}
+            size={16}
+            still={!live.fresh}
+          />
+        }
         title={title}
         subtitle={
           <span id={`${body}-status`} role="status" data-tone={groupTones[status]}>
@@ -105,33 +108,5 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
         )}
       </div>
     </section>
-  );
-}
-
-/** How far each avatar overlaps the one before it, and the gap its cut-out leaves. */
-const overlap = 6;
-const avatar = 20;
-
-/** Every avatar but the last has the next one's circle cut out of it, so no ring is drawn. */
-const stackCut: CSSProperties = {
-  maskImage: `radial-gradient(circle at ${avatar * 1.5 - overlap}px 50%, transparent ${avatar / 2 + 1.5}px, #000 ${avatar / 2 + 2}px)`,
-};
-
-/** Up to three 20px provider avatars, overlapping by 6px. */
-function AvatarStack(props: { entries: readonly SubagentEntry[] }) {
-  const shown = props.entries.slice(0, 3);
-  return (
-    <span aria-hidden className="flex items-center">
-      {shown.map((entry, index) => (
-        <SubagentAvatar
-          key={entry.id}
-          size={20}
-          provider={entry.provider}
-          model={entry.model}
-          className={index > 0 ? "-ml-1.5" : undefined}
-          style={index < shown.length - 1 ? stackCut : undefined}
-        />
-      ))}
-    </span>
   );
 }

@@ -3,7 +3,7 @@ import { AddButton, type AddHandle } from "./add-button.tsx";
 import { PrimaryAction, StopAction, type PrimaryMode } from "./primary-action.tsx";
 
 /**
- * The composer's action row: + and approvals on the left, the model, Stop and send on the
+ * The composer's action row: + and approvals on the left, the model and one primary action on the
  * right, in Tab order. Memoised on props that change only when the draft empties or fills, so
  * typing never re-renders the controls.
  */
@@ -21,7 +21,7 @@ export const ComposerFooter = memo(function ComposerFooter(props: {
   off: boolean;
   canSteer: boolean;
   describedBy: string | undefined;
-  /** The agent works and can be stopped: Stop shows beside send, draft or not. */
+  /** The agent works and the draft is empty: the primary slot shows Stop. */
   canStop: boolean;
   stopping: boolean;
   onSend(): void;
@@ -60,15 +60,18 @@ export const ComposerFooter = memo(function ComposerFooter(props: {
         {props.trailing}
       </div>
       <div data-slot="composer-primary" className="flex shrink-0 items-center gap-1">
-        {props.canStop && <StopAction stopping={props.stopping} onStop={props.onStop} />}
-        <PrimaryAction
-          mode={props.mode}
-          blocked={props.blocked}
-          off={props.off}
-          canSteer={props.canSteer}
-          describedBy={props.describedBy}
-          onSend={props.onSend}
-        />
+        {props.canStop ? (
+          <StopAction stopping={props.stopping} onStop={props.onStop} />
+        ) : (
+          <PrimaryAction
+            mode={props.mode}
+            blocked={props.blocked}
+            off={props.off}
+            canSteer={props.canSteer}
+            describedBy={props.describedBy}
+            onSend={props.onSend}
+          />
+        )}
       </div>
     </div>
   );

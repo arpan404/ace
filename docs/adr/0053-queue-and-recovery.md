@@ -21,7 +21,10 @@ Follow-up behaviour defaults to queue and resolves before intent admission.
 An explicit send delivery overrides the setting. Clients can implement the
 opposite-default shortcut without duplicating the server queue. Steers bypass
 settled-turn gating only when the adapter advertises steer, the session is live,
-and no recovery/limit hold exists. Unsupported steering enters the ordered queue.
+and no recovery/limit hold exists. Unsupported steering enters the ordered queue. A steer submitted during a foreground tool
+waits durably with its steering intent intact, then delivers automatically once that tool
+finishes. Background work alone does not hold steering. The composer shows Queue while
+waiting for that boundary and Steer once ready; explicit queue mode still waits for the next turn.
 A queued message is not in the transcript; the claim that delivers it creates its user item
 and binds its run (ADR 0065, 2026-10-17 amendment).
 

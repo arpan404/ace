@@ -105,7 +105,7 @@ export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) 
       </span>
     );
   return (
-    <StatusLabel tone={tone} label={word} mark={mark} className="gap-1 text-meta font-normal">
+    <StatusLabel tone={tone} label={word} mark={mark} className="gap-1 text-meta font-medium">
       {elapsed}
     </StatusLabel>
   );
@@ -150,7 +150,7 @@ export function RowContext(props: { card: ThreadCard }) {
   const { card } = props;
   const devices = use(ManyDevices);
   return (
-    <div className="flex min-w-0 items-center gap-1.5 text-meta leading-4 text-muted-foreground">
+    <div className="flex min-w-0 items-center gap-1.5 text-meta leading-4 text-subtle-foreground">
       {card.branch && (
         <span className="min-w-0 flex-1 truncate font-mono" title={card.branch.name}>
           {card.branch.name}
@@ -179,7 +179,7 @@ export function RowContext(props: { card: ThreadCard }) {
             instance={card.account}
             size={14}
             decorative
-            className="text-muted-foreground"
+            className="text-subtle-foreground"
           />
         </span>
       </span>

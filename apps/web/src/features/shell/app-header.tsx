@@ -182,7 +182,7 @@ export function AppHeader(
         )}
       </div>
       {props.notice}
-      <div className="ml-auto flex shrink-0 items-center gap-1">
+      <div className="ml-auto flex shrink-0 items-center gap-0.5">
         {props.actions && wide && props.actions}
         {titleMenu && (
           <HeaderMenu
