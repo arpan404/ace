@@ -69,8 +69,8 @@ function includeTarget(value: string, file: string, home: string | undefined): s
 /**
  * The files whose change can alter what a Git command in `cwd` reads as configuration or which
  * checkout it finds: each listed file and include target, the system and global files even when
- * absent, the checkout's own config files, HEAD (for `includeIf.onbranch`) and every `.git` entry
- * from `cwd` up to its worktree root (repository discovery).
+ * absent, the checkout's own config files, HEAD (for `includeIf.onbranch`) and, from `cwd` up to
+ * its worktree root, every `.git` entry and bare-repository marker (repository discovery).
  */
 export function watchedPaths(
   cwd: string,
@@ -84,6 +84,9 @@ export function watchedPaths(
   for (let directory = cwd; ; directory = dirname(directory)) {
     discovery.push(join(directory, ".git"));
     if (directory === layout.toplevel) break;
+    // Without a `.git` entry, discovery also accepts the directory itself as a bare repository
+    // once it holds HEAD, objects/ and refs/, and then reads its `config`.
+    for (const part of ["HEAD", "objects", "refs", "config"]) discovery.push(join(directory, part));
     if (dirname(directory) === directory || !directory.startsWith(layout.toplevel + sep))
       return undefined;
   }
