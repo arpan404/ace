@@ -101,19 +101,24 @@ struct NewThreadSheet: View {
                 Toggle("New worktree", isOn: Binding(get: { draft.worktree && branches?.noWorktree == nil }, set: { on in drafts.edit { $0.worktree = on } }))
                     .disabled(branches?.noWorktree != nil || branches?.state != "ready")
                     .accessibilityIdentifier("newThread.worktree")
-                if let reason = branches?.noWorktree {
-                    Text(reason).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-                } else if draft.worktree, let branches, !branches.bases.isEmpty {
-                    Picker("Starts from", selection: Binding(get: { draft.base ?? branches.start }, set: { base in drafts.edit { $0.base = base } })) {
-                        ForEach(branches.bases) { base in
-                            Text(base.note.map { "\(base.label) · \($0)" } ?? base.label).tag(Optional(ComposeBaseRef(ref: base.ref, remote: base.remote)))
-                        }
-                    }
-                    .accessibilityIdentifier("newThread.base")
-                }
+                worktreeBase
             }
         } footer: {
             if draft.worktree && branches?.noWorktree == nil { Text("The thread works on a new branch in its own folder, apart from your checkout.") }
+        }
+    }
+    @ViewBuilder private var worktreeBase: some View {
+        if let reason = branches?.noWorktree {
+            Text(reason).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+        } else if draft.worktree, let branches, !branches.bases.isEmpty {
+            let selection: Binding<ComposeBaseRef?> = Binding(get: { draft.base ?? branches.start }, set: { base in drafts.edit { $0.base = base } })
+            Picker("Starts from", selection: selection) {
+                ForEach(branches.bases) { base in
+                    let tag: ComposeBaseRef? = base.base
+                    Text(base.title).tag(tag)
+                }
+            }
+            .accessibilityIdentifier("newThread.base")
         }
     }
     private var agentSection: some View {

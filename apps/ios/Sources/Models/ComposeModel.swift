@@ -26,8 +26,11 @@ struct ComposeChoice: Codable, Sendable, Equatable { let provider: String; let m
 struct ComposeBase: Codable, Sendable, Hashable, Identifiable {
     let ref: String; let remote: String?; let label: String; let note: String?
     var id: String { label }
+    /// "origin/main · default".
+    var title: String { if let note { return label + " · " + note }; return label }
+    var base: ComposeBaseRef { ComposeBaseRef(ref: ref, remote: remote) }
 }
-struct ComposeBaseRef: Codable, Sendable, Equatable { let ref: String; let remote: String? }
+struct ComposeBaseRef: Codable, Sendable, Hashable { let ref: String; let remote: String? }
 struct ComposeFolder: Codable, Sendable, Identifiable, Equatable {
     let name: String; let path: String; let project: Bool; let git: Bool
     var id: String { path }
