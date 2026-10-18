@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { snapshotLine } from "@ace/browser";
 import type { BrowserAnnotationsContextItem, BrowserTabContextItem } from "@ace/protocol";
 
 /*
@@ -7,15 +8,14 @@ import type { BrowserAnnotationsContextItem, BrowserTabContextItem } from "@ace/
  * the snapshot ref of each annotated element. Pure: the delivery shell reads the tab.
  */
 
-/** One snapshot node as the browser reports it; unknown fields are ignored, never fatal. */
+/** One compact snapshot node as the browser reports it; unknown fields are ignored, never fatal. */
 export const SnapshotNode = z.looseObject({
-  id: z.string(),
   role: z.string().catch(""),
   name: z.string().catch(""),
   value: z.string().optional().catch(undefined),
+  states: z.array(z.string()).optional().catch(undefined),
   ref: z.string().optional().catch(undefined),
-  ignored: z.boolean().optional().catch(undefined),
-  children: z.array(z.string()).catch([]),
+  depth: z.number().int().nonnegative().catch(0),
 });
 export type SnapshotNode = z.infer<typeof SnapshotNode>;
 export const Snapshot = z.looseObject({
@@ -23,55 +23,38 @@ export const Snapshot = z.looseObject({
   truncated: z.boolean().optional().catch(undefined),
 });
 
-/** Roles that only group others: their children are listed, they are not. */
-const structural = new Set(["", "none", "generic", "presentation", "InlineTextBox", "LineBreak"]);
 const excerptBytes = 8 * 1024;
+const parsed = (raw: readonly unknown[]) =>
+  raw.flatMap((value) => {
+    const node = SnapshotNode.safeParse(value);
+    return node.success ? [node.data] : [];
+  });
 
-/** Nodes in a readable outline, at most `limit` bytes; `truncated` when some were left out. */
+/** The snapshot's lines as agents read them, at most `limit` bytes; `truncated` when cut. */
 export function snapshotExcerpt(
   raw: readonly unknown[],
   limit = excerptBytes,
 ): { text: string; truncated: boolean } {
-  const nodes = raw.flatMap((value) => {
-    const node = SnapshotNode.safeParse(value);
-    return node.success ? [node.data] : [];
-  });
-  const byId = new Map(nodes.map((node) => [node.id, node]));
-  const children = new Set(nodes.flatMap((node) => node.children));
   const lines: string[] = [];
   let bytes = 0;
-  let truncated = false;
-  // Depth-first from the roots, with an explicit stack: page trees can be deep.
-  const stack = nodes
-    .filter((node) => !children.has(node.id))
-    .toReversed()
-    .map((node) => ({ node, depth: 0 }));
-  const seen = new Set<string>();
-  while (stack.length) {
-    const entry = stack.pop();
-    if (!entry || seen.has(entry.node.id)) continue;
-    seen.add(entry.node.id);
-    const { node } = entry;
-    const shown = !node.ignored && !(structural.has(node.role) && !node.name.trim());
-    if (shown) {
-      const name = node.name.replace(/\s+/g, " ").trim();
-      const value = node.value?.replace(/\s+/g, " ").trim();
-      const line = `${"  ".repeat(Math.min(entry.depth, 12))}- ${node.role}${name ? ` ${JSON.stringify(name.slice(0, 160))}` : ""}${value ? ` value=${JSON.stringify(value.slice(0, 80))}` : ""}${node.ref ? ` [ref=${node.ref}]` : ""}`;
-      const size = Buffer.byteLength(line) + 1;
-      if (bytes + size > limit) {
-        truncated = true;
-        break;
-      }
-      bytes += size;
-      lines.push(line);
-    }
-    const depth = shown ? entry.depth + 1 : entry.depth;
-    for (const id of node.children.toReversed()) {
-      const child = byId.get(id);
-      if (child) stack.push({ node: child, depth });
-    }
+  for (const node of parsed(raw)) {
+    const line = snapshotLine(
+      {
+        role: node.role,
+        name: node.name.replace(/\s+/g, " ").trim().slice(0, 160),
+        depth: node.depth,
+        ...(node.value === undefined ? {} : { value: node.value.slice(0, 80) }),
+        ...(node.states ? { states: node.states } : {}),
+        ...(node.ref ? { ref: node.ref } : {}),
+      },
+      Math.min(node.depth, 12),
+    );
+    const size = Buffer.byteLength(line) + 1;
+    if (bytes + size > limit) return { text: lines.join("\n"), truncated: true };
+    bytes += size;
+    lines.push(line);
   }
-  return { text: lines.join("\n"), truncated };
+  return { text: lines.join("\n"), truncated: false };
 }
 
 const clean = (text: string | undefined) => text?.replace(/\s+/g, " ").trim().toLowerCase();
@@ -85,10 +68,7 @@ export function annotationRefs(
   annotations: BrowserAnnotationsContextItem["annotations"],
   raw: readonly unknown[],
 ): Map<number, string> {
-  const nodes = raw.flatMap((value) => {
-    const node = SnapshotNode.safeParse(value);
-    return node.success && node.data.ref && !node.data.ignored ? [node.data] : [];
-  });
+  const nodes = parsed(raw).filter((node) => node.ref);
   const refs = new Map<number, string>();
   for (const annotation of annotations) {
     const label = clean(annotation.name) || clean(annotation.text);

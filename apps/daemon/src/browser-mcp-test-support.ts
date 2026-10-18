@@ -99,7 +99,10 @@ export function fakeHeadlessBackend(page?: readonly Record<string, unknown>[]): 
                 ? { nodes: page.length }
                 : page && method === "Accessibility.getFullAXTree"
                   ? { nodes: page }
-                  : {},
+                  : // A page with no secret fields: the masking lookup finds none.
+                    method === "Runtime.evaluate"
+                    ? { result: { type: "object" } }
+                    : {},
           on: (method, listener) => events.on(method, listener),
           off: (method, listener) => events.off(method, listener),
         },

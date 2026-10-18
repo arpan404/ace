@@ -40,7 +40,7 @@ Every page tool takes an optional `tabId`. Without one it acts in your current t
 
 ## Tabs the person points at
 
-A message can carry a `<browser_tab tabId=… url=… title=…>` block: the person mentioned that tab. It holds a snapshot excerpt taken when the message arrived, and the tab's screenshot is attached. Pass its `tabId` to act there; its refs work until the page changes. `<browser_annotation_refs tabId=…>` names the elements the person annotated by ref, in the tab they annotated.
+A message can carry a browser tab block with a `tabId`, url and title: the person mentioned that tab. It holds a snapshot excerpt taken when the message arrived, and the tab's screenshot is attached. Pass its `tabId` to act there; its refs work until the page changes. An annotation refs block with a `tabId` names the elements the person annotated by ref, in the tab they annotated.
 
 ## Evidence
 

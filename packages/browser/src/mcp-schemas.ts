@@ -26,16 +26,12 @@ export const browserOpenShape = {
     .describe(
       "Absolute http(s) URL to load, localhost included. Omit to report the page you are on.",
     ),
-  tabId: tabId.describe(
-    "Load url in this tab (from browser_tabs). Omit for your current tab; if the person is viewing another agent's tab, you get a tab of your own.",
-  ),
+  tabId: tabId.describe("Load url in this tab (from browser_tabs). Omit for your own tab."),
   timeout,
   waitUntil: z
     .enum(["domcontentloaded", "load", "networkidle"])
     .optional()
-    .describe(
-      "With url, when to return: domcontentloaded (default, the HTML is parsed), load (images, styles and scripts too) or networkidle (load, then no request in flight for 500 ms).",
-    ),
+    .describe("With url: when to return (default domcontentloaded)."),
 };
 
 export const browserTabsShape = {

@@ -53,3 +53,6 @@ export { UserChromeHub, userChromeLinkLimit } from "./user-chrome-hub.ts";
 export { UserChromeBackend, type UserTabRef } from "./user-chrome.ts";
 export { UserChromeTabsBackend } from "./user-chrome-tabs.ts";
 export type { UserChromeLink, UserChromeTransport } from "./user-chrome-link.ts";
+/** One snapshot line as agents read it, for excerpts built outside the tools. */
+export { snapshotLine } from "./snapshot-text.ts";
+export type { CompactNode } from "./snapshot-compact.ts";
