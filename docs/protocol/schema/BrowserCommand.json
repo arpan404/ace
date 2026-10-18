@@ -1200,6 +1200,60 @@
     {
       "properties": {
         "action": {
+          "const": "context_target",
+          "type": "string"
+        },
+        "tabId": {
+          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "x": {
+          "maximum": 100000,
+          "minimum": 0,
+          "type": "number"
+        },
+        "y": {
+          "maximum": 100000,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "action",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "image_data",
+          "type": "string"
+        },
+        "tabId": {
+          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "url"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
           "const": "annotate_capture",
           "type": "string"
         },

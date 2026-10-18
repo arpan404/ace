@@ -93,6 +93,8 @@ export class FakeBrowser {
   /** The person's input, as the daemon received it. */
   readonly inputs: { threadId: string; tabId?: string; input: ForwardedInput }[] = [];
   readonly wireInputs: { threadId: string; tabId?: string; input: BrowserInput }[] = [];
+  /** What a person's right click finds under the pointer (`context_target`). */
+  contextTarget: { link?: string; image?: string } | undefined;
   get version(): number {
     return this.revision;
   }

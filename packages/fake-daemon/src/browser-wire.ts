@@ -210,6 +210,9 @@ export function fakeBrowserSession(
               truncated: false,
               live: false,
             };
+          else if (command.action === "context_target") result = browser.contextTarget ?? {};
+          else if (command.action === "image_data")
+            result = { url: command.url, data: "iVBORw0KGgo=" };
           else if (command.action === "pdf")
             result = { path: "/fixture/page.pdf", mimeType: "application/pdf", bytes: 1024 };
           else if (command.action === "snapshot") result = { text: "Synthetic fixture page" };

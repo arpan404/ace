@@ -18,6 +18,8 @@ const personActions = [
   "zoom",
   "clear_data",
   "page_source",
+  "context_target",
+  "image_data",
 ] as const;
 type AgentAction = Exclude<BrowserCommand["action"], (typeof personActions)[number]>;
 function agentAction(action: BrowserCommand["action"]): action is AgentAction {

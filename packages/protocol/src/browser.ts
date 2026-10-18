@@ -205,6 +205,17 @@ export const BrowserCommand = z.discriminatedUnion("action", [
   commandBase.extend({ action: z.literal("clear_data") }),
   /** Person-only: the tab's document source as the server sent it (bounded). */
   commandBase.extend({ action: z.literal("page_source") }),
+  /**
+   * Person-only: what is under a point of the page (viewport CSS pixels) for ace's own
+   * right-click menu: the link it is in and the image it is, when they are web addresses.
+   */
+  commandBase.extend({
+    action: z.literal("context_target"),
+    x: z.number().min(0).max(100_000),
+    y: z.number().min(0).max(100_000),
+  }),
+  /** Person-only: the bytes of an image the page already loaded (base64), to copy or save. */
+  commandBase.extend({ action: z.literal("image_data"), url: z.string().min(1).max(8192) }),
   commandBase.extend({
     action: z.literal("annotate_capture"),
     target: BrowserAnnotationCaptureTarget,

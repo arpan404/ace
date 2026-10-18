@@ -20,6 +20,7 @@ import { uploadPaths } from "./uploads.ts";
 import { dragRefs } from "./drag.ts";
 import { executeAnnotation } from "./annotation-commands.ts";
 import { emulateDevice, executePageTool, resizePage, type TabView } from "./page-tools.ts";
+import { executeContextCommand } from "./page-context.ts";
 import type { AnnotationSession } from "./annotation-session.ts";
 import type { SnapshotRefs } from "./refs.ts";
 import type { SessionLogs } from "./logs.ts";
@@ -421,6 +422,9 @@ export async function executeBrowserCommand(
       );
       context.emit();
       return { ok: true };
+    case "context_target":
+    case "image_data":
+      return executeContextCommand(command, actor, page, context.read);
     case "zoom":
     case "clear_data":
     case "page_source":
