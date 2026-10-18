@@ -82,3 +82,11 @@ test("a page's file picker takes the files the person picks on this device", asy
   );
   await waitFor(() => expect(within(panel).queryByRole("dialog", { name: /asks for/ })).toBeNull());
 });
+
+test("an offline page says so and that it comes back by itself", async () => {
+  const { panel, browser } = await openBrowser();
+  act(() => browser.loadFailed(thread, "net::ERR_INTERNET_DISCONNECTED"));
+  const card = await within(panel).findByRole("alert");
+  expect(within(card).getByText("You're offline")).toBeTruthy();
+  expect(within(card).getByText(/loads again by itself/)).toBeTruthy();
+});

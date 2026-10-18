@@ -8,6 +8,7 @@ import type { ChromeInstance } from "./chrome-instance.ts";
 import type { AttachedTarget } from "./chrome-targets.ts";
 import { consoleEntry, consoleEvents } from "./console-entry.ts";
 import { sizeHeadlessTab } from "./headless-size.ts";
+import { nextZoom, type ZoomStep } from "./zoom.ts";
 import { BrowserInspection } from "./inspection.ts";
 import { installOriginGuard } from "./origin-guard.ts";
 import { pageFrames } from "./page-frames.ts";
@@ -40,6 +41,10 @@ const WindowOpen = z.object({
 const Info = z.object({ targetInfo: z.object({ title: z.string(), url: z.string() }) });
 const Detached = z.object({ sessionId: z.string() });
 type Guard = Awaited<ReturnType<typeof installOriginGuard>>;
+const Binding = z.object({ name: z.string() });
+/** Headless Chrome shows no print dialog: `window.print()` asks ace to save a PDF instead. */
+const printBinding = "__acePrint";
+const printShim = `(() => { const ask = globalThis.${printBinding}; if (typeof ask === "function") window.print = () => ask(""); })()`;
 /** The running browser a session's tabs live in, and their cookie jar. */
 export interface TabHost {
   instance: ChromeInstance;
@@ -49,6 +54,8 @@ interface Tab {
   id: string;
   cdp: TabCdp;
   viewport: { width: number; height: number };
+  /** Page zoom: the CSS viewport is `viewport` divided by it, rendered as sharply. */
+  zoom: number;
   /** An agent uses this tab: its popups reuse the page and beforeunload never prompts. */
   agent: boolean;
   /** Bumped each time the tab gets a new target, so a popup from an old target is refused. */
@@ -187,13 +194,22 @@ export class ChromeTabs {
   viewportSize(id = this.activeId): { width: number; height: number } {
     return { ...(this.tabs.get(id)?.viewport ?? this.viewport) };
   }
+  /** One zoom step for the tab, as a browser's ⌘+ / ⌘- / ⌘0; returns the new zoom. */
+  async zoom(id: string, step: ZoomStep): Promise<number> {
+    const tab = this.tabs.get(id);
+    if (!tab) throw new Error("Browser tab unavailable");
+    tab.zoom = nextZoom(tab.zoom, step);
+    await sizeHeadlessTab(tab.cdp, tab.viewport, this.deviceScaleFactor, tab.zoom);
+    this.request.changed?.();
+    return tab.zoom;
+  }
   /** Sizes one tab; new tabs open at the size last set. */
   async resize(width: number, height: number, id = this.activeId): Promise<void> {
     const tab = this.tabs.get(id);
     if (!tab) throw new Error("Browser tab unavailable");
     this.viewport = { width, height };
     tab.viewport = { width, height };
-    await sizeHeadlessTab(tab.cdp, tab.viewport, this.deviceScaleFactor);
+    await sizeHeadlessTab(tab.cdp, tab.viewport, this.deviceScaleFactor, tab.zoom);
   }
   list(): BrowserTab[] {
     return [...this.tabs.values()].map((tab) => ({
@@ -380,6 +396,7 @@ export class ChromeTabs {
       id,
       cdp,
       viewport: { ...this.viewport },
+      zoom: 1,
       agent: false,
       binding: 0,
       status: pageStatus(cdp, () => this.request.changed?.()),
@@ -456,6 +473,9 @@ export class ChromeTabs {
         if (entry) this.request.log({ ...entry, tabId: tab.id });
       });
     on("Inspector.targetCrashed", () => this.crashed(tab));
+    on("Runtime.bindingCalled", (raw) => {
+      if (Binding.safeParse(raw).data?.name === printBinding) this.request.print?.(tab.id);
+    });
     tab.stops.push(this.downloads.watch(id, cdp));
     return tab;
   }
@@ -499,7 +519,7 @@ export class ChromeTabs {
       // Renderer-side commands wait for a renderer; only the browser-side navigation starts one.
       await tab.cdp.send("Page.navigate", { url: tab.url });
       await tab.cdp.send("Runtime.enable");
-      await sizeHeadlessTab(tab.cdp, tab.viewport, this.deviceScaleFactor);
+      await sizeHeadlessTab(tab.cdp, tab.viewport, this.deviceScaleFactor, tab.zoom);
       this.request.restarted?.(tab.id);
     })()
       .catch(() => {
@@ -526,8 +546,13 @@ export class ChromeTabs {
     await tab.cdp.send("Log.enable");
     // No native picker here: the person's own device picks the files (`chooseFiles`).
     await tab.cdp.send("Page.setInterceptFileChooserDialog", { enabled: true });
+    await tab.cdp.send("Runtime.addBinding", { name: printBinding });
+    await tab.cdp.send("Page.addScriptToEvaluateOnNewDocument", {
+      source: printShim,
+      runImmediately: true,
+    });
     await tab.cdp.send("Emulation.setFocusEmulationEnabled", { enabled: true });
-    await sizeHeadlessTab(tab.cdp, tab.viewport, this.deviceScaleFactor);
+    await sizeHeadlessTab(tab.cdp, tab.viewport, this.deviceScaleFactor, tab.zoom);
     tab.guard = await installOriginGuard(
       tab.cdp,
       this.request.allowed,

@@ -24,6 +24,7 @@ import { sendHumanInput } from "./session-input.ts";
 import type { Actor, SessionOptions } from "./session-options.ts";
 import { SessionQueue, mutatesBrowser, type QueueBudget, type TabHold } from "./session-queue.ts";
 import { personHold, refusesAgent } from "./person-holds.ts";
+import { zoomChord } from "./zoom.ts";
 import { TabAccess } from "./tab-access.ts";
 import { agentInputDelay, waitsForPerson, type CollaborationTiming } from "./collaboration.ts";
 
@@ -438,8 +439,15 @@ export class TabRuntime {
     if (this.closed || this.host.flags().closed)
       return Promise.reject(new BrowserActionError("browser_closed"));
     const generation = this.access.generation;
+    const tabs = this.host.options.backend.tabs;
+    const zoom = tabs?.zoom ? zoomChord(input) : undefined;
     const work = this.humanInput.then(async () => {
       this.check(actor, undefined, generation);
+      // ⌘+ / ⌘- / ⌘0 zoom the page, as in a browser; the page never sees them.
+      if (zoom) {
+        if (input.kind === "key" && input.event === "keyDown") await tabs?.zoom?.(this.id, zoom);
+        return;
+      }
       await sendHumanInput(input, this.page.cdp, () => this.check(actor, undefined, generation));
     });
     this.humanInput = work.catch(() => {});

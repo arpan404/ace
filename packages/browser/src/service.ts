@@ -289,6 +289,7 @@ export class BrowserService {
         humanInput: (tabId) => session?.humanActivity(tabId),
         navigation: (tabId) => session?.navigation(tabId),
         restarted: (tabId) => session?.restarted(tabId),
+        print: (tabId) => session?.print(tabId),
         log: (entry) => session?.log(entry),
         permissionDenied: (denial) =>
           session?.log({

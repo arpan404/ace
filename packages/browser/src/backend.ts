@@ -47,6 +47,8 @@ export interface BackendOpen {
   /** The person used a tab directly, in a view the daemon does not route (the desktop's). */
   humanInput?(tabId?: string): void;
   navigation(tabId?: string): void;
+  /** The page called `window.print()` and no print dialog showed for it (ADR 0086). */
+  print?(tabId?: string): void;
   /** A renderer (with `tabId`) or the whole browser (without) came back; re-arm its pages. */
   restarted?(tabId?: string): void;
   log(entry: BackendLog): void;
@@ -111,6 +113,11 @@ export interface BrowserBackendTabs {
    * cancels it.
    */
   chooseFiles?(tabId: string, chooserId: string, paths: readonly string[]): Promise<void>;
+  /**
+   * One page zoom step for the tab (the person's ⌘+ / ⌘- / ⌘0 in a screencast view); returns
+   * the new zoom. A backend whose view zooms natively (the desktop) has none.
+   */
+  zoom?(tabId: string, step: import("./zoom.ts").ZoomStep): Promise<number>;
   /** The person turns a tab's sound off or on (its `muted`). */
   mute?(tabId: string, muted: boolean): Promise<void>;
   page?(tabId: string): BrowserBackendPage;

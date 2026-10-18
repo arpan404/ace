@@ -29,6 +29,9 @@ export interface BrowserView {
   activeTabId?: string;
   downloads?: BrowserDownload[];
   pending_dialog?: BrowserDialog | undefined;
+  loading?: boolean;
+  /** The shown page's load failure, as Chromium names it (`net::ERR_…`). */
+  loadError?: string;
   reason?: string;
   /** Page features this fixture supports (BrowserState.features). */
   features?: string[];
@@ -438,6 +441,14 @@ export class FakeBrowser {
     view.pending_dialog = this.tabsList(threadId).find(
       (candidate) => candidate.pending_dialog,
     )?.pending_dialog;
+    this.changed();
+  }
+  /** The shown page failed to load with a Chromium net error (`net::ERR_…`). */
+  loadFailed(threadId: string, error: string): void {
+    const view = this.view(threadId);
+    if (!view) throw new Error("Browser unavailable");
+    view.loadError = error;
+    view.loading = false;
     this.changed();
   }
   /** The tab's page opened its file picker. */

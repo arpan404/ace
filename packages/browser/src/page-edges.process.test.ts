@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { expect, it } from "vitest";
 import { executablePath, pageEdges, siteUser } from "./page-edges-test-support.ts";
 import { ref } from "./test-support.ts";
@@ -155,6 +156,62 @@ it.skipIf(!executablePath)(
       .poll(() => f.text(), { timeout: 15_000 })
       .toContain("picked notes.txt: hello from my laptop");
     expect(f.tabs()[0]?.file_chooser).toBeUndefined();
+  },
+  60_000,
+);
+
+it.skipIf(!executablePath)(
+  "an offline page loads by itself once the connection is back",
+  async () => {
+    const f = await pageEdges();
+    await f.agent({ action: "navigate", url: f.url });
+    const conditions = { latency: 0, downloadThroughput: -1, uploadThroughput: -1 };
+    await f.raw("Network.emulateNetworkConditions", { ...conditions, offline: true });
+    await expect(f.agent({ action: "navigate", url: `${f.url}/later` })).rejects.toThrow(
+      /ERR_INTERNET_DISCONNECTED/,
+    );
+    await f.raw("Network.emulateNetworkConditions", { ...conditions, offline: false });
+    // Nobody reloads: ace retries the page itself.
+    await expect
+      .poll(() => f.service.state("thread").loadError, { timeout: 20_000 })
+      .toBeUndefined();
+    await expect.poll(() => f.text(), { timeout: 20_000 }).toContain("Home page");
+  },
+  60_000,
+);
+
+it.skipIf(!executablePath)(
+  "window.print in ace's Chrome saves the page as a PDF for the person",
+  async () => {
+    const f = await pageEdges();
+    await f.agent({ action: "navigate", url: f.url });
+    await f.agent({ action: "evaluate", expression: "window.print(), 1" });
+    await expect.poll(() => f.artifacts.length, { timeout: 15_000 }).toBe(1);
+    const [pdf] = f.artifacts;
+    expect(pdf).toMatchObject({ mimeType: "application/pdf", filename: "page.pdf" });
+    expect((await readFile(pdf?.path ?? "")).subarray(0, 4).toString()).toBe("%PDF");
+  },
+  60_000,
+);
+
+it.skipIf(!executablePath)(
+  "⌘+ and ⌘0 zoom the page in ace's Chrome without reaching it",
+  async () => {
+    const f = await pageEdges();
+    await f.agent({ action: "navigate", url: `${f.url}/keys` });
+    const width = Number(await f.agent({ action: "evaluate", expression: "innerWidth" }));
+    const chord = (name: string) =>
+      f.person({
+        type: "browser.input",
+        input: { kind: "key", event: "keyDown", key: name, modifiers: 4 },
+      });
+    await chord("=");
+    await expect
+      .poll(() => f.agent({ action: "evaluate", expression: "innerWidth" }))
+      .toBe(Math.round(width / 1.2));
+    await chord("0");
+    await expect.poll(() => f.agent({ action: "evaluate", expression: "innerWidth" })).toBe(width);
+    expect(await f.agent({ action: "evaluate", expression: "window.keys" })).toBe(0);
   },
   60_000,
 );

@@ -98,6 +98,7 @@ export class EmbeddedTabs {
         text: "The page needs a file. Use ace_browser_upload with the file input's snapshot ref.",
       });
     }
+    if (method === "ace.printRequested") this.request.print?.(tab.state.tabId);
     if (method === "ace.audio") {
       const audio = z.object({ audible: z.boolean(), muted: z.boolean() }).safeParse(params);
       if (audio.success) {

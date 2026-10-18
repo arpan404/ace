@@ -5,7 +5,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import type { BrowserServerMessage, BrowserTab } from "@ace/protocol";
+import type { BrowserArtifact, BrowserServerMessage, BrowserTab } from "@ace/protocol";
+import type { CdpSend } from "./cdp-connection.ts";
 import { BrowserService, connectBrowser, detectChromium } from "./index.ts";
 import type { BrowserServiceOptions } from "./service-options.ts";
 
@@ -15,6 +16,10 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 }, 60_000);
 
+const Attached = z.object({
+  sessionId: z.string(),
+  targetInfo: z.object({ type: z.literal("page") }),
+});
 export const siteUser = { username: "ada", password: "lovelace" };
 const authorization = `Basic ${Buffer.from(`${siteUser.username}:${siteUser.password}`).toString("base64")}`;
 const html = (response: ServerResponse, body: string) => {
@@ -51,6 +56,11 @@ function route(request: IncomingMessage, response: ServerResponse): void {
       `<title>Upload</title><label>Avatar <input type="file" aria-label="Avatar"></label><p id="out">none</p>
 <script>document.querySelector('input').addEventListener('change',async(event)=>{const file=event.target.files[0];document.getElementById('out').textContent='picked '+file.name+': '+(await file.text())})</script>`,
     );
+  if (path === "/keys")
+    return html(
+      response,
+      `<title>Keys</title><p>Keys page</p><script>window.keys=0;addEventListener('keydown',()=>window.keys++)</script>`,
+    );
   if (path === "/new-tab")
     return html(response, `<title>Links</title><a href="/consent" target="_blank">Docs</a>`);
   html(response, "<title>Home</title><p>Home page</p>");
@@ -74,9 +84,27 @@ export async function pageEdges(options: Partial<BrowserServiceOptions> = {}) {
     if (!address || typeof address === "string") throw new Error("Missing server address");
     return address.port;
   };
+  const artifacts: BrowserArtifact[] = [];
+  /** Every page session ace's Chrome attached, newest last, and the raw CDP send to reach it. */
+  const pages: string[] = [];
+  let send: CdpSend | undefined;
   const service = new BrowserService({
     dataDir: home,
     ...(executablePath ? { executablePath } : {}),
+    onArtifact: (_threadId, artifact) => void artifacts.push(artifact),
+    chrome: {
+      intercept: {
+        send: (next: CdpSend) => {
+          send = next;
+          return next;
+        },
+        event: (method: string, params: unknown, sessionId: string) => {
+          const attached = Attached.safeParse(params);
+          if (method === "Target.attachedToTarget" && !sessionId && attached.success)
+            pages.push(attached.data.sessionId);
+        },
+      },
+    },
     ...options,
   });
   const messages: BrowserServerMessage[] = [];
@@ -119,6 +147,13 @@ export async function pageEdges(options: Partial<BrowserServiceOptions> = {}) {
     service,
     home,
     attachments,
+    artifacts,
+    /** The newest page's CDP session, as Chrome sees it (outside ace's tab runtime). */
+    raw: (method: string, params: Record<string, unknown>) => {
+      const page = pages.at(-1);
+      if (!send || !page) throw new Error("Browser not started");
+      return send(method, params, page);
+    },
     url: `http://127.0.0.1:${port(server)}`,
     secureUrl: `https://localhost:${port(secure)}`,
     agent: (command: Record<string, unknown>) => service.execute("thread", command, agent),

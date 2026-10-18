@@ -21,6 +21,7 @@ import { CrashBackoff } from "./crash-backoff.ts";
 import { FocusHandoff, type ReplayedKey } from "./focus-handoff.ts";
 import type { CertificateExceptions } from "./certificates.ts";
 import { audioMuted } from "./audio.ts";
+import { nextZoom } from "@ace/browser/zoom";
 const throttleIdleMs = 30_000;
 /** The longest the view keeps keys for the app before giving them up. */
 const handoffMs = 1_000;
@@ -158,16 +159,11 @@ export class EmbeddedPage implements ViewPage {
       ) {
         event.preventDefault();
         if (input.type === "keyDown") {
+          // The same steps as ace's Chrome (`nextZoom`); reset returns to the app's own zoom.
           const zoom =
             input.key === "0"
               ? this.appZoom
-              : Math.min(
-                  5,
-                  Math.max(
-                    0.25,
-                    this.contents.getZoomFactor() * (input.key === "-" ? 1 / 1.2 : 1.2),
-                  ),
-                );
+              : nextZoom(this.contents.getZoomFactor(), input.key === "-" ? "out" : "in");
           this.contents.setZoomFactor(zoom);
           if (this.target)
             this.place({
@@ -232,6 +228,12 @@ export class EmbeddedPage implements ViewPage {
     });
     contents.on("render-process-gone", (_event, details) => this.rendererGone(details.reason));
     contents.on("audio-state-changed", () => this.reportAudio());
+    // The person's own tab prints through the native dialog; an agent's or unseen tab, which no
+    // dialog can show for, has ace save the page as a PDF instead.
+    contents.ipc.on("ace:browser.print", () => {
+      if (this.nativeInput && this.placed) contents.print({});
+      else this.emit("ace.printRequested", {});
+    });
     this.applyAudio();
     contents.on("destroyed", () => this.detached("Browser view destroyed"));
   }

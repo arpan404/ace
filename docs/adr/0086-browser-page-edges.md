@@ -80,6 +80,23 @@ Background tabs and agents' tabs are muted; the tab the person watches plays. Ta
   (`[security] …`), so mixed-content, CSP and certificate warnings reach the agent's logs
   alongside `console.warn`.
 
+### Offline pages, printing and zoom (954)
+
+- **Offline.** A tab whose page failed with `ERR_INTERNET_DISCONNECTED` (or the network changing)
+  is reloaded by the thread browser itself (`OfflineRetries`, pure, injected clock): after 2 s,
+  then twice as long each time, at most every 30 s, until it loads, leaves the error or closes.
+  Every engine gets it. The web panel names it "You're offline" and says it comes back by itself.
+- **`window.print()`.** In ace's Chrome a binding replaces it; the page is saved with
+  `Page.printToPDF` and offered as the thread artifact `page.pdf` (one at a time), with a `print`
+  log line for agents. On the desktop the browser preload sends it to the main process: the tab the
+  person is using opens the native print dialog; any other tab saves the PDF the same way
+  (`ace.printRequested`).
+- **Zoom (H).** ⌘/Ctrl with +, = , - or 0 in the screencast view zoom the tab instead of reaching
+  the page. ace's Chrome zooms as a browser does: the page lays out in `viewport / zoom` CSS
+  pixels at `deviceScaleFactor × zoom`, so frames keep their size and the viewer's coordinates
+  follow the frame metadata. Steps are the desktop's (`nextZoom`: ×1.2, 25% to 500%), shared from
+  `@ace/browser/zoom`.
+
 ## Verification
 
 Real-Chrome process tests (`page-edges.process.test.ts`) with local fixtures: a basic-auth
@@ -90,7 +107,10 @@ daemon; desktop unit tests cover `CertificateExceptions` and `audioMuted`. ace's
 to run muted; a Use my Chrome process test (real extension) opens an agent tab muted and unmutes
 it from ace, and lists a download where the browser saved it. A file input in ace's Chrome takes
 the person's file (read back by the page), the web panel uploads a picked file and names it, and
-the conformance scenario `browser-warnings` (a CSP-blocked image) runs in every engine.
+the conformance scenario `browser-warnings` (a CSP-blocked image) runs in every engine. For 954: an offline tab loads by itself once Chrome's network emulation is
+back online, `window.print()` yields a PDF artifact, ⌘= and ⌘0 change the page's CSS width
+without a key reaching it; unit tests cover `OfflineRetries`, `nextZoom` and `zoomChord`, and a
+web test the offline card.
 
-Not covered by tests: Electron's `certificate-error` and audio paths and the native popup for an
-agent's tab (no Electron in the test run).
+Not covered by tests: Electron's `certificate-error`, audio and print paths and the native popup
+for an agent's tab (no Electron in the test run).
