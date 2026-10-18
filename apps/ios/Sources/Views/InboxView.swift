@@ -70,6 +70,7 @@ struct InboxView: View {
                 if let thread = model.thread, thread.id == id { ThreadView(model: model, thread: thread) }
             }
             .sheet(isPresented: $showingMachines) { machinesSheet }
+            .aceNotifications(model: model, path: $path)
             .onChange(of: path) { old, new in if !old.isEmpty && new.isEmpty { model.back() } }
         }
         .tint(AceTheme.Colours.foreground)

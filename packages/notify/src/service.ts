@@ -3,6 +3,7 @@ import type {
   Event,
   Notification,
   NotificationDevice,
+  NotificationFeed,
   PresenceUpdate,
   ThreadId,
 } from "@ace/protocol";
@@ -111,6 +112,11 @@ export class NotificationService {
   snooze(thread: ThreadId, until: number): void {
     this.database.snooze(thread, until);
   }
+  /** This device's alerts after its cursor, rechecked against canonical state now. */
+  feed(device: DeviceId, afterCursor: number): NotificationFeed {
+    if (!this.database.device(device)) throw new Error("Device unavailable");
+    return this.database.feed(device, afterCursor, this.options.now());
+  }
   updatePresence(session: string, device: DeviceId, update: PresenceUpdate): void {
     if (!this.database.device(device)) throw new Error("Device unavailable");
     this.presence.update(session, device, update, this.options.now());
@@ -159,9 +165,13 @@ export class NotificationService {
           const preview = device.preferences.includePreview
             ? this.options.preview?.(job.notification.threadId)?.slice(0, 300)
             : undefined;
+          const notification = preview ? { ...job.notification, preview } : job.notification;
+          // A phone can be suspended with its socket open; its app catches up from this record.
+          if (device.address.platform === "phone")
+            this.database.inbox.record(device.id, notification, job.generation, job.expires);
           result = await this.options.transport.send(
             device,
-            preview ? { ...job.notification, preview } : job.notification,
+            notification,
             AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]),
           );
         } catch (error) {

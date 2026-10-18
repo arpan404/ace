@@ -2,7 +2,7 @@ import { FakeDaemon, facts } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import type { ServerWebSocket } from "bun";
 import { z } from "zod";
-import { ThreadId } from "@ace/protocol";
+import { Notification, ThreadId } from "@ace/protocol";
 import { oversizedScenario, approvalRetryScenario } from "./review-scenarios.ts";
 import { manyActions, snapshotFrames } from "./many-actions.ts";
 import { LostReceipt } from "./lost-receipt.ts";
@@ -139,6 +139,31 @@ let snapshots = 0;
 let replays = 0;
 let fragmentParts = 0;
 const Control = z.object({ online: z.boolean() });
+let notices = 0;
+/** A canonical alert for a seeded thread, as the daemon's notify worker would send it. */
+function spikeNotification(threadId: ThreadId, id: string): Notification | undefined {
+  const view = daemon.snapshot({ kind: "thread", threadId });
+  if (view?.kind !== "thread") return undefined;
+  const pending = Object.values(view.interactions).find((entry) => entry.state === "pending");
+  const request = pending?.request.kind === "approval" ? pending.request : undefined;
+  const allow = request?.options.find((option) => option.kind === "allow_once");
+  const deny = request?.options.find((option) => option.kind === "deny");
+  return Notification.parse({
+    id,
+    threadId,
+    title: view.thread.title,
+    status: pending ? "needs_you" : view.thread.status.state === "failed" ? "failed" : "done",
+    ...(pending ? { interactionId: pending.id } : {}),
+    backgroundCount: 0,
+    actions:
+      allow && deny
+        ? [
+            { action: "approve", optionId: allow.id },
+            { action: "deny", optionId: deny.id },
+          ]
+        : [],
+  });
+}
 const lostReceipt = new LostReceipt();
 const server = Bun.serve<undefined>({
   hostname: "127.0.0.1",
@@ -174,6 +199,21 @@ const server = Bun.serve<undefined>({
     }
     if (path === "/review/oversized" && request.method === "POST") {
       oversizedScenario(daemon, z.enum(["create", "work", "approval"]).parse(await request.json()));
+      return Response.json({ ok: true });
+    }
+    if (path === "/review/notify" && request.method === "POST") {
+      const input = z
+        .object({ threadId: ThreadId, id: z.string().min(1).max(64).optional() })
+        .parse(await request.json());
+      const notification = spikeNotification(input.threadId, input.id ?? `spike:${++notices}`);
+      if (!notification) return new Response("Unknown thread", { status: 404 });
+      daemon.notify(notification);
+      return Response.json(notification);
+    }
+    if (path === "/review/retract" && request.method === "POST") {
+      daemon.retractNotification(
+        z.object({ id: z.string().min(1).max(64) }).parse(await request.json()).id,
+      );
       return Response.json({ ok: true });
     }
     if (path === "/health")

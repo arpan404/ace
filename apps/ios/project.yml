@@ -29,6 +29,8 @@ targets:
         CADisableMinimumFrameDurationOnPhone: true
         NSLocalNetworkUsageDescription: Connect to your own ace daemon.
         NSFaceIDUsageDescription: Unlock your paired machines.
+        UIBackgroundModes: [fetch]
+        BGTaskSchedulerPermittedIdentifiers: [app.ace.ios.notifications.refresh]
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
     settings:

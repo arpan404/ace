@@ -6,6 +6,7 @@ import { call, scheduler } from "./host.ts";
 import { PatchPump, followInbox, followThread } from "./patches.ts";
 import { preview } from "./presentation.ts";
 import { dispatchCommand } from "./commands.ts";
+import { NotificationAction, NotificationBridge } from "./notifications.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -24,6 +25,7 @@ const Action = z.discriminatedUnion("type", [
   z.object({ type: z.literal("retry") }),
 ]);
 let client: ClientCore | undefined;
+let notifications: NotificationBridge | undefined;
 let lease: Lease<ThreadSource> | undefined;
 let stopThread: (() => void) | undefined;
 let epoch = 0;
@@ -92,6 +94,7 @@ async function start(json: string): Promise<void> {
     pump.put("connection", () => ({ type: "connection", state: connection.getSnapshot() })),
   );
   followInbox(client.threads().store, pump);
+  notifications = new NotificationBridge(client, (key, read) => pump.put(key, read), scheduler.set);
   const owner = client;
   owner.observePendingSends((id) =>
     pump.put(`pending:${id}`, () => {
@@ -160,7 +163,14 @@ async function hydrate(
 }
 function action(json: string): void {
   try {
-    const value = Action.parse(JSON.parse(json));
+    const raw: unknown = JSON.parse(json);
+    const notice = NotificationAction.safeParse(raw);
+    if (notice.success) {
+      if (notifications) notifications.handle(notice.data);
+      else error();
+      return;
+    }
+    const value = Action.parse(raw);
     if (!client) {
       if (value.type === "command")
         pump.put(`admission:${value.requestId}`, () => ({

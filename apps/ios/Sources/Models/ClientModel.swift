@@ -29,6 +29,9 @@ import CryptoKit
     var thread: ThreadModel?
     var inboxLoaded = false
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
+    /// A thread a tapped notification asked to open.
+    var deepLink: String?
+    @ObservationIgnored var notificationSink: ((NotificationPatch) -> Void)?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var runtime: (any ClientSession)?
     @ObservationIgnored private let makeRuntime: ClientSessionFactory
@@ -86,6 +89,7 @@ import CryptoKit
             case .connection(let state): connection = state
             case .pending(let id, let row): pending[id] = row
             case .error(let message): error = message
+            case .notification(let patch): notificationSink?(patch)
             case .receipt(let id, let ok, let message):
                 if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {
                     if ok { approvalSubmissions[interactionId]?.phase = .waiting }
@@ -166,6 +170,8 @@ import CryptoKit
         }
     }
     func archive(_ id: String) { command(["type": "thread.archive", "threadId": id]) }
+    /// `notifications.*` bridge actions (Sources/Notifications).
+    @discardableResult func notificationAction(_ value: [String: Any]) -> Bool { action(value) }
     func snooze(_ id: String) { command(["type": "thread.snooze", "threadId": id, "until": now() + 3_600_000]) }
     @discardableResult private func command(_ payload: [String: Any], requestId: String? = nil) -> Bool {
         let dispatched = action(["type": "command", "payload": payload, "requestId": requestId ?? admissions.nextId()])
