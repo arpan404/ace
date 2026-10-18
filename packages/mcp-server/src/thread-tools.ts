@@ -154,13 +154,21 @@ const threadStart = controlTool({
   riskClass: "agent-execution",
   capability: "thread_control",
   description:
-    "Open a new top-level thread in the person's sidebar; text is its first message and its agent answers at once. For child work whose result you need, use delegate. If the call is cut short, call again with the same requestId to get the same thread. The person sees it as a card: relay its summary in a sentence, without ids.",
+    "Open a new top-level thread in the person's sidebar, in this project or another one on this machine (project); text is its first message and its agent answers at once. Use it when the person asks for a separate or dedicated thread. For child work whose result you need, use delegate. If the call is cut short, call again with the same requestId to get the same thread. The person sees it as a card: relay its summary in a sentence, without ids.",
   input: z.strictObject({
     requestId: fields.requestId,
     title: z.string().min(1).max(256).describe("The sidebar title."),
     text: MessageText.describe("The first message, standing on its own."),
+    project: z
+      .string()
+      .min(1)
+      .max(4096)
+      .optional()
+      .describe(
+        "Another project on this machine: its name, folder path or id from projects_find. Default: this project.",
+      ),
     workspace: AgentWorkspace.default({ kind: "project" }).describe(
-      "Where it works. Default: this project's checkout; new_worktree starts a Git worktree from base.",
+      "Where it works. Default: the project's checkout; new_worktree starts a Git worktree from base.",
     ),
     provider: ProviderKind.optional().describe("Default: yours."),
     model: z.string().min(1).max(256).optional().describe("A model id from `models`."),
@@ -168,7 +176,44 @@ const threadStart = controlTool({
     access: AccessRequest.optional().describe("Default inherit; never broader than yours."),
   }),
   output: controlResult(z.unknown()),
-  run: (input, control) => control.run({ op: "thread.start", ...input }),
+  run: (input, control) =>
+    input.project && !control.context.capabilities.includes("projects")
+      ? Promise.resolve({
+          ok: false,
+          code: "forbidden" as const,
+          hint: "Other projects are off for this thread; start it in this project.",
+        })
+      : control.run({ op: "thread.start", ...input }),
+});
+
+const ProjectList = z.looseObject({
+  projects: z.array(
+    z.looseObject({
+      id: z.string(),
+      name: z.string(),
+      path: z.string(),
+      current: z.boolean().optional(),
+    }),
+  ),
+});
+const projectsFind = controlTool({
+  ...threads,
+  name: "projects_find",
+  title: "Find projects",
+  riskClass: "read-only",
+  capability: null,
+  description:
+    "List the projects open in ace on this machine, most recent first, or find one by words in its name or folder. current marks this thread's project. Pass a project's name or id to thread_start to open a thread there.",
+  input: z.strictObject({
+    query: z
+      .string()
+      .max(256)
+      .default("")
+      .describe("Words to match in the name or folder; empty lists recent projects."),
+    limit: z.number().int().min(1).max(50).default(20).describe("Results, 1 to 50."),
+  }),
+  output: controlResult(ProjectList),
+  run: ({ query, limit }, control) => control.run({ op: "projects.list", query, limit }),
 });
 
 const threadMerge = controlTool({
@@ -308,6 +353,7 @@ const threadLinkPr = controlTool({
 
 export const threadTools = [
   threadsFind,
+  projectsFind,
   threadRead,
   threadStart,
   threadMerge,

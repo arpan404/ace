@@ -31,6 +31,11 @@ export const ThreadOrganization = z.object({
   /** Last execution activity; organization and metadata refresh do not reset it. */
   activityAt: Timestamp.optional(),
   autoSettleAt: Timestamp.optional(),
+  /**
+   * An agent asked to settle this thread while it was still working. It settles once the
+   * thread is done; any other outcome (failed, a question for the person) drops the request.
+   */
+  settleWhenDone: z.literal(true).optional(),
 });
 export type ThreadOrganization = z.infer<typeof ThreadOrganization>;
 export const ThreadDetails = z.object({
@@ -186,6 +191,7 @@ export const ThreadClientUpdated = z.object({
     settledReason: ThreadOrganization.shape.settledReason.unwrap().nullable().optional(),
     snoozedUntil: Timestamp.nullable().optional(),
     autoSettleAt: Timestamp.nullable().optional(),
+    settleWhenDone: z.literal(true).nullable().optional(),
   }),
 });
 export type ThreadClientUpdated = z.infer<typeof ThreadClientUpdated>;

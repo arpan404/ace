@@ -24,10 +24,11 @@ When you open or find the PR for this work, link it with `thread_link_pr` (URL o
 
 ## Manage owned threads
 
-- **Start:** `thread_start` opens a new top-level thread. For child work whose result you need, use `delegate` (guide ace-agents).
+- **Start:** `thread_start` opens a new top-level thread, the way to give the person a separate or dedicated thread. Pass `project` (a name, folder path or id) to open it in another project on this machine; `projects_find` lists them. For child work whose result you need, use `delegate` (guide ace-agents).
 - **Send:** `agent_message` with `delivery` `queue`, `steer` or `restart`. `queue_edit` replaces a queued entry's text or reorders pending entries before delivery.
 - **Answer:** `question_answer` answers a pending question. Permission approvals stay with the person.
-- **Change:** `thread_control` with an `action`: `rename` (omit `title` to retitle from the first message), `configure` (model and effort), `fork`, `handoff` (move to a new Git worktree on `branch`), `interrupt`, `settle` (archive once done), `snooze`, `close_preview`, or `rename_project`.
+- **Change:** `thread_control` with an `action`: `rename` (omit `title` to retitle from the first message), `configure` (model and effort), `fork`, `handoff` (move to a new Git worktree on `branch`), `interrupt`, `settle`, `unsettle`, `snooze`, `close_preview`, or `rename_project`.
+- **Settle:** `thread_control` `settle` moves a finished thread to Settled, as the person's Settle does. You can settle this thread before your turn ends: it settles once its work is done, and stays active if the turn fails or a question waits on the person. `unsettle` brings a thread back and cancels a pending settle.
 - **Merge:** `thread_merge` merges a thread's worktree changes back. It overwrites files, so your provider may ask the person first.
 - **Tell the person:** `notify` posts a notice and sends a notification, for something they should see while away.
 

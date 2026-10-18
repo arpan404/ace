@@ -455,6 +455,47 @@ Example:
 }
 ```
 
+## projects_find
+
+List the projects open in ace on this machine, most recent first, or find one by words in its name or folder. current marks this thread's project. Pass a project's name or id to thread_start to open a thread there.
+
+Required capability: none beyond session authentication. Timeout: 630000 ms.
+
+## projects_find.input
+
+[JSON Schema](schema/projects_find.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| query | no | string | {"default":"","description":"Words to match in the name or folder; empty lists recent projects.","maxLength":256} |
+| limit | no | integer | {"default":20,"description":"Results, 1 to 50.","minimum":1,"maximum":50} |
+
+Example:
+
+```json
+{}
+```
+
+## projects_find.output
+
+[JSON Schema](schema/projects_find.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+| data | no | object | {"properties":{"projects":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"name":{"type":"string"},"path":{"type":"string"},"current":{"type":"boolean"}},"required":["id","name","path"],"additionalProperties":{}}}},"required":["projects"],"additionalProperties":{}} |
+
+Example:
+
+```json
+{
+  "hint": "example",
+  "ok": true
+}
+```
+
 ## thread_read
 
 Read a thread: title, status, branch, linked PRs, preview servers and a page of its transcript, newest first. Omit threadId for this thread. Page back with before = itemsBefore. A truncated part with source.streamId continues with streamId and offset (base64 bytes, then nextOffset).
@@ -478,8 +519,8 @@ Example:
 
 ```json
 {
-  "limit": 5,
-  "streamId": "example"
+  "before": 10,
+  "limit": 10
 }
 ```
 
@@ -498,6 +539,12 @@ Example:
 
 ```json
 {
+  "code": "unavailable",
+  "data": {
+    "items": [],
+    "itemsBefore": 9,
+    "linkedPrs": []
+  },
   "hint": "example",
   "ok": true
 }
@@ -505,7 +552,7 @@ Example:
 
 ## thread_start
 
-Open a new top-level thread in the person's sidebar; text is its first message and its agent answers at once. For child work whose result you need, use delegate. If the call is cut short, call again with the same requestId to get the same thread. The person sees it as a card: relay its summary in a sentence, without ids.
+Open a new top-level thread in the person's sidebar, in this project or another one on this machine (project); text is its first message and its agent answers at once. Use it when the person asks for a separate or dedicated thread. For child work whose result you need, use delegate. If the call is cut short, call again with the same requestId to get the same thread. The person sees it as a card: relay its summary in a sentence, without ids.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -518,7 +565,8 @@ Required capability: thread_control. Timeout: 630000 ms.
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
 | title | yes | string | {"minLength":1,"maxLength":256,"description":"The sidebar title."} |
 | text | yes | string | {"minLength":1,"maxLength":262144,"description":"The first message, standing on its own."} |
-| workspace | no | [AgentWorkspace.json](schema/AgentWorkspace.json) | {"default":{"kind":"project"},"description":"Where it works. Default: this project's checkout; new_worktree starts a Git worktree from base."} |
+| project | no | string | {"description":"Another project on this machine: its name, folder path or id from projects_find. Default: this project.","minLength":1,"maxLength":4096} |
+| workspace | no | [AgentWorkspace.json](schema/AgentWorkspace.json) | {"default":{"kind":"project"},"description":"Where it works. Default: the project's checkout; new_worktree starts a Git worktree from base."} |
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) | {"description":"Default: yours."} |
 | model | no | string | {"description":"A model id from `models`.","minLength":1,"maxLength":256} |
 | effort | no | string | {"description":"Reasoning effort, such as high.","minLength":1,"maxLength":64} |
@@ -528,15 +576,11 @@ Example:
 
 ```json
 {
-  "access": "full-access",
-  "provider": "acp",
-  "requestId": "XWhi_jpSeb",
+  "project": "example",
+  "provider": "opencode",
+  "requestId": "P.",
   "text": "example",
-  "title": "example",
-  "workspace": {
-    "kind": "existing_worktree",
-    "path": "example"
-  }
+  "title": "example"
 }
 ```
 
@@ -555,6 +599,7 @@ Example:
 
 ```json
 {
+  "data": null,
   "hint": "example",
   "ok": true
 }
@@ -579,7 +624,7 @@ Example:
 
 ```json
 {
-  "requestId": "GXd1joJ",
+  "requestId": "k7ALKN",
   "threadId": "example"
 }
 ```
@@ -599,7 +644,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "hint": "example",
+  "ok": false
 }
 ```
 
@@ -628,7 +674,7 @@ Example:
 ```json
 {
   "entryId": "example",
-  "requestId": "3yKYn8dOwK",
+  "requestId": "Yn8dOwK",
   "text": "example",
   "threadId": "example"
 }
@@ -755,7 +801,7 @@ Example:
 
 ## thread_control
 
-Change a thread you own (this one or one you started): rename, configure its model, fork, hand off to a new worktree, interrupt, settle (archive), snooze, close a preview server, or rename this project. Each action's fields are named in action's description.
+Change a thread you own (this one or one you started): rename, configure its model, fork, hand off to a new worktree, interrupt, settle (this thread too, when its work is finished) or unsettle, snooze, close a preview server, or rename this project. Each action's fields are named in action's description.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -767,7 +813,7 @@ Semantic rule: configure needs requestId and model; fork and interrupt need requ
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| action | yes | ["rename","configure","fork","handoff","interrupt","settle","snooze","close_preview","rename_project"] | {"description":"rename: set title, or omit title to retitle from the first message. configure: model and effort. fork: copy the conversation into a new thread. handoff: move it to a new Git worktree on branch. interrupt: stop its current turn and its children. settle: archive it once done. snooze: mute its notifications until a time. close_preview: stop a preview server. rename_project: rename this project."} |
+| action | yes | ["rename","configure","fork","handoff","interrupt","settle","unsettle","snooze","close_preview","rename_project"] | {"description":"rename: set title, or omit title to retitle from the first message. configure: model and effort. fork: copy the conversation into a new thread. handoff: move it to a new Git worktree on branch. interrupt: stop its current turn and its children. settle: move it to Settled, as the person's Settle does; a thread still working (this one, mid-turn) settles when it is done, unless it fails or needs the person. unsettle: bring it back and cancel a pending settle. snooze: mute its notifications until a time. close_preview: stop a preview server. rename_project: rename this project."} |
 | threadId | no | [ThreadId.json](schema/ThreadId.json) | {"description":"A thread you own. Default: this thread."} |
 | requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
 | title | no | string | {"description":"rename: the new title.","minLength":1,"maxLength":256} |
@@ -785,12 +831,11 @@ Example:
 
 ```json
 {
-  "action": "interrupt",
+  "action": "settle",
   "branch": "example",
-  "model": "example",
-  "name": "example",
-  "requestId": "PUM-7GeTgz",
-  "runId": "example",
+  "effort": "example",
+  "onlyIfProvisional": true,
+  "serviceTier": "priority",
   "threadId": "example"
 }
 ```
@@ -810,9 +855,7 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
-  "data": null,
-  "hint": "example",
+  "code": "unsupported",
   "ok": true
 }
 ```
@@ -837,9 +880,7 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 Example:
 
 ```json
-{
-  "limit": 4
-}
+{}
 ```
 
 ## automations_list.output
@@ -857,6 +898,8 @@ Example:
 
 ```json
 {
+  "code": "not_ready",
+  "hint": "example",
   "ok": true
 }
 ```
@@ -887,14 +930,10 @@ Example:
 
 ```json
 {
+  "access": "ask",
   "id": "example",
   "prompt": "example",
-  "schedule": {
-    "expression": "example",
-    "kind": "cron",
-    "startAt": 0,
-    "timezone": "example"
-  },
+  "provider": "antigravity",
   "title": "example"
 }
 ```
@@ -914,6 +953,8 @@ Example:
 
 ```json
 {
+  "code": "not_found",
+  "hint": "example",
   "ok": false
 }
 ```
@@ -939,7 +980,7 @@ Example:
 ```json
 {
   "id": "example",
-  "requestId": "cDA2WeP",
+  "requestId": "iJQA",
   "variables": {}
 }
 ```
@@ -959,6 +1000,7 @@ Example:
 
 ```json
 {
+  "code": "not_ready",
   "ok": true
 }
 ```
@@ -1026,7 +1068,6 @@ Example:
 
 ```json
 {
-  "limit": 9,
   "sourceThreadId": "example"
 }
 ```
@@ -1049,7 +1090,7 @@ Example:
 
 ```json
 {
-  "encoding": "utf-16le"
+  "nextOffset": 4
 }
 ```
 
@@ -1070,11 +1111,7 @@ Required capability: none beyond session authentication. Timeout: 30000 ms.
 Example:
 
 ```json
-{
-  "topics": [
-    "recent"
-  ]
-}
+{}
 ```
 
 ## context.output
@@ -1095,16 +1132,8 @@ Example:
 ```json
 {
   "changes": null,
-  "diagnostics": {
-    "blocking": [],
-    "failures": []
-  },
-  "status": {
-    "access": "auto-review",
-    "agentId": "example",
-    "groups": [],
-    "threadId": "example"
-  }
+  "notes": [],
+  "prs": []
 }
 ```
 
@@ -1144,7 +1173,7 @@ Example:
 ```json
 {
   "noteId": "example",
-  "notes": 6
+  "notes": 4
 }
 ```
 
@@ -1182,7 +1211,7 @@ Example:
 
 ```json
 {
-  "retired": false
+  "retired": true
 }
 ```
 
@@ -1207,7 +1236,6 @@ Example:
 
 ```json
 {
-  "options": [],
   "question": "example"
 }
 ```
@@ -1226,9 +1254,8 @@ Example:
 
 ```json
 {
-  "answer": [],
   "askId": "example",
-  "status": "declined"
+  "status": "answered"
 }
 ```
 
@@ -1270,7 +1297,6 @@ Example:
 
 ```json
 {
-  "how": "example",
   "matches": []
 }
 ```

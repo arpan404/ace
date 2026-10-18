@@ -883,6 +883,47 @@
       "additionalProperties": false,
       "properties": {
         "op": {
+          "const": "thread.unsettle",
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "op",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "default": 20,
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "op": {
+          "const": "projects.list",
+          "type": "string"
+        },
+        "query": {
+          "default": "",
+          "maxLength": 256,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
           "const": "thread.snooze",
           "type": "string"
         },

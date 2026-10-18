@@ -138,15 +138,14 @@ export class DelegationService {
   authorize(caller: McpAttribution, target: ThreadId, write: boolean): boolean {
     const source = callerThread(this.deps.store, caller);
     const thread = this.deps.store.getThread(target);
+    if (!thread) return false;
+    // A conversation the caller started is its own, in whichever project it was opened.
+    if (this.ownsConversationTree(caller, target)) return true;
     return (
-      !!thread &&
       (thread.workspaceId === source.workspaceId ||
         (this.journal.get(target)?.rootId ?? target) ===
           (this.journal.get(caller.threadId)?.rootId ?? caller.threadId)) &&
-      (!write ||
-        target === caller.threadId ||
-        this.journal.isDescendant(target, caller.threadId) ||
-        this.ownsConversationTree(caller, target))
+      (!write || target === caller.threadId || this.journal.isDescendant(target, caller.threadId))
     );
   }
   private ownsConversationTree(caller: McpAttribution, target: ThreadId): boolean {
@@ -186,6 +185,10 @@ export class DelegationService {
   }
   commandReceipt(id: string) {
     return this.deps.store.commandReceipt(CommandId.parse(id), DeviceId.parse("ace-agent"));
+  }
+  /** The service's clock, for owners that stamp what an agent changed. */
+  now(): number {
+    return this.deps.clock.now();
   }
   command(id: string, payload: CommandPayload) {
     const command = Command.parse({ id, deviceId: "ace-agent", payload });

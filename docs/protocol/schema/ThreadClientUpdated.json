@@ -51,6 +51,17 @@
         "readAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
         },
+        "settleWhenDone": {
+          "anyOf": [
+            {
+              "const": true,
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "settledAt": {
           "anyOf": [
             {

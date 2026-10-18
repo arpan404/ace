@@ -142,6 +142,10 @@
     "rootAgentId": {
       "$ref": "https://ace.local/protocol/v1/AgentId.json"
     },
+    "settleWhenDone": {
+      "const": true,
+      "type": "boolean"
+    },
     "settledAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
