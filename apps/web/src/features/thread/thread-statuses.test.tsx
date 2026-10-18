@@ -67,12 +67,13 @@ test("a thread waiting on subagents keeps the transcript live with their count",
 });
 
 test.each([["waiting on its subagents", waitingOnSubagents]])(
-  "a thread %s reads Working in its sidebar row and its transcript alike",
+  "a thread %s stays Working in its sidebar row while its transcript says what it waits for",
   async (_name, scenario) => {
     const { feed, row } = await open(scenario());
-    expect(within(feed).getByRole("status", { name: "Working" }).textContent).toMatch(
-      /^Working for/,
-    );
+    // The main agent does nothing itself: its live line waits, timed, never "Working for".
+    const line = within(feed).getByRole("status", { name: "Waiting for 2 subagents" });
+    expect(line.textContent).toMatch(/^Waiting for 2 subagents · \d/);
+    expect(within(feed).queryByRole("status", { name: /^Working/ })).toBeNull();
     expect(within(row).getByText("Working", { exact: true })).toBeTruthy();
     expect(within(row).queryByText("Waiting", { exact: true })).toBeNull();
     // What the row says aloud and what its hover card shows read the same word.
