@@ -67,3 +67,72 @@ for (const configure of [true, false]) {
     },
   );
 }
+
+test.each([{ options: {} }, { model: "model-a", options: {} }])(
+  "a send restating the thread's own model and options starts the next turn while background work runs: %j",
+  async (restated) => {
+    const h = transitionHarness();
+    cleanups.push(h.close);
+    const id = await h.create();
+    h.held.add(id);
+    expect(
+      h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text: "active" }] })
+        .ok,
+    ).toBe(true);
+    await h.engine.flush();
+    h.held.delete(id);
+    h.emit(
+      id,
+      {
+        type: "background.started",
+        agent: "root",
+        task: "build",
+        kind: "shell",
+        title: "Build",
+        stoppable: true,
+      },
+      { type: "turn.ended", agent: "root", outcome: "completed" },
+    );
+    await h.engine.flush();
+    const before = h.inputs.length;
+    const session = h.sessions.at(-1);
+    expect(
+      h.command({
+        type: "thread.send",
+        threadId: id,
+        input: [{ type: "text", text: "while it builds" }],
+        ...restated,
+      }).ok,
+    ).toBe(true);
+    await h.engine.flush();
+    expect(h.inputs).toHaveLength(before + 1);
+    expect(h.inputs.at(-1)).toMatchObject({ text: "while it builds", model: "model-a" });
+    expect(session?.closed).toBe(false);
+    expect(h.engine.queue(id).messages).toEqual([]);
+  },
+);
+
+test("a send restating the thread's options steers into the running turn", async () => {
+  const h = transitionHarness();
+  cleanups.push(h.close);
+  const id = await h.create();
+  h.held.add(id);
+  expect(
+    h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text: "active" }] }).ok,
+  ).toBe(true);
+  await h.engine.flush();
+  const before = h.inputs.length;
+  expect(
+    h.command({
+      type: "thread.send",
+      threadId: id,
+      input: [{ type: "text", text: "steered" }],
+      options: {},
+      delivery: "steer",
+    }).ok,
+  ).toBe(true);
+  await h.engine.flush();
+  expect(h.inputs).toHaveLength(before + 1);
+  expect(h.inputs.at(-1)).toMatchObject({ text: "steered" });
+  expect(h.engine.queue(id).messages).toEqual([]);
+});

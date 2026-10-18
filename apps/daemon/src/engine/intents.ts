@@ -204,6 +204,14 @@ export class IntentStore {
     ).get(id);
     return row ? header(row) : undefined;
   }
+  /** A switch, merge or selecting send not yet done: later sends inherit what it selects. */
+  selectionAhead(id: ThreadId): boolean {
+    return Boolean(
+      this.sql(
+        "SELECT 1 FROM intents WHERE thread_id=? AND status IN ('pending','queued','running') AND (kind IN ('thread.switch','thread.merge') OR (kind='thread.send' AND (json_type(payload,'$.payload.model') IS NOT NULL OR json_type(payload,'$.payload.options') IS NOT NULL))) LIMIT 1",
+      ).get(id),
+    );
+  }
   transition(id: ThreadId): IntentHeader | undefined {
     const row = this.sql(
       `SELECT ${columns} FROM intents WHERE thread_id=? AND kind IN ('thread.switch','thread.merge') AND status IN ('pending','queued') ORDER BY CASE kind WHEN 'thread.switch' THEN 0 ELSE 1 END,position,id LIMIT 1`,

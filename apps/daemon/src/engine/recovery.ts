@@ -1,4 +1,4 @@
-import { hasNextTurnSelection } from "./input-delivery.ts";
+import { hasNextTurnSelection, restatesSelection } from "./input-delivery.ts";
 import { handleQueue } from "./queue-commands.ts";
 import { lostWork } from "./lost-work.ts";
 import { z } from "zod";
@@ -95,7 +95,8 @@ export class Recovery {
       Buffer.byteLength(JSON.stringify(command)) > maxMessageBytes
     )
       return undefined;
-    const p = command.payload;
+    const sent = this.withoutRestatedSelection(command, id);
+    const p = sent.payload;
     return p.type === "thread.send" && (p.delivery === undefined || hasNextTurnSelection(p))
       ? Command.parse({
           ...command,
@@ -105,7 +106,24 @@ export class Recovery {
             delivery: hasNextTurnSelection(p) ? "queue" : this.preferences(id).followUpBehavior,
           },
         })
-      : command;
+      : sent;
+  }
+  /**
+   * Drops a send's model and options when they only repeat what the thread runs on, so it can
+   * steer or start the next turn while background work runs. Kept when a queued switch or
+   * selecting send would change what the thread runs on before this one is delivered.
+   */
+  private withoutRestatedSelection(command: Command, id: ThreadId): Command {
+    const p = command.payload;
+    if (
+      p.type !== "thread.send" ||
+      !restatesSelection(this.repo.transitions.get(id).selection, p) ||
+      this.repo.transitions.guarded(id) ||
+      this.repo.pending.selectionAhead(id)
+    )
+      return command;
+    const { model: _model, options: _options, ...rest } = p;
+    return Command.parse({ ...command, payload: rest });
   }
   sync(id: ThreadId): void {
     const queue = this.repo.queue.shown(id);
