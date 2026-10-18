@@ -4,7 +4,8 @@ import { ThreadId } from "@ace/protocol";
 
 /*
  * Thread-screen fixtures for the spike daemon: a finished turn that folds into "Worked for",
- * a running turn with native and ace-delegated subagents, and a question card. Facts are dated
+ * and a running turn with native and ace-delegated subagents (requests live in
+ * `request-scenarios.ts`). Facts are dated
  * in the past so durations read like real work. No provider process runs.
  */
 
@@ -199,61 +200,4 @@ export function threadScenarios(daemon: FakeDaemon, details: Details): void {
     ],
     3 * minute,
   );
-
-  daemon.createThread({
-    id: "ios-stop",
-    workspaceId: "ace",
-    title: "Profile the slow startup",
-    provider: "codex",
-    details: details("perf/startup"),
-  });
-  daemon.apply("ios-stop", [
-    facts.rootAgent("codex"),
-    facts.turn("root"),
-    facts.message("root", "ask", "user", "Profile the slow startup."),
-    facts.tool("root", "profile", {
-      kind: "shell",
-      title: "Profile startup",
-      detail: { kind: "shell", command: "bun run profile:startup" },
-    }),
-  ]);
-
-  daemon.createThread({
-    id: "ios-question",
-    workspaceId: "ace",
-    title: "Clean up the release notes",
-    provider: "claude",
-    details: details("docs/release"),
-  });
-  daemon.apply("ios-question", [
-    facts.rootAgent("claude"),
-    facts.turn("root"),
-    facts.message("root", "ask", "user", "Tidy the release notes before the tag."),
-    {
-      type: "interaction.opened",
-      agent: "root",
-      interaction: "scope",
-      blocking: true,
-      request: {
-        kind: "question",
-        questions: [
-          {
-            id: "archive",
-            header: "Scope",
-            text: "Should the notes include the archived 0.x entries?",
-            multiSelect: false,
-            allowOther: true,
-            options: [
-              {
-                id: "skip",
-                label: "Skip the archive (Recommended)",
-                description: "Only 1.0 and later",
-              },
-              { id: "keep", label: "Keep everything" },
-            ],
-          },
-        ],
-      },
-    },
-  ]);
 }

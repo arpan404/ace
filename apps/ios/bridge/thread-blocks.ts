@@ -11,6 +11,7 @@ import {
 } from "@ace/ui-core";
 import type { StatusToken } from "@ace/ui-core/mobile";
 import { readSubagentGroup } from "@ace/ui-core/subagent-group";
+import { rootRunOf } from "@ace/ui-core";
 import { createBlockReader } from "@ace/ui-core/transcript-block-reader";
 import { blockItems, type Block } from "@ace/ui-core/transcript-blocks";
 import { preview } from "./presentation.ts";
@@ -98,6 +99,15 @@ function subagents(store: ThreadSource, ids: readonly string[]) {
   };
 }
 
+/** The root turn a block's items belong to: the first item whose run is still known. */
+function turnOf(store: ThreadSource, ids: readonly string[]): number | undefined {
+  for (const id of ids) {
+    const ordinal = rootRunOf(store, store.item(id)?.runId)?.ordinal;
+    if (ordinal !== undefined) return ordinal;
+  }
+  return undefined;
+}
+
 export function blockRow(store: ThreadSource, block: Block, index: number | undefined) {
   const base = {
     index: index ?? null,
@@ -109,11 +119,18 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
     agents: null as ReturnType<typeof subagents> | null,
     ending: null as { label: string; automatic: boolean; error: string } | null,
     started: null as { threadId: string; title: string } | null,
+    /** A settled work head's root turn, which `turn.steps` reads its full steps by. */
+    ordinal: null as number | null,
   };
   switch (block.kind) {
     case "work": {
       const items = workItems(block);
-      return { ...base, items, work: workSummary(store, block, items) };
+      return {
+        ...base,
+        items,
+        work: workSummary(store, block, items),
+        ordinal: block.outcome === undefined ? null : (turnOf(store, blockItems(block)) ?? null),
+      };
     }
     case "subagents":
       return { ...base, items: [...block.itemIds], agents: subagents(store, block.itemIds) };
@@ -147,9 +164,24 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
   }
 }
 
-/** Follow a thread's blocks; returns the tap to call with every change after the item tap. */
-export function followBlocks(store: ThreadSource, put: Put): ChangeTap {
-  const read = createBlockReader();
+/** Where a follower's blocks go: the thread's own transcript, or one native subagent's lane. */
+export interface BlockScope {
+  agentId: string;
+}
+
+/**
+ * Follow a thread's blocks (or, with a scope, one agent's own blocks, grouped the same way):
+ * the tap to call with every change after the item tap, and the blocks it last built.
+ */
+export function followBlocks(
+  store: ThreadSource,
+  put: Put,
+  scope?: BlockScope,
+): { tap: ChangeTap; block(key: string): Block | undefined } {
+  const read = createBlockReader(scope?.agentId);
+  const type = scope ? "thread.laneBlock" : "thread.block";
+  const prefix = scope ? `lane:${scope.agentId}:` : "";
+  const lane = scope ? { lane: scope.agentId } : {};
   let blocks = new Map<string, Block>();
   const positions = new Map<string, number>();
   let watch: ReadonlySet<string> = new Set();
@@ -158,10 +190,11 @@ export function followBlocks(store: ThreadSource, put: Put): ChangeTap {
   /** Blocks whose display follows agent, run and interaction state. */
   const following = new Set<string>();
   const emit = (key: string) =>
-    put(`block:${key}`, () => {
+    put(`${prefix}block:${key}`, () => {
       const block = blocks.get(key);
       return {
-        type: "thread.block",
+        type,
+        ...lane,
         id: key,
         row: block ? blockRow(store, block, positions.get(key)) : null,
       };
@@ -197,8 +230,9 @@ export function followBlocks(store: ThreadSource, put: Put): ChangeTap {
         forget(block.key);
         touched.add(block.key);
       } else
-        put(`blockPosition:${block.key}`, () => ({
-          type: "thread.blockPosition",
+        put(`${prefix}blockPosition:${block.key}`, () => ({
+          type: `${type}Position`,
+          ...lane,
           id: block.key,
           index: positions.get(block.key) ?? null,
         }));
@@ -215,7 +249,7 @@ export function followBlocks(store: ThreadSource, put: Put): ChangeTap {
       if (block) remember(block);
     }
   };
-  return (keys) => {
+  const tap: ChangeTap = (keys) => {
     const touched = new Set<string>();
     if (keys === "all") {
       blocks = new Map();
@@ -239,4 +273,5 @@ export function followBlocks(store: ThreadSource, put: Put): ChangeTap {
     }
     for (const key of touched) emit(key);
   };
+  return { tap, block: (key) => blocks.get(key) };
 }

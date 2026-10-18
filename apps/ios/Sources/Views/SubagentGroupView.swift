@@ -40,37 +40,3 @@ struct SubagentGroupView: View {
         .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.group).stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
     }
 }
-
-/// A native subagent's own lane: its items, in the thread's order.
-struct AgentLaneSheet: View {
-    let entry: BlockRow.Agents.Entry
-    let thread: ThreadModel
-    @Environment(\.dismiss) private var dismiss
-    var body: some View {
-        NavigationStack {
-            List {
-                let lane = thread.order.filter { thread.items[$0]?.row.agentId == entry.agentId }
-                if lane.isEmpty {
-                    ContentUnavailableView("Nothing from this agent yet", systemImage: "point.3.connected.trianglepath.dotted")
-                        .listRowSeparator(.hidden)
-                }
-                ForEach(lane, id: \.self) { id in
-                    if let item = thread.items[id] { ItemRowView(item: item).listRowSeparator(.hidden) }
-                }
-            }
-            .listStyle(.plain)
-            .navigationTitle(entry.title).navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    VStack(spacing: AceTheme.Spacing.xxs) {
-                        Text(entry.title).aceFont(AceTheme.Typography.title, relativeTo: .headline).lineLimit(1)
-                        Text(entry.label).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                            .foregroundStyle(StateStyle.text(entry.token))
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-            }
-        }
-        .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
-    }
-}

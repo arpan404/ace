@@ -64,6 +64,8 @@ struct BlockRow: Codable, Sendable, Equatable {
     let agents: Agents?
     let ending: Ending?
     let started: Started?
+    /// A settled work head's root turn, whose full steps open on demand.
+    var ordinal: Int? = nil
 }
 
 /// The composer's canonical choices: delivery while busy, the alternate, and Stop.

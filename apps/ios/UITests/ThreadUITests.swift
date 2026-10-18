@@ -6,7 +6,7 @@ import XCTest
     override func setUp() { continueAfterFailure = false }
     func testWorkedTurnSubagentsChildThreadAndModelPicker() {
         let app = launch()
-        XCTAssertTrue(app.buttons["thread.ios-agents"].waitForExistence(timeout: 25))
+        reveal("thread.ios-agents", in: app)
         screenshot("thread-inbox")
         app.buttons["thread.ios-agents"].tap()
         let worked = app.buttons["work.toggle"].firstMatch
@@ -46,16 +46,23 @@ import XCTest
     }
     func testQuestionAndApprovalCards() {
         let app = launch()
-        XCTAssertTrue(app.buttons["thread.ios-question"].waitForExistence(timeout: 25))
+        reveal("thread.ios-question", in: app)
         app.buttons["thread.ios-question"].tap()
         XCTAssertTrue(app.buttons["question.answer"].waitForExistence(timeout: 25))
         app.buttons["question.archive.skip"].tap()
         screenshot("thread-question")
         app.navigationBars.buttons.firstMatch.tap()
-        XCTAssertTrue(app.buttons["thread.ios-approval"].waitForExistence(timeout: 25))
+        reveal("thread.ios-approval", in: app)
         app.buttons["thread.ios-approval"].tap()
         XCTAssertTrue(app.buttons["approval.allow_session"].waitForExistence(timeout: 25))
         screenshot("thread-approval")
+    }
+    /// The inbox lists more fixture threads than fit; scroll until the row shows.
+    private func reveal(_ identifier: String, in app: XCUIApplication) {
+        let row = app.buttons[identifier]
+        _ = row.waitForExistence(timeout: 25)
+        for _ in 0..<4 where !row.isHittable { app.swipeUp() }
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
     }
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()

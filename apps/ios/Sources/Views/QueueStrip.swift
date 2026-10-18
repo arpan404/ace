@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Follow-ups waiting in the daemon's queue, above the composer. Each can get new words, go now as
-/// a steer (where the provider steers) or be removed; the daemon's next queue revision moves it.
+/// a steer (where the provider steers), move up or down, or be removed; the daemon's next queue
+/// revision moves it.
 struct QueueStrip: View {
     let queue: QueueRow
     let canAct: Bool
@@ -29,6 +30,12 @@ struct QueueStrip: View {
                         Menu {
                             if canSteer { Button("Send now", systemImage: "arrow.turn.down.right") { run(message, ["kind": "steer"]) } }
                             Button("Edit", systemImage: "pencil") { words = message.text; editing = message }
+                            if message.id != queue.messages.first?.id {
+                                Button("Move up", systemImage: "arrow.up") { run(message, ["kind": "move", "step": -1]) }
+                            }
+                            if message.id != queue.messages.last?.id {
+                                Button("Move down", systemImage: "arrow.down") { run(message, ["kind": "move", "step": 1]) }
+                            }
                             Button("Remove", systemImage: "trash", role: .destructive) { run(message, ["kind": "remove"]) }
                         } label: {
                             Image(systemName: "ellipsis").frame(width: AceTheme.Dimensions.touchTarget, height: AceTheme.Dimensions.touchTarget)

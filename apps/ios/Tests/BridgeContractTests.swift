@@ -171,7 +171,7 @@ import SQLite3
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
         await model.connect(target: try target(), directory: root)
         try await until { model.connection == "ready" }
-        model.open("ios-approval")
+        model.open(try await SpikeFixture.fresh("approval"))
         try await until { model.thread?.approvals.isEmpty == false }
         let approval = try #require(model.thread?.approvals.first)
         let deny = try #require(approval.options.first { $0.kind == "deny" })

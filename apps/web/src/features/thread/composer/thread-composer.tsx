@@ -18,7 +18,7 @@ import {
   selectionInputs,
   choiceSelection,
   currentModelChoice,
-  resolveEffort,
+  followUpTurnOptions,
   runningSubagents,
   type AttachmentReader,
 } from "@ace/ui-core";
@@ -46,7 +46,7 @@ import { DeferredComposerStrip } from "./deferred-cards.ts";
 import { finishQueueEdit, queueEditSession, saveQueueEdit } from "./queue-edit.ts";
 import { UsageNotice } from "./usage-notice.tsx";
 import { lastSentText } from "./last-sent.ts";
-import { runsOn, changedTurnOptions, selectionIdentity, type PendingTurn } from "./execution.ts";
+import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { clearStop, recordStop, useStopFence, useStopping } from "./stop-state.ts";
 import { useNavigate } from "@tanstack/react-router";
 import { failureMessage } from "@/lib/daemon-command.ts";
@@ -140,30 +140,6 @@ export function ThreadComposer({
   };
 
   const sent = pending?.identity === selectionIdentity(runsOn(meta)) ? pending : undefined;
-  // What a follow-up without options inherits: a switch waiting for the next turn, else what
-  // runs now. Options are sent only where they differ from it.
-  const inherited = runsOn(meta);
-  const pendingModel = currentModelChoice(modelChoices, inherited);
-  const inheritedEffort = resolveEffort(
-    pendingModel?.efforts ?? [],
-    typeof inherited?.options?.["effort"] === "string" ? inherited.options["effort"] : undefined,
-    pendingModel?.defaultEffort,
-  );
-  const pendingEffort =
-    sent &&
-    resolveEffort(
-      pendingModel?.efforts ?? [],
-      typeof sent.options["effort"] === "string" ? sent.options["effort"] : undefined,
-      pendingModel?.defaultEffort,
-    );
-  const pendingOptions = sent && {
-    ...sent.options,
-    ...(pendingEffort !== undefined ? { effort: pendingEffort } : {}),
-  };
-  const followUpOptions = changedTurnOptions(pendingOptions, {
-    ...inherited?.options,
-    ...(inheritedEffort !== undefined ? { effort: inheritedEffort } : {}),
-  });
 
   // A model this thread continues on in a new thread: the next message starts it there.
   const sources = useThreadSources();
@@ -213,23 +189,15 @@ export function ThreadComposer({
       setting,
       opposite: draft.opposite,
     });
-    const selection = runsOn(meta);
-    const model = currentModelChoice(modelChoices, selection);
-    const explicit = sent?.options ?? selection?.options;
-    const effort = resolveEffort(
-      model?.efforts ?? [],
-      typeof explicit?.["effort"] === "string" ? explicit["effort"] : undefined,
-      model?.defaultEffort,
-    );
-    // Steering leaves the running turn intact; its next admission resolves the same default.
-    const options = busy
-      ? followUpOptions
-      : delivery !== "steer" &&
-          effort !== undefined &&
-          (explicit?.["effort"] === undefined ||
-            model?.efforts.includes(String(explicit["effort"])))
-        ? { ...(sent?.options ?? selection?.options), effort }
-        : sent?.options;
+    // What a follow-up without options inherits: a switch waiting for the next turn, else what
+    // runs now. Steering leaves the running turn intact.
+    const options = followUpTurnOptions({
+      thread: meta,
+      choice: currentModelChoice(modelChoices, runsOn(meta)),
+      pending,
+      busy,
+      delivery,
+    });
     const { sendMessage } = await loadSender();
     const ok = await sendMessage({
       client,

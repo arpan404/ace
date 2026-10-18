@@ -49,7 +49,7 @@ import Testing
     @Test func aQueuedFollowUpShowsAboveTheComposerUntilItIsRemoved() async throws {
         let (model, root) = try await connected()
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
-        model.open("ios-stop")
+        model.open(try await SpikeFixture.fresh("stop"))
         _ = try await until("a working thread") { model.thread?.screen.controls?.busy == true ? true : nil }
         let text = "Queued for later \(UUID().uuidString)"
         #expect(await model.sendMessage(text, alternate: false))
@@ -61,7 +61,7 @@ import Testing
     @Test func answeringAQuestionIsAdmittedThenClosedOnlyByTheDaemon() async throws {
         let (model, root) = try await connected()
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
-        model.open("ios-question")
+        model.open(try await SpikeFixture.fresh("question"))
         let question = try await until("the question card") { model.thread?.approvals.first { $0.kind == "question" } }
         let options = question.questions?.first?.options ?? []
         #expect(options.map(\.label) == ["Skip the archive", "Keep everything"])
@@ -75,26 +75,72 @@ import Testing
     @Test func alwaysAllowResolvesWithTheRequestsOwnStandingGrant() async throws {
         let (model, root) = try await connected()
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
-        model.open("ios-approval")
+        let threadId = try await SpikeFixture.fresh("approval")
+        model.open(threadId)
         let approval = try await until("the approval card") { model.thread?.approvals.first { $0.kind == "approval" } }
         let always = try #require(approval.verbs.first { $0.decision.verb == "always_allow" })
         #expect(always.option.id == "always")
         #expect(always.decision.scope == "Always here")
         model.approve(approval, option: always.option)
         _ = try await until("the canonical resolution") { model.thread?.interactions[approval.id]?.state == "resolved" ? true : nil }
-        let (data, _) = try await URLSession.shared.data(from: #require(URL(string: "http://127.0.0.1:\(SpikeFixture.port)/state?thread=ios-approval")))
+        let (data, _) = try await URLSession.shared.data(from: #require(URL(string: "http://127.0.0.1:\(SpikeFixture.port)/state?thread=\(threadId)")))
         #expect(String(decoding: data, as: UTF8.self).contains("\"optionId\":\"always\""))
     }
     @Test func stopInterruptsTheWholeTreeAndClearsOnceItSettles() async throws {
         let (model, root) = try await connected()
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
-        model.open("ios-stop")
+        let threadId = try await SpikeFixture.fresh("stop")
+        model.open(threadId)
         _ = try await until("Stop offered") { model.thread?.screen.controls?.canStop == true ? true : nil }
         model.stopTree()
         #expect(model.thread?.screen.stopping == true)
         _ = try await until("the tree stops") { model.thread?.screen.controls?.busy == false ? true : nil }
         #expect(model.thread?.screen.stopping == false)
-        #expect(model.inbox["ios-stop"]?.state != "working")
+        #expect(model.inbox[threadId]?.state != "working")
+    }
+    @Test func aPlanSentBackCarriesTheFeedbackAndClosesOnlyByTheDaemon() async throws {
+        let (model, root) = try await connected()
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
+        let threadId = try await SpikeFixture.fresh("plan")
+        model.open(threadId)
+        let plan = try await until("the plan card") { model.thread?.approvals.first { $0.kind == "plan_review" } }
+        #expect(plan.plan?.title == "Kill-all filters")
+        #expect(plan.plan?.todos.count == 3)
+        model.resolve(plan, answer: ["kind": "plan", "decision": "reject", "feedback": "Also cover zombie processes"])
+        #expect(model.approvalSubmissions[plan.id] != nil)
+        _ = try await until("the canonical resolution") { model.thread?.interactions[plan.id]?.state == "resolved" ? true : nil }
+        #expect(model.approvalSubmissions[plan.id] == nil)
+        let (data, _) = try await URLSession.shared.data(from: #require(URL(string: "http://127.0.0.1:\(SpikeFixture.port)/state?thread=\(threadId)")))
+        #expect(String(decoding: data, as: UTF8.self).contains("Also cover zombie processes"))
+    }
+    @Test func aFormIsSubmittedWithTypedValuesAndARefusedOneGivesTheControlsBack() async throws {
+        let (model, root) = try await connected()
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
+        let threadId = try await SpikeFixture.fresh("form")
+        model.open(threadId)
+        let form = try await until("the form card") { model.thread?.approvals.first { $0.kind == "elicitation" } }
+        #expect(form.form?.fields.map(\.key) == ["region", "replicas", "note"])
+        model.resolve(form, answer: ["kind": "form", "action": "accept", "values": ["region": "eu-west", "replicas": "9"]])
+        _ = try await until("the refusal") { model.approvalSubmissions[form.id] == nil && model.error != nil ? true : nil }
+        model.error = nil
+        model.resolve(form, answer: ["kind": "form", "action": "accept", "values": ["region": "eu-west", "replicas": "2"]])
+        _ = try await until("the canonical resolution") { model.thread?.interactions[form.id]?.state == "resolved" ? true : nil }
+        let (data, _) = try await URLSession.shared.data(from: #require(URL(string: "http://127.0.0.1:\(SpikeFixture.port)/state?thread=\(threadId)")))
+        #expect(String(decoding: data, as: UTF8.self).contains("\"replicas\":2"))
+    }
+    @Test func aFinishedTurnOpensItsFullStepsFromTheDaemon() async throws {
+        let (model, root) = try await connected()
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
+        model.open("ios-agents")
+        let head = try await until("a settled head with its turn") {
+            model.thread?.screen.blocks.values.first { $0.row.kind == "work" && $0.row.ordinal != nil }
+        }
+        let ordinal = try #require(head.row.ordinal)
+        model.openSteps(ordinal: ordinal, block: head.id)
+        let steps = try await until("the steps") { model.thread?.screen.steps[ordinal]?.header?.state == "ready" ? model.thread?.screen.steps[ordinal]?.rows : nil }
+        #expect(steps.contains { $0.step?.verb == "Read" })
+        #expect(steps.contains { $0.step?.verb == "Ran" })
+        model.closeSteps(ordinal: ordinal)
     }
     private func connected() async throws -> (ClientModel, URL) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

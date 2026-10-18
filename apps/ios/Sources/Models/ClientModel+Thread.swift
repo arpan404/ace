@@ -58,7 +58,7 @@ extension ClientModel {
             threadAction(["type": "queue", "messageId": message.id, "change": change, "requestId": id])
         }
     }
-    @discardableResult private func threadAction(_ value: [String: Any]) -> Bool {
+    @discardableResult func threadAction(_ value: [String: Any]) -> Bool {
         let dispatched = action(["type": "thread", "action": value])
         if !dispatched { error = "Could not submit the request. Your draft is still available." }
         return dispatched
