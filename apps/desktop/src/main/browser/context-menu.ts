@@ -6,11 +6,18 @@ import {
   type MenuItemConstructorOptions,
   type WebContents,
 } from "electron";
+import { historySteps } from "@ace/browser/history";
 import type { BrowserContextAction } from "../../shared/contract.ts";
 import { contextEntries, type ContextCommand, type ContextFacts } from "./context-entries.ts";
 
 /** The facts Electron's `context-menu` event gives, as `contextEntries` reads them. */
 export function contextFacts(params: ContextMenuParams, contents: WebContents): ContextFacts {
+  // The toolbar's rule: the blank page a new tab opened on is no page to go back to.
+  const history = contents.navigationHistory;
+  const steps = historySteps({
+    currentIndex: history.getActiveIndex(),
+    entries: history.getAllEntries().map((entry, id) => ({ id, url: entry.url })),
+  });
   return {
     linkURL: params.linkURL,
     srcURL: params.srcURL,
@@ -21,8 +28,8 @@ export function contextFacts(params: ContextMenuParams, contents: WebContents): 
     canCut: params.editFlags.canCut,
     canCopy: params.editFlags.canCopy,
     canPaste: params.editFlags.canPaste,
-    canGoBack: contents.navigationHistory.canGoBack(),
-    canGoForward: contents.navigationHistory.canGoForward(),
+    canGoBack: steps.back !== undefined,
+    canGoForward: steps.forward !== undefined,
   };
 }
 

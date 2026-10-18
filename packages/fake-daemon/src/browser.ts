@@ -330,7 +330,8 @@ export class FakeBrowser {
       status: "ready",
       features: ["annotate", "tabs", "collaborate"],
     };
-    this.history.visit(tabId, options.url);
+    const [driven] = entry.view.tabs ?? [];
+    if (driven) this.visited(driven, options.url);
     entry.pages.set(tabId, {
       page: options.url === "about:blank" ? "site" : "pair",
       typed: options.typed ?? "",
@@ -361,6 +362,20 @@ export class FakeBrowser {
     entry.servers = [...entry.servers.filter((s) => s.port !== server.port), server];
     this.changed();
   }
+  /**
+   * Scripting: the page moves within its own document (an SPA's `pushState`, a hash change):
+   * the address and history change, the document and its title stay.
+   */
+  navigateInPage(threadId: string, url: string, tabId?: string): void {
+    const entry = this.entries.get(threadId);
+    const tab = this.tab(threadId, tabId);
+    if (!entry?.view || entry.view.closed || !tab) throw new Error("Browser closed");
+    tab.url = url;
+    this.visited(tab, url);
+    if (tab.tabId !== entry.view.activeTabId) return this.changed();
+    entry.view.url = url;
+    this.paint(entry);
+  }
   navigationHistory(threadId: string, tabId?: string) {
     const tab = this.tab(threadId, tabId);
     if (!tab) throw new Error("Browser tab unavailable");
@@ -376,6 +391,7 @@ export class FakeBrowser {
     const tab = this.tab(threadId, tabId);
     if (!entry || !view || view.closed || !tab) throw new Error("Browser closed");
     const url = this.history.move(tab.tabId, direction);
+    this.stepFlags(tab);
     if (url !== undefined) {
       if (tab.tabId === view.activeTabId) this.annotations.end(threadId, "navigated");
       tab.url = url;
@@ -620,7 +636,7 @@ export class FakeBrowser {
       lifecycle: "live",
     };
     view.tabs = [...(view.tabs ?? []), tab];
-    this.history.visit(tab.tabId, url);
+    this.visited(tab, url);
     entry.pages.set(tab.tabId, { page: "site", typed: "" });
     return tab;
   }
@@ -637,12 +653,22 @@ export class FakeBrowser {
     tab.url = url;
     tab.title = "Fixture page";
     delete tab.favicon;
-    this.history.visit(tab.tabId, url);
+    this.visited(tab, url);
     this.setPage(entry, tab.tabId, page);
     if (entry.view && tab.tabId === entry.view.activeTabId) {
       entry.view.url = url;
       this.paint(entry);
     } else this.changed();
+  }
+  /** The tab's document history gains `url`; its Back and Forward follow, as the daemon's do. */
+  private visited(tab: BrowserTab, url: string): void {
+    this.history.visit(tab.tabId, url);
+    this.stepFlags(tab);
+  }
+  private stepFlags(tab: BrowserTab): void {
+    const { back, forward } = this.history.capabilities(tab.tabId);
+    tab.canGoBack = back;
+    tab.canGoForward = forward;
   }
   private setPage(entry: Entry, tabId: string, page: Page["page"]): void {
     const current = entry.pages.get(tabId);

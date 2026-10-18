@@ -44,8 +44,9 @@ it.skipIf(!executablePath)(
     await f.execute({ action: "wait_for", url: f.url + "/" });
     await f.execute({ action: "wait_for", text: "Fixture ready" });
     expect(await f.evaluate("document.querySelector('input').value")).toBe("retained form");
+    // The tab's first page: the blank page the tab opened on is nothing to go back to.
     expect(await f.execute({ action: "navigation_history" })).toMatchObject({
-      back: true,
+      back: false,
       forward: true,
     });
     await f.execute({ action: "history", direction: "forward" });

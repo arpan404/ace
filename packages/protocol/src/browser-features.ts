@@ -105,6 +105,13 @@ export const BrowserTab = z.object({
   /** The tab was discarded while idle and reopened at its address: its page state is gone. */
   pageStateLost: z.boolean().optional(),
   loading: z.boolean().optional(),
+  /**
+   * Whether Back and Forward lead anywhere, kept current through every navigation, in-page ones
+   * (`pushState`, a hash change) included. The blank page a new tab starts on doesn't count.
+   * Absent until the daemon has read the tab's history.
+   */
+  canGoBack: z.boolean().optional(),
+  canGoForward: z.boolean().optional(),
   favicon: z.string().max(8192).optional(),
   /** Page zoom as a factor (1 is 100%); absent at 100%. Set by the person, per tab. */
   zoom: z.number().min(0.25).max(5).optional(),

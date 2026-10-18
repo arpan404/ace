@@ -58,6 +58,8 @@ const tabView = (tab: BrowserTabList[number]): BrowserTabView => ({
   muted: tab.muted,
   certificateError: tab.certificate_error,
   playing: tab.playing,
+  canGoBack: tab.canGoBack,
+  canGoForward: tab.canGoForward,
   zoom: tab.zoom,
   emulation: tab.emulation,
 });
@@ -564,13 +566,6 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         35_000,
       );
       return reached(result, url);
-    },
-    async navigationHistory(threadId, tabId) {
-      return z
-        .object({ back: z.boolean(), forward: z.boolean() })
-        .parse(
-          await execute(threadId, { action: "navigation_history", ...(tabId ? { tabId } : {}) }),
-        );
     },
     async navigateHistory(threadId, direction, tabId) {
       await execute(threadId, { action: "history", direction, ...(tabId ? { tabId } : {}) });

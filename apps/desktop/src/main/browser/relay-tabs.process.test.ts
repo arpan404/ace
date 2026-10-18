@@ -93,3 +93,30 @@ it("the shown view learns whether an agent uses it, as the person moves between 
   await service.execute("t-1", { action: "navigate", url: "http://localhost:5173/a" }, first);
   expect(views.tab(own.tabId).url()).toBe("http://localhost:5173/a");
 });
+
+/** `Page.getNavigationHistory` with the page on the last of `urls`. */
+const history = (urls: string[]) => ({
+  currentIndex: urls.length - 1,
+  entries: urls.map((url, id) => ({ id, url })),
+});
+
+it("a native tab's in-page navigation turns Back on in the daemon's tab state; its blank start page doesn't", async () => {
+  const { service, views } = await nativeTabs();
+  const tabId = service.state("t-1").activeTabId ?? "";
+  const page = views.tab(tabId);
+  const shown = () => service.state("t-1").tabs?.find((tab) => tab.tabId === tabId);
+  // The desktop opens each view on a blank page before its first address.
+  page.results.set("Page.getNavigationHistory", history(["about:blank", "http://localhost:5173/"]));
+  page.emit("Page.frameNavigated", { frame: { id: "main", url: "http://localhost:5173/" } });
+  await eventually(() => expect(shown()).toMatchObject({ canGoBack: false, canGoForward: false }));
+  // A single-page app pushes an entry of its own: no new document.
+  page.results.set(
+    "Page.getNavigationHistory",
+    history(["about:blank", "http://localhost:5173/", "http://localhost:5173/watch"]),
+  );
+  page.emit("Page.navigatedWithinDocument", {
+    frameId: "main",
+    url: "http://localhost:5173/watch",
+  });
+  await eventually(() => expect(shown()).toMatchObject({ canGoBack: true, canGoForward: false }));
+});
