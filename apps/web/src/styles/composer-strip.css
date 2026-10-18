@@ -40,6 +40,9 @@
 .composer-strip-indicator[data-tone="needs-you"] {
   color: var(--status-needs-you);
 }
+.composer-strip-indicator[data-tone="failed"] {
+  color: var(--status-failed);
+}
 @media (pointer: coarse) {
   .composer-strip-indicator {
     height: 2rem;

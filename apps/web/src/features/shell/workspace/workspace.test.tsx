@@ -101,7 +101,7 @@ test("tabs survive a reload with the one that was showing", async () => {
   expect(selected(panel).textContent).toBe("Devices");
 });
 
-test("from the keyboard: arrows show the next tab, Alt+Shift+arrow reorders, Delete closes and focus moves on", async () => {
+test("from the keyboard: arrows show the next tab, Alt+Shift+arrow reorders, Delete closes any tab and focus moves on", async () => {
   await openColdStart();
   await userEvent.keyboard("{Control>}{Shift>}l{/Shift}{/Control}");
   const panel = await sidePanel();
@@ -123,9 +123,9 @@ test("from the keyboard: arrows show the next tab, Alt+Shift+arrow reorders, Del
   expect(selected(panel).textContent).toBe("Devices");
   expect(document.activeElement?.textContent).toBe("Devices");
 
-  // Pinned tools don't close from the keyboard by accident.
+  // Pinned tools close too; the launcher opens them again.
   await userEvent.keyboard("{Home}{Delete}");
-  expect(tabNames(panel)).toEqual(["Summary", changes, "Files", "Devices"]);
+  expect(tabNames(panel)).toEqual([changes, "Files", "Devices"]);
 });
 
 test("dragging a tab onto another puts it beside that one", async () => {
@@ -278,7 +278,7 @@ test("⌘J shows the thread's terminal as a side panel tab, and the panel's widt
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 });
 
-test("New tab offers an address, tools and suggested sites, and opens Files in its place", async () => {
+test("New tab offers an address, tools and suggested sites, and opens another Files tab in its place", async () => {
   await openColdStart();
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   const panel = await sidePanel();
@@ -288,7 +288,7 @@ test("New tab offers an address, tools and suggested sites, and opens Files in i
   expect(within(panel).getByRole("combobox", { name: "Address" })).toBeTruthy();
   await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
   expect(selected(panel).textContent).toBe("Files");
-  expect(tabNames(panel)).toEqual(["Summary", changes, "Files"]);
+  expect(tabNames(panel)).toEqual(["Summary", changes, "Files", "Files"]);
 });
 
 test("the new tab's tools are one Tab stop that arrow keys move through by row and column", async () => {

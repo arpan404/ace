@@ -58,6 +58,7 @@ export class LongThreadDatabase {
       CREATE TABLE IF NOT EXISTS long_read_state(thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,device_id TEXT NOT NULL,last_seen_seq INTEGER NOT NULL,updated_at INTEGER NOT NULL,PRIMARY KEY(thread_id,device_id));
       CREATE INDEX IF NOT EXISTS events_thread_time ON events(thread_id,at,seq);
       CREATE INDEX IF NOT EXISTS long_turns_settled ON long_turns(thread_id,settled_seq,ordinal);
+      CREATE INDEX IF NOT EXISTS long_turns_start ON long_turns(thread_id,start_seq);
       CREATE TABLE IF NOT EXISTS long_range_nodes(thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,owner TEXT NOT NULL,level INTEGER NOT NULL,bucket INTEGER NOT NULL,key TEXT NOT NULL,value INTEGER NOT NULL,PRIMARY KEY(thread_id,owner,level,bucket,key));
       CREATE TABLE IF NOT EXISTS long_time_files(thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,path TEXT NOT NULL,at INTEGER NOT NULL,seq INTEGER NOT NULL,PRIMARY KEY(thread_id,path));
       CREATE INDEX IF NOT EXISTS long_time_files_recent ON long_time_files(thread_id,at,path);

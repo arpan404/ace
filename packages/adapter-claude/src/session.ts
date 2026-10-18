@@ -2,6 +2,7 @@ import { ClaudePermissionMode } from "@ace/provider-kit/permission-modes";
 import { claudeInjection, redactMcpCredential } from "@ace/mcp-server";
 import { ClaudeSelectionOptions, claudeSelectionFlags } from "./selection.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
+import { elidedJson } from "@ace/provider-kit/binary-elision";
 import { randomUUID } from "node:crypto";
 import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
 import { findExecutable } from "@ace/provider-kit/discovery";
@@ -67,8 +68,10 @@ export async function openSession(
   let closePromise: Promise<void> | undefined;
   let q: Query;
   const processId = randomUUID();
-  const frame = (dir: Frame["dir"], channel: string, data: unknown) => {
-    const payload = new ProviderPayload(redactMcpCredential(JSON.stringify(data), ctx.aceMcp));
+  // Attachment bytes stay out of recorded frames; the provider still receives them whole.
+  const encode = (data: unknown) =>
+    new ProviderPayload(redactMcpCredential(elidedJson(data), ctx.aceMcp));
+  const record = (dir: Frame["dir"], channel: string, payload: ProviderPayload) => {
     ctx.onFrame({
       seq: sequence++,
       t: Math.round(performance.now() - started),
@@ -78,6 +81,8 @@ export async function openSession(
       payload,
     });
   };
+  const frame = (dir: Frame["dir"], channel: string, data: unknown) =>
+    record(dir, channel, encode(data));
   const pending = new PendingInteractions(frame);
   const end = (deliberate: boolean, message?: string) => {
     if (exited) return;
@@ -348,10 +353,12 @@ export async function openSession(
         if (origin === "ace") message.isSynthetic = true;
         return message;
       });
-      for (const message of messages) {
+      // Encode every frame first: once a message reaches the harness, recording it cannot fail.
+      const frames = messages.map((message) => ({ message, payload: encode(message) }));
+      for (const { message, payload } of frames) {
         if (commandId) ctx.onInputMessage?.({ commandId, nativeId: message.uuid });
         input.push(message);
-        frame("send", "sdk", message);
+        record("send", "sdk", payload);
       }
     },
     async interrupt(target) {

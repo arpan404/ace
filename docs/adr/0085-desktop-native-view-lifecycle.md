@@ -136,6 +136,15 @@ A window resize, maximise, full-screen change or restore re-applies the views pl
 window once it settles, and the renderer measures the page area once more 150 ms after its last
 resize event, so a layout that settles late still moves the view onto its frame.
 
+Amended 2026-10-18: a native view paints above the app's own menus, so a menu over it hides
+the view in place and draws the view's still there first. The placement is then marked
+`covered`: the page counts as watched, so it renders (parked) and its sound plays, and the
+renderer draws the live screencast in its place once a fresh frame arrives, so a playing video
+keeps moving under the menu. Only what paints above the view covers it: a portal at a higher
+z-index, or a later one at the same z-index. Picture-in-picture is a portal itself, so the app
+beneath it never covers it. Picture-in-picture opening by itself is a per-device setting
+(Settings › Browser › Picture in picture), on by default.
+
 ⌘L and ⌘F pressed in a native page no longer move the OS focus at once. The view keeps the
 keys typed next (for at most a second) while the app's page focuses its field; the field
 asks for the keyboard (`browser.focus-app`), and the main process focuses the app's page and

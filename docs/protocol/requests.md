@@ -132,6 +132,7 @@ Semantic rule: Exactly one target; before + after + target is at most 200 items.
 | turnOrdinal | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | before | no | integer | {"default":50,"minimum":0,"maximum":199} |
 | after | no | integer | {"default":50,"minimum":0,"maximum":199} |
+| wholeTurns | no | boolean |  |
 
 Example:
 
@@ -141,7 +142,8 @@ Example:
   "before": 4,
   "requestId": "example",
   "threadId": "example",
-  "type": "items.window"
+  "type": "items.window",
+  "wholeTurns": true
 }
 ```
 
@@ -160,8 +162,8 @@ Example:
 
 ```json
 {
-  "after": 3,
-  "limit": 10,
+  "after": 9,
+  "limit": 3,
   "requestId": "example",
   "threadId": "example",
   "turnOrdinal": 4,
@@ -203,7 +205,7 @@ Example:
 
 ```json
 {
-  "ref": "e202db2d7058b57ecf355c0fe8730cd40c79a991575ac87b44d8310897fde611",
+  "ref": "02db2d7058b57ecf355c0fe8730cd40c79a991575ac87b44d8310897fde611de",
   "requestId": "example",
   "type": "icons.read"
 }
@@ -226,10 +228,9 @@ Example:
 
 ```json
 {
-  "cursor": "example",
-  "limit": 5,
+  "filter": "commands",
+  "limit": 10,
   "requestId": "example",
-  "scope": "thread",
   "text": "example",
   "threadId": "example",
   "type": "thread.search"

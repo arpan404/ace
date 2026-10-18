@@ -103,7 +103,7 @@
   --color-status-failed: var(--status-failed);
   --color-status-done: var(--status-done);
 
-  /* The scale and why lives in tokens.css ("Corners"); Appearance scales it. */
+  /* The scale and why lives in tokens.css ("Corners"). */
   --radius-xs: var(--radius-xs);
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius);

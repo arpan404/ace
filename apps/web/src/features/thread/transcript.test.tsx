@@ -11,30 +11,31 @@ function questionNumbers(feed: HTMLElement): number[] {
 
 test("scrolling up loads older transcript history without clicking", async () => {
   const app = harness({ snapshotItems: 20 });
-  app.play(longHistory(60)).runUntilBlocked();
+  app.play(longHistory(150)).runUntilBlocked();
   await app.open("/t/thread-router");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  await within(feed).findByText("Answer 60: route 60 renders its own panel.");
+  await within(feed).findByText("Answer 150: route 150 renders its own panel.");
 
   const viewport = feed.closest("[data-virtual-viewport]");
   if (!viewport) throw new Error("No transcript viewport");
 
-  // The snapshot carries only the newest 20 items: questions 51-60.
-  expect(questionNumbers(feed)).toEqual([51, 52, 53, 54, 55, 56, 57, 58, 59, 60]);
+  // The snapshot carries only the newest 20 items: questions 141-150.
+  expect(questionNumbers(feed)).toEqual(Array.from({ length: 10 }, (_, i) => i + 141));
 
+  // One page: the 199 items before them (one long turn, so the page's size cuts it).
   fireEvent.wheel(viewport, { deltaY: -200 });
-  await within(feed).findByText("Question 26: what does route 26 render?");
-  expect(questionNumbers(feed)).toEqual(Array.from({ length: 35 }, (_, i) => i + 26));
+  await within(feed).findByText("Question 42: what does route 42 render?");
+  expect(questionNumbers(feed)).toEqual(Array.from({ length: 109 }, (_, i) => i + 42));
 
   await act(async () => {
     fireEvent.scroll(viewport);
     fireEvent.scroll(viewport);
   });
-  expect(questionNumbers(feed)).toEqual(Array.from({ length: 35 }, (_, i) => i + 26));
+  expect(questionNumbers(feed)).toEqual(Array.from({ length: 109 }, (_, i) => i + 42));
 
   fireEvent.wheel(viewport, { deltaY: -200 });
   await within(feed).findByText("Question 1: what does route 1 render?");
-  expect(questionNumbers(feed)).toEqual(Array.from({ length: 60 }, (_, i) => i + 1));
+  expect(questionNumbers(feed)).toEqual(Array.from({ length: 150 }, (_, i) => i + 1));
   expect(screen.queryByRole("button", { name: "Load earlier messages" })).toBeNull();
   expect(screen.queryByText("Beginning of thread")).toBeNull();
 });

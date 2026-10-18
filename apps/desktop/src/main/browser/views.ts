@@ -311,6 +311,7 @@ export class EmbeddedViews implements ViewHost {
     this.placements.set(key, host.id, {
       bounds,
       visible: placement.visible,
+      covered: placement.covered,
       device: placement.device,
     });
     this.apply(key);
@@ -468,6 +469,7 @@ export class EmbeddedViews implements ViewHost {
         window: window && !window.isDestroyed() ? window : undefined,
         bounds: placement.bounds,
         visible: placement.visible,
+        covered: placement.covered === true,
         zoom: host?.zoom ?? 1,
         device: placement.device,
       },

@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { elidedDigest } from "@ace/provider-kit/binary-elision";
 import { it, expect, afterEach } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,7 +16,7 @@ import { interactionKey } from "./interactions.ts";
 import { nativeAgentKey } from "./keys.ts";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import type { SessionRuntime } from "./index.ts";
-import { object } from "./data.ts";
+import { list, object, string } from "./data.ts";
 import { harness } from "./test-helper.ts";
 import { projectAttachments, canonicalContext, encodedContextBudget } from "@ace/context";
 import { setTimeout as waitDelay } from "node:timers/promises";
@@ -118,6 +120,28 @@ it.each([130_808, 700_000, 922_403])(
     }
   },
 );
+it("an ACP prompt and echo carrying a multi-megabyte image are delivered without ending the session", async () => {
+  const h = await setup();
+  try {
+    const image = Buffer.alloc(2 * 1024 * 1024);
+    for (let i = 0; i < image.length; i++) image[i] = (i * 13 + (i >> 11)) % 256;
+    const url = `data:image/png;base64,${image.toString("base64")}`;
+    await h.session.send(
+      [...input("attachment-proof"), { type: "image", mimeType: "image/png", url }],
+      "queue",
+    );
+    const proof = await h.wait((f) => f.dir === "recv" && method(f, "test/attachments"));
+    const [, echoed] = list(object(object(proof.data)["params"])["prompt"]);
+    // The agent read the exact bytes; the recorded frame keeps only their digest.
+    expect(elidedDigest(string(object(echoed)["data"]))).toBe(
+      createHash("sha256").update(image).digest("hex"),
+    );
+    await h.session.send(input("user-echo"), "queue");
+    await h.wait((f) => f.dir === "recv" && JSON.stringify(f.data).includes("echoed context"));
+  } finally {
+    await h.session.close("user");
+  }
+});
 it("an agent without embedded context receives an uninlined file as an ACP resource_link", async () => {
   const h = await setup();
   try {

@@ -57,6 +57,19 @@ export function recoverEngine(
           // Back in the queue; the bubble its claim created keeps its place.
           repo.queue.track(unsent.id, state.threadId, unsent.command);
           repo.queue.set(state.threadId, { paused: true, reason: "not_sent" }, clock.now());
+          // A message recovered now is a request the person has never seen. A settle made before
+          // it surfaced doesn't cover it, so the thread comes back.
+          if (repo.store.getThread(state.threadId)?.settledAt !== undefined)
+            repo.store.appendEvents(
+              state.threadId,
+              [
+                {
+                  type: "thread.client.updated",
+                  changes: { settledAt: null, settledReason: null, autoSettleAt: null },
+                },
+              ],
+              clock.now(),
+            );
         }
         const queue = repo.queue.get(state.threadId);
         if (

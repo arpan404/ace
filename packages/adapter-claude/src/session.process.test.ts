@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import { expect, test } from "vitest";
+import { elidedDigest } from "@ace/provider-kit/binary-elision";
 import { harness, subtype } from "./session.test-helper.ts";
-import { object } from "./native.ts";
+import { list, object, string } from "./native.ts";
 import { apply, createThreadState } from "@ace/core";
 import { createTranslator } from "./index.ts";
 import { ThreadId } from "@ace/protocol";
@@ -355,10 +357,14 @@ test("the Claude CLI receives image content with the original MIME and base64 by
       "queue",
     );
     const data = object(object((await h.wait(subtype("fake_input"))).data).input);
-    expect(object(data.message).content).toEqual([
-      { type: "text", text: "hello" },
-      { type: "image", source: { type: "base64", media_type: "image/png", data: imageData } },
-    ]);
+    // Recorded frames keep the digest of the bytes the CLI read, not the bytes themselves.
+    const [text, image] = list(object(data.message).content);
+    expect(text).toEqual({ type: "text", text: "hello" });
+    const source = object(object(image).source);
+    expect(source).toMatchObject({ type: "base64", media_type: "image/png" });
+    expect(elidedDigest(string(source.data))).toBe(
+      createHash("sha256").update(Buffer.from(imageData, "base64")).digest("hex"),
+    );
   } finally {
     await h.session.close("user");
   }

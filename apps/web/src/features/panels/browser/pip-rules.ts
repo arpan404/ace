@@ -12,15 +12,18 @@ export interface PipPage {
  * Whether the thread's page floats in picture-in-picture, and which: the tab the person views,
  * while the Browser isn't showing in the panel, as long as an agent browses (any tab in use) or
  * that tab plays sound. Not for a closed, paused or blank browser, nor once the person dismissed
- * it (until the Browser shows again).
+ * it (until the Browser shows again), nor ever while they turned picture-in-picture off.
  */
 export function pipPage(input: {
   view: BrowserView | undefined;
   showingBrowser: boolean;
   dismissed: boolean;
+  /** Settings › Browser › Picture in picture. */
+  enabled: boolean;
 }): PipPage | undefined {
   const { view } = input;
-  if (input.showingBrowser || input.dismissed || !view || view.closed) return undefined;
+  if (!input.enabled || input.showingBrowser || input.dismissed || !view || view.closed)
+    return undefined;
   if (view.status === "paused" || view.status === "recovering") return undefined;
   const tabs = view.tabs ?? [];
   const shown = tabs.find((tab) => tab.tabId === view.activeTabId);

@@ -1,3 +1,4 @@
+import type { Fact } from "@ace/core";
 import type { CommandPayload, EventPayload, ForkPoint } from "@ace/protocol";
 import { busy } from "./thread-commands.ts";
 import type { ThreadHost } from "./thread-host.ts";
@@ -52,7 +53,7 @@ export function switchEvents(host: ThreadHost, at: number): EventPayload[] {
   ];
 }
 
-/** The fake publishes the same synthetic context message as a completed real merge. */
+/** Why a fork can't merge back into its parent yet, or undefined when it can. */
 export function mergeForkError(
   fork: ThreadHost,
   parent: ThreadHost | undefined,
@@ -69,4 +70,31 @@ export function mergeForkError(
   )
     return "invalid_citation_thread";
   return undefined;
+}
+
+/** The fake publishes the same synthetic context message as a completed real merge. */
+export function mergeFacts(
+  payload: Extract<CommandPayload, { type: "thread.merge" }>,
+  commandId: string,
+): Fact[] {
+  return [
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: `merge:${commandId}`,
+      draft: {
+        type: "message",
+        role: "user",
+        synthetic: true,
+        complete: true,
+        mergedContext: {
+          sourceThreadId: payload.threadId,
+          summary: payload.summary,
+          citations: payload.citations,
+          patchApplied: payload.patch !== undefined,
+        },
+        parts: [{ type: "text", text: payload.summary }],
+      },
+    },
+  ];
 }

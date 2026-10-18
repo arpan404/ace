@@ -37,9 +37,14 @@ export interface TabKindOptions {
    * the launcher and while this hasn't loaded.
    */
   TabIcon?: ComponentType<{ scope: string; tab: WorkspaceTab; className?: string }>;
-  /** One tab per scope (Changes, Agents). Others open one tab per `id`. */
+  /** One tab per scope (Summary). Others open one tab per `id`. */
   singleton?: boolean;
-  /** Opens as a pinned tool tab: first in the strip, no close button. */
+  /**
+   * Picking the tool from the launcher, or "Open in a new tab", always opens another tab of it
+   * (Changes, Files) instead of showing the one already open.
+   */
+  multiple?: boolean;
+  /** Opens as a pinned tool tab: first in the strip. Pinned tabs still close. */
   pinned?: boolean;
   /** Position among the launcher's Tools; leave out to keep the kind off the launcher. */
   launcher?: number;
@@ -152,4 +157,12 @@ export function defineTabKind(options: TabKindOptions): TabKind {
     actions: () => fresh().Actions,
     preload: () => void load().catch(() => undefined),
   };
+}
+
+/**
+ * What a launcher pick (or "Open in a new tab") opens for `kind`: another tab of a `multiple`
+ * kind under a new id from `newId`, otherwise the kind's one tab.
+ */
+export function launchRequest(kind: TabKind, newId: () => string): OpenRequest {
+  return kind.multiple ? { kind: kind.kind, id: newId() } : { kind: kind.kind };
 }

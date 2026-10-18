@@ -237,7 +237,7 @@
         "view"
       ],
       "type": "object",
-      "x-ace-constraint": "seq must equal view.seq."
+      "x-ace-constraint": "seq must equal view.seq; a thread view's itemSeqs holds the creation sequence of every item in itemOrder."
     },
     {
       "properties": {
@@ -553,7 +553,8 @@
         "type",
         "requestId"
       ],
-      "type": "object"
+      "type": "object",
+      "x-ace-constraint": "itemSeqs holds the creation sequence of every item."
     },
     {
       "properties": {

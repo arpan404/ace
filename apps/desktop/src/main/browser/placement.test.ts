@@ -33,6 +33,25 @@ describe("embedded view placement", () => {
     });
   });
 
+  it("a view hidden under the app's menu stays watched, until it is hidden for real", () => {
+    const book = new PlacementBook();
+    book.set("t1", 1, { bounds: panel, visible: true });
+    expect(book.set("t1", 1, { bounds: panel, visible: false, covered: true })).toEqual({
+      host: 1,
+      bounds: panel,
+      visible: false,
+      covered: true,
+    });
+    expect(book.set("t1", 1, { bounds: panel, visible: false }).covered).toBeUndefined();
+    // Shown in another window meanwhile, it is simply shown there.
+    book.set("t1", 1, { bounds: panel, visible: false, covered: true });
+    expect(book.set("t1", 2, { bounds: other, visible: true })).toMatchObject({
+      host: 2,
+      visible: true,
+    });
+    expect(book.resolve("t1").covered).toBeUndefined();
+  });
+
   it("never shows a view in an empty box (a collapsed panel)", () => {
     const book = new PlacementBook();
     expect(book.set("t1", 1, { bounds: { ...panel, width: 0 }, visible: true }).visible).toBe(

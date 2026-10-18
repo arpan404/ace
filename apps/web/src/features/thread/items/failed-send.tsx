@@ -2,9 +2,8 @@ import { useContext, useRef, useState } from "react";
 import { TimeContext } from "@/lib/time.ts";
 import { uploadClock } from "@/features/thread/composer/upload-interruption.ts";
 import { baseName, tokensFromInput } from "@ace/ui-core";
-import type { PendingSend } from "@ace/client";
-import { useClient, useItem, useThreadMeta } from "@ace/client-react";
-import { CommandId, ThreadId } from "@ace/protocol";
+import { useClient, useThreadMeta } from "@ace/client-react";
+import { CommandId } from "@ace/protocol";
 import { ArrowClockwiseIcon, PencilSimpleIcon, WarningIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { Icon } from "@/components/icon.tsx";
@@ -20,7 +19,13 @@ import {
 } from "@/lib/returned-start.ts";
 import { dismissSend } from "../composer/dismissed-sends.ts";
 import { draftOf, restoreReturnedDraft, type SendPayload } from "../composer/returned-draft.ts";
-import { returnDraft, saveOpenDraft, leasable } from "../composer/send-store.ts";
+import {
+  leasable,
+  markEditing,
+  returnDraft,
+  saveOpenDraft,
+  useEditingHeld,
+} from "../composer/send-store.ts";
 import {
   canRetry,
   editStaged,
@@ -30,7 +35,6 @@ import {
   type StagedSend,
 } from "../composer/staged-sends.ts";
 import { useThreadSources } from "../sources/index.ts";
-import { commandOf } from "./pending-sends.ts";
 import { ClearStaleLock } from "./clear-stale-lock.tsx";
 import { dismissWorktreeStart } from "../worktree/use-worktree-creation.ts";
 
@@ -38,43 +42,23 @@ type CreatePayload = Extract<SendPayload, { type: "thread.create" }>;
 
 /**
  * "Not sent · the reason", with Retry (sends it again) and Edit (back into the composer), and
- * Clear stale lock when Git's cleanup fence (`fenced`) stopped it.
+ * Clear stale lock when Git's cleanup fence (`fenced`) stopped it. Without the message's
+ * `payload` (its item isn't loaded) only the line shows.
  */
 export function FailedSend(props: {
   threadId: string;
-  itemId: string;
-  send: PendingSend | undefined;
+  commandId: string;
+  payload: SendPayload | undefined;
   reason: string | undefined;
   fenced?: boolean | undefined;
 }) {
-  const item = useItem(leasable(props.threadId), props.itemId);
   const actions = useSendActions(props.threadId);
-  const payload: SendPayload | undefined =
-    props.send?.payload ??
-    (item?.type === "message"
-      ? {
-          type: "thread.send",
-          threadId: ThreadId.parse(props.threadId),
-          input: item.parts,
-          ...(item.attachments?.length
-            ? {
-                context: {
-                  mentions: [],
-                  attachments: item.attachments.map((file) => ({ sha256: file.sha256 })),
-                },
-              }
-            : {}),
-        }
-      : undefined);
-  const commandId = props.send?.commandId ?? commandOf(props.itemId);
+  const { payload, commandId } = props;
   return (
-    <div
-      role="alert"
-      className="mt-[5px] flex flex-wrap items-center justify-end gap-x-1 gap-y-0.5"
-    >
+    <div role="alert" className="flex flex-wrap items-center justify-end gap-x-1 gap-y-0.5">
       <NotSent reason={props.reason} />
       {props.fenced && <ClearStaleLock target={{ threadId: props.threadId }} />}
-      {payload && commandId && (
+      {payload && (
         <span className="flex gap-1">
           <Button
             size="xs"
@@ -234,7 +218,9 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
   const { storage } = useLayout();
   const time = useContext(TimeContext);
   const inFlight = useRef(false);
-  const [editing, setEditing] = useState(false);
+  // Kept outside this line: the composer remounts on a returned draft with files.
+  const editing = useEditingHeld(staged.commandId);
+  const setEditing = (on: boolean) => markEditing(staged.commandId, on);
   // One action at a time from this bubble; competing pages are fenced by the claim itself.
   const act = (run: () => Promise<boolean>, failure: { title: string; description: string }) => {
     if (inFlight.current) return;
@@ -284,6 +270,7 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
       async () => {
         if (!(await editStaged(staged.commandId, take, uploadClock(time.read)))) return false;
         dismissSend(storage, staged.commandId);
+        setEditing(false);
         // Their bytes went with the page that was uploading them.
         if (unfinished.length)
           toast.error({
@@ -305,10 +292,7 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
     });
   const recoverable = isRecoverable(staged, time.read());
   return (
-    <div
-      role="alert"
-      className="mt-[5px] flex flex-wrap items-center justify-end gap-x-1 gap-y-0.5"
-    >
+    <div role="alert" className="flex flex-wrap items-center justify-end gap-x-1 gap-y-0.5">
       <NotSent reason={staged.uploadInterrupted ? "Upload interrupted" : staged.failed} />
       <span className="flex gap-1">
         {recoverable && !editing && canRetry(staged) && (

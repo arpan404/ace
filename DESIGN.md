@@ -64,7 +64,7 @@ One scale, from `tokens.css` ("Corners"); never a literal radius.
 | `rounded-xl`                                    | 18      | The composer, its attached strip, the file-drop target                             |
 | `rounded-full`                                  | —       | Send/Stop, avatars, accent discs, segmented control, pills                         |
 
-The Appearance **Corners** setting (Sharp 2/3/4/6/10, Default, Round 6/9/12/16/24) rescales every step, so any component built from the scale follows it.
+Corners are fixed at this scale; there is no setting to rescale them.
 
 **Radius agrees with padding.** The corner must never be larger than the padding beside it, or the content looks pinched into the curve:
 
@@ -91,7 +91,7 @@ Phosphor only, `regular` weight. 16px beside 13–14px text, 14px beside 12px, 1
 
 ### Glass
 
-Two levels. **`glass-thin`** (`.ace-floating`): menus, popovers, selects, context menus, hover cards, toasts, the palette panel. **`glass-regular`** (`.ace-glass-dock`): the composer and the cards attached above it, one material, one blur. **Solid** (`.ace-floating-solid`): dialogs, tooltips, the Work card, anything that holds content, anything opened from glass. Never glass on glass; never glass on a scrolling area; the sidebar, page and side panels are opaque. Text on glass uses the glass inks the material provides; status words keep their opaque colours.
+Two levels. **`glass-thin`** (`.ace-floating`): menus, popovers, selects, context menus, hover cards, toasts, and the palette panel at a near-solid tint (`--glass-tint-modal`), since it adds no blur of its own over the modal backdrop. **`glass-regular`** (`.ace-glass-dock`): the composer and the cards attached above it, one material, one blur. **Solid** (`.ace-floating-solid`): dialogs, tooltips, the Work card, anything that holds content, anything opened from glass. Never glass on glass; never glass on a scrolling area; the sidebar, page and side panels are opaque. Text on glass uses the glass inks the material provides; status words keep their opaque colours.
 
 ## 3. Layout
 
@@ -167,7 +167,7 @@ Two levels. **`glass-thin`** (`.ace-floating`): menus, popovers, selects, contex
 - **Sidebar:** one flat task list across projects, never grouped by project; three-line rows as specified in §3; no dividers, space between rows like T3; the open row is a soft rounded fill; settled threads are one muted line with their PR or diff.
 - **Attention levels:** as in §5.
 - **Composer:** nothing renders below it; exactly one strip slot above it (approval/question first), tucked under the composer's edge; Send and Stop are round; live state is the inline "Working for …" line at the end of the transcript; finished turns fold into "Worked for …" disclosures.
-- **Themes:** Mode (Light/Dark/System) is separate from Theme; themes are **colour only** (no fonts, material or spacing) and the set is ace (default), Paper, Midnight, Grove, Harbor, Dusk, with status colours the same in every theme; the accent picker stays; floating layers are glass and the composer is translucent glass; motion is 120/200/320 with the spring `linear()` curve. Mode keeps its three preview cards. Corners is a user setting (Sharp, Default, Round).
+- **Themes:** Mode (Light/Dark/System) is separate from Theme; themes are **colour only** (no fonts, material or spacing) and the set is ace (default), Paper, Midnight, Grove, Harbor, Dusk, with status colours the same in every theme; the accent picker stays; floating layers are glass and the composer is translucent glass; motion is 120/200/320 with the spring `linear()` curve. Mode keeps its three preview cards.
 - **Depth:** the composer and its strip carry only their lift shadows (`--depth-dock`, `--depth-strip`); buttons are flat with no depth.
 - **Danger confirmations:** solid red button, focus starting on Cancel.
 - **Header order:** `[title] [⋯] [Work icon] [panel toggle]`; Work info is a compact floating card.
@@ -182,7 +182,7 @@ Answer every one with yes before approving a UI PR.
 2. Are all colours tokens, with status hues used only for status?
 3. Do text tiers follow §2 (title 500, secondary muted, tertiary subtle, icons faint)?
 4. Are rows, controls and insets on the grid at the token heights, with no 14px literals?
-5. Are radii from the scale, no larger than the padding beside them, sized to the element, and concentric when nested (§2 Radius)? Does the page still look right under Corners → Sharp and Round?
+5. Are radii from the scale, no larger than the padding beside them, sized to the element, and concentric when nested (§2 Radius)?
 6. Do separators come from `rules.ts`, with nothing in the sidebar ruled?
 7. Is depth only from `--depth-*`, on the composer/strip and the remaining depth controls (never buttons), never on content? Is every floating layer `.ace-floating`, `.ace-glass-dock` or `.ace-floating-solid`, with no glass on glass or on a scroller?
 8. Do primary/secondary/ghost/danger follow §4, with one primary per surface and danger only on the confirming action?

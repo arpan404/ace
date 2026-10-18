@@ -2,9 +2,9 @@ import type { ForkPoint, Item, Run } from "@ace/protocol";
 import { forkPointOf, sameForkPoint } from "./fork-point.ts";
 
 /*
- * Where editing or retrying a message of the person starts from. Pure over the thread's order.
- * Editing a message goes back to just before it: the main agent's last finished answer ahead of
- * it, which a fork starts from (any provider) and Pi can rewind its own session to (in place).
+ * Where retrying the person's last ask starts from. Pure over the thread's order. It goes back to
+ * just before the ask: the main agent's last finished answer ahead of it, which Pi can rewind its
+ * own session to (in place).
  */
 
 interface Reader {
@@ -33,22 +33,6 @@ function pointBefore(reader: Reader, before: number, rootAgentId: string): EditP
     return { fork, piEntry: isPi(item) && item.nativeId ? item.nativeId : undefined };
   }
   return undefined;
-}
-
-/**
- * Where an edit of the person's message `itemId` continues from; undefined for the thread's
- * first message (nothing comes before it to go back to) or a message not in the order.
- */
-export function editPointOf(
-  reader: Reader,
-  itemId: string,
-  rootAgentId: string | undefined,
-): EditPoint | undefined {
-  if (!rootAgentId) return undefined;
-  const at = reader.order.lastIndexOf(itemId);
-  const item = at < 0 ? undefined : reader.item(itemId);
-  if (item?.type !== "message" || item.role !== "user") return undefined;
-  return pointBefore(reader, at, rootAgentId);
 }
 
 /** A retry of the newest answer: the message that asked for it, sent again from before it. */
@@ -92,8 +76,8 @@ export function retryPointOf(
   return undefined;
 }
 
-/** Whether two edit points start from the same place. */
-export function sameEditPoint(a: EditPoint | undefined, b: EditPoint | undefined): boolean {
+/** Whether two points start from the same place. */
+function sameEditPoint(a: EditPoint | undefined, b: EditPoint | undefined): boolean {
   if (a === b) return true;
   if (!a || !b || a.piEntry !== b.piEntry) return false;
   return sameForkPoint(a.fork, b.fork);

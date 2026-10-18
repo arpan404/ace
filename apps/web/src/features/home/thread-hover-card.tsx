@@ -78,15 +78,6 @@ export function ThreadHoverContent(props: {
             {providerDisplayName(card.provider, card.acpAgentId)}
             {account ? ` · ${account.label}${queued ? " (queued)" : ""}` : ""}
           </span>
-          {model && (
-            <span
-              className="min-w-0 truncate text-subtle-foreground"
-              data-model={model}
-              aria-label={`Model: ${modelLabel(model)}`}
-            >
-              {modelLabel(model)}
-            </span>
-          )}
           {card.subagents > 0 && (
             <span
               className="ml-auto shrink-0 tabular-nums"
@@ -96,6 +87,19 @@ export function ThreadHoverContent(props: {
             </span>
           )}
         </Fact>
+        {model && (
+          <Fact>
+            <span aria-hidden className="w-3.5 shrink-0" />
+            <span
+              className="min-w-0 truncate"
+              data-model={model}
+              title={modelLabel(model)}
+              aria-label={`Model: ${modelLabel(model)}`}
+            >
+              {modelLabel(model)}
+            </span>
+          </Fact>
+        )}
       </div>
       {(card.pr !== undefined || card.diff) && (
         <div className="mt-1 border-t border-border pt-1 text-ui text-muted-foreground">

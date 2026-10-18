@@ -77,7 +77,7 @@ export interface ComposerProps {
    * have a daemon file-path fallback, including when native media input is unavailable.
    */
   reader?: AttachmentReader | undefined;
-  /** Send may go while files upload: the message waits as its bubble until they're done. */
+  /** Send may go while files upload: the message waits in the strip until they're done. */
   sendsWhileUploading?: boolean | undefined;
   placeholder?: string | undefined;
   /** The placeholder on a narrow composer, where `placeholder` would be cut short. */

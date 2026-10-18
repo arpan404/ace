@@ -198,12 +198,6 @@ const entries = [
     keywords: ["compact", "comfortable", "spacing"],
   },
   {
-    id: "appearance.corners",
-    page: "/settings/appearance",
-    title: "Corners",
-    keywords: ["radius", "roundness", "rounded", "sharp", "square"],
-  },
-  {
     id: "appearance.transcriptSize",
     page: "/settings/appearance",
     title: "Transcript text size",
@@ -284,6 +278,12 @@ const entries = [
     page: "/settings/browser",
     title: "Device toolbar in new tabs",
     keywords: ["responsive", "mobile", "emulation", "viewport"],
+  },
+  {
+    id: "browser.pip",
+    page: "/settings/browser",
+    title: "Picture in picture",
+    keywords: ["pip", "floating", "mini player", "video", "float"],
   },
   {
     id: "host.displayName",

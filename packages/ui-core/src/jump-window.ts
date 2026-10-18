@@ -1,29 +1,43 @@
 import type { Item, ItemsWindowResponse } from "@ace/protocol";
+import { laneBefore } from "@ace/projection";
 
 /*
- * The jumped window (ADR 0062): besides the live tail it leases, a thread view holds at most
- * one contiguous window of up to 200 items fetched around a turn or a sequence. A new jump
- * replaces it; paging slides it, never growing it; it is dropped as soon as it reaches the
- * tail, so the transcript only ever shows one contiguous run of items. Pure.
+ * The history window (ADR 0062): besides the live tail it leases, a thread view holds at most
+ * one window of history, contiguous in creation order for the transcript it shows. A jump
+ * replaces it; reading older or newer grows it by whole turns up to a bound and trims it only
+ * at the end away from where the reader is reading, so nothing the reader sees ever leaves.
+ * Where it meets the tail the two are one run, merged by creation sequence. Pure.
  */
 
-/** Items a window may hold, as the daemon's `items.window` reply does. */
-export const windowCapacity = 200;
-/** Items fetched per slide, older or newer. */
-export const slideSize = 100;
+/** Items a window may hold (ADR 0056): a few thousand, far more than any screen shows. */
+export const windowCapacity = 2_000;
+/** Estimated UTF-16 units of text a window may hold besides its item count (ADR 0056). */
+export const windowWeight = 8 * 1024 * 1024;
+/** Items read per older or newer request: the most `items.window` returns besides its target. */
+export const slideSize = 199;
 
 export interface JumpWindow {
-  /** Oldest first, contiguous in creation order, at most `windowCapacity`. */
+  /** Oldest first, contiguous in creation order for the window's transcript. */
   readonly items: readonly Item[];
   /** Creation sequence of each item. */
   readonly seqs: ReadonlyMap<string, number>;
-  /** Exclusive cursor for older items (the first item's sequence), null at the thread's start. */
+  /**
+   * Exclusive cursor for older items: the transcript may be missing items before it (the
+   * first item's sequence, or older); null at the thread's start.
+   */
   readonly before: number | null;
   /** Exclusive cursor for newer items (the last item's sequence), null at the thread's end. */
   readonly after: number | null;
   /** The item the jump aimed at (a turn's first item, a search hit). */
   readonly targetId: string | undefined;
 }
+
+/** How much a window may hold: an item count and an estimate of its text. */
+export interface WindowBounds {
+  capacity: number;
+  weight: number;
+}
+export const windowBounds: WindowBounds = { capacity: windowCapacity, weight: windowWeight };
 
 type WindowReply = Pick<
   ItemsWindowResponse,
@@ -51,12 +65,17 @@ export function openWindow(reply: WindowReply): JumpWindow {
   };
 }
 
-/** The request for older items (the window's first item and up to `size` before it). */
+/**
+ * The request for older items: whole turns before the window's older cursor (its first item
+ * is the reply's target, so the two overlap and nothing between them is skipped).
+ */
 export function olderRequest(
   window: JumpWindow,
   size = slideSize,
-): { aroundSeq: number; before: number; after: 0 } | undefined {
-  return window.before === null ? undefined : { aroundSeq: window.before, before: size, after: 0 };
+): { aroundSeq: number; before: number; after: 0; wholeTurns: true } | undefined {
+  return window.before === null
+    ? undefined
+    : { aroundSeq: window.before, before: size, after: 0, wholeTurns: true };
 }
 
 /**
@@ -73,6 +92,19 @@ export function newerRequest(
     ? undefined
     : { aroundSeq: seq + 1, before: 0, after: Math.max(0, size - 1) };
 }
+
+/** A cheap estimate of the text an item holds, in UTF-16 units; other fields are bounded. */
+export function itemWeight(item: Item): number {
+  let text = 0;
+  if (item.type === "message")
+    for (const part of item.parts) text += part.type === "text" ? part.text.length : 256;
+  else if (item.type === "reasoning" || item.type === "notice") text = item.text.length;
+  return text + 1024;
+}
+
+/** Whether a person's message starts a turn here: where older history may be cut. */
+const startsTurn = (item: Item | undefined) =>
+  item?.type === "message" && item.role === "user" && !item.synthetic;
 
 function merged(window: JumpWindow, reply: WindowReply) {
   const seqs = new Map(window.seqs);
@@ -100,13 +132,31 @@ function bounded(
   return { items, seqs: kept, ...edges, targetId };
 }
 
+/** How many of `items`, counted from the given end, fit the bounds. */
+function fitting(items: readonly Item[], bounds: WindowBounds, fromNewest: boolean): number {
+  let weight = 0;
+  let count = 0;
+  for (let at = 0; at < items.length && count < bounds.capacity; at++) {
+    const item = items[fromNewest ? items.length - 1 - at : at];
+    if (!item) break;
+    weight += itemWeight(item);
+    if (count > 0 && weight > bounds.weight) break;
+    count++;
+  }
+  return count;
+}
+
 /**
- * The window with older items added in front. Items beyond capacity leave from the newer end,
- * which then has a cursor again.
+ * The window with older items added in front. The reader is reading at its older end, so
+ * items beyond the bounds leave from the newer end, which then has a cursor again.
  */
-export function withOlder(window: JumpWindow, reply: WindowReply): JumpWindow {
+export function withOlder(
+  window: JumpWindow,
+  reply: WindowReply,
+  bounds: WindowBounds = windowBounds,
+): JumpWindow {
   const { items, seqs } = merged(window, reply);
-  const kept = items.slice(0, windowCapacity);
+  const kept = items.slice(0, fitting(items, bounds, false));
   const trimmed = kept.length < items.length;
   const first = kept[0];
   const last = kept.at(-1);
@@ -124,13 +174,24 @@ export function withOlder(window: JumpWindow, reply: WindowReply): JumpWindow {
 }
 
 /**
- * The window with newer items added behind. Items beyond capacity leave from the older end,
- * which then has a cursor again.
+ * The window with newer items added behind. The reader is reading at its newer end, so items
+ * beyond the bounds leave from the older end, in whole turns where a turn start is near: the
+ * window's first item then starts a turn, and its older cursor is that item.
  */
-export function withNewer(window: JumpWindow, reply: WindowReply): JumpWindow {
+export function withNewer(
+  window: JumpWindow,
+  reply: WindowReply,
+  bounds: WindowBounds = windowBounds,
+): JumpWindow {
   const { items, seqs } = merged(window, reply);
-  const kept = items.slice(Math.max(0, items.length - windowCapacity));
-  const trimmed = kept.length < items.length;
+  let from = items.length - fitting(items, bounds, true);
+  if (from > 0) {
+    // A turn start shortly after the cut moves it there; a giant turn is cut by the bounds.
+    const turn = items.findIndex((item, index) => index >= from && startsTurn(item));
+    if (turn >= 0 && turn - from <= slideSize && turn < items.length - 1) from = turn;
+  }
+  const kept = items.slice(from);
+  const trimmed = from > 0;
   const first = kept[0];
   const last = kept.at(-1);
   const after =
@@ -145,24 +206,37 @@ export function withNewer(window: JumpWindow, reply: WindowReply): JumpWindow {
   return bounded(kept, seqs, { before, after }, window.targetId);
 }
 
-/** What a thread's live tail holds: its item ids and the cursor before its oldest item. */
+/** What a thread's live tail holds, as a window meets it. */
 export interface TailEdge {
   order: readonly string[];
-  /** The tail's oldest item's sequence; null when it reaches back to the thread's start. */
+  /** Every tail item at or after this sequence is held; null when it holds the whole thread. */
   before: number | null | undefined;
+  /** A tail item's creation sequence. */
+  seq?(id: string): number | undefined;
+  /**
+   * Whether a tail item reads in the window's transcript. The tail keeps each transcript lane
+   * as its own newest run, so a lane may reach back past `before`.
+   */
+  inLane?(id: string): boolean;
+}
+
+/** Where the tail holds the window's transcript from (`laneBefore`). */
+export function tailLaneBefore(tail: TailEdge): number | null | undefined {
+  const { seq, inLane } = tail;
+  return seq && inLane ? laneBefore(tail.order, seq, inLane, tail.before) : tail.before;
 }
 
 /**
- * Whether the window overlaps the live tail, so the tail's newer items can follow it without a
- * hole: the tail's whole run starts at or before the window's end, or the tail holds the whole
- * thread. A tail may also keep older root items before its cursor; sharing one of those is no
- * overlap, since the items between are missing. Without sequences, a shared item decides.
+ * Whether the window meets the live tail, so the two are one run with no hole between them:
+ * the window reaches the item before where the tail holds its transcript from, or the tail
+ * holds the whole thread. Without sequences, a shared item decides.
  */
 export function meetsTail(window: JumpWindow, tail: TailEdge): boolean {
-  if (tail.before === null) return true;
+  const from = tailLaneBefore(tail);
+  if (from === null) return true;
   const last = window.items.at(-1);
   const lastSeq = last ? window.seqs.get(last.id) : undefined;
-  if (typeof tail.before === "number" && lastSeq !== undefined) return lastSeq >= tail.before;
+  if (typeof from === "number" && lastSeq !== undefined) return lastSeq >= from - 1;
   const ids = new Set(tail.order);
   return window.items.some((item) => ids.has(item.id));
 }

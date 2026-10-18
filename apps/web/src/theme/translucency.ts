@@ -22,6 +22,13 @@ export const translucencyClearMax = 150;
 export const defaultTranslucency = translucencyMax;
 /** Even extra-clear glass never thins past this, so layers still read as a surface. */
 export const extraClearTintFloor = 0.15;
+/**
+ * A modal panel (the command palette) is never thinner than this. It adds no blur of its own
+ * over the page its backdrop has blurred lightly (`--backdrop-blur`), so the thin floating tint,
+ * solved for a layer's own heavier blur, would show the page through it. Near-solid instead:
+ * text and fields read as on a solid surface, at any Translucency.
+ */
+export const modalTintFloor = 0.92;
 
 /** `value` as a stored setting: whole steps from 0 to `translucencyClearMax`. */
 export function snapTranslucency(value: number): number {
@@ -46,6 +53,8 @@ export function glassAmount(translucency: number): number {
 /** The glass variables a floating layer reads (styles/glass.css). */
 export interface GlassVariables {
   "--glass-tint": string;
+  /** The modal panel's tint: the glass tint, never thinner than `modalTintFloor`. */
+  "--glass-tint-modal": string;
   "--glass-blur": string;
   "--glass-saturate": string;
   "--glass-contrast": string;
@@ -69,12 +78,16 @@ export function glassVariables(
   const alpha = Math.max(extraClearTintFloor, 1 - amount * (1 - palette.glassTint));
   const tone = glassTone(palette.material, scheme, full);
   return {
-    "--glass-tint": `color-mix(in srgb, ${palette.s2} ${Math.round(alpha * 100)}%, transparent)`,
+    "--glass-tint": tint(palette.s2, alpha),
+    "--glass-tint-modal": tint(palette.s2, Math.max(modalTintFloor, alpha)),
     "--glass-blur": `${round((palette.material.glass?.blur ?? 0) * full)}px`,
     "--glass-saturate": `${round(tone.saturate * 100)}%`,
     "--glass-contrast": `${round(tone.contrast * 100)}%`,
     "--glass-brightness": `${round(tone.brightness * 100)}%`,
   };
 }
+
+const tint = (surface: string, alpha: number) =>
+  `color-mix(in srgb, ${surface} ${Math.round(alpha * 100)}%, transparent)`;
 
 const round = (value: number) => Math.round(value * 10) / 10;

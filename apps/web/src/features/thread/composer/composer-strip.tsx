@@ -10,6 +10,7 @@ import { useHeldQueue } from "./queue-notice.tsx";
 import { QueueStrip } from "./queue-strip.tsx";
 import { queuedCount } from "./queued.tsx";
 import { useQueuedPending } from "./queued-pending.ts";
+import { OutgoingStrip, useOutgoing } from "./outgoing-strip.tsx";
 import { RequestStack } from "./request-stack.tsx";
 import { descendantKey } from "./descendant-card.tsx";
 import { useDescendantRequest } from "./descendant-request.ts";
@@ -23,7 +24,8 @@ const noRequests: readonly string[] = [];
 
 /**
  * The one strip above the thread's composer (`stripSlot` decides what it shows): a Stop waiting
- * for its second Esc, the agent's open requests, trouble with the connection, background
+ * for its second Esc, the agent's open requests, the person's messages on their way (or that
+ * didn't go: the transcript only ever shows the daemon's items), trouble with the connection, background
  * commands a stopped turn left running, the queue, or the main agent's plan, with the others as
  * indicators inside it. Loads after the thread has painted, unless the thread opens on a request.
  */
@@ -56,6 +58,7 @@ export function ComposerStrip(props: {
   const pending = useQueuedPending(props.threadId, all.page, all.retained).filter(
     (message) => message.id !== failed?.id,
   );
+  const sending = useOutgoing(props.threadId);
   const plan = useShownPlans(props.threadId)[0]?.progress;
   const queued = queuedCount(queue, pending);
   const offline = connection === "offline";
@@ -70,6 +73,7 @@ export function ComposerStrip(props: {
     confirmStop: !!props.confirmStop,
     requests,
     target: props.requestTarget,
+    sending: sending.length > 0,
     connection: offline || connection === "reconnecting",
     stopped: stopped.length > 0,
     queue: queued > 0 || queue.failed || !!held || !!editing,
@@ -80,6 +84,7 @@ export function ComposerStrip(props: {
   if (!slot.shown) return null;
   const counts: StripCounts = {
     requests: requests.length,
+    sending: { count: sending.length, failed: sending.filter((row) => row.failed).length },
     offline,
     running: stopped.length,
     queued,
@@ -110,6 +115,8 @@ export function ComposerStrip(props: {
             indicators={indicators}
           />
         </Suspense>
+      ) : slot.shown === "sending" ? (
+        <OutgoingStrip threadId={props.threadId} rows={sending} indicators={indicators} />
       ) : slot.shown === "connection" ? (
         <ConnectionStrip
           offline={offline}

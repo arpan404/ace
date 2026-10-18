@@ -85,5 +85,6 @@
     "itemsBefore",
     "itemsAfter"
   ],
-  "type": "object"
+  "type": "object",
+  "x-ace-constraint": "itemSeqs holds the creation sequence of every item."
 }

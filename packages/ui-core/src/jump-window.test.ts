@@ -2,10 +2,10 @@ import { Item, ThreadId, type ItemsWindowResponse } from "@ace/protocol";
 import { expect, test } from "vitest";
 import {
   meetsTail,
+  type WindowBounds,
   newerRequest,
   olderRequest,
   openWindow,
-  windowCapacity,
   withNewer,
   withOlder,
   windowTurnOrdinals,
@@ -63,13 +63,16 @@ test("a jump aims at the reply's target item", () => {
   expect(window.items).toHaveLength(200);
 });
 
-test("sliding newer keeps the window contiguous and at most 200 items", () => {
+/** Bounds as small as one reply, so a few slides reach them. */
+const small: WindowBounds = { capacity: 200, weight: Number.POSITIVE_INFINITY };
+
+test("sliding newer keeps the window contiguous and within its bounds", () => {
   let window = openWindow(reply(seqOf(500), 20, 179));
   for (let step = 0; step < 3; step++) {
-    const request = newerRequest(window);
+    const request = newerRequest(window, 100);
     if (!request) throw new Error("expected newer items");
-    window = withNewer(window, reply(request.aroundSeq, request.before, request.after));
-    expect(window.items.length).toBeLessThanOrEqual(windowCapacity);
+    window = withNewer(window, reply(request.aroundSeq, request.before, request.after), small);
+    expect(window.items.length).toBeLessThanOrEqual(small.capacity);
     expect(contiguous(window)).toBe(true);
   }
   expect(numbers(window).at(-1)).toBe(979);
@@ -81,9 +84,9 @@ test("sliding newer keeps the window contiguous and at most 200 items", () => {
 test("sliding older stops at the thread's start and then has no older cursor", () => {
   let window = openWindow(reply(seqOf(150), 20, 179));
   for (let step = 0; step < 5 && window.before !== null; step++) {
-    const request = olderRequest(window);
+    const request = olderRequest(window, 100);
     if (!request) break;
-    window = withOlder(window, reply(request.aroundSeq, request.before, request.after));
+    window = withOlder(window, reply(request.aroundSeq, request.before, request.after), small);
     expect(contiguous(window)).toBe(true);
   }
   expect(numbers(window)[0]).toBe(1);
@@ -91,7 +94,7 @@ test("sliding older stops at the thread's start and then has no older cursor", (
   expect(olderRequest(window)).toBeUndefined();
   // Newer items were trimmed to stay bounded, so the newer end can be paged again.
   expect(window.after).not.toBeNull();
-  expect(window.items.length).toBeLessThanOrEqual(windowCapacity);
+  expect(window.items.length).toBeLessThanOrEqual(small.capacity);
 });
 
 test("a window reaches the live tail when it shares an item with it", () => {
@@ -103,9 +106,9 @@ test("a window reaches the live tail when it shares an item with it", () => {
   expect(meetsTail(window, tail)).toBe(false);
   let steps = 0;
   while (!meetsTail(window, tail)) {
-    const request = newerRequest(window);
+    const request = newerRequest(window, 100);
     if (!request) break;
-    window = withNewer(window, reply(request.aroundSeq, request.before, request.after));
+    window = withNewer(window, reply(request.aroundSeq, request.before, request.after), small);
     steps++;
   }
   expect(steps).toBe(2);
@@ -115,7 +118,11 @@ test("a window reaches the live tail when it shares an item with it", () => {
 test("a window at the thread's end still asks for newer items, since a live thread grows", () => {
   const window = openWindow(reply(seqOf(990), 50, 50));
   expect(window.after).toBeNull();
-  expect(newerRequest(window)).toEqual({ aroundSeq: seqOf(total) + 1, before: 0, after: 99 });
+  expect(newerRequest(window, 100)).toEqual({
+    aroundSeq: seqOf(total) + 1,
+    before: 0,
+    after: 99,
+  });
   // It overlaps a tail that holds its newest items, and not one that has moved past them.
   expect(meetsTail(window, { order: ["item-1000"], before: seqOf(1000) })).toBe(true);
   expect(meetsTail(window, { order: ["item-1300"], before: seqOf(1300) })).toBe(false);

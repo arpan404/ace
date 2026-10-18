@@ -9,7 +9,7 @@ import {
   type ItemsPage,
   type ThreadId,
 } from "@ace/protocol";
-import { applyDelta, retainedTail } from "@ace/projection";
+import { applyDelta, inRootLane, retainedTail } from "@ace/projection";
 
 function decodeAppend(value: unknown): string {
   return z.string().parse(JSON.parse(z.string().parse(value)));
@@ -326,7 +326,8 @@ export class ItemStore {
   /**
    * A snapshot's transcript tail: the items the client's bounded window holds after its trim
    * (`retainedTail`, ADR 0062), whole, in creation order. Only the newest `limit + 1` heads and
-   * the root's newest `limit / 2` can be chosen, so two indexed reads cover any thread length.
+   * the root lane's newest `limit / 2` (the root agent's and the thread's own) can be chosen, so
+   * three indexed reads cover any thread length.
    * If those items exceed `byteLimit`, the same rule picks a smaller window that fits; a newest
    * item larger than the whole budget still shows alone, as its bounded preview.
    */
@@ -343,27 +344,30 @@ export class ItemStore {
       agent_id: z.string(),
     });
     const columns = "SELECT id, created_seq, size, agent_id FROM item_heads WHERE thread_id = ?";
+    // The root lane is the root agent's items and the thread's own (no agent): one indexed
+    // read each, never one IN query, which would sort the whole lane.
+    const lane = (agentId: string) =>
+      this.statement(`${columns} AND agent_id = ? ORDER BY created_seq DESC LIMIT ?`).all(
+        threadId,
+        agentId,
+        Math.floor(limit / 2),
+      );
     const rows = [
       ...this.statement(`${columns} ORDER BY created_seq DESC LIMIT ?`).all(threadId, limit + 1),
-      ...(rootAgentId === undefined
-        ? []
-        : this.statement(`${columns} AND agent_id = ? ORDER BY created_seq DESC LIMIT ?`).all(
-            threadId,
-            rootAgentId,
-            Math.floor(limit / 2),
-          )),
+      ...(rootAgentId === undefined ? [] : lane(rootAgentId)),
+      ...lane(""),
     ];
     const heads = new Map<number, z.infer<typeof Head>>();
     for (const row of z
       .array(Head)
-      .max(2 * limit + 1)
+      .max(3 * limit + 1)
       .parse(rows))
       heads.set(row.created_seq, row);
     const sorted = [...heads.values()].toSorted((a, b) => a.created_seq - b.created_seq);
     const entries = sorted.map((head) => ({
       id: String(head.id),
       seq: head.created_seq,
-      root: rootAgentId !== undefined && head.agent_id === rootAgentId,
+      root: inRootLane(head.agent_id, rootAgentId),
     }));
     const sizes = new Map(sorted.map((head) => [String(head.id), head.size]));
     // Budget both items:{} and itemOrder:[], including serialized ids, colons and commas.

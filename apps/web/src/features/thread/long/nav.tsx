@@ -1,5 +1,6 @@
 import type { ThreadReader, ThreadSource } from "@ace/client";
 import { useClient, useThread, useThreadStore } from "@ace/client-react";
+import { inRootLane } from "@ace/projection";
 import { itemTurnOrdinals } from "@ace/ui-core";
 import {
   createContext,
@@ -45,6 +46,8 @@ export interface ThreadNav {
   jump: Jump;
   /** The root turn at the top of the transcript's viewport. */
   currentTurn: Watched<number | undefined>;
+  /** The root turn at the bottom of the viewport: with `currentTurn`, every turn in view. */
+  bottomTurn: Watched<number | undefined>;
   /** The reader is at the live end and new output scrolls into view. */
   following: Watched<boolean>;
   /** The newest root turn the live tail shows: the turn index is read again when it moves. */
@@ -86,12 +89,25 @@ export function ThreadNavProvider(props: { threadId: string; children: ReactNode
         order: live?.order ?? [],
         before: live?.itemsBefore,
         firstItemOf: (ordinal) => firstItemOf(live, ordinal),
+        seq: (id) => live?.itemSeq?.(id),
+        item: (id) => live?.item(id),
+        inLane: (id) => inRootLane(live?.item(id)?.agentId, live?.thread?.rootAgentId),
       })),
     [jump, live],
   );
   useEffect(() => () => jump.dispose(), [jump]);
   const [currentTurn] = useState(() => new Watched<number | undefined>(undefined));
+  const [bottomTurn] = useState(() => new Watched<number | undefined>(undefined));
   const [following] = useState(() => new Watched(true));
+  // The reader leaving the live end holds the rows they see: the shared tail is bounded and
+  // trims its oldest items as output arrives, and must never trim them from under the reader.
+  useEffect(
+    () =>
+      following.subscribe(() => {
+        if (!following.get()) jump.hold();
+      }),
+    [following, jump],
+  );
   const [liveTurn] = useState(() => new Watched<number | undefined>(undefined));
   const newestTurn = useThread(props.threadId, ["order", "agents"], readLiveTurn);
   useEffect(() => liveTurn.set(newestTurn), [liveTurn, newestTurn]);
@@ -103,6 +119,7 @@ export function ThreadNavProvider(props: { threadId: string; children: ReactNode
       threadId: props.threadId,
       jump,
       currentTurn,
+      bottomTurn,
       following,
       liveTurn,
       turnsOpen,
@@ -111,7 +128,17 @@ export function ThreadNavProvider(props: { threadId: string; children: ReactNode
       setSearchOpen,
       searchFocus,
     }),
-    [props.threadId, jump, currentTurn, following, liveTurn, turnsOpen, searchOpen, searchFocus],
+    [
+      props.threadId,
+      jump,
+      currentTurn,
+      bottomTurn,
+      following,
+      liveTurn,
+      turnsOpen,
+      searchOpen,
+      searchFocus,
+    ],
   );
   return <NavContext.Provider value={value}>{props.children}</NavContext.Provider>;
 }

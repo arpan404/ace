@@ -82,3 +82,50 @@ index on `(thread_id, agent_id, created_seq)`: only the newest 201 heads and the
 100 can be chosen, so two indexed reads serve any thread length. When those items exceed the
 snapshot's byte budget, the same rule picks the largest smaller window that fits. The fake
 daemon's snapshot uses the rule too.
+
+## Transcript order and held ranges (2026-10-18)
+
+Owner report: in a long Claude thread with two busy subagents, scrolling up made older agent
+messages disappear and the person's messages showed out of order. Causes: the live tail keeps
+the root lane's newest items further back than its single cursor `itemsBefore`, but loading
+older read a window around that cursor (newer than the rows on screen) and dropped the root
+rows older than the window; a joined window took "the tail's items after the last shared id"
+instead of merging by sequence; the bounded tail trimmed rows the reader was reading; a gap
+resubscribed without a cursor and the snapshot replaced loaded history. Decisions:
+
+- **One order key.** The daemon's creation sequence travels with every item: snapshots
+  (`itemSeqs` must cover `itemOrder`), `items.page` and `items.window` replies are refused
+  without it, `ThreadReader.itemSeq` exposes it, and the worker's mirror carries it in item
+  patches. Every merge is `mergeBySeq` (dedupe by id, order by sequence, linear); an id without
+  a sequence throws instead of landing at an edge. A repeated `item.created` never moves an
+  item. Ordering stays creation order (owner decision; no turn-blocked ordinals).
+- **Lanes, not a global cursor.** The root share stays (owner UX: busy subagents must not push
+  the person's prompts out of the root transcript), but its contiguity is per lane: the root
+  lane is the root agent's items plus the thread's own agentless items (`inRootLane`), the
+  other lane every other agent's. Each lane is complete from `laneBefore` (its oldest held
+  item, or `itemsBefore` if older). A transcript reasons about its own lane; the daemon
+  snapshot reads agentless items with a third indexed query rather than an `IN` that sorts.
+- **Held range.** When the reader leaves the live end, the thread view holds the rows the tail
+  shows as its history window (`holdTail`), so the shared tail's trimming never removes them.
+  While the window meets the tail (its last item at or after the tail's lane cursor minus one)
+  the transcript is the window and the tail's items from the window's first sequence on,
+  merged by sequence. Before the tail can trim past the window's end (50 lane items of margin)
+  the window takes the tail's newer lane items (`absorbTail`); at its bound it leaves the tail
+  behind a gap. Reading older fetches whole turns before the window's older cursor and trims
+  only the newer end; reading newer trims the older end at a turn start. A jump replaces the
+  window (a second disjoint range) and joins the tail once it reaches it. Control state (runs,
+  agents, interactions, tasks, thread status) is always read from the live store.
+- **Whole turns.** `items.window` takes `wholeTurns`: the older side starts where a turn
+  starts (`long_turns.start_seq`, new index `long_turns_start`), unless the first item already
+  starts its turn; a single turn larger than the window is cut by the budgets and the cursor
+  still says more is older. The fake daemon and the long-thread soak do the same.
+- **Resume, don't replace.** A delivery gap resubscribes with `afterSeq` = the held cursor;
+  only a second gap at the same cursor starts over without one. When the daemon answers with a
+  snapshot, the store keeps each lane's held items older than the snapshot when the snapshot's
+  lane starts at or before the held cursor + 1, and only the finished items after the newest
+  unfinished one (events the gap skipped may have changed a running item). Otherwise the
+  snapshot replaces the store; the view's held window keeps its copies and shows a gap.
+
+Older paragraphs of this ADR that describe a 200-item window sliding by 100, or a joined window
+"followed by the tail's newer items", are superseded by this section; ADR 0056 records the new
+window bound.

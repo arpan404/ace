@@ -9,16 +9,13 @@
     "text-size": 1
   },
   "apps/web/src/components/inline-markdown.tsx": {
-    "text-size": 1,
-    "radius": 1
-  },
-  "apps/web/src/components/markdown/markdown.tsx": {
-    "text-size": 4
-  },
-  "apps/web/src/components/ui/command.tsx": {
     "text-size": 1
   },
-  "apps/web/src/components/ui/filter-menu.tsx": {
+  "apps/web/src/components/markdown/markdown.tsx": {
+    "text-size": 3
+  },
+  "apps/web/src/components/ui/command.tsx": {
+    "text-size": 1,
     "bare-outline": 1
   },
   "apps/web/src/components/ui/input.tsx": {
@@ -29,12 +26,6 @@
   },
   "apps/web/src/features/devices/device-screen.tsx": {
     "radius": 1
-  },
-  "apps/web/src/features/home/project-filter.tsx": {
-    "bare-outline": 1
-  },
-  "apps/web/src/features/home/thread-list.tsx": {
-    "bare-outline": 1
   },
   "apps/web/src/features/home/thread-row.tsx": {
     "bare-outline": 1
@@ -81,10 +72,6 @@
   },
   "apps/web/src/features/thread/header/work-side.tsx": {
     "bare-outline": 1
-  },
-  "apps/web/src/features/thread/items/background-task.tsx": {
-    "text-size": 3,
-    "radius": 2
   },
   "apps/web/src/features/thread/items/step-detail.tsx": {
     "text-size": 1

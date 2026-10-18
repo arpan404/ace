@@ -21,6 +21,11 @@ export interface NativeViewPlacement {
       }
     | undefined;
   visible: boolean;
+  /**
+   * Hidden only while one of this page's menus is drawn over it: the person still watches it,
+   * so it keeps rendering (its screencast is drawn in its place) and its sound plays.
+   */
+  covered?: boolean | undefined;
 }
 
 export type BrowserAccelerator =

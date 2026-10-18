@@ -38,6 +38,9 @@
     "type": {
       "const": "items.window",
       "type": "string"
+    },
+    "wholeTurns": {
+      "type": "boolean"
     }
   },
   "required": [

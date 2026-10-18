@@ -99,8 +99,9 @@ export interface FrozenPage {
  * A native view paints above everything in the window, so a menu or popover opened over it
  * would be hidden. Instead of moving the page aside (it would jump and reflow), the view is
  * captured as it is, its picture (`frozen`) is drawn in exactly its place, and only then is the
- * view hidden; it comes back, at the same bounds, once the overlay is gone. The page keeps
- * running underneath the whole time.
+ * view hidden, marked `covered`; it comes back, at the same bounds, once the overlay is gone.
+ * Meanwhile the page keeps running, rendering and playing sound, and the caller draws its live
+ * screencast in its place once a fresh frame replaces the picture (`useCoverStill`).
  */
 export function useNativeView(
   threadId: string,
@@ -229,6 +230,7 @@ export function useNativeView(
         ...(tabId === undefined ? {} : { tabId }),
         bounds: box.bounds,
         visible: box.visible && !hidden,
+        ...(box.visible && hidden ? { covered: true } : {}),
         ...(size ? { device: size } : {}),
       });
     };

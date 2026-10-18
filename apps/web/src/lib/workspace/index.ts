@@ -21,6 +21,7 @@ export {
 } from "./definition.ts";
 export {
   defineTabKind,
+  launchRequest,
   type ClosingTab,
   type CloseWarning,
   type TabKind,

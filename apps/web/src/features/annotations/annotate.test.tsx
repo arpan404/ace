@@ -371,18 +371,22 @@ test("pressing Send in the page ends annotate mode and removes the overlay, even
   await waitFor(() => expect(userMessages(app).slice(before)[0]?.attachments).toHaveLength(2));
 }, 20_000);
 
-test("the sent message appears immediately with its annotation card while the screenshot is still being captured and uploaded", async () => {
-  const { app, browser, capture } = await pinnedOne();
+/** The composer's strip of messages on their way, once it shows. */
+const onTheirWay = () => screen.findByRole("region", { name: "Messages on their way" });
+
+test("the sent message leaves the composer at once and waits in its strip while the screenshot is captured and uploaded, then lands with its annotation card", async () => {
+  const { app, browser, capture, message } = await pinnedOne();
   const before = userMessages(app).length;
   const feed = screen.getByRole("feed", { name: "Transcript" });
   const pressed = performance.now();
   act(() => browser.annotations.emit(threadId, { kind: "send" }));
-  const bubble = await waitFor(() => within(feed).getByText("Fix the heading"), { interval: 5 });
-  const shown = performance.now() - pressed;
-  const row = bubble.closest(".group\\/bubble");
-  if (!(row instanceof HTMLElement)) throw new Error("no bubble");
-  expect(within(row).getByText("1 annotation")).toBeTruthy();
-  expect(shown).toBeLessThan(100);
+  await waitFor(() => expect(message.textContent).toBe(""), { interval: 5 });
+  expect(performance.now() - pressed).toBeLessThan(100);
+
+  // Until the daemon has it, the message waits in the composer's strip, not the transcript.
+  const strip = await onTheirWay();
+  expect(within(strip).getByText("Fix the heading")).toBeTruthy();
+  expect(within(feed).queryByText("Fix the heading")).toBeNull();
   expect(userMessages(app).length).toBe(before);
 
   // The screenshot arrives later; the message then goes with every image.
@@ -397,26 +401,28 @@ test("the sent message appears immediately with its annotation card while the sc
     "annotated-page-1.png",
     "annotation-1.png",
   ]);
+  const bubble = await within(feed).findByText("Fix the heading");
+  const row = bubble.closest(".group\\/bubble");
+  if (!(row instanceof HTMLElement)) throw new Error("no bubble");
+  expect(within(row).getByText("1 annotation")).toBeTruthy();
+  await waitFor(() =>
+    expect(screen.queryByRole("region", { name: "Messages on their way" })).toBeNull(),
+  );
 }, 20_000);
 
-test("the pending bubble shows annotation thumbnails, the screenshot's once it is taken", async () => {
+test("the delivered message shows its annotation thumbnails, the screenshot taken after Send included", async () => {
   previews();
   const { browser, capture } = await pinnedOne();
   const feed = screen.getByRole("feed", { name: "Transcript" });
   act(() => browser.annotations.emit(threadId, { kind: "send" }));
-  const crop = await within(feed).findByRole("img", { name: "annotation-1.png" });
-  expect(crop.getAttribute("src")).toMatch(/^blob:test\//);
-  expect(within(feed).queryByRole("img", { name: "annotated-page-1.jpg" })).toBeNull();
+  // Nothing of it is in the transcript before the daemon has it.
+  expect(within(feed).queryByRole("img", { name: "annotation-1.png" })).toBeNull();
 
   await waitFor(() => expect(capture.waiting()).toBe(1));
   capture.release();
-  await waitFor(() =>
-    expect(
-      within(feed)
-        .getAllByRole("img")
-        .filter((image) => image.getAttribute("src")?.startsWith("blob:test/")),
-    ).toHaveLength(2),
-  );
+  const crop = await within(feed).findByRole("img", { name: "annotation-1.png" });
+  expect(crop.getAttribute("src")).toMatch(/^blob:test\//);
+  expect(await within(feed).findByRole("img", { name: "annotated-page-1.png" })).toBeTruthy();
 }, 20_000);
 test("an annotation names the tab it was made in, so the agent can find its element there", async () => {
   const { app, panel, browser } = await annotating();
@@ -446,4 +452,4 @@ test("an annotation names the tab it was made in, so the agent can find its elem
       },
     ]),
   );
-});
+}, 20_000);

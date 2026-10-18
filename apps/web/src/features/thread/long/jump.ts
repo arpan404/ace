@@ -1,5 +1,5 @@
 import type { ClientApi, ThreadSource } from "@ace/client";
-import type { JumpWindow } from "@ace/ui-core";
+import type { JumpWindow, WindowBounds } from "@ace/ui-core";
 import type { JumpController, JumpSnapshot, LiveTail } from "./jump-controller.ts";
 
 /*
@@ -35,10 +35,17 @@ export class Jump {
   private deleted = new Set<string>();
   private revision = 0;
   private load: () => Promise<Loaded>;
-  constructor(client: ClientApi, threadId: string, load: () => Promise<Loaded> = preloadJump) {
+  private bounds: WindowBounds | undefined;
+  constructor(
+    client: ClientApi,
+    threadId: string,
+    load: () => Promise<Loaded> = preloadJump,
+    bounds?: WindowBounds,
+  ) {
     this.client = client;
     this.threadId = threadId;
     this.load = load;
+    this.bounds = bounds;
   }
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -49,7 +56,7 @@ export class Jump {
   private start(): Promise<JumpController> {
     this.starting ??= this.load().then((loaded) => {
       this.loaded = loaded;
-      const controller = new loaded.JumpController(this.client, this.threadId);
+      const controller = new loaded.JumpController(this.client, this.threadId, this.bounds);
       if (this.tail) controller.setTail(this.tail);
       controller.subscribe(() => {
         for (const listener of this.listeners) listener();
@@ -77,6 +84,20 @@ export class Jump {
   }
   toItem(itemId: string): Promise<void> {
     return this.run((controller) => controller.toItem(itemId));
+  }
+  /**
+   * The reader left the live end: hold the rows they see (see `JumpController.hold`). Never
+   * cancels a jump in flight; dropped if the reader went back to live meanwhile.
+   */
+  hold(): void {
+    const revision = this.revision;
+    if (this.controller) {
+      this.controller.hold();
+      return;
+    }
+    void this.start().then((controller) => {
+      if (revision === this.revision) controller.hold();
+    });
   }
   older(): Promise<void> {
     return this.run((controller) => controller.older());

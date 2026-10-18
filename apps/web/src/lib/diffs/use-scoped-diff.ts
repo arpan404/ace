@@ -17,11 +17,16 @@ export function scopeLabel(scope: Scope, turns: readonly Turn[]): string {
   return turn ? `Turn ${turn.number}` : "Last turn";
 }
 
-/** One persisted scope and one count for the Changes view, its badge and the work card. */
-export function useScopedDiff(threadId: string) {
+/**
+ * One persisted scope and one count for a Changes tab (`tabKey`), or for the first one open when
+ * none is named (its badge and the work card).
+ */
+export function useScopedDiff(threadId: string, tabKey?: string) {
   const workspace = useScopeWorkspace(threadId);
   const actions = useWorkspaceActions(threadId);
-  const tab = workspace.tabs.find((candidate) => candidate.kind === "changes");
+  const tab = workspace.tabs.find((candidate) =>
+    tabKey === undefined ? candidate.kind === "changes" : candidate.key === tabKey,
+  );
   const parsed = tabData.safeParse(tab?.data);
   const data = parsed.success ? parsed.data : {};
   const requested = data.scope ?? "last";

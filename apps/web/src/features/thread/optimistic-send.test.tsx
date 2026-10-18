@@ -11,8 +11,8 @@ import { resetStops } from "./composer/stop-state.ts";
 
 /*
  * What the person sees between pressing Enter and the daemon having their message (UX audit
- * SY-2, SY-3, SY-7, SY-8): the bubble at once, its state under it, the same bubble once the
- * daemon has it, and nothing lost when it doesn't go.
+ * SY-2, SY-3, SY-7, SY-8): the transcript shows only the daemon's items; a message on its way,
+ * or one that didn't go, waits in the composer's strip with its state, and nothing is lost.
  */
 
 beforeEach(() => {
@@ -32,7 +32,10 @@ async function open(scenario: "idle" | "busy", options: Parameters<typeof harnes
   return { app, feed, message: message as HTMLDivElement };
 }
 
-test("a message sent offline shows as its bubble at once and becomes the daemon's item when the connection returns", async () => {
+/** The composer's strip of messages on their way, once it shows. */
+const onTheirWay = () => screen.findByRole("region", { name: "Messages on their way" });
+
+test("a message sent offline waits in the composer's strip and becomes the daemon's item when the connection returns", async () => {
   const { app, feed, message } = await open("idle");
   act(() => app.daemon.refuseConnections(true));
   await waitFor(() => expect(app.client.state).not.toBe("ready"));
@@ -40,33 +43,41 @@ test("a message sent offline shows as its bubble at once and becomes the daemon'
   // This slash is literal text; dismiss the offline command completion before sending.
   await userEvent.type(message, "Add a route for /settings{Escape}{Enter}");
   expect(message.textContent).toBe("");
-  expect(within(feed).getByText("Add a route for /settings")).toBeTruthy();
-  expect(within(feed).getByText("Will apply when reconnected")).toBeTruthy();
+  const strip = await onTheirWay();
+  expect(within(strip).getByText("Add a route for /settings")).toBeTruthy();
+  expect(within(strip).getByText("Will apply when reconnected")).toBeTruthy();
+  // The transcript shows only what the daemon has.
+  expect(within(feed).queryByText("Add a route for /settings")).toBeNull();
   // Said once, by the strip above the composer.
   expect(await screen.findAllByText(/^Reconnecting/)).toHaveLength(1);
   expect(within(feed).queryByText(/^Offline since/)).toBeNull();
 
   act(() => app.daemon.refuseConnections(false));
-  // Once the daemon has it the note goes, and the message is still shown exactly once.
-  await waitFor(() => expect(within(feed).queryByText("Will apply when reconnected")).toBeNull(), {
-    timeout: 8_000,
-  });
-  expect(within(feed).getAllByText("Add a route for /settings")).toHaveLength(1);
+  // Once the daemon has it the strip lets it go, and the message is shown exactly once.
+  expect(
+    await within(feed).findByText("Add a route for /settings", {}, { timeout: 8_000 }),
+  ).toBeTruthy();
+  await waitFor(() =>
+    expect(screen.queryByRole("region", { name: "Messages on their way" })).toBeNull(),
+  );
+  expect(screen.getAllByText("Add a route for /settings")).toHaveLength(1);
   expect(screen.queryByText(/^Offline since/)).toBeNull();
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
 });
 
-test("a message the daemon refuses keeps its bubble with the reason, and Edit puts it back in the composer", async () => {
+test("a message the daemon refuses stays in the composer's strip with the reason, and Edit puts it back in the composer", async () => {
   const { app, feed, message } = await open("idle");
   app.daemon.refuseCommands("thread_transition_in_progress", "thread.send");
 
   await userEvent.type(message, "Also bump the changelog{Enter}");
-  const alert = await within(feed).findByRole("alert");
+  const strip = await onTheirWay();
+  const alert = await within(strip).findByRole("alert");
   expect(within(alert).getByText("Not sent")).toBeTruthy();
   expect(
     within(alert).getByText(/The thread is switching providers; try again in a moment/),
   ).toBeTruthy();
-  expect(within(feed).getByText("Also bump the changelog")).toBeTruthy();
+  expect(within(strip).getByText("Also bump the changelog")).toBeTruthy();
+  expect(within(feed).queryByText("Also bump the changelog")).toBeNull();
 
   await userEvent.click(within(alert).getByRole("button", { name: "Edit" }));
   await waitFor(() =>
@@ -74,20 +85,21 @@ test("a message the daemon refuses keeps its bubble with the reason, and Edit pu
       "Also bump the changelog",
     ),
   );
-  expect(within(feed).queryByText("Also bump the changelog")).toBeNull();
-  expect(within(feed).queryByText("Not sent")).toBeNull();
+  expect(screen.queryByRole("region", { name: "Messages on their way" })).toBeNull();
+  expect(screen.queryByText("Not sent")).toBeNull();
 });
 
 test("Retry sends a refused message again and it lands once", async () => {
   const { app, feed, message } = await open("idle");
   app.daemon.refuseCommands("thread_transition_in_progress", "thread.send");
   await userEvent.type(message, "Also bump the changelog{Enter}");
-  const alert = await within(feed).findByRole("alert");
+  const alert = await within(await onTheirWay()).findByRole("alert");
 
   app.daemon.restoreRequests();
   await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
-  await waitFor(() => expect(within(feed).queryByText("Not sent")).toBeNull());
-  expect(within(feed).getAllByText("Also bump the changelog")).toHaveLength(1);
+  expect(await within(feed).findByText("Also bump the changelog")).toBeTruthy();
+  await waitFor(() => expect(screen.queryByText("Not sent")).toBeNull());
+  expect(screen.getAllByText("Also bump the changelog")).toHaveLength(1);
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
 });
 
@@ -96,7 +108,7 @@ test("a message that may have run is never offered as Not sent with Retry", asyn
   await userEvent.type(message, "Run the migration{Enter}");
   const [send] = app.client.pendingSends("thread-router").getSnapshot();
   if (!send) throw new Error("Expected the pending send");
-  await waitFor(() => expect(within(feed).queryByText("Sending…")).toBeNull());
+  await within(feed).findByText("Run the migration");
 
   // The provider dropped before confirming it (ADR 0065): it may have run, so a plain
   // resend could run it twice.
@@ -129,7 +141,9 @@ test("a message too large for the daemon says how large it is against the limit"
   const first = await open("idle");
   first.app.daemon.refuseCommands("message_too_large", "thread.send");
   await userEvent.type(first.message, "A very long paste{Enter}");
-  expect(await within(first.feed).findByText(/Too long: 1 KB, the limit is 256 KB/)).toBeTruthy();
+  expect(
+    await within(await onTheirWay()).findByText(/Too long: 1 KB, the limit is 256 KB/),
+  ).toBeTruthy();
 });
 
 test("a queued follow-up is a pill the moment Enter is pressed, and never also a bubble", async () => {

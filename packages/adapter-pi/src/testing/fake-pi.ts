@@ -210,6 +210,17 @@ async function handle(line: string) {
     case "prompt": {
       inputDelivered = true;
       const message = typeof c.message === "string" ? c.message : "";
+      if (message === "image-echo") {
+        // Pi repeats every image of the run: the user message and its tool result both carry it.
+        const images = z.array(z.unknown()).catch([]).parse(c.images);
+        const user = { role: "user", content: [{ type: "text", text: message }, ...images] };
+        const tool = { role: "toolResult", toolCallId: "read-1", content: images };
+        emit({ type: "message_end", message: user });
+        emit({ type: "agent_end", messages: [user, tool], willRetry: false });
+        emit({ type: "agent_settled" });
+        reply(c);
+        return;
+      }
       if (message.startsWith("/ace-rollback ")) {
         emit({
           type: "extension_ui_request",

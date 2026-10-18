@@ -7,6 +7,7 @@ import { createPiTranslator as pi } from "@ace/adapter-pi";
 import { OpenCodeTranslator } from "@ace/adapter-opencode";
 import { createCodexTranslator as codex } from "@ace/adapter-codex";
 import { ProviderPayload } from "@ace/provider-kit/payload";
+import { elidedJson } from "@ace/provider-kit/binary-elision";
 import { Attachment, Capabilities, Command } from "@ace/protocol";
 import { Engine } from "@ace/daemon";
 import { harness, scriptFrames } from "./test-support.ts";
@@ -34,6 +35,7 @@ async function fixture(
   provider: keyof typeof translators,
   imageOnly = false,
   extra: unknown = { retained: true },
+  elided = false,
 ) {
   const bytes = await readFile(
     new URL("../../../../packages/context/fixtures/colours.png", import.meta.url),
@@ -57,7 +59,7 @@ async function fixture(
     channel: string = provider === "claude" ? "sdk" : "stdio",
     dir: "send" | "recv" = "recv",
   ) => {
-    const payload = new ProviderPayload(JSON.stringify(data));
+    const payload = new ProviderPayload(elided ? elidedJson(data) : JSON.stringify(data));
     return { seq: ++seq, t: seq, dir, channel, data: payload.data, payload };
   };
   const echo = () =>
@@ -234,6 +236,22 @@ for (const provider of ["claude", "pi"] as const) {
     }
   });
 }
+
+test("a Claude echo whose screenshot bytes were elided from its frame still carries the uploaded attachment", async () => {
+  // The Claude adapter records frames without attachment bytes; only the bytes' digest remains.
+  const h = await fixture("claude", true, { retained: true }, true);
+  try {
+    const page = h.store.readItemPage(h.threadId, Number.MAX_SAFE_INTEGER, 20);
+    const echo = page.items.find(
+      (item) => item.type === "message" && item.role === "user" && !item.id.startsWith("input:"),
+    );
+    expect(echo).toMatchObject({ attachments: [h.attachment] });
+    expect(JSON.stringify(echo)).not.toContain("elided");
+    expect(h.errors).toEqual([]);
+  } finally {
+    await h.close();
+  }
+});
 
 test("attachment user echoes preserve deeply nested unknown native fields without poisoning the provider", async () => {
   let extra: unknown = "deep-original-field";

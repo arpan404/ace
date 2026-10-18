@@ -49,6 +49,8 @@ interface Target {
   window: BaseWindow | undefined;
   bounds: Rect | undefined;
   visible: boolean;
+  /** Hidden only while the app's menu covers it (`BrowserPlacement.covered`). */
+  covered?: boolean;
   zoom?: number;
   device?: NativeDevice | undefined;
 }
@@ -243,8 +245,9 @@ export class EmbeddedPageGroup implements ViewPage {
     for (const [id, tab] of this.tabs) {
       const pin = this.pinned.get(id);
       const target = pin?.visible ? pin : id === this.active ? this.target : (pin ?? this.target);
-      const shown = target.visible && (target === pin || id === this.active);
-      tab.page.place({ ...target, visible: shown });
+      const here = target === pin || id === this.active;
+      const shown = target.visible && here;
+      tab.page.place({ ...target, visible: shown, covered: here && target.covered === true });
       tab.page.setNativeInput(this.input && shown);
       tab.page.setAgentControl(id === this.active ? this.agent : !shown);
     }

@@ -15,12 +15,15 @@ export interface ResolvedPlacement {
   /** In window DIPs; undefined until a renderer has placed the view. */
   bounds: Rect | undefined;
   visible: boolean;
+  /** Hidden only while the renderer's menu covers it (`BrowserPlacement.covered`). */
+  covered?: boolean;
 }
 
 interface Claim {
   device?: NativeDevice | undefined;
   bounds: Rect;
   visible: boolean;
+  covered?: boolean | undefined;
   order: number;
 }
 
@@ -56,6 +59,7 @@ export class PlacementBook {
     claim: {
       bounds: Rect;
       visible: boolean;
+      covered?: boolean | undefined;
       device?: NativeDevice | undefined;
     },
   ): ResolvedPlacement {
@@ -65,6 +69,7 @@ export class PlacementBook {
       bounds: claim.bounds,
       device: claim.device,
       visible: claim.visible,
+      covered: !claim.visible && claim.covered === true,
       order: ++this.order,
     });
     return this.resolve(threadId);
@@ -110,6 +115,11 @@ export class PlacementBook {
         visible: true,
         device: shown[1].device,
       };
-    return { host: latest?.[0], bounds: latest?.[1].bounds, visible: false };
+    return {
+      host: latest?.[0],
+      bounds: latest?.[1].bounds,
+      visible: false,
+      ...(latest?.[1].covered ? { covered: true } : {}),
+    };
   }
 }
