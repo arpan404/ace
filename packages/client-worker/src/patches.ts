@@ -60,6 +60,8 @@ export function threadValue(reader: ThreadReader, key: string): unknown {
       return errorOf(reader);
     case "sync":
       return reader.syncing ?? false;
+    case "unconfirmed":
+      return reader.unconfirmed ?? false;
     case "thread":
       return reader.thread;
     case "queue":
@@ -186,15 +188,19 @@ export function sidebarPatches(reader: SidebarReader, keys: Iterable<string>): P
     if (k === "threads") continue;
     const { kind, id } = splitKey(k);
     const v =
-      kind === "homeWindow"
-        ? reader.homeWindow
-        : kind === "window"
-          ? reader.window
-          : kind === "ids"
-            ? reader.ids
-            : kind === "thread"
-              ? reader.thread(id)
-              : errorOf(reader);
+      kind === "sync"
+        ? (reader.syncing ?? false)
+        : kind === "unconfirmed"
+          ? (reader.unconfirmed ?? false)
+          : kind === "homeWindow"
+            ? reader.homeWindow
+            : kind === "window"
+              ? reader.window
+              : kind === "ids"
+                ? reader.ids
+                : kind === "thread"
+                  ? reader.thread(id)
+                  : errorOf(reader);
     patches.push(v === undefined ? { k } : { k, v });
   }
   return patches;

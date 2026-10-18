@@ -33,7 +33,13 @@ import {
   type ServerMessage,
   type CommandPayload,
 } from "@ace/protocol";
-import type { ClientCoreApi, ConnectionControl, RegistryQuery } from "./api.ts";
+import type {
+  ClientCoreApi,
+  ConnectionControl,
+  RegistryQuery,
+  SidebarSource,
+  ThreadSource,
+} from "./api.ts";
 import { Connection, sameConnectionInfo } from "./connection.ts";
 import { WireCodec, type ServiceWire } from "./wire-codec.ts";
 import { isOneWayMessage, type OneWayMessage } from "./one-way.ts";
@@ -123,6 +129,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   #subscriptions: Subscriptions;
   #sidebar: Sidebar;
   #collections = new Set<Sidebar>();
+  /** Read snapshots still being written by collections already closed. */
+  #checkpoints = new Set<Promise<void>>();
   #intents: Intents;
   #statusChecks: CommandStatusChecks;
   #admissions: CommandAdmissions;
@@ -248,12 +256,14 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       (message) => this.connection.send(message),
       options.id,
       () => this.state === "ready",
+      this.#persistence(),
     );
     this.#sidebar = new Sidebar(
       limits,
       (message) => this.connection.send(message),
       options.id,
       () => this.state === "ready",
+      this.#persistence(),
     );
     this.#collections.add(this.#sidebar);
     this.#intents = new Intents({
@@ -445,8 +455,18 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       throw failure;
     }
   }
+  #persistence() {
+    const storage = this.options.readSnapshots;
+    return storage ? { storage, scheduler: this.options.scheduler } : undefined;
+  }
+  /** Settles once durable intents and every view's last read snapshot are written. */
   close(): Promise<void> {
     this.closed = true;
+    const checkpoints = [
+      this.#subscriptions.close(),
+      ...[...this.#collections].map((collection) => collection.close()),
+      ...this.#checkpoints,
+    ];
     this.#recordings.close();
     this.requests.clear(new ClientError("offline"));
     this.#readMarkers.close();
@@ -455,7 +475,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     this.#statusChecks.disconnect();
     this.#serviceListeners.clear();
     this.connection.stop();
-    return this.#intents.settled();
+    return Promise.all([this.#intents.settled(), ...checkpoints]).then(() => {});
   }
   networkOnline(online: boolean): void {
     this.connection.networkOnline(online);
@@ -463,6 +483,12 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   thread(id: string): ThreadSubscription {
     if (this.closed) throw new ClientError("offline");
     return this.#subscriptions.acquire(id);
+  }
+  cachedThread(id: string): ThreadSource | undefined {
+    return this.closed ? undefined : this.#subscriptions.cached(id);
+  }
+  cachedThreads(): SidebarSource | undefined {
+    return this.closed ? undefined : this.#sidebar;
   }
   threads(): { store: Sidebar; release(): void } {
     if (this.closed) throw new ClientError("offline");
@@ -479,6 +505,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       (message) => this.connection.send(message),
       this.options.id,
       () => this.state === "ready",
+      this.#persistence(),
     );
     this.#collections.add(sidebar);
     const leases = new Set<() => void>();
@@ -515,6 +542,9 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         for (const release of leases) release();
         leases.clear();
         this.#collections.delete(sidebar);
+        const written = sidebar.close();
+        this.#checkpoints.add(written);
+        void written.finally(() => this.#checkpoints.delete(written));
       },
     };
   }

@@ -1,5 +1,5 @@
 import type { ThreadKey, ThreadReader } from "@ace/client";
-import { useThreadMeta } from "@ace/client-react";
+import { useThreadMeta, useThreadUnconfirmed } from "@ace/client-react";
 import { readTurnActivity, sameActivity, type TurnActivity } from "@ace/ui-core";
 import { useCallback, useMemo } from "react";
 import { pauseLabel, providerNames } from "@ace/ui-core";
@@ -10,16 +10,26 @@ import { useWatched, type Watched } from "@/lib/use-watched.ts";
 import { useStepLabels } from "../items/step-labels.ts";
 
 const off: readonly ThreadKey[] = [];
+/** The line while the thread is a copy the daemon hasn't confirmed: neither working nor done. */
+const syncingLine: TurnActivity = {
+  label: "Syncing…",
+  tone: "held",
+  elapsedFrom: undefined,
+  current: undefined,
+};
 const nothing: Watched<TurnActivity | undefined> = { value: undefined, watch: [] };
 
 /**
  * The turn's one live line (`turnActivity`). The transcript's bottom work log and the live
  * footer both read it, so they never disagree. Besides the thread's membership keys it follows
  * the step in flight and the agents or tasks it names, so an update to any of them shows.
- * `enabled: false` subscribes to nothing.
+ * `enabled: false` subscribes to nothing. While the thread shows a copy the daemon hasn't
+ * confirmed (read back from disk), the line says "Syncing…" whatever that copy says: a saved
+ * "done" may be working again, so the transcript never reads as at rest until it is confirmed.
  */
 export function useTurnActivity(threadId: string, enabled = true): TurnActivity | undefined {
   const live = useLiveConnection();
+  const unconfirmed = useThreadUnconfirmed(enabled ? threadId : undefined);
   const labels = useStepLabels();
   const meta = useThreadMeta(threadId);
   const rootId = meta?.rootAgentId ?? "";
@@ -42,6 +52,7 @@ export function useTurnActivity(threadId: string, enabled = true): TurnActivity 
     [enabled, rootId, status, stopping, labels],
   );
   const activity = useWatched(threadId, keys, read, sameActivity);
+  if (unconfirmed) return syncingLine;
   return activity && live.staleLabel
     ? { label: live.staleLabel, tone: "held", elapsedFrom: undefined, current: undefined }
     : activity?.tone === "paused"

@@ -102,7 +102,8 @@ export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) 
   const { card } = props;
   const { level, word, tone, muted } = props.attention;
   if (word === undefined) return <RowTime card={card} />;
-  if (level === "failed-seen")
+  // An unconfirmed copy says only that it is syncing: no glyph, no colour, no time.
+  if (level === "failed-seen" || level === "syncing")
     return <span className="shrink-0 text-meta text-muted-foreground">{word}</span>;
   // The glyph beside the word: the colour is never the only clue. Waiting is only words.
   const mark =

@@ -9,6 +9,8 @@ import type { Tone } from "./status.ts";
  *   indicator moves, the words stay muted, nothing is asked of the person. Waiting draws no mark.
  * - `failed-seen`: failed, already seen. A real state, worded calmly.
  * - `quiet`: done and read, new, settled: nothing to do. No status word.
+ * - `syncing`: the row is a copy the daemon hasn't confirmed (read back from disk): its status
+ *   may be stale, so it claims nothing (not done, not working, no request) and says "Syncing".
  *
  * Colour and full contrast are kept for what asks the person to act or look. The row the
  * person has open is full contrast whatever its level (`current`).
@@ -19,7 +21,8 @@ export type AttentionLevel =
   | "done-unread"
   | "active"
   | "failed-seen"
-  | "quiet";
+  | "quiet"
+  | "syncing";
 
 export interface RowAttention {
   level: AttentionLevel;
@@ -43,6 +46,17 @@ export interface RowAttentionInput {
   /** The thread the person has open. */
   current?: boolean | undefined;
 }
+
+/** The word a row shows while its status is unconfirmed. */
+export const syncingWord = "Syncing";
+
+/** The attention of a row whose status is unconfirmed (`threadCard`): it claims nothing. */
+export const syncingAttention: RowAttention = {
+  level: "syncing",
+  word: syncingWord,
+  tone: "idle",
+  muted: true,
+};
 
 /**
  * One rule for every surface that shows a thread's status: the Home row, its hover card and the

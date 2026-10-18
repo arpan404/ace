@@ -12,6 +12,7 @@ export {
   useThreadMeta,
   useThreadError,
   useThreadSyncing,
+  useThreadUnconfirmed,
   useItemOrder,
   useItem,
   useAgent,
@@ -28,6 +29,7 @@ export {
   useSidebarIndex,
   useSidebarIds,
   useSidebarLoaded,
+  useSidebarUnconfirmed,
   useSidebarThread,
 } from "./sidebar.ts";
 export type { SidebarKey } from "./sidebar.ts";

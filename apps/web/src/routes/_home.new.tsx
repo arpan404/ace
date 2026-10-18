@@ -1,4 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { useState } from "react";
 // Route search schemas load with the route tree on first paint: zod/mini keeps classic Zod out.
 import * as z from "zod/mini";
 import { NewThreadPage } from "@/features/home/index.ts";
@@ -35,9 +36,14 @@ export const Route = createFileRoute("/_home/new")({
 
 function NewThreadRoute() {
   const search = Route.useSearch();
+  const router = useRouter();
+  // Boot may restore a recovered start, but a deliberate visit here (the sidebar, ⌘N) must stay.
+  // Read before this route renders: the router resolves its location only after mounting it.
+  const [recoverStart] = useState(() => router.state.resolvedLocation === undefined);
   if (search.folder) return <OpenFolderScreen key={search.folder} folder={search.folder} />;
   return (
     <NewThreadPage
+      recoverStart={recoverStart}
       key={`${search.project ?? ""}:${search.base ?? ""}:${search.skill ?? ""}:${search.discard ?? ""}:${search.pullRequest ?? ""}:${search.issue ?? ""}`}
       project={search.project}
       base={search.base}

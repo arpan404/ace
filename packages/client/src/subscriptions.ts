@@ -1,6 +1,11 @@
 import { ThreadId, type ClientMessage, type ServerMessage } from "@ace/protocol";
+import { parseThreadRecord, threadRecord } from "./read-records.ts";
+import { SnapshotBinding, contentChanges, type Persistence } from "./read-snapshots.ts";
 import { ThreadStore } from "./thread-store.ts";
 import { ClientError, type Limits } from "./types.ts";
+
+/** Stores no view holds stay cached while together they weigh at most this (ADR 0056). */
+export const inactiveThreadBytes = 16 * 1024 * 1024;
 
 interface Cached {
   store: ThreadStore;
@@ -12,6 +17,10 @@ interface Cached {
   rejected: boolean;
   refs: number;
   subscriptionId: string | undefined;
+  /** Its read snapshot on disk, when the client keeps them. */
+  binding: SnapshotBinding | undefined;
+  /** What it weighed when its last holder let go; zero while held. */
+  inactiveBytes: number;
 }
 export interface ThreadSubscription {
   store: ThreadStore;
@@ -19,6 +28,9 @@ export interface ThreadSubscription {
 }
 export class Subscriptions {
   #cache = new Map<string, Cached>();
+  #inactiveBytes = 0;
+  #checkpoints = new Set<Promise<void>>();
+  #persistence: Persistence | undefined;
   #starting = new Set<string>();
   #wires = new Map<string, Cached>();
   #limits: Limits;
@@ -30,7 +42,9 @@ export class Subscriptions {
     send: (message: ClientMessage) => boolean,
     id: () => string,
     ready: () => boolean,
+    persistence?: Persistence,
   ) {
+    this.#persistence = persistence;
     this.#limits = limits;
     this.#send = send;
     this.#id = id;
@@ -43,7 +57,7 @@ export class Subscriptions {
       if (this.#cache.size >= this.#limits.threads) {
         const evict = [...this.#cache].find(([, value]) => !value.refs);
         if (!evict) throw new ClientError("limit");
-        this.#cache.delete(evict[0]);
+        this.#evict(evict[0], evict[1]);
       }
       entry = {
         store: new ThreadStore(this.#limits),
@@ -54,11 +68,16 @@ export class Subscriptions {
         rejected: false,
         refs: 0,
         subscriptionId: undefined,
+        binding: undefined,
+        inactiveBytes: 0,
       };
+      entry.binding = this.#bind(entry);
     }
     this.#cache.delete(threadId);
     this.#cache.set(threadId, entry);
     if (entry.refs++ === 0) {
+      this.#inactiveBytes -= entry.inactiveBytes;
+      entry.inactiveBytes = 0;
       entry.rejected = false;
       if (this.#ready()) this.#pump();
     }
@@ -76,8 +95,14 @@ export class Subscriptions {
             this.#starting.delete(owned.subscriptionId);
           }
           owned.subscriptionId = undefined;
+          // Unfollowed from here on: a view painting from it shows that it may be behind.
+          if (owned.store.cursor !== undefined) {
+            owned.store.setSyncing(true);
+            owned.store.setUnconfirmed(true);
+          }
           this.#cache.delete(threadId);
           this.#cache.set(threadId, owned);
+          this.#retain(owned);
           this.#pump();
         }
       },
@@ -87,6 +112,55 @@ export class Subscriptions {
   held(threadId: string): ThreadStore | undefined {
     const entry = this.#cache.get(threadId);
     return entry?.refs ? entry.store : undefined;
+  }
+  /** A thread's store whether or not anyone holds it, without taking a lease. */
+  cached(threadId: string): ThreadStore | undefined {
+    return this.#cache.get(threadId)?.store;
+  }
+  /** Checkpoint every read snapshot; resolves once all of them, and earlier ones, are written. */
+  close(): Promise<void> {
+    for (const entry of this.#cache.values()) this.#checkpoint(entry);
+    return Promise.all(this.#checkpoints).then(() => {});
+  }
+  #bind(entry: Cached): SnapshotBinding | undefined {
+    if (!this.#persistence) return undefined;
+    const { store, threadId } = entry;
+    return new SnapshotBinding(
+      this.#persistence,
+      `thread:${threadId}`,
+      contentChanges((tap) => store.observe(tap)),
+      () => threadRecord(store.export()),
+      (value) => {
+        const record = parseThreadRecord(value, threadId);
+        if (!record || !store.restore(record.view, record.truncated)) return;
+        // The disk copy may be from another daemon run: never resume from its cursor. The
+        // subscription asks for a snapshot, which merges with it by sequence (ADR 0062).
+        entry.fresh = true;
+        if (!entry.refs && this.#cache.get(threadId) === entry) this.#retain(entry);
+      },
+    );
+  }
+  #checkpoint(entry: Cached): void {
+    const written = entry.binding?.close();
+    if (!written) return;
+    this.#checkpoints.add(written);
+    void written.finally(() => this.#checkpoints.delete(written));
+  }
+  #evict(threadId: string, entry: Cached): void {
+    this.#inactiveBytes -= entry.inactiveBytes;
+    entry.inactiveBytes = 0;
+    this.#cache.delete(threadId);
+    this.#checkpoint(entry);
+  }
+  /** Weigh a store nobody holds, then let the least recently used go past the budget. */
+  #retain(entry: Cached): void {
+    this.#inactiveBytes -= entry.inactiveBytes;
+    entry.inactiveBytes = entry.store.retainedBytes();
+    this.#inactiveBytes += entry.inactiveBytes;
+    for (const [id, cached] of this.#cache) {
+      if (this.#inactiveBytes <= inactiveThreadBytes) break;
+      if (!cached.refs) this.#evict(id, cached);
+    }
   }
   #pump(): void {
     if (!this.#ready()) return;
@@ -141,6 +215,8 @@ export class Subscriptions {
       if (!entry) return;
       if (entry.store.cursor === message.seq) entry.store.recover();
       entry.store.setSyncing(false);
+      // Caught up by replay or snapshot: the daemon has confirmed what the store holds.
+      entry.store.setUnconfirmed(false);
       this.#starting.delete(message.subscriptionId);
       this.#pump();
       return;
@@ -151,11 +227,10 @@ export class Subscriptions {
     if (!entry) return;
     if (message.type === "snapshot") {
       if (message.view.kind !== "thread") throw new ClientError("protocol");
-      if (
-        !entry.snapshotAllowed ||
-        (entry.store.cursor !== undefined && message.seq < entry.store.cursor)
-      )
-        return;
+      // A new subscription's one snapshot is the daemon's head, even below the held cursor: a
+      // daemon that crashed lost the tail it had sent (and a disk copy may be from another run).
+      // The store then replaces what it held. Wire ids fence snapshots from older subscriptions.
+      if (!entry.snapshotAllowed) return;
       entry.snapshotAllowed = false;
       entry.fresh = false;
       if (message.view.thread.id !== entry.threadId) throw new ClientError("protocol");
@@ -166,6 +241,7 @@ export class Subscriptions {
         if (!(error instanceof ClientError) || error.code !== "limit") throw error;
         this.#send({ type: "unsubscribe", subscriptionId: message.subscriptionId });
         this.reject(message.subscriptionId, error);
+        return;
       }
       // A complete snapshot finishes initialization itself. Keep replay paced by its
       // explicit acknowledgement, but don't leave a hydrated scope holding a startup slot.

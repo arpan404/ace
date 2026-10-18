@@ -32,7 +32,7 @@ import {
 } from "./live-status.ts";
 
 import { recoveryAttention } from "./recovery-attention.ts";
-import { rowAttention, type RowAttention } from "./row-attention.ts";
+import { rowAttention, syncingAttention, syncingWord, type RowAttention } from "./row-attention.ts";
 
 const pillIcons: Record<LiveStatus["tone"], TaskPill["icon"]> = {
   working: "working",
@@ -178,6 +178,11 @@ export interface ThreadCardInput {
   readState?: ThreadReadStateResponse | undefined;
   models?: readonly CatalogModel[] | undefined;
   failedSend?: boolean | undefined;
+  /**
+   * The entry is a copy the daemon hasn't confirmed (`SidebarReader.unconfirmed`): the card
+   * shows "Syncing" instead of its status, and no request, unread result or running work.
+   */
+  unconfirmed?: boolean | undefined;
 }
 
 /** How many characters of a branch name a Home task row's last line shows beside its marks. */
@@ -250,6 +255,39 @@ export function threadRowStatus(entry: ThreadListEntry, now: number, locale?: st
 
 /** The view model of one thread in the Home list. Pure: the caller passes the clock. */
 export function threadCard(input: ThreadCardInput): ThreadCard {
+  const card = currentCard(input);
+  return input.unconfirmed ? unconfirmedCard(card, input.failedSend === true) : card;
+}
+
+/**
+ * A card whose status came from an unconfirmed copy: titles, project and branch stay so the row
+ * paints at once, but it claims no status, request, unread result or running work. Only a send
+ * that failed on this device (a local fact) still shows.
+ */
+function unconfirmedCard(card: ThreadCard, failedSend: boolean): ThreadCard {
+  const notSent = "Not sent";
+  return {
+    ...card,
+    attention: failedSend
+      ? rowAttention({
+          tone: "failed",
+          word: notSent,
+          unread: false,
+          settled: false,
+          recovery: true,
+        })
+      : syncingAttention,
+    pill: failedSend ? { label: notSent, tone: "failed", icon: "failed" } : undefined,
+    announceUnread: false,
+    status: failedSend
+      ? { label: notSent, tone: "failed", mark: "failed", compact: notSent }
+      : { label: syncingWord, tone: "idle", mark: "none", compact: syncingWord },
+    subagents: 0,
+    providerLabel: providerLabel(providerDisplayName(card.provider, card.acpAgentId), 0),
+  };
+}
+
+function currentCard(input: ThreadCardInput): ThreadCard {
   const { entry, details, now } = input;
   const flags = threadRowFlags(entry, input);
   const { snoozed, unread } = flags;

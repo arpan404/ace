@@ -20,6 +20,10 @@ export class PageJournal {
   constructor(limits: Limits) {
     this.#limits = limits;
   }
+  /** What the journal holds, in bytes, roughly. */
+  retainedBytes(): number {
+    return this.#bytes + this.#count * 16;
+  }
   reset(seq: number): void {
     this.#changes = [];
     this.#head = 0;

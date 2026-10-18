@@ -39,6 +39,7 @@ const readMeta = (reader: ThreadReader) => reader.thread;
 const readOrder = (reader: ThreadReader) => reader.order;
 const readError = (reader: ThreadReader) => reader.error;
 const readSyncing = (reader: ThreadReader) => reader.syncing ?? false;
+const readUnconfirmed = (reader: ThreadReader) => reader.unconfirmed ?? false;
 
 export function useThreadMeta(threadId: string | undefined): ThreadReader["thread"] | undefined {
   return useThread(threadId, ["thread"], readMeta);
@@ -49,6 +50,13 @@ export function useThreadError(threadId: string | undefined) {
 /** Whether the thread is catching up after a reconnect (`ThreadReader.syncing`). */
 export function useThreadSyncing(threadId: string | undefined): boolean {
   return useThread(threadId, ["sync"], readSyncing) ?? false;
+}
+/**
+ * Whether what the thread shows is a copy the daemon hasn't confirmed (`ThreadReader.unconfirmed`):
+ * its status may be stale, so views show it as syncing rather than done or working.
+ */
+export function useThreadUnconfirmed(threadId: string | undefined): boolean {
+  return useThread(threadId, ["unconfirmed"], readUnconfirmed) ?? false;
 }
 /** Ids of the loaded transcript window, oldest first. */
 export function useItemOrder(threadId: string | undefined): readonly string[] | undefined {

@@ -51,7 +51,7 @@ function useEntries(): (reader: SidebarReader) => ThreadListEntry[] {
 
 /** Keys for every entry, so a selection over the whole list sees each status change. */
 // `threads` changes with any entry, so one key covers the whole list at any size.
-const everyEntry: readonly SidebarKey[] = ["ids", "threads", "window", "homeWindow"];
+const everyEntry: readonly SidebarKey[] = ["ids", "threads", "window", "homeWindow", "unconfirmed"];
 function useEveryEntryKey(): readonly SidebarKey[] {
   return everyEntry;
 }
@@ -80,7 +80,10 @@ export function useHomeList(): HomeList {
       const entries = read(reader);
       const { pinned, active, recent, snoozed, settled } = arrange(entries, state, now);
       const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
-      const needsYou = active.filter((id) => byId.get(id)?.status.state === "needs_you");
+      // A saved list's requests may have been answered since: none counts until it is confirmed.
+      const needsYou = reader.unconfirmed
+        ? []
+        : active.filter((id) => byId.get(id)?.status.state === "needs_you");
       return { pinned, active, recent, snoozed, settled, needsYou };
     },
     [state, now, read],
