@@ -222,9 +222,13 @@ it.each(cases)(
           ? [httpReply.data.body.mcpProof]
           : [];
     });
+    // ACP agents never reload their list: the browser's other tools are reached by tools_call.
+    const fixedList = provider === "acp" || provider === "antigravity";
     expect(observed).toContainEqual(
       expect.objectContaining({
-        tools: expect.arrayContaining(["browser_open", "browser_snapshot", "browser_settings"]),
+        tools: fixedList
+          ? expect.arrayContaining(["browser_open", "tools_find", "tools_call"])
+          : expect.arrayContaining(["browser_open", "browser_snapshot", "browser_settings"]),
       }),
     );
     if (provider === "opencode" || provider === "codex") {

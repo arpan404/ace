@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { aceGuidance } from "./status.ts";
-import { coreToolsHeader } from "./toolsets.ts";
+import { coreToolsHeader, staticToolsHeader } from "./toolsets.ts";
 import { maxToolTimeoutMs } from "./timeouts.ts";
 import { destructiveAceTools } from "./agent-control.ts";
 import type { ProviderKind } from "@ace/protocol";
@@ -133,11 +133,12 @@ export function acpInjection(input: Injected, provider: "cursor" | "antigravity"
         type: "http" as const,
         name: "ace",
         url,
-        // ACP leaves tools/list_changed to each agent and most never refresh, so the whole
-        // catalogue is listed: a tool the agent never lists is one its model can never call.
+        // ACP leaves tools/list_changed to each agent and most never refresh, so the list stays
+        // the core tools plus tools_find, and every other tool is reached through tools_call.
         headers: [
           { name: "Authorization", value: `Bearer ${bearer}` },
           { name: "X-Ace-Notifications", value: "stream" },
+          staticToolsHeader,
         ],
       },
     ],
@@ -154,11 +155,13 @@ export function cursorSdkInjection(input: Injected) {
         type: "http" as const,
         url,
         // Guidance travels once, in Cursor's always-applied rule. Cursor's SDK caches the tool
-        // list per connection and never handles tools/list_changed, so it lists every tool.
+        // list per connection and never handles tools/list_changed, so it keeps the core tools
+        // plus tools_find and reaches the rest through tools_call.
         headers: {
           Authorization: `Bearer ${bearer}`,
           "X-Ace-Instructions": "native",
           "X-Ace-Notifications": "stream",
+          [staticToolsHeader.name]: staticToolsHeader.value,
         },
       },
     },

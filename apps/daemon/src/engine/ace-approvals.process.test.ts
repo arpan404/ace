@@ -203,6 +203,36 @@ test("a request from another machine shown during an ace tool call reads on that
   }
 });
 
+test("a provider's approval of tools_call on a destructive tool reads exactly as approving that tool", async () => {
+  const seen: unknown[] = [];
+  for (const [tool, input] of [
+    ["thread_merge", merge],
+    ["tools_call", { name: "thread_merge", arguments: merge }],
+  ] as const) {
+    const frames = scriptFrames();
+    const h = await harness(
+      [{ on: "send", frames: [frames.frame(start, ...approval(tool, input))] }],
+      frames,
+    );
+    try {
+      const id = await h.create();
+      await h.engine.flush();
+      const thread = h.store.snapshotThread(id);
+      const interaction = Object.values(thread.interactions)[0];
+      const call = Object.values(thread.items).find((item) => item.type === "tool_call");
+      expect(interaction?.state).toBe("pending");
+      seen.push({
+        target: interaction?.request.kind === "approval" ? interaction.request.target : undefined,
+        detail: call?.type === "tool_call" ? call.call.detail : undefined,
+      });
+    } finally {
+      await h.close();
+    }
+  }
+  expect(seen[0]).toMatchObject({ target: { tool: "thread_merge", origin: "ace" } });
+  expect(seen[1]).toEqual(seen[0]);
+});
+
 test.each([
   { server: "foreign", input: { threadId: "child" } },
   { server: "ace", input: { threadId: "child", execute: "rm" } },

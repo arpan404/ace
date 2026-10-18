@@ -11,7 +11,7 @@ export {
   type ToolDefinition,
   type ToolMetadata,
 } from "./registry.ts";
-export { bareToolName, toolNamePattern } from "./tool-names.ts";
+export { aceToolDispatch, aceToolSearch, bareToolName, toolNamePattern } from "./tool-names.ts";
 export { startMcpServer, type McpServerOptions } from "./http.ts";
 export { registerBuiltins, type McpIntentPort } from "./builtins.ts";
 export {
@@ -101,4 +101,11 @@ export {
   ContextResult,
 } from "./context-tool.ts";
 export { guideToolkit, type AceGuide } from "./guide-tools.ts";
-export { coreTools, coreToolsHeader, openedToolset } from "./toolsets.ts";
+export { metaToolCatalog } from "./meta-tools.ts";
+export {
+  coreTools,
+  coreToolsHeader,
+  openedToolset,
+  staticToolsHeader,
+  type ToolListing,
+} from "./toolsets.ts";

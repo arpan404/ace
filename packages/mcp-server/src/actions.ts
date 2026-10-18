@@ -5,7 +5,8 @@ import { agentControlToolCatalog } from "./agent-control.ts";
 import { builtinToolCatalog, handoffToolCatalog } from "./catalog.ts";
 import { contextToolCatalog } from "./context-tool.ts";
 import { knowledgeToolCatalog } from "./knowledge-tools.ts";
-import { bareToolName } from "./tool-names.ts";
+import { metaToolCatalog } from "./meta-tools.ts";
+import { bareToolName, dispatchedAceCall } from "./tool-names.ts";
 import { describeAceAction } from "./action-target.ts";
 
 interface Definition {
@@ -22,6 +23,7 @@ const definitions = new Map<string, Definition>(
     ...contextToolCatalog,
     ...knowledgeToolCatalog,
     ...htmlToolCatalog,
+    ...metaToolCatalog,
   ].map((entry) => [entry.name, entry]),
 );
 /**
@@ -29,10 +31,12 @@ const definitions = new Map<string, Definition>(
  * Callers must establish ace server identity before using a bare tool name.
  */
 export function aceToolAction(name: string, input: unknown): ApprovalTarget | undefined {
-  const tool = bareToolName(name);
+  // A `tools_call` is approved as the call it runs.
+  const call = dispatchedAceCall(name, input);
+  const tool = bareToolName(call.name);
   const definition = definitions.get(tool);
   if (!definition) return undefined;
-  const parsed = definition.input.safeParse(input);
+  const parsed = definition.input.safeParse(call.input);
   if (!parsed.success) return undefined;
   return describeAceAction(tool, definition.description, definition.riskClass, parsed.data);
 }

@@ -184,6 +184,25 @@ Input renews the 30-second controller lease. Human takeover, lease expiry, disco
 turning devices off and daemon restart invalidate queued agent input; the agent takes it
 again with `sim_start`. Viewing or taking a screenshot does not grant input authority.
 
+## Finding and reaching a tool
+
+Not every client lists every tool (ADR 0082). `tools_find({query, limit?, family?})` is
+listed everywhere: it ranks the tools this session could call right now (a group that is
+off contributes nothing) and returns each match's name, title, one-line purpose, family,
+effect (`read-only`, `changes` or `destructive`) and full input schema. For example,
+"click a button in Safari" returns `screen_ui_act` and `screen_input` first, with
+`screen_open_app` among the matches, while computer use is on, and none of them while it
+is off; "check page console" returns
+`browser_logs` first. The ranking is lexical and deterministic
+(`packages/mcp-server/src/tool-search.ts`).
+
+Cursor, ACP agents and Antigravity never reload their list, so they keep the core tools,
+`tools_find` and `tools_call({name, arguments})`. `tools_call` runs the named tool
+through the same path a direct call takes: the same schema validation and errors,
+capability and group checks, timeouts and result. Its approvals, transcript row and
+private-input redaction are the target's. It refuses to run `tools_find` or itself, and
+an unknown name returns `tool_unavailable`, whose hint points at `tools_find`.
+
 ## Errors and provider delivery
 
 Execution failures return MCP `isError: true` and text containing bounded JSON

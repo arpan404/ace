@@ -1223,3 +1223,86 @@ Example:
   "status": "pending"
 }
 ```
+
+## tools_find
+
+Find the ace tools for what you want to do, among the ones this session can call. Returns each match's name, purpose, effect and input schema.
+
+Required capability: none beyond session authentication. Timeout: 10000 ms.
+
+## tools_find.input
+
+[JSON Schema](schema/tools_find.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| query | yes | string | {"minLength":1,"maxLength":500,"description":"What you want to do, in plain words, e.g. \"click a button in Safari\"."} |
+| limit | no | integer | {"default":5,"description":"At most this many.","minimum":1,"maximum":10} |
+| family | no | ["ace-agents","ace-browser","visualize","ace-threads","ace-computer-use"] | {"description":"Only this family's tools."} |
+
+Example:
+
+```json
+{
+  "query": "example"
+}
+```
+
+## tools_find.output
+
+[JSON Schema](schema/tools_find.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| matches | yes | array | {"maxItems":10,"items":{"type":"object","properties":{"name":{"type":"string"},"title":{"type":"string"},"purpose":{"type":"string"},"family":{"type":"string"},"effect":{"type":"string","enum":["read-only","changes","destructive"]},"inputSchema":{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{}}},"required":["name","purpose","effect","inputSchema"],"additionalProperties":false}} |
+| how | no | string |  |
+| hint | no | string |  |
+
+Example:
+
+```json
+{
+  "how": "example",
+  "matches": []
+}
+```
+
+## tools_call
+
+Run any ace tool by name, with the arguments its schema takes (from tools_find or guide). Returns that tool's result.
+
+Required capability: none beyond session authentication. Timeout: 660000 ms.
+
+## tools_call.input
+
+[JSON Schema](schema/tools_call.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string | {"minLength":1,"maxLength":128,"x-ace-constraint":"Not tools_find or tools_call.","description":"The tool's name, as tools_find returns it."} |
+| arguments | no | object | {"default":{},"description":"The tool's own arguments, matching its input schema.","propertyNames":{"type":"string"},"additionalProperties":{}} |
+
+Example:
+
+```json
+{
+  "name": "example"
+}
+```
+
+## tools_call.output
+
+[JSON Schema](schema/tools_call.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| content | yes | array | {"items":{}} |
+| isError | no | boolean |  |
+
+Example:
+
+```json
+{
+  "content": []
+}
+```

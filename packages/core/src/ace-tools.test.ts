@@ -208,6 +208,65 @@ it("approval previews redact ace input without redacting another server's reques
   }
 });
 
+it("a tools_call reads as the tool it ran, and the text that tool types stays private", () => {
+  const feed = fixture();
+  const events = feed({
+    type: "item.upsert",
+    agent: "root",
+    item: "dispatch",
+    draft: {
+      type: "tool_call",
+      call: {
+        kind: "mcp",
+        title: "tools_call",
+        detail: {
+          kind: "mcp",
+          server: "ace",
+          tool: "tools_call",
+          arguments: {
+            name: "browser_act",
+            arguments: { action: "type", ref: "e1", text: "pw-1" },
+          },
+        },
+        raw: [{ type: "provider.call", data: { text: "pw-1" } }],
+      },
+    },
+  });
+  expect(JSON.stringify(events)).not.toContain("pw-1");
+  expect(events.find((event) => event.type === "item.created")).toMatchObject({
+    item: {
+      call: {
+        detail: {
+          tool: "browser_act",
+          arguments: { action: "type", ref: "e1", text: "[redacted]" },
+        },
+      },
+    },
+  });
+});
+
+it("an approval of a tools_call that types text hides that text", () => {
+  const feed = fixture();
+  const events = feed({
+    type: "interaction.opened",
+    agent: "root",
+    interaction: "dispatch",
+    blocking: true,
+    request: {
+      kind: "approval",
+      title: "Run tools_call",
+      target: {
+        tool: "mcp__ace__tools_call",
+        input: { name: "screen_input", arguments: { action: "type", text: "pw-2" } },
+        access: "write",
+      },
+      options: [{ id: "allow", label: "Allow", kind: "allow_once" }],
+    },
+    raw: [],
+  });
+  expect(JSON.stringify(events)).not.toContain("pw-2");
+});
+
 it("a Claude-spelled html_render approval hides the page markup", () => {
   const feed = fixture();
   const events = feed({

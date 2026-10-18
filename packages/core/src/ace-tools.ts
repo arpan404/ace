@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { bareToolName } from "@ace/provider-kit/ace-tool-names";
+import { aceToolDispatch, bareToolName, dispatchedAceCall } from "@ace/provider-kit/ace-tool-names";
 import type { ToolCallDraft } from "./facts.ts";
 import type { ToolCall, RawPayload, InteractionRequest } from "@ace/protocol";
 type CallInput = {
@@ -69,7 +69,16 @@ function aceMcpToolName(server: string | undefined, tool: string | undefined): s
   return toolName.test(bare) ? bare : undefined;
 }
 
+/**
+ * The ace tool a call ran and its input. A `tools_call` reads as the tool it dispatched, so its
+ * row, privacy, evidence and approvals are that tool's.
+ */
 export function aceToolInput(call: CallInput): { name: string; input: unknown } | undefined {
+  const called = calledAceTool(call);
+  return called && dispatchedAceCall(called.name, called.input);
+}
+
+function calledAceTool(call: CallInput): { name: string; input: unknown } | undefined {
   const detail = z
     .object({
       kind: z.string(),
@@ -135,8 +144,9 @@ export function aceToolInput(call: CallInput): { name: string; input: unknown } 
 
 /** Whether a call's input is typed text or markup that must never be stored. Any spelling. */
 export function privateAceInput(tool: string, input?: unknown): boolean {
-  const name = bareToolName(tool);
-  const payload = record.safeParse(input).data;
+  const call = dispatchedAceCall(tool, input);
+  const name = bareToolName(call.name);
+  const payload = record.safeParse(call.input).data;
   const action = record.safeParse(payload?.action ?? payload?.interaction).data;
   if (name.endsWith("_measure") && action && ("text" in action || "value" in action)) return true;
   if (name === "html_render") return true;
@@ -150,6 +160,9 @@ export function privateAceInput(tool: string, input?: unknown): boolean {
 }
 export function redactAceArguments(name: string, value: unknown): unknown {
   if (!privateAceInput(name, value)) return value;
+  const call = dispatchedAceCall(name, value);
+  if (bareToolName(name) === aceToolDispatch && call.name !== name)
+    return { ...record.parse(value), arguments: redactAceArguments(call.name, call.input) };
   const parsed = record.safeParse(value);
   if (!parsed.success) return { redacted: true };
   const redacted = Object.fromEntries(

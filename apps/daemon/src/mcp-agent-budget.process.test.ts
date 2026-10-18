@@ -7,6 +7,7 @@ import {
   bareToolName,
   coreToolsHeader,
   developerInstructions,
+  staticToolsHeader,
   guideTopics,
 } from "@ace/mcp-server";
 import { computerUseTools } from "@ace/screen";
@@ -25,6 +26,7 @@ const descriptor = ({ name, description, inputSchema }: ListedTool) =>
 const deferring = new Set<ProviderKind>(["claude", "codex"]);
 /** These load every listed tool upfront and reload on tools/list_changed: core mode. */
 const reloading = new Set<ProviderKind>(["opencode", "pi"]);
+/** The rest never reload: a fixed core list, with tools_call for everything else. */
 
 let world: EvalWorld | undefined;
 afterEach(async () => {
@@ -33,31 +35,36 @@ afterEach(async () => {
 });
 /**
  * A full-access thread with browser and computer use on: the largest catalogue it can see.
- * `full` is how a deferring or non-reloading client connects; `core` how a reloading one does.
+ * `full` is how a deferring client connects, `core` a reloading one and `fixed` one that never
+ * reloads.
  */
 async function session() {
   world = await evalWorld({ browser: true });
   const { agent: full, connection } = await world.agent({});
-  const core = await EvalAgent.connect({
-    url: connection.url,
-    bearer: connection.bearer,
-    nativeInstructions: "",
-    serverInstructions: true,
-    headers: { [coreToolsHeader.name]: coreToolsHeader.value },
-  });
+  const connect = (header: { name: string; value: string }) =>
+    EvalAgent.connect({
+      url: connection.url,
+      bearer: connection.bearer,
+      nativeInstructions: "",
+      serverInstructions: true,
+      headers: { [header.name]: header.value },
+    });
+  const core = await connect(coreToolsHeader);
+  const fixed = await connect(staticToolsHeader);
   if (!world.daemon.mcp) throw new Error("Missing MCP server");
   const registered = new Set(
     [...world.daemon.mcp.toolNames(), ...computerUseTools.map((tool) => tool.name)].map(
       bareToolName,
     ),
   );
-  return { full, core, registered };
+  return { full, core, fixed, registered };
 }
+type Agents = Pick<Awaited<ReturnType<typeof session>>, "full" | "core" | "fixed">;
 /** The tools a provider's model has in context on every request. */
-function upfront(provider: ProviderKind, full: EvalAgent, core: EvalAgent): ListedTool[] {
+function upfront(provider: ProviderKind, { full, core, fixed }: Agents): ListedTool[] {
   if (deferring.has(provider))
     return full.tools.filter((tool) => tool["_meta"]?.["anthropic/alwaysLoad"] === true);
-  return reloading.has(provider) ? core.tools : full.tools;
+  return reloading.has(provider) ? core.tools : fixed.tools;
 }
 const bareNames = (tools: ListedTool[]) => tools.map((tool) => bareToolName(tool.name)).toSorted();
 /** ace's guidance as one provider receives it: server instructions or its native channel. */
@@ -72,30 +79,44 @@ it("ace's always-on guidance stays under 300 tokens for every provider", () => {
 });
 
 it("each provider's per-request ace context stays within its budget", async () => {
-  const { full, core } = await session();
+  const agents = await session();
   for (const provider of ProviderKind.options) {
     // A deferring client also lists every deferred tool's name.
-    const names = deferring.has(provider) ? full.tools.map((tool) => tool.name) : [];
+    const names = deferring.has(provider) ? agents.full.tools.map((tool) => tool.name) : [];
     const always = [
       guidance(provider),
-      ...upfront(provider, full, core).map(descriptor),
+      ...upfront(provider, agents).map(descriptor),
       names.join(" "),
     ].join("\n");
-    // A client that never reloads sees the whole catalogue, browser and computer use included.
-    const budget = deferring.has(provider) ? 2_600 : reloading.has(provider) ? 3_500 : 16_000;
+    // Every client starts small: deferred names, or the core list with tools_find (and, where the
+    // list never reloads, tools_call).
+    const budget = deferring.has(provider) ? 2_600 : reloading.has(provider) ? 3_200 : 3_300;
     expect(tokens(always), provider).toBeLessThanOrEqual(budget);
   }
 });
 
-it("only the entry points load upfront where a client defers or reloads its tool list", async () => {
-  const { full, core } = await session();
-  expect(bareNames(upfront("claude", full, core))).toEqual(
-    ["browser_open", "context", "delegate", "guide", "html_render", "wait"].toSorted(),
+it("only the entry points and tools_find load upfront, whatever the client", async () => {
+  const agents = await session();
+  const { full, core, fixed } = agents;
+  expect(bareNames(upfront("claude", agents))).toEqual(
+    [
+      "browser_open",
+      "context",
+      "delegate",
+      "guide",
+      "html_render",
+      "tools_find",
+      "wait",
+    ].toSorted(),
   );
-  expect(core.tools.length).toBeLessThanOrEqual(10);
+  expect(core.tools.length).toBeLessThanOrEqual(11);
+  expect(core.has("tools_find")).toBe(true);
+  expect(fixed.tools.length).toBeLessThanOrEqual(12);
+  // A client that never reloads lists what a reloading one starts with, plus tools_call.
+  expect(bareNames(fixed.tools)).toEqual([...bareNames(core.tools), "tools_call"].toSorted());
   // ace's own agents, threads, knowledge and automations families stay small.
   const own = full.tools.filter(
-    (tool) => !/^(?:browser|screen|device)_/.test(bareToolName(tool.name)),
+    (tool) => !/^(?:browser|screen|sim)_/.test(bareToolName(tool.name)),
   );
   expect(own.length).toBeLessThanOrEqual(28);
 });
@@ -154,9 +175,9 @@ it("a wrong guide topic or an unavailable tool tells the agent what to call next
   expect(missing.failed).toBe(true);
   const failure = z.object({ code: z.string(), hint: z.string() }).parse(JSON.parse(missing.text));
   expect(failure.code).toBe("tool_unavailable");
-  const next = [...failure.hint.matchAll(/Call ([a-z_]+)|, or ([a-z_]+) for/g)].map(
+  const next = [...failure.hint.matchAll(/Call ([a-z_]+)|, or ([a-z_]+) with/g)].map(
     ([, first, second]) => first ?? second ?? "",
   );
-  expect(next).toEqual(["context", "guide"]);
+  expect(next).toEqual(["tools_find", "context"]);
   for (const tool of next) expect(registered.has(tool), tool).toBe(true);
 });

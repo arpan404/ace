@@ -60,6 +60,7 @@ for (const provider of ["cursor", "antigravity", "acp"] as const) {
         headers: [
           { name: "Authorization", value: `Bearer ${connection.bearer}` },
           { name: "X-Ace-Notifications", value: "stream" },
+          { name: "X-Ace-Tools", value: "static" },
         ],
       },
     ]);
@@ -91,6 +92,7 @@ it("injects Cursor HTTP lease credentials through the SDK MCP policy path", () =
         Authorization: `Bearer ${connection.bearer}`,
         "X-Ace-Instructions": "native",
         "X-Ace-Notifications": "stream",
+        "X-Ace-Tools": "static",
       },
     },
   });
@@ -122,16 +124,19 @@ it("the session brief and enabled groups shape the injected guidance", () => {
   expect(injected.developerInstructions).not.toContain("delegate (instead");
 });
 
-it("only a client that reloads tools on list_changed asks for core tools; the rest list all", () => {
+it("each client asks for the tool listing its tool-list refresh supports", () => {
   const core = ["X-Ace-Tools", "core"];
-  // OpenCode reloads its tools on tools/list_changed, so it can start small.
+  const fixed = ["X-Ace-Tools", "static"];
+  // OpenCode reloads its tools on tools/list_changed, so it starts small and grows.
   expect(Object.entries(openCodeInjection(connection).server.headers)).toContainEqual(core);
-  // Cursor's SDK and generic ACP agents never reload: a tool they never list is unreachable.
-  expect(cursorSdkInjection(connection).mcpServers.ace.headers).not.toHaveProperty("X-Ace-Tools");
+  // Cursor's SDK and generic ACP agents never reload: they keep a fixed list and tools_call.
+  expect(Object.entries(cursorSdkInjection(connection).mcpServers.ace.headers)).toContainEqual(
+    fixed,
+  );
   for (const provider of ["cursor", "antigravity", "acp"] as const)
     expect(
-      acpInjection(connection, provider).mcpServers[0]?.headers.map((header) => header.name),
-    ).not.toContain("X-Ace-Tools");
+      acpInjection(connection, provider).mcpServers[0]?.headers.map((h) => [h.name, h.value]),
+    ).toContainEqual(fixed);
   // Claude Code and Codex defer MCP tools behind their own tool search.
   expect(claudeInjection(connection).mcpServers.ace.headers).not.toHaveProperty("X-Ace-Tools");
   expect(codexInjection(connection).config["mcp_servers.ace"].http_headers).not.toHaveProperty(

@@ -7,7 +7,9 @@ import type { McpCapability } from "@ace/protocol";
 import { maxRichResultBytes } from "./result-budgets.ts";
 export interface ContentToolDefinition<I extends z.ZodType> extends ToolMetadata {
   input: I;
-  capability: McpCapability;
+  capability: McpCapability | null;
+  /** Trusted definition override; ordinary content tools remain capped at 64 KiB. */
+  maxInputBytes?: number;
   run(input: z.output<I>, context: ToolContext): Promise<unknown>;
 }
 /** Rich results have a separate bounded API, so structured tools keep their 256 KiB cap. */
@@ -16,7 +18,8 @@ export async function executeContent<I extends z.ZodType>(
   input: unknown,
   context: ToolContext,
 ): Promise<CallToolResult> {
-  if (!withinJsonBudget(input, 64 * 1024)) throw new Error("Input budget exceeded");
+  if (!withinJsonBudget(input, definition.maxInputBytes ?? 64 * 1024))
+    throw new Error("Input budget exceeded");
   const args = parseToolArguments(definition.input, input);
   context.signal.throwIfAborted();
   const result = await definition.run(args, context);

@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/tools_call.output.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "content": {
+      "items": {},
+      "type": "array"
+    },
+    "isError": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "content"
+  ],
+  "type": "object"
+}

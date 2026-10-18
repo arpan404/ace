@@ -1,6 +1,11 @@
-import { bareToolName } from "@ace/provider-kit/ace-tool-names";
+import {
+  aceToolDispatch,
+  aceToolSearch,
+  bareToolName,
+  dispatchedAceCall,
+} from "@ace/provider-kit/ace-tool-names";
 
-export { bareToolName };
+export { aceToolDispatch, aceToolSearch, bareToolName, dispatchedAceCall };
 
 /**
  * Registered tool names: bare lowercase snake case. The server name `ace` is the namespace

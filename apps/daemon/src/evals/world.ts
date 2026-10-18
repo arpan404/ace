@@ -115,6 +115,8 @@ export async function evalWorld(options: { browser: boolean }) {
 
   return {
     daemon,
+    /** Computer use, on from the start; a test may turn it off. */
+    screen,
     store: daemon.store,
     workspaceId,
     devServerUrl,

@@ -102,6 +102,7 @@ it("negotiates the legacy handshake with the monolithic SDK client", async () =>
   expect(client.getServerVersion()?.name).toBe("ace");
   expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
     "context",
+    "tools_find",
     "ace_echo",
   ]);
   expect(await client.callTool({ name: "ace_echo", arguments: { value: "legacy" } })).toMatchObject(
@@ -125,7 +126,10 @@ it("filters unauthorized tools and rejects direct capability bypasses", async ()
     },
   });
   const denied = await h.connect();
-  expect((await denied.client.listTools()).tools.map((tool) => tool.name)).toEqual(["context"]);
+  expect((await denied.client.listTools()).tools.map((tool) => tool.name)).toEqual([
+    "context",
+    "tools_find",
+  ]);
   expect(
     await denied.client.callTool({ name: "ace_echo", arguments: { value: "denied" } }),
   ).toMatchObject({ isError: true });
@@ -278,7 +282,10 @@ it("routes a browser workstream adapter through schema checks, attribution and c
     },
   );
   const denied = await h.connect();
-  expect((await denied.client.listTools()).tools.map((tool) => tool.name)).toEqual(["context"]);
+  expect((await denied.client.listTools()).tools.map((tool) => tool.name)).toEqual([
+    "context",
+    "tools_find",
+  ]);
   expect(
     await denied.client.callTool({
       name: "browser_open",

@@ -317,7 +317,7 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   },
   tool_unavailable: {
     message: "This ace tool is not available to this thread",
-    hint: "The name is wrong or its ace group is off here. Call context with topics [status] for the groups that are on, or guide for each task's tools; if a group is off, tell the person. Your own tools are unaffected.",
+    hint: "The name is wrong or its ace group is off here. Call tools_find with what you want to do, or context with topics [status] for the groups that are on; if a group is off, tell the person. Your own tools are unaffected.",
   },
   tool_missing: {
     message: "Required device tool is unavailable",
