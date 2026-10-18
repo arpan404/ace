@@ -217,6 +217,10 @@ export function createBrowserSession(context: SocketContext): SocketService {
                 connectionId: sessionId,
               }),
             );
+          } else if (backendMessage.data.type === "browser.backend.resumed") {
+            // The desktop's computer woke: check every engine, ace's Chrome included (#947).
+            if (!backend) throw new Error("Desktop backend not registered");
+            options.browser?.wake();
           } else {
             if (!backend) throw new Error("Desktop backend not registered");
             backend.handle(backendMessage.data);

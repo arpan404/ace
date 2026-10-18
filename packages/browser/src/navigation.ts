@@ -50,6 +50,20 @@ export class NavigationTask {
     this.controller.abort(new PublicToolError("timeout"));
     void message;
   }
+  /**
+   * The computer woke from sleep: the time left starts again from now, so the sleep itself
+   * never counts against a navigation still in flight.
+   */
+  rearm(): void {
+    if (this.signal.aborted) return;
+    this.cancelWall();
+    this.cancelWall = this.clock.set(this.remaining + 65_000, () =>
+      this.expire("Browser navigation approval deadline exceeded"),
+    );
+    if (this.paused > 0) return;
+    this.cancelLoad();
+    this.resumeLoad();
+  }
   pause(): () => void {
     if (this.paused++ === 0) {
       this.cancelLoad();

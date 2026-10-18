@@ -186,8 +186,17 @@ A thread's browser holds ordered tabs on whichever backend serves it.
   desktop is lost and comes back with fresh views, or the thread moves to ace's Chrome, the
   recovery reopens every tab with its id, not just the one that was shown.
 
-Not yet built: eager restore for threads with a working agent, discarding, the sleep/wake
-browser ping, and per-viewer capture of different tabs.
+**Sleep and wake** (amended for #947). The service notices a wake itself (`watchWake`: wall
+time running more than 30 s ahead of monotonic time between 10-second checks, with injected
+clocks) and from the desktop (`powerMonitor` resume sends `browser.backend.resumed` on the
+backend socket). Each open thread browser then gives navigations and page waits in flight their
+remaining time again (`NavigationTask.rearm`), pings its engine (`Browser.getVersion` on ace's
+Chrome, `ace.ping` on the desktop; one that misses it is killed and restarted with its tabs, or
+lost and recovered) and restarts the live capture on a live engine. A whole-browser restart
+also lifts a pause left by work that failed while the browser was down.
+
+Not yet built: eager restore for threads with a working agent, discarding, and per-viewer
+capture of different tabs.
 
 ## Spike evidence
 

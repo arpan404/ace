@@ -3996,6 +3996,20 @@ Example:
 }
 ```
 
+### browser.backend.resumed
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"browser.backend.resumed"` |  |
+
+Example:
+
+```json
+{
+  "type": "browser.backend.resumed"
+}
+```
+
 ### browser.backend.response
 
 | Field | Required | Type | Constraints |
@@ -4355,6 +4369,22 @@ Example:
   "id": "example",
   "sessionId": "example",
   "type": "browser.backend.response"
+}
+```
+
+## BrowserBackendResumed
+
+[JSON Schema](schema/BrowserBackendResumed.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"browser.backend.resumed"` |  |
+
+Example:
+
+```json
+{
+  "type": "browser.backend.resumed"
 }
 ```
 

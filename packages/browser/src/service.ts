@@ -30,6 +30,7 @@ import type { FrameSink } from "./fanout.ts";
 import { BrowserSubscriptions } from "./subscriptions.ts";
 
 import { PolicyGate } from "./policy-call.ts";
+import { watchWake } from "./wake-watch.ts";
 import { setMaxListeners } from "node:events";
 import type { BrowserServiceOptions } from "./service-options.ts";
 export type { BrowserServiceOptions } from "./service-options.ts";
@@ -68,6 +69,7 @@ export class BrowserService {
   }
   private policyScopes = new Map<string, AbortController>();
   private navigationClock: import("./navigation.ts").NavigationClock;
+  private stopWakeWatch = () => {};
   constructor(options: BrowserServiceOptions) {
     this.options = options;
     this.profiles = new BrowserProfiles(options.dataDir);
@@ -87,6 +89,29 @@ export class BrowserService {
     this.tabs = options.tabBudget ?? new TabBudget(options.maxTabs ?? daemonTabLimit);
     this.acquisition = ownedHeadless(options, this.lifetime.signal);
     this.headless = this.acquisition.backend;
+    if (options.wakeWatch !== false)
+      this.stopWakeWatch = watchWake(
+        { wall: this.now, monotonic: () => this.navigationClock.now() },
+        options.wakeWatch ?? {
+          every: 10_000,
+          toleranceMs: 30_000,
+          set: (delay, work) => {
+            const timer = setTimeout(work, delay);
+            timer.unref();
+            return () => clearTimeout(timer);
+          },
+        },
+        () => this.wake(),
+      );
+  }
+  /**
+   * The computer woke from sleep (the desktop said so, or the clocks did): every open thread
+   * browser checks its engine, recovers a dead one and restarts its live capture; navigations
+   * in flight do not fail for the time spent asleep.
+   */
+  wake(): void {
+    for (const session of this.sessions.values())
+      void session.wake().catch((error: unknown) => this.options.onError?.(error));
   }
   async open(raw: unknown): Promise<BrowserState> {
     if (this.closing) throw new Error("Browser service shutting down");
@@ -605,6 +630,7 @@ export class BrowserService {
   close(): Promise<void> {
     this.closing ??= (async () => {
       this.lifetime.abort();
+      this.stopWakeWatch();
       this.embedded?.disconnect("Browser service shutting down");
       await Promise.allSettled(this.recoveries.values());
       await Promise.allSettled(this.opening.values());

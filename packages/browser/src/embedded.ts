@@ -62,8 +62,8 @@ interface RemoteSession {
   pending: Set<string>;
   mainFrame?: string | undefined;
   lost?: boolean;
-  /** A liveness ping in flight after a command timed out. */
-  probing?: boolean;
+  /** A liveness ping in flight after a command timed out; resolves to whether it lives. */
+  probing?: Promise<boolean> | undefined;
   cleanup(): void;
 }
 interface Waiter {
@@ -125,28 +125,32 @@ export class EmbeddedBackend implements BrowserBackend {
     return this.slots.run(() => this.dispatch(sessionId, operation, signal), signal);
   }
   /**
-   * A command got no answer in time. It fails alone: a slow page (a long script, a dialog, a
+   * A command got no answer in time, or the computer woke from sleep. It fails alone: a slow page (a long script, a dialog, a
    * busy renderer) is not a lost one. Only when the desktop also misses a liveness ping is the
    * view lost, and closed so the daemon can recover the thread.
    */
-  private timedOut(sessionId: string): void {
+  private timedOut(sessionId: string): Promise<boolean> {
     const session = this.sessions.get(sessionId);
-    if (!session || session.lost || session.probing || this.closed) return;
-    session.probing = true;
-    this.dispatch(sessionId, { kind: "cdp", method: "ace.ping" }, undefined, {
+    if (!session || session.lost || this.closed) return Promise.resolve(false);
+    if (session.probing) return session.probing;
+    const probing = this.dispatch(sessionId, { kind: "cdp", method: "ace.ping" }, undefined, {
       deadlineMs: pingDeadlineMs,
       timedOut: () => this.unresponsive(sessionId),
-    }).then(
-      () => {
-        session.probing = false;
-      },
-      (error: unknown) => {
-        session.probing = false;
-        // Any answer but "no such session" (an older desktop's unknown method too) is alive.
-        if (error instanceof Error && error.message === "Unknown browser session")
-          this.unresponsive(sessionId);
-      },
-    );
+    })
+      .then(
+        () => !session.lost,
+        (error: unknown) => {
+          // Any answer but "no such session" (an older desktop's unknown method too) is alive.
+          if (error instanceof Error && error.message === "Unknown browser session")
+            this.unresponsive(sessionId);
+          return !session.lost;
+        },
+      )
+      .finally(() => {
+        session.probing = undefined;
+      });
+    session.probing = probing;
+    return probing;
   }
   private unresponsive(sessionId: string): void {
     this.loseSession(sessionId, "Desktop browser command timed out");
@@ -168,7 +172,7 @@ export class EmbeddedBackend implements BrowserBackend {
     signal?: AbortSignal,
     deadline: { deadlineMs: number; timedOut(): void } = {
       deadlineMs: relayDeadline(operation),
-      timedOut: () => this.timedOut(sessionId),
+      timedOut: () => void this.timedOut(sessionId),
     },
   ): Promise<unknown> {
     if (signal?.aborted) return Promise.reject(signal.reason);
@@ -252,7 +256,13 @@ export class EmbeddedBackend implements BrowserBackend {
   }
   handle(raw: unknown): void {
     const message = BrowserBackendClientMessage.parse(raw);
-    if (message.type === "browser.backend.register" || message.backendId !== this.id || this.closed)
+    // Registration and wake notices are the connection's business, not a session's.
+    if (
+      message.type === "browser.backend.register" ||
+      message.type === "browser.backend.resumed" ||
+      message.backendId !== this.id ||
+      this.closed
+    )
       return;
     if (message.type === "browser.backend.response") {
       const waiter = this.pending.get(message.id);
@@ -618,6 +628,8 @@ export class EmbeddedBackend implements BrowserBackend {
             features: [{ name: "prefers-color-scheme", value: colorScheme }],
           });
         },
+        // After sleep: a desktop that misses the liveness ping loses the page, which recovers.
+        ping: () => this.timedOut(sessionId),
         // The desktop treats every unshown view as an agent's; only the shown one varies.
         agentUse: async (tabId, active) => {
           if (active) agentTabs.add(tabId);

@@ -45,6 +45,11 @@ export interface BrowserServiceOptions {
   tabBudget?: import("./tab-budget.ts").TabBudget;
   /** Where thread tabs are kept for restore after a daemon restart; omitted, nowhere. */
   tabStore?: import("./tab-store.ts").BrowserTabStore;
+  /**
+   * How the service notices the computer woke from sleep on its own (wall time running ahead of
+   * monotonic time); `false` turns it off. Default: every 10 s, a 30 s tolerance.
+   */
+  wakeWatch?: import("./wake-watch.ts").WakeWatch | false;
   /** Idle-tab freezing in ace's Chrome; `false` turns it off. */
   tabLifecycle?: import("./session-lifecycle.ts").LifecycleSchedule | false;
   maxDownloadBytes?: number;

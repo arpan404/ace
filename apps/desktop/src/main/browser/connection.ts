@@ -104,8 +104,18 @@ export class BackendConnection {
     else void this.disconnect();
   }
 
-  /** The daemon (re)started or the machine woke: try again now. */
+  /** Writes to the registered socket, if there is one. */
+  private notify: ((serialized: string) => boolean) | undefined;
+
+  /**
+   * The daemon (re)started or the machine woke: try again now, or, while registered, tell the
+   * daemon the machine woke so it checks its browser engines (#947).
+   */
   wake(): void {
+    if (this.registered && this.notify) {
+      this.notify(JSON.stringify({ type: "browser.backend.resumed" }));
+      return;
+    }
     if (!this.wanted || this.socket) return;
     this.attempt = 0;
     void this.connect();
@@ -208,6 +218,7 @@ export class BackendConnection {
       ) {
         stopHandshake();
         this.registered = socket;
+        this.notify = write;
         this.attempt = 0;
         this.backend.attach({
           backendId: message.data.backendId,
@@ -223,6 +234,7 @@ export class BackendConnection {
       stopPing?.();
       if (this.registered === socket) {
         this.registered = undefined;
+        this.notify = undefined;
         this.backend.detach();
       }
       if (this.socket !== socket) return;
@@ -241,6 +253,7 @@ export class BackendConnection {
     const socket = this.socket;
     this.socket = undefined;
     if (this.registered) this.registered = undefined;
+    this.notify = undefined;
     // Close the views now; the socket's close event may arrive later.
     const closed = this.backend.closeAll();
     socket?.close();

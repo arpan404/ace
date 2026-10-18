@@ -217,6 +217,8 @@ export class ChromeBackend implements BrowserBackend {
       agentUse: async (tabId, active) => {
         tabs.agentUse(tabId, active);
       },
+      // A browser that stopped answering (asleep, wedged) is killed and restarted with its tabs.
+      ping: async () => (await current?.instance.connection.ping()) ?? false,
       close,
     };
   }

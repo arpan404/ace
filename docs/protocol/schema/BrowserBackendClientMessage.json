@@ -6,6 +6,9 @@
       "$ref": "https://ace.local/protocol/v1/BrowserBackendRegister.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/BrowserBackendResumed.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/BrowserBackendResponse.json"
     },
     {

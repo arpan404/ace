@@ -135,6 +135,12 @@ export interface BrowserBackendSession extends BrowserBackendPage {
    * differently (the desktop intercepts file choosers and keeps an unseen view rendering).
    */
   agentUse?(tabId: string, active: boolean): Promise<void>;
+  /**
+   * Checks the engine is alive (after the computer woke from sleep); resolves to whether it
+   * is. A dead one is reported through the open request's `lost`, or restarted with its tabs,
+   * as the backend recovers.
+   */
+  ping?(): Promise<boolean>;
   /** Agent-visible extensions, read-only. */
   extensions?(): Promise<{ id: string; name: string; version?: string; enabled: boolean }[]>;
   close(): Promise<void>;

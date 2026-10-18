@@ -261,6 +261,14 @@ export class BrowserSession {
   restarted(tabId?: string): void {
     const tabs = tabId === undefined ? this.tabs.all() : [this.tabs.find(tabId)];
     for (const tab of tabs) tab?.restarted();
+    // The whole browser is back with every tab (a crash, or a wedge found after sleep): work that
+    // failed while it was down, such as a capture in flight, no longer holds the thread paused.
+    if (tabId === undefined && this.paused && !this.reattaching && !this.closed) {
+      this.paused = false;
+      this.reason = undefined;
+      this.lastUrl = undefined;
+      this.pageStateLost = true;
+    }
     if (tabId !== undefined && tabId !== this.captured) return;
     this.recapture("The page could not reconnect");
   }
@@ -611,6 +619,20 @@ export class BrowserSession {
     if (this.closed) throw new BrowserActionError("browser_closed");
     await this.onTab(actor, undefined, async (runtime) => runtime.readCheck(actor));
     return this.currentTab(actor);
+  }
+  /**
+   * The computer woke from sleep. Navigations in flight get their time again, the engine is
+   * asked whether it is alive (a dead one recovers through the backend), and the live capture
+   * restarts on the shown tab, as a screencast may have stalled while asleep.
+   */
+  async wake(): Promise<void> {
+    if (this.closed) return;
+    this.policies.wake();
+    const backend = this.options.backend;
+    const alive = (await backend.ping?.()) ?? true;
+    // A dead engine re-arms capture itself once it is back (`restarted`, or a replacement).
+    if (alive && !this.closed && !this.paused && this.options.backend === backend)
+      this.recapture("The page could not reconnect after sleep");
   }
   /** The thread's tabs as a restore brings them back: ids, addresses, labels, order. */
   tabRecords(): import("./tab-store.ts").BrowserTabRecord[] {
