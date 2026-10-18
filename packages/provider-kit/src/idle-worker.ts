@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { Worker, type WorkerOptions, type Transferable } from "node:worker_threads";
+import { nextIdleWindow, type IdleWindowPolicy } from "./idle-window.ts";
 
 /** Node watch-mode infrastructure shares the worker message channel with application RPC. */
 export function isWorkerRuntimeMessage(input: unknown): boolean {
@@ -13,6 +14,8 @@ export function isWorkerRuntimeMessage(input: unknown): boolean {
 export interface IdleWorkerRuntime {
   spawn(entry: URL, options: WorkerOptions): WorkerPort;
   delay(callback: () => void, milliseconds: number): () => void;
+  /** Monotonic milliseconds. Without it the idle window stays fixed. */
+  now?(): number;
 }
 export interface WorkerPort {
   on(event: "message", listener: (input: unknown) => void): this;
@@ -28,7 +31,10 @@ const systemRuntime: IdleWorkerRuntime = {
     timer.unref();
     return () => clearTimeout(timer);
   },
+  now: () => performance.now(),
 };
+/** Workers woken right after retiring keep their isolate for up to two minutes. */
+const MAX_IDLE_MS = 120_000;
 
 /** Only the RPC owner can declare idle, after replies and all auxiliary work settle. */
 export class IdleWorker extends EventEmitter {
@@ -40,7 +46,9 @@ export class IdleWorker extends EventEmitter {
   private entry: URL;
   private options: WorkerOptions;
   private runtime: IdleWorkerRuntime;
+  private window: IdleWindowPolicy;
   private idleMs: number;
+  private retiredAt: number | undefined;
   private failed = false;
   private restartAttempts = 0;
   private cancelRestart: (() => void) | undefined;
@@ -53,6 +61,7 @@ export class IdleWorker extends EventEmitter {
     this.options = options;
     this.runtime = runtime;
     this.idleMs = idleMs;
+    this.window = { baseMs: idleMs, maxMs: Math.max(idleMs, MAX_IDLE_MS) };
   }
   get started(): boolean {
     // An empty retiring isolate has no work to close; terminate() still awaits its exit.
@@ -61,6 +70,10 @@ export class IdleWorker extends EventEmitter {
   start(): void {
     if (this.closing || this.failed) throw new Error("Worker closed");
     if (this.worker || this.stopping) return;
+    const now = this.runtime.now?.();
+    if (this.retiredAt !== undefined && now !== undefined)
+      this.idleMs = nextIdleWindow(this.window, this.idleMs, now - this.retiredAt);
+    this.retiredAt = undefined;
     const worker = this.runtime.spawn(this.entry, this.options);
     this.worker = worker;
     worker.on("message", (input: unknown) => {
@@ -118,6 +131,7 @@ export class IdleWorker extends EventEmitter {
       const worker = this.worker;
       if (!worker) return;
       this.worker = undefined;
+      this.retiredAt = this.runtime.now?.();
       this.stopping = worker
         .terminate()
         .then(() => {
