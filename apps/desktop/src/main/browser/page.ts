@@ -611,6 +611,9 @@ export class EmbeddedPage implements ViewPage {
       this.gate.command(method, params);
       return {};
     }
+    // The daemon reads the history after every navigation (for Back and Forward). That is no
+    // driving: an unseen tab whose page navigates by itself stays unrendered.
+    if (method === "Page.getNavigationHistory") return this.send(method);
     if (method === "Page.startScreencast") this.screencasting = true;
     else if (method === "Page.stopScreencast") this.screencasting = false;
     if (agentWork(method)) this.drivenAt = Date.now();

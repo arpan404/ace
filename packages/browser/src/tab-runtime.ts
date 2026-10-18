@@ -15,6 +15,7 @@ import { AnnotationSession } from "./annotation-session.ts";
 import type { BrowserBackendPage, BrowserCdp, PopupTarget } from "./backend.ts";
 import type { SessionLogs } from "./logs.ts";
 import { PageIdentity } from "./page-identity.ts";
+import { PageHistory } from "./page-history.ts";
 import { screenshotRegion } from "./page-capture.ts";
 import { BrowserOriginError } from "./policy.ts";
 import type { NavigationPolicies } from "./policy-waits.ts";
@@ -89,6 +90,8 @@ export class TabRuntime {
   readonly annotation: AnnotationSession;
   /** The page's own title and favicon, as the document reports them. */
   readonly identity: PageIdentity;
+  /** Whether Back and Forward lead anywhere, kept current through every navigation. */
+  readonly history: PageHistory;
   /** The device the tab emulates and its zoom, as the last command set them. */
   readonly view: TabView = { emulation: undefined, zoom: 1 };
   /** Agents' cursors drawn in the page, and the mask over secret fields in captures. */
@@ -157,11 +160,12 @@ export class TabRuntime {
       async () => [await this.annotation.hostNode(), await this.cursor.hostNode()],
     );
     this.identity = new PageIdentity(() => host.emit());
+    this.history = new PageHistory(() => host.emit(), host.options.navigationClock);
     this.watchIdentity();
   }
   /** The page identity waits for a command to claim the tab (`watchIdentity`). */
   private identityWaits = false;
-  /** Follow the title and favicon on the session that reaches the page now. */
+  /** Follow the title, favicon and history on the session that reaches the page now. */
   private watchIdentity(): void {
     let page: BrowserBackendPage;
     try {
@@ -175,6 +179,7 @@ export class TabRuntime {
     this.identityWaits = page.unclaimed?.() === true;
     if (this.identityWaits) return;
     this.identity.watch(page.cdp);
+    this.history.watch(page.cdp);
   }
   get page(): BrowserBackendPage {
     return this.host.page(this.id);
@@ -257,6 +262,7 @@ export class TabRuntime {
     this.lane.close();
     this.stopInUse?.();
     this.identity.close();
+    this.history.close();
     this.annotation.end("stopped");
     this.cursor.close();
     return this.settled();
@@ -428,6 +434,20 @@ export class TabRuntime {
         this.readCheck(actor, privateEpoch);
         this.check(actor, signal, submittedGeneration);
         if (command.action === "dialog") this.leaveCheck(command, actor);
+        return this.run(command, actor, signal, submittedGeneration);
+      })();
+    // The person's Back and Forward land at once, as in any browser: never behind an agent's
+    // slow command or a page dialog in this tab (the engine decides what the dialog does).
+    if (
+      actor.kind === "human" &&
+      command.action === "history" &&
+      (command.direction === "back" || command.direction === "forward")
+    )
+      return (async () => {
+        this.readCheck(actor, privateEpoch);
+        this.check(actor, signal, submittedGeneration);
+        await this.host.wake(this.id);
+        this.crashCheck(command);
         return this.run(command, actor, signal, submittedGeneration);
       })();
     const waits = actor.kind === "agent" && waitsForPerson(command);

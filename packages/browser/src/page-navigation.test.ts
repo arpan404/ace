@@ -72,3 +72,28 @@ test("going forward with no later entry does nothing and succeeds", async () => 
   });
   expect(sent).not.toContain("Page.navigateToHistoryEntry");
 });
+
+test("Back on the first page a new tab opened stays there instead of going to the blank page", async () => {
+  const sent: string[] = [];
+  const events = new EventEmitter();
+  const cdp: BrowserCdp = {
+    async send(method) {
+      sent.push(method);
+      if (method === "Page.getNavigationHistory")
+        return {
+          currentIndex: 1,
+          entries: [
+            { id: 1, url: "about:blank" },
+            { id: 2, url: "http://localhost/first" },
+          ],
+        };
+      return {};
+    },
+    on: (method, listener) => events.on(method, listener),
+    off: (method, listener) => events.off(method, listener),
+  };
+  await expect(traverseHistory(cdp, "back", () => {}, manualClock().clock)).resolves.toEqual({
+    ok: true,
+  });
+  expect(sent).not.toContain("Page.navigateToHistoryEntry");
+});

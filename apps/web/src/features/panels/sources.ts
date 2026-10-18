@@ -120,6 +120,9 @@ export interface BrowserTabView {
   certificateError?: { url: string; error: string } | undefined;
   /** Audio or video with sound plays in this tab now. */
   playing?: boolean | undefined;
+  /** Whether Back and Forward lead anywhere, as the daemon keeps them current. */
+  canGoBack?: boolean | undefined;
+  canGoForward?: boolean | undefined;
 }
 export interface BrowserSignInView {
   authId: string;
@@ -295,10 +298,6 @@ export interface PreviewSource {
    * net error, an origin awaiting approval).
    */
   navigate(threadId: string, url: string, tabId?: string): Promise<string>;
-  navigationHistory?(
-    threadId: string,
-    tabId?: string,
-  ): Promise<{ back: boolean; forward: boolean }>;
   navigateHistory?(
     threadId: string,
     direction: "back" | "forward" | "reload" | "stop",

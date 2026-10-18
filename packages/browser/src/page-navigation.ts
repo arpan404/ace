@@ -2,20 +2,16 @@ import { z } from "zod";
 import { BrowserActionError } from "./action-error.ts";
 import type { BrowserCdp } from "./backend.ts";
 import type { NavigationClock } from "./navigation.ts";
-const History = z.object({
-  currentIndex: z.number().int(),
-  entries: z.array(
-    z.object({ id: z.number().int(), url: z.string(), title: z.string().optional() }),
-  ),
-});
+import { NavigationHistory, historySteps } from "./page-history.ts";
 const shownEntries = 20;
 /** Whether back/forward work, and the session's recent entries with the current one marked. */
 export async function pageHistory(cdp: BrowserCdp) {
-  const state = History.parse(await cdp.send("Page.getNavigationHistory"));
+  const state = NavigationHistory.parse(await cdp.send("Page.getNavigationHistory"));
   const first = Math.max(0, state.entries.length - shownEntries);
+  const steps = historySteps(state);
   return {
-    back: state.currentIndex > 0,
-    forward: state.currentIndex < state.entries.length - 1,
+    back: steps.back !== undefined,
+    forward: steps.forward !== undefined,
     entries: state.entries.slice(first).map((entry, index) => {
       const shown: { url: string; title?: string; current?: true } = {
         url: entry.url.slice(0, 2048),
@@ -55,8 +51,10 @@ export async function traverseHistory(
   let move: () => Promise<unknown>;
   if (direction === "reload") move = () => cdp.send("Page.reload");
   else {
-    const state = History.parse(await cdp.send("Page.getNavigationHistory"));
-    const entry = state.entries[state.currentIndex + (direction === "back" ? -1 : 1)];
+    const steps = historySteps(
+      NavigationHistory.parse(await cdp.send("Page.getNavigationHistory")),
+    );
+    const entry = direction === "back" ? steps.back : steps.forward;
     if (!entry) {
       check();
       return { ok: true };
