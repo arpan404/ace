@@ -30,30 +30,40 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       const pageView = nativePage(s.app, p, s.url);
       const geometry = pageView.geometry;
       await expect.poll(pageView.placed, { timeout: 30000 }).toBe(true);
-      await address.fill("127.0.0.1");
       const suggestions = p.getByRole("listbox", { name: "Suggested addresses" });
-      await suggestions.waitFor();
-      const suggestionBox = await suggestions.boundingBox();
-      const pageBox = await p.locator("[data-browser-page]").boundingBox();
-      if (!suggestionBox || !pageBox) throw new Error("Suggestion geometry missing");
-      await expect.poll(async () => (await geometry()).native?.visible).toBe(true);
+      // The page just loaded may still take the keyboard once, dropping a draft typed meanwhile.
+      await expect
+        .poll(async () => {
+          if (await suggestions.isVisible()) return true;
+          await address.fill("127.0.0.1");
+          return false;
+        })
+        .toBe(true);
+      // Suggestions and menus over the native page never move or resize it: the view hides
+      // behind its own still picture, drawn exactly where it was, until the overlay goes.
+      const heldInPlace = async () => {
+        const { box, native } = await geometry();
+        const picture = await p.locator("[data-frozen-page]").evaluateAll((elements) => {
+          const r = elements[0]?.getBoundingClientRect();
+          return r && { x: r.x, y: r.y, width: r.width, height: r.height };
+        });
+        return (
+          !!box &&
+          !!picture &&
+          !native.visible &&
+          (["x", "y", "width", "height"] as const).every(
+            (key) => Math.abs(picture[key] - box[key]) < 2,
+          )
+        );
+      };
+      await expect.poll(heldInPlace).toBe(true);
       await address.press("ArrowDown");
       await p.getByRole("option", { selected: true }).waitFor();
       await address.press("Escape");
-      await expect.poll(async () => (await geometry()).native?.visible).toBe(true);
+      await expect.poll(pageView.placed).toBe(true);
       await p.getByRole("button", { name: "Browser options" }).click();
-      await expect
-        .poll(async () => {
-          const native = (await geometry()).native;
-          const menu = await p.getByRole("menu").boundingBox();
-          return (
-            !!native?.visible &&
-            !!menu &&
-            (native.bounds.y >= menu.y + menu.height ||
-              native.bounds.x + native.bounds.width <= menu.x)
-          );
-        })
-        .toBe(true);
+      await p.getByRole("menu").waitFor();
+      await expect.poll(heldInPlace).toBe(true);
       await p.keyboard.press("Escape");
       await expect.poll(async () => (await geometry()).native?.visible).toBe(true);
       await p.getByRole("button", { name: "Hide sidebar" }).click();
@@ -269,12 +279,14 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await expect.poll(async () => (await geometry()).native?.visible).toBe(true);
       const pageSize = async (name: string | RegExp) => {
         await p.getByRole("button", { name: "Browser options" }).click();
+        await p.getByRole("menuitem", { name: "Page size" }).click();
         await p.getByRole("menuitemradio", { name }).click();
+        // The options menu and its Page size submenu both close.
+        await expect.poll(() => p.getByRole("menu").count()).toBe(0);
       };
       await pageSize(/iPhone 16 Pro/);
       await expect.poll(() => nativeRead("innerWidth")).toBe(402);
       await expect.poll(() => nativeRead("devicePixelRatio")).toBe(3);
-      await p.getByRole("menu").waitFor({ state: "hidden" });
       const emulated = (await geometry()).native?.bounds;
       if (!emulated) throw new Error("Native emulation missing");
       expect(emulated.width / emulated.height).toBeCloseTo(402 / 874, 2);
@@ -303,6 +315,9 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
           return state.tabs?.find((tab) => tab.tabId === state.activeTabId)?.private;
         })
         .toBe(true);
+      // A checkbox item leaves the menu open.
+      await p.keyboard.press("Escape");
+      await expect.poll(() => p.getByRole("menu").count()).toBe(0);
       await p.keyboard.press("Control+Shift+B");
       await expect.poll(async () => (await geometry()).native?.visible).toBe(false);
       await p.keyboard.press("Control+Shift+B");
@@ -310,7 +325,8 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await p.getByRole("button", { name: "Show sidebar", exact: true }).click();
       await p.getByRole("link", { name: /Other fixture/ }).click();
       await expect.poll(async () => !!(await geometry()).native?.visible).toBe(false);
-      await s.daemon.browser.closeThread(s.thread.id, { kind: "agent" });
+      // The person kept agents out of the tab, so only the person can close it.
+      await s.daemon.browser.closeThread(s.thread.id, { kind: "human", connectionId: "e2e" });
       for (const thread of [s.thread, s.other]) {
         await s.daemon.browser.open({
           threadId: thread.id,
