@@ -6,6 +6,7 @@ import { agentName } from "./agents.ts";
 import {
   askingLabel,
   describeLive,
+  waitingOnSubagentsLabel,
   treeWorking,
   type LiveFact,
   type RootStand,
@@ -31,7 +32,7 @@ import { describeStep } from "./work-log.ts";
 export type ActivityTone = "working" | "needs-you" | "held" | "paused";
 
 export interface TurnActivity {
-  /** "Working", "Waiting for your approval", "Waiting on 2 subagents", "Rate limited · …". */
+  /** "Working", "Waiting for your approval", "Waiting for 2 subagents", "Rate limited · …". */
   label: string;
   /** A command the label names, shown as code after it: "Watching `bun run dev:relay`". */
   code?: string | undefined;
@@ -47,6 +48,11 @@ export interface TurnActivity {
   backgroundCommands?: number | undefined;
   /** While waiting on the person: the subagent or delegated child that asks, when not the root. */
   asker?: string | undefined;
+  /**
+   * The root does nothing itself and its turn goes on only for its subagents: the line reads
+   * "Waiting for 2 subagents", not "Working", with the same timer.
+   */
+  waitingOnSubagents?: boolean | undefined;
 }
 
 export type ActivityReader = Pick<
@@ -75,10 +81,11 @@ export interface ActivityOptions {
 
 /**
  * The words before a turn's time: "Working for 3m 6s". A label already in motion ("Stopping…")
- * takes the time bare: "Stopping… 3s".
+ * takes the time bare: "Stopping… 3s"; a wait sets it apart: "Waiting for 2 subagents · 3s".
  */
 export function timedWords(label: string): string {
-  return label.endsWith("…") ? label : `${label} for`;
+  if (label.endsWith("…")) return label;
+  return label.startsWith("Waiting") ? `${label} ·` : `${label} for`;
 }
 
 /** "Paused · Codex usage limit · resets 6:00 PM": a usage-limit pause, live or in history. */
@@ -214,14 +221,20 @@ export function readTurnActivity(
   const stopped =
     (status?.state === "interrupted" || run?.state === "interrupted") && !subagents && !needsYou;
   const working = !stopped && treeWorking({ needsYou, root, subagents, backgroundCommands });
+  const waitingOnSubagents = working && rootWaitsOnSubagents(status, subagents);
   const shown = stopped
     ? undefined
     : working
       ? {
           ...activity,
           code: undefined,
-          label: options.stopping ? "Stopping…" : "Working",
+          label: options.stopping
+            ? "Stopping…"
+            : waitingOnSubagents
+              ? waitingOnSubagentsLabel(subagents)
+              : "Working",
           tone: "working" as const,
+          waitingOnSubagents: waitingOnSubagents && !options.stopping ? true : undefined,
           elapsedFrom:
             from === undefined
               ? undefined
@@ -256,6 +269,17 @@ export function readStoppedTurn(
     stopped: reader.agent(rootId)?.status.state === "interrupted" || run?.state === "interrupted",
     watch: [...stretch.watch.map((id) => `item:${id}`), ...(runId ? [`run:${runId}`] : [])],
   };
+}
+
+/**
+ * Whether the root does nothing itself while its subagents work: it waits on them inside its
+ * turn, or its turn ended and only they (and maybe background commands) carry on. A root that
+ * was stopped or is held by a limit or the network is not waiting on them.
+ */
+function rootWaitsOnSubagents(status: AgentStatus | undefined, subagents: number): boolean {
+  if (status?.state === "blocked")
+    return status.on === "subagents" || (status.on === "background_task" && subagents > 0);
+  return status?.state === "idle" && subagents > 0;
 }
 
 /** A held root's line as its tree's step: the hold and the command it names. */
@@ -327,7 +351,7 @@ function readActivity(
       if (status.on === "subagents")
         return status.refs.length
           ? factLine({ kind: "subagents", count: status.refs.length }, "working")
-          : line("Waiting on subagents", "working");
+          : line(waitingOnSubagentsLabel(0), "working");
       if (status.on === "background_task") {
         // Its refs are background tasks and subagents that outlived the turn.
         const titles: string[] = [];
@@ -396,6 +420,7 @@ export function sameActivity(a: TurnActivity | undefined, b: TurnActivity | unde
       a.current === b.current &&
       a.subagents === b.subagents &&
       a.backgroundCommands === b.backgroundCommands &&
-      a.asker === b.asker)
+      a.asker === b.asker &&
+      a.waitingOnSubagents === b.waitingOnSubagents)
   );
 }

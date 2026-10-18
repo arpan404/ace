@@ -120,14 +120,15 @@ test("a failed turn keeps everything it did in view", () => {
   expect(head?.kind === "work" && head.folded).toBeUndefined();
 });
 
-// Mutations: putting the live line under the ask, adding a second one, or keeping it after the
-// turn settles.
-test("a working turn has one live line, at the end of everything it did", () => {
+// Mutations: putting the live line after the turn's work, adding a second one, or keeping it
+// after the turn settles.
+test("a working turn has one live line, right under its ask where its Worked for will stand", () => {
   const working = buildBlocks(source(turn.slice(0, 4), { state: "active", trigger: "user" }));
   expect(working.filter((block) => block.kind === "live")).toHaveLength(1);
   expect(working[0]?.kind).toBe("user");
-  const live = working.at(-1);
+  const live = working[1];
   expect(live?.kind === "live" && live.askId).toBe("ask");
+  expect(working.length).toBeGreaterThan(2);
   const done = buildBlocks(
     source(turn, { state: "completed", trigger: "user", startedAt: 1, endedAt: 7 }),
   );

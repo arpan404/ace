@@ -133,9 +133,11 @@ test("subagents open inline as the agents started, and the agent tree is one cli
   expect(within(panel).getByRole("tab", { selected: true }).textContent).toBe("Summary");
 });
 
-test("the transcript live line counts the working subagents without a composer pill", async () => {
+test("the transcript live line waits for the working subagents without a composer pill", async () => {
   await openReplay("finding");
-  expect(screen.getByRole("status", { name: "Working" }).textContent).toContain("2 subagents");
+  // The main agent only waits on them: never "Working", and the count is said once.
+  const line = screen.getByRole("status", { name: "Waiting for 2 subagents" });
+  expect(line.textContent).not.toContain("subagents working");
   expect(screen.queryByText("3 agents working")).toBeNull();
 });
 

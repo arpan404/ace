@@ -103,8 +103,8 @@ export function Feed(props: FeedProps) {
   const built = useBlocks(threadId);
   const activity = useTurnActivity(threadId);
   useDropTurnSteps(threadId);
-  // The live turn's one status line ends its flow; a turn with no block in view yet (its ask
-  // still on its way, older than the window) keeps it at the end of the rows. Either way it is
+  // The live turn's one status line heads its flow, under its ask; a turn with no block in view
+  // yet (its ask still on its way, older than the window) keeps it at the end of the rows. Either way it is
   // one row, which moves rather than flashing out and back in.
   const working = !detached && !!activity && activity.tone !== "paused";
   const blocks = useMemo(
