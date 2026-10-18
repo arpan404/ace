@@ -126,5 +126,10 @@ export async function connectedBrowser(chromePath: string, cleanups: Cleanups) {
     }),
   ).targetId;
   const asPerson = (expression: string) => chrome.evaluate(popup, expression);
+  // A new target starts on about:blank: the popup's extension APIs exist once it has loaded.
+  await until(
+    async () => (await asPerson("typeof chrome.tabs?.query").catch(() => "")) === "function",
+    "the extension popup to load",
+  );
   return { hub, chrome, asPerson, root };
 }
