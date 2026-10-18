@@ -7,6 +7,7 @@ import { oversizedScenario, approvalRetryScenario } from "./review-scenarios.ts"
 import { manyActions, snapshotFrames } from "./many-actions.ts";
 import { LostReceipt } from "./lost-receipt.ts";
 import { threadScenarios } from "./thread-scenarios.ts";
+import { RequestScenario, requestScenarios, seedRequest } from "./request-scenarios.ts";
 import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
 
@@ -71,55 +72,6 @@ daemon.apply("ios-stream", [
 ]);
 daemon.createThread({
   hasSentMessage: true,
-  id: "ios-approval",
-  workspaceId: "ace",
-  title: "Fix the flaky queue test",
-  provider: "codex",
-  details: details("fix/queue"),
-  access: "ask",
-});
-daemon.apply("ios-approval", [
-  facts.rootAgent("codex"),
-  facts.turn("root"),
-  facts.message("root", "ask", "user", "Fix the flaky queue test, then push the branch."),
-  facts.tool("root", "edit", {
-    kind: "file.read",
-    title: "Read queue.test.ts",
-    detail: { kind: "file.read", path: "queue.test.ts" },
-  }),
-  facts.toolDone("root", "edit"),
-  facts.message(
-    "root",
-    "answer",
-    "assistant",
-    "The retry timer used wall-clock time, so a slow CI box could fire it twice. The test now pins the injected clock. All 214 tests pass.",
-  ),
-  facts.tool("root", "push", {
-    kind: "shell",
-    title: "Codex wants to run a command",
-    status: "awaiting_approval",
-    detail: { kind: "shell", command: "git push origin fix/queue" },
-  }),
-  {
-    type: "interaction.opened",
-    agent: "root",
-    interaction: "push",
-    item: "push",
-    blocking: true,
-    request: {
-      kind: "approval",
-      title: "Codex wants to run a command",
-      description: "Publishes 2 commits to GitHub",
-      options: [
-        { id: "deny", label: "Deny", kind: "deny" },
-        { id: "always", label: "Always here", kind: "allow_session" },
-        { id: "allow", label: "Allow", kind: "allow_once" },
-      ],
-    },
-  },
-]);
-daemon.createThread({
-  hasSentMessage: true,
   id: "ios-done",
   workspaceId: "ace",
   title: "Tighten the composer spacing",
@@ -179,6 +131,8 @@ daemon.command({
 });
 
 threadScenarios(daemon, details);
+requestScenarios(daemon, details);
+let fresh = 0;
 
 const connections = new Map<ServerWebSocket<undefined>, ReturnType<FakeDaemon["connect"]>>();
 let online = true;
@@ -249,6 +203,15 @@ const server = Bun.serve<undefined>({
     if (path === "/review/oversized" && request.method === "POST") {
       oversizedScenario(daemon, z.enum(["create", "work", "approval"]).parse(await request.json()));
       return Response.json({ ok: true });
+    }
+    // A new thread for one contract test, so answering it never changes another test's thread.
+    if (path === "/review/fresh" && request.method === "POST") {
+      const scenario = RequestScenario.parse(
+        z.object({ scenario: z.string() }).parse(await request.json()).scenario,
+      );
+      const threadId = `ios-fresh-${scenario}-${++fresh}`;
+      seedRequest(daemon, scenario, threadId, details);
+      return Response.json({ threadId });
     }
     if (path === "/review/notify" && request.method === "POST") {
       const input = z

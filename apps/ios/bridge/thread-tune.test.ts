@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import { facts, workbenchServices } from "@ace/fake-daemon";
+import { facts } from "@ace/fake-daemon";
 import { commands, connect, fixture, latest, open, reset, until } from "./thread-harness.ts";
 
 /*
@@ -23,7 +23,6 @@ const tune = () => latest("thread.tune") as Tune | undefined;
 
 function tunable(capabilities?: Record<string, unknown>) {
   const fake = fixture();
-  fake.seedServices(workbenchServices(Date.now(), "UTC"));
   fake.createThread({
     id: "tune",
     workspaceId: "ace",
