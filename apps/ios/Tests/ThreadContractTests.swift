@@ -46,6 +46,18 @@ import Testing
         #expect(await model.sendMessage("Steer: skip the docs \(UUID().uuidString)", alternate: true))
         #expect(model.error == nil)
     }
+    @Test func aQueuedFollowUpShowsAboveTheComposerUntilItIsRemoved() async throws {
+        let (model, root) = try await connected()
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
+        model.open("ios-stop")
+        _ = try await until("a working thread") { model.thread?.screen.controls?.busy == true ? true : nil }
+        let text = "Queued for later \(UUID().uuidString)"
+        #expect(await model.sendMessage(text, alternate: false))
+        let queued = try await until("the queued message") { model.thread?.screen.queue?.messages.first { $0.text == text } }
+        #expect(model.thread?.items.values.contains { $0.row.text == text } == false)
+        #expect(await model.editQueued(queued, change: ["kind": "remove"]))
+        _ = try await until("the removal") { model.thread?.screen.queue?.messages.contains { $0.text == text } == false ? true : nil }
+    }
     @Test func answeringAQuestionIsAdmittedThenClosedOnlyByTheDaemon() async throws {
         let (model, root) = try await connected()
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }

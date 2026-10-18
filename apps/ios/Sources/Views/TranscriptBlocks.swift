@@ -143,8 +143,12 @@ struct WorkBlockView: View {
                 HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.xs) {
                     if let work = row.work {
                         if work.ongoing {
-                            Text("Working for")
-                            Text(Date(timeIntervalSince1970: work.startedAt / 1000), style: .timer).monospacedDigit()
+                            // A main-thread timeline: the theme's adaptive colours resolve on the main actor.
+                            TimelineView(.periodic(from: .now, by: 1)) { context in
+                                let seconds = max(1, Int(context.date.timeIntervalSince1970 - work.startedAt / 1000))
+                                Text("Working for \(Duration.seconds(seconds).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .narrow)))")
+                                    .monospacedDigit()
+                            }
                         } else { Text(work.label) }
                         if !work.counts.isEmpty { Text("· \(work.counts)").lineLimit(1) }
                     } else { Text("Worked") }

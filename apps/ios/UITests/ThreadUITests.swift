@@ -33,6 +33,13 @@ import XCTest
         sleep(2)
         screenshot("thread-models")
         app.buttons["Done"].tap()
+        let input = app.textViews["composer.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 10))
+        input.tap()
+        input.typeText("Then update the docs")
+        app.buttons["composer.send"].tap()
+        XCTAssertTrue(app.otherElements["queue.strip"].waitForExistence(timeout: 15) || app.staticTexts["Then update the docs"].waitForExistence(timeout: 5))
+        screenshot("thread-queue")
         app.buttons["thread.menu"].tap()
         XCTAssertTrue(app.buttons["Stop all agents"].waitForExistence(timeout: 10))
         screenshot("thread-menu")

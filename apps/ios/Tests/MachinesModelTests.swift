@@ -83,6 +83,11 @@ import Testing
         #expect(client.canOperate)
         let operating = try #require(fixture.sessions.started.last)
         client.open("thread-1")
+        // Stop is offered only when the bridge's canonical controls say the tree can stop.
+        let epoch = try #require(client.thread?.epoch)
+        let controls: [[String: Any]] = [["type": "thread.controls", "threadId": "thread-1", "epoch": epoch,
+                                          "row": ["busy": true, "delivery": "queue", "alternate": NSNull(), "canStop": true, "provider": "codex", "model": "", "switching": ""]]]
+        client.receive(try JSONSerialization.data(withJSONObject: controls))
         client.stopTree()
         #expect(operating.submitted.count == 1)
     }
@@ -203,7 +208,7 @@ private final class FakeSession: ClientSession, @unchecked Sendable {
     }
     func start(itemLimit: Int) {}
     /// Commands and inbox organization the model handed to the VM.
-    var submitted: [String] { lock.withLock { invoked.filter { $0.contains("\"type\":\"command\"") || $0.contains("\"type\":\"inbox\"") } } }
+    var submitted: [String] { lock.withLock { invoked.filter { $0.contains("\"type\":\"command\"") || $0.contains("\"type\":\"inbox\"") || $0.contains("\"type\":\"thread\"") } } }
     private var invoked: [String] = []
     func invoke(_ name: String, json: String) { lock.withLock { invoked.append(json) } }
     func acknowledge(accepted: Bool) {}
