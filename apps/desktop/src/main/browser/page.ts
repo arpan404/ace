@@ -20,6 +20,7 @@ import { PausedRequests } from "./paused-requests.ts";
 import { CrashBackoff } from "./crash-backoff.ts";
 import { FocusHandoff, type ReplayedKey } from "./focus-handoff.ts";
 import type { CertificateExceptions } from "./certificates.ts";
+import { audioMuted } from "./audio.ts";
 const throttleIdleMs = 30_000;
 /** The longest the view keeps keys for the app before giving them up. */
 const handoffMs = 1_000;
@@ -96,6 +97,9 @@ export class EmbeddedPage implements ViewPage {
   private handoff = new FocusHandoff();
   /** The certificate the shown document last failed on, for the person to proceed past. */
   private certificateError: { url: string; fingerprint: string } | undefined;
+  /** The person's own sound choice for this tab, once they made one. */
+  private audioChoice: boolean | undefined;
+  private audioReported = "";
 
   constructor(options: PageOptions) {
     this.options = options;
@@ -227,6 +231,8 @@ export class EmbeddedPage implements ViewPage {
       });
     });
     contents.on("render-process-gone", (_event, details) => this.rendererGone(details.reason));
+    contents.on("audio-state-changed", () => this.reportAudio());
+    this.applyAudio();
     contents.on("destroyed", () => this.detached("Browser view destroyed"));
   }
 
@@ -447,6 +453,7 @@ export class EmbeddedPage implements ViewPage {
     // Hidden views stay alive (and attached) but stop painting, and send no frames, unless an
     // agent drives them: then they render in the parking window (see `ViewPresence`).
     this.updateThrottle();
+    this.applyAudio();
   }
 
   async placementReady(): Promise<void> {
@@ -520,6 +527,11 @@ export class EmbeddedPage implements ViewPage {
       return {};
     }
     if (method === "ace.certificate.proceed") return this.proceedCertificate(params);
+    if (method === "ace.audio.mute") {
+      this.audioChoice = z.object({ muted: z.boolean() }).parse(params).muted;
+      this.applyAudio();
+      return {};
+    }
     if (this.popups.command(method, params) || this.dialogs.answer(method, params)) return {};
     if (this.downloads.command(method, params)) return {};
     if (method === "ace.findText") {
@@ -678,6 +690,30 @@ export class EmbeddedPage implements ViewPage {
     this.updateThrottle();
   }
 
+  /** Sound follows the person's view (see `audioMuted`); the daemon hears of every change. */
+  private applyAudio(): void {
+    if (this.contents.isDestroyed()) return;
+    const muted = audioMuted({
+      shown: this.placed,
+      agentControl: this.agentControl,
+      chosen: this.audioChoice,
+    });
+    if (this.contents.isAudioMuted() !== muted) this.contents.setAudioMuted(muted);
+    this.reportAudio();
+  }
+
+  private reportAudio(): void {
+    if (this.contents.isDestroyed()) return;
+    const audio = {
+      audible: this.contents.isCurrentlyAudible(),
+      muted: this.contents.isAudioMuted(),
+    };
+    const key = JSON.stringify(audio);
+    if (key === this.audioReported) return;
+    this.audioReported = key;
+    this.emit("ace.audio", audio);
+  }
+
   /** Popups exist while the person or an agent uses the page, never for an idle unseen one. */
   private popupsAllowed(): boolean {
     return this.nativeInput || this.agentControl;
@@ -701,6 +737,7 @@ export class EmbeddedPage implements ViewPage {
   setAgentControl(agent: boolean): void {
     this.agentControl = agent;
     if (!this.popupsAllowed()) this.popups.close();
+    this.applyAudio();
     void this.send("Page.setInterceptFileChooserDialog", { enabled: agent }).catch((error) =>
       this.options.log(String(error)),
     );

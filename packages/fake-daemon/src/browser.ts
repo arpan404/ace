@@ -440,6 +440,20 @@ export class FakeBrowser {
     )?.pending_dialog;
     this.changed();
   }
+  /** The tab's page plays sound or stops; agents' and background tabs start muted. */
+  sound(threadId: string, tabId: string, audible: boolean, muted: boolean): void {
+    const tab = this.tab(threadId, tabId);
+    if (!tab) throw new Error("Browser tab unavailable");
+    tab.audible = audible;
+    tab.muted = muted;
+    this.changed();
+  }
+  mute(threadId: string, tabId: string, muted: boolean): void {
+    const tab = this.tab(threadId, tabId);
+    if (!tab) throw new Error("Browser tab unavailable");
+    tab.muted = muted;
+    this.changed();
+  }
   /** A site on this tab asks for a sign-in; only the person's answer clears it. */
   signInAsk(threadId: string, tabId: string, realm: string): string {
     const tab = this.tab(threadId, tabId);

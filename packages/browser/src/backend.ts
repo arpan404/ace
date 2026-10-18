@@ -106,6 +106,8 @@ export interface BrowserBackendTabs {
    * certificate while the engine runs. Only the person's own request reaches this.
    */
   proceedCertificate?(tabId: string, url: string): Promise<void>;
+  /** The person turns a tab's sound off or on (its `muted`). */
+  mute?(tabId: string, muted: boolean): Promise<void>;
   page?(tabId: string): BrowserBackendPage;
 }
 /** One page's surface. Everything here acts on that page only. */

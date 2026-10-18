@@ -59,6 +59,19 @@ export class UserChromeBackend implements BrowserBackend {
       ),
     );
   }
+  /** The tab as its browser last listed it. */
+  tab(ref: UserTabRef): UserBrowserTab | undefined {
+    return this.hub
+      .get(ref.connectionId)
+      ?.tabs()
+      .find((tab) => tab.tabId === ref.tabId);
+  }
+  /** The person turns a tab's sound off or on in their own browser. */
+  async mute(ref: UserTabRef, muted: boolean): Promise<void> {
+    const link = this.hub.get(ref.connectionId);
+    if (!link) throw new Error("That browser is not connected to ace");
+    await link.command({ op: "tabs.mute", tabId: ref.tabId, muted });
+  }
   async open(request: BackendOpen): Promise<UserTabSession & { ref: UserTabRef }> {
     request.signal.throwIfAborted();
     const link = this.hub.preferred();

@@ -16,6 +16,9 @@ export interface ChromeTab {
   groupId?: number;
   /** The tab whose page opened this one. */
   openerTabId?: number;
+  /** The page made sound in the last few seconds (even if muted). */
+  audible?: boolean;
+  mutedInfo?: { muted: boolean };
 }
 export interface ChromeWindow {
   id?: number;
@@ -41,7 +44,10 @@ export interface ChromeTabs {
   query(query: { active?: boolean; currentWindow?: boolean }): Promise<ChromeTab[]>;
   create(options: { url?: string; windowId?: number; active?: boolean }): Promise<ChromeTab>;
   remove(tabId: number): Promise<void>;
-  update(tabId: number, options: { active?: boolean }): Promise<ChromeTab | undefined>;
+  update(
+    tabId: number,
+    options: { active?: boolean; muted?: boolean },
+  ): Promise<ChromeTab | undefined>;
   group(options: {
     tabIds: number[];
     groupId?: number;
@@ -52,7 +58,14 @@ export interface ChromeTabs {
   onUpdated: ChromeEvent<
     (
       tabId: number,
-      change: { url?: string; title?: string; groupId?: number; status?: string },
+      change: {
+        url?: string;
+        title?: string;
+        groupId?: number;
+        status?: string;
+        audible?: boolean;
+        mutedInfo?: { muted: boolean };
+      },
       tab: ChromeTab,
     ) => void
   >;

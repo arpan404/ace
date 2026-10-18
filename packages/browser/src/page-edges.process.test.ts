@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { executablePath, pageEdges, siteUser } from "./page-edges-test-support.ts";
 import { ref } from "./test-support.ts";
+import { chromeProcesses } from "./chrome-test-process.ts";
 
 it.skipIf(!executablePath)(
   "a site's sign-in waits for the person, and only their answer reaches the site",
@@ -115,6 +116,16 @@ it.skipIf(!executablePath)(
     });
     await expect.poll(() => f.text(opener), { timeout: 15_000 }).toContain("token abc123");
     await expect.poll(() => f.tabs().length, { timeout: 15_000 }).toBe(1);
+  },
+  60_000,
+);
+
+it.skipIf(!executablePath)(
+  "ace's Chrome never plays a page's sound on the daemon's machine",
+  async () => {
+    const f = await pageEdges();
+    await f.agent({ action: "navigate", url: f.url });
+    expect((await chromeProcesses(f.home)).commandLine).toContain("--mute-audio");
   },
   60_000,
 );

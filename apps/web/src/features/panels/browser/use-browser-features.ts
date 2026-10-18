@@ -47,6 +47,10 @@ export function useBrowserFeatures(threadId: string) {
       attempt("Couldn't answer the sign-in", () =>
         features.answerAuth(threadId, tabId, authId, credentials),
       ),
+    muteTab: (tabId: string, muted: boolean) =>
+      attempt(muted ? "Couldn't mute the tab" : "Couldn't unmute the tab", () =>
+        features.muteTab(threadId, tabId, muted),
+      ),
     proceedCertificate: (tabId: string, url: string) =>
       attempt("Couldn't open the page", () => features.proceedCertificate(threadId, tabId, url)),
     startRecording: () =>

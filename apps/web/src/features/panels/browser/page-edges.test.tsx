@@ -59,3 +59,14 @@ test("the person proceeds past an untrusted certificate for the address they wer
   expect(browser.tab(thread, tabId)?.url).toBe("https://localhost:8443/app");
   await waitFor(() => expect(within(panel).queryByRole("alert")).toBeNull());
 });
+
+test("a tab playing sound gets a speaker the person turns on and off", async () => {
+  const { panel, browser, tabId } = await openBrowser();
+  const tabs = within(panel).getByRole("tablist", { name: "Browser tabs" });
+  expect(within(tabs).queryByRole("button", { name: /^(Mute|Unmute) / })).toBeNull();
+  act(() => browser.sound(thread, tabId, true, true));
+  await userEvent.click(await within(tabs).findByRole("button", { name: /^Unmute / }));
+  await waitFor(() => expect(browser.tab(thread, tabId)?.muted).toBe(false));
+  await userEvent.click(await within(tabs).findByRole("button", { name: /^Mute / }));
+  await waitFor(() => expect(browser.tab(thread, tabId)?.muted).toBe(true));
+});

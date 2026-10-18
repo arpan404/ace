@@ -7,6 +7,8 @@ import {
   EyeSlashIcon,
   GlobeSimpleIcon,
   PlusIcon,
+  SpeakerHighIcon,
+  SpeakerSlashIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
@@ -68,10 +70,14 @@ function PageTab(props: {
   shown: boolean;
   onSelect(): void;
   onClose(): void;
+  onMute?: ((muted: boolean) => void) | undefined;
   onKeyDown(event: KeyboardEvent<HTMLButtonElement>): void;
 }) {
   const { tab } = props;
   const title = tabTitle(tab);
+  // A tab playing sound (or muted while it would) gets a speaker to turn it on or off.
+  const sound = tab.audible && props.onMute ? props.onMute : undefined;
+  const soundLabel = tab.muted ? `Unmute ${title}` : `Mute ${title}`;
   const worker = useWorker(props.threadId, tab);
   const tip = worker
     ? `${title} · ${worker} is using this tab`
@@ -99,7 +105,8 @@ function PageTab(props: {
           }}
           onKeyDown={props.onKeyDown}
           className={cn(
-            "focus-ring flex h-7 w-full min-w-0 items-center gap-1.5 rounded-sm pr-7 pl-2 text-ui whitespace-nowrap text-muted-foreground",
+            "focus-ring flex h-7 w-full min-w-0 items-center gap-1.5 rounded-sm pl-2 text-ui whitespace-nowrap text-muted-foreground",
+            sound ? "pr-12" : "pr-7",
             "transition-[color,background-color,box-shadow] duration-(--motion-fast)",
             "hover:text-foreground hover:not-aria-selected:bg-foreground/5",
             "aria-selected:bg-foreground/8 aria-selected:text-foreground aria-selected:shadow-[var(--depth-highlight),var(--depth-raise)]",
@@ -117,6 +124,24 @@ function PageTab(props: {
           )}
         </button>
       </Tip>
+      {sound && (
+        <Tip label={soundLabel}>
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label={soundLabel}
+            aria-pressed={tab.muted === true}
+            onClick={() => sound(!tab.muted)}
+            className="absolute top-1/2 right-6 grid size-5 -translate-y-1/2 place-items-center rounded-xs text-subtle-foreground outline-none hover:bg-accent hover:text-foreground"
+          >
+            {tab.muted ? (
+              <SpeakerSlashIcon aria-hidden size={12} />
+            ) : (
+              <SpeakerHighIcon aria-hidden size={12} />
+            )}
+          </button>
+        </Tip>
+      )}
       <Tip label={`Close ${title}`}>
         <button
           type="button"
@@ -149,6 +174,8 @@ export function PageTabs(props: {
   shownId: string | undefined;
   onSelect(tabId: string): void;
   onClose(tabId: string): void;
+  /** Turn a tab's sound off or on; without it tabs show no speaker. */
+  onMute?: ((tabId: string, muted: boolean) => void) | undefined;
   onNew(): void;
 }) {
   const { tabs } = props;
@@ -202,6 +229,7 @@ export function PageTabs(props: {
             shown={tab.tabId === props.shownId}
             onSelect={() => props.onSelect(tab.tabId)}
             onClose={() => props.onClose(tab.tabId)}
+            onMute={props.onMute && ((muted) => props.onMute?.(tab.tabId, muted))}
             onKeyDown={onKeyDown(index)}
           />
         ))}

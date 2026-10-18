@@ -462,6 +462,38 @@
     },
     {
       "properties": {
+        "muted": {
+          "type": "boolean"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.tabs.mute",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type",
+        "tabId",
+        "muted"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "private": {
           "type": "boolean"
         },

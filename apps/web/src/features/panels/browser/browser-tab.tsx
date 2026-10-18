@@ -228,6 +228,7 @@ function Browser(props: TabViewProps) {
           shownId={tabs.shownId}
           onSelect={tabs.select}
           onClose={tabs.close}
+          onMute={(tabId, muted) => void browser.muteTab(tabId, muted)}
           onNew={() => void tabs.newTab().then(focusAddress)}
         />
       )}

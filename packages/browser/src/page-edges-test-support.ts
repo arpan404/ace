@@ -99,6 +99,7 @@ export async function pageEdges(options: Partial<BrowserServiceOptions> = {}) {
   const agent = { kind: "agent" as const, agentId: "agent-1" };
   return {
     service,
+    home,
     url: `http://127.0.0.1:${port(server)}`,
     secureUrl: `https://localhost:${port(secure)}`,
     agent: (command: Record<string, unknown>) => service.execute("thread", command, agent),

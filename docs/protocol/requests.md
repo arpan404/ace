@@ -2695,6 +2695,28 @@ Example:
 }
 ```
 
+### browser.tabs.mute
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.tabs.mute"` |  |
+| tabId | yes | string | {"minLength":1,"maxLength":256} |
+| muted | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "muted": false,
+  "requestId": "example",
+  "tabId": "example",
+  "threadId": "example",
+  "type": "browser.tabs.mute"
+}
+```
+
 ### browser.tabs.private
 
 | Field | Required | Type | Constraints |
@@ -2709,7 +2731,7 @@ Example:
 
 ```json
 {
-  "private": false,
+  "private": true,
   "requestId": "example",
   "tabId": "example",
   "threadId": "example",
@@ -2732,10 +2754,10 @@ Example:
 ```json
 {
   "input": {
-    "event": "mouseMoved",
+    "event": "mouseReleased",
     "kind": "mouse",
-    "x": 8,
-    "y": 9
+    "x": 9,
+    "y": 6
   },
   "requestId": "example",
   "threadId": "example",
@@ -2791,6 +2813,13 @@ Example:
 
 ```json
 {
+  "options": {
+    "installationId": "example",
+    "instanceId": "example",
+    "limit": 6,
+    "offset": 7,
+    "provider": "claude"
+  },
   "requestId": "example",
   "type": "models.list"
 }
@@ -2808,11 +2837,6 @@ Example:
 
 ```json
 {
-  "filter": {
-    "installationId": "example",
-    "instanceId": "example",
-    "provider": "claude"
-  },
   "requestId": "example",
   "type": "models.refresh"
 }
@@ -2832,11 +2856,10 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "acpAgentId": "example",
-    "instanceId": "example",
-    "role": "example",
-    "selection": "strongest",
-    "tier": "example"
+    "imageInput": false,
+    "installationId": "example",
+    "instance": "example",
+    "role": "example"
   },
   "type": "models.resolve"
 }
@@ -2854,7 +2877,7 @@ Example:
 
 ```json
 {
-  "inputAgeMs": 8,
+  "inputAgeMs": 0,
   "threadId": "example",
   "type": "presence.update"
 }
@@ -2874,7 +2897,7 @@ Example:
 {
   "device": {
     "channel": "websocket",
-    "platform": "phone"
+    "platform": "desktop"
   },
   "type": "notification.register"
 }
@@ -2908,13 +2931,7 @@ Example:
 ```json
 {
   "preferences": {
-    "agentSays": true,
-    "includePreview": false,
-    "quietHours": {
-      "endMinute": 2,
-      "startMinute": 7,
-      "timeZone": "UTC"
-    }
+    "includePreview": true
   },
   "type": "notification.preferences"
 }
@@ -2934,7 +2951,7 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 9
+  "until": 6
 }
 ```
 
@@ -2955,6 +2972,7 @@ Example:
 
 ```json
 {
+  "channel": "provider_auth",
   "deviceId": "example",
   "protocolVersion": 1,
   "token": "example",
@@ -2976,9 +2994,10 @@ Example:
 
 ```json
 {
-  "afterSeq": 8,
+  "paced": false,
   "scope": {
-    "kind": "threads"
+    "kind": "thread",
+    "threadId": "example"
   },
   "subscriptionId": "example",
   "type": "subscribe"
@@ -3016,15 +3035,24 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "actionId": "example",
+      "input": {
+        "branch": "example",
+        "expectedHead": "66a8ed6b305abc248123104682a578382c44d98c93aad2c",
+        "summary": "example",
+        "template": {
+          "body": "example",
+          "title": "example"
+        },
+        "title": "example"
+      },
       "repository": {
         "forge": "gitlab",
-        "host": "oC2zY9Fs1Ai",
-        "name": "d",
-        "owner": "OOzzWZOO/oGHcJx28/b4U0ZjCM/W_z5WGlUX/233Qo/rV/c4poWhMzT"
+        "host": "C2z",
+        "name": "233Qo",
+        "owner": "9Es1AiQOO/WZOOL/oGHcJx28/b4U0ZjCM/W_z5WGlUX"
       },
-      "type": "forge.issue.reconcile",
-      "workspaceId": "example"
+      "threadId": "example",
+      "type": "forge.pr.create"
     }
   },
   "type": "command"
@@ -3045,8 +3073,8 @@ Example:
 
 ```json
 {
-  "limit": 6,
-  "offset": 1,
+  "limit": 5,
+  "offset": 8,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -3067,7 +3095,7 @@ Example:
 
 ```json
 {
-  "before": 7,
+  "before": 5,
   "limit": 9,
   "requestId": "example",
   "threadId": "example",
@@ -3090,9 +3118,9 @@ Example:
 
 ```json
 {
-  "before": 6,
-  "collection": "runs",
-  "limit": 7,
+  "before": 1,
+  "collection": "agents",
+  "limit": 5,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"

@@ -7,7 +7,8 @@ Date: 2026-10-17. Status: accepted. Amends [ADR 0067](0067-browser-parity.md),
 ## Context
 
 The 2026-10-17 browser audit found pages that real browsers handle and ace's engines did not:
-HTTP sign-ins, certificate warnings and OAuth popups (issue 948). Engines are named as in the
+HTTP sign-ins, certificate warnings and OAuth popups (issue 948), sound (949), file pickers,
+downloads and console warnings (950), and offline pages, printing and zoom (954). Engines are named as in the
 audit: the desktop's native view (D), ace's Chrome (H) and Use my Chrome (U).
 
 ## Decision
@@ -44,13 +45,30 @@ logged or shown to an agent.
   popup is the native popup window the person already got, now also for an agent's tab; it is
   not a thread tab.
 
+### Sound (949)
+
+Background tabs and agents' tabs are muted; the tab the person watches plays. Tabs report
+`audible` and `muted`, and the strip shows a speaker on an audible tab that the person toggles
+(`browser.tabs.mute`, person-only like the requests above; the choice holds for that tab).
+
+- **D.** `audioMuted` (pure): the person's choice if they made one, else muted unless the tab is
+  placed in the panel and no agent uses it. The page reports `ace.audio {audible, muted}` and
+  takes `ace.audio.mute`.
+- **H.** Chrome has no per-tab mute over CDP and the screencast carries no sound, so ace's Chrome
+  runs with `--mute-audio`: nothing it renders plays on the daemon's machine. It offers no toggle.
+- **U.** The extension mutes every agent tab it opens or adopts (`chrome.tabs.update {muted}`),
+  lists `audible`/`muted`, republishes when they change and takes the new `tabs.mute` operation
+  for shared and agent tabs. The person's shared tabs keep their own sound.
+
 ## Verification
 
 Real-Chrome process tests (`page-edges.process.test.ts`) with local fixtures: a basic-auth
 endpoint answered by the person (and cancelled), a self-signed HTTPS server proceeded past by
 the person and refused to the agent, and an OAuth-style popup posting back to its opener through
-`window.opener.postMessage`. Web tests drive the sign-in card and the certificate warning against
-the fake daemon; a desktop unit test covers `CertificateExceptions`.
+`window.opener.postMessage`. Web tests drive the sign-in card, the certificate warning and the tab speaker against the fake
+daemon; desktop unit tests cover `CertificateExceptions` and `audioMuted`. ace's Chrome is checked
+to run muted; a Use my Chrome process test (real extension) opens an agent tab muted and unmutes
+it from ace.
 
-Not covered by tests: Electron's `certificate-error` path and the native popup for an agent's
-tab (no Electron in the test run).
+Not covered by tests: Electron's `certificate-error` and audio paths and the native popup for an
+agent's tab (no Electron in the test run).

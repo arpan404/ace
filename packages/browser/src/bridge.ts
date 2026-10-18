@@ -180,6 +180,15 @@ export function connectBrowser(
               }),
             );
             break;
+          case "browser.tabs.mute":
+            respond(
+              await service.asPerson(threadId, {
+                kind: "mute",
+                tabId: message.tabId,
+                muted: message.muted,
+              }),
+            );
+            break;
           case "browser.tabs.private":
             respond(service.setPrivate(threadId, message.tabId, message.private));
             break;

@@ -1,4 +1,4 @@
-import type { BrowserDialog, BrowserTab } from "@ace/protocol";
+import type { BrowserDialog, BrowserTab, UserBrowserTab } from "@ace/protocol";
 import type {
   BackendOpen,
   BrowserBackend,
@@ -152,17 +152,23 @@ class UserTabs {
     if (this.activeId === id) this.activeId = this.agents.keys().next().value ?? "";
     this.request.changed?.();
   }
-  private shared(): (UserTabRef & { tab: { url: string; title: string } })[] {
+  private shared(): (UserTabRef & { tab: UserBrowserTab })[] {
     return this.user.sharedTabs().filter((ref) => !this.released.has(sharedId(ref)));
   }
   private list(): BrowserTab[] {
     return [
-      ...[...this.agents].map(([tabId, entry]) => ({
-        tabId,
-        url: entry.page.url(),
-        title: entry.session?.title() ?? "",
-        pending_dialog: this.dialogOf(tabId, entry),
-      })),
+      ...[...this.agents].map(([tabId, entry]) => {
+        // The tab's sound, as the person's browser reports it.
+        const listed = entry.ref && this.user.tab(entry.ref);
+        return {
+          tabId,
+          url: entry.page.url(),
+          title: entry.session?.title() ?? "",
+          pending_dialog: this.dialogOf(tabId, entry),
+          audible: listed?.audible,
+          muted: listed?.muted,
+        };
+      }),
       ...this.shared().map((ref) => {
         const tabId = sharedId(ref);
         const entry = this.claimed.get(tabId);
@@ -172,6 +178,8 @@ class UserTabs {
           title: ref.tab.title,
           openedBy: { kind: "human" as const },
           pending_dialog: entry && this.dialogOf(tabId, entry),
+          audible: ref.tab.audible,
+          muted: ref.tab.muted,
         };
       }),
     ];
@@ -296,6 +304,12 @@ class UserTabs {
       },
       // No `downloads`: the person's browser saves what its tabs download itself.
       opener: (id) => this.agents.get(id)?.opener,
+      mute: async (id, muted) => {
+        const ref =
+          this.agents.get(id)?.ref ?? this.shared().find((entry) => sharedId(entry) === id);
+        if (!ref) throw new Error("Browser tab unavailable");
+        await this.user.mute(ref, muted);
+      },
       page: (id) => this.page(id),
     };
   }

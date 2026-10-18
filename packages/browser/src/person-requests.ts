@@ -2,8 +2,8 @@ import { BrowserActionError } from "./action-error.ts";
 import type { BrowserBackendTabs } from "./backend.ts";
 
 /**
- * What only the person asks of a page: answering a site's sign-in prompt or proceeding past a
- * certificate warning. These arrive from a person's client connection only; no agent tool sends
+ * What only the person asks of a page: answering a site's sign-in prompt, proceeding past a
+ * certificate warning or turning a tab's sound on. These arrive from a person's client connection only; no agent tool sends
  * them, so an agent never types a site password or bypasses a certificate.
  */
 export type PersonRequest =
@@ -13,7 +13,8 @@ export type PersonRequest =
       authId: string;
       credentials?: { username: string; password: string } | undefined;
     }
-  | { kind: "certificate"; tabId: string; url: string };
+  | { kind: "certificate"; tabId: string; url: string }
+  | { kind: "mute"; tabId: string; muted: boolean };
 
 export async function requestAsPerson(
   tabs: BrowserBackendTabs | undefined,
@@ -27,6 +28,10 @@ export async function requestAsPerson(
     case "certificate":
       if (!tabs?.proceedCertificate) throw new BrowserActionError("not_supported");
       await tabs.proceedCertificate(answer.tabId, answer.url);
+      return;
+    case "mute":
+      if (!tabs?.mute) throw new BrowserActionError("not_supported");
+      await tabs.mute(answer.tabId, answer.muted);
       return;
   }
 }

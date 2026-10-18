@@ -111,7 +111,7 @@ each agent popup with its `openerTabId`; `cdp` with a tab's CDP event, `sessionI
 its iframes; `detached` with a reason: `closed`, `revoked`, `stopped`,
 `canceled`, `sensitive`, `unreachable`). Daemon → extension: `user_browser.registered` and
 `user_browser.command` with an operation: `tabs.list`, `tabs.open {url?}`, `tabs.attach {tabId}`,
-`tabs.detach {tabId}`, `tabs.close {tabId}` (agent tabs only), `cdp {tabId, sessionId?, method,
+`tabs.detach {tabId}`, `tabs.close {tabId}` (agent tabs only), `tabs.mute {tabId, muted}` (ADR 0086), `cdp {tabId, sessionId?, method,
 params}` and `stop`. Host → extension only: `user_browser.link` with the daemon link state.
 
 Settings use `user_browser.settings` (`status`, `install`, `revoke`, `stop`) and its

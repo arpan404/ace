@@ -111,6 +111,14 @@ export class BrowserFeaturesClient {
       options,
     );
   }
+  /** Turn a tab's sound off or on; it stays that way until the person changes it. */
+  muteTab(threadId: string, tabId: string, muted: boolean, options?: RequestOptions) {
+    return this.read(
+      { type: "browser.tabs.mute", threadId: ThreadId.parse(threadId), tabId, muted },
+      BrowserState,
+      options,
+    );
+  }
   /** Proceed past the tab's certificate error to `url`, for that origin and certificate. */
   proceedCertificate(threadId: string, tabId: string, url: string, options?: RequestOptions) {
     return this.read(

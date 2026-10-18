@@ -78,6 +78,13 @@ export const BrowserTab = z.object({
   lifecycle: BrowserTabLifecycle.optional(),
   loading: z.boolean().optional(),
   favicon: z.string().max(8192).optional(),
+  /** The tab's page plays sound (it may be muted). */
+  audible: z.boolean().optional(),
+  /**
+   * The tab's sound is off. Background tabs and agents' tabs start muted; the tab the person
+   * watches plays. The person can turn it either way (`browser.tabs.mute`).
+   */
+  muted: z.boolean().optional(),
 });
 export type BrowserTab = z.infer<typeof BrowserTab>;
 /** Wire bound on one browser's tab list: far above what a person keeps open, still bounded. */

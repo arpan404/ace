@@ -44,6 +44,9 @@ export const UserBrowserTab = z.object({
   attached: z.boolean(),
   /** The agent tab whose page opened this one (a `target=_blank` link, `window.open`). */
   openerTabId: tabId.optional(),
+  /** The tab plays sound, and whether it is muted. Agent tabs open muted. */
+  audible: z.boolean().optional(),
+  muted: z.boolean().optional(),
 });
 export type UserBrowserTab = z.infer<typeof UserBrowserTab>;
 
@@ -110,6 +113,8 @@ export const UserBrowserOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("tabs.attach"), tabId }),
   z.object({ op: z.literal("tabs.detach"), tabId }),
   z.object({ op: z.literal("tabs.close"), tabId }),
+  /** The person turns a controlled tab's sound off or on. */
+  z.object({ op: z.literal("tabs.mute"), tabId, muted: z.boolean() }),
   z.object({
     op: z.literal("cdp"),
     tabId,

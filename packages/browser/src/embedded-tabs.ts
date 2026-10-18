@@ -26,6 +26,8 @@ interface Tab {
   dialog?: BrowserDialog;
   status: ReturnType<typeof pageStatus>;
   certificates: ReturnType<typeof certificateErrors>;
+  /** Whether the page plays sound and whether it is muted, as the desktop last said. */
+  audio?: { audible: boolean; muted: boolean };
   /** The desktop gave up reloading this tab's renderer (`ace.rendererCrashed`). */
   crashed?: string;
   /** Waiting for the renderer a reload brings back to be re-armed. */
@@ -95,6 +97,13 @@ export class EmbeddedTabs {
         type: "file.chooser",
         text: "The page needs a file. Use ace_browser_upload with the file input's snapshot ref.",
       });
+    }
+    if (method === "ace.audio") {
+      const audio = z.object({ audible: z.boolean(), muted: z.boolean() }).safeParse(params);
+      if (audio.success) {
+        tab.audio = audio.data;
+        this.request.changed?.();
+      }
     }
     if (method === "ace.viewport") {
       const parsed = z
@@ -305,7 +314,13 @@ export class EmbeddedTabs {
       title: tab.state.title,
       pending_dialog: tab.dialog,
       certificate_error: tab.certificates.read(),
+      audible: tab.audio?.audible,
+      muted: tab.audio?.muted,
     }));
+  }
+  /** The person turns a tab's sound off or on; the desktop keeps that choice for the tab. */
+  async mute(tabId: string, muted: boolean): Promise<void> {
+    await this.tab(tabId).cdp.send("ace.audio.mute", { muted });
   }
   /**
    * The person proceeds past the certificate error shown for `url`: the desktop trusts that

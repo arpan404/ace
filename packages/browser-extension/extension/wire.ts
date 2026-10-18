@@ -28,6 +28,10 @@ function operation(raw: unknown): UserBrowserOperation | undefined {
     case "tabs.detach":
     case "tabs.close":
       return tabId(raw.tabId) ? { op: raw.op, tabId: raw.tabId } : undefined;
+    case "tabs.mute":
+      return tabId(raw.tabId) && typeof raw.muted === "boolean"
+        ? { op: "tabs.mute", tabId: raw.tabId, muted: raw.muted }
+        : undefined;
     case "cdp":
       if (!tabId(raw.tabId) || !text(raw.method, 256) || !raw.method) return undefined;
       if (raw.params !== undefined && !isRecord(raw.params)) return undefined;

@@ -109,6 +109,10 @@ export function fakeBrowserSession(
           browser.certificateProceed(id, message.tabId, message.url);
           result = BrowserState.parse(browser.view(id));
           break;
+        case "browser.tabs.mute":
+          browser.mute(id, message.tabId, message.muted);
+          result = BrowserState.parse(browser.view(id));
+          break;
         case "browser.tabs.private":
           browser.setPrivate(id, message.tabId, message.private);
           result = BrowserState.parse(browser.view(id));
