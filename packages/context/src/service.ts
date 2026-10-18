@@ -57,7 +57,7 @@ export class ContextService {
       }),
     );
   }
-  private async workspace(device: string, thread: string) {
+  private async workspaceRoot(device: string, thread: string): Promise<string> {
     requireContext(
       await this.options.authorize(device, thread),
       "forbidden",
@@ -65,7 +65,7 @@ export class ContextService {
     );
     const root = await this.options.workspace(thread);
     requireContext(root, "not_found", "Thread workspace unavailable");
-    return this.workspaces.get(root);
+    return root;
   }
   draftWorkspace(device: string, draftId: string): Promise<string> {
     return this.uploads.draftWorkspace(device, draftId);
@@ -125,21 +125,26 @@ export class ContextService {
       } else if (op.op === "draft.mention.complete")
         result = {
           kind: "completion",
-          paths: (
-            await this.workspaces.get(
-              await this.uploads.resumableDraftWorkspace(device, op.draftId),
-            )
-          ).index.complete(op.query, op.limit),
+          paths: await this.workspaces.use(
+            await this.uploads.resumableDraftWorkspace(device, op.draftId),
+            (workspace) => workspace.index.complete(op.query, op.limit),
+          ),
         };
       else if (op.op === "mention.resolve")
         result = {
           kind: "mentions",
-          ...(await resolveMentions(await this.workspace(device, op.threadId), op.mentions)),
+          ...(await this.workspaces.use(
+            await this.workspaceRoot(device, op.threadId),
+            (workspace) => resolveMentions(workspace, op.mentions),
+          )),
         };
       else if (op.op === "mention.complete")
         result = {
           kind: "completion",
-          paths: (await this.workspace(device, op.threadId)).index.complete(op.query, op.limit),
+          paths: await this.workspaces.use(
+            await this.workspaceRoot(device, op.threadId),
+            (workspace) => workspace.index.complete(op.query, op.limit),
+          ),
         };
       else result = await this.uploads.handle(device, op, access);
       return { type: "context.result", requestId: request.requestId, result };
@@ -220,13 +225,16 @@ export class ContextService {
       context.attachments.map((reference) => reference.sha256),
     );
     try {
-      const workspace = context.mentions.length ? await this.workspace(device, thread) : undefined;
-      const mentions = workspace
-        ? await resolveMentions(workspace, context.mentions)
+      let root = "";
+      const mentions = context.mentions.length
+        ? await this.workspaces.use(await this.workspaceRoot(device, thread), (workspace) => {
+            root = workspace.root;
+            return resolveMentions(workspace, context.mentions);
+          })
         : { entries: [], diagnostics: [] };
       const references = await this.resolveThreadReferences(device, thread, context);
       const prepared: PreparedAttachment[] = mentions.entries.map((entry) => ({
-        path: join(workspace?.root ?? "", entry.path),
+        path: join(root, entry.path),
         name: entry.path,
         mimeType: "text/plain",
         text: entry.text,
@@ -243,7 +251,7 @@ export class ContextService {
       for (const diagnostic of mentions.diagnostics) {
         if (diagnostic.code === "binary" && diagnostic.path)
           prepared.push({
-            path: join(workspace?.root ?? "", diagnostic.path),
+            path: join(root, diagnostic.path),
             name: diagnostic.path,
             mimeType: "application/octet-stream",
           });

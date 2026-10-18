@@ -11,7 +11,11 @@ export {
   type UploadLimits,
 } from "./upload-store.ts";
 export { ContextService, type ContextServiceOptions } from "./service.ts";
-export { WorkspaceCache } from "./workspace-cache.ts";
+export {
+  WorkspaceCache,
+  defaultWorkspaceCacheLimits,
+  type WorkspaceCacheLimits,
+} from "./workspace-cache.ts";
 export {
   projectAttachments,
   fileUri,
