@@ -2,7 +2,7 @@ import type { ApprovalOption } from "@ace/protocol";
 import type { ApprovalCopy, ApprovalVerb } from "@ace/ui-core";
 import { CaretRightIcon } from "@phosphor-icons/react";
 import { useId, useState, type ReactNode } from "react";
-import { Button } from "@/components/ui/button.tsx";
+import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -15,11 +15,14 @@ import { cn } from "@/lib/cn.ts";
  * other option the request offers) waits behind Details, so the decision row always fits.
  */
 
-/** On touch, and on a phone's width, an answer is a full 44px target, not a 26px one. */
-const touchAnswer = "pointer-coarse:h-11 pointer-coarse:px-4 max-sm:h-11 max-sm:px-4";
+/**
+ * On touch an answer is a full 44px target, not a 26px one. A narrow window with a mouse keeps
+ * the desktop size.
+ */
+const touchAnswer = "pointer-coarse:h-11 pointer-coarse:px-4";
 
 const block =
-  "max-h-40 overflow-auto rounded-md bg-code px-3 py-[9px] font-mono text-xs leading-[1.5] whitespace-pre-wrap break-words text-foreground";
+  "max-h-40 overflow-auto rounded-md bg-code px-3 py-[9px] shadow-[inset_0_0_0_1px_var(--border)] font-mono text-xs leading-[1.5] whitespace-pre-wrap break-words text-foreground";
 
 /** The heading's words. */
 export function ApprovalHeading(props: { copy: ApprovalCopy }) {
@@ -61,7 +64,7 @@ export function ApprovalRequest(props: {
   const high = copy.risk?.level === "high" ? copy.risk : undefined;
   const medium = copy.risk?.level === "medium" ? copy.risk : undefined;
   const hasDetails =
-    (compact && (!!copy.command || !!copy.reason)) ||
+    (compact && !!copy.reason) ||
     (!compact && !!medium) ||
     copy.facts.length > 0 ||
     copy.others.length > 0;
@@ -70,6 +73,14 @@ export function ApprovalRequest(props: {
       data-approval-deliberate={high || copy.defaultToNo ? "" : undefined}
       className={cn("flex flex-col gap-2.5", props.className)}
     >
+      {compact && copy.command && (
+        <pre aria-label="Command" className={block}>
+          <span aria-hidden className="mr-2 text-subtle-foreground select-none">
+            $
+          </span>
+          {copy.command}
+        </pre>
+      )}
       {copy.code && (
         <pre aria-label="Script" className={block}>
           {copy.code}
@@ -85,18 +96,16 @@ export function ApprovalRequest(props: {
       {!compact && copy.reason && <p className="text-ui text-muted-foreground">{copy.reason}</p>}
       {high &&
         (compact ? (
-          <p className="text-ui text-status-failed">High risk · {high.text}</p>
+          <RiskLine tone="failed" level="High risk" text={high.text} />
         ) : (
           <p className="text-ui text-muted-foreground">
             <b className="mr-[7px] font-medium text-status-failed">High risk.</b>
             {high.text}
           </p>
         ))}
-      {compact && medium && (
-        <p className="text-ui text-muted-foreground">Medium risk · {medium.text}</p>
-      )}
+      {compact && medium && <RiskLine tone="needs-you" level="Medium risk" text={medium.text} />}
       {props.answered || (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
           {copy.decisions.map((decision, index) => {
             const hint = props.hints?.[decision.verb];
             const keyed = props.keyed?.(decision.option) ?? true;
@@ -143,7 +152,11 @@ export function ApprovalRequest(props: {
               aria-expanded={open}
               aria-controls={details}
               onClick={() => setOpen(!open)}
-              className="ml-auto flex items-center gap-1 rounded-xs text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-ring"
+              className={cn(
+                buttonVariants({ variant: "ghost", size: "xs" }),
+                "ml-auto",
+                open && "text-foreground",
+              )}
             >
               Details
               <CaretRightIcon
@@ -160,7 +173,6 @@ export function ApprovalRequest(props: {
       )}
       {open && (
         <div id={details} className="fx-rise-in flex flex-col gap-2">
-          {compact && copy.command && <pre className={block}>{copy.command}</pre>}
           {compact && copy.reason && <p className="text-ui text-muted-foreground">{copy.reason}</p>}
           {/* A compact request states its risk in full above; details don't repeat it. */}
           {!compact && medium && (
@@ -205,5 +217,22 @@ export function ApprovalRequest(props: {
         </div>
       )}
     </div>
+  );
+}
+
+/** A compact request's risk: the level in its colour, then why, quieter. */
+function RiskLine(props: { tone: "failed" | "needs-you"; level: string; text: string }) {
+  return (
+    <p className="flex items-baseline gap-1.5 text-xs">
+      <span
+        className={cn(
+          "font-medium",
+          props.tone === "failed" ? "text-status-failed" : "text-status-needs-you",
+        )}
+      >
+        {props.level}
+      </span>
+      <span className="text-muted-foreground">· {props.text}</span>
+    </p>
   );
 }
