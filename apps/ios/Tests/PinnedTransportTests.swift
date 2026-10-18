@@ -56,6 +56,16 @@ import Testing
             _ = try PinnedHTTP.urlRequest(origin: fragment, PinnedHTTPRequest(method: "POST", path: "/v1/pair", body: nil, token: nil), timeout: 15)
         }
     }
+    @Test func theBridgeURLPolyfillExposesCredentialsQueriesAndFragmentsSoTheSDKCanRefuseThem() throws {
+        let clean = try #require(ParsedURL.parse("wss://Studio.tail1234.ts.net:4243/"))
+        #expect(clean.protocol == "wss:" && clean.hostname == "studio.tail1234.ts.net" && clean.port == "4243")
+        #expect(clean.username.isEmpty && clean.search.isEmpty && clean.hash.isEmpty && clean.pathname == "/")
+        let v6 = try #require(ParsedURL.parse("wss://[fd7a:115c::1]:443/"))
+        #expect(v6.hostname == "[fd7a:115c::1]" && v6.port.isEmpty)
+        let leaky = try #require(ParsedURL.parse("wss://user:pw@h:1/x?code=1#fingerprint=2"))
+        #expect(leaky.username == "user" && leaky.password == "pw" && leaky.search == "?code=1" && leaky.hash == "#fingerprint=2")
+        #expect(ParsedURL.parse("not a url") == nil)
+    }
     @Test func pairedTargetsUseTheSameDaemonOverHTTPSAndRequireAPin() throws {
         let target = ConnectionTarget(endpoint: try #require(URL(string: "wss://100.64.0.7:4243/")), hostId: "h", deviceId: "d",
                                       pin: DaemonCertificate.pin, secretKey: "[\"h\",\"d\"]")

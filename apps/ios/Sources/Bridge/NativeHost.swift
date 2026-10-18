@@ -61,7 +61,12 @@ final class NativeHost: @unchecked Sendable {
             }
             return Data(text.unicodeScalars.map { UInt8(truncatingIfNeeded: $0.value) }).base64EncodedString()
         }
-        let functions: [String: Any] = ["call": call, "emit": emit, "socket": socket, "timer": timer,
+        // JavaScriptCore has no WHATWG URL. Foundation parses absolute URLs for the SDK's checks.
+        let parseURL: @convention(block) (String) -> String = { text in
+            guard let parsed = ParsedURL.parse(text), let data = try? JSONEncoder().encode(parsed) else { return "" }
+            return String(decoding: data, as: UTF8.self)
+        }
+        let functions: [String: Any] = ["parseURL": parseURL, "call": call, "emit": emit, "socket": socket, "timer": timer,
             "cancelTimer": cancel, "now": now, "uuid": uuid, "random": random, "encode": encode,
             "decode": decode, "randomBytes": entropy, "base64": base64, "utf8Base64": utf8Base64,
             "previewHead": previewHead, "previewTail": previewTail]

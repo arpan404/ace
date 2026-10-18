@@ -27,7 +27,7 @@ private struct E2EConfig: Decodable {
         await harness.machines.load()
         #expect(harness.machines.machines.isEmpty)
         let link = try PairingLink.parse(try #require(config.links["operate"]))
-        #expect(await harness.machines.pair(link, name: "ace iOS e2e") == nil)
+        try await expectPaired(harness, link, "ace iOS e2e")
         let entry = try #require(harness.machines.active)
         // The authenticated identity from the pinned socket, not the address's hostname.
         #expect(entry.hostId == config.hostId)
@@ -66,7 +66,7 @@ private struct E2EConfig: Decodable {
         let harness = try Harness()
         defer { harness.cleanUp() }
         await harness.machines.load()
-        #expect(await harness.machines.pair(try PairingLink.parse(try #require(config.links["read"])), name: "ace iOS read-only") == nil)
+        try await expectPaired(harness, try PairingLink.parse(try #require(config.links["read"])), "ace iOS read-only")
         try await until("ready") { harness.machines.client.connection == "ready" }
         #expect(harness.machines.activeIsReadOnly)
         if let entry = harness.machines.active { await harness.machines.remove(entry.hostId) }
@@ -82,7 +82,7 @@ private struct E2EConfig: Decodable {
         let tampered = try PairingLink.parse(try #require(config.links["pin"]).replacingOccurrences(of: good.fingerprint, with: wrong))
         #expect(await harness.machines.pair(tampered, name: "wrong pin")?.code == "pin")
         #expect(harness.machines.machines.isEmpty)
-        #expect(await harness.machines.pair(good, name: "right pin") == nil)
+        try await expectPaired(harness, good, "right pin")
         if let entry = harness.machines.active { await harness.machines.remove(entry.hostId) }
     }
 
@@ -96,7 +96,7 @@ private struct E2EConfig: Decodable {
         let viaTrap = real.replacingOccurrences(of: "127.0.0.1:4611", with: "\(trap.host ?? ""):\(trap.port ?? 0)")
         // The trap holds the daemon's own TLS key, so the pin passes and only the redirect is tested.
         #expect(await harness.machines.pair(try PairingLink.parse(viaTrap), name: "redirect")?.code == "redirect")
-        #expect(await harness.machines.pair(try PairingLink.parse(real), name: "after redirect") == nil)
+        try await expectPaired(harness, try PairingLink.parse(real), "after redirect")
         if let entry = harness.machines.active { await harness.machines.remove(entry.hostId) }
     }
 
@@ -111,6 +111,11 @@ private struct E2EConfig: Decodable {
         #expect(harness.machines.machines.isEmpty)
     }
 
+    private func expectPaired(_ harness: Harness, _ link: PairingLink, _ name: String) async throws {
+        let problem = await harness.machines.pair(link, name: name)
+        #expect(problem == nil, "\(problem?.code ?? ""): \(problem?.message ?? "")")
+        if problem != nil { throw HostError.transport }
+    }
     private func revoke(_ deviceId: String, _ config: E2EConfig) async throws {
         var request = URLRequest(url: try #require(URL(string: "\(config.admin.origin)/v1/devices/\(deviceId)")))
         request.httpMethod = "DELETE"
