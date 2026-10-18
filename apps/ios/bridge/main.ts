@@ -10,6 +10,8 @@ import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
 import { nativeTransport, socketEvent } from "./socket.ts";
 import { NotificationAction, NotificationBridge } from "./notifications.ts";
+import { Sheets } from "./sheets.ts";
+import { preview } from "./presentation.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -28,6 +30,8 @@ const Action = z.discriminatedUnion("type", [
     requestId: z.string().min(1).max(64),
   }),
   z.object({ type: z.literal("retry") }),
+  /** The thread's Agents and Changes sheets (`sheets.ts`). */
+  z.object({ type: z.literal("sheet"), action: z.unknown() }),
   z.object({
     type: z.literal("inbox"),
     action: z.unknown(),
@@ -43,6 +47,8 @@ let itemLimit = 200;
 let historyAbort: AbortController | undefined;
 const pump = new PatchPump();
 const trust = new TrustMonitor();
+const sheets = new Sheets(pump, preview);
+let openThreadId: string | undefined;
 function error(): void {
   pump.put("error", () => ({
     type: "error",
@@ -166,7 +172,9 @@ function action(json: string): void {
         historyAbort?.abort();
         historyAbort = new AbortController();
         stopThread?.();
+        sheets.close();
         lease?.release();
+        openThreadId = value.threadId;
         lease = client.thread(value.threadId);
         stopThread = followThread(lease.store, value.threadId, ++epoch, pump, itemLimit);
         if (itemLimit > 200) {
@@ -181,8 +189,10 @@ function action(json: string): void {
         epoch++;
         historyAbort?.abort();
         stopThread?.();
+        sheets.close();
         lease?.release();
         lease = undefined;
+        openThreadId = undefined;
         break;
       case "network":
         client.networkOnline(value.online);
@@ -196,6 +206,14 @@ function action(json: string): void {
       case "inbox":
         inboxAction(client, value.action, value.requestId, pump);
         break;
+      case "sheet": {
+        const thread =
+          lease && openThreadId
+            ? { owner: client, store: lease.store, threadId: openThreadId, epoch }
+            : undefined;
+        if (!sheets.action(thread, value.action)) error();
+        break;
+      }
     }
   } catch {
     error();

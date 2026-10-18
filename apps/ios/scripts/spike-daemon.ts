@@ -7,6 +7,15 @@ import { oversizedScenario, approvalRetryScenario } from "./review-scenarios.ts"
 import { manyActions, snapshotFrames } from "./many-actions.ts";
 import { LostReceipt } from "./lost-receipt.ts";
 import { queuedTexts } from "./queue-read.ts";
+import { seedSheets } from "./sheet-scenario.ts";
+
+/** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
+const port = z.coerce
+  .number()
+  .int()
+  .min(1024)
+  .max(65535)
+  .parse(process.env.ACE_IOS_SPIKE_PORT ?? 9841);
 
 const daemon = new FakeDaemon({
   clock: Date.now,
@@ -135,6 +144,7 @@ daemon.apply("ios-tree", [
   facts.turn("reviewer", "spawn"),
   facts.endTurn("root"),
 ]);
+seedSheets(daemon);
 daemon.createThread({
   hasSentMessage: true,
   id: "ios-snoozed",
@@ -196,7 +206,7 @@ function spikeNotification(threadId: ThreadId, id: string): Notification | undef
 const lostReceipt = new LostReceipt();
 const server = Bun.serve<undefined>({
   hostname: "127.0.0.1",
-  port: 9841,
+  port,
   async fetch(request, listener) {
     const path = new URL(request.url).pathname;
     if (path === "/review/receipt") {
@@ -322,5 +332,5 @@ process.on("SIGINT", () => {
   server.stop(true);
 });
 console.log(
-  "iOS spike daemon on ws://127.0.0.1:9841. No provider processes or subscription quota.",
+  `iOS spike daemon on ws://127.0.0.1:${port}. No provider processes or subscription quota.`,
 );

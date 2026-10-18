@@ -67,6 +67,7 @@ struct ThreadView: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
+            .threadSheets(model: model, thread: thread)
             .sheet(isPresented: $showDetails) {
                 NavigationStack {
                     Form { LabeledContent("Connection", value: model.connection); LabeledContent("Items", value: thread.items.count.formatted()); if let status = metadata?.status { StateLabel(status: status) } }

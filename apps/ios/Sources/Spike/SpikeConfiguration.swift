@@ -10,7 +10,10 @@ enum SpikeConfiguration {
         #endif
     }
     static func target() -> ConnectionTarget? {
-        guard enabled, let url = URL(string: "ws://127.0.0.1:9841") else { return nil }
+        // `--spike-port N` lets parallel fixtures share one Mac; loopback only.
+        let arguments = ProcessInfo.processInfo.arguments
+        let port = arguments.firstIndex(of: "--spike-port").flatMap { arguments.indices.contains($0 + 1) ? Int(arguments[$0 + 1]) : nil } ?? 9841
+        guard enabled, (1024...65535).contains(port), let url = URL(string: "ws://127.0.0.1:\(port)") else { return nil }
         return ConnectionTarget(endpoint: url, hostId: "ios-spike-host", deviceId: "ios-spike-device", pin: nil,
                                 credential: { "{\"token\":\"ios-spike-token\"}" })
     }
