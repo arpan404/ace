@@ -9,5 +9,7 @@ import Observation
     var changes: ChangesSummary?
     var file: OpenFile?
     var outcomes: [String: GitOutcome] = [:]
-    func reset() { agents = nil; changes = nil; file = nil; outcomes = [:] }
+    /// The latest AI draft for the commit or PR editor.
+    var draft: GitDraft?
+    func reset() { agents = nil; changes = nil; file = nil; outcomes = [:]; draft = nil }
 }

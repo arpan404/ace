@@ -61,7 +61,7 @@ import QuartzCore
     private init(directory: URL) {
         self.directory = directory
         let paired = FileManager.default.fileExists(atPath: Self.machineDirectory(in: directory).path)
-        lock = AppLock(enabled: paired, now: { Date() })
+        lock = AppLock(enabled: paired, now: { Date() }, defaults: .standard)
     }
     static func make() -> ProductionApp? {
         guard !SpikeConfiguration.enabled, let directory = try? storageDirectory() else { return nil }

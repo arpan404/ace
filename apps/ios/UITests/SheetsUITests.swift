@@ -37,6 +37,23 @@ import XCTest
         screenshot("changes-diff-truncated")
     }
 
+    func testCommitEditorFillsTheMessageFromTheDaemonsDraft() throws {
+        let app = launchIntoTree()
+        app.buttons["thread.changes"].tap()
+        XCTAssertTrue(app.buttons["changes.step"].waitForExistence(timeout: 15))
+        app.buttons["changes.step"].tap()
+        let field = app.textFields["changes.text"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        app.buttons["changes.draft"].tap()
+        // The fixture's writer drafts "Update selected changes" for the sheet's files.
+        let filled = NSPredicate(format: "value == %@", "Update selected changes")
+        expectation(for: filled, evaluatedWith: field)
+        waitForExpectations(timeout: 20)
+        XCTAssertTrue(app.buttons["changes.draft"].exists)
+        screenshot("changes-commit-draft")
+        app.navigationBars.buttons["Cancel"].tap()
+    }
+
     private func launchIntoTree() -> XCUIApplication {
         let app = XCUIApplication()
         let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"

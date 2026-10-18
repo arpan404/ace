@@ -12,6 +12,8 @@ struct ThreadView: View {
     @State private var scrolledToTail = false
     private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
     private var screen: ThreadScreenModel { thread.screen }
+    /// An archived thread opens read-only (from the archive browser) until it's unarchived.
+    private var archived: Bool { model.inbox[thread.id]?.archivedAt != nil }
     var body: some View {
         ScrollViewReader { proxy in
             List {
@@ -60,7 +62,12 @@ struct ThreadView: View {
                             await model.editQueued(message, change: change)
                         }
                     }
-                    if model.canOperate {
+                    if archived {
+                        ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
+                            .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
+                            .floatingGlass()
+                            .padding(.horizontal, AceTheme.Dimensions.composerInset).padding(.bottom, AceTheme.Spacing.sm)
+                    } else if model.canOperate {
                         ComposerView(controls: screen.controls, stopping: screen.stopping,
                                      placeholder: thread.approvals.isEmpty ? "Steer or follow up…" : "Reply instead…",
                                      send: { await model.sendMessage($0, alternate: $1) }, stop: { model.stopTree() },
@@ -122,7 +129,7 @@ struct ThreadView: View {
                     }
                 }
             }
-            Button("Archive", systemImage: "archivebox") { Task { if await model.archive(thread.id) { dismiss() } } }
+            if !archived { Button("Archive", systemImage: "archivebox") { Task { if await model.archive(thread.id) { dismiss() } } } }
             Divider()
             Button("Connection details", systemImage: "network") { showDetails = true }
         } label: { Image(systemName: "ellipsis") }

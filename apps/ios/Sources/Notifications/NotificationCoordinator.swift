@@ -27,13 +27,19 @@ struct SystemAuthorizer: NotificationAuthorizer {
 /// machine, so a tap or an answer goes back to the machine that raised it.
 @MainActor @Observable final class NotificationCoordinator {
     enum Permission: Sendable { case unknown, notDetermined, denied, allowed }
-    private enum Keys { static let enabled = "ace.notifications.enabled", asked = "ace.notifications.asked" }
+    private enum Keys {
+        static let enabled = "ace.notifications.enabled", asked = "ace.notifications.asked"
+        static let muted = "ace.notifications.mutedMachines"
+    }
 
     private(set) var enabled: Bool
     private(set) var permission: Permission = .unknown
-    var preferences: NotificationPreferences = .standard
-    /// Per-thread snoozes this phone set (`notification.snooze`), thread id → until (ms).
-    private(set) var snoozes: [String: Double] = [:]
+    /// Each machine's own `notification.preferences` (quiet hours), host id → preferences.
+    private(set) var preferencesByMachine: [String: NotificationPreferences] = [:]
+    /// Machines this phone turned alerts off for; they register no delivery and post nothing.
+    private(set) var muted: Set<String>
+    /// Per-thread snoozes this phone set (`notification.snooze`), host id → thread id → until (ms).
+    private(set) var snoozesByMachine: [String: [String: Double]] = [:]
     /// Attached runtimes by host, in attach order.
     @ObservationIgnored private(set) var machines: [(hostId: String, model: ClientModel, notifier: LocalNotifier)] = []
     /// The first attached machine: settings and the one-time permission ask read it.
@@ -65,6 +71,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         self.authorizer = authorizer; self.defaults = defaults; self.now = now; self.sleep = sleep
         self.makeId = makeId; self.connectInBackground = connectInBackground
         enabled = defaults.bool(forKey: Keys.enabled)
+        muted = Set(defaults.stringArray(forKey: Keys.muted) ?? [])
     }
 
     /// Call before `model.connect`: patches from that runtime reach this coordinator, bound to that
@@ -98,27 +105,30 @@ struct SystemAuthorizer: NotificationAuthorizer {
         let entry = machines.first { $0.hostId == hostId }
         switch patch {
         case .alert(let alert):
-            guard delivering, let ledger = entry?.notifier else { return }
+            guard delivering(hostId), let ledger = entry?.notifier else { return }
             Task { await ledger.receive(alert) }
         case .feed(let cursor, let entries, let retracted):
             guard let ledger = entry?.notifier else { return }
+            let posting = delivering(hostId)
             Task {
                 // Off or not allowed: advance past what was missed without posting it later.
-                await ledger.catchUp(cursor: cursor, entries: delivering ? entries : [], retracted: retracted)
+                await ledger.catchUp(cursor: cursor, entries: posting ? entries : [], retracted: retracted)
                 feeds.removeValue(forKey: hostId)?.forEach { $0.finish(true) }
             }
-        case .connected: if let entry { sync(entry.model, ledger: entry.notifier) }
-        case .config(let preferences): self.preferences = preferences
+        case .connected: if let entry { sync(entry.model, ledger: entry.notifier, hostId: entry.hostId) }
+        case .config(let preferences): preferencesByMachine[hostId] = preferences
         case .action(let id, let outcome):
             if outcome == .saved { outcomes[id]?.latest = outcome } else { outcomes.removeValue(forKey: id)?.finish(outcome) }
         }
     }
     var delivering: Bool { enabled && permission == .allowed }
+    /// Alerts from this machine: on for the phone, allowed by iOS, and not muted for it.
+    func delivering(_ hostId: String) -> Bool { delivering && !muted.contains(hostId) }
 
     /// Every machine's bridge reports presence and catches up whenever this changes or it connects.
-    func sync() { for entry in machines { sync(entry.model, ledger: entry.notifier) } }
-    private func sync(_ model: ClientModel, ledger: LocalNotifier) {
-        model.notificationAction(["type": "notifications.sync", "enabled": delivering,
+    func sync() { for entry in machines { sync(entry.model, ledger: entry.notifier, hostId: entry.hostId) } }
+    private func sync(_ model: ClientModel, ledger: LocalNotifier, hostId: String) {
+        model.notificationAction(["type": "notifications.sync", "enabled": delivering(hostId),
                                   "appState": foreground ? "foreground" : "background", "cursor": ledger.ledger.cursor])
     }
     func scene(active: Bool) {
@@ -154,17 +164,29 @@ struct SystemAuthorizer: NotificationAuthorizer {
 
     // MARK: Settings
 
-    func loadPreferences() { model?.notificationAction(["type": "notifications.config"]) }
-    /// This phone's choices apply on every paired machine.
-    func save(_ preferences: NotificationPreferences) {
-        guard let data = try? JSONEncoder().encode(preferences), let json = try? JSONSerialization.jsonObject(with: data) else { return }
-        self.preferences = preferences
-        for entry in machines { entry.model.notificationAction(["type": "notifications.preferences", "preferences": json]) }
+    /// Ask every machine for its own preferences; each answer lands under its host.
+    func loadPreferences() { for entry in machines { entry.model.notificationAction(["type": "notifications.config"]) } }
+    /// What this machine last reported; the standard set until it answers.
+    func preferences(for hostId: String) -> NotificationPreferences { preferencesByMachine[hostId] ?? .standard }
+    /// Quiet hours belong to one machine: only that machine's daemon is told.
+    func save(_ preferences: NotificationPreferences, for hostId: String) {
+        guard let data = try? JSONEncoder().encode(preferences), let json = try? JSONSerialization.jsonObject(with: data),
+              let entry = machines.first(where: { $0.hostId == hostId }) else { return }
+        preferencesByMachine[hostId] = preferences
+        entry.model.notificationAction(["type": "notifications.preferences", "preferences": json])
     }
+    /// Turn one machine's alerts off or on for this phone; remembered across launches.
+    func setMachine(_ hostId: String, enabled on: Bool) {
+        if on { muted.remove(hostId) } else { muted.insert(hostId) }
+        defaults.set(muted.sorted(), forKey: Keys.muted)
+        if let entry = machines.first(where: { $0.hostId == hostId }) { sync(entry.model, ledger: entry.notifier, hostId: entry.hostId) }
+    }
+    func snoozes(for hostId: String) -> [String: Double] { snoozesByMachine[hostId] ?? [:] }
     func snooze(_ threadId: String, until: Double?, hostId: String? = nil) {
         let value = until ?? 0
-        if client(hostId)?.notificationAction(["type": "notifications.snooze", "threadId": threadId, "until": Int(value)]) == true {
-            snoozes[threadId] = until
+        guard let host = hostId ?? machines.first?.hostId else { return }
+        if client(host)?.notificationAction(["type": "notifications.snooze", "threadId": threadId, "until": Int(value)]) == true {
+            snoozesByMachine[host, default: [:]][threadId] = until
         }
     }
 

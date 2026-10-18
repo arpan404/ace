@@ -3,6 +3,7 @@ import {
   ThreadId,
   type ForgePrStatus,
   type GitStatusFile,
+  type SourceControlSelection,
   type ThreadDetails,
   type WorkspaceActionRequest,
 } from "@ace/protocol";
@@ -10,6 +11,7 @@ import {
   changesNextStep,
   changesSummary,
   mobileDiffBudget,
+  mergeMethods,
   mobileFileDiff,
   patchFiles,
   type DiffBudget,
@@ -76,6 +78,15 @@ export class ChangesSession {
   #stop: () => void;
   /** A git action is running; the step is not offered twice. */
   busy = false;
+  /**
+   * The AI draft the person last took for a commit or PR (`git-drafts.ts`): the changes it was
+   * written against, so the daemon refuses to publish it once they moved.
+   */
+  draft:
+    | { for: "commit" | "create-pr"; fingerprint: string; selection: SourceControlSelection }
+    | undefined;
+  /** The draft being written, cancellable by its request id. */
+  drafting: { id: string; controller: AbortController } | undefined;
 
   constructor(
     owner: ChangesOwner,
@@ -142,6 +153,7 @@ export class ChangesSession {
 
   close(): void {
     this.#closed = true;
+    this.drafting?.controller.abort();
     this.#stop();
     this.#reads = undefined;
     this.#sink.clear("changes:");
@@ -178,6 +190,8 @@ export class ChangesSession {
           pr: step.pr && { ...step.pr, title: step.pr.title && this.#preview(step.pr.title, 256) },
         },
         busy: this.busy,
+        // Every way the forge merges; the phone remembers the last one picked.
+        methods: mergeMethods.map((each) => ({ method: each.method, label: each.label })),
       };
     });
   }

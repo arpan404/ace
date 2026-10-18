@@ -3,6 +3,7 @@ import { z } from "zod";
 import { followAgents, type PatchSink, type Preview } from "./agents.ts";
 import { ChangesSession, type ChangesOwner } from "./changes.ts";
 import { gitAction } from "./git-actions.ts";
+import { cancelDraft, DraftFor, writeDraft } from "./git-drafts.ts";
 
 /*
  * The thread's Agents and Changes sheets. Each follows the open thread only while its sheet is
@@ -15,6 +16,9 @@ const SheetAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("changes.refresh") }),
   z.object({ kind: z.literal("changes.file"), path: z.string().min(1).max(4096).nullable() }),
   z.object({ kind: z.literal("git"), action: z.unknown(), requestId: z.string().min(1).max(64) }),
+  /** An AI draft of the commit message or PR title and summary (`git-drafts.ts`). */
+  z.object({ kind: z.literal("git.draft"), for: DraftFor, requestId: z.string().min(1).max(64) }),
+  z.object({ kind: z.literal("git.draft.cancel"), requestId: z.string().min(1).max(64) }),
 ]);
 
 export interface OpenThread {
@@ -84,6 +88,22 @@ export class Sheets {
         );
         return true;
       }
+      case "git.draft": {
+        const session = this.#changes;
+        if (!session) return false;
+        void writeDraft(
+          thread.owner,
+          session,
+          action.for,
+          action.requestId,
+          this.#sink,
+          this.#preview,
+        );
+        return true;
+      }
+      case "git.draft.cancel":
+        if (this.#changes) cancelDraft(this.#changes, action.requestId);
+        return this.#changes !== undefined;
     }
   }
 }

@@ -19,6 +19,8 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     /// Inbox rows only: the machine the thread runs on and its last execution activity.
     let machineId: String?
     let activityAt: Double?
+    /// Inbox rows only: when the thread was archived, for the archive browser and read-only opens.
+    var archivedAt: Double? = nil
 }
 struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     let id: String
@@ -115,6 +117,8 @@ enum BridgePatch: Decodable, Sendable {
     case changesSummary(String, Int, ChangesSummary)
     case changesFile(String, Int, String, FileDiff)
     case gitResult(String, Bool, String)
+    case gitDraft(GitDraft)
+    case archiveList(ArchiveList)
 
     private enum Keys: String, CodingKey { case type, id, row, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff }
     init(from decoder: any Decoder) throws {
@@ -168,6 +172,8 @@ enum BridgePatch: Decodable, Sendable {
             let (id, epoch) = try scope()
             self = .changesFile(id, epoch, try box.decode(String.self, forKey: .path), try box.decode(FileDiff.self, forKey: .diff))
         case "git.result": self = .gitResult(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
+        case "git.draft": self = .gitDraft(try GitDraft(from: decoder))
+        case "archive.list": self = .archiveList(try ArchiveList(from: decoder))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: box, debugDescription: "Unknown bridge patch")
         }
     }

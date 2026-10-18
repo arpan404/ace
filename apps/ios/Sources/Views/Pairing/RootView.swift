@@ -36,7 +36,7 @@ struct RootView: View {
                 }
             }
         } else {
-            InboxView(inbox: machines.inbox, machines: machines) { adding = true }
+            InboxView(inbox: machines.inbox, machines: machines, addMachine: { adding = true }, lock: lock)
                 .sheet(isPresented: $adding) {
                     NavigationStack {
                         PairingView(machines: machines) { adding = false }

@@ -73,6 +73,8 @@ struct ChangesSummary: Codable, Sendable, Equatable {
     let branch: String
     let step: Step
     let busy: Bool
+    /// Merge methods to pick from; the first is the default until the person picks one.
+    let methods: [MergeMethodOption]?
 }
 
 /// One file's unified diff within the shared budget; `truncated` sends the rest to the computer.
@@ -93,3 +95,22 @@ struct FileDiff: Codable, Sendable, Equatable {
 
 /// A git step's outcome, correlated by request id.
 struct GitOutcome: Sendable, Equatable { let ok: Bool; let message: String }
+
+/// One way the forge merges a PR (`mergeMethods` in `@ace/ui-core`).
+struct MergeMethodOption: Codable, Sendable, Equatable, Identifiable {
+    let method: String
+    let label: String
+    var id: String { method }
+}
+
+/// The AI draft of a commit message or PR title and summary (`bridge/git-drafts.ts`), by request id.
+struct GitDraft: Codable, Sendable, Equatable {
+    let id: String
+    /// `commit` or `create-pr`.
+    let `for`: String
+    /// `drafting`, `ready`, `failed` or `cancelled`.
+    let state: String
+    let subject: String?
+    let body: String?
+    let message: String?
+}
