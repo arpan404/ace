@@ -30,8 +30,16 @@ export function degradedPatch(patch: Record<string, unknown>): Record<string, un
     case "thread.item":
       return {
         ...patch,
-        row: { ...row, text: "Content unavailable. Check your machine.", truncated: true },
+        row: {
+          ...row,
+          text: "Content unavailable. Check your machine.",
+          truncated: true,
+          step: null,
+          attachments: [],
+        },
       };
+    case "thread.block":
+      return { ...patch, row: { ...row, work: null, agents: null, ending: null, started: null } };
     case "pending":
       return { ...patch, row: { ...row, text: "Saved input details unavailable" } };
     case "thread.interaction": {
@@ -52,6 +60,10 @@ export function degradedPatch(patch: Record<string, unknown>): Record<string, un
           title: "Approval details unavailable",
           description: "Check the full request on your machine.",
           command: "",
+          heading: "Approval details unavailable",
+          reason: "",
+          riskText: "",
+          ...degradedChoices(row),
           truncated: true,
           options: options.data.map((option, index) =>
             Object.assign(option, {
@@ -64,4 +76,41 @@ export function degradedPatch(patch: Record<string, unknown>): Record<string, un
     default:
       return patch;
   }
+}
+
+const Entries = z.array(z.record(z.string(), z.unknown()));
+const Questions = z.array(
+  z.object({ options: z.array(z.record(z.string(), z.unknown())) }).catchall(z.unknown()),
+);
+
+/** Verbs and option ids stay; scopes, labels and question words become placeholders. */
+function degradedChoices(row: Record<string, unknown>): Record<string, unknown> {
+  const decisions = Entries.safeParse(row.decisions);
+  const others = Entries.safeParse(row.others);
+  const questions = Questions.safeParse(row.questions);
+  return {
+    ...(decisions.success
+      ? { decisions: decisions.data.map((decision) => Object.assign(decision, { scope: "" })) }
+      : {}),
+    ...(others.success
+      ? {
+          others: others.data.map((other, index) =>
+            Object.assign(other, { label: `Action ${index + 1}` }),
+          ),
+        }
+      : {}),
+    ...(questions.success
+      ? {
+          questions: questions.data.map((question, index) =>
+            Object.assign(question, {
+              header: "",
+              text: `Question ${index + 1}. Check the full request on your machine.`,
+              options: question.options.map((option, at) =>
+                Object.assign(option, { label: `Option ${at + 1}`, detail: "" }),
+              ),
+            }),
+          ),
+        }
+      : {}),
+  };
 }

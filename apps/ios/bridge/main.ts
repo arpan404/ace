@@ -6,6 +6,7 @@ import { call, scheduler } from "./host.ts";
 import { PatchPump, followInbox, followThread } from "./patches.ts";
 import { preview } from "./presentation.ts";
 import { dispatchCommand } from "./commands.ts";
+import { ThreadSession } from "./thread-session.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -22,10 +23,12 @@ const Action = z.discriminatedUnion("type", [
     requestId: z.string().min(1).max(64),
   }),
   z.object({ type: z.literal("retry") }),
+  z.object({ type: z.literal("thread"), action: z.unknown() }),
 ]);
 let client: ClientCore | undefined;
 let lease: Lease<ThreadSource> | undefined;
 let stopThread: (() => void) | undefined;
+let session: ThreadSession | undefined;
 let epoch = 0;
 let itemLimit = 200;
 let historyAbort: AbortController | undefined;
@@ -179,7 +182,9 @@ function action(json: string): void {
         stopThread?.();
         lease?.release();
         lease = client.thread(value.threadId);
+        session?.dispose();
         stopThread = followThread(lease.store, value.threadId, ++epoch, pump, itemLimit);
+        session = new ThreadSession(client, lease.store, value.threadId, epoch, pump);
         if (itemLimit > 200) {
           const generation = epoch;
           const signal = historyAbort.signal;
@@ -191,6 +196,8 @@ function action(json: string): void {
       case "back":
         epoch++;
         historyAbort?.abort();
+        session?.dispose();
+        session = undefined;
         stopThread?.();
         lease?.release();
         lease = undefined;
@@ -203,6 +210,10 @@ function action(json: string): void {
         break;
       case "command":
         void dispatchCommand(client, value.payload, value.requestId, pump);
+        break;
+      case "thread":
+        if (session) session.handle(value.action);
+        else error();
         break;
     }
   } catch {

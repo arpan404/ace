@@ -67,10 +67,16 @@ struct InboxView: View {
                 }
             }
             .navigationDestination(for: String.self) { id in
-                if let thread = model.thread, thread.id == id { ThreadView(model: model, thread: thread) }
+                if let thread = model.thread, thread.id == id {
+                    ThreadView(model: model, thread: thread) { child in model.open(child); path.append(child) }
+                }
             }
             .sheet(isPresented: $showingMachines) { machinesSheet }
-            .onChange(of: path) { old, new in if !old.isEmpty && new.isEmpty { model.back() } }
+            .onChange(of: path) { old, new in
+                if !old.isEmpty && new.isEmpty { model.back() }
+                // Back from a child thread reopens its parent under a new navigation generation.
+                else if new.count < old.count, let parent = new.last { model.open(parent) }
+            }
         }
         .tint(AceTheme.Colours.foreground)
         .alert("Request needs attention", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {

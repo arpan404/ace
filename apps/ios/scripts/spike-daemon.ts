@@ -6,6 +6,7 @@ import { ThreadId } from "@ace/protocol";
 import { oversizedScenario, approvalRetryScenario } from "./review-scenarios.ts";
 import { manyActions, snapshotFrames } from "./many-actions.ts";
 import { LostReceipt } from "./lost-receipt.ts";
+import { threadScenarios } from "./thread-scenarios.ts";
 
 const daemon = new FakeDaemon({
   clock: Date.now,
@@ -131,6 +132,8 @@ daemon.apply("ios-tree", [
   facts.endTurn("root"),
 ]);
 
+threadScenarios(daemon, details);
+
 const connections = new Map<ServerWebSocket<undefined>, ReturnType<FakeDaemon["connect"]>>();
 let online = true;
 let deltas = 0;
@@ -142,7 +145,8 @@ const Control = z.object({ online: z.boolean() });
 const lostReceipt = new LostReceipt();
 const server = Bun.serve<undefined>({
   hostname: "127.0.0.1",
-  port: 9841,
+  // Another fixture may already hold the default port on a shared machine.
+  port: Number(process.env.ACE_SPIKE_PORT) || 9841,
   async fetch(request, listener) {
     const path = new URL(request.url).pathname;
     if (path === "/review/receipt") {
@@ -246,5 +250,5 @@ process.on("SIGINT", () => {
   server.stop(true);
 });
 console.log(
-  "iOS spike daemon on ws://127.0.0.1:9841. No provider processes or subscription quota.",
+  `iOS spike daemon on ws://127.0.0.1:${server.port}. No provider processes or subscription quota.`,
 );

@@ -19,7 +19,8 @@
     "./transcript-blocks": "./src/transcript-blocks.ts",
     "./transcript-block-reader": "./src/transcript-block-reader.ts",
     "./agent-facts": "./src/agent-facts.ts",
-    "./subagent-group": "./src/subagent-group.ts"
+    "./subagent-group": "./src/subagent-group.ts",
+    "./thread-execution": "./src/thread-execution.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

@@ -17,6 +17,7 @@
     "@ace/design-tokens": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
+    "@ace/ui-core": "workspace:*",
     "zod": "^4.6.5"
   },
   "devDependencies": {

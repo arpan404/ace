@@ -1,30 +1,37 @@
 import SwiftUI
 
 struct ThreadView: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dismiss) private var dismiss
     @Bindable var model: ClientModel
     @Bindable var thread: ThreadModel
-    @State private var showWork = false
+    /// Push another thread (a delegated child or a conversation this one started).
+    let openThread: (String) -> Void
     @State private var showDetails = false
+    @State private var showModels = false
+    @State private var lane: BlockRow.Agents.Entry?
     @State private var scrolledToTail = false
     private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
+    private var screen: ThreadScreenModel { thread.screen }
     var body: some View {
         ScrollViewReader { proxy in
             List {
+                if screen.hasOlder {
+                    HStack { Spacer(); ProgressView(); Spacer() }
+                        .onAppear { model.loadOlder() }
+                        .listRowSeparator(.hidden)
+                        .accessibilityLabel("Loading earlier messages")
+                }
                 if !thread.loaded { ProgressView("Loading conversation…").listRowSeparator(.hidden) }
-                ForEach(thread.order, id: \.self) { id in
-                    if let item = thread.items[id] {
-                        TranscriptItemView(item: item, expanded: showWork)
+                let links = TranscriptLinks(openThread: openThread, openAgent: { lane = $0 })
+                ForEach(screen.blockOrder, id: \.self) { id in
+                    if let block = screen.blocks[id] {
+                        BlockView(block: block, thread: thread, links: links)
                             .id(id).listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: AceTheme.Spacing.sm, leading: AceTheme.Spacing.xl, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.xl))
                     }
                 }
                 ForEach(model.pending.values.filter { $0.threadId == thread.id && $0.state != "delivered" && thread.items["input:\($0.id)"] == nil }.sorted { $0.id < $1.id }) { row in
-                    VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
-                        Text(row.text).aceFont(AceTheme.Typography.body, relativeTo: .body).padding(AceTheme.Spacing.md).background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.bubble))
-                        Text(row.state == "failed" ? "Send needs attention" : row.state == "accepted" ? "Accepted" : row.state == "saving" ? "Saving on your phone…" : "Sends on reconnect")
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
-                    }.frame(maxWidth: .infinity, alignment: .trailing).listRowSeparator(.hidden)
+                    PendingSendRow(row: row) { await model.retrySend(row) }.listRowSeparator(.hidden)
                 }
                 Color.clear.frame(height: AceTheme.Dimensions.border).id("tail").listRowSeparator(.hidden)
             }
@@ -35,37 +42,34 @@ struct ThreadView: View {
             .onChange(of: thread.loaded) { _, loaded in
                 if loaded && !scrolledToTail { proxy.scrollTo("tail", anchor: .bottom); scrolledToTail = true }
             }
+            .onChange(of: ObjectIdentifier(thread)) { scrolledToTail = false }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
                 VStack(spacing: AceTheme.Spacing.none) {
-                    ForEach(thread.approvals) { approval in
-                        if approval.kind == "approval" { ApprovalCard(approval: approval, submission: model.approvalSubmissions[approval.id]) { model.approve(approval, option: $0) } }
+                    // One card at a time above the composer: the oldest open request.
+                    if let request = thread.approvals.first {
+                        if request.kind == "question" {
+                            QuestionCard(interaction: request, submission: model.approvalSubmissions[request.id]) { model.answer(request, answers: $0, dismissed: $1) }
+                                .id(request.id)
+                        } else {
+                            ApprovalCard(approval: request, submission: model.approvalSubmissions[request.id]) { model.approve(request, option: $0) }
+                        }
                     }
-                    ComposerView(state: metadata?.state ?? "new", modelName: metadata?.model ?? "", canSteer: metadata?.canSteer ?? false,
-                                 send: { await model.send($0, delivery: $1) }, stop: { model.stopTree() }, inputBegan: { model.metrics?.inputBegan() })
+                    ComposerView(controls: screen.controls, stopping: screen.stopping,
+                                 placeholder: thread.approvals.isEmpty ? "Steer or follow up…" : "Reply instead…",
+                                 send: { await model.sendMessage($0, alternate: $1) }, stop: { model.stopTree() },
+                                 openModels: { showModels = true }, inputBegan: { model.metrics?.inputBegan() })
                 }
             }
             .toolbar {
-                ToolbarItem(placement: .principal) {
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                        Text(metadata?.title ?? "Thread").aceFont(AceTheme.Typography.title, relativeTo: .headline).lineLimit(1)
-                        Text("\(metadata?.project ?? "") · \(metadata?.machine ?? "") · \(metadata?.provider.capitalized ?? "")")
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button(showWork ? "Collapse work" : "Expand work", systemImage: "list.bullet.rectangle") { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { showWork.toggle() } }
-                        Button("Connection details", systemImage: "network") { showDetails = true }
-                    } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Thread options")
-                }
+                ToolbarItem(placement: .principal) { header }
+                ToolbarItem(placement: .topBarTrailing) { menu }
             }
             .navigationBarTitleDisplayMode(.inline)
-            .sheet(isPresented: $showDetails) {
-                NavigationStack {
-                    Form { LabeledContent("Connection", value: model.connection); LabeledContent("Items", value: thread.items.count.formatted()); StateLabel(state: metadata?.state ?? "new") }
-                        .navigationTitle("Thread").navigationBarTitleDisplayMode(.inline)
-                }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+            .sheet(isPresented: $showDetails) { details }
+            .sheet(isPresented: $showModels) {
+                ModelPickerSheet(screen: screen, load: { model.requestModels() }, choose: { await model.switchModel($0) })
             }
+            .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, thread: thread) }
             #if DEBUG
             .overlay(alignment: .topLeading) {
                 if SpikeConfiguration.enabled {
@@ -78,37 +82,74 @@ struct ThreadView: View {
             #endif
         }
     }
+    /// Title, the whole tree's canonical status, and where it runs.
+    private var header: some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+            Text(metadata?.title ?? "Thread").aceFont(AceTheme.Typography.title, relativeTo: .headline).lineLimit(1)
+            HStack(spacing: AceTheme.Spacing.xs) {
+                StateLabel(state: metadata?.state ?? "new")
+                Text(verbatim: [metadata?.project, metadata?.branch, metadata.map { $0.provider.capitalized }].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("thread.header")
+    }
+    private var menu: some View {
+        Menu {
+            if screen.controls?.canStop == true {
+                Button("Stop all agents", systemImage: "stop.circle", role: .destructive) { model.stopTree() }.disabled(screen.stopping)
+            }
+            Button("Snooze for an hour", systemImage: "moon.zzz") { model.snooze(thread.id); dismiss() }
+            Button("Archive", systemImage: "archivebox") { model.archive(thread.id); dismiss() }
+            Divider()
+            Button("Connection details", systemImage: "network") { showDetails = true }
+        } label: { Image(systemName: "ellipsis") }
+        .accessibilityLabel("Thread options")
+        .accessibilityIdentifier("thread.menu")
+    }
+    private var details: some View {
+        NavigationStack {
+            Form {
+                LabeledContent("Connection", value: model.connection)
+                LabeledContent("Items", value: thread.items.count.formatted())
+                LabeledContent("Machine", value: metadata?.machine ?? "")
+                StateLabel(state: metadata?.state ?? "new")
+            }
+            .navigationTitle("Thread").navigationBarTitleDisplayMode(.inline)
+        }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+    }
 }
-private struct TranscriptItemView: View {
-    @Bindable var item: ItemModel
-    let expanded: Bool
+
+/// A message saved on the phone that hasn't reached the transcript yet, from the SDK's state.
+private struct PendingSendRow: View {
+    let row: PendingRow
+    let retry: () async -> Bool
+    @State private var retrying = false
     var body: some View {
-        let row = item.row
-        if row.type == "message" {
-            VStack(alignment: row.role == "user" ? .trailing : .leading, spacing: AceTheme.Spacing.xs) {
-                Text(row.text).aceFont(AceTheme.Typography.body, relativeTo: .body).textSelection(.enabled)
-                    .padding(row.role == "user" ? AceTheme.Spacing.md : AceTheme.Spacing.none)
-                    .background(row.role == "user" ? AceTheme.Colours.fill : .clear, in: RoundedRectangle(cornerRadius: AceTheme.Radii.bubble))
-                if row.truncated { Text("Showing a bounded preview").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
-            }.frame(maxWidth: .infinity, alignment: row.role == "user" ? .trailing : .leading)
-        } else if row.type == "html" {
-            // The sandboxed renderer is desktop/web only; show what was published and where to see it.
-            HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
-                Image(systemName: "chart.bar.doc.horizontal")
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                    Text(row.text).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
-                    Text("Visualization — view on desktop or web")
-                }
-                Spacer(minLength: AceTheme.Spacing.none)
-            }.aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
-            .accessibilityElement(children: .combine)
-        } else {
+        VStack(alignment: .trailing, spacing: AceTheme.Spacing.xs) {
+            Text(row.text).aceFont(AceTheme.Typography.body, relativeTo: .body).padding(AceTheme.Spacing.md)
+                .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.bubble))
             HStack(spacing: AceTheme.Spacing.sm) {
-                Image(systemName: row.type == "tool_call" ? "wrench.and.screwdriver" : "text.alignleft")
-                Text(expanded ? row.text : row.type == "tool_call" ? row.text : "Worked · \(row.type.replacingOccurrences(of: "_", with: " "))").lineLimit(expanded ? nil : 1)
-                Spacer(minLength: AceTheme.Spacing.none)
-                Image(systemName: expanded ? "chevron.down" : "chevron.right").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-            }.aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text(status).foregroundStyle(row.state == "failed" ? AceTheme.StatusText.failed : AceTheme.Colours.mutedForeground)
+                if row.state == "failed" {
+                    Button {
+                        retrying = true
+                        Task { _ = await retry(); retrying = false }
+                    } label: { Label("Send again", systemImage: "arrow.clockwise") }
+                        .disabled(retrying)
+                        .accessibilityIdentifier("pending.retry")
+                }
+            }.aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+        }.frame(maxWidth: .infinity, alignment: .trailing)
+    }
+    private var status: String {
+        switch row.state {
+        case "failed": "Send needs attention"
+        case "accepted": "Accepted"
+        case "saving": "Saving on your phone…"
+        default: "Sends on reconnect"
         }
     }
 }

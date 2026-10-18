@@ -9,7 +9,7 @@ import SQLite3
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let model = ClientModel(now: { 0 })
         func stage(_ value: String) async throws {
-            var request = URLRequest(url: try #require(URL(string: "http://127.0.0.1:9841/review/approval")))
+            var request = URLRequest(url: try #require(URL(string: "http://127.0.0.1:\(SpikeFixture.port)/review/approval")))
             request.httpMethod = "POST"
             request.httpBody = try JSONEncoder().encode(value)
             let (_, response) = try await URLSession.shared.data(for: request)
@@ -79,7 +79,7 @@ import SQLite3
         await model.connect(target: try target(), directory: root)
         try await until { model.connection == "ready" }
         func stage(_ value: String) async throws {
-            var request = URLRequest(url: try #require(URL(string: "http://127.0.0.1:9841/review/oversized")))
+            var request = URLRequest(url: try #require(URL(string: "http://127.0.0.1:\(SpikeFixture.port)/review/oversized")))
             request.httpMethod = "POST"
             request.httpBody = try JSONEncoder().encode(value)
             let (_, response) = try await URLSession.shared.data(for: request)
@@ -157,7 +157,7 @@ import SQLite3
         #expect(model.thread?.approvals.isEmpty == true)
     }
     private func target() throws -> ConnectionTarget {
-        ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:9841")), hostId: "ios-spike-host", deviceId: "ios-contract-device", pin: nil,
+        ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:\(SpikeFixture.port)")), hostId: "ios-spike-host", deviceId: "ios-contract-device", pin: nil,
                          credential: { "{\"token\":\"ios-spike-token\"}" })
     }
     private func database(in root: URL) -> URL {
