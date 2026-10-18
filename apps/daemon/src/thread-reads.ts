@@ -185,6 +185,10 @@ export class ThreadReads {
     if (!this.source.getThread(threadId)) throw new Error("Unknown thread");
     return readHistoryBlob(this.source.db, threadId, id, offset, limit);
   }
+  /** Threads a reader holds open right now, such as a client's thread subscription. */
+  heldThreads(): ThreadId[] {
+    return [...this.caches.keys()];
+  }
   releaseThread(id: ThreadId): void {
     const cached = this.caches.get(id);
     if (cached && --cached.refs === 0) this.caches.delete(id);

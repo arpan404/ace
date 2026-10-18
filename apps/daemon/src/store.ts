@@ -1062,4 +1062,8 @@ export class Store {
   releaseThread(id: ThreadId): void {
     return this.threadReads.releaseThread(id);
   }
+  /** Threads a client is viewing now (an open thread subscription holds them). */
+  viewedThreads(): ThreadId[] {
+    return this.threadReads.heldThreads();
+  }
 }

@@ -160,8 +160,8 @@ test("a delayed refresh cannot restore a stale projected root after isolated pre
     release = gate();
   let delayed = false;
   class DelayedGit extends GitService {
-    override async repositoryInfo(root: string) {
-      const result = await super.repositoryInfo(root);
+    override async checkoutSummary(root: string) {
+      const result = await super.checkoutSummary(root);
       if (delayed) {
         entered.resolve();
         await release.promise;
