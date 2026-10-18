@@ -87,3 +87,6 @@ on/off switch, quiet hours (`notification.preferences`) and per-thread snooze
   catch-up per cursor, an action answers the exact pending option once, stale actions send nothing.
 - `apps/ios/Tests/NotificationTests.swift`: id replacement and ledger, retraction, category rules,
   action → bridge resolve → confirmation, unreachable actions send nothing.
+- `apps/ios/UITests/NotificationUITests.swift` (simulator, spike fixture): permission is asked after
+  the first thread, a daemon alert shows as a banner, tapping it opens the thread, and an alert
+  sent while the app was disconnected arrives from catch-up after it reconnects.
