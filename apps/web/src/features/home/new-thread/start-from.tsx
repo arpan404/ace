@@ -63,7 +63,7 @@ export function StartFrom(props: {
             ))}
           </TabsList>
           {(active.total > startRowLimit || text) && (
-            <label className="ml-auto flex h-7 w-52 min-w-0 items-center gap-1.5 rounded-md px-2 text-muted-foreground transition-colors duration-(--motion-fast) focus-within:bg-foreground/5 hover:bg-foreground/3">
+            <label className="ml-auto flex h-7 w-52 min-w-0 items-center gap-1.5 rounded-md px-2 text-muted-foreground transition-colors duration-(--motion-fast) has-focus-visible:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--focus,var(--ring))] focus-within:bg-foreground/5 hover:bg-foreground/3">
               <MagnifyingGlassIcon aria-hidden size={14} className="shrink-0" />
               <input
                 type="search"
@@ -76,7 +76,7 @@ export function StartFrom(props: {
                   event.stopPropagation();
                   setText("");
                 }}
-                className="min-w-0 flex-1 bg-transparent text-ui text-foreground outline-none placeholder:text-subtle-foreground [&::-webkit-search-cancel-button]:hidden"
+                className="min-w-0 flex-1 bg-transparent text-ui text-foreground placeholder:text-subtle-foreground focus:outline-none [&::-webkit-search-cancel-button]:hidden"
               />
             </label>
           )}
