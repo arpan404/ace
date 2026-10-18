@@ -9,6 +9,9 @@ import { resetSendStore } from "./composer/send-store.ts";
 import { reloadPage, resetStaged, stage, stagedSends } from "./composer/staged-sends.ts";
 import { Command, ThreadId } from "@ace/protocol";
 
+/** The composer's strip of messages on their way, once it shows. */
+const strip = () => screen.findByRole("region", { name: "Messages on their way" });
+
 beforeEach(() => {
   resetDismissed();
   resetSendStore();
@@ -49,9 +52,11 @@ test.each(["initial", "retry"])(
     await again.open("/t/thread-router");
     await screen.findByRole("combobox", { name: "Message" });
     const feed = await screen.findByRole("feed", { name: "Transcript" });
-    expect(within(feed).getAllByText("Keep this across reload")).toHaveLength(1);
+    const kept = await strip();
+    expect(within(kept).getAllByText("Keep this across reload")).toHaveLength(1);
+    expect(within(feed).queryByText("Keep this across reload")).toBeNull();
     expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe("");
-    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await userEvent.click(within(kept).getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Retry" })).toBeNull());
     const view = again.daemon.snapshot({
       kind: "thread",
@@ -238,14 +243,16 @@ test.each(["saving", "admitted"])(
     try {
       await made.open("/t/thread-router");
       const feed = await screen.findByRole("feed", { name: "Transcript" });
-      await within(feed).findByText("Already on its way");
+      // Saving, it waits in the strip; admitted, it is the daemon's item.
+      await screen.findByText("Already on its way");
       await act(async () => {});
-      expect(within(feed).queryByRole("button", { name: "Retry" })).toBeNull();
-      expect(within(feed).queryByText("Not sent")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+      expect(screen.queryByText("Not sent")).toBeNull();
       saving.resolve();
       await enqueued;
-      await waitFor(() => expect(within(feed).queryByText("Sending…")).toBeNull());
-      expect(within(feed).getAllByText("Already on its way")).toHaveLength(1);
+      await within(feed).findByText("Already on its way");
+      await waitFor(() => expect(screen.queryByText("Sending…")).toBeNull());
+      expect(screen.getAllByText("Already on its way")).toHaveLength(1);
     } finally {
       saving.resolve();
     }
@@ -324,9 +331,9 @@ test("a refused send stays recoverable after a retry cannot be saved and the pag
   const again = harness({ storage, outbox });
   again.play(longHistory(2)).runUntilBlocked();
   await again.open("/t/thread-router");
-  const feed = await screen.findByRole("feed", { name: "Transcript" });
-  await within(feed).findByText("Keep the refused original");
-  expect(within(feed).getByRole("button", { name: "Retry" })).toBeTruthy();
+  const kept = await strip();
+  await within(kept).findByText("Keep the refused original");
+  expect(within(kept).getByRole("button", { name: "Retry" })).toBeTruthy();
 });
 
 test("a restored failed held message keeps sidebar recovery attention", async () => {
@@ -352,4 +359,79 @@ test("a restored failed held message keeps sidebar recovery attention", async ()
   expect(
     within(navigation).getByRole("link", { name: /Document the router.*Not sent/i }),
   ).toBeTruthy();
+});
+
+/** This window's outbox entries for the thread. */
+const outboxOf = (app: ReturnType<typeof harness>) =>
+  app.client.pendingSends("thread-router").getSnapshot();
+
+/** An agent's reply, as the daemon records it. */
+const reply = (n: number) => ({
+  type: "item.upsert" as const,
+  agent: "root",
+  item: `later-reply-${n}`,
+  draft: {
+    type: "message" as const,
+    role: "assistant" as const,
+    complete: true,
+    parts: [{ type: "text" as const, text: `Later reply ${n}` }],
+  },
+});
+
+test("a delivered message whose item is off screen never reappears at the bottom of the transcript", async () => {
+  const app = harness({ snapshotItems: 3 });
+  app.play(longHistory(2)).runUntilBlocked();
+  await app.client.start();
+  // This window sent it and the daemon took it, while the thread wasn't open here.
+  await app.client.enqueue(
+    {
+      type: "thread.send",
+      threadId: ThreadId.parse("thread-router"),
+      input: [{ type: "text", text: "Check the early route" }],
+    },
+    "early-route",
+  );
+  await waitFor(() =>
+    expect(outboxOf(app).find((send) => send.commandId === "early-route")?.state).toBe("accepted"),
+  );
+  // The agent wrote on, so the message is history; the thread opens on its latest items only.
+  app.daemon.apply("thread-router", [
+    { type: "turn.ended", agent: "root", outcome: "completed" },
+    reply(1),
+    reply(2),
+    reply(3),
+    reply(4),
+  ]);
+  app.daemon.holdRequests("items.page");
+  await app.open("/t/thread-router");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  await within(feed).findByText("Later reply 4");
+  await act(async () => {});
+  expect(within(feed).queryByText("Check the early route")).toBeNull();
+  expect(screen.queryByText("Check the early route")).toBeNull();
+});
+
+test("a message that failed to send stays visible and resendable outside the transcript", async () => {
+  const app = harness();
+  app.play(longHistory(2)).runUntilBlocked();
+  app.daemon.refuseCommands("thread_transition_in_progress", "thread.send");
+  await app.open("/t/thread-router");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const field = await screen.findByRole("combobox", { name: "Message" });
+  await userEvent.type(field, "Ship the router fix{Enter}");
+
+  const kept = await strip();
+  expect(within(kept).getByText("Ship the router fix")).toBeTruthy();
+  expect(within(within(kept).getByRole("alert")).getByText("Not sent")).toBeTruthy();
+  // Never in the transcript, which shows only what the daemon has.
+  expect(within(feed).queryByText("Ship the router fix")).toBeNull();
+  expect(field.textContent).toBe("");
+
+  app.daemon.restoreRequests();
+  await userEvent.click(within(kept).getByRole("button", { name: "Retry" }));
+  expect(await within(feed).findByText("Ship the router fix")).toBeTruthy();
+  await waitFor(() =>
+    expect(screen.queryByRole("region", { name: "Messages on their way" })).toBeNull(),
+  );
+  expect(screen.getAllByText("Ship the router fix")).toHaveLength(1);
 });

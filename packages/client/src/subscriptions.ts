@@ -7,6 +7,8 @@ interface Cached {
   threadId: string;
   snapshotAllowed: boolean;
   fresh: boolean;
+  /** The cursor the last gap resumed from: a second gap there starts over without one. */
+  resumedAt: number | undefined;
   rejected: boolean;
   refs: number;
   subscriptionId: string | undefined;
@@ -48,6 +50,7 @@ export class Subscriptions {
         threadId,
         snapshotAllowed: true,
         fresh: false,
+        resumedAt: undefined,
         rejected: false,
         refs: 0,
         subscriptionId: undefined,
@@ -185,10 +188,14 @@ export class Subscriptions {
     this.#wires.delete(message.subscriptionId);
     const threadId = entry.store.thread?.id;
     if (!threadId) throw new ClientError("protocol");
-    // Release this in-flight slot before queueing a cursor-free replacement.
+    // Release this in-flight slot before queueing the replacement. It resumes from the held
+    // cursor, so a missed frame costs a replay (or a snapshot merged into what is held), never
+    // the loaded history (ADR 0062). A gap again at the same cursor starts over without it.
     this.#starting.delete(message.subscriptionId);
     entry.subscriptionId = undefined;
-    entry.fresh = true;
+    const cursor = entry.store.cursor;
+    entry.fresh = cursor === undefined || entry.resumedAt === cursor;
+    entry.resumedAt = entry.fresh ? undefined : cursor;
     this.#pump();
   }
 }

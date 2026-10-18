@@ -26,7 +26,11 @@ Neither mode authorizes authentication management.
 ## Session and shared owners
 
 `openSession` initializes a long-lived streaming Query. `send` uses UUID-stamped
-`priority: "next"` input. Steering still rejects and `steer` remains false.
+`priority: "next"` input; a steer uses `priority: "now"`. Claude takes a steer by
+aborting the running request (`terminal_reason: aborted_*`) and answering it in a
+fresh native turn, so the translator keeps one turn running through that aborted
+result. An aborted result ends the turn as interrupted only when no steer caused
+it, or when the person also stopped (an interrupt request or a cancelled approval).
 The provider-kit bridge owns the process group, forwards unknown controls/raw
 messages, and applies stdout backpressure and a 16-MiB frame limit. Pending input
 and interactions reject excess admission at 256 entries; human waits have no

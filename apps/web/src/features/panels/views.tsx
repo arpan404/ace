@@ -18,7 +18,7 @@ export function ChangesView(props: TabViewProps) {
       : undefined;
   return (
     <WithServices>
-      <ChangesTab threadId={props.scope} path={path} />
+      <ChangesTab threadId={props.scope} path={path} tabKey={props.tab.key} />
     </WithServices>
   );
 }

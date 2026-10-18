@@ -33,6 +33,18 @@ it("a second tab opens in the background: the panel keeps showing the selected o
   expect(pages.get("native-tab-2")).toMatchObject({ shown: false, nativeInput: false });
 });
 
+it("under the app's menu only the shown tab stays watched; a background tab stays unseen", async () => {
+  const { tabs, pages, panel } = group();
+  await tabs.openTab();
+  tabs.place({ ...panel, visible: true });
+  await tabs.cdp("ace.tabs.open");
+  tabs.place({ ...panel, visible: false, covered: true });
+  expect(pages.get("native-tab-1")).toMatchObject({ shown: false, covered: true });
+  expect(pages.get("native-tab-2")).toMatchObject({ shown: false, covered: false });
+  tabs.place({ ...panel, visible: true });
+  expect(pages.get("native-tab-1")).toMatchObject({ shown: true, covered: false });
+});
+
 it("an agent drives a background tab by id while the person's tab stays put", async () => {
   const { tabs, pages, panel } = group();
   await tabs.openTab();

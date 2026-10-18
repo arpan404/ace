@@ -19,7 +19,10 @@ export const organizationCommands = [
   "thread.snooze",
 ] as const;
 
-/** Organization is independent of execution. Destructive hiding requires a quiescent tree. */
+/**
+ * Organization is independent of execution. Only a running thread refuses settling; a thread
+ * waiting on the person can be settled and keeps its request. Deletion requires a quiescent tree.
+ */
 export function organizationDecision(
   thread: Thread,
   command: Command,
@@ -47,7 +50,7 @@ export function organizationDecision(
     case "thread.read":
       return { type: "thread.client.updated", changes: { unread: p.unread, readAt: at } };
     case "thread.settle":
-      if (thread.status.state === "working" || threadAttention(thread)) return "thread_not_done";
+      if (thread.status.state === "working") return "thread_not_done";
       return {
         type: "thread.client.updated",
         changes: { settledAt: at, settledReason: "manual", snoozedUntil: null, autoSettleAt: null },
@@ -79,13 +82,12 @@ export function settleDecision(
 ): ThreadClientUpdated["changes"] {
   const expired =
     thread.snoozedUntil !== undefined && thread.snoozedUntil <= at ? { snoozedUntil: null } : {};
-  if (
-    thread.deletedAt !== undefined ||
-    thread.status.state === "working" ||
-    threadAttention(thread)
-  )
+  // Running work resurfaces a settled thread. A request for the person never auto-settles,
+  // but a person may settle it by hand and it stays settled.
+  if (thread.deletedAt !== undefined || thread.status.state === "working")
     return { ...expired, autoSettleAt: null, settledAt: null, settledReason: null };
-  if (thread.archivedAt !== undefined || thread.pinned) return { ...expired, autoSettleAt: null };
+  if (thread.archivedAt !== undefined || thread.pinned || threadAttention(thread))
+    return { ...expired, autoSettleAt: null };
   if (thread.settledAt !== undefined) return { ...expired, autoSettleAt: null };
   const due =
     policy.hours > 0

@@ -1,20 +1,18 @@
-import { noticeText } from "@ace/ui-core";
 import type { PendingSend } from "@ace/client";
-import { useConnectionState, useItem, useThread } from "@ace/client-react";
+import { useConnectionState } from "@ace/client-react";
 import type { ReactNode } from "react";
 import { ClockIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { waitingNote } from "@/lib/daemon-command.ts";
-import { type StagedSend, leasable } from "../composer/send-store.ts";
+import type { StagedSend } from "../composer/send-store.ts";
 import { useWorktreeCreation } from "../worktree/use-worktree-creation.ts";
 import { worktreeSpeaks } from "../worktree/worktree-refusal.ts";
 import { FailedHeld, FailedSend } from "./failed-send.tsx";
 import { sendFailure } from "./send-failure.ts";
 
 /*
- * The line under a bubble while its message is on its way. It loads with the thread's other
- * deferred parts (the bubble shows its time meanwhile): only a message just sent, or one that
- * didn't go, has anything to say here.
+ * The line that says how a message on its way is doing, beside it in the composer's strip (or
+ * under a new thread's first message). It loads with the thread's other deferred parts.
  */
 
 const isImage = (mimeType: string) => mimeType.startsWith("image/");
@@ -36,39 +34,26 @@ function uploadingLabel(staged: StagedSend): string {
 }
 
 /**
- * Under the person's bubble while its message is on its way: "Sending…" (or "Will apply when
- * reconnected" offline, "Still waiting for the daemon…" when it's slow), "Uploading 2 images…"
- * while its files finish, and "Not sent" with the reason, Retry and Edit when the daemon
- * refused it or couldn't deliver it. Nothing once the daemon has it, nor while a worktree card
- * below speaks for it.
+ * How a message on its way is doing: "Sending…" (or "Will apply when reconnected" offline,
+ * "Still waiting for the daemon…" when it's slow), "Uploading 2 images…" while its files
+ * finish, and "Not sent" with the reason, Retry and Edit when it can't go. Nothing once the
+ * daemon has it, nor while a new thread's worktree card speaks for it.
  */
 export function SendStatus(props: {
   threadId: string;
-  itemId: string;
   send: PendingSend | undefined;
   staged: StagedSend | undefined;
-  /** The daemon's notice that the message wasn't delivered, if it wrote one. */
-  noticeId: string | undefined;
-  /** What the line shows when there's nothing to say about sending (the time on hover). */
-  otherwise: ReactNode;
 }) {
   const online = useConnectionState() === "ready";
-  const notice = useItem(leasable(props.threadId), props.noticeId ?? "");
-  const item = useItem(leasable(props.threadId), props.itemId);
-  const runId = item?.runId;
-  const run = useThread(leasable(props.threadId), [`run:${runId ?? ""}`], (reader) =>
-    runId ? reader.run(runId) : undefined,
-  );
   const { send, staged } = props;
-  // A new thread's worktree speaks for its message under the bubble: its card says how the
-  // making goes, and offers Retry and the local checkout if it stops.
+  // A new thread's worktree speaks for its message: its card says how the making goes, and
+  // offers Retry and the local checkout if it stops.
   const creating =
     send?.payload.type === "thread.create" && send.payload.mode === "worktree"
       ? send.commandId
       : undefined;
   const worktree = useWorktreeCreation(creating).state?.progress;
-  if (worktreeSpeaks(worktree, send?.state === "failed" ? send.error : undefined))
-    return props.otherwise;
+  if (worktreeSpeaks(worktree, send?.state === "failed" ? send.error : undefined)) return null;
   if (staged?.failed || staged?.uploadInterrupted)
     return <FailedHeld threadId={props.threadId} staged={staged} />;
   if (staged)
@@ -78,32 +63,18 @@ export function SendStatus(props: {
         {uploadingLabel(staged)}
       </Line>
     );
-  const refused = send?.state === "failed";
-  // Admission can inherit an older active run. Only a later run supersedes this failure.
-  if (notice?.type === "notice" && run && run.startedAt > notice.createdAt) return props.otherwise;
-  if ((item?.type === "message" && item.nativeId) || send?.state === "delivered")
-    return props.otherwise;
-  if (refused || notice?.type === "notice") {
-    const reason = refused
-      ? sendFailure(send?.error, send?.payload)
-      : notice?.type === "notice"
-        ? noticeText(notice.detail ?? notice.text)
-        : undefined;
-    // Git's cleanup fence stopped it: the person may clear a lock its stopped daemon left.
-    const fenced = refused
-      ? send?.error === "git_quarantined"
-      : notice?.type === "notice" && notice.details?.code === "git_quarantined";
+  if (send?.state === "failed")
     return (
       <FailedSend
         threadId={props.threadId}
-        itemId={props.itemId}
-        send={send}
-        reason={reason}
-        fenced={fenced}
+        commandId={send.commandId}
+        payload={send.payload}
+        reason={sendFailure(send.error, send.payload)}
+        // Git's cleanup fence stopped it: the person may clear a lock its stopped daemon left.
+        fenced={send.error === "git_quarantined"}
       />
     );
-  }
-  if (!send || (send.state !== "saving" && send.state !== "sent")) return props.otherwise;
+  if (!send || (send.state !== "saving" && send.state !== "sent")) return null;
   const note = waitingNote({ online, slow: send.waiting });
   return (
     <Line>
@@ -115,10 +86,7 @@ export function SendStatus(props: {
 
 function Line(props: { children: ReactNode }) {
   return (
-    <p
-      role="status"
-      className="mt-[5px] flex items-center gap-1 pr-1 text-xs text-subtle-foreground"
-    >
+    <p role="status" className="flex items-center gap-1 pr-1 text-xs text-subtle-foreground">
       {props.children}
     </p>
   );

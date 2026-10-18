@@ -16,10 +16,50 @@ function overlayRoots(under: Element): Element[] {
   return [...body.children].filter((child) => !child.contains(under) && !inert.has(child.tagName));
 }
 
+/** The child of <body> that holds `element`. */
+function bodyChild(element: Element): Element | undefined {
+  let node: Element | null = element;
+  while (node && node.parentElement !== element.ownerDocument.body) node = node.parentElement;
+  return node ?? undefined;
+}
+
 /**
- * The boxes drawn over the app that holds `under` right now. The first element with a size on
- * each path stands for what is under it, so a dialog's backdrop or a menu's positioner is one
- * box.
+ * The z-index `element` paints at among <body>'s children: the first one set on the way down
+ * from its child of <body> (`auto` counts as 0).
+ */
+function stackLevel(element: Element): number {
+  const path: Element[] = [];
+  for (let node: Element | null = element; node && node !== element.ownerDocument.body;) {
+    path.unshift(node);
+    node = node.parentElement;
+  }
+  const view = element.ownerDocument.defaultView;
+  for (const node of path) {
+    const level = Number.parseInt(view?.getComputedStyle(node).zIndex ?? "", 10);
+    if (Number.isFinite(level)) return level;
+  }
+  return 0;
+}
+
+/**
+ * Whether `element` paints above `under`: in another child of <body>, at a higher z-index or
+ * at the same one and later. A portal over the app is; for a page in a floating window that is
+ * a portal itself (picture-in-picture), the app beneath it is not, a menu or toast above it is.
+ * A marked overlay in `under`'s own tree always is.
+ */
+function paintsAbove(element: Element, under: Element): boolean {
+  const home = bodyChild(under);
+  const root = bodyChild(element);
+  if (!home || !root || root === home) return true;
+  const level = stackLevel(element);
+  const base = stackLevel(under);
+  if (level !== base) return level > base;
+  return !!(home.compareDocumentPosition(root) & Node.DOCUMENT_POSITION_FOLLOWING);
+}
+
+/**
+ * The boxes drawn over `under` right now. The first element with a size on each path stands
+ * for what is under it, so a dialog's backdrop or a menu's positioner is one box.
  */
 export function overlayBoxes(under: Element): DOMRectReadOnly[] {
   const boxes: DOMRectReadOnly[] = [];
@@ -38,7 +78,7 @@ export function overlayBoxes(under: Element): DOMRectReadOnly[] {
     }
     const rect = element.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
-      boxes.push(rect);
+      if (paintsAbove(element, under)) boxes.push(rect);
       return;
     }
     if (depth < maxDepth) for (const child of element.children) visit(child, depth + 1);

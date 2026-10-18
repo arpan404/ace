@@ -5,7 +5,15 @@ import { Kbd } from "@/components/ui/kbd.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
 import { keymap } from "@/lib/keymap.ts";
-import type { TabKind, WorkspaceActions, WorkspaceDefinition } from "@/lib/workspace/index.ts";
+import {
+  launchRequest,
+  type TabKind,
+  type WorkspaceActions,
+  type WorkspaceDefinition,
+} from "@/lib/workspace/index.ts";
+
+/** A new tab's id: another Changes or Files tab beside the ones open. */
+export const newTabId = () => crypto.randomUUID();
 
 const card = cn(
   "focus-ring flex h-11 w-full min-w-0 items-center gap-3 rounded-md border border-border px-3 text-left text-ui text-foreground",
@@ -71,7 +79,7 @@ function toolOptions(props: {
             id: "beside",
             label: "Open in a new tab",
             icon: ArrowSquareOutIcon,
-            run: () => actions.open({ kind: kind.kind }),
+            run: () => actions.open(launchRequest(kind, newTabId)),
           },
         ]),
   ];

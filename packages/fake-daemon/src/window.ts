@@ -1,4 +1,4 @@
-import { retainedTail } from "@ace/projection";
+import { inRootLane, retainedTail } from "@ace/projection";
 import type { Item, ItemsPage, ThreadView } from "@ace/protocol";
 
 function seqs(ids: readonly string[], creation: ReadonlyMap<string, number>) {
@@ -41,7 +41,7 @@ export function windowSnapshot(
     view.itemOrder.map((id) => ({
       id,
       seq: creation.get(id),
-      root: root !== undefined && view.items[id]?.agentId === root,
+      root: inRootLane(view.items[id]?.agentId, root),
     })),
     limit,
   );

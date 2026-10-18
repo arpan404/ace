@@ -4,6 +4,7 @@ import { pickStrip, stripSlot, type StripFacts } from "./strip-slot.ts";
 const facts = (patch: Partial<StripFacts>): StripFacts => ({
   confirmStop: false,
   requests: [],
+  sending: false,
   connection: false,
   stopped: false,
   queue: false,
@@ -25,6 +26,15 @@ test("background commands left by a stopped turn rank below the connection, abov
   const now = facts({ stopped: true, queue: true, plan: true });
   expect(stripSlot(now, undefined)).toEqual({ shown: "stopped", others: ["queue", "plan"] });
   expect(stripSlot({ ...now, connection: true }, undefined).shown).toBe("connection");
+});
+
+test("a message on its way ranks below a request, above the connection and the queue", () => {
+  const now = facts({ sending: true, connection: true, queue: true });
+  expect(stripSlot(now, undefined)).toEqual({ shown: "sending", others: ["connection", "queue"] });
+  expect(stripSlot({ ...now, requests: ["approval-1"] }, undefined)).toEqual({
+    shown: "request",
+    others: ["sending", "connection", "queue"],
+  });
 });
 
 test("approval hides the queue strip but shows a queued indicator", () => {

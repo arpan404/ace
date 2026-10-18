@@ -44,6 +44,11 @@ export interface ThreadReader {
   interactionIds(): readonly string[];
   taskIds(): readonly string[];
   item(id: string): Item | undefined;
+  /**
+   * The daemon's creation sequence of a held item: the one order key every transcript merges
+   * by. Undefined only for an item the reader doesn't hold.
+   */
+  itemSeq?(id: string): number | undefined;
   agent(id: string): ThreadView["agents"][string] | undefined;
   run(id: string): ThreadView["runs"][string] | undefined;
   interaction(id: string): ThreadView["interactions"][string] | undefined;

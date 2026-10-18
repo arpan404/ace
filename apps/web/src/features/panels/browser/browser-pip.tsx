@@ -9,6 +9,7 @@ import { useLayout } from "@/lib/layout.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { BrowserView, PreviewSource } from "../sources.ts";
 import { useNativeView } from "./native-view.ts";
+import { CoverPicture, useCoverStill } from "./cover-picture.tsx";
 import { pageSize } from "./page-size.ts";
 import { clampPip, defaultPipGeometry, type PipGeometry, type PipPage } from "./pip-rules.ts";
 
@@ -49,7 +50,14 @@ export function BrowserPip(props: {
   const body = useRef<HTMLDivElement>(null);
   const native = !!desktopBrowserViews() && props.view.backend === "embedded";
   const placed = useNativeView(props.threadId, body, native, { device: size, padding: 0 });
-  const frame = native ? undefined : props.source.frame(props.threadId);
+  // Drawn from the screencast in a browser, and in the desktop app while the native view is
+  // out of the way (a menu or toast over the window): first its still, then the live frames.
+  const frame = props.source.frame(props.threadId);
+  const still = useCoverStill(placed.frozen, frame?.sequence);
+  const { source, threadId } = props;
+  // The daemon's frames are drawn here whenever the native view isn't.
+  const drawnNatively = native && placed.shown;
+  useEffect(() => source.nativeShown?.(threadId, drawnNatively), [source, threadId, drawnNatively]);
 
   /** Dragging the bar moves it; dragging the corner resizes it (the right edge stays). */
   const gesture = (kind: "move" | "resize") => (event: PointerEvent<HTMLElement>) => {
@@ -138,7 +146,7 @@ export function BrowserPip(props: {
         className={cn("relative bg-background", !native && "cursor-pointer")}
         onClick={native ? undefined : props.onRestore}
       >
-        {frame && !placed.shown && (
+        {frame && !placed.shown && (!native || placed.frozen) && (
           <img
             src={frame.src}
             alt={`Live view of ${props.page.url}`}
@@ -146,6 +154,7 @@ export function BrowserPip(props: {
             className="absolute inset-0 size-full object-contain"
           />
         )}
+        {still && <CoverPicture still={still} />}
       </div>
       <div
         role="separator"

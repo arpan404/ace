@@ -255,7 +255,10 @@ test.each([
     const row = await nav.findByRole("link", {
       name: new RegExp(`^Recover the saved message.*${label}`),
     });
-    expect(within(row).getByText(label, { exact: true })).toBeTruthy();
+    const word = within(row).getByText(label, { exact: true });
+    // A wait reads as quiet words: no status glyph beside it.
+    if (reason === "uncertain")
+      expect(word.closest("[data-tone]")?.querySelector("[data-state]")).toBeNull();
     const remaining = await nav.findByRole("button", { name: "Snoozed (1)" });
     expect(remaining.getAttribute("aria-expanded")).toBe("false");
     expect(nav.queryByRole("link", { name: /^Review this later/ })).toBeNull();

@@ -208,6 +208,8 @@ Example:
 
 ### items.window
 
+Semantic rule: itemSeqs holds the creation sequence of every item.
+
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"items.window"` |  |
@@ -2637,7 +2639,7 @@ Example:
 
 ### snapshot
 
-Semantic rule: seq must equal view.seq.
+Semantic rule: seq must equal view.seq; a thread view's itemSeqs holds the creation sequence of every item in itemOrder.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -3027,6 +3029,8 @@ Example:
 ```
 
 ### items.page
+
+Semantic rule: itemSeqs holds the creation sequence of every item.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |

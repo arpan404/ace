@@ -150,7 +150,7 @@ Static tokens (`tokens.css`):
 
 - **Type:** `--font-sans`, `--font-prose` and `--font-mono`, the same in every theme.
 - **Layout:** `--header-h`, `--column` and `--composer-control`.
-- **Radii** (Default; `[data-corners]` rescales them, see DESIGN.md §2 Radius):
+- **Radii** (see DESIGN.md §2 Radius):
   - `--radius-xs` is 4 px, for tags and inline code.
   - `--radius-sm` is 6 px, for small controls and tooltips.
   - `--radius` is 8 px, for buttons, inputs and rows.
@@ -247,7 +247,8 @@ The material, in order:
 Every iOS browser counts as WebKit.
 
 The command palette (`.ace-modal`) sits over `.ace-backdrop`, which blurs the page once, so the
-panel has the tint and rim with no blur of its own.
+panel has the rim with no blur of its own, and the near-solid modal tint (`--glass-tint-modal`)
+in place of the thin floating one.
 
 Corners are concentric: rows inside a 12px popup with 4px padding are 8px (`rounded-md`).
 
@@ -303,9 +304,11 @@ Dialogs, sheets and the command palette (`components/ui/dialog.tsx`, `sheet.tsx`
   (7px) with a light saturate, under a faint tint (`--scrim-glass`); there is no dark dim. Under
   Solid or reduced transparency it is a light neutral scrim (`--scrim`). It fades in by opacity
   with the motion tokens; the blur radius never animates.
-- **Panel** (`.ace-modal` with `.ace-floating`) for dialogs and the palette: a 90–92% tint over
-  the already blurred page, with no blur or displacement of its own, so text and fields read as on
-  a solid surface. Sheet panels are solid (`--popover`) over the same backdrop.
+- **Panel:** dialogs are solid (`.ace-floating-solid`). The palette (`.ace-modal` with
+  `.ace-floating`) takes `--glass-tint-modal`, the glass tint never thinner than 92% at any
+  Translucency (`modalTintFloor`), over the already blurred page, with no blur or displacement
+  of its own, so text and fields read as on a solid surface. Sheet panels are solid (`--popover`)
+  over the same backdrop.
 - A dialog or sheet is its own surface: settings rows inside it are not rows of the card that
   opened it (`components/ui/surface-context.ts`).
 - **Placement:** centred with insets and auto margins, never with a translate. Dialogs centre in

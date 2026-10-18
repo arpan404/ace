@@ -182,7 +182,7 @@ export interface ConnectionControl {
 export interface ThreadExport {
   syncing?: boolean;
   error: { code: ClientError["code"]; message: string } | undefined;
-  view: Omit<ThreadView, "itemSeqs" | "kind"> | undefined;
+  view: Omit<ThreadView, "kind"> | undefined;
   truncated: string[];
   deleted?: string[];
 }

@@ -1,6 +1,6 @@
 import { Item, Run } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { editPointOf, retryPointOf } from "./edit-point.ts";
+import { retryPointOf } from "./edit-point.ts";
 
 const message = (
   id: string,
@@ -42,19 +42,6 @@ const thread = reader(
   ],
   [run("r1", "completed"), run("r2", "completed"), run("r3", "completed")],
 );
-
-test("editing a message goes back to the main agent's finished answer just before it", () => {
-  expect(editPointOf(thread, "ask-2", "root")).toEqual({
-    fork: { type: "turn", runId: "r1" },
-    piEntry: "entry-1",
-  });
-});
-
-test("the thread's first message has nothing before it to go back to", () => {
-  expect(editPointOf(thread, "ask-1", "root")).toBeUndefined();
-  // An answer is not the person's message.
-  expect(editPointOf(thread, "answer-1", "root")).toBeUndefined();
-});
 
 test("only the newest answer retries, by asking its ask again from before that ask", () => {
   expect(retryPointOf(thread, "answer-2", "root")).toEqual({

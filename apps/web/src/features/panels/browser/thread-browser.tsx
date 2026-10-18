@@ -17,6 +17,7 @@ import { usePhone } from "@/lib/breakpoints.ts";
 import { LocalStore, useLocal } from "../store.ts";
 import { BrowserPip } from "./browser-pip.tsx";
 import { pipPage } from "./pip-rules.ts";
+import { useAutomaticPip } from "./pip-setting.ts";
 import { useWatchMode } from "./use-watch-mode.ts";
 import { splits } from "./split-view.tsx";
 
@@ -85,14 +86,11 @@ function ThreadBrowser(props: { threadId: string }) {
   const showingBrowser =
     workspace.open &&
     workspace.tabs.some((tab) => tab.key === workspace.active && tab.kind === "browser");
-  useEffect(() => {
-    if (!showingBrowser)
-      source.nativeShown?.(threadId, !!desktopBrowserViews() && view?.backend === "embedded");
-  }, [source, threadId, showingBrowser, view?.backend]);
   const actions = useWorkspaceActions(threadId);
   const phone = usePhone();
   useWatchMode(store, threadId, view, workspace);
   const dismissed = useLocal(dismissedPip, (threads) => threads.has(threadId));
+  const [automaticPip] = useAutomaticPip();
   // Only a page the person has looked at in the panel follows them out of it.
   const [seenIn, setSeenIn] = useState<string>();
   if (showingBrowser && seenIn !== threadId) setSeenIn(threadId);
@@ -102,7 +100,16 @@ function ThreadBrowser(props: { threadId: string }) {
       dismissedPip.set((threads) => new Set([...threads].filter((id) => id !== threadId)));
   }, [showingBrowser, threadId]);
   const floating =
-    phone || seenIn !== threadId ? undefined : pipPage({ view, showingBrowser, dismissed });
+    phone || seenIn !== threadId
+      ? undefined
+      : pipPage({ view, showingBrowser, dismissed, enabled: automaticPip });
+  // Nobody draws the screencast while the Browser is out of sight (picture-in-picture says for
+  // itself whether its native page shows).
+  const floats = !!floating;
+  useEffect(() => {
+    if (!showingBrowser && !floats)
+      source.nativeShown?.(threadId, !!desktopBrowserViews() && view?.backend === "embedded");
+  }, [source, threadId, showingBrowser, floats, view?.backend]);
   return (
     <>
       {view?.pendingDialog && !showingBrowser && (

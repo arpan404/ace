@@ -16,7 +16,9 @@ import { copyImageToClipboard } from "@/lib/clipboard-image.ts";
 import { ImageUrl, type ImageState } from "./attachment-bytes.tsx";
 import { formatBytes, type ShownImage } from "./attachment-format.ts";
 
-/** The page, nearly hidden: the image is what matters here, in either theme. */
+/** The page, nearly hidden: the image is what matters here, in either theme. Blur comes
+ * from the shared `.ace-backdrop` (glass.css): under Translucent it blurs the page by the
+ * `--backdrop-blur` token, under Solid and reduced transparency it darkens only. */
 const backdrop = { background: "color-mix(in oklab, var(--background) 94%, transparent)" };
 
 /*
@@ -41,7 +43,7 @@ export function Lightbox(props: {
   return (
     <DialogPrimitive.Root open onOpenChange={(open) => !open && props.onClose()}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Backdrop className="fixed inset-0 z-[100]" style={backdrop} />
+        <DialogPrimitive.Backdrop className="ace-backdrop fixed inset-0 z-[100]" style={backdrop} />
         <DialogPrimitive.Popup
           ref={popup}
           tabIndex={-1}

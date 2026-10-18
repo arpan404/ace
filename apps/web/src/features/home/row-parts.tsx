@@ -94,8 +94,8 @@ export function PullRequest(props: { card: ThreadCard }) {
  * The first line's status, as loud as the row's attention (`rowAttention`, with the open
  * thread's `currentAttention`):
  * - what asks the person to act or look: a glyph and a word in the status colour;
- * - live work, waiting or background, open or not: its glyph, word and elapsed time, muted
- *   unless open;
+ * - live work, waiting or background, open or not: its glyph (none for waiting), word and
+ *   elapsed time, muted unless open;
  * - a failure already seen: a quiet word; a thread at rest: only its age.
  */
 export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) {
@@ -104,15 +104,17 @@ export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) 
   if (word === undefined) return <RowTime card={card} />;
   if (level === "failed-seen")
     return <span className="shrink-0 text-meta text-muted-foreground">{word}</span>;
-  // The glyph beside the word: the colour is never the only clue.
-  const mark = (
-    <StatusGlyph state={threadGlyph({ tone, mark: card.status.mark })} tone={tone} size={12} />
-  );
+  // The glyph beside the word: the colour is never the only clue. Waiting is only words.
+  const mark =
+    tone === "waiting" ? null : (
+      <StatusGlyph state={threadGlyph({ tone, mark: card.status.mark })} tone={tone} size={12} />
+    );
   // Active rows always keep their time beside the word, open or not: the open row is not the
   // only one that says how long it has been at it. "Limited HH:MM" already names its time.
   const elapsed =
     level === "active" && !word.startsWith("Limited") ? <ActiveElapsed card={card} /> : null;
-  if (muted)
+  // Waiting never takes the status colour, even on the open row.
+  if (muted || tone === "waiting")
     return (
       <span
         data-tone={tone}

@@ -49,7 +49,7 @@ export const changesKind = defineTabKind({
   kind: "changes",
   label: "Changes",
   icon: GitDiffIcon,
-  singleton: true,
+  multiple: true,
   pinned: true,
   launcher: 10,
   Skeleton: ChangesSkeleton,
@@ -63,6 +63,7 @@ export const changesKind = defineTabKind({
 export const filesKind = defineTabKind({
   kind: "files",
   label: "Files",
+  multiple: true,
   closeWarning: (_scope, tabs) =>
     tabs.some(({ tab }) => {
       const data = fileTabData(tab);

@@ -2,13 +2,15 @@
  * The composer's one strip slot. Several things want the room above the composer; it shows one,
  * the rest as small indicators inside it. By default the most urgent shows: a Stop waiting for
  * its second Esc (it answers the key just pressed, and lasts only a moment), a request needing
- * the person, then trouble with the connection, then background commands a stopped turn left
+ * the person, then the person's messages on their way (or that didn't go), then trouble with
+ * the connection, then background commands a stopped turn left
  * running, then the queue, then plan progress. The person can switch the slot to any present
  * item; a request that arrives after that, or one a notification opens, takes it back. Pure.
  */
 export const stripPriority = [
   "confirm-stop",
   "request",
+  "sending",
   "connection",
   "stopped",
   "queue",
@@ -24,6 +26,8 @@ export interface StripFacts {
   requests: readonly string[];
   /** The request a notification opened the thread on, if any. */
   target?: string | undefined;
+  /** Messages on their way that the transcript doesn't have yet, or that didn't go. */
+  sending: boolean;
   connection: boolean;
   /** The turn was stopped and background commands it started still run. */
   stopped: boolean;

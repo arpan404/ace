@@ -24,10 +24,10 @@ export interface SendRequest {
 }
 
 /**
- * Enqueue the message under `commandId`. Files still uploading (or one that didn't) hold it as
- * its bubble, kept on this device until they're done; it then goes under the same id, so the
- * held bubble carries on as the outbox entry, and a failed upload leaves the bubble with Retry
- * and Edit. Resolves false only when this device couldn't save it: the composer gives it back.
+ * Enqueue the message under `commandId`. Files still uploading (or one that didn't) hold it in
+ * the composer's strip, kept on this device until they're done; it then goes under the same id,
+ * so the held line carries on as the outbox entry, and a failed upload leaves it there with
+ * Retry and Edit. Resolves false only when this device couldn't save it: the composer gives it back.
  */
 export async function sendMessage(request: SendRequest): Promise<boolean> {
   const { client, commandId, draft } = request;

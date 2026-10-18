@@ -98,6 +98,9 @@ beforeEach(() => {
   HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
     if (this.hasAttribute("data-browser-page")) return box(pageX, 100, 400, 600);
     if (this.hasAttribute("data-pip-page")) return box(600, 500, 320, 200);
+    // The app itself fills the window, beneath anything floating over it.
+    if (this.parentElement === document.body && this.querySelector("h1"))
+      return box(0, 0, innerWidth, innerHeight);
     if (suggestionVisible && this.hasAttribute("data-native-overlay"))
       return box(700, 90, 200, 160);
     if (this.getAttribute("role") === "menu") return box(700, 90, 200, 160);
@@ -150,6 +153,7 @@ test("switching to another tool hides the embedded page", async () => {
   await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
   await waitFor(() => expect(last()?.visible).toBe(false));
   expect(last()?.threadId).toBe("thread-cold-start");
+  expect(last()?.covered).toBeUndefined();
 });
 
 const frozen = (panel: HTMLElement) =>
@@ -175,6 +179,29 @@ test("a menu over the page never moves it: its picture holds the page's place un
   await waitFor(() => expect(last()?.visible).toBe(true));
   expect(last()?.bounds).toEqual(pageBox);
   await waitFor(() => expect(frozen(panel)).toBeNull());
+  await waitFor(() =>
+    expect(within(panel).queryByRole("img", { name: /^Live view of / })).toBeNull(),
+  );
+});
+
+test("a menu over the page keeps it moving: live frames replace its picture until the menu closes", async () => {
+  const { panel, browser } = await openEmbeddedBrowser();
+  await waitFor(() => expect(last()?.visible).toBe(true));
+  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
+  await screen.findByRole("menu");
+  await waitFor(() => expect(frozen(panel)).not.toBeNull());
+  await waitFor(() => expect(last()?.visible).toBe(false));
+  // The page goes on changing under the menu (a video plays): the daemon's frames show it.
+  act(() => void browser.navigate("thread-cold-start", "http://localhost:5173/settings/video"));
+  const live = await within(panel).findByRole("img", { name: /^Live view of .*settings\/video/ });
+  expect(live).toBeTruthy();
+  expect(frozen(panel)).toBeNull();
+  expect(screen.getByRole("menu")).toBeTruthy();
+  // Out of the way, not put away: it keeps rendering and playing sound meanwhile.
+  expect(last()).toMatchObject({ bounds: pageBox, visible: false, covered: true });
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(last()?.visible).toBe(true));
+  expect(last()?.bounds).toEqual(pageBox);
   await waitFor(() =>
     expect(within(panel).queryByRole("img", { name: /^Live view of / })).toBeNull(),
   );

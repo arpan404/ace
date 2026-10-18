@@ -7,9 +7,11 @@ import {
   CheckCircleIcon,
   CircleIcon,
   ListChecksIcon,
+  PaperPlaneTiltIcon,
   ShieldWarningIcon,
   TerminalIcon,
   TrayIcon,
+  WarningIcon,
   WifiSlashIcon,
   XCircleIcon,
 } from "@phosphor-icons/react";
@@ -25,6 +27,8 @@ import type { StripKind } from "./strip-slot.ts";
 /** What an indicator says about an item the slot isn't showing. */
 export interface StripCounts {
   requests: number;
+  /** Messages on their way, and how many of them didn't go. */
+  sending: { count: number; failed: number };
   /** The connection is down rather than coming back. */
   offline: boolean;
   /** Background commands a stopped turn left running. */
@@ -34,8 +38,8 @@ export interface StripCounts {
 }
 
 /**
- * The strip's other items as small buttons, in priority order: "2 requests", "Offline",
- * "2 queued", "3/5". Choosing one shows it in the slot.
+ * The strip's other items as small buttons, in priority order: "2 requests", "1 not sent",
+ * "Offline", "2 queued", "3/5". Choosing one shows it in the slot.
  */
 export function StripIndicators(props: {
   kinds: readonly StripKind[];
@@ -63,32 +67,54 @@ function Indicator(props: { kind: StripKind; counts: StripCounts; onPick(kind: S
           plural(counts.requests, "request"),
           `Show ${plural(counts.requests, "request")} waiting for you`,
         ]
-      : props.kind === "connection"
-        ? counts.offline
-          ? [<Icon key="i" size={12} icon={WifiSlashIcon} />, "Offline", "Show connection: Offline"]
-          : [<Spinner key="i" />, "Reconnecting", "Show connection: Reconnecting"]
-        : props.kind === "stopped"
+      : props.kind === "sending"
+        ? counts.sending.failed
           ? [
-              <Icon key="i" size={12} icon={TerminalIcon} />,
-              `${counts.running} running`,
-              `Show ${plural(counts.running, "background command")} still running`,
+              <Icon key="i" size={12} icon={WarningIcon} />,
+              `${counts.sending.failed} not sent`,
+              `Show ${plural(counts.sending.failed, "message")} not sent`,
             ]
-          : props.kind === "queue"
+          : [
+              <Icon key="i" size={12} icon={PaperPlaneTiltIcon} />,
+              `${counts.sending.count} sending`,
+              `Show ${plural(counts.sending.count, "message")} sending`,
+            ]
+        : props.kind === "connection"
+          ? counts.offline
             ? [
-                <Icon key="i" size={12} icon={TrayIcon} />,
-                `${counts.queued} queued`,
-                `Show ${plural(counts.queued, "queued message")}`,
+                <Icon key="i" size={12} icon={WifiSlashIcon} />,
+                "Offline",
+                "Show connection: Offline",
               ]
-            : [
-                <Icon key="i" size={12} icon={ListChecksIcon} />,
-                counts.plan ? `${counts.plan.done}/${counts.plan.total}` : "Plan",
-                counts.plan ? `Show plan, ${planCount(counts.plan)} done` : "Show plan",
-              ];
+            : [<Spinner key="i" />, "Reconnecting", "Show connection: Reconnecting"]
+          : props.kind === "stopped"
+            ? [
+                <Icon key="i" size={12} icon={TerminalIcon} />,
+                `${counts.running} running`,
+                `Show ${plural(counts.running, "background command")} still running`,
+              ]
+            : props.kind === "queue"
+              ? [
+                  <Icon key="i" size={12} icon={TrayIcon} />,
+                  `${counts.queued} queued`,
+                  `Show ${plural(counts.queued, "queued message")}`,
+                ]
+              : [
+                  <Icon key="i" size={12} icon={ListChecksIcon} />,
+                  counts.plan ? `${counts.plan.done}/${counts.plan.total}` : "Plan",
+                  counts.plan ? `Show plan, ${planCount(counts.plan)} done` : "Show plan",
+                ];
   return (
     <button
       type="button"
       aria-label={label}
-      data-tone={props.kind === "request" ? "needs-you" : undefined}
+      data-tone={
+        props.kind === "request"
+          ? "needs-you"
+          : props.kind === "sending" && counts.sending.failed
+            ? "failed"
+            : undefined
+      }
       onClick={() => props.onPick(props.kind)}
       className="composer-strip-indicator focus-ring-inset tabular-nums"
     >

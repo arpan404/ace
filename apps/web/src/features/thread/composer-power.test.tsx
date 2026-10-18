@@ -243,10 +243,15 @@ test("Send again replaces an uncertain queued message and allows it to run", asy
     .messages[0];
   expect(replacement?.id).not.toBe(original.id);
   expect(replacement?.input).toEqual(original.input);
+  expect(replacement?.state).toBe("queued");
+  // Once the agent's turn ends the daemon runs it: its own item in the transcript, once.
   act(() => player.runUntilBlocked());
-  expect(
-    await within(screen.getByRole("feed", { name: "Transcript" })).findByText("Check reconnects"),
-  ).toBeTruthy();
+  act(() =>
+    app.daemon.apply(target, [{ type: "turn.ended", agent: "root", outcome: "completed" }]),
+  );
+  const feed = screen.getByRole("feed", { name: "Transcript" });
+  expect(await within(feed).findByText("Check reconnects")).toBeTruthy();
+  expect(within(feed).getAllByText("Check reconnects")).toHaveLength(1);
 });
 
 test("removing an attachment releases it and the thread attachment list can be managed", async () => {

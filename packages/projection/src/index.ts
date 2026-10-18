@@ -1,4 +1,10 @@
-export { mergeBySeq, retainedTail } from "./item-order.ts";
+export {
+  MissingSequenceError,
+  inRootLane,
+  laneBefore,
+  mergeBySeq,
+  retainedTail,
+} from "./item-order.ts";
 export type { RetainedTail, TailEntry } from "./item-order.ts";
 export {
   isRawHistoryItem,

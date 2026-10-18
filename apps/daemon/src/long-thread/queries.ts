@@ -107,18 +107,68 @@ export class LongThreadQueries {
       if (row?.seq == null) throw new Error("turn_target_unavailable");
       target = Number(row.seq);
     }
+    const window = this.source.payloads.window(
+      query.threadId,
+      target ?? 0,
+      query.before,
+      query.after,
+      1024 * 1024,
+    );
     return ItemsWindowResponse.parse({
       type: "items.window",
       requestId: query.requestId,
       seq: this.source.headSeq(),
-      ...this.source.payloads.window(
-        query.threadId,
-        target ?? 0,
-        query.before,
-        query.after,
-        1024 * 1024,
-      ),
+      ...(query.wholeTurns ? this.wholeTurns(window) : window),
     });
+  }
+  /**
+   * A window whose older items come in whole turns: it starts where the oldest turn that
+   * starts inside its older part starts, so no turn is split at its older edge. When one turn
+   * fills the whole older part, the budgets cut it and the cursor still says more is older.
+   */
+  private wholeTurns<
+    W extends {
+      threadId: ThreadId;
+      targetSeq: number | null;
+      items: { id: string }[];
+      itemSeqs: Record<string, number>;
+      itemsBefore: number | null;
+    },
+  >(window: W): W {
+    const first = window.items[0];
+    const firstSeq = first ? window.itemSeqs[first.id] : undefined;
+    if (window.itemsBefore === null || firstSeq === undefined || window.targetSeq === null)
+      return window;
+    const data = this.source.index.data;
+    // The first item already starts a turn when its turn began after the item before it (a
+    // turn may begin with a run event rather than an item).
+    const own = data
+      .sql(
+        "SELECT start_seq FROM long_turns WHERE thread_id=? AND start_seq<=? ORDER BY start_seq DESC LIMIT 1",
+      )
+      .get(window.threadId, firstSeq);
+    const previous = data
+      .sql(
+        "SELECT created_seq FROM item_heads WHERE thread_id=? AND created_seq<? ORDER BY created_seq DESC LIMIT 1",
+      )
+      .get(window.threadId, firstSeq);
+    if (own?.start_seq != null && Number(own.start_seq) > Number(previous?.created_seq ?? 0))
+      return window;
+    const row = data
+      .sql(
+        "SELECT start_seq FROM long_turns WHERE thread_id=? AND start_seq>? AND start_seq<? ORDER BY start_seq LIMIT 1",
+      )
+      .get(window.threadId, firstSeq, window.targetSeq);
+    const start = row?.start_seq == null ? undefined : Number(row.start_seq);
+    if (start === undefined) return window;
+    const items = window.items.filter((item) => (window.itemSeqs[item.id] ?? 0) >= start);
+    const kept = items[0];
+    return {
+      ...window,
+      items,
+      itemSeqs: Object.fromEntries(items.map((item) => [item.id, window.itemSeqs[item.id] ?? 0])),
+      itemsBefore: kept ? (window.itemSeqs[kept.id] ?? start) : start,
+    };
   }
   threadSearch(
     input: Omit<ThreadSearchQuery, "type" | "requestId"> & { requestId?: string },

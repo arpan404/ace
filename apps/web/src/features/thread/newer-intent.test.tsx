@@ -13,7 +13,8 @@ const ask = (n: number) => `Migrate checkpoint ${n}, inspect files and report fa
 async function openJumped() {
   let now = 10 * day;
   const app = harness({ snapshotItems: 12, clock: () => (now += 1) });
-  const script = app.play(multiDayDemo(threadId, 12, { scans: 20 }));
+  // Long enough that one newer page (199 items) still leaves a gap to live.
+  const script = app.play(multiDayDemo(threadId, 30, { scans: 20 }));
   script.runUntilBlocked();
   await app.open(`/t/${threadId}`);
   const feed = await screen.findByRole("feed", { name: "Transcript" });

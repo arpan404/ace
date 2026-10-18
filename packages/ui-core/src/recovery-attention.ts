@@ -23,15 +23,9 @@ export function recoveryAttention(
   if (unavailableSelection(models, thread.execution))
     return { label: "Pick a model", tone: "needs-you", mark: "needs-you" };
   if (reason === "model_unavailable") return { label: "Not sent", tone: "failed", mark: "failed" };
+  // A stopped agent (by the person or a restart) is at rest, not a request: the row stays quiet
+  // and the transcript offers Resume.
   const label =
-    reason === "restart"
-      ? "Stopped by a restart"
-      : reason === "stopped"
-        ? "Agent stopped"
-        : reason === "uncertain"
-          ? "Review a message"
-          : reason === "manual"
-            ? "Queue paused"
-            : undefined;
+    reason === "uncertain" ? "Review a message" : reason === "manual" ? "Queue paused" : undefined;
   return label ? { label, tone: "waiting", mark: "none" } : undefined;
 }

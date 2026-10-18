@@ -138,6 +138,8 @@ export function screencastFrame(frameId: number, data: string) {
 /** One native tab's view: where its group last placed it and whether an agent uses it. */
 export class TabPage extends FakePage {
   shown = false;
+  /** Hidden only while the app's menu covers it. */
+  covered = false;
   agent = true;
   async picture() {
     return this.shown ? "data:image/png;base64,AA==" : undefined;
@@ -145,8 +147,9 @@ export class TabPage extends FakePage {
   viewport() {
     return { width: 800, height: 600 };
   }
-  place(target: { visible: boolean }) {
+  place(target: { visible: boolean; covered?: boolean }) {
     this.shown = target.visible;
+    this.covered = target.covered === true;
   }
   async placementReady() {}
   isShown() {

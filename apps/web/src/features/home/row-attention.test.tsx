@@ -170,7 +170,7 @@ test("Mark as unread brings Done back, and Mark as read quiets it, from the row'
   expect(word(title, "Done")).toBeTruthy();
 });
 
-test("the sidebar row names unsent and interrupted threads with their tones", async () => {
+test("the sidebar row names an unsent thread loudly and leaves a stopped one quiet", async () => {
   const app = harness();
   seedRealThreadState(app.daemon);
   await app.open("/new");
@@ -180,5 +180,9 @@ test("the sidebar row names unsent and interrupted threads with their tones", as
     return within(link).getByText(label).closest<HTMLElement>("[data-tone]")?.dataset.tone;
   };
   expect(await toneOf("Check the saved message", "Not sent")).toBe("needs-you");
-  expect(await toneOf("Finish the background build", "Stopped by a restart")).toBe("waiting");
+  const stopped = await list.findByRole("link", { name: /^Finish the background build/ });
+  expect(within(stopped).queryByText(/Stopped|Agent stopped/)).toBeNull();
+  expect(
+    stopped.querySelector("[data-tone='waiting'] svg, [data-tone='waiting'] [data-state]"),
+  ).toBeNull();
 });

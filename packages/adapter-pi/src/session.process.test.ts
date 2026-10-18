@@ -391,3 +391,29 @@ test("the fake Pi CLI receives text, PDF and arbitrary binary paths", async () =
     await h.dispose();
   }
 });
+test("Pi echoing a run's images twice in one event does not end the session", async () => {
+  const image = Buffer.alloc(600 * 1024);
+  for (let i = 0; i < image.length; i++) image[i] = (i * 29 + (i >> 8)) % 256;
+  const data = image.toString("base64");
+  const h = await sessionHarness();
+  try {
+    await h.session.send(
+      [
+        ...text("image-echo"),
+        { type: "image", mimeType: "image/png", url: `data:image/png;base64,${data}` },
+      ],
+      "queue",
+    );
+    expect(
+      obj(h.frames.find((f) => f.dir === "send" && obj(f.data).type === "prompt")?.data).images,
+    ).toEqual([{ type: "image", data, mimeType: "image/png" }]);
+    // agent_end repeats the image in the user message and its tool result: past one line's limit.
+    const end = await h.wait(received("agent_end"));
+    expect(JSON.stringify(end.data)).not.toContain(data.slice(0, 4096));
+    // The same session still answers the next prompt.
+    await h.session.send(text("image-echo"), "queue");
+    expect(h.frames.filter(received("agent_end"))).toHaveLength(2);
+  } finally {
+    await h.dispose();
+  }
+});

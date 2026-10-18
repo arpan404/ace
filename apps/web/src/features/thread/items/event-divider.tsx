@@ -39,6 +39,8 @@ import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { cn } from "@/lib/cn.ts";
 import { DelegationCard } from "./delegation-card.tsx";
 import { ErrorRow, noticeError } from "./error-row.tsx";
+import { NotSentNotice } from "./not-sent-notice.tsx";
+import { notSentCommand } from "./send-failure.ts";
 import { RefusalRow } from "./refusal-row.tsx";
 import { SystemRow } from "./system-row.tsx";
 import { TaskCard } from "./task-card.tsx";
@@ -228,6 +230,9 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
       const kind = noticeInput(item);
       const line = kind && inputLine({ kind, text: item.text });
       if (line) return <EventRow line={line} at={item.createdAt} received={item.text} />;
+      const notSent = notSentCommand(item);
+      if (notSent)
+        return <NotSentNotice threadId={props.threadId} notice={item} commandId={notSent} />;
       if (item.level === "error") {
         if (!failures) return null;
         const error = noticeError(item);

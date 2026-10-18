@@ -58,7 +58,7 @@ export const paper: ThemeSource = {
     surface: "#1A1712",
     raised: "#1D1A15",
     hover: "#1A1712",
-    active: "#24211C",
+    active: "#2E2B26",
     border: "#25221D",
     borderStrong: "#33302C",
     faint: "#66635F",

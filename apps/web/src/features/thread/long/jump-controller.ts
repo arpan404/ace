@@ -1,27 +1,33 @@
 import type { ClientApi, ThreadSource } from "@ace/client";
 import { windowSource } from "@ace/client-react";
-import type { ItemsWindowResponse } from "@ace/protocol";
+import type { Item, ItemsWindowResponse } from "@ace/protocol";
 import {
+  absorbTail,
+  holdTail,
+  windowBounds,
   windowTurnOrdinals,
   meetsTail,
   newerRequest,
   olderRequest,
   openWindow,
-  windowCapacity,
+  slideSize,
+  tailLaneBefore,
+  windowHas,
   withNewer,
   withOlder,
   type JumpWindow,
   type TailEdge,
+  type WindowBounds,
 } from "@ace/ui-core";
 
 /*
- * Jumping within one thread (ADR 0062). The thread view keeps its live tail leased and, while
- * the reader looks at older history, one jumped window beside it. A new jump replaces the
- * window and sliding pages it without growing it. When it reaches the tail it joins it: the
- * transcript shows the window followed by the tail's newer items (deduplicated by id), one
- * contiguous run, until the reader follows the live end and the window is dropped. Never two
- * runs with a hole between them. Plain state with a subscribe/snapshot pair: the async
- * ordering (aborts, stale replies) lives here, not in effects.
+ * Reading a long thread (ADR 0062). The thread view keeps its live tail leased and, while the
+ * reader is away from the live end, one history window beside it: the rows the reader had when
+ * they left (held, so the bounded tail trimming never takes them), grown by whole turns as they
+ * read older, or a jump's window. The window and the tail are one run where they meet, merged
+ * by creation sequence; the window grows up to its bounds and trims only at the end away from
+ * the reader. Never two runs with a hole between them. Plain state with a subscribe/snapshot
+ * pair: the async ordering (aborts, stale replies) lives here, not in effects.
  */
 
 /** A request to bring one item into view (and, from a search, the words to mark in it). */
@@ -47,10 +53,14 @@ export interface JumpSnapshot {
   turns: ReadonlyMap<string, number> | undefined;
 }
 
-/** What the controller needs from the live tail: its edge, and where a turn starts in it. */
+/**
+ * What the controller needs from the live tail: its edge, where a turn starts in it, and (to
+ * hold the reader's rows) its items, their sequences and which of them the transcript shows.
+ */
 export interface LiveTail extends TailEdge {
   /** The first item of root turn `ordinal` if the tail holds it. */
   firstItemOf(ordinal: number): string | undefined;
+  item?(id: string): Item | undefined;
 }
 
 /** Items kept before a jump target, so the turn before it gives context. */
@@ -77,6 +87,9 @@ export class JumpController {
   private nonce = 0;
   private client: ClientApi;
   private threadId: string;
+  private bounds: WindowBounds;
+  /** Which end the window last grew at: where the reader is reading. */
+  private growth: "hold" | "older" | "newer" = "hold";
   /** Where turns start (ordinal → creation sequence), for the windows' turns. */
   private starts = new Map<number, { startSeq: number; endSeq: number }>();
   private tail: () => LiveTail = () => ({
@@ -84,9 +97,10 @@ export class JumpController {
     before: undefined,
     firstItemOf: () => undefined,
   });
-  constructor(client: ClientApi, threadId: string) {
+  constructor(client: ClientApi, threadId: string, bounds: WindowBounds = windowBounds) {
     this.client = client;
     this.threadId = threadId;
+    this.bounds = bounds;
   }
   /** Where the leased live tail stands; the thread view keeps it current. */
   setTail(tail: () => LiveTail): void {
@@ -182,12 +196,43 @@ export class JumpController {
     }
   }
 
-  /** Bring root turn `ordinal` into view: in place when the tail holds it, else a window. */
+  /** The tail as a window takes items from it, when it offers what that needs. */
+  private heldTail() {
+    const tail = this.tail();
+    const { seq, inLane, item } = tail;
+    return seq && inLane && item ? { ...tail, seq, inLane, item } : undefined;
+  }
+
+  /**
+   * The reader left the live end: hold the rows the tail shows as the window, so the tail
+   * trimming its oldest items never takes them from under the reader. Nothing while a window
+   * is open or a read is in flight.
+   */
+  hold(): void {
+    if (this.state.window || this.state.loading) return;
+    const tail = this.heldTail();
+    const window = tail && holdTail(tail);
+    if (!window) return;
+    this.growth = "hold";
+    this.set({ window, joined: true });
+  }
+
+  /** Bring root turn `ordinal` into view: in place when it is loaded, else a window. */
   async toTurn(ordinal: number): Promise<void> {
+    const window = this.state.window;
+    if (window && this.state.turns)
+      for (const item of window.items)
+        if (this.state.turns.get(item.id) === ordinal) {
+          this.abort?.abort();
+          this.set({ loading: undefined, failed: undefined, focus: this.focus(item.id) });
+          return;
+        }
     const inTail = this.tail().firstItemOf(ordinal);
     if (inTail) {
       this.abort?.abort();
       this.set({ ...idle, focus: this.focus(inTail) });
+      // The reader is away from the live end now: hold what they see.
+      this.hold();
       return;
     }
     const reply = await this.fetch("jump", {
@@ -234,11 +279,19 @@ export class JumpController {
   private land(window: JumpWindow, turn: number | undefined, query?: string): void {
     const target = window.targetId;
     const tail = this.tail();
+    // The target is in the window already open (rows the reader holds): stay in it.
+    const open = this.state.window;
+    if (target && open && windowHas(open, target)) {
+      this.set({ loading: undefined, failed: undefined, focus: this.focus(target, query) });
+      return;
+    }
     // The target is in the tail already (a recent turn, a fresh hit): no window needed.
     if (target && tail.order.includes(target)) {
       this.set({ ...idle, focus: this.focus(target, query) });
+      this.hold();
       return;
     }
+    this.growth = "newer";
     this.set({
       window,
       joined: meetsTail(window, tail),
@@ -249,32 +302,41 @@ export class JumpController {
     });
   }
 
-  /** Read older history beside the live tail, then slide that bounded window. */
+  /**
+   * Read older history: whole turns before the oldest row the reader has (the held rows, or the
+   * window's first item), added in front of them. The tail stays subscribed and bounded while
+   * the window grows independently of new output.
+   */
   async older(): Promise<void> {
     if (this.state.loading) return;
+    this.hold();
     const window = this.state.window;
     if (!window) {
-      const before = this.tail().before;
+      // Nothing of the transcript is held yet: read the turns before where the tail holds it.
+      const before = tailLaneBefore(this.tail());
       if (typeof before !== "number") return;
-      // Keep the first live item in the reply so the two windows meet. The tail itself
-      // stays subscribed and bounded while history slides independently of new output.
       const reply = await this.fetch("older", {
         threadId: this.threadId,
         aroundSeq: before,
-        before: 50,
-        after: windowCapacity - 51,
+        before: slideSize,
+        after: 0,
+        wholeTurns: true,
       });
-      if (!reply) return;
+      if (!reply || this.state.window) return;
       const next = openWindow(reply);
+      this.growth = "older";
       this.set({ window: next, joined: meetsTail(next, this.tail()), loading: undefined });
       return;
     }
-    const request = window && olderRequest(window);
-    if (!window || !request || this.state.loading) return;
+    const request = olderRequest(window);
+    if (!request) return;
     const reply = await this.fetch("older", { threadId: this.threadId, ...request });
     if (!reply || this.state.window !== window) return;
-    const next = withOlder(window, reply);
-    this.set({ window: next, joined: meetsTail(next, this.tail()), loading: undefined });
+    const next = withOlder(window, reply, this.bounds);
+    this.growth = "older";
+    // Older items never join a window to the tail; trimming its newer end can part them.
+    const joined = this.state.joined && meetsTail(next, this.tail());
+    this.set({ window: next, joined, loading: undefined });
   }
 
   /**
@@ -288,18 +350,31 @@ export class JumpController {
     if (!request) return;
     const reply = await this.fetch("newer", { threadId: this.threadId, ...request });
     if (!reply || this.state.window !== window) return;
-    const next = withNewer(window, reply);
+    const next = withNewer(window, reply, this.bounds);
+    this.growth = "newer";
     this.set({ window: next, joined: meetsTail(next, this.tail()), loading: undefined });
   }
 
   /**
-   * The tail moved (new items, or older ones paged out): a joined window that no longer
-   * overlaps it has a hole after it again, so it stops showing the tail and offers to load on.
+   * The tail moved (new items, or its oldest trimmed). A joined window takes the tail's new rows
+   * before the tail can trim past it, up to its bounds; one the tail has left has a hole after
+   * it, so it stops showing the tail and offers to load on; one the tail meets again joins it.
    */
   tailMoved(): void {
     const { window, joined } = this.state;
-    if (!window || !joined) return;
-    if (!meetsTail(window, this.tail())) this.set({ joined: false });
+    if (!window) return;
+    const tail = this.heldTail();
+    if (!joined || !tail) {
+      const meets = meetsTail(window, this.tail());
+      if (meets !== joined) this.set({ joined: meets });
+      return;
+    }
+    const next = absorbTail(window, tail, {
+      bounds: this.bounds,
+      trimOlder: this.growth === "newer",
+    });
+    if (next.window !== window || next.joined !== joined)
+      this.set({ window: next.window, joined: next.joined });
   }
 
   /** Back to the live tail; the window is discarded at once. */
@@ -330,6 +405,7 @@ export function jumpedSource(
 ): ThreadSource {
   return windowSource(live, {
     items: window.items,
+    seqs: window.seqs,
     before: window.before,
     joined,
     ...(deleted ? { deleted } : {}),

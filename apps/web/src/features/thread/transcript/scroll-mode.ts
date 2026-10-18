@@ -150,18 +150,39 @@ export function heldKey(
   return mode.kind === "free" ? top : undefined;
 }
 
+/** Where the held row is now, and whether older items just joined it at its top. */
+export interface HeldRow {
+  index: number;
+  /**
+   * Older history merged into this row above what the reader sees (its turn's earlier steps):
+   * its next growth is above the reader, so the view moves with it.
+   */
+  grewAtTop?: boolean | undefined;
+}
+
 /**
- * Which row resizes the virtualizer compensates by moving the view, given the held row's top.
- * Following: none (the end is followed instead). Anchoring: every row above the held one, so it
- * stays still while what is above it measures. Free: undefined, the virtualizer's own rule (rows
- * above the fold).
+ * Which row resizes the virtualizer compensates by moving the view, given where the held row is.
+ * Following: none (the end is followed instead). Anchoring and free: every row above the held
+ * one (the anchored row, or the first row in view), so it stays still while what is above it
+ * measures; the held row itself grows downward without moving the view, so a reader inside a
+ * long answer that is still streaming keeps their place, unless older items just joined it at
+ * its top. Not knowing the held row yet (free, before the first look): the virtualizer's own
+ * rule (rows starting above the fold).
  */
 export function compensation(
   mode: ScrollMode,
-  heldStart: number | undefined,
-): ((rowStart: number) => boolean) | undefined {
+  held: HeldRow | undefined,
+): ((row: { index: number }) => boolean) | undefined {
   if (mode.kind === "following") return () => false;
-  if (mode.kind === "anchoring" && heldStart !== undefined)
-    return (rowStart) => rowStart < heldStart;
-  return undefined;
+  if (!held) return undefined;
+  return (row) => row.index < held.index || (!!held.grewAtTop && row.index === held.index);
+}
+
+/**
+ * Whether a row's items gained older ones above those it showed before (`before`, `after`: its
+ * items, oldest first): older history joined its turn at the top.
+ */
+export function joinedAtTop(before: readonly string[], after: readonly string[]): boolean {
+  const first = before[0];
+  return first !== undefined && after[0] !== first && after.includes(first);
 }

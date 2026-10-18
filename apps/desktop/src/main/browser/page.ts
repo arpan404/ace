@@ -97,6 +97,8 @@ export class EmbeddedPage implements ViewPage {
     },
   );
   private placed = false;
+  /** Hidden only while the app's menu covers it: the person still watches it. */
+  private covered = false;
   private placementPending = false;
   private placementGeneration = 0;
   /** The window a renderer last placed this view in; parking never changes it. */
@@ -410,6 +412,7 @@ export class EmbeddedPage implements ViewPage {
     this.attach(park({ width, height }));
     view.setBounds({ x: 0, y: 0, width, height });
     this.placed = false;
+    this.covered = false;
     this.updateThrottle();
   }
 
@@ -451,6 +454,7 @@ export class EmbeddedPage implements ViewPage {
     window: BaseWindow | undefined;
     bounds: Rect | undefined;
     visible: boolean;
+    covered?: boolean;
     zoom?: number;
     device?: NativeDevice | undefined;
   }) {
@@ -459,6 +463,7 @@ export class EmbeddedPage implements ViewPage {
 
     if (target.window) this.home = target.window;
     this.placed = target.visible && target.bounds !== undefined && !this.home.isDestroyed();
+    this.covered = !this.placed && target.covered === true && target.bounds !== undefined;
     if (this.placed) this.attach(this.home);
     if (target.bounds && (this.placed || this.presence !== "parked")) view.setBounds(target.bounds);
     if (target.visible && target.bounds) {
@@ -806,7 +811,7 @@ export class EmbeddedPage implements ViewPage {
   private applyAudio(): void {
     if (this.contents.isDestroyed()) return;
     const muted = audioMuted({
-      shown: this.placed,
+      shown: this.placed || this.covered,
       agentControl: this.agentControl,
       chosen: this.audioChoice,
     });
@@ -927,6 +932,7 @@ export class EmbeddedPage implements ViewPage {
     const decision = throttleDecision(
       {
         visible: this.placed,
+        covered: this.covered,
         nativeInput: this.nativeInput,
         agentControl: this.agentControl,
         screencasting: this.screencasting,

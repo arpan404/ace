@@ -5,27 +5,56 @@ import type { ThreadNav } from "../long/nav.tsx";
 
 /*
  * Paging history in as the reader scrolls toward either end of what is loaded. Only scrolls
- * backed by reader intent may page: older history loads one request per upward gesture, well
+ * backed by reader intent may page (a gesture, or the scrolls its momentum carries on with): older history loads one request per upward gesture, well
  * before the edge, so paging in never surfaces as a visible jump. A reply, a jump settling, or a
  * keep-place restore fires scroll events with no gesture behind them, and those must never walk
  * the history by themselves. Newer history (a jumped window back toward live) loads the same
  * way, mirrored.
  */
 
+/**
+ * How long after the reader's last gesture a scroll still counts as theirs: a touch fling's
+ * momentum scrolls on after the finger lifts. Later scrolls are code's or the layout's (a row
+ * above resizing, a jump landing) and never page.
+ */
+export const gestureWindowMs = 2_000;
+
+/** Whether a scroll at `now` may page toward history the reader last gestured toward at `at`. */
+export function scrollMayPage(wanted: boolean, at: number, now: number): boolean {
+  return wanted && now - at <= gestureWindowMs;
+}
+
 /** The reader's last gesture toward older or newer history, one page each. */
-export function usePagingIntent() {
+export function usePagingIntent(now: () => number) {
   const [older, setOlder] = useState(false);
   const [newer, setNewer] = useState(false);
+  const at = useRef(Number.NEGATIVE_INFINITY);
+  // When this run of gestures began: a gesture after a still moment sets it, so the paging
+  // effects look again even when its direction is the same as before; a run of wheel events
+  // renders nothing new.
+  const [since, setSince] = useState(Number.NEGATIVE_INFINITY);
   return {
     older,
     newer,
     setOlder,
     setNewer,
     /** The reader's gesture direction. */
-    onDirection: useCallback((upward: boolean) => {
-      setOlder(upward);
-      setNewer(!upward);
-    }, []),
+    onDirection: useCallback(
+      (upward: boolean) => {
+        const time = now();
+        const still = time - at.current > gestureWindowMs;
+        at.current = time;
+        setOlder(upward);
+        setNewer(!upward);
+        if (still) setSince(time);
+      },
+      [now],
+    ),
+    /** Whether a scroll now still follows the reader's gesture toward `wanted` history. */
+    fresh: useCallback(
+      (wanted: boolean) => scrollMayPage(wanted, Math.max(at.current, since), now()),
+      [now, since],
+    ),
   };
 }
 
@@ -46,6 +75,7 @@ const distanceToLive = (el: HTMLElement | null) =>
 export function useHistoryPaging(options: HistoryPagingOptions) {
   const { viewport, pager, jump, nav, detached, following } = options;
   const { older: olderIntent, newer: newerIntent, setOlder: setOlderIntent } = options.intent;
+  const { fresh } = options.intent;
   const setNewerIntent = options.intent.setNewer;
   const window = jump.window;
   const focus = jump.focus;
@@ -53,7 +83,7 @@ export function useHistoryPaging(options: HistoryPagingOptions) {
   const maybeLoadOlder = useCallback(
     (scrollTop: number) => {
       if (
-        olderIntent &&
+        fresh(olderIntent) &&
         scrollTop < 900 &&
         hasOlder &&
         !loading &&
@@ -66,6 +96,7 @@ export function useHistoryPaging(options: HistoryPagingOptions) {
       }
     },
     [
+      fresh,
       olderIntent,
       hasOlder,
       loading,
@@ -84,7 +115,7 @@ export function useHistoryPaging(options: HistoryPagingOptions) {
       setNewerIntent(false);
       return;
     }
-    if (olderIntent && !following) {
+    if (fresh(olderIntent) && !following) {
       const top = viewport.current?.scrollTop ?? 0;
       if (top < 1200 && hasOlder && !loading && !pager.error && !jump.failed) {
         setOlderIntent(false);
@@ -94,6 +125,7 @@ export function useHistoryPaging(options: HistoryPagingOptions) {
   }, [
     viewport,
     focus?.nonce,
+    fresh,
     olderIntent,
     following,
     hasOlder,
@@ -110,7 +142,7 @@ export function useHistoryPaging(options: HistoryPagingOptions) {
   const maybeLoadNewer = useCallback(
     (distance: number) => {
       if (
-        newerIntent &&
+        fresh(newerIntent) &&
         distance < 900 &&
         detached &&
         window &&
@@ -124,6 +156,7 @@ export function useHistoryPaging(options: HistoryPagingOptions) {
       }
     },
     [
+      fresh,
       newerIntent,
       detached,
       window,
@@ -137,7 +170,7 @@ export function useHistoryPaging(options: HistoryPagingOptions) {
   );
   useEffect(() => {
     if (prefetchFocus.current !== focus?.nonce) return;
-    if (newerIntent && !following && detached && window) {
+    if (fresh(newerIntent) && !following && detached && window) {
       const distance = distanceToLive(viewport.current);
       if (distance < 1200 && !jump.loading && !loading && !pager.error && !jump.failed) {
         setNewerIntent(false);
@@ -147,6 +180,7 @@ export function useHistoryPaging(options: HistoryPagingOptions) {
   }, [
     viewport,
     focus?.nonce,
+    fresh,
     newerIntent,
     following,
     detached,

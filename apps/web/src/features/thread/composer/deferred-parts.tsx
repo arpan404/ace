@@ -18,13 +18,9 @@ export const DeferredSuggestionList = deferredComponent(() =>
   import("./suggestion-list.tsx").then((module) => module.SuggestionList),
 );
 
-/** How a message on its way is doing, under its bubble: Sending…, Not sent with Retry and Edit. */
+/** How a message on its way is doing: Sending…, Not sent with Retry and Edit. */
 export const DeferredSendStatus = deferredComponent(() =>
   import("../items/send-status.tsx").then((module) => module.SendStatus),
-);
-/** This window's messages on their way, for the transcript (see `LocalSendsView`). */
-export const DeferredLocalSends = deferredComponent(() =>
-  import("../items/local-sends.tsx").then((module) => module.LocalSends),
 );
 /** A message whose send failed, kept in the held queue: shown at the transcript's end. */
 export const DeferredHeldSend = deferredComponent(() =>
@@ -40,7 +36,6 @@ export function preloadComposerParts(): Promise<unknown> {
     DeferredModelControl.preload(),
     DeferredSuggestionList.preload(),
     DeferredSendStatus.preload(),
-    DeferredLocalSends.preload(),
     DeferredHeldSend.preload(),
     preloadAttachmentChips(),
     import("./send-message.ts"),

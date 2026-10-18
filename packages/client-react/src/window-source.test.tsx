@@ -116,7 +116,12 @@ function Jumped(props: { turn: number; joined?: boolean }) {
           void client
             .itemsWindow({ threadId: "thread-long", turnOrdinal: props.turn, before: 0, after: 20 })
             .then((reply) =>
-              setItems({ items: reply.items, before: reply.itemsBefore, joined: props.joined }),
+              setItems({
+                items: reply.items,
+                seqs: new Map(Object.entries(reply.itemSeqs)),
+                before: reply.itemsBefore,
+                joined: props.joined,
+              }),
             )
         }
       >
@@ -220,6 +225,10 @@ test("a joined window is followed only by newer tail items, not a root item kept
   });
   const source = windowSource(live, {
     items: [message("older"), message("shared")],
+    seqs: new Map([
+      ["older", 5],
+      ["shared", 10],
+    ]),
     before: 5,
     joined: true,
   });

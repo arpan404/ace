@@ -42,6 +42,7 @@ export class MirrorThread implements ThreadSource {
   private interactionList: readonly string[] = none;
   private taskList: readonly string[] = none;
   private items = new Map<string, Item>();
+  private seqs = new Map<string, number>();
   private agents = new Map<string, View["agents"][string]>();
   private runs = new Map<string, View["runs"][string]>();
   private interactions = new Map<string, View["interactions"][string]>();
@@ -100,6 +101,9 @@ export class MirrorThread implements ThreadSource {
   item(id: string) {
     return this.items.get(id);
   }
+  itemSeq(id: string) {
+    return this.seqs.get(id);
+  }
   agent(id: string) {
     return this.agents.get(id);
   }
@@ -148,6 +152,7 @@ export class MirrorThread implements ThreadSource {
     this.interactionList = Object.keys(view?.interactions ?? {});
     this.taskList = Object.keys(view?.backgroundTasks ?? {});
     this.items = entries(view?.items);
+    this.seqs = entries(view?.itemSeqs);
     this.agents = entries(view?.agents);
     this.runs = entries(view?.runs);
     this.interactions = entries(view?.interactions);
@@ -231,6 +236,8 @@ export class MirrorThread implements ThreadSource {
   private patchItem(id: string, patch: Patch): void {
     if (patch.cut) this.cut.add(id);
     else this.cut.delete(id);
+    if (patch.s !== undefined) this.seqs.set(id, patch.s);
+    else if (patch.append === undefined && patch.v === undefined) this.seqs.delete(id);
     if (patch.append === undefined) return set(this.items, id, patch.v);
     const item = this.items.get(id);
     if (item && hasText(item)) {

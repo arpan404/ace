@@ -89,7 +89,7 @@ function useSystemPreferences(matchMedia: Environment["matchMedia"]): SystemPref
 }
 
 /**
- * Mode, theme, surfaces, reduced motion, density, corners and transcript size, applied as attributes and
+ * Mode, theme, surfaces, reduced motion, density and transcript size, applied as attributes and
  * one variable on <html>. Every theme is injected as one stylesheet, so switching is an
  * attribute flip; `index.html` replays the boot record so the first frame is already right.
  */
@@ -114,7 +114,6 @@ export function ThemeProvider(props: { environment: Environment; children: React
       "data-surface": resolved.surface,
       "data-reduce-motion": resolved.reduceMotion ? "" : undefined,
       "data-density": appearance.density,
-      "data-corners": appearance.corners,
       "data-glass-engine": glassEngine,
     });
     root.style.setProperty(
@@ -122,18 +121,10 @@ export function ThemeProvider(props: { environment: Environment; children: React
       `${transcriptSizes[appearance.transcriptSize].px}px`,
     );
     setThemeColour(root.ownerDocument, themes[resolved.theme][resolved.scheme].s0);
-  }, [
-    root,
-    stylesheet,
-    resolved,
-    appearance.density,
-    appearance.corners,
-    appearance.transcriptSize,
-    glassEngine,
-  ]);
+  }, [root, stylesheet, resolved, appearance.density, appearance.transcriptSize, glassEngine]);
 
   // The glass at the chosen translucency, over the stylesheet's default. A slider drag changes
-  // only these three variables: no stylesheet rebuild, and the liquid filters below stay put.
+  // only the glass variables: no stylesheet rebuild, and the liquid filters below stay put.
   const { theme, scheme, translucency } = resolved;
   useLayoutEffect(() => {
     if (!root) return;
@@ -162,7 +153,6 @@ export function ThemeProvider(props: { environment: Environment; children: React
       translucency: appearance.translucency,
       reduceMotion: appearance.reduceMotion,
       density: appearance.density,
-      corners: appearance.corners,
       transcriptPx: transcriptSizes[appearance.transcriptSize].px,
       css: themeStylesheet(appearance.theme, appearance, appearance.translucency),
     };

@@ -22,6 +22,7 @@ import { PageNav, PageToolbar, ToolPill } from "./page-toolbar.tsx";
 import { daemonTabId } from "./browser-data.ts";
 import { AnnotateButton } from "./annotate-button.tsx";
 import { useNativeView } from "./native-view.ts";
+import { CoverPicture, useCoverStill } from "./cover-picture.tsx";
 import {
   CertificateWarning,
   Disconnected,
@@ -154,7 +155,11 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
       ...(pane ? { tabId: pane.tabId } : {}),
     },
   );
-  const nativeShown = native.shown || native.frozen !== undefined;
+  // The native view owns the page, even while it steps out from under a menu.
+  const nativePage = native.shown || native.frozen !== undefined;
+  // Out from under a menu, the page is drawn from the live screencast (once a fresh frame
+  // replaces the still taken as the menu opened), so it keeps moving while the menu shows.
+  const still = useCoverStill(native.frozen, page.frame?.sequence);
   // Picture-in-picture lays the page out at the size it had here.
   useEffect(() => {
     const element = pageArea.current;
@@ -167,9 +172,9 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
   }, [threadId]);
 
   useEffect(() => {
-    source.nativeShown?.(threadId, nativeShown);
+    source.nativeShown?.(threadId, native.shown);
     return () => source.nativeShown?.(threadId, !!desktopBrowserViews());
-  }, [source, threadId, nativeShown]);
+  }, [source, threadId, native.shown]);
 
   const root = useRef<HTMLDivElement>(null);
   // Focus leaves the renderer when the person clicks into the desktop's native page (or another
@@ -195,7 +200,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
     threadId,
     live,
     tab: shown,
-    nativeShown,
+    nativeShown: nativePage,
     page,
     tools,
     openTab: (url) => tabs.open(url),
@@ -266,7 +271,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
         tab={shown}
         frame={page.frame}
         interactive={online}
-        nativeShown={nativeShown}
+        nativeShown={native.shown}
         fit={!tools.toolbar}
         framed={tools.toolbar}
         zoom={shown.zoom}
@@ -421,12 +426,12 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
         {tools.toolbar ? (
           <DeviceStage tools={tools} frame={deviceFrame}>
             {content}
-            {native.frozen && <FrozenPage frozen={native.frozen} />}
+            {still && <CoverPicture still={still} />}
           </DeviceStage>
         ) : (
           <>
             {content}
-            {native.frozen && <FrozenPage frozen={native.frozen} />}
+            {still && <CoverPicture still={still} />}
           </>
         )}
       </div>
@@ -455,27 +460,6 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
         />
       )}
     </div>
-  );
-}
-
-/** The native page's picture, exactly where the page is, while a menu covers it. */
-function FrozenPage(props: { frozen: NonNullable<ReturnType<typeof useNativeView>["frozen"]> }) {
-  const { frozen } = props;
-  return (
-    <img
-      data-frozen-page=""
-      src={frozen.src}
-      alt=""
-      aria-hidden
-      draggable={false}
-      style={{
-        left: frozen.box.x,
-        top: frozen.box.y,
-        width: frozen.box.width,
-        height: frozen.box.height,
-      }}
-      className="pointer-events-none absolute max-w-none select-none"
-    />
   );
 }
 

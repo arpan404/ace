@@ -35,6 +35,8 @@ export type {
   Mirrorable,
 } from "./api.ts";
 export { ThreadStore } from "./thread-store.ts";
+/** Transcript order: dedupe by id, order by the daemon's creation sequence (ADR 0062). */
+export { mergeBySeq } from "@ace/projection";
 export type { ThreadReader, ThreadKey } from "./thread-store.ts";
 export type { ThreadSubscription } from "./subscriptions.ts";
 export type { Intent } from "./intents.ts";
