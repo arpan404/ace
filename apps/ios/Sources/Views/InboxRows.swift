@@ -36,8 +36,7 @@ struct InboxThreadRow: View {
             let time = date.formatted(date: .omitted, time: .shortened)
             return Calendar.current.isDateInToday(date) ? "Until \(time)" : "Until \(date.formatted(.dateTime.weekday(.abbreviated))) \(time)"
         }
-        let activity = Date(timeIntervalSince1970: (row.activityAt ?? row.updatedAt) / 1000)
-        return activity.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated))
+        return ActivityTime.text(Date(timeIntervalSince1970: (row.activityAt ?? row.updatedAt) / 1000), now: Date())
     }
 }
 

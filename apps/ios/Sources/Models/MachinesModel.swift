@@ -22,7 +22,8 @@ import Observation
     }
     var active: MachineEntry? { machines.first { $0.hostId == activeHostId } }
     /// The host chose a view-only grant for this phone; commands will be refused.
-    var activeIsReadOnly: Bool { active.map { !(Grants(scopes: grants[$0.deviceId] ?? ["operate"]).canOperate) } ?? false }
+    var activeIsReadOnly: Bool { active.map { !canOperate($0) } ?? false }
+    private func canOperate(_ entry: MachineEntry) -> Bool { Grants(scopes: grants[entry.deviceId] ?? ["operate"]).canOperate }
 
     /// Load the directory, then reconnect to the last machine (or the first one).
     func load() async {
@@ -57,6 +58,7 @@ import Observation
             return
         }
         problem = nil
+        client.canOperate = canOperate(entry)
         await client.connect(target: target, directory: storage, itemLimit: itemLimit)
     }
     /// Remove authority first, then local data bound to that host and device.

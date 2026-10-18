@@ -4,6 +4,8 @@ struct ApprovalCard: View {
     @Environment(\.colorScheme) private var colourScheme
     let approval: ApprovalRow
     let submission: ApprovalSubmission?
+    /// False on a view-only pairing: the card still shows the request, without live choices.
+    var canAct = true
     let resolve: (ApprovalRow.Option) -> Void
     var body: some View {
         let options = approval.options.sorted { rank($0.kind) < rank($1.kind) }
@@ -43,7 +45,8 @@ struct ApprovalCard: View {
                             .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.button))
                     }.accessibilityIdentifier("approval.more")
                 }
-            }.disabled(submission != nil)
+            }.disabled(submission != nil || !canAct)
+            if !canAct { ViewOnlyNote.approval }
             if let submission { Label(submission.phase == .saving ? "Saving your answer…" : "Waiting for the daemon", systemImage: "clock").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
         }
         .padding(AceTheme.Spacing.lg).background(AceTheme.Colours.card, in: RoundedRectangle(cornerRadius: AceTheme.Radii.approval))

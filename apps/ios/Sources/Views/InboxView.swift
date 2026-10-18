@@ -27,6 +27,7 @@ struct InboxView: View {
                 if model.connection != "ready" {
                     InboxConnectionBanner(connection: model.connection) { model.retry() }.listRowSeparator(.hidden)
                 }
+                if !model.canOperate { ViewOnlyNote.inbox.listRowSeparator(.hidden) }
                 ForEach(open) { section in
                     Section { rows(section) } header: { InboxSectionHeader(title: section.label, count: section.ids.count) }
                 }
@@ -102,14 +103,16 @@ struct InboxView: View {
             .accessibilityIdentifier("thread.\(row.id)")
             .listRowBackground(section == "needs-you" ? AceTheme.Colours.needsYouSurface : AceTheme.Colours.background)
             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                Button("Archive", systemImage: "archivebox") { archive(row) }.tint(AceTheme.Colours.mutedForeground)
+                if model.canOperate { Button("Archive", systemImage: "archivebox") { archive(row) }.tint(AceTheme.Colours.mutedForeground) }
             }
             .swipeActions(edge: .leading, allowsFullSwipe: snoozed) {
-                if snoozed { Button("Wake", systemImage: "sun.max") { Task { _ = await model.wake(row.id) } }.tint(AceTheme.Status.waiting) }
+                if !model.canOperate { EmptyView() }
+                else if snoozed { Button("Wake", systemImage: "sun.max") { Task { _ = await model.wake(row.id) } }.tint(AceTheme.Status.waiting) }
                 else { Button("Snooze", systemImage: "moon.zzz") { snoozing = row }.tint(AceTheme.Status.waiting) }
             }
             .contextMenu {
-                if snoozed { Button("Wake", systemImage: "sun.max") { Task { _ = await model.wake(row.id) } } }
+                if !model.canOperate { EmptyView() }
+                else if snoozed { Button("Wake", systemImage: "sun.max") { Task { _ = await model.wake(row.id) } } }
                 else {
                     Menu("Snooze", systemImage: "moon.zzz") {
                         ForEach(model.inboxLayout.snooze) { option in
@@ -117,7 +120,7 @@ struct InboxView: View {
                         }
                     }
                 }
-                Button("Archive", systemImage: "archivebox") { archive(row) }
+                if model.canOperate { Button("Archive", systemImage: "archivebox") { archive(row) } }
             }
     }
     @ViewBuilder private var emptyState: some View {

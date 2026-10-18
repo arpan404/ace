@@ -32,6 +32,8 @@ import CryptoKit
     var inboxLoaded = false
     var inboxLayout = InboxLayout.empty
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
+    /// False for a view-only grant: the phone reads threads but submits no commands.
+    var canOperate = true
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var runtime: (any ClientSession)?
     @ObservationIgnored private let makeRuntime: ClientSessionFactory
@@ -155,18 +157,18 @@ import CryptoKit
     func network(_ online: Bool) { action(["type": "network", "online": online]) }
     func retry() { action(["type": "retry"]) }
     func send(_ text: String, delivery: String) async -> Bool {
-        guard let thread, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard canOperate, let thread, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let id = admissions.nextId()
         return await admissions.wait(id: id) {
             command(["type": "thread.send", "threadId": thread.id, "input": [["type": "text", "text": text]], "delivery": delivery], requestId: id)
         }
     }
     func stopTree() {
-        guard let thread else { return }
+        guard canOperate, let thread else { return }
         command(["type": "thread.interrupt", "threadId": thread.id, "cascade": true, "beforeSeq": thread.cursor])
     }
     func approve(_ interaction: ApprovalRow, option: ApprovalRow.Option) {
-        guard interaction.state == "pending", approvalSubmissions[interaction.id] == nil else { return }
+        guard canOperate, interaction.state == "pending", approvalSubmissions[interaction.id] == nil else { return }
         let id = admissions.nextId()
         approvalSubmissions[interaction.id] = ApprovalSubmission(requestId: id, phase: .saving)
         approvalRequests[id] = interaction.id
@@ -177,6 +179,7 @@ import CryptoKit
     }
     /// Inbox organization (`bridge/inbox.ts`): true once the SDK durably admitted the command.
     func inboxCommand(_ value: [String: Any]) async -> Bool {
+        guard canOperate else { return false }
         let id = admissions.nextId()
         return await admissions.wait(id: id) { action(["type": "inbox", "action": value, "requestId": id]) }
     }

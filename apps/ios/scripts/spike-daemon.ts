@@ -6,6 +6,7 @@ import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
 import { oversizedScenario, approvalRetryScenario } from "./review-scenarios.ts";
 import { manyActions, snapshotFrames } from "./many-actions.ts";
 import { LostReceipt } from "./lost-receipt.ts";
+import { queuedTexts } from "./queue-read.ts";
 
 const daemon = new FakeDaemon({
   clock: Date.now,
@@ -218,6 +219,13 @@ const server = Bun.serve<undefined>({
       if (!online) for (const socket of connections.keys()) socket.close(1001);
       return Response.json({ online });
     }
+    if (path === "/queue")
+      return Response.json({
+        texts: await queuedTexts(
+          daemon,
+          new URL(request.url).searchParams.get("thread") ?? "ios-stream",
+        ),
+      });
     if (path === "/state")
       return Response.json(
         daemon.snapshot({

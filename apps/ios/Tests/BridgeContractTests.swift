@@ -119,7 +119,28 @@ import SQLite3
         #expect(model.largestFrame <= 32768)
         #expect((model.thread?.order.count ?? 0) >= 2000)
     }
+    /// The stream thread's turn never ends, so the daemon holds a queued follow-up in its queue,
+    /// outside the transcript, until that turn ends, as the real daemon does.
     @Test func offlineInputSurvivesRuntimeDestructionAndIsAdmittedOnce() async throws {
+        let (text, restored, root) = try await sendOfflineThenRestore(delivery: "queue")
+        defer { Task { await restored.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
+        try await until("outbox released") { (try? DurableStore(url: database(in: root)).perform("storage.records", input: Data("null".utf8))) == "[]" }
+        #expect(try await queued(in: "ios-stream").filter { $0 == text }.count == 1)
+        #expect(restored.thread?.items.values.contains { $0.row.text == text } == false)
+        #expect(restored.error == nil)
+    }
+    /// A steer joins the running turn, so its bubble is in the transcript exactly once.
+    @Test func offlineSteerSurvivesRuntimeDestructionAndJoinsTheTranscriptOnce() async throws {
+        let (text, restored, root) = try await sendOfflineThenRestore(delivery: "steer")
+        defer { Task { await restored.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
+        try await until { restored.thread?.items.values.contains { $0.row.text == text } == true }
+        #expect(restored.thread?.items.values.filter { $0.row.text == text }.count == 1)
+        #expect(restored.error == nil)
+        try await until("outbox released") { (try? DurableStore(url: database(in: root)).perform("storage.records", input: Data("null".utf8))) == "[]" }
+        #expect(try await queued(in: "ios-stream").contains(text) == false)
+    }
+    /// Saves a send while offline, destroys that runtime, and reconnects a fresh one on its storage.
+    private func sendOfflineThenRestore(delivery: String) async throws -> (String, ClientModel, URL) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let original = ClientModel(now: { 0 })
         await original.connect(target: try target(), directory: root, itemLimit: 2200)
@@ -128,19 +149,21 @@ import SQLite3
         try await until { original.thread?.loaded == true }
         original.network(false)
         try await until { original.connection == "offline" }
-        let text = "Offline bridge contract \(UUID().uuidString)"
-        #expect(await original.send(text, delivery: "queue"))
+        let text = "Offline bridge contract \(delivery) \(UUID().uuidString)"
+        #expect(await original.send(text, delivery: delivery))
         try await until { original.pending.values.contains { $0.text == text && $0.state == "sent" } }
         await original.disconnectAndWait()
         let restored = ClientModel(now: { 0 })
-        defer { Task { await restored.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
         await restored.connect(target: try target(), directory: root, itemLimit: 2200)
         restored.open("ios-stream")
-        try await until { restored.connection == "ready" && restored.thread?.loaded == true && restored.thread?.items.values.contains { $0.row.text == text } == true }
-        #expect(restored.thread?.items.values.filter { $0.row.text == text }.count == 1)
-        #expect(restored.error == nil)
-        let store = try DurableStore(url: database(in: root))
-        try await until { (try? store.perform("storage.records", input: Data("null".utf8))) == "[]" }
+        try await until { restored.connection == "ready" && restored.thread?.loaded == true }
+        return (text, restored, root)
+    }
+    /// What waits in a thread's daemon queue, from the fixture's own queue read.
+    private func queued(in thread: String) async throws -> [String] {
+        let (data, _) = try await URLSession.shared.data(from: try #require(URL(string: "http://127.0.0.1:9841/queue?thread=\(thread)")))
+        struct Queue: Decodable { let texts: [String] }
+        return try JSONDecoder().decode(Queue.self, from: data).texts
     }
     @Test func approvalClosesOnlyAfterTheCanonicalDaemonUpdate() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

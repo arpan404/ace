@@ -30,7 +30,9 @@ Use one simulator destination and one build at a time. The fixture binds to
 loopback port 9841, invokes no provider CLIs and spends no provider quota. It seeds
 2,000 items, streams 20 deltas per second, opens a shell approval and keeps a child
 working after its root finishes. Restart the fixture before independent screenshot
-or performance runs. Contract sends deliberately add inputs to its history.
+or performance runs. Contract sends deliberately add inputs to its history. The
+streaming thread's turn never ends, so a queued follow-up waits in the daemon queue,
+outside the transcript, as it would on a real daemon; `GET /queue?thread=ID` lists it.
 
 XcodeGen output, generated `Resources/client.js`, build products and xcresult bundles
 are ignored. Run `generate` before opening Xcode. The Swift theme is committed;
@@ -134,6 +136,8 @@ leave the link; the code goes in the `/v1/pair` POST body.
   background. Nothing is read or connected before unlock.
 - The machine bar shows the SDK's connection problem: unreachable (still retrying),
   offline, revoked, pin mismatch, or another host. It also marks view-only grants.
+- A view-only grant replaces the composer with a note, leaves approval choices disabled
+  and drops archive and snooze. `ClientModel` submits no commands for that machine.
   `NWPathMonitor` reports network changes to the SDK, which owns reconnect.
 
 `bun run e2e:pairing` starts a real daemon with its LAN TLS listener advertised on
