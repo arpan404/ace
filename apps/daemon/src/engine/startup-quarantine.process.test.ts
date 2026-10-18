@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "vitest";
 import { scriptFrames, start } from "./test-support.ts";
 import { cleanupRecovery, fixture, restart } from "./recovery-test-support.ts";
+import { engineSchemaVersion } from "./schema-version.ts";
 
 afterEach(cleanupRecovery);
 
@@ -42,8 +43,10 @@ test("a thread whose stored engine state cannot be read is skipped at startup wh
   if (!broken || !healthy) throw new Error("Missing threads");
   // Stop the old engine first: shutdown saves every thread's state once more.
   await h.engine.close();
+  // Current format, damaged content: one thread's problem, not another build's database.
+  const damaged = JSON.stringify({ engineSnapshot: engineSchemaVersion, agents: "unreadable" });
   h.store.atomic((db) =>
-    db.prepare("UPDATE thread_state SET state=? WHERE thread_id=?").run('{"unreadable":1}', broken),
+    db.prepare("UPDATE thread_state SET state=? WHERE thread_id=?").run(damaged, broken),
   );
   const errors: unknown[] = [];
   await restart(h, { onError: (error) => errors.push(error) });

@@ -35,7 +35,7 @@ import { ExecutionOptions, Command, CommandId, ThreadId, type EventPayload } fro
 import type { Store } from "../store.ts";
 import { decodeSnapshot } from "./snapshot.ts";
 import { readRawBlob } from "./raw.ts";
-import { isStoreRetry } from "../store-busy.ts";
+import { skippableAtStartup } from "./startup-skip.ts";
 import { QueueStore } from "./queue-store.ts";
 import { Snapshot } from "./persistence.ts";
 import { migrateEngine } from "./migrations.ts";
@@ -230,7 +230,7 @@ export class EngineRepository {
         try {
           state = this.requireState(id);
         } catch (error) {
-          if (!unreadable || isStoreRetry(error)) throw error;
+          if (!unreadable || !skippableAtStartup(error)) throw error;
           unreadable(id, error);
           continue;
         }

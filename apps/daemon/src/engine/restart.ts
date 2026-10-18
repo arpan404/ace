@@ -4,7 +4,7 @@ import type { EngineClock } from "./actor.ts";
 import type { Recovery } from "./recovery.ts";
 import type { ThreadId } from "@ace/protocol";
 import { lostWork } from "./lost-work.ts";
-import { isStoreRetry } from "../store-busy.ts";
+import { skippableAtStartup } from "./startup-skip.ts";
 /** Startup is a cold pass over stored thread headers and outstanding sends. */
 export function recoverEngine(
   repo: EngineRepository,
@@ -240,7 +240,7 @@ function isolated(id: ThreadId, skip: (id: ThreadId, error: unknown) => void, ru
   try {
     run();
   } catch (error) {
-    if (isStoreRetry(error)) throw error;
+    if (!skippableAtStartup(error)) throw error;
     skip(id, error);
   }
 }
