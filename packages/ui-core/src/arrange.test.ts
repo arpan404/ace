@@ -128,6 +128,25 @@ test("threads the daemon settled stay in Settled in every non-working status", (
   expect(result.recent).toEqual(["fresh"]);
 });
 
+test("a thread settled by hand stays settled while its queue waits on recovery", () => {
+  const queue = { revision: 1, paused: true, reason: "stopped" as const, resumeAt: null };
+  const entries = [
+    entry("by-hand", { state: "waiting", on: "queue" }, now, {
+      settledAt: now - hour,
+      settledReason: "manual",
+      queue,
+    }),
+    entry("auto", { state: "waiting", on: "queue" }, now - hour, {
+      settledAt: now - hour,
+      settledReason: "inactivity",
+      queue,
+    }),
+  ];
+  const result = arrange(entries, state(), now);
+  expect(result.settled).toEqual(["by-hand"]);
+  expect(result.recent).toEqual(["auto"]);
+});
+
 test("archived and deleted threads leave Home and its project counts", () => {
   const entries = [
     entry("kept", { state: "done" }, now, { workspaceId: "web" }),
