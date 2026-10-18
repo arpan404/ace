@@ -17,7 +17,9 @@ import {
 } from "./control-tool.ts";
 
 const threads = { toolset: "ace-threads", timeoutMs: controlToolTimeoutMs } as const;
-const ownedThread = ThreadId.describe("A thread you own: this one or one you started.");
+const ownedThread = ThreadId.describe(
+  "A thread you own: this one or one you started. With full access, also any of the person's threads.",
+);
 
 const SearchPage = z.looseObject({
   hits: z.array(
@@ -37,7 +39,7 @@ const threadsFind = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "Find threads in this project, or search inside one. Without threadId: threads whose title or messages match query (all recent threads when query is empty). With threadId: matching items in that thread's transcript. Page with cursor.",
+    "Find threads in this project or, with full access, another one (project), or search inside one. Without threadId: threads whose title or messages match query (all recent threads when query is empty). With threadId: matching items in that thread's transcript. Page with cursor.",
   input: z
     .strictObject({
       query: z
@@ -46,6 +48,14 @@ const threadsFind = controlTool({
         .default("")
         .describe("Words to match; empty lists recent threads."),
       threadId: ThreadId.optional().describe("Search inside this thread's transcript instead."),
+      project: z
+        .string()
+        .min(1)
+        .max(4096)
+        .optional()
+        .describe(
+          "Another project's name, folder path or id, from projects_find. Default: this one.",
+        ),
       cursor: z.string().min(1).max(2048).optional().describe("From the previous page's cursor."),
       limit: z.number().int().min(1).max(20).default(10).describe("Results per page, 1 to 20."),
     })
@@ -55,11 +65,17 @@ const threadsFind = controlTool({
     })
     .meta({ "x-ace-constraint": "With threadId, query must not be empty." }),
   output: controlResult(SearchPage),
-  run: ({ query, threadId, cursor, limit }, control) =>
+  run: ({ query, threadId, project, cursor, limit }, control) =>
     control.run(
       threadId
         ? { op: "thread.search", threadId, query, limit, ...(cursor ? { cursor } : {}) }
-        : { op: "threads.list", query, limit, ...(cursor ? { cursor } : {}) },
+        : {
+            op: "threads.list",
+            query,
+            limit,
+            ...(project ? { project } : {}),
+            ...(cursor ? { cursor } : {}),
+          },
     ),
 });
 
@@ -71,6 +87,7 @@ const ThreadPage = z.looseObject({
   previews: z.array(z.unknown()).optional(),
   bytes: z.string().optional().describe("Base64 output bytes, when reading a stream"),
   nextOffset: z.number().optional(),
+  queue: z.unknown().optional().describe("Messages waiting for the thread, oldest first."),
 });
 const threadRead = controlTool({
   ...threads,
@@ -79,7 +96,7 @@ const threadRead = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "Read a thread: title, status, branch, linked PRs, preview servers and a page of its transcript, newest first. Omit threadId for this thread. Page back with before = itemsBefore. A truncated part with source.streamId continues with streamId and offset (base64 bytes, then nextOffset).",
+    "Read a thread: title, status, branch, linked PRs, preview servers, queued messages (with entryIds for queue_edit) and a page of its transcript, newest first. Omit threadId for this thread. Page back with before = itemsBefore. A truncated part with source.streamId continues with streamId and offset (base64 bytes, then nextOffset).",
   input: z.strictObject({
     threadId: ThreadId.optional().describe("Default: this thread."),
     before: z.number().int().positive().optional().describe("The previous page's itemsBefore."),
@@ -123,7 +140,14 @@ const threadRead = controlTool({
       ...(input.before ? { before: input.before } : {}),
     });
     if (!page.ok) return page;
-    return { ...page, data: { ...compactPage(page.data), ...(await previews(control, threadId)) } };
+    return {
+      ...page,
+      data: {
+        ...compactPage(page.data),
+        ...(await previews(control, threadId)),
+        ...(await queued(control, threadId)),
+      },
+    };
   },
 });
 
@@ -141,6 +165,12 @@ function compactPage(data: unknown): Record<string, unknown> {
       ...(typeof details?.["branch"] === "string" ? { branch: details["branch"] } : {}),
     },
   };
+}
+/** The thread's queue, only when something waits in it. */
+async function queued(control: Control, threadId: string) {
+  const listed = await control.run({ op: "queue.list", threadId });
+  const entries = z.object({ entries: z.array(z.unknown()) }).safeParse(listed.data).data;
+  return entries?.entries.length ? { queue: listed.data } : {};
 }
 async function previews(control: Control, threadId: string) {
   const listed = await control.run({ op: "preview.list", threadId });
@@ -231,6 +261,14 @@ const threadMerge = controlTool({
   run: (input, control) => control.run({ op: "thread.merge", ...input }),
 });
 
+/** Each action's required fields, named in its description and checked before anything runs. */
+const queueNeeds = {
+  edit: ["entryId", "text"],
+  cancel: ["entryId"],
+  steer: ["entryId"],
+  reorder: ["order"],
+} as const;
+type QueueAction = keyof typeof queueNeeds;
 const queueEdit = controlTool({
   ...threads,
   name: "queue_edit",
@@ -238,35 +276,62 @@ const queueEdit = controlTool({
   riskClass: "thread-write",
   capability: "thread_control",
   description:
-    "Change an owned thread's queued input before it is delivered: replace one entry's text (entryId and text), or reorder pending entries (order).",
+    "Change an owned thread's queued messages before they are delivered; thread_read lists them with their entryIds. edit replaces an entry's text (attachments stay), cancel removes it, steer delivers it now into the running turn, reorder puts the named entries first in that order.",
   input: z
     .strictObject({
       threadId: ownedThread,
       requestId: fields.requestId,
-      entryId: z.string().min(1).max(128).optional().describe("The queued entry to replace."),
-      text: MessageText.optional().describe("Its new text."),
+      action: z
+        .enum(["edit", "cancel", "steer", "reorder"])
+        .describe("edit: entryId and text. cancel, steer: entryId. reorder: order."),
+      entryId: z.string().min(1).max(128).optional().describe("The queued entry."),
+      text: MessageText.optional().describe("edit: its new text."),
       order: z
         .array(z.string().min(1).max(128))
         .min(1)
         .max(64)
         .optional()
-        .describe("Pending entry ids in their new order."),
+        .describe("reorder: entry ids in their new order."),
     })
-    .refine(
-      (input) =>
-        (input.order === undefined) !== (input.entryId === undefined || input.text === undefined),
-      { message: "Pass entryId with text, or order." },
-    )
-    .meta({ "x-ace-constraint": "Either entryId with text, or order." }),
+    .superRefine((input, context) => {
+      for (const field of queueNeeds[input.action])
+        if (input[field] === undefined)
+          context.addIssue({
+            code: "custom",
+            path: [field],
+            message: `${input.action} needs ${field}.`,
+          });
+    })
+    .meta({
+      "x-ace-constraint":
+        "edit needs entryId and text; cancel and steer need entryId; reorder needs order.",
+    }),
   output: NoData,
-  run: ({ threadId, requestId, entryId, text, order }, control) =>
-    control.run(
-      order
-        ? { op: "queue.reorder", threadId, requestId, entryIds: order }
-        : // The schema requires both when order is absent.
-          { op: "queue.edit", threadId, requestId, entryId: entryId ?? "", text: text ?? "" },
-    ),
+  run: (input, control) => control.run(queueOperation(input)),
 });
+
+/** The one operation a queue action stands for. Required fields were checked by the schema. */
+function queueOperation(input: {
+  threadId: string;
+  requestId: string;
+  action: QueueAction;
+  entryId?: string | undefined;
+  text?: string | undefined;
+  order?: string[] | undefined;
+}) {
+  const { threadId, requestId } = input;
+  const entryId = input.entryId ?? "";
+  switch (input.action) {
+    case "edit":
+      return { op: "queue.edit", threadId, requestId, entryId, text: input.text ?? "" } as const;
+    case "cancel":
+      return { op: "queue.cancel", threadId, requestId, entryId } as const;
+    case "steer":
+      return { op: "queue.steer", threadId, requestId, entryId } as const;
+    case "reorder":
+      return { op: "queue.reorder", threadId, requestId, entryIds: input.order ?? [] } as const;
+  }
+}
 
 const questionAnswer = controlTool({
   ...threads,

@@ -28,6 +28,9 @@ export const maxDelegateTasks = maxWaitThreads;
 
 const agents = { toolset: "ace-agents", timeoutMs: controlToolTimeoutMs } as const;
 const childId = ThreadId.describe("A child's threadId, from delegate or agents_status.");
+const messagedThread = ThreadId.describe(
+  "A child's or owned thread's id; with full access, any of the person's threads.",
+);
 
 const DelegateTask = z.strictObject({
   requestId: fields.requestId,
@@ -155,13 +158,13 @@ const agentsStatus = controlTool({
 const agentMessage = controlTool({
   ...agents,
   name: "agent_message",
-  title: "Message a child or owned thread",
+  title: "Message a child or another thread",
   riskClass: "agent-execution",
   capability: "agents",
   description:
-    "Send follow-up work to a child or a thread you started; it keeps its permissions. delivery queue (default) waits for its current turn to end, steer injects now, restart interrupts its tree and replaces queued input with this text.",
+    "Send follow-up work to a child or a thread you started, or with full access to any of the person's threads; it keeps its permissions. delivery queue (default) waits for its current turn to end, steer injects now, restart interrupts its tree and replaces queued input with this text.",
   input: z.strictObject({
-    threadId: childId,
+    threadId: messagedThread,
     requestId: fields.requestId,
     text: MessageText.describe("The message, standing on its own."),
     delivery: z

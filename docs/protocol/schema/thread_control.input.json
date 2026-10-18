@@ -77,7 +77,7 @@
     },
     "threadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json",
-      "description": "A thread you own. Default: this thread."
+      "description": "A thread you own, or with full access any of the person's. Default: this thread."
     },
     "title": {
       "description": "rename: the new title.",

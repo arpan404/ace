@@ -37,6 +37,7 @@ export const coreTools: ReadonlySet<string> = new Set([
   "thread_start",
   "thread_control",
   "projects_find",
+  "agent_message",
   "browser_open",
   "html_render",
   "screen_open_app",

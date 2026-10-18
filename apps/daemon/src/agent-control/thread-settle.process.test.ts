@@ -127,10 +127,10 @@ test("unsettle cancels a settle still waiting for the turn to end", async () => 
   }
 });
 
-test("an agent cannot settle a thread the person started", async () => {
+test("an agent without full access cannot settle a thread the person started", async () => {
   const { h, run, organization, close } = harness();
   try {
-    const self = await h.parent();
+    const self = await h.parent("auto-review");
     const other = await h.parent();
     await h.complete(other.threadId, "Finished");
     expect(await run(self, "thread.settle", other.threadId)).toMatchObject({

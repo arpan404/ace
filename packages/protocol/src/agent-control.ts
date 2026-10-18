@@ -215,7 +215,12 @@ export const AgentAutomationRequest = z.discriminatedUnion("type", [
 ]);
 export type AgentAutomationRequest = z.infer<typeof AgentAutomationRequest>;
 export const AgentControlOperation = z.discriminatedUnion("op", [
-  z.strictObject({ op: z.literal("threads.list"), ...ThreadListInput.shape }),
+  z.strictObject({
+    op: z.literal("threads.list"),
+    ...ThreadListInput.shape,
+    /** Another local project, by id, name or folder path. Omitted: the caller's own project. */
+    project: z.string().min(1).max(4096).optional(),
+  }),
   ThreadStartOperation,
   z.strictObject({
     op: z.literal("thread.configure"),
@@ -298,6 +303,20 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     threadId: ThreadId,
     requestId: key,
     entryIds: z.array(key).min(1).max(64),
+  }),
+  z.strictObject({ op: z.literal("queue.list"), threadId: ThreadId }),
+  z.strictObject({
+    op: z.literal("queue.cancel"),
+    threadId: ThreadId,
+    requestId: key,
+    entryId: key,
+  }),
+  /** Deliver a queued message now, into the running turn, as the person's Steer does. */
+  z.strictObject({
+    op: z.literal("queue.steer"),
+    threadId: ThreadId,
+    requestId: key,
+    entryId: key,
   }),
   z.strictObject({
     op: z.literal("question.answer"),

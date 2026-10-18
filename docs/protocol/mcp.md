@@ -277,7 +277,7 @@ Example:
 
 ## agent_message
 
-Send follow-up work to a child or a thread you started; it keeps its permissions. delivery queue (default) waits for its current turn to end, steer injects now, restart interrupts its tree and replaces queued input with this text.
+Send follow-up work to a child or a thread you started, or with full access to any of the person's threads; it keeps its permissions. delivery queue (default) waits for its current turn to end, steer injects now, restart interrupts its tree and replaces queued input with this text.
 
 Required capability: agents. Timeout: 630000 ms.
 
@@ -287,7 +287,7 @@ Required capability: agents. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | yes | string | {"minLength":1,"description":"A child's threadId, from delegate or agents_status."} |
+| threadId | yes | string | {"minLength":1,"description":"A child's or owned thread's id; with full access, any of the person's threads."} |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
 | text | yes | string | {"minLength":1,"maxLength":262144,"description":"The message, standing on its own."} |
 | delivery | no | ["queue","steer","restart"] | {"default":"queue","description":"queue (default), steer, or restart."} |
@@ -450,7 +450,7 @@ Example:
 
 ## threads_find
 
-Find threads in this project, or search inside one. Without threadId: threads whose title or messages match query (all recent threads when query is empty). With threadId: matching items in that thread's transcript. Page with cursor.
+Find threads in this project or, with full access, another one (project), or search inside one. Without threadId: threads whose title or messages match query (all recent threads when query is empty). With threadId: matching items in that thread's transcript. Page with cursor.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -464,6 +464,7 @@ Semantic rule: With threadId, query must not be empty.
 | --- | --- | --- | --- |
 | query | no | string | {"default":"","description":"Words to match; empty lists recent threads.","maxLength":256} |
 | threadId | no | [ThreadId.json](schema/ThreadId.json) | {"description":"Search inside this thread's transcript instead."} |
+| project | no | string | {"description":"Another project's name, folder path or id, from projects_find. Default: this one.","minLength":1,"maxLength":4096} |
 | cursor | no | string | {"description":"From the previous page's cursor.","minLength":1,"maxLength":2048} |
 | limit | no | integer | {"default":10,"description":"Results per page, 1 to 20.","minimum":1,"maximum":20} |
 
@@ -488,7 +489,7 @@ Example:
 
 ```json
 {
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -528,14 +529,17 @@ Example:
 
 ```json
 {
-  "hint": "example",
-  "ok": true
+  "code": "not_ready",
+  "data": {
+    "projects": []
+  },
+  "ok": false
 }
 ```
 
 ## thread_read
 
-Read a thread: title, status, branch, linked PRs, preview servers and a page of its transcript, newest first. Omit threadId for this thread. Page back with before = itemsBefore. A truncated part with source.streamId continues with streamId and offset (base64 bytes, then nextOffset).
+Read a thread: title, status, branch, linked PRs, preview servers, queued messages (with entryIds for queue_edit) and a page of its transcript, newest first. Omit threadId for this thread. Page back with before = itemsBefore. A truncated part with source.streamId continues with streamId and offset (base64 bytes, then nextOffset).
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -556,7 +560,7 @@ Example:
 
 ```json
 {
-  "before": 1
+  "threadId": "example"
 }
 ```
 
@@ -569,18 +573,14 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"thread":{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"}},"required":["id","title"],"additionalProperties":{}},"items":{"type":"array","items":{"type":"object","properties":{"type":{"type":"string"},"id":{"type":"string"}},"required":["type"],"additionalProperties":{}}},"itemsBefore":{"type":["number","null"]},"linkedPrs":{"type":"array","items":{}},"previews":{"type":"array","items":{}},"bytes":{"description":"Base64 output bytes, when reading a stream","type":"string"},"nextOffset":{"type":"number"}},"additionalProperties":{}} |
+| data | no | object | {"properties":{"thread":{"type":"object","properties":{"id":{"type":"string"},"title":{"type":"string"}},"required":["id","title"],"additionalProperties":{}},"items":{"type":"array","items":{"type":"object","properties":{"type":{"type":"string"},"id":{"type":"string"}},"required":["type"],"additionalProperties":{}}},"itemsBefore":{"type":["number","null"]},"linkedPrs":{"type":"array","items":{}},"previews":{"type":"array","items":{}},"bytes":{"description":"Base64 output bytes, when reading a stream","type":"string"},"nextOffset":{"type":"number"},"queue":{"description":"Messages waiting for the thread, oldest first."}},"additionalProperties":{}} |
 
 Example:
 
 ```json
 {
-  "data": {
-    "linkedPrs": [],
-    "nextOffset": 6
-  },
-  "hint": "example",
-  "ok": false
+  "code": "forbidden",
+  "ok": true
 }
 ```
 
@@ -610,8 +610,7 @@ Example:
 
 ```json
 {
-  "effort": "example",
-  "requestId": "6-I7JF",
+  "requestId": "gZ5jP",
   "text": "example",
   "title": "example"
 }
@@ -632,7 +631,7 @@ Example:
 
 ```json
 {
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -648,14 +647,14 @@ Required capability: thread_control. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | yes | string | {"minLength":1,"description":"A thread you own: this one or one you started."} |
+| threadId | yes | string | {"minLength":1,"description":"A thread you own: this one or one you started. With full access, also any of the person's threads."} |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
 
 Example:
 
 ```json
 {
-  "requestId": "9JeCCtj",
+  "requestId": "l04Q3W",
   "threadId": "example"
 }
 ```
@@ -675,14 +674,14 @@ Example:
 
 ```json
 {
-  "hint": "example",
-  "ok": true
+  "data": null,
+  "ok": false
 }
 ```
 
 ## queue_edit
 
-Change an owned thread's queued input before it is delivered: replace one entry's text (entryId and text), or reorder pending entries (order).
+Change an owned thread's queued messages before they are delivered; thread_read lists them with their entryIds. edit replaces an entry's text (attachments stay), cancel removes it, steer delivers it now into the running turn, reorder puts the named entries first in that order.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -690,24 +689,25 @@ Required capability: thread_control. Timeout: 630000 ms.
 
 [JSON Schema](schema/queue_edit.input.json), input validation.
 
-Semantic rule: Either entryId with text, or order.
+Semantic rule: edit needs entryId and text; cancel and steer need entryId; reorder needs order.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | yes | string | {"minLength":1,"description":"A thread you own: this one or one you started."} |
+| threadId | yes | string | {"minLength":1,"description":"A thread you own: this one or one you started. With full access, also any of the person's threads."} |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
-| entryId | no | string | {"description":"The queued entry to replace.","minLength":1,"maxLength":128} |
-| text | no | [MessageText.json](schema/MessageText.json) | {"description":"Its new text."} |
-| order | no | array | {"description":"Pending entry ids in their new order.","minItems":1,"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":128}} |
+| action | yes | ["edit","cancel","steer","reorder"] | {"description":"edit: entryId and text. cancel, steer: entryId. reorder: order."} |
+| entryId | no | string | {"description":"The queued entry.","minLength":1,"maxLength":128} |
+| text | no | [MessageText.json](schema/MessageText.json) | {"description":"edit: its new text."} |
+| order | no | array | {"description":"reorder: entry ids in their new order.","minItems":1,"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":128}} |
 
 Example:
 
 ```json
 {
-  "order": [
-    "example"
-  ],
-  "requestId": "Jsk",
+  "action": "edit",
+  "entryId": "example",
+  "requestId": "hSZHDx",
+  "text": "example",
   "threadId": "example"
 }
 ```
@@ -727,7 +727,7 @@ Example:
 ```json
 {
   "code": "unavailable",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -743,7 +743,7 @@ Required capability: thread_control. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | yes | string | {"minLength":1,"description":"A thread you own: this one or one you started."} |
+| threadId | yes | string | {"minLength":1,"description":"A thread you own: this one or one you started. With full access, also any of the person's threads."} |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
 | interactionId | yes | string | {"minLength":1,"description":"The request's interactionId."} |
 | answers | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"type":"array","items":{"type":"string"}},"description":"Question id to the chosen option ids, or to free text when other is allowed."} |
@@ -755,8 +755,10 @@ Example:
 ```json
 {
   "answers": {},
+  "dismissed": false,
+  "feedback": "example",
   "interactionId": "example",
-  "requestId": "leQJ1qzuE",
+  "requestId": "jfHvBCX3Nvj",
   "threadId": "example"
 }
 ```
@@ -775,6 +777,8 @@ Example:
 
 ```json
 {
+  "code": "not_ready",
+  "hint": "example",
   "ok": false
 }
 ```
@@ -803,7 +807,8 @@ Example:
 
 ```json
 {
-  "number": 2
+  "unlink": true,
+  "url": "https://example.invalid/"
 }
 ```
 
@@ -823,13 +828,13 @@ Example:
 ```json
 {
   "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
 ## thread_control
 
-Change a thread you own (this one or one you started): rename, configure its model, fork, hand off to a new worktree, interrupt, settle (this thread too, when its work is finished) or unsettle, snooze, close a preview server, or rename this project. Each action's fields are named in action's description.
+Change a thread you own (this one or one you started; with full access, any of the person's threads): rename, configure its model, fork, hand off to a new worktree, interrupt, settle (this thread too, when its work is finished) or unsettle, snooze, close a preview server, or rename this project. Each action's fields are named in action's description.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -842,7 +847,7 @@ Semantic rule: configure needs requestId and model; fork and interrupt need requ
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | action | yes | ["rename","configure","fork","handoff","interrupt","settle","unsettle","snooze","close_preview","rename_project"] | {"description":"rename: set title, or omit title to retitle from the first message. configure: model and effort. fork: copy the conversation into a new thread. handoff: move it to a new Git worktree on branch. interrupt: stop its current turn and its children. settle: move it to Settled, as the person's Settle does; a thread still working (this one, mid-turn) settles when it is done, unless it fails or needs the person. unsettle: bring it back and cancel a pending settle. snooze: mute its notifications until a time. close_preview: stop a preview server. rename_project: rename this project."} |
-| threadId | no | [ThreadId.json](schema/ThreadId.json) | {"description":"A thread you own. Default: this thread."} |
+| threadId | no | [ThreadId.json](schema/ThreadId.json) | {"description":"A thread you own, or with full access any of the person's. Default: this thread."} |
 | requestId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id you choose (letters, digits, _ . -). Repeating a call with the same id does nothing twice."} |
 | title | no | string | {"description":"rename: the new title.","minLength":1,"maxLength":256} |
 | onlyIfProvisional | no | boolean | {"description":"rename: only replace a title ace generated, never one the person chose."} |
@@ -859,9 +864,12 @@ Example:
 
 ```json
 {
-  "action": "unsettle",
+  "action": "fork",
   "branch": "example",
-  "serviceTier": "priority"
+  "onlyIfProvisional": true,
+  "requestId": "ZB",
+  "runId": "example",
+  "title": "example"
 }
 ```
 
@@ -881,7 +889,7 @@ Example:
 ```json
 {
   "hint": "example",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -905,9 +913,7 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 Example:
 
 ```json
-{
-  "automationId": "example"
-}
+{}
 ```
 
 ## automations_list.output
@@ -925,7 +931,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "data": null,
+  "ok": false
 }
 ```
 
@@ -955,17 +962,10 @@ Example:
 
 ```json
 {
-  "access": "auto-review",
-  "enabled": true,
+  "enabled": false,
   "id": "example",
-  "model": "example",
   "prompt": "example",
-  "schedule": {
-    "expression": "example",
-    "kind": "rrule",
-    "startAt": 0,
-    "timezone": "example"
-  },
+  "provider": "codex",
   "title": "example"
 }
 ```
@@ -985,8 +985,8 @@ Example:
 
 ```json
 {
-  "data": null,
-  "ok": false
+  "hint": "example",
+  "ok": true
 }
 ```
 
@@ -1011,8 +1011,7 @@ Example:
 ```json
 {
   "id": "example",
-  "requestId": "A",
-  "variables": {}
+  "requestId": "yIK7BYnL"
 }
 ```
 
@@ -1031,7 +1030,6 @@ Example:
 
 ```json
 {
-  "code": "invalid",
   "ok": true
 }
 ```
@@ -1072,6 +1070,7 @@ Example:
 
 ```json
 {
+  "hint": "example",
   "ok": false
 }
 ```
@@ -1099,8 +1098,6 @@ Example:
 
 ```json
 {
-  "before": 7,
-  "offset": 0,
   "sourceThreadId": "example",
   "streamId": "example"
 }
@@ -1124,9 +1121,8 @@ Example:
 
 ```json
 {
-  "eof": true,
-  "items": [],
-  "threadId": "example"
+  "encoding": "utf-16le",
+  "nextOffset": 3
 }
 ```
 
@@ -1167,21 +1163,8 @@ Example:
 
 ```json
 {
-  "diagnostics": {
-    "blocking": [],
-    "failures": []
-  },
-  "prs": [],
-  "status": {
-    "access": "auto-review",
-    "agentId": "example",
-    "groups": [],
-    "project": {
-      "id": "example",
-      "name": "example"
-    },
-    "threadId": "example"
-  }
+  "changes": null,
+  "recent": []
 }
 ```
 
@@ -1259,7 +1242,7 @@ Example:
 
 ```json
 {
-  "retired": false
+  "retired": true
 }
 ```
 
@@ -1285,8 +1268,8 @@ Example:
 ```json
 {
   "allowOther": true,
-  "options": [],
-  "question": "example"
+  "question": "example",
+  "timeoutSeconds": 12
 }
 ```
 
@@ -1304,9 +1287,8 @@ Example:
 
 ```json
 {
-  "answer": [],
   "askId": "example",
-  "status": "answered"
+  "status": "pending"
 }
 ```
 
@@ -1330,7 +1312,6 @@ Example:
 
 ```json
 {
-  "family": "ace-agents",
   "query": "example"
 }
 ```
@@ -1349,7 +1330,7 @@ Example:
 
 ```json
 {
-  "how": "example",
+  "hint": "example",
   "matches": []
 }
 ```

@@ -11,7 +11,7 @@
       "type": "string"
     },
     "threadId": {
-      "description": "A thread you own: this one or one you started.",
+      "description": "A thread you own: this one or one you started. With full access, also any of the person's threads.",
       "minLength": 1,
       "type": "string"
     }
