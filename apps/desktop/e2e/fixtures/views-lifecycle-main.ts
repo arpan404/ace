@@ -102,6 +102,10 @@ function pageContents(): WebContents {
   );
 }
 
+function expect(actual: unknown, wanted: unknown): void {
+  if (actual !== wanted) throw new Error(`Expected ${String(wanted)}, got ${String(actual)}`);
+}
+
 function place(bounds: { x: number; y: number; width: number; height: number }) {
   const host = required(window, "window");
   return views.place(
@@ -151,6 +155,51 @@ const harness = {
     await request({ kind: "navigate", url: marked, timeout: 15_000 });
   },
   place,
+  /**
+   * The page moves from the panel into a small floating frame (scaled from the panel's size,
+   * as picture-in-picture places it) and back. Returns every visibility change of its view and
+   * each main-frame navigation meanwhile, and where it was while floating.
+   */
+  async pictureInPicture(
+    panel: { x: number; y: number; width: number; height: number },
+    floating: { x: number; y: number; width: number; height: number },
+  ) {
+    const host = required(window, "window");
+    const contents = pageContents();
+    expect(await place(panel), "shown");
+    const view = host.contentView.children.find(
+      (child) => "webContents" in child && child.webContents === contents,
+    );
+    if (!view) throw new Error("No view in the app window");
+    const visibility: boolean[] = [];
+    const setVisible = view.setVisible.bind(view);
+    view.setVisible = (visible: boolean) => {
+      if (visible !== view.getVisible()) visibility.push(visible);
+      setVisible(visible);
+    };
+    let navigations = 0;
+    const navigated = (details: { isMainFrame: boolean }) => {
+      if (details.isMainFrame) navigations++;
+    };
+    contents.on("did-start-navigation", navigated);
+    try {
+      const pip = await views.place(
+        {
+          threadId,
+          bounds: floating,
+          visible: true,
+          device: { width: panel.width, height: panel.height },
+        },
+        { id: host.webContents.id, window: host, zoom: 1 },
+      );
+      const whileFloating = { receipt: pip, bounds: view.getBounds(), visible: view.getVisible() };
+      const back = await place(panel);
+      return { whileFloating, back, visibility, navigations, bounds: view.getBounds() };
+    } finally {
+      contents.off("did-start-navigation", navigated);
+      view.setVisible = setVisible;
+    }
+  },
   /** The page's own load mark: unchanged as long as the document was never reloaded. */
   loadedAt: () => evaluate("window.loadedAt"),
   closeWindow(): Promise<void> {

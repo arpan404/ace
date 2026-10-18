@@ -28,6 +28,9 @@
     "pending_dialog": {
       "$ref": "https://ace.local/protocol/v1/BrowserDialog.json"
     },
+    "playing": {
+      "type": "boolean"
+    },
     "pointer": {
       "$ref": "https://ace.local/protocol/v1/BrowserAgentPointer.json"
     },

@@ -29,6 +29,7 @@ import { useBrowserTabs } from "./use-browser-tabs.ts";
 import { viewportById } from "./viewports.ts";
 import { ConsoleDrawer, drawerHeights } from "./console-drawer.tsx";
 import { ResponsiveScreenshotDialog } from "./responsive-screenshot.tsx";
+import { rememberPageSize } from "./page-size.ts";
 
 const permissionLabel = (permission: string) =>
   ({
@@ -109,6 +110,16 @@ function Browser(props: TabViewProps) {
     { device: viewport.emulation },
   );
   const nativeShown = native.shown || native.frozen !== undefined;
+  // Picture-in-picture lays the page out at the size it had here.
+  useEffect(() => {
+    const element = pageArea.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() =>
+      rememberPageSize(threadId, element.clientWidth, element.clientHeight),
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [threadId]);
 
   useEffect(() => {
     source.nativeShown?.(threadId, nativeShown);

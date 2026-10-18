@@ -97,6 +97,7 @@ beforeEach(() => {
   // jsdom has no layout: the browser's page area sits at the right, and an open menu over it.
   HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
     if (this.hasAttribute("data-browser-page")) return box(pageX, 100, 400, 600);
+    if (this.hasAttribute("data-pip-page")) return box(600, 500, 320, 200);
     if (suggestionVisible && this.hasAttribute("data-native-overlay"))
       return box(700, 90, 200, 160);
     if (this.getAttribute("role") === "menu") return box(700, 90, 200, 160);
@@ -142,8 +143,10 @@ test("in the desktop app the browser tab draws the embedded page over its page a
 });
 
 test("switching to another tool hides the embedded page", async () => {
-  const { panel } = await openEmbeddedBrowser();
+  const { panel, browser } = await openEmbeddedBrowser();
   await waitFor(() => expect(last()?.visible).toBe(true));
+  // With no agent at work, the page doesn't follow the person into picture-in-picture.
+  act(() => browser.agentIdle("thread-cold-start"));
   await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
   await waitFor(() => expect(last()?.visible).toBe(false));
   expect(last()?.threadId).toBe("thread-cold-start");
@@ -391,4 +394,25 @@ test("closing the other window restores the retained view without taking it over
   await waitFor(() =>
     expect(within(panel).queryByRole("img", { name: /^Live view of / })).toBeNull(),
   );
+});
+
+test("closing the panel while the agent browses moves the embedded page into picture-in-picture without hiding it", async () => {
+  await openEmbeddedBrowser();
+  await waitFor(() => expect(last()?.visible).toBe(true));
+  const before = placed.length;
+  await userEvent.keyboard("{Control>}{Shift>}b{/Shift}{/Control}");
+  await screen.findByRole("region", { name: /^Picture in picture/ });
+  await waitFor(() =>
+    expect(last()).toMatchObject({
+      threadId: "thread-cold-start",
+      bounds: { x: 600, y: 500, width: 320, height: 200 },
+      visible: true,
+      // Laid out at a page's size and scaled down, so it never reflows.
+      device: { width: expect.any(Number), height: expect.any(Number) },
+    }),
+  );
+  // The panel let go of the page without hiding it: the floating window took it over.
+  await act(async () => {});
+  expect(placed.slice(before).some((placement) => !placement.visible)).toBe(false);
+  expect(last()?.visible).toBe(true);
 });

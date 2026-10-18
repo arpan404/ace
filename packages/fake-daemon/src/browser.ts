@@ -177,6 +177,14 @@ export class FakeBrowser {
     else delete tab.favicon;
     this.changed();
   }
+  /** A tab starts or stops playing sound (the page's media). */
+  mediaPlays(threadId: string, playing: boolean, tabId?: string): void {
+    const tab = this.tab(threadId, tabId);
+    if (!tab) return;
+    if (playing) tab.playing = true;
+    else delete tab.playing;
+    this.changed();
+  }
   /** Scripting: the agent went idle; its mark leaves the tab. */
   agentIdle(threadId: string, tabId?: string): void {
     const tab = this.tab(threadId, tabId);

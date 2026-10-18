@@ -155,6 +155,7 @@ export class SessionTabs {
       if (runtime.label) entry.label = runtime.label;
       if (runtime.identity.title) entry.title = runtime.identity.title;
       if (runtime.identity.favicon) entry.favicon = runtime.identity.favicon;
+      if (runtime.identity.playing) entry.playing = true;
       const status = this.statusOf(tab.tabId);
       if (status) entry.loading = status.loading;
       if (cursor === tab.tabId) entry.current = true;

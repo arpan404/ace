@@ -1,5 +1,12 @@
 import type { NativeViewPlacement, DesktopBrowserViews } from "@/boot/desktop-browser.ts";
 
+/**
+ * The placer that last asked to show each view. Another one may take a view over as the first
+ * lets go (the panel closing as picture-in-picture opens, in the same commit): the one letting
+ * go then leaves it where it is instead of hiding it, so the view never blinks.
+ */
+const showing = new Map<string, NativePlacement>();
+
 /** Own pending IPC receipts and bounded retries independently of React render lifetimes. */
 export class NativePlacement {
   private readonly ports: {
@@ -37,6 +44,8 @@ export class NativePlacement {
       previous.bounds.height === next.bounds.height &&
       JSON.stringify(previous.device) === JSON.stringify(next.device);
     this.requested = next;
+    if (next.visible) showing.set(next.threadId, this);
+    else if (showing.get(next.threadId) === this) showing.delete(next.threadId);
     this.acknowledged = !!retain;
     this.superseded = false;
     this.cancelRetry?.();
@@ -78,10 +87,16 @@ export class NativePlacement {
     this.cancelRetry?.();
     this.cancelRetry = undefined;
     this.ports.changed(false);
-    if (this.requested)
-      void this.ports
-        .place({ threadId: this.requested.threadId, bounds: this.requested.bounds, visible: false })
-        .catch(() => {});
+    const requested = this.requested;
+    if (!requested) return;
+    const { threadId, bounds } = requested;
+    // Hidden once whatever replaces this in the same commit has had its say.
+    queueMicrotask(() => {
+      const current = showing.get(threadId);
+      if (current && current !== this) return;
+      showing.delete(threadId);
+      void this.ports.place({ threadId, bounds, visible: false }).catch(() => {});
+    });
   }
 }
 

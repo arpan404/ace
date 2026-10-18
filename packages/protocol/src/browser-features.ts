@@ -55,6 +55,8 @@ export const BrowserTab = z.object({
   lifecycle: BrowserTabLifecycle.optional(),
   loading: z.boolean().optional(),
   favicon: z.string().max(8192).optional(),
+  /** Audio or video with sound plays in this tab now. */
+  playing: z.boolean().optional(),
 });
 export type BrowserTab = z.infer<typeof BrowserTab>;
 /** Wire bound on one browser's tab list: far above what a person keeps open, still bounded. */

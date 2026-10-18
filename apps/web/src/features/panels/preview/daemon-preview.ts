@@ -56,6 +56,7 @@ const view = (state: BrowserState): BrowserView => ({
     pointer: tab.pointer,
     private: tab.private,
     pendingDialog: tab.pending_dialog,
+    playing: tab.playing,
   })),
   activeTabId: state.activeTabId,
   loading: state.loading,

@@ -100,6 +100,8 @@ export interface BrowserTabView {
   /** "Keep agents out of this tab": agents can neither read nor drive it. */
   private?: boolean | undefined;
   pendingDialog?: BrowserDialogView | undefined;
+  /** Audio or video with sound plays in this tab now. */
+  playing?: boolean | undefined;
 }
 export interface BrowserDownloadView {
   downloadId: string;

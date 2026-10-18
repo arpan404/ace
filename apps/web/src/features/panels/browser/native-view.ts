@@ -42,14 +42,17 @@ export function nativeViewPlacement(input: {
   window: Size;
   device?: Size | undefined;
   overlays: readonly PageBox[];
+  /** Space kept around a device-sized page; picture-in-picture keeps none. */
+  padding?: number | undefined;
 }): { bounds: PageBox; visible: boolean; covered: boolean } {
   const { area, device } = input;
+  const padding = input.padding ?? devicePadding;
   let box = area;
   if (device) {
     const scale = Math.min(
       1,
-      Math.max(0, area.width - 2 * devicePadding) / device.width,
-      Math.max(0, area.height - 2 * devicePadding) / device.height,
+      Math.max(0, area.width - 2 * padding) / device.width,
+      Math.max(0, area.height - 2 * padding) / device.height,
     );
     const width = device.width * scale;
     const height = device.height * scale;
@@ -101,7 +104,7 @@ export function useNativeView(
   threadId: string,
   area: RefObject<HTMLElement | null>,
   active: boolean,
-  options: { device: NativeViewPlacement["device"] },
+  options: { device: NativeViewPlacement["device"]; padding?: number },
 ): { shown: boolean; frozen: FrozenPage | undefined } {
   const [shown, setShown] = useState(false);
   const [frozen, setFrozen] = useState<FrozenPage>();
@@ -109,6 +112,7 @@ export function useNativeView(
   const deviceHeight = options.device?.height;
   const deviceMobile = options.device?.mobile;
   const deviceScaleFactor = options.device?.deviceScaleFactor;
+  const padding = options.padding;
   useLayoutEffect(() => {
     const views = desktopBrowserViews();
     const element = area.current;
@@ -187,6 +191,7 @@ export function useNativeView(
         window: { width: innerWidth, height: innerHeight },
         device: size,
         overlays: overlayBoxes(element),
+        padding,
       });
       // Covered and not yet captured: keep showing the page until its picture is ready.
       if (!placement.covered) attempted = false;
@@ -265,6 +270,6 @@ export function useNativeView(
       stopVisibility();
       stopOverlays();
     };
-  }, [threadId, area, active, deviceWidth, deviceHeight, deviceMobile, deviceScaleFactor]);
+  }, [threadId, area, active, deviceWidth, deviceHeight, deviceMobile, deviceScaleFactor, padding]);
   return { shown: active && shown, frozen: active ? frozen : undefined };
 }

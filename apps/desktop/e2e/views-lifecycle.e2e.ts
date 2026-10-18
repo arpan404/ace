@@ -34,6 +34,16 @@ interface Harness {
   resizeWindow(width: number, height: number): void;
   backgroundTab(): Promise<string>;
   rendering(tabId: string): Promise<{ frames: number; state: string }>;
+  pictureInPicture(
+    panel: Box,
+    floating: Box,
+  ): Promise<{
+    whileFloating: { receipt: string; bounds: Box; visible: boolean };
+    back: string;
+    visibility: boolean[];
+    navigations: number;
+    bounds: Box;
+  }>;
   blip(): Promise<unknown>;
   typeAfterAddressShortcut(): Promise<unknown>;
   crashRepeatedly(times: number): Promise<{ events: string[]; crashed: boolean }>;
@@ -143,6 +153,31 @@ describe.skipIf(!enabled)("embedded view lifecycle", () => {
       bounds: after,
       inner: { width: after.width, height: after.height },
     });
+  });
+
+  it("moving the page into picture-in-picture and back never reloads it or hides it", async () => {
+    const loaded = await app.evaluate(() =>
+      (Reflect.get(globalThis, "harness") as Harness).loadedAt(),
+    );
+    const panel = { x: 300, y: 120, width: 600, height: 400 };
+    const floating = { x: 640, y: 420, width: 300, height: 200 };
+    const moved = await app.evaluate(
+      (_e, boxes: { panel: Box; floating: Box }) =>
+        (Reflect.get(globalThis, "harness") as Harness).pictureInPicture(
+          boxes.panel,
+          boxes.floating,
+        ),
+      { panel, floating },
+    );
+    expect(moved.whileFloating).toEqual({ receipt: "shown", bounds: floating, visible: true });
+    expect(moved.back).toBe("shown");
+    expect(moved.bounds).toEqual(panel);
+    // Never hidden on the way (no flash) and never navigated (no reload).
+    expect(moved.visibility).toEqual([]);
+    expect(moved.navigations).toBe(0);
+    expect(
+      await app.evaluate(() => (Reflect.get(globalThis, "harness") as Harness).loadedAt()),
+    ).toBe(loaded);
   });
 
   it("a second tab renders while not selected", async () => {
