@@ -15,6 +15,8 @@ export interface NativeHost {
   decode(bytes: number[], encoding: string, fatal: boolean): string;
   randomBytes(count: number): number[];
   base64(text: string, decode: boolean): string;
+  /** Absolute URL parts as JSON, or "" when Foundation cannot parse it. */
+  parseURL(text: string): string;
 }
 declare global {
   var aceHost: NativeHost;

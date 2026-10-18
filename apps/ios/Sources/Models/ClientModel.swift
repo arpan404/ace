@@ -25,6 +25,8 @@ import CryptoKit
     var inbox: [String: ThreadRow] = [:]
     var pending: [String: PendingRow] = [:]
     var connection = "connecting"
+    /// Why the SDK's connection isn't ready (unreachable, revoked, pin mismatch), for a person.
+    var problem: ProblemNotice?
     var error: String?
     var thread: ThreadModel?
     var inboxLoaded = false
@@ -53,13 +55,12 @@ import CryptoKit
         let closing = retireRuntime()
         inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false
         inboxLayout = .empty
-        connection = "connecting"; error = nil
+        connection = "connecting"; error = nil; problem = nil
         frames = BridgeFrames(); generation = 0
         await closing?.value
         guard connectionEpoch == epoch, !Task.isCancelled else { return }
         shutdown = nil
-        let scope = SHA256.hash(data: Data("\(target.hostId)\u{0}\(target.deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
-        let runtime = makeRuntime(target, directory.appendingPathComponent(scope + ".sqlite"), { [weak self] data in
+        let runtime = makeRuntime(target, Self.database(hostId: target.hostId, deviceId: target.deviceId, in: directory), { [weak self] data in
             Task { @MainActor in
                 guard let self, self.connectionEpoch == epoch else { return }
                 let accepted = self.receive(data)
@@ -71,6 +72,11 @@ import CryptoKit
         } })
         self.runtime = runtime
         runtime.start(itemLimit: itemLimit)
+    }
+    /// Outbox and cached views are bound to one host and device identity.
+    nonisolated static func database(hostId: String, deviceId: String, in directory: URL) -> URL {
+        let scope = SHA256.hash(data: Data("\(hostId)\u{0}\(deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
+        return directory.appendingPathComponent(scope + ".sqlite")
     }
     @discardableResult func receive(_ data: Data) -> Bool {
         largestFrame = max(largestFrame, data.count)
@@ -87,6 +93,7 @@ import CryptoKit
             case .inbox(let id, let row): inbox[id] = row
             case .inboxSections(let layout): if inboxLayout != layout { inboxLayout = layout }
             case .connection(let state): connection = state
+            case .problem(let notice): problem = notice
             case .pending(let id, let row): pending[id] = row
             case .error(let message): error = message
             case .receipt(let id, let ok, let message):

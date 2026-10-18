@@ -12,8 +12,9 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
     private var stopped = false
     private var finished = false
     private var completions: [@Sendable () -> Void] = []
-    private let target: ConnectionTarget
-    private let storageURL: URL
+    private let target: ConnectionTarget?
+    private let storageURL: URL?
+    private let services: HostServices
     private let receive: @Sendable (Data) -> Void
     private let fail: @Sendable (String) -> Void
 
@@ -21,10 +22,27 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
          receive: @escaping @Sendable (Data) -> Void, fail: @escaping @Sendable (String) -> Void) {
         self.target = target
         self.storageURL = storageURL
+        self.services = .connection(target)
         self.receive = receive
         self.fail = fail
     }
+    /// A pairing or machine-directory runtime: no outbox database and no client patches.
+    init(access target: ConnectionTarget?, services: HostServices, fail: @escaping @Sendable (String) -> Void) {
+        self.target = target
+        self.storageURL = nil
+        self.services = services
+        self.receive = { _ in }
+        self.fail = fail
+    }
     func start(itemLimit: Int = 200) {
+        guard let target else { fail("Could not load the shared client"); return }
+        let config = RuntimeConfig(deviceId: target.deviceId, hostId: target.hostId, itemLimit: itemLimit,
+                                   paired: target.secretKey.map { PairedConfig(secretKey: $0) })
+        guard let json = try? JSONEncoder().encode(config) else { fail("Could not load the shared client"); return }
+        boot(entry: "aceStart", json: String(decoding: json, as: UTF8.self))
+    }
+    func startAccess(_ json: String) { boot(entry: "aceAccess", json: json) }
+    private func boot(entry: String, json: String) {
         let ready = DispatchSemaphore(value: 0)
         let worker = Thread { [self] in
             let runLoop = CFRunLoopGetCurrent()
@@ -38,16 +56,14 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
                 }
                 self.context = context
                 context.exceptionHandler = { [weak self] _, _ in self?.fail("The client runtime encountered a JavaScript error") }
-                let native = NativeHost(runtime: self, target: target, storageURL: storageURL, receive: receive)
+                let native = NativeHost(runtime: self, target: target, storageURL: storageURL, services: services, receive: receive)
                 host = native
                 native.install(in: context)
                 do {
                     guard let path = Bundle.main.url(forResource: "client", withExtension: "js") else { throw HostError.unsupported }
                     let script = try String(contentsOf: path, encoding: .utf8)
                     context.evaluateScript(script, withSourceURL: path)
-                    let config = RuntimeConfig(deviceId: target.deviceId, hostId: target.hostId, itemLimit: itemLimit)
-                    let json = String(decoding: try JSONEncoder().encode(config), as: UTF8.self)
-                    context.objectForKeyedSubscript("aceStart")?.call(withArguments: [json])
+                    context.objectForKeyedSubscript(entry)?.call(withArguments: [json])
                 } catch { fail("Could not load the shared client") }
             }
             CFRunLoopRun()
@@ -100,6 +116,7 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
         }
     }
 }
-private struct RuntimeConfig: Encodable { let deviceId: String; let hostId: String; let itemLimit: Int }
+private struct PairedConfig: Encodable { let secretKey: String }
+private struct RuntimeConfig: Encodable { let deviceId: String; let hostId: String; let itemLimit: Int; let paired: PairedConfig? }
 /// The value is retained across an async native operation, then read/released only on the VM thread.
 final class Callback: @unchecked Sendable { let value: JSValue; init(_ value: JSValue) { self.value = value } }

@@ -11,6 +11,9 @@ settings:
     SWIFT_APPROACHABLE_CONCURRENCY: YES
     SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
     CODE_SIGNING_ALLOWED: NO
+    # Ad-hoc signing gives simulator builds a Keychain; device builds pick a team in Xcode.
+    "CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]": YES
+    "CODE_SIGN_IDENTITY[sdk=iphonesimulator*]": "-"
     DEVELOPMENT_TEAM: ""
     TARGETED_DEVICE_FAMILY: "1,2"
 targets:
@@ -29,6 +32,7 @@ targets:
         CADisableMinimumFrameDurationOnPhone: true
         NSLocalNetworkUsageDescription: Connect to your own ace daemon.
         NSFaceIDUsageDescription: Unlock your paired machines.
+        NSCameraUsageDescription: Scan the pairing code shown by ace on your computer.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
     settings:
