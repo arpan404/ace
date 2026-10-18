@@ -178,6 +178,53 @@ it("measurement input text is redacted before native evidence can be stored", ()
   });
 });
 
+it("text a computer-use batch types or sets stays private while its clicks and menus stay visible", () => {
+  const feed = fixture();
+  const events = feed({
+    type: "item.upsert",
+    agent: "root",
+    item: "batch",
+    draft: {
+      type: "tool_call",
+      call: {
+        kind: "mcp",
+        title: "screen_act",
+        detail: {
+          kind: "mcp",
+          server: "ace",
+          tool: "screen_act",
+          arguments: {
+            app: "TextEdit",
+            actions: [
+              { type: "menu", path: ["File", "New"] },
+              { type: "type", text: "secret-typed" },
+              { type: "set_value", id: 4, value: "secret-set" },
+            ],
+          },
+        },
+        raw: [{ type: "provider.call", data: { text: "secret-typed" } }],
+      },
+    },
+  });
+  expect(JSON.stringify(events)).not.toMatch(/secret-typed|secret-set/);
+  expect(events.find((event) => event.type === "item.created")).toMatchObject({
+    item: {
+      call: {
+        detail: {
+          arguments: {
+            app: "TextEdit",
+            actions: [
+              { type: "menu", path: ["File", "New"] },
+              { type: "type", text: "[redacted]" },
+              { type: "set_value", id: 4, value: "[redacted]" },
+            ],
+          },
+        },
+      },
+    },
+  });
+});
+
 it("approval previews redact ace input without redacting another server's request", () => {
   const feed = fixture();
   for (const [server, text] of [

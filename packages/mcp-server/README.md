@@ -111,7 +111,7 @@ OpenCode and Pi load every listed tool upfront and reload on `tools/list_changed
 (OpenCode 2.0.22 debounces a reload in `packages/core/src/tool/mcp.ts`; Pi's
 extension re-registers), so their injections send `X-Ace-Tools: core` and list only
 the entry points in `src/toolsets.ts` plus `tools_find`. Reading a guide, using a
-family's entry point (`delegate`, `browser_open`, `screen_open_app`) or finding a
+family's entry point (`delegate`, `browser_open`, `screen_state`) or finding a
 family's tools with `tools_find` adds that family's tools for the session and
 announces a tool-list change; in core mode `guide` and `tools_find` also return the
 schemas inline, so the next call needs no reload. Cursor's SDK (1.0.35) caches its

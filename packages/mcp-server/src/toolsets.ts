@@ -36,6 +36,8 @@ export const coreTools: ReadonlySet<string> = new Set([
   "thread_link_pr",
   "browser_open",
   "html_render",
+  // macOS lists the background engine's screen_state; other platforms keep screen_open_app.
+  "screen_state",
   "screen_open_app",
 ]);
 
@@ -43,6 +45,7 @@ export const coreTools: ReadonlySet<string> = new Set([
 const entryPoints: ReadonlyMap<string, string> = new Map([
   ["delegate", "ace-agents"],
   ["browser_open", "ace-browser"],
+  ["screen_state", "ace-computer-use"],
   ["screen_open_app", "ace-computer-use"],
 ]);
 

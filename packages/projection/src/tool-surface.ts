@@ -63,7 +63,10 @@ export function toolSurface(call: ToolCall, carried?: string): ToolSurface | und
   const name = toolName(call);
   const args = argumentsOf(call);
   if (name && screenTool.test(name)) {
-    const bundleId = field(args, "bundleId");
+    // Newer tools name the app by name or bundle id; only a bundle id identifies its icon.
+    const app = field(args, "app");
+    const bundleId =
+      field(args, "bundleId") ?? (app && /^[\w-]+(\.[\w-]+)+$/.test(app) ? app : undefined);
     return bundleId && bundleId.length <= 1024
       ? { kind: "computer", icon: { kind: "app", identity: bundleId } }
       : { kind: "computer" };

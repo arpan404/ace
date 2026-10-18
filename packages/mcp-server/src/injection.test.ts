@@ -120,7 +120,7 @@ it("the session brief and enabled groups shape the injected guidance", () => {
     }),
   });
   expect(injected.developerInstructions).toContain('Project "shop"');
-  expect(injected.developerInstructions).not.toContain("screen_open_app");
+  expect(injected.developerInstructions).not.toContain("screen_state");
   expect(injected.developerInstructions).not.toContain("delegate (instead");
 });
 

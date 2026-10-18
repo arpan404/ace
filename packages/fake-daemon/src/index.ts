@@ -46,6 +46,7 @@ export {
   aceToolsDevices,
   screenAudit,
 } from "./scenarios/ace-tools.ts";
+export { aceToolsComputerBackground } from "./scenarios/ace-tools-computer.ts";
 export type { AgedScenario } from "./scenarios/home-list.ts";
 export { replayCursor } from "./scenarios/replay-cursor.ts";
 export { dedupeReconnect } from "./scenarios/dedupe-reconnect.ts";

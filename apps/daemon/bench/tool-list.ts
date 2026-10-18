@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { Agent, McpScope, McpCapability } from "@ace/protocol";
 import { ToolRegistry, nodeScheduler, developerInstructions } from "@ace/mcp-server";
-import { ScreenManager } from "@ace/screen";
+import { ComputerClient, ScreenManager, computerToolkit } from "@ace/screen";
 import { startDaemon, readConfig, createDevThread } from "../src/index.ts";
 import { z } from "zod";
 
@@ -127,6 +127,14 @@ try {
       description: `${oldDescriptions.get(entry.name) ?? entry.description}${registry?.capability(entry.name) === "screen" ? " Computer use is disabled. Ask the person to enable it in Settings → Computer use." : registry?.capability(entry.name) === "devices" ? " Devices are disabled. Ask the person to enable devices in the thread's Devices panel." : ""}`,
     })),
   ].filter((entry) => entry !== undefined);
+  // On macOS the background engine's tools replace the session tools above.
+  const computerRegistry = new ToolRegistry({ scheduler: nodeScheduler });
+  const computerClient: ComputerClient = Object.create(ComputerClient.prototype);
+  computerToolkit(computerClient).register(computerRegistry);
+  const macOs = [
+    ...full.filter((entry) => registry?.capability(entry.name) !== "screen"),
+    ...computerRegistry.list(lease.principal),
+  ];
   // Computer use on and devices off: every screen tool is offered at once.
   const screenOn = [
     after.find((entry) => entry.name === "context"),
@@ -139,6 +147,7 @@ try {
       after,
       screenOn,
       fullyEnabled: full,
+      macOsFullyEnabled: macOs,
       oldInstructions: z.string().parse(JSON.parse(instructions[1])),
       instructions: Object.fromEntries(
         ["codex", "claude", "opencode", "cursor", "pi", "acp"].map((provider) => [

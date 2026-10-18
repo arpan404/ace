@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import type { TabViewProps } from "@/lib/workspace/index.ts";
-import { EnableRow, LiveSessions, StopAllButton } from "./sections.tsx";
+import { EnableRow, LiveSessions } from "./sections.tsx";
 import { SharePicker } from "./share-picker.tsx";
 import { useComputerUse } from "./use-computer-use.ts";
 
@@ -18,12 +18,7 @@ export default function ComputerUsePanel(props: TabViewProps) {
         <>
           <SharePicker use={use} threadId={threadId} />
           <section aria-label="Live sessions" className="mt-4">
-            <div className="mb-2 flex items-center gap-2">
-              <h2 className="min-w-0 flex-1 text-xs font-medium text-subtle-foreground">
-                Live sessions
-              </h2>
-              <StopAllButton use={use} />
-            </div>
+            <h2 className="mb-2 text-xs font-medium text-subtle-foreground">Live sessions</h2>
             <LiveSessions use={use} threadId={threadId} narrow />
           </section>
           <p className="mt-6 text-xs text-subtle-foreground">

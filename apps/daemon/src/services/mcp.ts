@@ -14,7 +14,7 @@ import {
 import { builtinGuides } from "@ace/plugins";
 import { devicesToolkit } from "@ace/devices";
 import { browserToolkit } from "../browser-toolkit.ts";
-import { screenToolkit } from "@ace/screen";
+import { computerToolkit, screenToolkit } from "@ace/screen";
 import { handoffToolkit } from "./handoff-tools.ts";
 import { startDaemonMcp } from "../mcp.ts";
 import { hostname } from "node:os";
@@ -150,7 +150,12 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         : []),
       ...(help ? [browserHelpToolkit(help)] : []),
       ...(services.devices ? [devicesToolkit(services.devices)] : []),
-      ...(services.screen ? [screenToolkit(services.screen)] : []),
+      // Agents use the background engine on macOS; other platforms keep the session tools.
+      ...(services.computer
+        ? [computerToolkit(services.computer)]
+        : services.screen
+          ? [screenToolkit(services.screen)]
+          : []),
     ],
     observations,
     (caller) => {

@@ -37,9 +37,7 @@ export function aceGuidance(groups?: readonly string[]): string {
       : "",
     "- a chart, diagram or mockup explains it better: html_render;",
     "- you opened or found the PR for this work: thread_link_pr;",
-    has("screen", "devices")
-      ? "- the person names a native app or simulator: screen_open_app;"
-      : "",
+    has("screen", "devices") ? "- the person names a native app or simulator: screen_state;" : "",
     "Not sure which ace tool fits? tools_find with what you want to do.",
     `How-to and the rest of each family's tools: guide with topic ${guideTopics.join(", ")}.`,
     "If an ace tool says its group is off, tell the person. Agents never answer approvals.",

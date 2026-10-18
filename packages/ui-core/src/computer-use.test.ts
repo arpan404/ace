@@ -1,12 +1,6 @@
 import type { ScreenState } from "@ace/protocol";
 import { expect, test } from "vitest";
-import {
-  agentSessions,
-  indicatorSessions,
-  screenProblem,
-  screenSession,
-  visibleSessions,
-} from "./computer-use.ts";
+import { screenProblem, screenSession, visibleSessions } from "./computer-use.ts";
 
 const state = (overrides: Partial<ScreenState> & { bundleId?: string } = {}): ScreenState => {
   const { bundleId = "com.apple.TextEdit", ...rest } = overrides;
@@ -57,15 +51,6 @@ test("stopped sessions leave the list and agent-held ones lead it", () => {
   ]);
 });
 
-test("the indicator counts agent sessions even without capture", () => {
-  expect(
-    agentSessions([
-      state({ controller: "agent", indicator: false }),
-      state({ bundleId: "com.apple.calculator", controller: "human", indicator: true }),
-    ]),
-  ).toHaveLength(1);
-});
-
 test("a busy target names who holds it and offers taking over, never stealing it", () => {
   const problem = screenProblem("target_busy", "Target held", "Claude");
 
@@ -74,8 +59,8 @@ test("a busy target names who holds it and offers taking over, never stealing it
   expect(screenProblem(undefined, "Something broke").title).toBe("Something broke");
 });
 
-test("the indicator keeps a session that is stopping or failed while capture is still on", () => {
-  const shown = indicatorSessions([
+test("live sessions keep one that is stopping or failed while capture is still on", () => {
+  const shown = visibleSessions([
     state({
       bundleId: "com.apple.TextEdit",
       lifecycle: "stopping",
@@ -102,8 +87,8 @@ test("the indicator keeps a session that is stopping or failed while capture is 
   ]);
 });
 
-test("human takeover stays visible in the profile and says who is in control", () => {
+test("human takeover stays a live session and says who is in control", () => {
   const human = state({ controller: "human", indicator: false });
   expect(screenSession(human).status).toBe("You're in control");
-  expect(indicatorSessions([human])).toEqual(visibleSessions([human]));
+  expect(visibleSessions([human]).map((entry) => entry.sessionId)).toEqual([human.sessionId]);
 });

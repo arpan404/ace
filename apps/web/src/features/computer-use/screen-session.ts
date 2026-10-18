@@ -242,8 +242,8 @@ function reopen(endpoint: DaemonEndpoint) {
 const none = () => () => {};
 
 /**
- * The screen channel while anything shows computer use: one per daemon endpoint, shared by the
- * rail's indicator, Settings and a thread's panel, closed when the last of them leaves. When the
+ * The screen channel while anything shows computer use: one per daemon endpoint, shared by
+ * Settings and a thread's panel, closed when the last of them leaves. When the
  * daemon connection comes back, a closed channel opens again for all of them. Nothing is
  * replayed: control, subscriptions and approvals are asked for again.
  */
