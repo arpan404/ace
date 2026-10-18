@@ -50,6 +50,7 @@ export const MessageOrigin = z.object({
     "restart",
     "limit_resume",
     "queue",
+    "steer",
     "automation",
     "schedule",
     "background_completion",

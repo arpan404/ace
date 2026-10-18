@@ -1,25 +1,31 @@
 import type { Block } from "./blocks.ts";
 import type { Row } from "./rows.ts";
 
-/* The room under each transcript row, by what it shows. */
+/*
+ * The room under each transcript row. Three values only: 8px between rows, 16px around a user
+ * message or a card, 24px after a finished answer (its hover actions, time, Copy and Fork, are
+ * laid over that room, so a finished answer gains no height when they come and nothing under it
+ * moves).
+ */
 
-const gap: Record<Block["kind"], string> = {
-  user: "pb-4",
-  // An answer's hover actions (its time, Copy, Fork) are laid over this room, so a finished
-  // answer gains no height when they come and nothing under it moves.
-  message: "pb-6",
-  work: "pb-2.5",
-  live: "pb-1.5",
-  files: "pb-4",
-  subagents: "pb-1.5",
-  background: "pb-2",
-  item: "pb-3",
-  started: "pb-3",
-  question: "pb-4",
-  event: "pb-3",
-  end: "pb-4",
-};
+type Room = 8 | 16 | 24;
 
-export function rowGap(row: Row): string {
-  return gap[row.block.kind];
+/** Blocks that draw a card or a bubble: they take 16px on both sides. */
+const spaced = new Set<Block["kind"]>(["user", "files", "started", "question"]);
+
+function after(block: Block): Room {
+  if (block.kind === "message") return 24;
+  return spaced.has(block.kind) ? 16 : 8;
+}
+
+function before(block: Block): Room {
+  return spaced.has(block.kind) ? 16 : 8;
+}
+
+const padding: Record<Room, string> = { 8: "pb-2", 16: "pb-4", 24: "pb-6" };
+
+/** The room under `row`, given the row after it (none at the end of the feed). */
+export function rowGap(row: Row, next?: Row | undefined): string {
+  const room = Math.max(after(row.block), next ? before(next.block) : 8) as Room;
+  return padding[room];
 }

@@ -268,11 +268,11 @@ test("the subagent card deduplicates a launch and its spawn call and opens the c
   const tree = await within(feed).findByRole("list", { name: "Subagents" });
   expect(within(tree).getAllByRole("listitem")).toHaveLength(1);
   expect(within(tree).getByText("Relay protocol reference")).toBeTruthy();
-  // Done shows once, as the avatar's dot: no "Finished" words beside the name.
-  expect(within(tree).queryByText("Finished")).toBeNull();
+  // Its status word stays beside the name.
+  expect(within(tree).getByText("Done")).toBeTruthy();
 
   await userEvent.click(
-    within(tree).getByRole("link", { name: "Open Relay protocol reference's thread, Finished" }),
+    within(tree).getByRole("link", { name: "Open Relay protocol reference's thread, Done" }),
   );
   expect(await screen.findByText(/Drafted the frame table/)).toBeTruthy();
 });

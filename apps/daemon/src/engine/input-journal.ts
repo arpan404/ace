@@ -34,6 +34,11 @@ export function inputOrigin(command: Command): MessageOrigin {
         : trigger;
   return { kind, commandId: command.id };
 }
+
+/** Whether input of this origin is the person's own words (typed, queued or steered). */
+export function personInput(origin: MessageOrigin): boolean {
+  return origin.kind === "person" || origin.kind === "queue" || origin.kind === "steer";
+}
 function signature(parts: ContentPart[]): string {
   return createHash("sha256")
     .update(
@@ -161,6 +166,12 @@ export class InputJournal {
       .statement("DELETE FROM engine_inputs WHERE thread_id=? AND item_key=?")
       .run(thread, key);
   }
+  /** Correct an accepted input's origin once its delivery is known (a steer into a run). */
+  restamp(thread: ThreadId, key: string, origin: MessageOrigin): void {
+    this.store
+      .statement("UPDATE engine_inputs SET origin=? WHERE thread_id=? AND item_key=?")
+      .run(JSON.stringify(origin), thread, key);
+  }
   register(thread: ThreadId, key: string, parts: ContentPart[], origin: MessageOrigin): void {
     this.store
       .statement(
@@ -246,7 +257,7 @@ export class InputJournal {
       draft: {
         ...draft,
         origin,
-        synthetic: origin.kind !== "person" && origin.kind !== "queue",
+        synthetic: !personInput(origin),
         nativeId: fact.draft.nativeId ?? fact.item,
       },
     };

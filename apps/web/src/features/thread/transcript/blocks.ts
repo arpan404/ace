@@ -4,11 +4,20 @@ import {
   carriesOnStretch,
   isBareErrorCode,
   isThreadStartCall,
+  mergesWith,
   toolRefusal,
+  type GroupEntry,
   type InlineQuestion,
 } from "@ace/ui-core";
 
 export { isInlineInteraction } from "@ace/ui-core";
+
+/** A background command's place in the grouping rule: by its agent and run. */
+const backgroundEntry = (item: Item): GroupEntry => ({
+  kind: "background",
+  agentId: item.agentId ?? "",
+  runId: item.runId,
+});
 
 /**
  * The transcript reads like a document: tool work collapses into "Worked for" segments
@@ -600,8 +609,14 @@ export function buildBlocks(source: BlockSource): Block[] {
           } else if (taskId !== undefined) {
             mark?.tasks.add(taskId);
             const last = blocks.at(-1);
-            // Background commands started back to back in the same turn read as one group.
-            if (last?.kind === "background" && mark?.blocks.has(blocks.length - 1)) {
+            const newest =
+              last?.kind === "background" ? source.item(last.itemIds.at(-1) ?? "") : undefined;
+            // Background commands one agent started back to back in the same run read as one group.
+            if (
+              last?.kind === "background" &&
+              mark?.blocks.has(blocks.length - 1) &&
+              mergesWith(newest && backgroundEntry(newest), backgroundEntry(item))
+            ) {
               last.itemIds.push(id);
               last.taskIds.push(taskId);
             } else

@@ -16,7 +16,6 @@ import { thoughtLabel, thoughtMs } from "./thought-time.ts";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
 import {
   BrainIcon,
-  CaretRightIcon,
   FileTextIcon,
   FolderSimpleIcon,
   GlobeIcon,
@@ -43,6 +42,7 @@ import { useAnswerText } from "./answer-text.ts";
 import { useStreaming } from "../transcript/use-streaming.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
+import { StaticRow, TranscriptRow, pressableRowClass, rowDetailIndent } from "./transcript-row.tsx";
 
 /*
  * A work log as one quiet flow: consecutive calls by one agent read as one sentence row with a
@@ -207,17 +207,19 @@ const groupIcons: Record<GroupIcon, PhosphorIcon> = {
   think: BrainIcon,
 };
 
-const row = "flex min-h-8 w-full min-w-0 items-center gap-2.5 text-left text-ui";
-
 /** The turn is working with no step in flight: the model is thinking, as a header like a running group. */
 export function ThinkingRow() {
   return (
     <li className="relative">
       <RailMark state="running" />
-      <div role="status" data-step-group="" className={cn(row, "text-muted-foreground")}>
-        <Icon icon={BrainIcon} size={16} className="text-subtle-foreground" />
-        <span className="step-shimmer min-w-0 truncate">{thoughtLabel(false, undefined)}</span>
-      </div>
+      <StaticRow
+        role="status"
+        stepGroup
+        lead={<Icon icon={BrainIcon} size={16} />}
+        leadKind="thought"
+        title={thoughtLabel(false, undefined)}
+        titleClassName="step-shimmer"
+      />
     </li>
   );
 }
@@ -226,9 +228,9 @@ export function ThinkingRow() {
 const thoughtKeys: readonly ThreadKey[] = ["order", "thread"];
 
 /**
- * What the agent thought, as one quiet header row: "Thinking…" while it thinks, "Thought for 12s"
- * once done, the same height either way so nothing moves when it finishes. The thought itself
- * opens in place, as markdown, only when the reader asks for it.
+ * What the agent thought, as one quiet row: "Thinking…" while it thinks, "Thought for 12s" once
+ * done, the same height either way so nothing moves when it finishes. The thought itself opens
+ * in place, as markdown, only when the reader asks for it.
  */
 function ThoughtRow(props: { threadId: string; itemId: string }) {
   const item = useStepItem(props.threadId, props.itemId);
@@ -246,36 +248,26 @@ function ThoughtRow(props: { threadId: string; itemId: string }) {
   const text = answer.text.trim();
   // Still thinking with no words yet: the same header as a thinking turn with no step in flight.
   if (!item.complete && !text) return <ThinkingRow />;
-  const label = thoughtLabel(item.complete, took);
   return (
-    <li className="relative min-w-0 text-ui text-muted-foreground">
+    <li className="relative min-w-0">
       <RailMark state={item.complete ? "done" : "running"} />
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls={panel}
-        data-step-group=""
-        onClick={() => setOpen(!open)}
-        className={cn(
-          row,
-          "transition-colors duration-(--motion-fast) hover:text-foreground focus-ring-inset",
-        )}
-      >
-        <Icon icon={BrainIcon} size={16} className="text-subtle-foreground" />
-        <span className={cn("min-w-0 truncate", !item.complete && "step-shimmer")}>{label}</span>
-        <CaretRightIcon
-          aria-hidden
-          size={12}
-          className={cn(
-            "shrink-0 text-faint-foreground transition-transform duration-(--motion-fast)",
-            open && "rotate-90",
-          )}
-        />
-      </button>
+      <TranscriptRow
+        expanded={open}
+        stepGroup
+        controls={panel}
+        onToggle={() => setOpen(!open)}
+        lead={<Icon icon={BrainIcon} size={16} />}
+        leadKind="thought"
+        title={thoughtLabel(item.complete, took)}
+        titleClassName={item.complete ? undefined : "step-shimmer"}
+      />
       {open && (
         <div
           id={panel}
-          className="min-w-0 pb-1.5 pl-6.5 font-prose text-ui leading-relaxed wrap-break-word"
+          className={cn(
+            "min-w-0 pb-1.5 font-prose text-ui leading-relaxed wrap-break-word text-muted-foreground",
+            rowDetailIndent,
+          )}
         >
           <Prose
             text={text}
@@ -286,7 +278,7 @@ function ThoughtRow(props: { threadId: string; itemId: string }) {
         </div>
       )}
       {answer.problem && (
-        <p role="alert" className="pl-6.5">
+        <p role="alert" className={cn("text-ui text-muted-foreground", rowDetailIndent)}>
           {answer.problem}{" "}
           {answer.retryable && (
             <Button size="sm" onClick={answer.load}>
@@ -337,10 +329,7 @@ const GroupView = memo(function GroupView(props: {
           data-step-group=""
           title={group.summary}
           onClick={() => setOpen(!open)}
-          className={cn(
-            row,
-            "text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground",
-          )}
+          className={cn(pressableRowClass, "text-muted-foreground")}
         >
           <LiveGroupTitle
             threadId={props.threadId}
@@ -351,25 +340,22 @@ const GroupView = memo(function GroupView(props: {
           />
         </button>
       ) : (
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-controls={panel}
-          data-step-group=""
-          onClick={() => setOpen(!open)}
-          className={cn(
-            row,
-            "text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground",
-          )}
-        >
-          <Icon icon={groupIcons[group.icon]} size={16} className="text-subtle-foreground" />
-          <span className="min-w-0 truncate">
-            {group.sentence}
-            {group.failed > 0 && (
-              <span className="text-status-failed"> · {group.failed} failed</span>
-            )}
-          </span>
-        </button>
+        <TranscriptRow
+          expanded={open}
+          stepGroup
+          controls={panel}
+          onToggle={() => setOpen(!open)}
+          lead={<Icon icon={groupIcons[group.icon]} size={16} />}
+          leadKind={group.icon}
+          title={
+            <>
+              {group.sentence}
+              {group.failed > 0 && (
+                <span className="text-status-failed"> · {group.failed} failed</span>
+              )}
+            </>
+          }
+        />
       )}
       {open && (
         <StepRail id={panel} label={group.summary}>

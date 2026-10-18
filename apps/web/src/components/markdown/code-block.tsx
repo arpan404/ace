@@ -1,3 +1,4 @@
+import { cardEdge } from "@/components/ui/rules.ts";
 // oxlint-disable react/no-array-index-key -- lexer tokens have no identity; position is it.
 import { useCopy } from "../use-copy.ts";
 export { useCopy } from "../use-copy.ts";
@@ -103,7 +104,7 @@ export function CodeBlock(props: {
   const long = lines.length > cappedAt + 2;
   const capped = long && !showAll;
   return (
-    <figure className="group/code my-3 overflow-hidden rounded-card bg-code shadow-[inset_0_0_0_1px_var(--border)]">
+    <figure className={`group/code overflow-hidden rounded-card bg-code ${cardEdge}`}>
       <CodeHeader
         file={info.file ?? (diff?.files.length === 1 ? diff.files[0] : undefined)}
         lang={info.lang}
@@ -173,7 +174,7 @@ export function CodeBlock(props: {
           <div
             id={body}
             className={cn(
-              "flex font-mono text-xs leading-[1.6]",
+              "flex font-mono text-xs leading-[1.55]",
               // `cappedAt` lines and the top padding.
               capped && "max-h-[calc(20lh+0.5rem)] overflow-hidden",
             )}

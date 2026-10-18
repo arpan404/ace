@@ -26,7 +26,7 @@ import { Icon } from "@/components/icon.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { Highlighted } from "./highlighted-path.tsx";
-import { fileIcon } from "./file-icon.ts";
+import { fileIcon } from "@/components/file-icon.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { fileManagement } from "./file-management-source.ts";
 import { FileMenu, FileRowMenu } from "./file-menu.tsx";

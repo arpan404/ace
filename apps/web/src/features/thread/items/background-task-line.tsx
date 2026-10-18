@@ -2,10 +2,11 @@ import type { ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
 import type { BackgroundTask } from "@ace/protocol";
 import { backgroundGroup } from "@ace/ui-core";
-import { CaretRightIcon, TerminalIcon } from "@phosphor-icons/react";
+import { TerminalIcon } from "@phosphor-icons/react";
 import { Suspense, useCallback, useId, useMemo, useState } from "react";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { cn } from "@/lib/cn.ts";
+import { StaticRow, TranscriptRow, rowClass, rowDetailIndent } from "./transcript-row.tsx";
 
 /**
  * A background task's line: only turns that start one show it, so its code loads on first use
@@ -16,13 +17,13 @@ export const DeferredBackgroundTask = deferredComponent(() =>
 );
 
 /**
- * The line's box while its code loads: one 28px line, or, in a column narrower than 360px where
+ * The line's box while its code loads: one row, or, in a column narrower than 360px where
  * the command wraps under the label, the Stop button's line and the command's.
  */
 function Holder() {
   return (
     <div aria-hidden className="@container">
-      <div className="flex min-h-7 flex-wrap items-center gap-y-0.5">
+      <div className={cn(rowClass, "flex-wrap gap-y-0.5")}>
         <span className="block h-6 w-px" />
         <span className="hidden h-5 basis-full @max-[360px]:block" />
       </div>
@@ -86,33 +87,22 @@ export function BackgroundTaskGroup(props: {
   return (
     <div role="group" aria-label={group.label}>
       {group.listed.length ? (
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-controls={list}
-          onClick={() => setOpen(!open)}
-          className="-mx-1.5 flex min-h-7 items-center gap-2 rounded-sm px-1.5 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:text-foreground"
-        >
-          <TerminalIcon aria-hidden size={16} className="shrink-0 text-subtle-foreground" />
-          {group.label}
-          <CaretRightIcon
-            aria-hidden
-            size={12}
-            className={cn("transition-transform duration-(--motion-base)", open && "rotate-90")}
-          />
-        </button>
+        <TranscriptRow
+          expanded={open}
+          controls={list}
+          onToggle={() => setOpen(!open)}
+          lead={<TerminalIcon aria-hidden size={16} />}
+          title={group.label}
+        />
       ) : (
-        <p className="flex min-h-7 items-center gap-2 text-ui text-muted-foreground">
-          <TerminalIcon aria-hidden size={16} className="shrink-0 text-subtle-foreground" />
-          {group.label}
-        </p>
+        <StaticRow lead={<TerminalIcon aria-hidden size={16} />} title={group.label} />
       )}
       {open && group.listed.length > 0 && (
-        <div id={list} className="fx-rise-in pl-6">
+        <div id={list} className={cn("fx-rise-in", rowDetailIndent)}>
           {group.listed.map(line)}
         </div>
       )}
-      {group.running.length > 0 && <div className="pl-6">{group.running.map(line)}</div>}
+      {group.running.length > 0 && <div className={rowDetailIndent}>{group.running.map(line)}</div>}
     </div>
   );
 }
