@@ -28,6 +28,7 @@ import { useBrowserTab } from "./use-browser-tab.ts";
 import { useBrowserTabs } from "./use-browser-tabs.ts";
 import { viewportById } from "./viewports.ts";
 import { ConsoleDrawer, drawerHeights } from "./console-drawer.tsx";
+import { ResponsiveScreenshotDialog } from "./responsive-screenshot.tsx";
 
 const permissionLabel = (permission: string) =>
   ({
@@ -47,6 +48,7 @@ const permissionLabel = (permission: string) =>
  */
 function Browser(props: TabViewProps) {
   const [finding, setFinding] = useState(false);
+  const [sizing, setSizing] = useState(false);
   const threadId = props.scope;
   const ownId = daemonTabId(props.tab);
   const { preview: source } = usePanelServices();
@@ -304,6 +306,7 @@ function Browser(props: TabViewProps) {
               onCloseTab={() => shown && tabs.close(shown.tabId)}
               drawer={drawer !== undefined}
               onDrawer={(open) => page.save({ drawer: open ? "console" : undefined })}
+              onScreenshotSizes={() => setSizing(true)}
             />
           </>
         }
@@ -345,6 +348,14 @@ function Browser(props: TabViewProps) {
           />
         )}
       </div>
+      {sizing && shown && (
+        <ResponsiveScreenshotDialog
+          source={source}
+          threadId={threadId}
+          tabId={shown.tabId}
+          onClose={() => setSizing(false)}
+        />
+      )}
       {drawer && shown && (
         <ConsoleDrawer
           source={source}

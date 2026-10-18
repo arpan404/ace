@@ -85,6 +85,8 @@ export class FakeBrowser {
   );
   /** Each thread's console and network log (`logs`); tests add what a page logged. */
   readonly logs = new FakeBrowserLogs();
+  /** Multi-size screenshots a person took (`screenshot` with `sizes`), in order. */
+  readonly sizedCaptures: { threadId: string; tabId?: string | undefined; sizes: string[] }[] = [];
   private watchers = new Set<() => void>();
   private revision = 0;
   readonly available = true;

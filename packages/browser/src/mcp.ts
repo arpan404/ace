@@ -4,6 +4,7 @@ import {
   BrowserMeasurementOptions,
   InteractionMeasurement,
   BrowserDialog,
+  BrowserScreenshotSet,
   browserWaitLimitMs,
 } from "@ace/protocol";
 import type { ApprovalTarget } from "@ace/protocol";
@@ -78,7 +79,7 @@ const actions = {
   screenshot: {
     riskClass: "read-only",
     description:
-      "Read a screenshot of one tab without changing what the person sees: the viewport, fullPage for the whole page, or ref for one element.",
+      "Read a screenshot of one tab without changing what the person sees: the viewport, fullPage for the whole page, or ref for one element. With sizes it checks a responsive layout instead: the page is laid out at each size in turn (the person sees it briefly), one image per size, and the tab's own size is restored.",
   },
   pdf: {
     riskClass: "read-only",
@@ -262,6 +263,18 @@ export function browserToolkit(
               );
             }
             const actor = { kind: "agent" as const, agentId: caller.agentId };
+            if (action === "screenshot" && Array.isArray(args["sizes"])) {
+              const set = BrowserScreenshotSet.parse(
+                await target.execute(caller.threadId, { ...args, action }, actor, signal),
+              );
+              signal.throwIfAborted();
+              return {
+                content: set.images.flatMap((image) => [
+                  { type: "text", text: `${image.size}: ${image.width}×${image.height} CSS px` },
+                  { type: "image", mimeType: image.mimeType, data: image.data },
+                ]),
+              };
+            }
             if (action === "screenshot") {
               const bytes = await target.screenshot(
                 caller.threadId,

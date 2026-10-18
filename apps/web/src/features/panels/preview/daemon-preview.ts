@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ClientApi } from "@ace/client";
 import {
+  BrowserScreenshotSet,
   BrowserState,
   BrowserTabsResult,
   ThreadId,
@@ -572,6 +573,16 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         private: value,
       });
       if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
+    },
+    async screenshotSizes(threadId, tabId, sizes, fullPage) {
+      return BrowserScreenshotSet.parse(
+        await execute(
+          threadId,
+          { action: "screenshot", tabId, sizes: [...sizes], fullPage },
+          // Three layouts and captures, each written to the thread's files.
+          90_000,
+        ),
+      );
     },
     async logs(threadId, tabId) {
       return readBrowserLogs(await execute(threadId, { action: "logs", tabId, limit: 200 }));

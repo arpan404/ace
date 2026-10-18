@@ -1,3 +1,4 @@
+import type { BrowserScreenshotSet, BrowserScreenshotSize } from "@ace/protocol";
 import type { AnnotationDriver } from "@/features/annotations/index.ts";
 
 /*
@@ -275,6 +276,16 @@ export interface PreviewSource {
   closeTab(threadId: string, tabId: string): Promise<void>;
   /** "Keep agents out of this tab", or let them back in. */
   keepPrivate(threadId: string, tabId: string, value: boolean): Promise<void>;
+  /**
+   * The tab laid out at each size and captured there, then restored (`screenshot` with
+   * `sizes`). The daemon keeps each as a full-size PNG in the thread; the result holds previews.
+   */
+  screenshotSizes?(
+    threadId: string,
+    tabId: string,
+    sizes: readonly BrowserScreenshotSize[],
+    fullPage: boolean,
+  ): Promise<BrowserScreenshotSet>;
   /** A tab's console and network log, oldest first (the same entries agents read). */
   logs?(threadId: string, tabId: string): Promise<readonly BrowserLogEntry[]>;
   /** Extensions the tab's engine runs, as its backend reports them (read-only). */

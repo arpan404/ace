@@ -1,5 +1,6 @@
 import {
   ArrowSquareOutIcon,
+  CameraIcon,
   CopyIcon,
   DevicesIcon,
   DotsThreeIcon,
@@ -57,6 +58,8 @@ export function BrowserActions(props: {
   /** The console and network drawer shows under the page. */
   drawer: boolean;
   onDrawer(open: boolean): void;
+  /** Opens "Screenshot at sizes…" for the tab shown. */
+  onScreenshotSizes(): void;
 }) {
   const toast = useToast();
   const { shownUrl, external, viewport, browser, tab } = props;
@@ -154,6 +157,14 @@ export function BrowserActions(props: {
             </MenuRadioGroup>
           </MenuContent>
         </MenuSub>
+        <MenuItem
+          icon={icon(CameraIcon)}
+          disabled={!live || !props.online || privately}
+          reason={privately ? "Tabs agents are kept out of are never captured" : undefined}
+          onClick={props.onScreenshotSizes}
+        >
+          Screenshot at sizes…
+        </MenuItem>
         <MenuCheckboxItem
           checked={props.drawer}
           disabled={!live}
