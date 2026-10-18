@@ -67,6 +67,8 @@ export interface Services {
   screen?: ScreenManager;
   /** `ace_ask` questions waiting on the person. */
   asks?: import("../asks.ts").Asks;
+  /** `ace_browser_request_help` requests waiting on the person. */
+  browserHelp?: import("../browser-help.ts").BrowserHelp;
   devices?: DevicesService;
   accounts?: AccountService;
   accountManagement?: import("../account-management.ts").AccountManagement;

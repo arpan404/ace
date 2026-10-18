@@ -98,6 +98,26 @@
         "action"
       ],
       "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "browser_help",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "done",
+            "skipped"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "outcome"
+      ],
+      "type": "object"
     }
   ]
 }

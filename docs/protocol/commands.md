@@ -1847,8 +1847,8 @@ Example:
 {
   "interactionId": "example",
   "resolution": {
-    "answers": {},
-    "kind": "question"
+    "decision": "cancel",
+    "kind": "plan_review"
   },
   "type": "interaction.resolve"
 }

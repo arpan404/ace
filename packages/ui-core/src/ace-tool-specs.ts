@@ -301,6 +301,12 @@ const browserSpecs: Record<string, AceToolSpec> = {
       ? say(["Dismissed", "Dismissing", "Dismiss"], " a dialog")
       : say(["Answered", "Answering", "Answer"], " a dialog"),
   ),
+  ace_browser_request_help: browser(({ subject }) =>
+    say(
+      ["Asked you for help", "Asking you for help", "Ask you for help"],
+      ` on ${subject ?? "a page"}`,
+    ),
+  ),
   ace_browser_record_start: browser(() => say(verbs.started, " recording the browser")),
   ace_browser_record_stop: browser(() => say(verbs.stopped, " recording the browser")),
   ace_browser_measure_interaction: browser(() => say(verbs.measured)),

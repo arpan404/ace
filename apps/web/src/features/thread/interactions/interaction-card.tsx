@@ -14,6 +14,7 @@ import {
   agentName,
   approvalByKey,
   approvalCopy,
+  browserHelpTitle,
   privateBrowserGate,
   displayCommand,
   questionTitle,
@@ -31,6 +32,7 @@ import { answerStore, pendingAnswers, useLocalAnswer, type LocalAnswer } from ".
 import { QuestionForm } from "./question-form.tsx";
 import { Elicitation } from "./elicitation.tsx";
 import { PlanReview } from "./plan-review.tsx";
+import { BrowserHelp } from "./browser-help.tsx";
 import type { Answer } from "./answer.ts";
 import { useEarlierAnswer } from "./use-earlier-answer.ts";
 
@@ -128,6 +130,8 @@ export function InteractionCard(props: {
   asker?: string | undefined;
   /** Keep a stable focus target while the decision controls are replaced. */
   onControlsChange?(): void;
+  /** Opened from a notice about this request: a browser request shows its tab at once. */
+  targeted?: boolean | undefined;
 }) {
   const frame = frames[props.frame ?? "card"];
   const interaction = useInteraction(props.threadId, props.interactionId);
@@ -207,6 +211,7 @@ export function InteractionCard(props: {
       answer={answer}
       failed={failed}
       local={reopened ? undefined : (local ?? earlierAsLocal(earlier))}
+      targeted={props.targeted}
       onAnswerAgain={() => {
         props.onControlsChange?.();
         answerStore.forget(interaction.id);
@@ -236,6 +241,7 @@ function OpenRequest(props: {
   answer: Answer;
   failed: string | undefined;
   local: LocalAnswer | undefined;
+  targeted?: boolean | undefined;
   onAnswerAgain(): void;
 }) {
   const { interaction, local, answer, failed } = props;
@@ -255,12 +261,15 @@ function OpenRequest(props: {
         ? questionTitle(request.questions)
         : request.kind === "plan_review"
           ? (request.title ?? "Review the plan")
-          : request.message;
+          : request.kind === "browser_help"
+            ? browserHelpTitle(request)
+            : request.message;
   const kind = {
     approval: "Approval",
     question: "Question",
     plan_review: privateBrowserGate(interaction) ? "Browser" : "Plan review",
     elicitation: request.kind === "elicitation" ? request.server : "Request",
+    browser_help: "Browser",
   }[request.kind];
   const decisions = copy?.decisions;
   const chosen =
@@ -351,6 +360,15 @@ function OpenRequest(props: {
       )}
       {request.kind === "elicitation" && (
         <Elicitation request={request} disabled={sending} onAnswer={answer} />
+      )}
+      {request.kind === "browser_help" && (
+        <BrowserHelp
+          threadId={props.threadId}
+          request={request}
+          disabled={sending}
+          targeted={props.targeted}
+          onAnswer={answer}
+        />
       )}
       {sending && !chosen && !failed && (
         <p role="status" className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">

@@ -21,6 +21,8 @@ import { hostname } from "node:os";
 import { mcpAwareness } from "../mcp-awareness.ts";
 import { knowledgePort } from "../knowledge.ts";
 import { Asks } from "../asks.ts";
+import { BrowserHelp } from "../browser-help.ts";
+import { browserHelpTab, browserHelpToolkit } from "../browser-help-tool.ts";
 import { GitService } from "@ace/git";
 import type { ServiceContext } from "./types.ts";
 export async function startMcp(context: ServiceContext): Promise<void> {
@@ -37,6 +39,21 @@ export async function startMcp(context: ServiceContext): Promise<void> {
     },
   });
   services.asks = asks;
+  const browser = services.browser;
+  const help = browser
+    ? new BrowserHelp({
+        store,
+        engine: () => services.engine,
+        tab: browserHelpTab(browser),
+        id: context.id,
+        schedule: (run, ms) => {
+          const timer = setTimeout(run, ms);
+          timer.unref();
+          return () => clearTimeout(timer);
+        },
+      })
+    : undefined;
+  if (help) services.browserHelp = help;
   const contextGit = new GitService({ timeoutMs: 10_000 });
   resources.own(() => contextGit.close());
   const measurements = measurementObserver({
@@ -132,6 +149,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
             ),
           ]
         : []),
+      ...(help ? [browserHelpToolkit(help)] : []),
       ...(services.devices ? [devicesToolkit(services.devices)] : []),
       ...(services.screen ? [screenToolkit(services.screen)] : []),
     ],
@@ -172,6 +190,14 @@ export async function startMcp(context: ServiceContext): Promise<void> {
   // Turning computer use or devices on or off changes which ace tools are offered.
   if (services.screen) resources.own(services.screen.watchEnabled(mcp.toolsChanged));
   if (services.devices) resources.own(services.devices.watchEnabled(mcp.toolsChanged));
+  // An agent that carries on (a new turn) no longer waits on a help request nobody answered.
+  if (help)
+    resources.own(
+      store.subscribe((events) => {
+        for (const { threadId, payload } of events)
+          if (payload.type === "run.started") help.withdrawIdle(threadId);
+      }),
+    );
   resources.own(
     store.subscribe((events) => {
       if (

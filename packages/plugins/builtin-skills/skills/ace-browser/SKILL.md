@@ -47,6 +47,16 @@ The person never has to take over or hand back. While you work in a tab it is ma
 - When they are typing, clicking or scrolling in your tab, your clicks, typing, keys, scrolls and navigation there wait until they pause. If they keep going, the tool fails with `human_active`: snapshot again (the page may have changed), then retry or use another tab. Reads (snapshot, screenshot, evaluate, logs) never wait.
 - A tab the person marks "Keep agents out" is theirs alone: tools there fail with `human_private`. Use another tab.
 
+## When only the person can do it
+
+Some steps belong to the person: signing in, a CAPTCHA, a two-factor code, a dialog you should not answer for them. Never type a password, code or other credential yourself, even one you can see in the thread or a file, and never try to get past a CAPTCHA.
+
+1. Snapshot first to be sure the page really waits on them.
+2. Call `ace_browser_request_help` with the `tabId`, a `reason` (`login`, `captcha`, `two_factor`, `dialog` or `other`) and a one-sentence `message` saying what to do there ("Sign in with your work account"). ace notifies them and shows the tab.
+3. `done`: snapshot that tab again and carry on. `skipped`: they won't, so work around it or say what you could not finish. `pending`: end your turn; their answer arrives as their next message.
+
+Ask once per blocker. Don't ask for anything you could do yourself.
+
 ## Another machine
 
 Every browser tool takes `machine` (a name from `ace_machines`) to act in that machine's ace browser, for example to test a dev server running there.

@@ -68,9 +68,23 @@ export async function setup(provider: ProviderKind) {
     createdAt: 1,
   });
   store.appendEvents(thread.id, [{ type: "agent.created", agent }], 1);
+  const backend = fakeHeadlessBackend();
+  const browser = new BrowserService({ dataDir: home, headlessBackend: backend });
+  const mcp = await startDaemonMcp(store, [browserToolkit(browser, store)]);
+  cleanups.push(async () => {
+    await mcp.close();
+    await browser.close();
+    store.close();
+    await rm(home, { recursive: true, force: true });
+  });
+  return { home, thread, browser, mcp, store };
+}
+
+/** A headless backend with no Chromium: pages navigate in memory and screenshot one byte. */
+export function fakeHeadlessBackend(): BrowserBackend {
   let url = "about:blank";
   const events = new EventEmitter();
-  const backend: BrowserBackend = {
+  return {
     kind: "headless",
     async open(request: BackendOpen) {
       return {
@@ -97,13 +111,4 @@ export async function setup(provider: ProviderKind) {
       };
     },
   };
-  const browser = new BrowserService({ dataDir: home, headlessBackend: backend });
-  const mcp = await startDaemonMcp(store, [browserToolkit(browser, store)]);
-  cleanups.push(async () => {
-    await mcp.close();
-    await browser.close();
-    store.close();
-    await rm(home, { recursive: true, force: true });
-  });
-  return { home, thread, browser, mcp, store };
 }

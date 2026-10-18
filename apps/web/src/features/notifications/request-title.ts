@@ -1,4 +1,5 @@
 import type { InteractionRequest } from "@ace/protocol";
+import { browserHelpTitle } from "@ace/ui-core";
 
 export function requestTitle(request: InteractionRequest): string {
   switch (request.kind) {
@@ -10,5 +11,7 @@ export function requestTitle(request: InteractionRequest): string {
       return request.title ?? "Review the plan";
     case "elicitation":
       return request.message;
+    case "browser_help":
+      return browserHelpTitle(request);
   }
 }
