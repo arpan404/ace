@@ -181,6 +181,29 @@ the bundle is stale, and the daemon writes the unpacked directory from it withou
   attack the port, and the extension would need to store a daemon credential. Native messaging is
   reachable only from the extension ids the manifest names.
 
+## Evaluate restriction (amendment, 2026-10-17, #939)
+
+Trust model point 6 allowed page script an agent evaluates to read what the page itself can,
+including non-HttpOnly cookies and web storage. In the person's own browser that is their real
+sessions, so `evaluate` from an agent on this backend is now restricted unless the person turns
+on **`browser.userChrome.storageReads`** (off by default, Settings › Computer use › Use my
+Chrome):
+
+- It runs in a fresh isolated world (`ace-evaluate`) of the top document, not the page's world.
+  It reads and changes the DOM as before; it cannot see page script variables.
+- Before the expression runs, that world replaces `document.cookie`, `localStorage`,
+  `sessionStorage`, `indexedDB`, `cookieStore`, `caches`, `Storage` methods, `window.open`,
+  `opener`, `frames` and the frame-content accessors with non-configurable accessors that throw,
+  in this document and in every same-origin frame reachable now. Creating frame elements or
+  inserting markup that holds one throws too, so no fresh frame realm with the original APIs can
+  be reached. A refused read fails with a message that names the setting.
+- `read-only` keeps its V8 side-effect check on top.
+
+This is a capability restriction, not an approval prompt: ace adds no prompts of its own for its
+MCP tools (permissions stay provider-native, ADR 0067 as superseded 2026-10-14). It is not an OS
+sandbox either: a browser bug could open a path the lockdown does not cover. People's own
+`evaluate` (the person's actor) and the other engines are unchanged.
+
 ## Integration with the multi-tab runtime
 
 - The daemon starts one `UserBrowserService` (`apps/daemon/src/user-browser.ts`) as

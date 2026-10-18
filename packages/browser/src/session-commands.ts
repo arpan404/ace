@@ -15,6 +15,7 @@ import { waitForBrowser } from "./wait.ts";
 import { BrowserOriginError, browserOrigin } from "./policy.ts";
 import { NavigationTask } from "./navigation.ts";
 import { evaluatePage, evaluateReadOnly } from "./evaluation.ts";
+import { evaluateWithoutStorage } from "./storage-guard.ts";
 import { measureBrowserInteraction } from "./measurement.ts";
 import { uploadPaths } from "./uploads.ts";
 import { dragRefs } from "./drag.ts";
@@ -454,6 +455,16 @@ export async function executeBrowserCommand(
         throw new BrowserActionError("evaluate_approval_required");
       context.check(actor, signal, generation);
       document();
+      // The person's own browser keeps its cookies and storage from agents unless they allow it.
+      if (
+        actor.kind === "agent" &&
+        context.options.backendKind === "user" &&
+        !(await context.options.storageReads?.())
+      )
+        return evaluateWithoutStorage(cdp, command.expression, command.mode, () => {
+          context.check(actor, signal, generation);
+          document();
+        });
       return command.mode === "read-only"
         ? evaluateReadOnly(cdp, command.expression, () => {
             context.check(actor, signal, generation);

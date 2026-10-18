@@ -195,6 +195,24 @@ Chromium cannot be recalled, and the next agent command waits anyway).
 The timings are pure functions in `packages/browser/src/collaboration.ts`, injected through
 `collaboration` in the service options.
 
+## Privacy in captures (amendment, 2026-10-17, #939)
+
+- **Secret fields.** Password fields (including ones a page switched to text to "show" the
+  password, which keep their password autocomplete token), one-time codes and card numbers and
+  codes (`secretFieldSelector`, `@ace/browser-annotate`) never reach agents. Agent screenshots and
+  the person's annotation captures adopt a stylesheet into the page and its same-origin frames
+  that renders those fields' text and bullets transparent, wait two frames, capture, then remove
+  it; the person's own view is untouched. Agent snapshots replace their values (and every name
+  and value inside them) with a fixed `••••••••`, whatever the length. Cross-origin
+  out-of-process frames are outside the mask; their own password fields still show bullets.
+- **Recording is visible and stoppable.** `BrowserState.recording` carries who started a
+  recording (`by`, an agent with its id, or the person). The browser panel shows it with Stop
+  recording (`browser.recording.stop`), and the sidebar's computer-use indicator lists the
+  browser while it records. While a recording runs every tab's secret fields are masked and
+  agents' cursors are hidden, so neither is in its frames.
+- **Evaluate** is restricted in the person's own Chrome (ADR 0084, "Evaluate restriction").
+  Consistent with the 2026-10-14 decision, the restriction is a removed capability, not a prompt.
+
 ## Private takeover and recording (superseded by Collaboration above)
 
 Takeover has shared and private modes. Shared takeover retains the existing
