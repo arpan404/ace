@@ -5,7 +5,7 @@ import Foundation
 extension ClientModel {
     /// Persist a follow-up: `alternate` asks for the other delivery the composer offered.
     func sendMessage(_ text: String, alternate: Bool) async -> Bool {
-        guard thread != nil, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard canOperate, thread != nil, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let id = admissions.nextId()
         return await admissions.wait(id: id) {
             threadAction(["type": "send", "text": text, "opposite": alternate, "requestId": id])
@@ -13,7 +13,7 @@ extension ClientModel {
     }
     /// Stop the whole agent tree of the turn on screen.
     func stopTree() {
-        guard let thread, thread.screen.controls?.canStop == true, !thread.screen.stopping else { return }
+        guard canOperate, let thread, thread.screen.controls?.canStop == true, !thread.screen.stopping else { return }
         let id = admissions.nextId()
         thread.screen.stopping = true
         Task { [weak self, weak thread] in
@@ -24,7 +24,7 @@ extension ClientModel {
     }
     /// Answer a question with option ids or, where offered, the person's own words.
     func answer(_ interaction: ApprovalRow, answers: [String: [String]], dismissed: Bool = false) {
-        guard interaction.kind == "question", interaction.state == "pending", approvalSubmissions[interaction.id] == nil else { return }
+        guard canOperate, interaction.kind == "question", interaction.state == "pending", approvalSubmissions[interaction.id] == nil else { return }
         let id = admissions.nextId()
         approvalSubmissions[interaction.id] = ApprovalSubmission(requestId: id, phase: .saving)
         approvalRequests[id] = interaction.id
@@ -36,6 +36,7 @@ extension ClientModel {
     }
     /// Send a failed message again: resumed in the daemon's queue when it is still there.
     func retrySend(_ pending: PendingRow) async -> Bool {
+        guard canOperate else { return false }
         let id = admissions.nextId()
         return await admissions.wait(id: id) { threadAction(["type": "retrySend", "id": pending.id, "requestId": id]) }
     }
@@ -45,8 +46,17 @@ extension ClientModel {
     }
     func requestModels() { threadAction(["type": "models"]) }
     func switchModel(_ model: ModelOption) async -> Bool {
+        guard canOperate else { return false }
         let id = admissions.nextId()
         return await admissions.wait(id: id) { threadAction(["type": "switchModel", "model": model.id, "requestId": id]) }
+    }
+    /// Change a queued follow-up: `change` is remove, steer (send it now) or new words.
+    func editQueued(_ message: QueueRow.Message, change: [String: Any]) async -> Bool {
+        guard canOperate else { return false }
+        let id = admissions.nextId()
+        return await admissions.wait(id: id) {
+            threadAction(["type": "queue", "messageId": message.id, "change": change, "requestId": id])
+        }
     }
     @discardableResult private func threadAction(_ value: [String: Any]) -> Bool {
         let dispatched = action(["type": "thread", "action": value])

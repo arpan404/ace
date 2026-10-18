@@ -76,6 +76,21 @@ struct ControlsRow: Codable, Sendable, Equatable {
     let model: String
     let switching: String
 }
+/// The daemon queue's follow-ups for the open thread, with the shared summary line.
+struct QueueRow: Codable, Sendable, Equatable {
+    struct Message: Codable, Sendable, Equatable, Identifiable {
+        let id: String
+        let text: String
+        let delivery: String
+        let state: String
+        let attachments: Int
+    }
+    let revision: Int
+    let label: String
+    let when: String
+    let messages: [Message]
+    let more: Int
+}
 struct ModelOption: Codable, Sendable, Equatable, Identifiable {
     let id: String
     let label: String

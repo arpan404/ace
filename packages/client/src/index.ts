@@ -55,6 +55,7 @@ export { accessResponseError } from "./access-http.ts";
 export { PermissionClient, threadPermission, accessModes } from "./permissions.ts";
 export { oppositeFollowUpBehavior } from "./follow-up.ts";
 export { retrySend } from "./send-retry.ts";
+export { readServerQueue } from "./queue-read.ts";
 
 export { BrowserFeaturesClient } from "./browser-features.ts";
 export { DeviceClient, DeviceClientError } from "@ace/devices/client";

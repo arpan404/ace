@@ -33,6 +33,11 @@ import CryptoKit
     var inboxLoaded = false
     var inboxLayout = InboxLayout.empty
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
+    /// False for a view-only grant: the phone reads threads but submits no commands.
+    var canOperate = true
+    /// A thread a tapped notification asked to open.
+    var deepLink: String?
+    @ObservationIgnored var notificationSink: ((NotificationPatch) -> Void)?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var runtime: (any ClientSession)?
     @ObservationIgnored private let makeRuntime: ClientSessionFactory
@@ -97,6 +102,7 @@ import CryptoKit
             case .problem(let notice): problem = notice
             case .pending(let id, let row): pending[id] = row
             case .error(let message): error = message
+            case .notification(let patch): notificationSink?(patch)
             case .receipt(let id, let ok, let message):
                 if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {
                     if ok { approvalSubmissions[interactionId]?.phase = .waiting }
@@ -138,7 +144,7 @@ import CryptoKit
                 }
             case .cursor(let id, let epoch, let cursor): if thread?.id == id, thread?.epoch == epoch { thread?.cursor = cursor }
             case .ready(let id, let epoch, _): if thread?.id == id, thread?.epoch == epoch { thread?.loaded = true }
-            case .block, .blockPosition, .controls, .history, .models:
+            case .block, .blockPosition, .controls, .history, .models, .queue:
                 if let thread, let scope = patch.screenScope, scope.thread == thread.id, scope.epoch == thread.epoch { thread.screen.apply(patch) }
             }
         }
@@ -160,14 +166,14 @@ import CryptoKit
     func network(_ online: Bool) { action(["type": "network", "online": online]) }
     func retry() { action(["type": "retry"]) }
     func send(_ text: String, delivery: String) async -> Bool {
-        guard let thread, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard canOperate, let thread, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let id = admissions.nextId()
         return await admissions.wait(id: id) {
             command(["type": "thread.send", "threadId": thread.id, "input": [["type": "text", "text": text]], "delivery": delivery], requestId: id)
         }
     }
     func approve(_ interaction: ApprovalRow, option: ApprovalRow.Option) {
-        guard interaction.state == "pending", approvalSubmissions[interaction.id] == nil else { return }
+        guard canOperate, interaction.state == "pending", approvalSubmissions[interaction.id] == nil else { return }
         let id = admissions.nextId()
         approvalSubmissions[interaction.id] = ApprovalSubmission(requestId: id, phase: .saving)
         approvalRequests[id] = interaction.id
@@ -178,11 +184,14 @@ import CryptoKit
     }
     /// Inbox organization (`bridge/inbox.ts`): true once the SDK durably admitted the command.
     func inboxCommand(_ value: [String: Any]) async -> Bool {
+        guard canOperate else { return false }
         let id = admissions.nextId()
         return await admissions.wait(id: id) { action(["type": "inbox", "action": value, "requestId": id]) }
     }
     /// Inbox reads that admit nothing durable, such as loading older threads.
     func inboxRequest(_ value: [String: Any]) { action(["type": "inbox", "action": value, "requestId": admissions.nextId()]) }
+    /// `notifications.*` bridge actions (Sources/Notifications).
+    @discardableResult func notificationAction(_ value: [String: Any]) -> Bool { action(value) }
     @discardableResult private func command(_ payload: [String: Any], requestId: String? = nil) -> Bool {
         let dispatched = action(["type": "command", "payload": payload, "requestId": requestId ?? admissions.nextId()])
         if !dispatched { error = "Could not submit the request. Your draft is still available." }

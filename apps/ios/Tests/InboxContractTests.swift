@@ -6,7 +6,7 @@ import Testing
 @Suite(.serialized) @MainActor struct InboxContractTests {
     @Test func theSharedGroupingKeepsAFinishedRootWithAWorkingChildUnderWorking() async throws {
         // A fresh pending approval: other contract tests resolve the fixture's own.
-        var request = URLRequest(url: try #require(URL(string: "http://127.0.0.1:9841/review/many")))
+        var request = URLRequest(url: try #require(URL(string: "http://127.0.0.1:\(SpikeFixture.port)/review/many")))
         request.httpMethod = "POST"
         request.httpBody = Data(#"{"id":"ios-many-inbox"}"#.utf8)
         _ = try await URLSession.shared.data(for: request) // Repeated runs reuse the thread.
@@ -45,7 +45,7 @@ import Testing
     private func connected() async throws -> (ClientModel, URL) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let model = ClientModel(now: { 0 })
-        let target = ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:9841")), hostId: "ios-spike-host", deviceId: "ios-inbox-device", pin: nil,
+        let target = ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:\(SpikeFixture.port)")), hostId: "ios-spike-host", deviceId: "ios-inbox-device", pin: nil,
                                       credential: { "{\"token\":\"ios-spike-token\"}" })
         await model.connect(target: target, directory: root)
         try await until("connected") { model.connection == "ready" }

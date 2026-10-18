@@ -17,6 +17,8 @@ import Observation
     var loadingOlder = false
     var modelsState = "idle"
     var models: [ModelOption] = []
+    /// Follow-ups waiting in the daemon's queue, outside the transcript until delivered.
+    var queue: QueueRow?
     /// Stop was pressed; cleared when the tree stops working.
     var stopping = false
     @ObservationIgnored private var positions: [String: Int] = [:]
@@ -27,6 +29,7 @@ import Observation
         positions.removeAll(keepingCapacity: true)
         blockOrder = []
         controls = nil
+        queue = nil
         hasOlder = false
         loadingOlder = false
     }
@@ -51,6 +54,8 @@ import Observation
         case .history(_, _, let older, let loading):
             hasOlder = older
             loadingOlder = loading
+        case .queue(_, _, let row):
+            queue = row
         case .models(_, _, let state, let list):
             modelsState = state
             models = list
@@ -70,7 +75,7 @@ extension BridgePatch {
     var screenScope: (thread: String, epoch: Int)? {
         switch self {
         case .block(let id, let epoch, _, _), .blockPosition(let id, let epoch, _, _): (id, epoch)
-        case .controls(let id, let epoch, _), .history(let id, let epoch, _, _), .models(let id, let epoch, _, _): (id, epoch)
+        case .controls(let id, let epoch, _), .history(let id, let epoch, _, _), .models(let id, let epoch, _, _), .queue(let id, let epoch, _): (id, epoch)
         default: nil
         }
     }

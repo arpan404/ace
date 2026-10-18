@@ -3,6 +3,7 @@ import { FakePromptFiles, type PromptSeed } from "./prompt-files.ts";
 import { FakeCatalogWire } from "./catalog-wire.ts";
 import { FakeHistory } from "./history-wire.ts";
 import { FakeMcpWire } from "./mcp-wire.ts";
+import { FakeNotificationFeed } from "./notification-feed.ts";
 import {
   SourceControlPreferences,
   BrowserClientMessage,
@@ -76,6 +77,7 @@ export class FakeServicesWire {
   readonly history: FakeHistory;
   private notificationPublicKey: string | null = null;
   readonly mcp = new FakeMcpWire();
+  readonly notificationFeed = new FakeNotificationFeed();
   readonly browser = new FakeBrowser();
   readonly context: FakeContextWire;
   readonly workspace: FakeWorkspaceWire;
@@ -225,6 +227,7 @@ export class FakeServicesWire {
             return;
           }
           if (message.type === "notification.preferences") return;
+          if (this.notificationFeed.handle(message, emit)) return;
           if (message.type.startsWith("files.")) {
             await files.handle(message, device);
             return;

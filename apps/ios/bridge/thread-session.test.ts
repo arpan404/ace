@@ -470,3 +470,55 @@ test("a refused send goes again once under its retry id and reaches the transcri
   await until(() => latest("admission", "twice"), "a second retry");
   expect(latest("admission", "twice")?.ok).toBe(false);
 });
+
+test("a queued follow-up shows above the composer and can be reworded, sent now or removed", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "queued", workspaceId: "ace", title: "Queued", provider: "codex" });
+  fake.apply("queued", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Go"),
+  ]);
+  const thread = open(connect(fake), "queued");
+  await until(() => (latest("thread.controls")?.row as { busy?: boolean })?.busy, "a busy thread");
+  type Queue = { label: string; messages: { id: string; text: string; delivery: string }[] };
+  const queue = () => latest("thread.queue") as Queue | undefined;
+  thread.handle({ type: "send", text: "Then run lint", opposite: false, requestId: "q1" });
+  thread.handle({ type: "send", text: "And the docs", opposite: false, requestId: "q2" });
+  await until(() => queue()?.messages.length === 2, "two queued messages");
+  expect(queue()?.label).toBe("2 queued messages");
+  expect(rows("thread.item").some((row) => row.text === "Then run lint")).toBe(false);
+  const [first, second] = queue()?.messages ?? [];
+  thread.handle({
+    type: "queue",
+    messageId: String(first?.id),
+    change: { kind: "words", text: "Then run lint and tests" },
+    requestId: "e1",
+  });
+  await until(() => queue()?.messages[0]?.text === "Then run lint and tests", "the new words");
+  thread.handle({
+    type: "queue",
+    messageId: String(second?.id),
+    change: { kind: "remove" },
+    requestId: "r1",
+  });
+  await until(() => queue()?.messages.length === 1, "the removal");
+  thread.handle({
+    type: "queue",
+    messageId: String(first?.id),
+    change: { kind: "steer" },
+    requestId: "s1",
+  });
+  await until(
+    () => commands("queue.edit").some((payload) => payload.delivery === "steer"),
+    "send now on the wire",
+  );
+  thread.handle({
+    type: "queue",
+    messageId: "not-queued",
+    change: { kind: "remove" },
+    requestId: "gone",
+  });
+  await until(() => latest("admission", "gone"), "a refusal");
+  expect(latest("admission", "gone")?.ok).toBe(false);
+});

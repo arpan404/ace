@@ -14,6 +14,8 @@ import Observation
     @ObservationIgnored private let storage: URL
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let itemLimit: Int
+    /// Runs before each connection opens, so notifications bind to that machine's runtime.
+    @ObservationIgnored var beforeConnect: ((ClientModel, ConnectionTarget) async -> Void)?
 
     init(client: ClientModel, access: any MachineAccess, storage: URL, defaults: UserDefaults = .standard, itemLimit: Int = 2200) {
         self.client = client; self.access = access; self.storage = storage; self.defaults = defaults; self.itemLimit = itemLimit
@@ -22,7 +24,8 @@ import Observation
     }
     var active: MachineEntry? { machines.first { $0.hostId == activeHostId } }
     /// The host chose a view-only grant for this phone; commands will be refused.
-    var activeIsReadOnly: Bool { active.map { !(Grants(scopes: grants[$0.deviceId] ?? ["operate"]).canOperate) } ?? false }
+    var activeIsReadOnly: Bool { active.map { !canOperate($0) } ?? false }
+    private func canOperate(_ entry: MachineEntry) -> Bool { Grants(scopes: grants[entry.deviceId] ?? ["operate"]).canOperate }
 
     /// Load the directory, then reconnect to the last machine (or the first one).
     func load() async {
@@ -57,6 +60,8 @@ import Observation
             return
         }
         problem = nil
+        client.canOperate = canOperate(entry)
+        await beforeConnect?(client, target)
         await client.connect(target: target, directory: storage, itemLimit: itemLimit)
     }
     /// Remove authority first, then local data bound to that host and device.

@@ -40,6 +40,8 @@ struct QuestionCard: View {
     @Environment(\.colorScheme) private var colourScheme
     let interaction: ApprovalRow
     let submission: ApprovalSubmission?
+    /// A view-only machine shows the question but can't answer it.
+    var canAct = true
     let answer: ([String: [String]], Bool) -> Void
     @State private var answers = QuestionAnswers()
     var body: some View {
@@ -70,6 +72,7 @@ struct QuestionCard: View {
                             .frame(minHeight: AceTheme.Dimensions.touchTarget).contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .disabled(!canAct)
                         .accessibilityAddTraits(chosen ? .isSelected : [])
                         .accessibilityIdentifier("question.\(question.id).\(choice.id)")
                     }
@@ -98,7 +101,8 @@ struct QuestionCard: View {
                     }.buttonStyle(.plain).disabled(resolution == nil).opacity(resolution == nil ? AceTheme.Opacity.disabled(colourScheme) : 1)
                     .accessibilityIdentifier("question.answer")
                 }
-            }.disabled(submission != nil)
+            }.disabled(submission != nil || !canAct)
+            if !canAct { ViewOnlyNote.approval }
             if let submission { Label(submission.phase == .saving ? "Saving your answer…" : "Waiting for the daemon", systemImage: "clock").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
         }
         .padding(AceTheme.Spacing.lg).background(AceTheme.Colours.card, in: RoundedRectangle(cornerRadius: AceTheme.Radii.approval))

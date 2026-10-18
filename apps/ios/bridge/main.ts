@@ -10,6 +10,7 @@ import { ThreadSession } from "./thread-session.ts";
 import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
 import { nativeTransport, socketEvent } from "./socket.ts";
+import { NotificationAction, NotificationBridge } from "./notifications.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -36,6 +37,7 @@ const Action = z.discriminatedUnion("type", [
   }),
 ]);
 let client: ClientCore | undefined;
+let notifications: NotificationBridge | undefined;
 let lease: Lease<ThreadSource> | undefined;
 let stopThread: (() => void) | undefined;
 let session: ThreadSession | undefined;
@@ -89,6 +91,7 @@ async function start(json: string): Promise<void> {
     now: () => host.now(),
   });
   const connection = client.connectionState();
+  notifications = new NotificationBridge(client, (key, read) => pump.put(key, read), scheduler.set);
   const owner = client;
   connection.subscribe(() => {
     if (connection.getSnapshot() === "ready") trust.clear();
@@ -142,7 +145,14 @@ async function hydrate(
 }
 function action(json: string): void {
   try {
-    const value = Action.parse(JSON.parse(json));
+    const raw: unknown = JSON.parse(json);
+    const notice = NotificationAction.safeParse(raw);
+    if (notice.success) {
+      if (notifications) notifications.handle(notice.data);
+      else error();
+      return;
+    }
+    const value = Action.parse(raw);
     if (!client) {
       if (value.type === "command")
         pump.put(`admission:${value.requestId}`, () => ({

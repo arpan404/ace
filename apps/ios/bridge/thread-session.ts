@@ -13,6 +13,7 @@ import { dispatchCommand } from "./commands.ts";
 import type { PatchPump } from "./patch-pump.ts";
 import { preview } from "./presentation.ts";
 import { followBlocks } from "./thread-blocks.ts";
+import { QueueFollower } from "./thread-queue.ts";
 import { answerResolution, controlsRow, sendPayload, stopPayload } from "./thread-controls.ts";
 
 /*
@@ -41,6 +42,16 @@ const ThreadAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("loadOlder") }),
   z.object({ type: z.literal("models") }),
   z.object({ type: z.literal("switchModel"), model: z.string().min(1).max(256), requestId }),
+  z.object({
+    type: z.literal("queue"),
+    messageId: z.string().min(1).max(256),
+    change: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("remove") }),
+      z.object({ kind: z.literal("steer") }),
+      z.object({ kind: z.literal("words"), text: z.string().min(1) }),
+    ]),
+    requestId,
+  }),
 ]);
 const SettingEntries = z.object({
   entries: z.array(z.object({ key: z.string(), value: z.unknown() })),
@@ -54,6 +65,7 @@ export class ThreadSession {
   readonly #pump: PatchPump;
   readonly #abort = new AbortController();
   readonly #stop: () => void;
+  readonly #queue: QueueFollower;
   #setting: FollowUpBehavior | undefined;
   #loading = false;
   #models: { state: string; models: Record<string, unknown>[] } = { state: "idle", models: [] };
@@ -71,16 +83,26 @@ export class ThreadSession {
     this.#epoch = epoch;
     this.#pump = pump;
     const blocks = followBlocks(store, (key, read) => this.#put(key, read));
+    this.#queue = new QueueFollower(
+      client,
+      store,
+      this.#threadId,
+      this.#abort.signal,
+      (key, read) => this.#put(key, read),
+    );
     this.#stop = store.observe((keys) => {
       blocks(keys);
       if (keys === "all") void this.#readSetting();
       if (keys === "all" || keys.has("thread") || keys.has("interactions") || keys.has("cursor"))
         this.#controls();
       if (keys === "all" || keys.has("order") || keys.has("history")) this.#history();
+      if (keys === "all" || keys.has("queue") || keys.has("thread") || keys.has("agents"))
+        this.#queue.update();
     });
     blocks("all");
     this.#controls();
     this.#history();
+    this.#queue.update();
     void this.#readSetting();
   }
 
@@ -137,6 +159,13 @@ export class ThreadSession {
         break;
       case "switchModel":
         this.#dispatch(this.#switchPayload(action.model), action.requestId);
+        break;
+      case "queue":
+        this.#dispatch(
+          this.#queue.edit(action.messageId, action.change),
+          action.requestId,
+          "That queued message has changed. Check the queue and try again.",
+        );
         break;
     }
   }

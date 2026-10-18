@@ -4,6 +4,8 @@ struct ApprovalCard: View {
     @Environment(\.colorScheme) private var colourScheme
     let approval: ApprovalRow
     let submission: ApprovalSubmission?
+    /// False on a view-only pairing: the card still shows the request, without live choices.
+    var canAct = true
     let resolve: (ApprovalRow.Option) -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
@@ -27,7 +29,8 @@ struct ApprovalCard: View {
             if approval.truncated { Text("Some details are shortened for display").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
             Group {
                 if approval.verbs.isEmpty { offeredButtons } else { verbButtons }
-            }.disabled(submission != nil)
+            }.disabled(submission != nil || !canAct)
+            if !canAct { ViewOnlyNote.approval }
             if let submission { Label(submission.phase == .saving ? "Saving your answer…" : "Waiting for the daemon", systemImage: "clock").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
         }
         .padding(AceTheme.Spacing.lg).background(AceTheme.Colours.card, in: RoundedRectangle(cornerRadius: AceTheme.Radii.approval))

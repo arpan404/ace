@@ -31,7 +31,7 @@ struct ThreadView: View {
                     }
                 }
                 ForEach(model.pending.values.filter { $0.threadId == thread.id && $0.state != "delivered" && thread.items["input:\($0.id)"] == nil }.sorted { $0.id < $1.id }) { row in
-                    PendingSendRow(row: row) { await model.retrySend(row) }.listRowSeparator(.hidden)
+                    PendingSendRow(row: row, canRetry: model.canOperate) { await model.retrySend(row) }.listRowSeparator(.hidden)
                 }
                 Color.clear.frame(height: AceTheme.Dimensions.border).id("tail").listRowSeparator(.hidden)
             }
@@ -48,16 +48,29 @@ struct ThreadView: View {
                     // One card at a time above the composer: the oldest open request.
                     if let request = thread.approvals.first {
                         if request.kind == "question" {
-                            QuestionCard(interaction: request, submission: model.approvalSubmissions[request.id]) { model.answer(request, answers: $0, dismissed: $1) }
+                            QuestionCard(interaction: request, submission: model.approvalSubmissions[request.id], canAct: model.canOperate) { model.answer(request, answers: $0, dismissed: $1) }
                                 .id(request.id)
                         } else {
-                            ApprovalCard(approval: request, submission: model.approvalSubmissions[request.id]) { model.approve(request, option: $0) }
+                            ApprovalCard(approval: request, submission: model.approvalSubmissions[request.id], canAct: model.canOperate) { model.approve(request, option: $0) }
                         }
                     }
-                    ComposerView(controls: screen.controls, stopping: screen.stopping,
-                                 placeholder: thread.approvals.isEmpty ? "Steer or follow up…" : "Reply instead…",
-                                 send: { await model.sendMessage($0, alternate: $1) }, stop: { model.stopTree() },
-                                 openModels: { showModels = true }, inputBegan: { model.metrics?.inputBegan() })
+                    if let queue = screen.queue, !queue.messages.isEmpty {
+                        QueueStrip(queue: queue, canAct: model.canOperate,
+                                   canSteer: screen.controls?.delivery == "steer" || screen.controls?.alternate == "steer") { message, change in
+                            await model.editQueued(message, change: change)
+                        }
+                    }
+                    if model.canOperate {
+                        ComposerView(controls: screen.controls, stopping: screen.stopping,
+                                     placeholder: thread.approvals.isEmpty ? "Steer or follow up…" : "Reply instead…",
+                                     send: { await model.sendMessage($0, alternate: $1) }, stop: { model.stopTree() },
+                                     openModels: { showModels = true }, inputBegan: { model.metrics?.inputBegan() })
+                    } else {
+                        ViewOnlyNote.thread
+                            .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.md)
+                            .floatingGlass()
+                            .padding(.horizontal, AceTheme.Dimensions.composerInset).padding(.bottom, AceTheme.Spacing.sm)
+                    }
                 }
             }
             .toolbar {
@@ -98,7 +111,7 @@ struct ThreadView: View {
     }
     private var menu: some View {
         Menu {
-            if screen.controls?.canStop == true {
+            if model.canOperate, screen.controls?.canStop == true {
                 Button("Stop all agents", systemImage: "stop.circle", role: .destructive) { model.stopTree() }.disabled(screen.stopping)
             }
             if !model.inboxLayout.snooze.isEmpty {
@@ -131,6 +144,7 @@ struct ThreadView: View {
 /// A message saved on the phone that hasn't reached the transcript yet, from the SDK's state.
 private struct PendingSendRow: View {
     let row: PendingRow
+    let canRetry: Bool
     let retry: () async -> Bool
     @State private var retrying = false
     var body: some View {
@@ -139,7 +153,7 @@ private struct PendingSendRow: View {
                 .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.bubble))
             HStack(spacing: AceTheme.Spacing.sm) {
                 Text(row.label ?? status).foregroundStyle(row.token.map(StateStyle.text) ?? (row.state == "failed" ? AceTheme.StatusText.failed : AceTheme.Colours.mutedForeground))
-                if row.state == "failed" {
+                if row.state == "failed", canRetry {
                     Button {
                         retrying = true
                         Task { _ = await retry(); retrying = false }

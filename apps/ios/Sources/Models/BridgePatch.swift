@@ -98,8 +98,10 @@ enum BridgePatch: Decodable, Sendable {
     case controls(String, Int, ControlsRow?)
     case history(String, Int, Bool, Bool)
     case models(String, Int, String, [ModelOption])
+    case queue(String, Int, QueueRow)
     case inboxSections(InboxLayout)
     case problem(ProblemNotice?)
+    case notification(NotificationPatch)
 
     private enum Keys: String, CodingKey { case type, id, row, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem }
     init(from decoder: any Decoder) throws {
@@ -138,11 +140,13 @@ enum BridgePatch: Decodable, Sendable {
         case "thread.history":
             let (id, epoch) = try scope()
             self = .history(id, epoch, try box.decode(Bool.self, forKey: .hasOlder), try box.decode(Bool.self, forKey: .loading))
+        case "thread.queue": let (id, epoch) = try scope(); self = .queue(id, epoch, try QueueRow(from: decoder))
         case "thread.models":
             let (id, epoch) = try scope()
             self = .models(id, epoch, try box.decode(String.self, forKey: .state), try box.decode([ModelOption].self, forKey: .models))
         case "inbox.sections": self = .inboxSections(try InboxLayout(from: decoder))
         case "connection.problem": self = .problem(try box.decodeIfPresent(ProblemNotice.self, forKey: .problem))
+        case let kind where kind.hasPrefix("notifications."): self = .notification(try NotificationPatch(from: decoder))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: box, debugDescription: "Unknown bridge patch")
         }
     }

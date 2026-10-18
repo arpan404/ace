@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/NotificationFeedRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "afterCursor": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "requestId": {
+      "maxLength": 200,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "notification.feed",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "afterCursor"
+  ],
+  "type": "object"
+}
