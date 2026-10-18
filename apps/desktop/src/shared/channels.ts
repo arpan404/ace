@@ -9,6 +9,8 @@ import {
   BrowserSnapshot,
   BrowserThread,
   BrowserShortcut,
+  BrowserPageAction,
+  BrowserContextAction,
   ClipboardImage,
   DaemonConnection,
   DaemonStatus,
@@ -96,6 +98,8 @@ export const requests = {
    * browser view, and keys typed there since a ⌘L or ⌘F are typed into the field.
    */
   "browser.focus-app": { request: None, result: None },
+  /** Print or developer tools for the thread's shown native tab; false: no such view here. */
+  "browser.page": { request: BrowserPageAction, result: z.boolean() },
   "updates.check": { request: None, result: UpdateStatus },
 } as const;
 export type RequestChannel = keyof typeof requests;
@@ -112,6 +116,7 @@ export const events = {
   "settings.changed": DesktopSettings,
   "browser.visibility": z.object({ threadId: z.string(), visible: z.boolean() }),
   "browser.shortcut": BrowserShortcut,
+  "browser.context": BrowserContextAction,
   "updates.status": UpdateStatus,
   /** The machine woke up; the renderer should reconnect now rather than wait for backoff. */
   "system.resumed": None,

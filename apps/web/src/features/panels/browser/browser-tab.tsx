@@ -3,7 +3,6 @@ import { WarningCircleIcon } from "@phosphor-icons/react";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { displayAddress, describeBrowserFailure } from "@ace/ui-core";
 import { useEffectEvent, useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
 import { reportBrowserControl } from "@/lib/browser-control.ts";
@@ -26,7 +25,11 @@ import { PageView } from "./page-view.tsx";
 import { ConnectionMark } from "./connection-mark.tsx";
 import { useBrowserTab } from "./use-browser-tab.ts";
 import { useBrowserTabs } from "./use-browser-tabs.ts";
-import { viewportById } from "./viewports.ts";
+import { usePageTools } from "./use-page-tools.ts";
+import { usePageChrome } from "./use-page-chrome.tsx";
+import { DeviceToolbar } from "./device-toolbar.tsx";
+import { DeviceStage } from "./device-stage.tsx";
+import { ZoomBadge } from "./zoom-controls.tsx";
 
 const permissionLabel = (permission: string) =>
   ({
@@ -53,7 +56,6 @@ function Browser(props: TabViewProps) {
   const browser = useBrowserFeatures(threadId);
   const tabs = useBrowserTabs(source, threadId, ownId);
   const page = useBrowserTab(source, threadId, props.tab, tabs);
-  const toast = useToast();
   const extensionsOff = useLocal(extensionsHidden, (value) => value);
   const { live, shown, online } = tabs;
 
@@ -82,17 +84,25 @@ function Browser(props: TabViewProps) {
     if (unopened) void tabs.ensure();
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [unopened]);
-
-  const viewport = viewportById(page.data.viewport);
   const shownUrl = page.shownUrl;
   const blank = !shownUrl || shownUrl === "about:blank";
   const offline = online ? undefined : "ace is offline";
   const external = shownUrl && /^https?:\/\//i.test(shownUrl) ? shownUrl : undefined;
-  // In the desktop app the page itself is a native view drawn over this tab's page area.
+  // In the desktop app the page itself is a native view drawn over this tab's page area (or
+  // over the device toolbar's frame).
   const pageArea = useRef<HTMLDivElement>(null);
+  const deviceFrame = useRef<HTMLDivElement>(null);
+  const tools = usePageTools({
+    source,
+    threadId,
+    live,
+    tab: shown,
+    online,
+    area: () => pageArea.current?.getBoundingClientRect(),
+  });
   const native = useNativeView(
     threadId,
-    pageArea,
+    tools.toolbar ? deviceFrame : pageArea,
     !!live &&
       !blank &&
       live.backend === "embedded" &&
@@ -100,7 +110,7 @@ function Browser(props: TabViewProps) {
       live.status !== "recovering" &&
       online &&
       page.state.phase !== "failed",
-    { device: viewport.emulation },
+    { device: tools.emulation, exact: tools.toolbar },
   );
   const nativeShown = native.shown || native.frozen !== undefined;
 
@@ -128,13 +138,35 @@ function Browser(props: TabViewProps) {
   }, []);
   const focusAddress = () =>
     root.current?.querySelector<HTMLInputElement>('input[aria-label="Address"]')?.focus();
+  const chrome = usePageChrome({
+    source,
+    threadId,
+    live,
+    tab: shown,
+    nativeShown,
+    page,
+    tools,
+    openTab: (url) => tabs.open(url),
+    onKey: (key) =>
+      shortcut(
+        (
+          {
+            address: "CmdOrCtrl+L",
+            find: "CmdOrCtrl+F",
+            reload: "CmdOrCtrl+R",
+            back: "CmdOrCtrl+[",
+            forward: "CmdOrCtrl+]",
+          } as const
+        )[key],
+      ),
+  });
   const shortcut = (accelerator: BrowserAccelerator) => {
     if (accelerator === "CmdOrCtrl+L") focusAddress();
     else if (accelerator === "CmdOrCtrl+F") setFinding(true);
     else if (accelerator === "CmdOrCtrl+R") page.reload();
     else if (accelerator === "CmdOrCtrl+T") actions.open({ kind: "browser" });
     else if (accelerator === "CmdOrCtrl+[") page.back();
-    else page.forward();
+    else if (accelerator === "CmdOrCtrl+]") page.forward();
   };
   const nativeShortcut = useEffectEvent((id: string, accelerator: BrowserAccelerator) => {
     if (id === threadId) shortcut(accelerator);
@@ -142,46 +174,10 @@ function Browser(props: TabViewProps) {
   useEffect(() => desktopBrowserViews()?.onShortcut(nativeShortcut), []);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    const mod = event.metaKey || event.ctrlKey;
-    if (!mod || event.altKey) return;
-    const key = event.key.toLowerCase();
-    if (key === "l") shortcut("CmdOrCtrl+L");
-    else if (key === "f" && !event.shiftKey) shortcut("CmdOrCtrl+F");
-    else if (key === "r" && !event.shiftKey) shortcut("CmdOrCtrl+R");
-    else if (event.code === "BracketLeft" && !event.shiftKey) shortcut("CmdOrCtrl+[");
-    else if (event.code === "BracketRight" && !event.shiftKey) shortcut("CmdOrCtrl+]");
-    else return;
-    // The tab's own browser keys win over the app's (⌘[ is app Back elsewhere).
+    // The tab's own browser keys win over the app's (⌘[ is app Back, ⌘P files elsewhere).
+    if (!chrome.key(event)) return;
     event.preventDefault();
     event.stopPropagation();
-  };
-
-  const setViewport = (id: string) => {
-    const next = viewportById(id);
-    if (!live || !shown) {
-      page.save({ viewport: next.id });
-      return;
-    }
-    // Back to the panel's size: the viewport follows the pane again from the next layout.
-    source
-      .emulate(
-        threadId,
-        next.emulation ?? {
-          width: Math.max(100, Math.round(pageArea.current?.clientWidth ?? 800)),
-          height: Math.max(100, Math.round(pageArea.current?.clientHeight ?? 600)),
-          deviceScaleFactor: 1,
-          mobile: false,
-          touch: false,
-        },
-        shown.tabId,
-      )
-      .then(() => page.save({ viewport: next.id }))
-      .catch((error: unknown) =>
-        toast.error({
-          title: "Couldn't change the page size",
-          description: error instanceof Error ? error.message : undefined,
-        }),
-      );
   };
 
   let content;
@@ -209,7 +205,10 @@ function Browser(props: TabViewProps) {
         frame={page.frame}
         interactive={online}
         nativeShown={nativeShown}
-        fit={viewport.emulation === undefined}
+        fit={!tools.toolbar}
+        framed={tools.toolbar}
+        zoom={shown.zoom}
+        menu={chrome.menu}
         dimmed={!online || live.status === "paused"}
       />
     );
@@ -257,19 +256,22 @@ function Browser(props: TabViewProps) {
             onGo={page.go}
             lead={<ConnectionMark url={blank ? undefined : shownUrl} />}
             trail={
-              live?.permissionDenied && (
-                <Tip
-                  label={`Site access blocked: ${permissionLabel(live.permissionDenied.permission)}. Open the page in your browser to allow it.`}
-                >
-                  <span
-                    role="status"
-                    aria-label={`Site access blocked: ${permissionLabel(live.permissionDenied.permission)}`}
-                    className="grid size-6 place-items-center text-muted-foreground"
+              <>
+                <ZoomBadge tools={tools} />
+                {live?.permissionDenied && (
+                  <Tip
+                    label={`Site access blocked: ${permissionLabel(live.permissionDenied.permission)}. Open the page in your browser to allow it.`}
                   >
-                    <WarningCircleIcon aria-hidden size={14} />
-                  </span>
-                </Tip>
-              )
+                    <span
+                      role="status"
+                      aria-label={`Site access blocked: ${permissionLabel(live.permissionDenied.permission)}`}
+                      className="grid size-6 place-items-center text-muted-foreground"
+                    >
+                      <WarningCircleIcon aria-hidden size={14} />
+                    </span>
+                  </Tip>
+                )}
+              </>
             }
           />
         }
@@ -284,18 +286,26 @@ function Browser(props: TabViewProps) {
                   online={online}
                 />
               )}
-              <DownloadsButton downloads={live?.downloads ?? []} />
+              <DownloadsButton
+                downloads={live?.downloads ?? []}
+                open={chrome.downloads.open}
+                onOpenChange={chrome.downloads.setOpen}
+              />
             </ToolPill>
             <BrowserActions
               threadId={threadId}
               tab={shown}
               shownUrl={blank ? undefined : shownUrl}
               external={external}
-              viewport={viewport}
-              onViewport={setViewport}
               online={online}
               browser={browser}
+              tools={tools}
+              actions={chrome.actions}
               onFind={() => setFinding(true)}
+              onDownloads={() => chrome.downloads.setOpen(true)}
+              onHistory={chrome.openHistory}
+              onClearData={chrome.openClearData}
+              onSettings={chrome.openSettings}
               onKeepPrivate={(value) => shown && tabs.keepPrivate(shown.tabId, value)}
               onCloseTab={() => shown && tabs.close(shown.tabId)}
             />
@@ -303,6 +313,7 @@ function Browser(props: TabViewProps) {
         }
         progress={page.loading ? `Loading ${displayAddress(shownUrl ?? "")}` : undefined}
       />
+      {tools.toolbar && <DeviceToolbar tools={tools} />}
       {live && !live.closed && <PageDialog view={live} browser={browser} />}
       {finding && live && (
         <FindPage
@@ -320,26 +331,41 @@ function Browser(props: TabViewProps) {
           live && page.frame && "overflow-hidden",
         )}
       >
-        {content}
-        {native.frozen && (
-          // The native page's picture, exactly where the page is, while a menu covers it.
-          <img
-            data-frozen-page=""
-            src={native.frozen.src}
-            alt=""
-            aria-hidden
-            draggable={false}
-            style={{
-              left: native.frozen.box.x,
-              top: native.frozen.box.y,
-              width: native.frozen.box.width,
-              height: native.frozen.box.height,
-            }}
-            className="pointer-events-none absolute max-w-none select-none"
-          />
+        {tools.toolbar ? (
+          <DeviceStage tools={tools} frame={deviceFrame}>
+            {content}
+            {native.frozen && <FrozenPage frozen={native.frozen} />}
+          </DeviceStage>
+        ) : (
+          <>
+            {content}
+            {native.frozen && <FrozenPage frozen={native.frozen} />}
+          </>
         )}
       </div>
+      {chrome.dialogs}
     </div>
+  );
+}
+
+/** The native page's picture, exactly where the page is, while a menu covers it. */
+function FrozenPage(props: { frozen: NonNullable<ReturnType<typeof useNativeView>["frozen"]> }) {
+  const { frozen } = props;
+  return (
+    <img
+      data-frozen-page=""
+      src={frozen.src}
+      alt=""
+      aria-hidden
+      draggable={false}
+      style={{
+        left: frozen.box.x,
+        top: frozen.box.y,
+        width: frozen.box.width,
+        height: frozen.box.height,
+      }}
+      className="pointer-events-none absolute max-w-none select-none"
+    />
   );
 }
 

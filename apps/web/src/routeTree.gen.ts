@@ -24,6 +24,7 @@ import { Route as AutomationsNewRouteImport } from "./routes/automations.new"
 import { Route as SettingsIndexRouteImport } from "./routes/settings.index"
 import { Route as SettingsAdvancedRouteImport } from "./routes/settings.advanced"
 import { Route as SettingsAppearanceRouteImport } from "./routes/settings.appearance"
+import { Route as SettingsBrowserRouteImport } from "./routes/settings.browser"
 import { Route as SettingsComputerUseRouteImport } from "./routes/settings.computer-use"
 import { Route as SettingsGeneralRouteImport } from "./routes/settings.general"
 import { Route as SettingsKeyboardRouteImport } from "./routes/settings.keyboard"
@@ -113,6 +114,11 @@ const SettingsAdvancedRoute = SettingsAdvancedRouteImport.update({
 const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
   id: "/appearance",
   path: "/appearance",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsBrowserRoute = SettingsBrowserRouteImport.update({
+  id: "/browser",
+  path: "/browser",
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsComputerUseRoute = SettingsComputerUseRouteImport.update({
@@ -213,6 +219,7 @@ export interface FileRoutesByFullPath {
   "/automations/new": typeof AutomationsNewRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
+  "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
@@ -241,6 +248,7 @@ export interface FileRoutesByTo {
   "/automations/new": typeof AutomationsNewRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
+  "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
@@ -275,6 +283,7 @@ export interface FileRoutesById {
   "/automations/new": typeof AutomationsNewRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
+  "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
@@ -310,6 +319,7 @@ export interface FileRouteTypes {
     | "/automations/new"
     | "/settings/advanced"
     | "/settings/appearance"
+    | "/settings/browser"
     | "/settings/computer-use"
     | "/settings/general"
     | "/settings/keyboard"
@@ -338,6 +348,7 @@ export interface FileRouteTypes {
     | "/automations/new"
     | "/settings/advanced"
     | "/settings/appearance"
+    | "/settings/browser"
     | "/settings/computer-use"
     | "/settings/general"
     | "/settings/keyboard"
@@ -371,6 +382,7 @@ export interface FileRouteTypes {
     | "/automations/new"
     | "/settings/advanced"
     | "/settings/appearance"
+    | "/settings/browser"
     | "/settings/computer-use"
     | "/settings/general"
     | "/settings/keyboard"
@@ -507,6 +519,13 @@ declare module "@tanstack/react-router" {
       path: "/appearance"
       fullPath: "/settings/appearance"
       preLoaderRoute: typeof SettingsAppearanceRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/browser": {
+      id: "/settings/browser"
+      path: "/browser"
+      fullPath: "/settings/browser"
+      preLoaderRoute: typeof SettingsBrowserRouteImport
       parentRoute: typeof SettingsRoute
     }
     "/settings/computer-use": {
@@ -663,6 +682,7 @@ const AutomationsRouteWithChildren = AutomationsRoute._addFileChildren(
 interface SettingsRouteChildren {
   SettingsAdvancedRoute: typeof SettingsAdvancedRoute
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
+  SettingsBrowserRoute: typeof SettingsBrowserRoute
   SettingsComputerUseRoute: typeof SettingsComputerUseRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
   SettingsKeyboardRoute: typeof SettingsKeyboardRoute
@@ -679,6 +699,7 @@ interface SettingsRouteChildren {
 const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAdvancedRoute: SettingsAdvancedRoute,
   SettingsAppearanceRoute: SettingsAppearanceRoute,
+  SettingsBrowserRoute: SettingsBrowserRoute,
   SettingsComputerUseRoute: SettingsComputerUseRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
   SettingsKeyboardRoute: SettingsKeyboardRoute,

@@ -514,7 +514,7 @@ test("while the window is hidden the browser stops pulling frames, and shows the
   }
 });
 
-test("screencast paste inserts clipboard text and pointer gestures retain their buttons and click counts", async () => {
+test("screencast paste inserts clipboard text and pointer gestures retain their buttons and click counts (⇧ right click goes to the page)", async () => {
   const { panel, browser } = await openBrowser();
   await agentPage(panel);
   const page = await within(panel).findByRole("application");
@@ -526,8 +526,10 @@ test("screencast paste inserts clipboard text and pointer gestures retain their 
     [1, 1],
     [2, 1],
   ]) {
-    fireEvent.mouseDown(page, { clientX: 10, clientY: 20, button, detail });
-    fireEvent.mouseUp(page, { clientX: 10, clientY: 20, button, detail });
+    // A plain right click opens ace's page menu; with ⇧ it is the page's own.
+    const shiftKey = button === 2;
+    fireEvent.mouseDown(page, { clientX: 10, clientY: 20, button, detail, shiftKey });
+    fireEvent.mouseUp(page, { clientX: 10, clientY: 20, button, detail, shiftKey });
   }
   await waitFor(() =>
     expect(browser.wireInputs.filter(({ input }) => input.kind === "mouse")).toHaveLength(6),

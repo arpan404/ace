@@ -1388,7 +1388,7 @@ Example:
 ```json
 {
   "keys": [
-    "providers.reviewer.provider"
+    "providers.reviewer.model"
   ],
   "requestId": "example",
   "scope": {
@@ -2553,8 +2553,9 @@ Example:
 ```json
 {
   "command": {
-    "action": "press",
-    "key": "example"
+    "action": "scroll",
+    "x": 5,
+    "y": 1
   },
   "requestId": "example",
   "threadId": "example",
@@ -2576,7 +2577,6 @@ Example:
 ```json
 {
   "requestId": "example",
-  "subscriberId": "example",
   "threadId": "example",
   "type": "browser.subscribe"
 }
@@ -2599,9 +2599,9 @@ Example:
   "threadId": "example",
   "type": "browser.capture",
   "viewport": {
-    "devicePixelRatio": 2,
+    "devicePixelRatio": 1,
     "height": 104,
-    "width": 106
+    "width": 104
   }
 }
 ```
@@ -2620,7 +2620,6 @@ Example:
 ```json
 {
   "requestId": "example",
-  "subscriberId": "example",
   "threadId": "example",
   "type": "browser.unsubscribe"
 }
@@ -2640,7 +2639,7 @@ Example:
 ```json
 {
   "requestId": "example",
-  "sequence": 8,
+  "sequence": 9,
   "threadId": "example",
   "type": "browser.ack"
 }
@@ -2660,7 +2659,7 @@ Example:
 
 ```json
 {
-  "private": false,
+  "private": true,
   "requestId": "example",
   "tabId": "example",
   "threadId": "example",
@@ -2683,8 +2682,9 @@ Example:
 ```json
 {
   "input": {
-    "event": "mousePressed",
-    "kind": "mouse",
+    "deltaX": 8,
+    "deltaY": 9,
+    "kind": "scroll",
     "x": 0,
     "y": 0
   },

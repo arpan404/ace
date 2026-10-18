@@ -36,7 +36,7 @@ type GroupPage = Pick<
   | "isShown"
   | "picture"
 > &
-  Partial<Pick<EmbeddedPage, "orphan" | "readopt" | "evacuate">>;
+  Partial<Pick<EmbeddedPage, "orphan" | "readopt" | "evacuate" | "devtools" | "print">>;
 
 interface Tab {
   id: string;
@@ -218,6 +218,16 @@ export class EmbeddedPageGroup implements ViewPage {
 
   async placementReady(): Promise<void> {
     await this.tabs.get(this.active)?.page.placementReady();
+  }
+
+  /** The shown tab's developer tools, at an element when `at` is given. */
+  devtools(at?: { x: number; y: number }): void {
+    this.tabs.get(this.active)?.page.devtools?.(at);
+  }
+
+  /** The system print dialog for the shown tab. */
+  print(): Promise<boolean> {
+    return this.tabs.get(this.active)?.page.print?.() ?? Promise.resolve(false);
   }
 
   /** The shown tab's picture, held in its place while an app overlay covers it. */

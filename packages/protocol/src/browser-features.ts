@@ -33,6 +33,20 @@ export type BrowserAgentPointer = z.infer<typeof BrowserAgentPointer>;
  */
 export const BrowserTabLifecycle = z.enum(["live", "frozen", "discarded", "crashed"]);
 export type BrowserTabLifecycle = z.infer<typeof BrowserTabLifecycle>;
+/**
+ * The device a tab emulates (BrowserCommand `emulate`, or an agent's `resize`), and who set it.
+ * Absent: the page follows the size of the pane showing it.
+ */
+export const BrowserTabEmulation = z.object({
+  width: z.number().int().min(100).max(4096),
+  height: z.number().int().min(100).max(4096),
+  deviceScaleFactor: z.number().min(0.5).max(4),
+  mobile: z.boolean(),
+  touch: z.boolean(),
+  userAgent: z.string().max(1024).optional(),
+  by: z.enum(["human", "agent"]),
+});
+export type BrowserTabEmulation = z.infer<typeof BrowserTabEmulation>;
 export const BrowserTab = z.object({
   tabId: id,
   url: z.string().max(8192),
@@ -55,6 +69,9 @@ export const BrowserTab = z.object({
   lifecycle: BrowserTabLifecycle.optional(),
   loading: z.boolean().optional(),
   favicon: z.string().max(8192).optional(),
+  /** Page zoom as a factor (1 is 100%); absent at 100%. Set by the person, per tab. */
+  zoom: z.number().min(0.25).max(5).optional(),
+  emulation: BrowserTabEmulation.optional(),
 });
 export type BrowserTab = z.infer<typeof BrowserTab>;
 /** Wire bound on one browser's tab list: far above what a person keeps open, still bounded. */

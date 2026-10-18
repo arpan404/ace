@@ -151,6 +151,23 @@ export function browserChord(input: KeyInput, platform: NodeJS.Platform): string
   return key && ["L", "R", "F", "[", "]"].includes(key) ? `CmdOrCtrl+${key}` : undefined;
 }
 
+/**
+ * A key press in a native page that belongs to the tab: zoom in (⌘= or ⌘+), zoom out (⌘-) and
+ * actual size (⌘0), which the toolbar carries out, and Print (⌘P) and developer tools (⌥⌘I),
+ * which the page does itself. Ctrl instead of ⌘ off macOS.
+ */
+export function pageChord(input: KeyInput, platform: NodeJS.Platform): string | undefined {
+  if (input.type !== "keyDown" && input.type !== "keyUp") return undefined;
+  const mod = platform === "darwin" ? input.meta && !input.control : input.control && !input.meta;
+  if (!mod) return undefined;
+  if (input.alt) return input.code === "KeyI" && !input.shift ? "Alt+CmdOrCtrl+I" : undefined;
+  if (input.code === "KeyP" && !input.shift) return "CmdOrCtrl+P";
+  if (input.key === "+" || input.key === "=" || input.code === "Equal") return "CmdOrCtrl+=";
+  if (input.key === "-" || input.code === "Minus") return "CmdOrCtrl+-";
+  if (input.key === "0" || input.code === "Digit0") return "CmdOrCtrl+0";
+  return undefined;
+}
+
 /** A single keymap chord can be shown by Electron; sequences have no native accelerator. */
 export function keymapAccelerator(keys: string): string | undefined {
   if (keys.includes(" ")) return undefined;

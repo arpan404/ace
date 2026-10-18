@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appChord, browserChord, replayChord, type KeyInput } from "./shortcuts.ts";
+import { appChord, browserChord, pageChord, replayChord, type KeyInput } from "./shortcuts.ts";
 
 /** A key press inside an embedded browser page, as Electron's `before-input-event` reports it. */
 function press(key: string, code: string, held: Partial<KeyInput> = {}): KeyInput {
@@ -93,5 +93,28 @@ describe("app shortcuts while an embedded page has focus", () => {
     expect(appChord(press("a", "KeyQ", { control: true, shift: true }), "darwin")).toBe(
       "Ctrl+Shift+A",
     );
+  });
+});
+
+describe("keys a native page keeps for its own tab", () => {
+  it("zoom keys go to the tab on macOS with ⌘ and elsewhere with Ctrl", () => {
+    expect(pageChord(press("=", "Equal", { meta: true }), "darwin")).toBe("CmdOrCtrl+=");
+    expect(pageChord(press("+", "Equal", { meta: true, shift: true }), "darwin")).toBe(
+      "CmdOrCtrl+=",
+    );
+    expect(pageChord(press("-", "Minus", { control: true }), "linux")).toBe("CmdOrCtrl+-");
+    expect(pageChord(press("0", "Digit0", { control: true }), "win32")).toBe("CmdOrCtrl+0");
+    // Ctrl+= on macOS is the page's own key, not zoom.
+    expect(pageChord(press("=", "Equal", { control: true }), "darwin")).toBeUndefined();
+  });
+
+  it("⌘P prints and ⌥⌘I opens developer tools instead of reaching the app", () => {
+    expect(pageChord(press("p", "KeyP", { meta: true }), "darwin")).toBe("CmdOrCtrl+P");
+    expect(pageChord(press("ˆ", "KeyI", { meta: true, alt: true }), "darwin")).toBe(
+      "Alt+CmdOrCtrl+I",
+    );
+    // ⇧⌘P stays the app's.
+    expect(pageChord(press("P", "KeyP", { meta: true, shift: true }), "darwin")).toBeUndefined();
+    expect(pageChord(press("a", "KeyA", { meta: true }), "darwin")).toBeUndefined();
   });
 });

@@ -21,6 +21,7 @@ import type {
 import { AgentCursor } from "./agent-cursor.tsx";
 import { useCaptureSize } from "../preview/use-capture-size.ts";
 import { useViewportSync } from "../preview/use-viewport-sync.ts";
+import { PageContextMenu, type PageMenu } from "./page-context-menu.tsx";
 
 /**
  * The page itself, edge to edge in the panel: the screencast frame on the panel's own surface,
@@ -41,6 +42,12 @@ export function PageView(props: {
   nativeShown?: boolean;
   /** Follow the pane's size (responsive); false while a device size is set. */
   fit: boolean;
+  /** Drawn inside the device toolbar's frame, which it fills exactly. */
+  framed?: boolean;
+  /** The tab's zoom: the page is that much smaller in CSS pixels, drawn back at the pane's size. */
+  zoom?: number | undefined;
+  /** The right-click menu; without it, a right click goes to the page. */
+  menu?: PageMenu | undefined;
   /** Dimmed with a reason over it (offline, paused). */
   dimmed?: boolean;
 }) {
@@ -74,6 +81,8 @@ export function PageView(props: {
   };
   const send = (event: "mousePressed" | "mouseReleased") => (mouse: MouseEvent<HTMLElement>) => {
     if (mouse.button > 2) return;
+    // A right click opens ace's menu; with ⇧ it goes to the page (its own menus).
+    if (mouse.button === 2 && props.menu && !mouse.shiftKey) return;
     if (event === "mousePressed") mouse.currentTarget.focus();
     forward({
       kind: "mouse",
@@ -151,17 +160,20 @@ export function PageView(props: {
         : {}),
     });
   };
+  // A zoomed page is smaller in CSS pixels; drawn at its zoomed size it fills the pane again.
+  const zoom = props.zoom ?? 1;
   const image = !props.nativeShown && (
     <img
       ref={picture}
       src={frame.src}
       alt={`Live view of ${props.view.url}`}
       draggable={false}
-      width={frame.width}
-      height={frame.height}
+      width={Math.round(frame.width * zoom)}
+      height={Math.round(frame.height * zoom)}
       className={cn(
-        "block h-auto max-h-full w-auto max-w-full object-contain transition-opacity duration-(--motion-base)",
-        !props.fit && "rounded-md shadow-glass",
+        "block object-contain transition-opacity duration-(--motion-base)",
+        props.framed ? "size-full" : "h-auto max-h-full w-auto max-w-full",
+        !props.fit && !props.framed && "rounded-md shadow-glass",
         props.dimmed && "opacity-40",
       )}
     />
@@ -170,7 +182,7 @@ export function PageView(props: {
   // panel's surface. Space a frame doesn't cover is the panel itself, not a frame colour.
   const className = cn(
     "absolute inset-0 flex overflow-hidden",
-    props.fit ? "items-start justify-start" : "items-center justify-center p-6",
+    props.fit || props.framed ? "items-start justify-start" : "items-center justify-center p-6",
   );
   // One element whether or not the page takes input now, so focus stays on it when control or
   // annotate mode changes hands: dropped to <body>, the composer would take the next keys and
@@ -189,7 +201,7 @@ export function PageView(props: {
         });
     })();
   };
-  return (
+  const view = (
     <div
       ref={pane}
       data-page-view=""
@@ -201,7 +213,13 @@ export function PageView(props: {
       onMouseDown={live ? send("mousePressed") : undefined}
       onMouseUp={live ? send("mouseReleased") : undefined}
       onWheel={live ? onWheel : undefined}
-      onContextMenu={live ? (event) => event.preventDefault() : undefined}
+      onContextMenu={
+        !live
+          ? undefined
+          : props.menu
+            ? (event) => props.menu?.locate(point(event))
+            : (event) => event.preventDefault()
+      }
       onKeyDown={live ? onKey("keyDown") : undefined}
       onKeyUp={live ? onKey("keyUp") : undefined}
       onPaste={live ? paste : undefined}
@@ -219,4 +237,5 @@ export function PageView(props: {
       )}
     </div>
   );
+  return props.menu && live ? <PageContextMenu menu={props.menu}>{view}</PageContextMenu> : view;
 }

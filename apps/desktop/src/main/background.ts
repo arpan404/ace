@@ -20,6 +20,8 @@ export interface BackgroundOptions {
   /** The tray's template image (`appPaths().trayIcon`). */
   trayIcon: string;
   browserPreload?: string | undefined;
+  /** The system's Downloads folder (`app.getPath("downloads")`): native pages' default. */
+  downloads: string;
   runtime: DaemonRuntime;
   settings(): DesktopSettings;
   window(): BrowserWindow | undefined;
@@ -185,6 +187,8 @@ export class Background {
       platform: process.platform,
       log,
       onPages: () => this.reviewLifetime(),
+      // The person's chosen folder, else the system's Downloads folder.
+      downloadFolder: () => this.options.settings().browserDownloads ?? this.options.downloads,
     });
     const backend = new BrowserBackend(views, { log });
     const connection = new BackendConnection(backend, {
@@ -263,6 +267,11 @@ export class Background {
    */
   snapshotBrowser(threadId: string): Promise<string | undefined> {
     return this.browser?.views.snapshot(threadId) ?? Promise.resolve(undefined);
+  }
+
+  /** Print or developer tools for a thread's shown native tab; false when it has none here. */
+  browserPage(request: import("../shared/contract.ts").BrowserPageAction): Promise<boolean> {
+    return this.browser?.views.pageAction(request) ?? Promise.resolve(false);
   }
 
   /** Route an alert and show it if the rules allow; true when shown. */

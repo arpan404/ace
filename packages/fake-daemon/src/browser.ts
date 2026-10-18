@@ -93,6 +93,8 @@ export class FakeBrowser {
   /** The person's input, as the daemon received it. */
   readonly inputs: { threadId: string; tabId?: string; input: ForwardedInput }[] = [];
   readonly wireInputs: { threadId: string; tabId?: string; input: BrowserInput }[] = [];
+  /** What a person's right click finds under the pointer (`context_target`). */
+  contextTarget: { link?: string; image?: string } | undefined;
   get version(): number {
     return this.revision;
   }
@@ -355,6 +357,21 @@ export class FakeBrowser {
       this.paint(entry);
     }
     return { ok: true };
+  }
+  /** A tab's zoom and emulated device, as the daemon lists them (undefined clears). */
+  tabView(
+    threadId: string,
+    tabId: string | undefined,
+    view: Partial<Pick<BrowserTab, "zoom" | "emulation">>,
+  ): void {
+    const tab = this.tab(threadId, tabId);
+    if (!tab) throw new Error("Browser tab unavailable");
+    for (const key of ["zoom", "emulation"] as const)
+      if (key in view) {
+        if (view[key] === undefined) delete tab[key];
+        else Object.assign(tab, { [key]: view[key] });
+      }
+    this.changed();
   }
   tabsList(threadId: string): BrowserTab[] {
     return this.view(threadId)?.tabs ?? [];

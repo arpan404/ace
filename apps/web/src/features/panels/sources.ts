@@ -99,6 +99,10 @@ export interface BrowserTabView {
   /** "Keep agents out of this tab": agents can neither read nor drive it. */
   private?: boolean | undefined;
   pendingDialog?: BrowserDialogView | undefined;
+  /** Page zoom (1 is 100%); absent at 100%. */
+  zoom?: number | undefined;
+  /** The device the tab emulates and who set it; absent: it follows the pane. */
+  emulation?: (Emulation & { by: "human" | "agent" }) | undefined;
 }
 export interface BrowserDownloadView {
   downloadId: string;
@@ -125,7 +129,17 @@ export interface Emulation {
   deviceScaleFactor: number;
   mobile: boolean;
   touch: boolean;
+  userAgent?: string | undefined;
 }
+/** The person's own page commands (zoom, print, screenshot, page source, clear data). */
+export type PageToolCommand =
+  | { action: "zoom"; factor: number }
+  | { action: "pdf"; landscape: boolean; printBackground: boolean }
+  | { action: "screenshot"; fullPage: boolean }
+  | { action: "page_source" }
+  | { action: "clear_data" }
+  | { action: "context_target"; x: number; y: number }
+  | { action: "image_data"; url: string };
 export interface ScreenFrame {
   sequence: number;
   src: string;
@@ -256,6 +270,8 @@ export interface PreviewSource {
   closeTab(threadId: string, tabId: string): Promise<void>;
   /** "Keep agents out of this tab", or let them back in. */
   keepPrivate(threadId: string, tabId: string, value: boolean): Promise<void>;
+  /** One of the person's page commands in a tab (the shown one unless named). */
+  pageTool?(threadId: string, command: PageToolCommand, tabId?: string): Promise<unknown>;
   /** Extensions the tab's engine runs, as its backend reports them (read-only). */
   extensions?(threadId: string): Promise<readonly BrowserExtensionView[]>;
   /** The person's own input; it lands at once, whoever else works in the tab. */

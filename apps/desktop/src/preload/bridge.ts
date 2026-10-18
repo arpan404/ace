@@ -169,6 +169,9 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       place: (placement: RequestOf<"browser.place">) => call("browser.place", placement),
       snapshot: (request: RequestOf<"browser.snapshot">) => call("browser.snapshot", request),
       focusApp: () => call("browser.focus-app"),
+      page: (request: RequestOf<"browser.page">) => call("browser.page", request),
+      onContext: (listener: (value: EventOf<"browser.context">) => void) =>
+        subscribe("browser.context", listener),
     },
     updates: {
       check: () => call("updates.check"),

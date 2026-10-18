@@ -262,6 +262,7 @@ export class BrowserService {
         this.policyGate,
         () => session,
       );
+      const downloadFolder = this.options.downloadFolder;
       const request: BackendOpen = {
         id: this.id,
         reserveTab: () => this.tabs.reserve(),
@@ -271,6 +272,7 @@ export class BrowserService {
           : {}),
         changed: () => session?.changed(),
         downloadDir,
+        ...(downloadFolder ? { saveFolder: () => downloadFolder(options) } : {}),
         ...(this.options.maxDownloadBytes
           ? { maxDownloadBytes: this.options.maxDownloadBytes }
           : {}),

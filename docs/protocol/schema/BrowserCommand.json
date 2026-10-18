@@ -585,6 +585,11 @@
           "default": false,
           "type": "boolean"
         },
+        "userAgent": {
+          "description": "A user agent string to send and report. Omitted: the browser's own.",
+          "maxLength": 1024,
+          "type": "string"
+        },
         "width": {
           "maximum": 4096,
           "minimum": 100,
@@ -1134,6 +1139,120 @@
           "type": "object"
         }
       ]
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "zoom",
+          "type": "string"
+        },
+        "factor": {
+          "maximum": 5,
+          "minimum": 0.25,
+          "type": "number"
+        },
+        "tabId": {
+          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "factor"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "clear_data",
+          "type": "string"
+        },
+        "tabId": {
+          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "page_source",
+          "type": "string"
+        },
+        "tabId": {
+          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "context_target",
+          "type": "string"
+        },
+        "tabId": {
+          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "x": {
+          "maximum": 100000,
+          "minimum": 0,
+          "type": "number"
+        },
+        "y": {
+          "maximum": 100000,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "action",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "image_data",
+          "type": "string"
+        },
+        "tabId": {
+          "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "url"
+      ],
+      "type": "object"
     },
     {
       "properties": {

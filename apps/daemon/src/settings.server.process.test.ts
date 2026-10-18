@@ -436,3 +436,25 @@ test("a local reset clears every preference in one commit while keeping the proj
   ] as const)
     expect((await f.settings.get(key)).provenance).toBe("defaults");
 });
+
+test("the downloads folder for ace's Chrome must exist and be writable here; the machine's default is read-only", async () => {
+  const { mkdtemp, realpath, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const f = await setup();
+  const folder = await realpath(await mkdtemp(join(tmpdir(), "ace-chosen-downloads-")));
+  cleanups.push(() => rm(folder, { recursive: true, force: true }));
+  const set = (key: string, value: string) => {
+    f.client.send({ type: "settings.set", requestId: key, key, value, layer: { kind: "global" } });
+    return f.client.next();
+  };
+  expect(await set("browser.downloadDir", join(folder, "missing"))).toMatchObject({
+    ok: false,
+    diagnostics: [{ code: "validation", message: expect.stringMatching(/doesn't exist/) }],
+  });
+  expect(await set("browser.downloadDir", folder)).toMatchObject({
+    ok: true,
+    entries: [{ key: "browser.downloadDir", value: folder }],
+  });
+  expect(await set("browser.downloadDefault", folder)).toMatchObject({ ok: false });
+  expect((await f.settings.get("browser.downloadDefault")).value).toBe("");
+});

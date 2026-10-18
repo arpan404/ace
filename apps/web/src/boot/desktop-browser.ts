@@ -27,7 +27,27 @@ export type BrowserAccelerator =
   | "CmdOrCtrl+F"
   | "CmdOrCtrl+R"
   | "CmdOrCtrl+["
-  | "CmdOrCtrl+]";
+  | "CmdOrCtrl+]"
+  | "CmdOrCtrl+="
+  | "CmdOrCtrl+-"
+  | "CmdOrCtrl+0";
+
+const accelerators: readonly BrowserAccelerator[] = [
+  "CmdOrCtrl+T",
+  "CmdOrCtrl+L",
+  "CmdOrCtrl+F",
+  "CmdOrCtrl+R",
+  "CmdOrCtrl+[",
+  "CmdOrCtrl+]",
+  "CmdOrCtrl+=",
+  "CmdOrCtrl+-",
+  "CmdOrCtrl+0",
+];
+
+/** A native page's context menu pick that the app carries out (see the desktop's contract). */
+export type BrowserContextAction =
+  | { action: "back" | "forward" | "reload" | "annotate" | "viewSource" }
+  | { action: "openTab"; url: string };
 
 export interface DesktopBrowserViews {
   onVisibility(listener: (threadId: string, visible: boolean) => void): () => void;
@@ -43,6 +63,17 @@ export interface DesktopBrowserViews {
    * typed there since a native ⌘L or ⌘F land in the field.
    */
   focusApp(): void;
+  /**
+   * The thread's shown native tab: the system print dialog, or its developer tools (at a point
+   * of the page when `inspect` is given). False when this window has no native view of it.
+   */
+  page(
+    threadId: string,
+    action: "print" | "devtools",
+    inspect?: { x: number; y: number },
+  ): Promise<boolean>;
+  /** The person picked an item in a native page's context menu that the app carries out. */
+  onContext(listener: (threadId: string, action: BrowserContextAction) => void): () => void;
 }
 
 /**
@@ -76,6 +107,12 @@ export function desktopBrowserViews(scope: object = globalThis): DesktopBrowserV
   const focusApp =
     typeof browser === "object" && browser !== null && "focusApp" in browser
       ? browser.focusApp
+      : undefined;
+  const page =
+    typeof browser === "object" && browser !== null && "page" in browser ? browser.page : undefined;
+  const onContext =
+    typeof browser === "object" && browser !== null && "onContext" in browser
+      ? browser.onContext
       : undefined;
   return {
     focusApp: () => {
@@ -113,16 +150,27 @@ export function desktopBrowserViews(scope: object = globalThis): DesktopBrowserV
             !("accelerator" in event)
           )
             return;
-          const accelerator = event.accelerator;
-          if (
-            accelerator === "CmdOrCtrl+T" ||
-            accelerator === "CmdOrCtrl+L" ||
-            accelerator === "CmdOrCtrl+F" ||
-            accelerator === "CmdOrCtrl+R" ||
-            accelerator === "CmdOrCtrl+[" ||
-            accelerator === "CmdOrCtrl+]"
-          )
-            listener(event.threadId, accelerator);
+          const accelerator = accelerators.find((each) => each === event.accelerator);
+          if (accelerator) listener(event.threadId, accelerator);
+        },
+      ]);
+      return () => {
+        if (typeof stop === "function") stop();
+      };
+    },
+    page: async (threadId, action, inspect) => {
+      if (typeof page !== "function") return false;
+      const done: unknown = await Promise.resolve(
+        Reflect.apply(page, browser, [{ threadId, action, ...(inspect ? { inspect } : {}) }]),
+      ).catch(() => false);
+      return done === true;
+    },
+    onContext: (listener) => {
+      if (typeof onContext !== "function") return () => {};
+      const stop: unknown = Reflect.apply(onContext, browser, [
+        (event: unknown) => {
+          const picked = contextAction(event);
+          if (picked) listener(picked.threadId, picked.action);
         },
       ]);
       return () => {
@@ -142,4 +190,28 @@ export function desktopBrowserViews(scope: object = globalThis): DesktopBrowserV
       return typeof picture === "string" && picture.startsWith("data:image/") ? picture : undefined;
     },
   };
+}
+
+/** A `browser.context` event from the desktop, checked field by field. */
+function contextAction(
+  event: unknown,
+): { threadId: string; action: BrowserContextAction } | undefined {
+  if (typeof event !== "object" || event === null) return undefined;
+  const threadId = Reflect.get(event, "threadId");
+  const action = Reflect.get(event, "action");
+  const url = Reflect.get(event, "url");
+  if (typeof threadId !== "string") return undefined;
+  if (action === "openTab")
+    return typeof url === "string" && /^https?:\/\//i.test(url)
+      ? { threadId, action: { action, url } }
+      : undefined;
+  if (
+    action === "back" ||
+    action === "forward" ||
+    action === "reload" ||
+    action === "annotate" ||
+    action === "viewSource"
+  )
+    return { threadId, action: { action } };
+  return undefined;
 }

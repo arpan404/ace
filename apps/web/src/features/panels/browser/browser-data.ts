@@ -15,8 +15,6 @@ export const BrowserTabData = z.object({
   /** The page's address and title as the daemon last reported them (strip, composer). */
   url: z.optional(z.string()),
   title: z.optional(z.string()),
-  /** A device size from `viewports.ts`; absent follows the panel. */
-  viewport: z.optional(z.string()),
 });
 export type BrowserTabData = z.infer<typeof BrowserTabData>;
 

@@ -37,8 +37,8 @@
       "sha256": "89d6dfaba9bef3cbc93f9abf3116ee8a5de2af3f66dfeb087fbf89ff517433a1"
     },
     "requests.md": {
-      "bytes": 88372,
-      "sha256": "75eec6feecc1b6903444a0f221594cfa83336f119c6cc36099ae6e858a1040c1"
+      "bytes": 88319,
+      "sha256": "2cca73516667d22a66cc2f9f8606c5c13943b444a6aa7466474bec320b00bbea"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -469,8 +469,8 @@
       "sha256": "853a0e225cb759241fcf98c764e19809a3e76413d668b1ec8ac35f0ec5ab7d92"
     },
     "schema/BrowserCommand.json": {
-      "bytes": 26868,
-      "sha256": "e971cefc6f821d8909fefb1bf3f3fdfeddff601f8805e27b8197297e7cdc0b23"
+      "bytes": 29598,
+      "sha256": "c0272a88396c0a7ce9f92762f767339b5d95ac19008b51d228c1b70f5d7698e8"
     },
     "schema/BrowserDialog.json": {
       "bytes": 724,
@@ -517,12 +517,16 @@
       "sha256": "b97b90e0c60e13c30bd8cd48297ffc48a2ce7fbb2b299172975755d70266c5f6"
     },
     "schema/BrowserTab.json": {
-      "bytes": 1247,
-      "sha256": "55f7df408d4836cab1f4083ca24abbb724954faed13686ccd30b8d636a02374a"
+      "bytes": 1431,
+      "sha256": "c92d5b02581c89b76204181b507ad3da6bd06dace1eb8a2528655a7c1c047b47"
     },
     "schema/BrowserTabActor.json": {
       "bytes": 412,
       "sha256": "f84fbf5185b8d6f82980fc5336628824f3399cf9da7ef60c9a92714932cd7059"
+    },
+    "schema/BrowserTabEmulation.json": {
+      "bytes": 831,
+      "sha256": "b71030209144bf206d4426a199db66fad286f634add588d8eff03440d86d0ca9"
     },
     "schema/BrowserTabLifecycle.json": {
       "bytes": 225,
@@ -2793,8 +2797,8 @@
       "sha256": "c66ed88ac9e63a7c903a75d80aa68f613886c4d3df527899a4a1630dc406ab05"
     },
     "schema/SettingsDocument.json": {
-      "bytes": 7359,
-      "sha256": "724b8b1b3c43038ab3cbd1002108759fb9620a9e58155c908979cc812158fd18"
+      "bytes": 7563,
+      "sha256": "23efd3565c571da4d3ea13ffb3ebab72cfd8f3adcf5db9f95de80dbecccfab7b"
     },
     "schema/SettingsEntry.json": {
       "bytes": 580,
@@ -2805,8 +2809,8 @@
       "sha256": "cefc009dcc6bf5d6de5da839f6df69ccb9cc25cf418a256ad8f46d1fb6272648"
     },
     "schema/SettingsKey.json": {
-      "bytes": 1449,
-      "sha256": "6e5dd5ea595b03b2eb5dc6fb5281125053b129f1eaac191aca9a05beb1add3bc"
+      "bytes": 1507,
+      "sha256": "fdb8122d81a9caa1eb2c2bde82853e2f43667a00b1bfb979ccffab33b994ce0f"
     },
     "schema/SettingsLayer.json": {
       "bytes": 973,
@@ -2849,8 +2853,8 @@
       "sha256": "cacc7a3a333f74bf6ef496a92e1b38cbffafce36877765a35c9d489981b4174a"
     },
     "schema/SettingsValues.json": {
-      "bytes": 7217,
-      "sha256": "14a806251e04e833c770b10b1afb601f27a5b79dab0b3fbb1881084dc06b526d"
+      "bytes": 7447,
+      "sha256": "d1ec2eec4ff533f7d1b5758f1b7b41da26b5bb1f37ad1b723fdb1ed01938763a"
     },
     "schema/SiteOrigin.json": {
       "bytes": 307,
@@ -3845,10 +3849,10 @@
       "sha256": "eadd796e5214ab35199731ca1c2f0faa3dd65dab3d6150142a57acda545ef06d"
     },
     "types.md": {
-      "bytes": 797205,
-      "sha256": "cbecda06c0c99e335b2302880333a7a0942656d04bc22c0e21df20e6076c4fab"
+      "bytes": 797659,
+      "sha256": "079dd7d826bed4b3acfc9004f93eba9d14c86e4e9767e4ef991d1348928380a5"
     }
   },
-  "input": "585dbd073a10541d4dd7bb0262c3ea9edbd13c21d3be3b77f8197322265c863e",
+  "input": "b6862ef63d6164e9f8714e648cbb62325ba63081673dcd5caa5a0b9082f6dd62",
   "version": 1
 }

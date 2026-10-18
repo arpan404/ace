@@ -40,6 +40,14 @@
           ],
           "type": "string"
         },
+        "browser.downloadDefault": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "browser.downloadDir": {
+          "maxLength": 4096,
+          "type": "string"
+        },
         "browser.profile": {
           "enum": [
             "persistent",

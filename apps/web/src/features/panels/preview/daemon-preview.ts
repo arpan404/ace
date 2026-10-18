@@ -54,6 +54,8 @@ const view = (state: BrowserState): BrowserView => ({
     pointer: tab.pointer,
     private: tab.private,
     pendingDialog: tab.pending_dialog,
+    zoom: tab.zoom,
+    emulation: tab.emulation,
   })),
   activeTabId: state.activeTabId,
   loading: state.loading,
@@ -547,6 +549,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         mobile: emulation.mobile,
         touch: emulation.touch,
         colorScheme: "no-preference",
+        ...(emulation.userAgent ? { userAgent: emulation.userAgent } : {}),
         ...(tabId ? { tabId } : {}),
       });
     },
@@ -571,6 +574,10 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         private: value,
       });
       if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
+    },
+    pageTool(threadId, command, tabId) {
+      // Printing a long page or capturing a full page can take a while.
+      return execute(threadId, { ...command, ...(tabId ? { tabId } : {}) }, 60_000);
     },
     async extensions(threadId): Promise<readonly BrowserExtensionView[]> {
       return Extensions.parse(await execute(threadId, { action: "extensions" })).extensions;

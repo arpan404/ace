@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import {
   SettingsError,
   validateAssignment,
@@ -17,6 +18,7 @@ import {
 } from "@ace/protocol";
 import type { Store } from "./store.ts";
 import { canonicalProjectRoots } from "./project-policy.ts";
+import { canonicalDownloadFolder } from "./download-folder.ts";
 
 export function settingsScope(store: Store, scope: SettingsScope): Scope {
   let workspaceId = scope.workspaceId;
@@ -146,6 +148,24 @@ export function settingsSession(options: {
                 throw new SettingsError(
                   "validation",
                   "Choose an existing, accessible project folder outside system folders",
+                );
+              }
+            }
+            if (assignment.key === "browser.downloadDefault")
+              throw new SettingsError(
+                "validation",
+                "This machine's Downloads folder is read-only; set browser.downloadDir instead",
+              );
+            if (assignment.key === "browser.downloadDir") {
+              try {
+                value = await canonicalDownloadFolder(
+                  SettingsValues.shape["browser.downloadDir"].parse(value),
+                  homedir(),
+                );
+              } catch (problem) {
+                throw new SettingsError(
+                  "validation",
+                  problem instanceof Error ? problem.message : "Choose a folder ace can write to",
                 );
               }
             }

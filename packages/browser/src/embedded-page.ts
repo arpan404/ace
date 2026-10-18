@@ -56,6 +56,13 @@ export function embeddedTabPage(
       else await tabs.resize(id, width, height);
     },
     viewport: () => tabs.tab(id).viewport,
+    // The desktop applies these to the view itself: native zoom, and its partition's data.
+    zoom: async (factor) => {
+      await cdp().send("ace.zoom", { factor });
+    },
+    clearData: async () => {
+      await cdp().send("ace.clearData");
+    },
     media: async (colorScheme) => {
       await cdp().send("Emulation.setEmulatedMedia", {
         features: [{ name: "prefers-color-scheme", value: colorScheme }],
