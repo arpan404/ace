@@ -179,24 +179,6 @@ function ComposerBody({
     sync.take(emptyDraft);
     setNotice(undefined);
   };
-  useImperativeHandle(ref, () => ({
-    openAdd: () => addMenu.current?.open(),
-    focus: () => input.current?.focus(),
-    takeFiles: intake,
-    submit: () => submit(false),
-    preserveDraft: (key) => writeDraft(storage, key, current),
-    discardIfSubmitted(sent) {
-      if (!matchesSubmittedDraft({ ...current, attachments: attachments.ready }, sent))
-        return false;
-      // The recovery owner already removed the matching persisted draft. Stop a stale
-      // unmount flush from restoring it while leaving newer drafts untouched.
-      sync.saved.drop();
-      clear();
-      attachments.clear();
-      annotations.replace(undefined);
-      return true;
-    },
-  }));
   const { addToken, pick } = useComposerPicks({
     thread: props.thread,
     text,
@@ -242,6 +224,24 @@ function ComposerBody({
     takeText: sync.take,
     replace: props.onReplaced,
   });
+  useImperativeHandle(ref, () => ({
+    openAdd: () => addMenu.current?.open(),
+    focus: () => input.current?.focus(),
+    takeFiles: intake,
+    submit: () => submit(false),
+    preserveDraft: (key) => writeDraft(storage, key, current),
+    discardIfSubmitted(sent) {
+      if (!matchesSubmittedDraft({ ...current, attachments: attachments.ready }, sent))
+        return false;
+      // The recovery owner already removed the matching persisted draft. Stop a stale
+      // unmount flush from restoring it while leaving newer drafts untouched.
+      sync.saved.drop();
+      clear();
+      attachments.clear();
+      annotations.replace(undefined);
+      return true;
+    },
+  }));
   // The Browser's annotate bar adds to the draft and presses Send through this.
   useAnnotationPort(props.thread.draft ? undefined : props.thread.id, annotations, () =>
     submit(false),

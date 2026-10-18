@@ -175,6 +175,7 @@ export function PageView(props: {
     })();
   };
   return (
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- handlers attach only while live, when the pane is role="application"
     <div
       ref={pane}
       data-page-view=""
