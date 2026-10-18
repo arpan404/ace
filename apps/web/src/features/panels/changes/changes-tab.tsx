@@ -264,6 +264,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
         viewed={isViewed}
         actions={
           <FileActions
+            threadId={threadId}
             path={file.path}
             viewed={isViewed}
             open={view.open}

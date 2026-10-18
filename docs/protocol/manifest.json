@@ -21,8 +21,8 @@
       "sha256": "cee9c1e51b6d4b50c1dd84c8c0efa62a8ea664a39d3d36f6b45d94ced65d9f2f"
     },
     "mcp.md": {
-      "bytes": 135396,
-      "sha256": "d9d9c63d9aee81f171097c40ee44fcc652f10d697e3ea89cca0b04858d9b71e5"
+      "bytes": 135404,
+      "sha256": "fb4c32d9e7c29bded727c78708e7d928e4df299dfcb1bf36f1f78aa431654ab4"
     },
     "models.md": {
       "bytes": 15412,
@@ -1597,8 +1597,8 @@
       "sha256": "13a8f28d432d18b5a6e1ae65a2da1b43d45bfdcea21a717b2d99a15df0493df6"
     },
     "schema/MessageOrigin.json": {
-      "bytes": 1594,
-      "sha256": "d8f7ca3383c320b347684b62ac5c2e70a73be94401157e67b01d347802a1f393"
+      "bytes": 1611,
+      "sha256": "38346bde610afd2b3b7e1ed77e06ac761f67b5598b742c446f2282626ca59fa1"
     },
     "schema/MessageText.json": {
       "bytes": 184,
@@ -3665,8 +3665,8 @@
       "sha256": "59f40bf437c0bfc8bc6b87a7746fa8632de1926e6e924b2cd3c643ddb47e4eec"
     },
     "schema/ace_read_handoff.output.json": {
-      "bytes": 209005,
-      "sha256": "32f3753efc18dd643ab6a0fd853a028ae7cd5c0e6c4958fadca58a03ee71566a"
+      "bytes": 209036,
+      "sha256": "be40d64d37431e8f2fcf077fcac894527f1689c51ca04a5cd3b6559c81564eb2"
     },
     "schema/ace_read_handoff_chunk.input.json": {
       "bytes": 206,
@@ -3845,10 +3845,10 @@
       "sha256": "eadd796e5214ab35199731ca1c2f0faa3dd65dab3d6150142a57acda545ef06d"
     },
     "types.md": {
-      "bytes": 795257,
-      "sha256": "87c87f1fc642cf3072b5531dae464660d1ba4d3b7f53e5ea60cb1aac0dd78e1b"
+      "bytes": 795263,
+      "sha256": "a4718710ed3aadd3ab54e547ace0b2c8f19c8191ca03372996b72488d2790df0"
     }
   },
-  "input": "edc2997518813585f927de87a9cf1da2bd1e0891695558099c0ba878d6c15427",
+  "input": "405774ffde6699134aa1d017dc6acc9b94957dbb2caade74c5ecfbf654bff132",
   "version": 1
 }

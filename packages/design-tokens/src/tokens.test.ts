@@ -71,6 +71,10 @@ describe("native theme data", () => {
         );
       });
     }
+    it(`${scheme} foreground is a softened ink, not glaring pure white or black`, () => {
+      const extreme = scheme === "dark" ? "#FFFFFF" : "#000000";
+      expect(contrast(theme.colours.foreground, extreme)).toBeGreaterThanOrEqual(1.25);
+    });
     it(`${scheme} action text remains readable on the accent action surface`, () => {
       expect(contrast(theme.colours.onAccent, theme.colours.accent)).toBeGreaterThanOrEqual(4.5);
     });

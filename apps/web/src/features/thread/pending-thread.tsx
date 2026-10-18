@@ -223,6 +223,8 @@ function PendingComposer({
         thread={thread}
         draftKey={draftKey}
         keepsAttachments
+        // Sent from New thread's focused composer: the caret stays in the message.
+        autoFocus
         busy={false}
         onSubmit={never}
         controls={

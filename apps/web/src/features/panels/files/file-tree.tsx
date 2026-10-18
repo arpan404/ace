@@ -26,7 +26,7 @@ import { Icon } from "@/components/icon.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { Highlighted } from "./highlighted-path.tsx";
-import { fileIcon } from "./file-icon.ts";
+import { fileIcon } from "@/components/file-icon.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { fileManagement } from "./file-management-source.ts";
 import { FileMenu, FileRowMenu } from "./file-menu.tsx";
@@ -34,7 +34,7 @@ import type { FileOperationDialog } from "./file-operation.ts";
 import { useCheckoutSearch } from "./use-checkout.ts";
 
 const rowClass =
-  "flex h-8 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 text-left text-ui text-muted-foreground outline-none select-none transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)] aria-selected:bg-foreground/8 aria-selected:text-foreground";
+  "flex h-8 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 group-hover/file:pr-8 group-focus-within/file:pr-8 text-left text-ui text-muted-foreground outline-none select-none transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)] aria-selected:bg-foreground/8 aria-selected:text-foreground";
 
 /**
  * A bounded checkout tree, with indexed search for paths beyond the listing limit.
@@ -294,8 +294,10 @@ export function FileTree(props: {
               <FileRowMenu
                 key={row.node.path}
                 path={row.node.path}
+                name={row.node.name}
                 folder={folder}
                 disabled={!online}
+                tabbable={row.node.path === focusable}
                 onOperation={props.onOperation}
               >
                 <button

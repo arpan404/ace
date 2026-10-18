@@ -49,6 +49,25 @@ async function running(events = initial(), throughWorker = false) {
   };
 }
 
+test("a working turn says so in one live line after its steps; only its Summary icon opens the Summary", async () => {
+  await running();
+  const feed = screen.getByRole("feed", { name: "Transcript" });
+  // One live status in the whole view: no copy pinned at the top, no second "Thinking" line.
+  expect(screen.getAllByRole("group", { name: "Turn in progress" })).toHaveLength(1);
+  const ask = within(feed).getByText("Check the replay cursor.");
+  const step = within(feed)
+    .getAllByText(/bun run build/)
+    .at(-1);
+  if (!step) throw new Error("Missing step");
+  // It ends the turn's flow, under the ask and the step in flight.
+  expect(ask.compareDocumentPosition(live()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(step.compareDocumentPosition(live()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  // The line itself is text, not a hidden button: the icon is the one way in.
+  expect(within(live()).getAllByRole("button")).toHaveLength(1);
+  await userEvent.click(within(live()).getByRole("button", { name: "Open the summary" }));
+  expect(await screen.findByRole("region", { name: "Thread panel" })).toBeTruthy();
+});
+
 test("reload and reconnect preserve the server start of a partial turn", async () => {
   const { app, view } = await running([
     ...initial(),

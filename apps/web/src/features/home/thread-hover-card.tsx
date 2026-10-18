@@ -7,6 +7,7 @@ import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { ProjectMark, PullRequest, RowStatus } from "./row-parts.tsx";
+import { onScrollMove, scrolledRecently } from "./scroll-rest.ts";
 
 /** One compact line of the card: a glyph and its fact. */
 function Fact(props: { children: ReactNode }) {
@@ -139,6 +140,8 @@ export function useThreadHover() {
   const [open, setOpen] = useState(false);
   const change = useCallback(
     (next: boolean) => {
+      // Rows sliding under a still pointer while the list scrolls never pop their cards.
+      if (next && scrolledRecently(document)) return;
       const previous = active.get(document);
       if (next) {
         if (previous?.id !== id) previous?.close();
@@ -154,5 +157,7 @@ export function useThreadHover() {
     },
     [id],
   );
+  // An open card closes as soon as the page scrolls; a closed one listens for nothing.
+  useEffect(() => (open ? onScrollMove(document, () => change(false)) : undefined), [open, change]);
   return { open, change };
 }

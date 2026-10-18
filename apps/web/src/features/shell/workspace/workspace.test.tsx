@@ -163,6 +163,24 @@ test("a tool's shortcut shows it, and pressed again hides the panel", async () =
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 });
 
+test("a tool's shortcut puts focus in the panel, and hiding the panel from there hands focus to the composer", async () => {
+  await openColdStart();
+  await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
+  const panel = await sidePanel();
+  await waitFor(() => expect(document.activeElement).toBe(selected(panel)));
+
+  // Off Apple platforms the side panel is Ctrl+Alt+B.
+  await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Message" })),
+  );
+
+  await userEvent.keyboard("{Control>}{Alt>}b{/Alt}{/Control}");
+  const back = await sidePanel();
+  await waitFor(() => expect(back.contains(document.activeElement)).toBe(true));
+});
+
 test("hiding the side panel keeps its tabs, and the header then keeps only its toggle", async () => {
   await openColdStart();
   await userEvent.keyboard("{Control>}{Shift>}l{/Shift}{/Control}");

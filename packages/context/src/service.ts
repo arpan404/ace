@@ -12,7 +12,8 @@ import {
   ResolvedThreadReference,
 } from "@ace/protocol";
 import { ContextError, requireContext } from "./errors.ts";
-import { resolveMentions } from "./mentions.ts";
+import { resolveMentions, resolveWorkspaceMentions } from "./mentions.ts";
+import { prepareWorkspaceBinary } from "./workspace-binary.ts";
 import { WorkspaceCache } from "./workspace-cache.ts";
 import { UploadStore, type UploadOptions } from "./upload-store.ts";
 import {
@@ -229,7 +230,7 @@ export class ContextService {
       const mentions = context.mentions.length
         ? await this.workspaces.use(await this.workspaceRoot(device, thread), (workspace) => {
             root = workspace.root;
-            return resolveMentions(workspace, context.mentions);
+            return resolveWorkspaceMentions(workspace, context.mentions);
           })
         : { entries: [], diagnostics: [] };
       const references = await this.resolveThreadReferences(device, thread, context);
@@ -238,6 +239,7 @@ export class ContextService {
         name: entry.path,
         mimeType: "text/plain",
         text: entry.text,
+        ...(entry.scope === "file" && !entry.truncated ? { workspaceFile: true } : {}),
       }));
       for (const reference of references)
         prepared.push({
@@ -247,16 +249,35 @@ export class ContextService {
           text: `${reference.summary}\nPointer: ${JSON.stringify(reference.pointer)}`,
         });
       prepared.push(...(await prepareFiles(lease.blobs, capabilities)));
-      // Binary mentions still carry a usable, validated workspace path.
+      // Binary mentions take the attached-file route: images and PDFs reach providers natively.
+      const budget = {
+        remaining:
+          capabilities.maxInlineBytes -
+          prepared.reduce((sum, item) => sum + Math.ceil(((item.base64?.length ?? 0) * 3) / 4), 0),
+      };
+      const binaries = new Map<number, ContextDiagnostic>();
       for (const diagnostic of mentions.diagnostics) {
-        if (diagnostic.code === "binary" && diagnostic.path)
-          prepared.push({
-            path: join(root, diagnostic.path),
-            name: diagnostic.path,
-            mimeType: "application/octet-stream",
-          });
+        const path = diagnostic.path;
+        if (diagnostic.code !== "binary" || !path || !root) continue;
+        binaries.set(prepared.length, diagnostic);
+        prepared.push(
+          // Each read holds the workspace, so an idle retirement can't drop it mid-read.
+          await this.workspaces
+            .use(root, (workspace) => prepareWorkspaceBinary(workspace, path, capabilities, budget))
+            .catch(() => ({
+              path: join(root, path),
+              name: path,
+              mimeType: "application/octet-stream",
+            })),
+        );
       }
       const projection = projectAttachments(prepared, capabilities);
+      // A binary delivered in native form is no longer "omitted".
+      const delivered = new Set(
+        [...binaries]
+          .filter(([index]) => projection.input[index]?.type !== "text")
+          .map(([, d]) => d),
+      );
       return {
         projection,
         attachmentPaths: lease.blobs.map((blob, index) => ({
@@ -267,7 +288,10 @@ export class ContextService {
           ...blob.attachment,
           delivery: projection.deliveries[mentions.entries.length + references.length + index],
         })),
-        diagnostics: [...mentions.diagnostics, ...projection.diagnostics],
+        diagnostics: [
+          ...mentions.diagnostics.filter((diagnostic) => !delivered.has(diagnostic)),
+          ...projection.diagnostics,
+        ],
         release: lease.release,
       };
     } catch (error) {

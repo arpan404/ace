@@ -2,7 +2,7 @@ import { mkdir, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
-import { GitWorkspace, resolveMentions } from "./index.ts";
+import { GitWorkspace } from "./index.ts";
 import { repository, run } from "./test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -51,9 +51,7 @@ test("ten changed folders reconcile with one set of subtree listings", async () 
   await workspace.update([...folders, "feature-3/deep"]);
   expect(count("check-ignore")).toBe(1);
   expect(count("ls-files")).toBe(3);
-  expect(
-    (await resolveMentions(workspace, [{ path: "feature-7" }])).entries.map((entry) => entry.path),
-  ).toEqual(["feature-7/deep/index.ts"]);
+  expect([...workspace.index.under("feature-7")]).toEqual(["feature-7/deep/index.ts"]);
   expect(workspace.index.complete("keep")).toEqual(["keep.ts"]);
 });
 

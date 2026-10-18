@@ -9,6 +9,7 @@ import {
   PaletteIcon,
   PlugIcon,
   SlidersHorizontalIcon,
+  WrenchIcon,
 } from "@phosphor-icons/react";
 import type { IconGlyph } from "@/components/icon.tsx";
 
@@ -36,7 +37,7 @@ export const settingsPages: readonly { to: SettingsPath; title: string; icon: Ic
   { to: "/settings/computer-use", title: "Computer use", icon: CursorClickIcon },
   { to: "/settings/keyboard", title: "Keyboard", icon: KeyboardIcon },
   { to: "/settings/storage", title: "Storage", icon: HardDriveIcon },
-  { to: "/settings/advanced", title: "Advanced", icon: CodeIcon },
+  { to: "/settings/advanced", title: "Advanced", icon: WrenchIcon },
 ];
 
 /** Browser toasts and desktop notifications share this page. */

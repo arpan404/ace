@@ -13,6 +13,8 @@ export const PreparedAttachment = z.object({
   bytes: z.number().int().nonnegative().optional(),
   truncated: z.boolean().optional(),
   nativeImage: z.boolean().optional(),
+  /** A whole, untruncated workspace file that a path-reading provider may load itself. */
+  workspaceFile: z.boolean().optional(),
   text: z
     .string()
     .max(4 * 1024 * 1024)
@@ -57,6 +59,7 @@ export type OpenCodeInput = Text | { type: "file"; mime: string; filename: strin
 export type AcpInput =
   | Text
   | { type: "image"; mimeType: string; data: string }
+  | { type: "resource_link"; uri: string; name: string; mimeType: string }
   | {
       type: "resource";
       resource:
@@ -141,7 +144,9 @@ export function projectAttachments(
         return "text" in part.resource && attachment.truncated
           ? "inline_text_and_path"
           : "native_resource";
+      if (part.type === "resource_link") return "file_path";
       if (part.type === "file" && part.mime === "application/pdf") return "native_pdf";
+      if (part.type === "file" && !part.mime.startsWith("image/")) return "native_resource";
       return "native_image";
     });
   }
@@ -196,6 +201,9 @@ export function projectAttachments(
     }
     case "opencode": {
       const input: OpenCodeInput[] = attachments.map((a) => {
+        // OpenCode reads and labels a whole mentioned file itself (`SessionPrompt.readFileAttachment`).
+        if (a.workspaceFile && a.text !== undefined)
+          return { type: "file", mime: "text/plain", filename: a.name, url: fileUri(a.path) };
         if (a.text !== undefined) return { type: "text", text: text(a) };
         if (a.nativeImage !== false && capabilities.images.includes(a.mimeType)) {
           // OpenCode reads file:// attachments itself, so a stored image is sent by reference.
@@ -214,7 +222,11 @@ export function projectAttachments(
             url: `data:${a.mimeType};base64,${encoded}`,
           };
         }
-        if (capabilities.documents.includes(a.mimeType))
+        if (
+          capabilities.documents.includes(a.mimeType) &&
+          !a.path.startsWith("ace://") &&
+          (a.bytes === undefined || a.bytes <= openCodeFileBytes)
+        )
           return { type: "file", mime: a.mimeType, filename: a.name, url: fileUri(a.path) };
         return fallback(a);
       });
@@ -248,7 +260,16 @@ export function projectAttachments(
           capabilities.embeddedContext &&
           (capabilities.documents.includes(a.mimeType) || capabilities.documents.includes("*"));
         const encoded = image || document ? data(a) : undefined;
-        if (encoded === undefined) return fallback(a);
+        // Every ACP agent must accept resource_link, so an uninlined file stays a typed reference.
+        if (encoded === undefined)
+          return a.path.startsWith("ace://")
+            ? fallback(a)
+            : {
+                type: "resource_link",
+                uri: fileUri(a.path),
+                name: a.name,
+                mimeType: a.mimeType,
+              };
         return image
           ? { type: "image", mimeType: a.mimeType, data: encoded }
           : {

@@ -102,3 +102,13 @@ export function attachment(result: ContextResult["result"]) {
   if (result.kind !== "attachment") throw new Error("Expected attachment response");
   return result.attachment;
 }
+/** Files a folder mention lists, read back from the listing text the agent receives. */
+export function listedPaths(entries: readonly { text: string }[]): string[] {
+  return entries.flatMap((entry) =>
+    entry.text
+      .split("\n")
+      .slice(1)
+      .filter((line) => !line.startsWith("[ace:"))
+      .map((line) => line.replace(/ \(\d+ bytes\)$/, "")),
+  );
+}

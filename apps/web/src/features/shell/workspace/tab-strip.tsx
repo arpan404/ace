@@ -43,6 +43,7 @@ export function TabStrip(props: {
   const [drop, setDrop] = useState<{ key: string; side: DropSide }>();
   const [announcement, setAnnouncement] = useState("");
   const edges = useOverflow(scroller, state.tabs.length);
+  useSidewaysWheel(scroller);
   const entering = useEntering(state.tabs.map((tab) => tab.key));
   useRevealShown(scroller, shown);
   useLayoutEffect(() => {
@@ -250,6 +251,38 @@ function useOverflow(scroller: React.RefObject<HTMLDivElement | null>, count: nu
     };
   }, [scroller, count]);
   return edges;
+}
+
+/** A wheel's lines, in pixels. */
+const wheelLine = 16;
+
+/**
+ * A vertical wheel over an overflowing strip scrolls it sideways: a mouse has no other way to
+ * reach the tabs past its edge. At either end, and on a strip that fits, the wheel goes on to
+ * the page. Not passive, so a wheel it uses doesn't also scroll the panel.
+ */
+function useSidewaysWheel(scroller: React.RefObject<HTMLDivElement | null>) {
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (!element) return;
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+      const room = element.scrollWidth - element.clientWidth;
+      if (room <= 1) return;
+      const unit =
+        event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+          ? element.clientWidth
+          : event.deltaMode === WheelEvent.DOM_DELTA_LINE
+            ? wheelLine
+            : 1;
+      const next = Math.min(room, Math.max(0, element.scrollLeft + event.deltaY * unit));
+      if (next === element.scrollLeft) return;
+      event.preventDefault();
+      element.scrollLeft = next;
+    };
+    element.addEventListener("wheel", onWheel, { passive: false });
+    return () => element.removeEventListener("wheel", onWheel);
+  }, [scroller]);
 }
 
 /** Keys that arrived since the last render, so a new tab pops in once (not on first paint). */

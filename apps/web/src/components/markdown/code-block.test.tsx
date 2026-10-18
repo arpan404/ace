@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { CodeBlock } from "./code-block.tsx";
 
@@ -110,4 +111,28 @@ test("Copy on a fence still being written copies everything that has arrived", a
   view.rerender(<CodeBlock code={"const a = 1;\nconst b = 2;"} lang="ts" plain />);
   fireEvent.click(screen.getByRole("button", { name: "Copy code" }));
   await waitFor(() => expect(writeText).toHaveBeenCalledWith("const a = 1;\nconst b = 2;"));
+});
+
+test("a long block shows its first lines until Show all, and folds back with Collapse from the keyboard", async () => {
+  const code = Array.from({ length: 60 }, (_, index) => `line ${index}`).join("\n");
+  render(<CodeBlock code={code} lang="text" />);
+  const toggle = screen.getByRole("button", { name: "Show all 60 lines" });
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  const body = document.getElementById(toggle.getAttribute("aria-controls") ?? "");
+  expect(body?.className).toContain("overflow-hidden");
+  // The whole source stays in the block (selectable, copyable), only clipped.
+  expect(body?.textContent).toContain("line 59");
+  toggle.focus();
+  await userEvent.keyboard("{Enter}");
+  const collapse = screen.getByRole("button", { name: "Collapse" });
+  expect(collapse.getAttribute("aria-expanded")).toBe("true");
+  expect(body?.className).not.toContain("overflow-hidden");
+  await userEvent.keyboard(" ");
+  expect(screen.getByRole("button", { name: "Show all 60 lines" })).toBeTruthy();
+});
+
+test("a block barely past the cap shows whole, with no toggle", () => {
+  const code = Array.from({ length: 21 }, (_, index) => `line ${index}`).join("\n");
+  render(<CodeBlock code={code} lang="text" />);
+  expect(screen.queryByRole("button", { name: /Show all/ })).toBeNull();
 });

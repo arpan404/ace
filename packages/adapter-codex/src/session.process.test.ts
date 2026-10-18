@@ -276,7 +276,7 @@ test("images reach app-server as native localImage and data image inputs", async
   }
 });
 
-test("text, PDF and arbitrary file references reach the fake Codex CLI", async () => {
+test("text, PDF and arbitrary file references reach the fake Codex CLI as visible paths", async () => {
   const h = await sessionHarness();
   try {
     await h.session.send(
@@ -285,15 +285,22 @@ test("text, PDF and arbitrary file references reach the fake Codex CLI", async (
         { type: "file", path: "/files/code.ts", mimeType: "text/plain" },
         { type: "file", path: "/files/report.pdf", mimeType: "application/pdf" },
         { type: "file", path: "/files/archive.zip", mimeType: "application/zip" },
+        {
+          type: "file",
+          path: "/files/notes.md",
+          mimeType: "text/plain",
+          content: { encoding: "text", data: "# Notes" },
+        },
       ],
       "queue",
     );
     const receivedInput = await h.wait(received("test/attachments"));
     expect(obj(obj(receivedInput.data).params).input).toEqual([
       { type: "text", text: "attachment-proof", text_elements: [] },
-      { type: "mention", name: "code.ts", path: "/files/code.ts" },
-      { type: "mention", name: "report.pdf", path: "/files/report.pdf" },
-      { type: "mention", name: "archive.zip", path: "/files/archive.zip" },
+      { type: "text", text: "File: /files/code.ts", text_elements: [] },
+      { type: "text", text: "File: /files/report.pdf", text_elements: [] },
+      { type: "text", text: "File: /files/archive.zip", text_elements: [] },
+      { type: "text", text: "File: /files/notes.md\n# Notes", text_elements: [] },
     ]);
   } finally {
     await h.dispose();

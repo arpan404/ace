@@ -51,7 +51,8 @@ export function definition(
         ctx.kind === "agent"
           ? { type: "agent", name: ctx.plugin ? `${ctx.plugin}:${name}` : name }
           : ctx.skill &&
-              (ctx.format === "codex" || ctx.format === "opencode" || ctx.format === "cursor") &&
+              (["codex", "opencode", "cursor"].includes(ctx.format) ||
+                (lib !== undefined && !Object.keys(lib.arguments).length)) &&
               ctx.path
             ? { type: "skill", name, path: ctx.path }
             : ctx.format === "codex" ||

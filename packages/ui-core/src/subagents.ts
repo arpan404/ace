@@ -9,15 +9,45 @@ export type SubagentState =
   | "cancelled"
   | "done";
 
+/** A subagent's status word, always shown beside its name in the transcript. */
 export const subagentLabels: Record<SubagentState, string> = {
   working: "Running",
-  human: "Waiting on you",
+  human: "Needs you",
   waiting: "Waiting",
   unresponsive: "Not responding",
   failed: "Failed",
   cancelled: "Cancelled",
-  done: "Finished",
+  done: "Done",
 };
+
+/** What a group of subagents shows as one: the worst of its children. */
+export type SubagentGroupStatus = "human" | "failed" | "working" | "done";
+
+const groupRank: Record<SubagentGroupStatus, number> = { human: 3, failed: 2, working: 1, done: 0 };
+
+const groupOf: Record<SubagentState, SubagentGroupStatus> = {
+  human: "human",
+  failed: "failed",
+  unresponsive: "failed",
+  working: "working",
+  waiting: "working",
+  cancelled: "done",
+  done: "done",
+};
+
+/**
+ * A subagent group's one status, the worst child's: needs you, then failed, then working, then
+ * done. Never done while any child works or waits (AGENTS.md priority 1). An empty group is
+ * still working: its children have not been seen yet.
+ */
+export function subagentGroupStatus(states: readonly SubagentState[]): SubagentGroupStatus {
+  let worst: SubagentGroupStatus | undefined;
+  for (const state of states) {
+    const status = groupOf[state];
+    if (!worst || groupRank[status] > groupRank[worst]) worst = status;
+  }
+  return worst ?? "working";
+}
 
 export function subagentState(status: AgentStatus): SubagentState {
   switch (status.state) {
@@ -89,24 +119,32 @@ export function workingSubagentsText(count: number): string {
  * rather than counting descendants twice.
  */
 export function subagentStatusLine(states: readonly SubagentState[]): string {
-  const counts = new Map<SubagentState, number>();
-  for (const state of states) counts.set(state, (counts.get(state) ?? 0) + 1);
-  const words: Record<SubagentState, string> = {
-    human: "waiting on you",
-    working: "working",
-    waiting: "waiting",
-    unresponsive: "not responding",
-    failed: "failed",
-    cancelled: "cancelled",
-    done: "done",
-  };
-  return (Object.keys(priority) as SubagentState[])
-    .flatMap((state) => {
-      const count = counts.get(state);
-      return count ? [`${count} ${words[state]}`] : [];
-    })
+  return subagentStatusCounts(states)
+    .map((part) => `${part.count} ${part.word}`)
     .join(" · ");
 }
+
+/** The status line's parts, worst first, so each count can take its own status tone. */
+export function subagentStatusCounts(
+  states: readonly SubagentState[],
+): { state: SubagentState; count: number; word: string }[] {
+  const counts = new Map<SubagentState, number>();
+  for (const state of states) counts.set(state, (counts.get(state) ?? 0) + 1);
+  return (Object.keys(priority) as SubagentState[]).flatMap((state) => {
+    const count = counts.get(state);
+    return count ? [{ state, count, word: statusWords[state] }] : [];
+  });
+}
+
+const statusWords: Record<SubagentState, string> = {
+  human: "waiting on you",
+  working: "working",
+  waiting: "waiting",
+  unresponsive: "not responding",
+  failed: "failed",
+  cancelled: "cancelled",
+  done: "done",
+};
 
 /**
  * The one subagent-counting rule: each of the main agent's direct subagents, by the state of its

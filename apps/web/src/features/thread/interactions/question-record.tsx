@@ -1,14 +1,10 @@
 import { useAgent, useInteraction } from "@ace/client-react";
 import type { InteractionResolution, Question } from "@ace/protocol";
 import { agentName, answeredQuestions, questionTitle, requestIdentity } from "@ace/ui-core";
-import {
-  ArrowRightIcon,
-  CaretDownIcon,
-  CheckIcon,
-  ChatCircleDotsIcon,
-} from "@phosphor-icons/react";
+import { ArrowRightIcon, CheckIcon, ChatCircleDotsIcon } from "@phosphor-icons/react";
 import { useId, useState } from "react";
 import { cn } from "@/lib/cn.ts";
+import { pressableRowClass } from "../items/transcript-row.tsx";
 import { AnsweredQuestionCard, closedMeta, type AnsweredMeta } from "./answered-question.tsx";
 import { useLocalAnswer } from "./answers.ts";
 import { useEarlierAnswer } from "./use-earlier-answer.ts";
@@ -22,19 +18,10 @@ function answerWords(questions: readonly Question[], resolution: InteractionReso
     .join("; ");
 }
 
-/** Where the card it is answered on lives: the deck attached to the composer. */
-function focusAnswerCard() {
-  const card = document.querySelector("section[aria-label='Waiting for you']");
-  const answer =
-    card?.querySelector<HTMLElement>("input:not([disabled]), button[aria-keyshortcuts]") ??
-    card?.querySelector<HTMLElement>("button:not([disabled]):not([data-slot='icon-button'])");
-  answer?.focus();
-}
-
 /**
- * A question in the transcript where the agent asked it (IR-1), as one quiet line: while it is
- * open, that the agent is asking and where to answer (the card on the composer); once answered,
- * the question beside its answer, opening to every question and option. Never a form here.
+ * A question in the transcript where the agent asked it (IR-1), as one quiet row once answered:
+ * the question beside its answer, the whole row opening to every question and option. While it
+ * is open it has no row here; it is answered on the card above the composer. Never a form here.
  */
 export function QuestionRecord(props: { threadId: string; interactionId: string }) {
   const interaction = useInteraction(props.threadId, props.interactionId);
@@ -75,19 +62,24 @@ export function QuestionRecord(props: { threadId: string; interactionId: string 
             : undefined;
   if (waiting) return null;
   return (
-    <div role="group" aria-label={`Question: ${title}`} className="text-ui">
-      <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
-        {waiting ? (
-          <ChatCircleDotsIcon aria-hidden size={14} className="shrink-0 text-status-needs-you" />
-        ) : answer ? (
-          <CheckIcon aria-hidden size={14} className="shrink-0 text-status-done" />
-        ) : (
-          <ChatCircleDotsIcon aria-hidden size={14} className="shrink-0 text-subtle-foreground" />
-        )}
-        <p className="min-w-0 truncate">
-          <span className="text-subtle-foreground">
-            {asker} {waiting ? "is asking" : "asked"} ·{" "}
-          </span>
+    <div role="group" aria-label={`Question: ${title}`}>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={details}
+        aria-label={open ? "Hide the question" : "Show the question and answer"}
+        onClick={() => setOpen(!open)}
+        className={cn(pressableRowClass, "text-muted-foreground")}
+      >
+        <span className="flex min-w-5 shrink-0 items-center justify-center">
+          {answer ? (
+            <CheckIcon aria-hidden size={16} className="text-status-done" />
+          ) : (
+            <ChatCircleDotsIcon aria-hidden size={16} className="text-subtle-foreground" />
+          )}
+        </span>
+        <span className="min-w-0 flex-1 truncate">
+          <span className="text-subtle-foreground">{asker} asked · </span>
           <span className="text-foreground">{title}</span>
           {answer && (
             <>
@@ -101,32 +93,8 @@ export function QuestionRecord(props: { threadId: string; interactionId: string 
             </>
           )}
           {outcome && <span className="text-subtle-foreground"> · {outcome}</span>}
-        </p>
-        {waiting ? (
-          <button
-            type="button"
-            onClick={focusAnswerCard}
-            className="ml-auto shrink-0 rounded-xs text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-ring"
-          >
-            Answer below
-          </button>
-        ) : (
-          <button
-            type="button"
-            aria-expanded={open}
-            aria-controls={details}
-            aria-label={open ? "Hide the question" : "Show the question and answer"}
-            onClick={() => setOpen(!open)}
-            className="ml-auto flex size-6 shrink-0 items-center justify-center rounded-sm text-subtle-foreground hover:bg-accent hover:text-foreground focus-ring"
-          >
-            <CaretDownIcon
-              aria-hidden
-              size={12}
-              className={cn("transition-transform duration-(--motion-fast)", open && "rotate-180")}
-            />
-          </button>
-        )}
-      </div>
+        </span>
+      </button>
       {open && meta && (
         <div id={details} className="fx-rise-in mt-2">
           <AnsweredQuestionCard

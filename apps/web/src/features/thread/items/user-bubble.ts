@@ -1,3 +1,6 @@
-/** Shared geometry for the person's confirmed messages and explicitly pending messages. */
+/**
+ * Shared geometry for the person's confirmed, pending and held messages: a tailless card-radius
+ * bubble at the answers' reading size, at most 80% of the column.
+ */
 export const userBubble =
-  "max-w-[82%] min-w-0 overflow-hidden rounded-lg rounded-br-sm bg-bubble px-[15px] py-2.5 font-prose text-md leading-[1.55] tracking-[-0.005em] wrap-break-word whitespace-pre-wrap";
+  "relative max-w-[80%] min-w-0 overflow-hidden rounded-lg bg-bubble px-3 py-2 font-prose text-prose wrap-break-word whitespace-pre-wrap";

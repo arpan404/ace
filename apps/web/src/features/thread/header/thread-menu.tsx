@@ -26,6 +26,7 @@ import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useNow } from "@/lib/time.ts";
+import { useThreadLeave } from "@/lib/thread-leave.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { useLatestForkPoint } from "../transitions/use-fork-point.ts";
 import { findInThread } from "../long/nav-keys.tsx";
@@ -40,7 +41,7 @@ const DeferredOpenIn = deferredComponent(() =>
 /**
  * The header's ⋯ menu: the same thread actions as the Home row's context menu, with the open
  * thread's shortcuts, plus the agent tree, then the long-thread tools (search
- * and turns). Archiving or deleting steps back to Home. Dialogs belong to the caller, since the
+ * and turns). Archiving opens the next thread in the list. Dialogs belong to the caller, since the
  * menu closes on choosing.
  */
 export function ThreadMenuItems(props: {
@@ -55,6 +56,7 @@ export function ThreadMenuItems(props: {
   const { baseline } = useOrganizerState();
   const now = useNow();
   const navigate = useNavigate();
+  const leave = useThreadLeave();
   const workspace = useWorkspaceActions(props.thread.id);
   const nav = useThreadNav();
   if (!meta) return null;
@@ -67,7 +69,7 @@ export function ThreadMenuItems(props: {
       fork={{ point, onFork: props.onFork }}
       compact
       shortcuts
-      onLeave={() => void navigate({ to: "/" })}
+      onLeave={() => (leave ? leave(props.thread.id) : void navigate({ to: "/" }))}
       extra={
         <>
           <MenuSub>
@@ -114,13 +116,14 @@ export function ThreadMenuItems(props: {
 
 /**
  * The open thread's own shortcuts, the ones its ⋯ menu shows: ⌥⌘R rename, ⌥⌘P pin or unpin,
- * ⇧⌘A archive (which steps back to Home, with Undo). Loaded with the menu's code, after the
+ * ⇧⌘A archive (which opens the next thread in the list, with Undo). Loaded with the menu's code, after the
  * transcript has painted.
  */
 export function ThreadHotkeys(props: { thread: ThreadRef; onRename(): void }) {
   const meta = useThreadMeta(props.thread.id);
   const actions = useThreadActions();
   const navigate = useNavigate();
+  const leave = useThreadLeave();
   const ready = meta !== undefined;
   useHotkey(keymap.renameThread.keys, props.onRename, { enabled: ready });
   useHotkey(keymap.pinThread.keys, () => meta && actions.setPinned(meta, meta.pinned !== true), {
@@ -129,7 +132,7 @@ export function ThreadHotkeys(props: { thread: ThreadRef; onRename(): void }) {
   useHotkey(
     keymap.archiveThread.keys,
     () => {
-      if (meta) actions.archive(meta, () => void navigate({ to: "/" }));
+      if (meta) actions.archive(meta, () => (leave ? leave(meta.id) : void navigate({ to: "/" })));
     },
     // An archived thread is restored from its menu or the archive, never archived again.
     { enabled: ready && meta.archivedAt === undefined },

@@ -1,0 +1,94 @@
+import type { KeyboardEvent } from "react";
+
+/** The open suggestion list, as the keyboard drives it. */
+export interface KeyList {
+  count: number;
+  active: number;
+  /** Still loading or failed: Enter waits instead of sending the half-typed command. */
+  pending: boolean;
+  move(index: number): void;
+  pick(): void;
+  dismiss(): void;
+}
+
+/** What the composer's keys do, given by the composer for this render. */
+export interface ComposerKeys {
+  /** The suggestion list, while it shows. */
+  list: KeyList | undefined;
+  newline(): void;
+  history(step: "undo" | "redo"): void;
+  /** Bring back the last sent message; false when there is none or the composer isn't empty. */
+  recall(): boolean;
+  /** Esc asks to stop; undefined when there's nothing to stop. */
+  stopKey: ((at: number) => void) | undefined;
+  /** Enter; `modified` with ⌘ or Ctrl held. */
+  submit(modified: boolean): void;
+}
+
+/**
+ * The composer's keyboard, in priority order: IME composition passes through untouched; ⌘Z,
+ * ⇧⌘Z and Ctrl+Y walk the composer's history; ⇧↵ breaks the line; an open suggestion list takes
+ * the arrows, Home, End, Enter, Tab and Esc; ↑ in an empty composer recalls the last message;
+ * Esc asks to stop; Enter sends.
+ */
+export function composerKeyDown(event: KeyboardEvent<HTMLElement>, keys: ComposerKeys): void {
+  if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+  const key = event.key;
+  const letter = key.toLowerCase();
+  const modified = event.metaKey || event.ctrlKey;
+  const done = () => event.preventDefault();
+  if (modified && !event.altKey && (letter === "z" || (letter === "y" && !event.metaKey))) {
+    done();
+    keys.history(letter === "y" || event.shiftKey ? "redo" : "undo");
+    return;
+  }
+  if (key === "Enter" && event.shiftKey) {
+    done();
+    keys.newline();
+    return;
+  }
+  const list = keys.list;
+  if (list) {
+    const last = list.count - 1;
+    if (list.count && (key === "ArrowDown" || key === "ArrowUp")) {
+      done();
+      const step = key === "ArrowDown" ? 1 : -1;
+      list.move((list.active + step + list.count) % list.count);
+      return;
+    }
+    if (list.count && (key === "Home" || key === "End")) {
+      done();
+      list.move(key === "Home" ? 0 : last);
+      return;
+    }
+    if (list.count && (key === "Enter" || key === "Tab")) {
+      done();
+      list.pick();
+      return;
+    }
+    if (key === "Enter" && list.pending) {
+      done();
+      return;
+    }
+    if (key === "Escape") {
+      done();
+      list.dismiss();
+      return;
+    }
+  }
+  const plain = !modified && !event.altKey && !event.shiftKey;
+  if (key === "ArrowUp" && plain && !list && keys.recall()) {
+    done();
+    return;
+  }
+  // Esc only asks: the owner decides whether this press stops (a second one, soon) or arms.
+  if (key === "Escape" && keys.stopKey) {
+    done();
+    keys.stopKey(event.timeStamp);
+    return;
+  }
+  if (key === "Enter") {
+    done();
+    keys.submit(modified);
+  }
+}

@@ -154,13 +154,17 @@ test("a running thread refused for delete stays listed, says what runs, and Stop
   await waitFor(() => expect(onDaemon(app, "thread-dedupe")).toBe(false));
 }, 15_000);
 
-test("New thread on main starts a thread in the same project", async () => {
-  await openHome();
+test("New thread from default branch starts from the project's own default branch, not main", async () => {
+  const app = await openHome();
+  app.daemon.workspace.git.setDefaultBranch("billing-api", "develop");
   const menu = await rightClick(/Partial refunds/);
-  await userEvent.click(within(menu).getByRole("menuitem", { name: /New thread on main/ }));
+  await userEvent.click(
+    within(menu).getByRole("menuitem", { name: /New thread from default branch/ }),
+  );
   await screen.findByRole("heading", { level: 1, name: "New thread" });
   expect(await screen.findByRole("button", { name: "Project: billing-api" })).toBeTruthy();
-  expect(await screen.findByRole("button", { name: "Start from: main" })).toBeTruthy();
+  // The default branch at its freshest: its upstream copy.
+  expect(await screen.findByRole("button", { name: "Start from: origin/develop" })).toBeTruthy();
 });
 
 test("people link pull requests from the thread menu and confirm before unlinking all", async () => {

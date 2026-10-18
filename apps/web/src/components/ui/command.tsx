@@ -96,10 +96,17 @@ function Command<Item>(props: {
  */
 const commandField =
   "h-full min-w-0 flex-1 bg-transparent text-[16px] text-foreground outline-none placeholder:text-subtle-foreground";
-function CommandSearchRow(props: { closeLabel: string; children: React.ReactNode }) {
+function CommandSearchRow(props: {
+  closeLabel: string;
+  children: React.ReactNode;
+  /** In place of the magnifier: a palette step's Back button. */
+  leading?: React.ReactNode;
+}) {
   return (
     <div className="flex h-[52px] shrink-0 items-center gap-2.5 border-b px-4">
-      <MagnifyingGlassIcon aria-hidden size={18} className="shrink-0 text-muted-foreground" />
+      {props.leading ?? (
+        <MagnifyingGlassIcon aria-hidden size={18} className="shrink-0 text-muted-foreground" />
+      )}
       {props.children}
       <Dialog.Close
         aria-label={props.closeLabel}
@@ -185,11 +192,6 @@ function CommandShortcut({ className, ...props }: React.ComponentProps<"span">) 
   );
 }
 
-/** Key hints along the bottom edge. Hidden on touch, where there are no keys to press. */
-function CommandFooter() {
-  return null;
-}
-
 export {
   CommandDialog,
   Command,
@@ -203,5 +205,4 @@ export {
   CommandCollection,
   CommandItem,
   CommandShortcut,
-  CommandFooter,
 };

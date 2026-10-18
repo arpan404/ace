@@ -1,19 +1,15 @@
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
-import {
-  createContext,
-  Suspense,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useProjectListSync } from "@/lib/project-cache.ts";
-import type { ProjectRequest } from "./requests.ts";
+import { useLayout, type PalettePage } from "@/lib/layout.tsx";
+import { useMachines } from "@/lib/machines.ts";
+import { useLandInProject } from "./land.ts";
+import type { AddTab, ProjectRequest } from "./requests.ts";
+import { ProjectsContext } from "./projects-context.ts";
+import { useCloneRun } from "./use-clone-run.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 
 // Through a one-line loader, so the dialogs' long list of chunks to preload stays out of the
@@ -22,37 +18,53 @@ const loadDialogs = () => import("./dialogs-loader.ts").then((loader) => loader.
 /** Load the dialogs now, as the shell does once idle (tests start with them warm). */
 const ProjectDialogs = deferredComponent(() => loadDialogs().then((module) => module.default));
 export const preloadProjectDialogs = (): Promise<unknown> => ProjectDialogs.preload();
-const warmDialogs = () => void preloadProjectDialogs().catch(() => {});
+const warmDialogs = () => {
+  void preloadProjectDialogs().catch(() => {});
+  // Add project's palette steps, too.
+  void import("./add-project-flow.tsx").catch(() => {});
+};
 
-interface ProjectsApi {
-  /** Open the Add project dialog on a tab, Rename or Remove, or add a folder by path. */
-  open(request: ProjectRequest): void;
-  /** Start loading the dialogs (on hover or focus of something that opens them). */
-  preload(): void;
-}
+/** The palette step each Add project source opens on. */
+const addPages: Record<AddTab, PalettePage> = {
+  sources: "add-project",
+  open: "add-local",
+  create: "add-create",
+  clone: "add-clone",
+  github: "add-github",
+};
 
-const ProjectsContext = createContext<ProjectsApi | null>(null);
-
-/** The project dialogs, from anywhere under the app shell. */
-export function useProjectDialogs(): ProjectsApi {
-  const api = useContext(ProjectsContext);
-  if (!api) throw new Error("useProjectDialogs needs <ProjectsHost>");
-  return api;
-}
+export { useProjectDialogs } from "./projects-context.ts";
 
 /**
- * Projects across the app: the dialogs (loaded on first use, then kept so a clone carries on
- * when its dialog closes), ⇧⌘O, a folder dropped on the window, and the project list kept live
- * from the daemon's pushes.
+ * Projects across the app: Add project opens in the palette; the other dialogs load on first
+ * use. Also ⇧⌘O, a folder dropped on the window, the clone in progress (it carries on when the
+ * palette closes) and the project list kept live from the daemon's pushes.
  */
 export function ProjectsHost(props: { children: ReactNode }) {
   const [request, setRequest] = useState<ProjectRequest>();
   const [open, setOpen] = useState(false);
-  const show = useCallback((next: ProjectRequest) => {
-    setRequest(next);
-    setOpen(true);
-  }, []);
-  const api = useMemo(() => ({ open: show, preload: warmDialogs }), [show]);
+  const { openPalette, setPaletteOpen } = useLayout();
+  const show = useCallback(
+    (next: ProjectRequest) => {
+      if (next.kind === "add") {
+        openPalette({ page: addPages[next.tab], attempt: next.attempt });
+        return;
+      }
+      setRequest(next);
+      setOpen(true);
+    },
+    [openPalette],
+  );
+  const land = useLandInProject();
+  const machines = useMachines();
+  const clone = useCloneRun({
+    machines,
+    onCloned: (result, machine) => {
+      setPaletteOpen(false);
+      land(result, "Cloned", { machine });
+    },
+  });
+  const api = useMemo(() => ({ open: show, preload: warmDialogs, clone }), [show, clone]);
   useProjectListSync();
   useHotkey(keymap.addProject.keys, () => show({ kind: "add", tab: "sources" }));
   useFolderDrop(show);

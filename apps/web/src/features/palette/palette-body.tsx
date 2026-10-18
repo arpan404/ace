@@ -8,13 +8,12 @@ import {
   PaletteIcon,
 } from "@phosphor-icons/react";
 import { useParams } from "@tanstack/react-router";
-import { matchRanges, rankCommand } from "@ace/ui-core/command-rank";
-import { useMemo, useState, type ReactNode } from "react";
+import { matchRanges } from "@ace/ui-core/command-rank";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
   Command,
   CommandCollection,
   CommandEmpty,
-  CommandFooter,
   CommandGroup,
   CommandGroupLabel,
   CommandInput,
@@ -22,13 +21,16 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command.tsx";
+import { closeHint, KeyHints, navigateHint, selectHint } from "@/components/ui/key-hints.tsx";
 import { usePhone } from "@/lib/breakpoints.ts";
 import { cn } from "@/lib/cn.ts";
 import { resolveKeys, useResolvedKeymap } from "@/lib/keybindings.ts";
 import { describeKeys } from "@/lib/keymap.ts";
-import { useLayout } from "@/lib/layout.tsx";
-import { usePaletteGroups, type PaletteCommand, type PaletteGroup } from "./commands.ts";
-import { readRecentThreads } from "./recent.ts";
+import { useLayout, type PalettePage } from "@/lib/layout.tsx";
+import { arrange, readQuery, type Row, type RowGroup } from "./arrange.ts";
+import { usePaletteGroups, type PaletteCommand } from "./commands.ts";
+import { useMessageHits } from "./message-hits.ts";
+import { readRecentCommands, readRecentThreads, recentShown, rememberCommand } from "./recent.ts";
 
 const icons = {
   thread: ChatCircleIcon,
@@ -39,98 +41,15 @@ const icons = {
   theme: PaletteIcon,
 } as const;
 
-/** Threads shown before "Show all threads…" with an empty query, and ranked ones with a query. */
-const threadMatches = 30;
+const wallClock = () => Date.now();
 
-interface Row extends PaletteCommand {
-  /** The group it came from, shown at the right of a ranked list. */
-  hint?: string;
-}
-interface RowGroup {
-  value: string;
-  items: Row[];
-}
-
-const isThread = (item: PaletteCommand) => item.id.startsWith("thread-") && item.icon === "thread";
-
-/** The rows to show: Home-like groups for an empty query, one ranked list for a query. */
-function arrange(
-  groups: PaletteGroup[],
-  query: string,
-  recent: readonly { id: string; at: number }[],
-  current: string | undefined,
-  allThreads: boolean,
-  _showAllThreads: () => void,
-  searchAll: (query: string) => void,
-): RowGroup[] {
-  const q = query.trim();
-  const threads = groups.find((group) => group.value === "Threads")?.items ?? [];
-  const opened = new Map(recent.map((entry) => [`thread-${entry.id}`, entry.at]));
-  if (!q) {
-    const byId = new Map(threads.map((item) => [item.id, item]));
-    // The open thread is "This thread"; Recent is where else the person has been.
-    const recentRows = recent
-      .filter((entry) => entry.id !== current)
-      .flatMap((entry) => byId.get(`thread-${entry.id}`) ?? [])
-      .slice(0, 5);
-    const out: RowGroup[] = [];
-    for (const group of groups) {
-      if (group.value === "Threads") {
-        if (allThreads) out.push(group);
-      } else if (
-        group.value === "This thread" ||
-        group.value === "Selected threads" ||
-        group.value === "Agent"
-      )
-        out.push(group);
-      // Recently opened threads sit right after what acts on this thread.
-      if (group.value === "This thread" && recentRows.length)
-        out.push({ value: "Recent threads", items: recentRows });
-    }
-    if (!groups.some((group) => group.value === "This thread") && recentRows.length)
-      out.unshift({ value: "Recent threads", items: recentRows });
-    return out;
-  }
-  const now = Date.now();
-  const scored: { row: Row; score: number }[] = [];
-  const seen = new Set<string>();
-  for (const group of groups)
-    for (const item of group.items) {
-      if (seen.has(item.id)) continue;
-      seen.add(item.id);
-      const score = rankCommand(
-        q,
-        {
-          label: item.label,
-          extra: [item.detail, item.more, item.keywords].filter(Boolean).join(" "),
-          command: !isThread(item) && item.icon !== "project",
-          openedAt: opened.get(item.id),
-        },
-        now,
-      );
-      if (score !== null) scored.push({ row: { ...item, hint: group.value }, score });
-    }
-  scored.sort((a, b) => b.score - a.score);
-  let threadCount = 0;
-  const rows = scored
-    .filter(({ row }) => !isThread(row) || ++threadCount <= threadMatches)
-    .map(({ row }) => row);
-  rows.push({
-    id: "search-all",
-    label: `Search all threads for “${q}”`,
-    icon: MagnifyingGlassIcon,
-    run: () => searchAll(q),
-  });
-  return [{ value: "Results", items: rows }];
-}
-
-/** The label with the query's matched letters in full ink. */
-function Highlighted(props: { text: string; query: string }) {
-  const ranges = props.query ? matchRanges(props.query, props.text) : [];
-  if (!ranges.length) return props.text;
+/** Text with the given [start, end) ranges in full ink. */
+function Marked(props: { text: string; ranges: readonly (readonly [number, number])[] }) {
+  if (!props.ranges.length) return props.text;
   const parts: ReactNode[] = [];
   let at = 0;
-  for (const [start, end] of ranges) {
+  for (const [start, end] of props.ranges) {
+    if (start < at) continue;
     if (start > at) parts.push(props.text.slice(at, start));
     parts.push(
       <span key={start} className="font-medium text-foreground">
@@ -144,30 +63,47 @@ function Highlighted(props: { text: string; query: string }) {
 }
 
 /** Mounted only while open, so its list subscriptions end when the palette closes. */
-export default function PaletteBody(props: { close(): void }) {
+export default function PaletteBody(props: { close(): void; push(page: PalettePage): void }) {
   const keymap = useResolvedKeymap();
   const phone = usePhone();
   const current = useParams({ strict: false }).threadId;
   const { storage, openSearch } = useLayout();
   const [query, setQuery] = useState("");
-  const groups = usePaletteGroups(props.close, query);
-  const [allThreads, setAllThreads] = useState(false);
-  const [recent] = useState(() => readRecentThreads(storage));
+  const groups = usePaletteGroups(props.close, query, props.push);
+  const messages = useMessageHits(query, props.close);
+  const [recentThreads] = useState(() => readRecentThreads(storage));
+  const [recentCommands] = useState(() => readRecentCommands(storage));
+  const searchAll = useCallback(
+    (text: string): PaletteCommand => ({
+      id: "search-all",
+      label: `Search all threads for “${text}”`,
+      kind: "message",
+      icon: MagnifyingGlassIcon,
+      // Opening search closes the palette: one sheet at a time.
+      run: () => openSearch(text),
+    }),
+    [openSearch],
+  );
   const rows = useMemo(
     () =>
-      arrange(
+      arrange({
         groups,
         query,
-        recent,
+        recentThreads,
+        recentCommands,
         current,
-        allThreads,
-        () => setAllThreads(true),
-        // Opening search closes the palette: one sheet at a time.
-        (q) => openSearch(q),
-      ),
-    [groups, query, recent, current, allThreads, openSearch],
+        messages,
+        searchAll,
+        recentLimit: recentShown,
+      }),
+    [groups, query, recentThreads, recentCommands, current, messages, searchAll],
   );
+  const { text } = readQuery(query);
   const ranked = query.trim() !== "";
+  const run = (item: Row) => {
+    if (item.kind === undefined) rememberCommand(storage, item.id, wallClock());
+    item.run();
+  };
   return (
     <Command
       items={rows}
@@ -178,15 +114,15 @@ export default function PaletteBody(props: { close(): void }) {
     >
       <CommandInput
         aria-label="Search commands"
-        placeholder={
-          phone ? "Search or run a command" : "Search threads, jump to a view, run a command…"
-        }
+        placeholder={phone ? "Search or run a command" : "Search threads, projects and commands"}
       />
       <CommandEmpty>No commands or threads match.</CommandEmpty>
       <CommandList>
         {(group: RowGroup) => (
           <CommandGroup key={group.value} items={group.items}>
-            <CommandGroupLabel className={cn(ranked && "sr-only")}>{group.value}</CommandGroupLabel>
+            <CommandGroupLabel className={cn(ranked && !group.labelled && "sr-only")}>
+              {group.value}
+            </CommandGroupLabel>
             <CommandCollection>
               {(item: Row) => {
                 const Glyph = typeof item.icon === "string" ? icons[item.icon] : item.icon;
@@ -197,7 +133,7 @@ export default function PaletteBody(props: { close(): void }) {
                     key={item.id}
                     value={item}
                     disabled={item.disabled !== undefined}
-                    onClick={item.run}
+                    onClick={() => run(item)}
                     className={cn(item.danger && "text-destructive [&_svg]:text-destructive")}
                   >
                     <Glyph
@@ -206,21 +142,35 @@ export default function PaletteBody(props: { close(): void }) {
                     />
                     <span className="min-w-0 flex-1 truncate text-muted-foreground">
                       <span className={cn(!ranked && "text-foreground")}>
-                        <Highlighted text={item.label} query={ranked ? query : ""} />
+                        <Marked
+                          text={item.label}
+                          ranges={ranked ? matchRanges(text, item.label) : []}
+                        />
                       </span>
-                      {detail && (
+                      {item.snippet ? (
                         <span className="ml-1.5 text-sm text-muted-foreground">
-                          {detail}
-                          {item.more && (
-                            <span className="hidden in-data-highlighted:inline">
-                              {" "}
-                              · {item.more}
-                            </span>
-                          )}
+                          <Marked
+                            text={item.snippet.text}
+                            ranges={item.snippet.highlights.map(
+                              (range) => [range.start, range.end] as const,
+                            )}
+                          />
                         </span>
+                      ) : (
+                        detail && (
+                          <span className="ml-1.5 text-sm text-muted-foreground">
+                            {detail}
+                            {item.more && (
+                              <span className="hidden in-data-highlighted:inline">
+                                {" "}
+                                · {item.more}
+                              </span>
+                            )}
+                          </span>
+                        )
                       )}
                     </span>
-                    {ranked && item.hint && (
+                    {ranked && item.hint && !group.labelled && (
                       <span className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground">
                         {item.hint}
                       </span>
@@ -233,7 +183,7 @@ export default function PaletteBody(props: { close(): void }) {
           </CommandGroup>
         )}
       </CommandList>
-      {!phone && <CommandFooter />}
+      {!phone && <KeyHints hints={[navigateHint, selectHint, closeHint]} />}
     </Command>
   );
 }
