@@ -138,7 +138,10 @@ export function mobileFileDiff(
   const lines: MobileDiffLine[] = [];
   let text = 0;
   let hiddenLines = 0;
-  for (const line of read.lines) {
+  // A trailing empty context line is the patch's final newline, not a line of the file.
+  const tail = read.lines.at(-1);
+  const rows = tail?.kind === "context" && tail.text === "" ? read.lines.slice(0, -1) : read.lines;
+  for (const line of rows) {
     if (line.kind === "meta") continue;
     if (lines.length >= budget.lines || text >= budget.text) {
       hiddenLines++;
@@ -158,9 +161,6 @@ export function mobileFileDiff(
       clipped: body.length > limit,
     });
   }
-  // A trailing empty context line is the patch's final newline, not a line of the file.
-  const last = lines.at(-1);
-  if (last?.kind === "context" && last.text === "" && section?.endsWith("\n")) lines.pop();
   return {
     lines,
     hiddenLines,

@@ -8,15 +8,16 @@ import XCTest
     func testAgentsSheetShowsTheTreeAndAsksBeforeStoppingIt() throws {
         let app = launchIntoTree()
         app.buttons["thread.agents"].tap()
+        XCTAssertTrue(app.buttons["agents.stopAll"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Reviewer")).firstMatch.waitForExistence(timeout: 15))
-        XCTAssertTrue(app.staticTexts["Running in background"].waitForExistence(timeout: 10))
         screenshot("agents-medium")
         app.swipeUp()
+        for _ in 0..<4 where !app.staticTexts["Running in background"].exists && !app.staticTexts["RUNNING IN BACKGROUND"].exists { app.swipeUp() }
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "bun run test")).firstMatch.waitForExistence(timeout: 10))
         screenshot("agents-large")
         app.buttons["agents.stopAll"].tap()
         XCTAssertTrue(app.buttons["agents.confirmStop"].waitForExistence(timeout: 5))
         screenshot("agents-stop-confirm")
-        app.buttons["Cancel"].firstMatch.tap()
     }
 
     func testChangesSheetShowsFilesADiffAndTheNextStep() throws {

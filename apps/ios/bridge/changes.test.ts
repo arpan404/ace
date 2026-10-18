@@ -91,7 +91,8 @@ describe("Changes sheet", () => {
     session.file("src/big.ts");
     const diff = fileDiff(sink);
     expect(diff.lines.length).toBeLessThanOrEqual(1500);
-    expect(diff.hiddenLines).toBeGreaterThan(1400);
+    // 3,000 added lines and the hunk header; the patch's final newline is not a line.
+    expect(diff.hiddenLines).toBe(1501);
     expect(diff.truncated).toBe(true);
     expect(diff.lines[0]).toMatchObject({ kind: "hunk" });
     expect(diff.lines[1]).toMatchObject({ kind: "add", new: 1, text: "line 1" });

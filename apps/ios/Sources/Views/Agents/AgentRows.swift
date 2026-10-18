@@ -21,7 +21,8 @@ struct AgentRowView: View {
     }
     private var detail: String {
         var parts = [row.status.label]
-        if row.activity.lowercased() != row.status.label.lowercased() { parts.append(row.activity) }
+        // Only a working or failed agent's activity says more than its status word.
+        if ["working", "failed"].contains(row.status.token) && row.activity.lowercased() != row.status.label.lowercased() { parts.append(row.activity) }
         if let tokens = row.tokens { parts.append("\(TokenCount.short(tokens)) tokens") }
         if row.background { parts.append("background") }
         return parts.joined(separator: " · ")
