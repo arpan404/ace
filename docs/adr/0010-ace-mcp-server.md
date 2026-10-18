@@ -192,7 +192,7 @@ made names like `mcp__ace__ace_status` repeat the namespace. The registry
 compares names in bare form, so a toolkit that still registers an `ace_` prefix
 (the browser toolkit's `ace_browser_*`, renamed separately) resolves to the
 same tool. The status tool became `context` with topic `status`; the
-`ace://status` resource still exists. [ADR 0082](0082-agent-facing-mcp-tools.md)
+`ace://status` resource still exists. [ADR 0086](0086-agent-facing-mcp-tools.md)
 records the full rename, the tool families and core mode.
 
 Only OpenCode and Pi send `X-Ace-Tools: core`, because both reload tools on

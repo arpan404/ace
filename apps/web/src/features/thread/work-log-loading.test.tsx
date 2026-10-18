@@ -155,11 +155,7 @@ test("opening a parent's finished log keeps fetched child tools and messages on 
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   expect(within(feed).queryByText("Private child answer")).toBeNull();
   await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
-  await userEvent.click(
-    await within(feed).findByRole("button", {
-      name: /^Ran 1 command and started 1 subagent$/,
-    }),
-  );
+  // The launch and the command are two families: each is its own row, no group to open.
   expect(await within(feed).findByRole("button", { name: /^Ran bun run build/ })).toBeTruthy();
   expect(within(feed).queryByRole("button", { name: /^Read child-only.ts/ })).toBeNull();
   expect(within(feed).queryByText("Private child answer")).toBeNull();

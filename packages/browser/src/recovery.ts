@@ -1,28 +1,21 @@
-import { mkdtemp } from "node:fs/promises";
-import { join } from "node:path";
 import type { BrowserBackend, BackendOpen } from "./backend.ts";
 import type { BrowserSession } from "./session.ts";
 
-/** A fresh ephemeral page; only its URL and daemon-owned controller lease survive. */
+/** A fresh private page in ace's browser; only its URL and daemon-owned controller lease survive. */
 export async function recoverHeadless(options: {
   request: BackendOpen;
   backend: BrowserBackend;
   session: BrowserSession;
-  root: string;
   url: string;
-  profileCreated(path: string): void;
   lost(reason: string): void;
 }): Promise<void> {
-  const { request, backend, session, root, url } = options;
-  const profileDir = await mkdtemp(join(root, "recovery-"));
-  options.profileCreated(profileDir);
+  const { request, backend, session, url } = options;
   request.signal.throwIfAborted();
   const lifetime = new AbortController();
   const signal = AbortSignal.any([request.signal, lifetime.signal]);
   const replacement = await backend.open({
     ...request,
     options: { ...request.options, profile: "ephemeral", headed: false },
-    profileDir,
     signal,
     lost: (reason) => {
       if (lifetime.signal.aborted) return;

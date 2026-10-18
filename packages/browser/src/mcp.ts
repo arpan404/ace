@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   BrowserMeasurementOptions,
+  BrowserTab,
   InteractionMeasurement,
   browserWaitLimitMs,
   type ApprovalTarget,
@@ -8,6 +9,7 @@ import {
 } from "@ace/protocol";
 import { validateMeasurementBudget } from "@ace/interaction";
 import type { Toolkit, ToolContext } from "@ace/mcp-server";
+import { PublicToolError } from "@ace/mcp-server/errors";
 import {
   browserActShape,
   browserEvaluateShape,
@@ -16,11 +18,16 @@ import {
   browserLogsShape,
   browserMeasureShape,
   browserOpenShape,
+  browserScreenshotShape,
   browserSettingsShape,
   browserSnapshotShape,
+  browserTabsShape,
   browserWaitShape,
   checkAct,
+  checkScreenshot,
   checkSettings,
+  checkTabs,
+  checkWait,
 } from "./mcp-schemas.ts";
 import {
   findText,
@@ -28,20 +35,50 @@ import {
   pageSummary,
   pendingDialog,
   snapshotText,
+  tabEntry,
   type ToolResult,
 } from "./mcp-results.ts";
 
-/** What the tools need from the daemon: the thread's browser, opened on first use. */
+/** The thread an MCP call acts for and, when the provider names one, the calling agent. */
+export interface BrowserCaller {
+  threadId: string;
+  agentId?: string | undefined;
+}
+export interface BrowserTabRef {
+  tabId: string;
+  url: string;
+  title: string;
+}
+/**
+ * What the tools need from one browser (ace's, or the person's own Chrome): the thread's
+ * browser, opened on first use. Commands without `tabId` run in the caller's current tab.
+ */
 export interface BrowserToolPort {
-  /** Opens or joins the thread's page; refuses while a person holds it privately. */
-  open(threadId: string, signal: AbortSignal): Promise<BrowserState>;
+  /**
+   * Opens or joins the thread's browser and returns the caller's own tab: a new one when the
+   * tab the person views belongs to another agent. Refuses a tab a person holds privately.
+   */
+  open(caller: BrowserCaller, signal: AbortSignal): Promise<BrowserTabRef>;
+  /** The tab a call runs in, `tabId` or the caller's current tab, opening the browser first. */
+  tab(
+    caller: BrowserCaller,
+    tabId: string | undefined,
+    signal: AbortSignal,
+  ): Promise<BrowserTabRef>;
+  /** The open browser's state; call it after `open` or `tab`. */
+  state(caller: BrowserCaller): BrowserState;
   execute(
-    threadId: string,
+    caller: BrowserCaller,
     command: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<unknown>;
-  screenshot(threadId: string, signal: AbortSignal): Promise<Uint8Array>;
-  close(threadId: string, signal: AbortSignal): Promise<void>;
+  screenshot(
+    caller: BrowserCaller,
+    options: { tabId?: string; fullPage: boolean; ref?: string },
+    signal: AbortSignal,
+  ): Promise<Uint8Array>;
+  /** Closes the whole browser and every tab in it. */
+  close(caller: BrowserCaller, signal: AbortSignal): Promise<void>;
 }
 
 /**
@@ -60,242 +97,370 @@ export const browserMachineInput = {
     .optional()
     .describe("Another paired machine's browser (machines); omit for this machine."),
 };
+/**
+ * The optional `browser` argument every browser tool takes when "Use my Chrome" is available
+ * (ADR 0084): ace's own browser, or the person's own Chrome.
+ */
+export const browserChoiceInput = {
+  browser: z
+    .enum(["ace", "user"])
+    .optional()
+    .describe(
+      'Omit (or "ace") for ace\'s browser, which the person watches in ace. "user": the person\'s own Chrome (Use my Chrome), signed in as them, only for work that needs their session; pass it on every call for that page. Tabs they shared are in browser_tabs list with openedBy human. Not with machine.',
+    ),
+};
 
 type Risk = NonNullable<ApprovalTarget["riskClass"]>;
+type Args = Record<string, unknown>;
 interface Tool {
   name: string;
   title: string;
   description: string;
   riskClass: Risk;
   input: z.ZodRawShape;
-  /** Cross-field rules, applied after `machine` is added (refined objects cannot be extended). */
-  refine?: (input: Record<string, unknown>, context: z.RefinementCtx) => void;
+  /** Cross-field rules, applied after routing fields are added (refined objects cannot be extended). */
+  refine?: (input: Args, context: z.RefinementCtx) => void;
   timeoutMs: number;
-  run(args: Record<string, unknown>, threadId: string, signal: AbortSignal): Promise<ToolResult>;
+  run(
+    args: Args,
+    caller: BrowserCaller,
+    port: BrowserToolPort,
+    signal: AbortSignal,
+  ): Promise<ToolResult>;
 }
 // The longest wait, its approval reserve, and headroom to report the result.
 const waitTimeoutMs = Math.min(300_000, 200_000 + browserWaitLimitMs + 70_000);
-const command = (action: string, args: Record<string, unknown> = {}) => ({ ...args, action });
+const command = (action: string, args: Args = {}) => ({ ...args, action });
+const tabOf = (args: Args) => (typeof args["tabId"] === "string" ? args["tabId"] : undefined);
+/** Only the fields a command uses: undefined optional fields stay off the wire. */
+const defined = (args: Args): Args =>
+  Object.fromEntries(Object.entries(args).filter(([, value]) => value !== undefined));
 
-function tools(port: BrowserToolPort): Tool[] {
-  /** Runs one command, turning a pending dialog into instructions instead of a bare object. */
-  const run = async (
-    threadId: string,
-    signal: AbortSignal,
-    action: string,
-    args: Record<string, unknown>,
-    format: (result: unknown) => ToolResult = json,
-  ) => {
-    const result = await port.execute(threadId, command(action, args), signal);
-    signal.throwIfAborted();
-    return pendingDialog(result) ?? format(result);
-  };
-  return [
-    {
-      name: "browser_open",
-      title: "Open browser page",
-      description:
-        "Open or join this thread's ace browser: a real Chromium page the person watches live in ace and can take over. Pass url (http/https, localhost included) to load it; omit it to report the current page and tabs; pass tabId to switch tabs. Prefer it to web fetch when you need to verify UI, test a dev server, show the person a page, or read console and network. Next: browser_snapshot. How-to: guide ace-browser.",
-      riskClass: "external-effect",
-      input: browserOpenShape,
-      timeoutMs: 300_000,
-      async run(args, threadId, signal) {
-        await port.open(threadId, signal);
-        if (typeof args["tabId"] === "string")
-          await port.execute(
-            threadId,
-            command("tabs", { operation: "switch", tabId: args["tabId"] }),
-            signal,
-          );
-        if (typeof args["url"] === "string") {
-          const result = await port.execute(
-            threadId,
-            command("navigate", { url: args["url"], timeout: args["timeout"] }),
-            signal,
-          );
-          const pending = pendingDialog(result);
-          if (pending) return pending;
-        }
-        signal.throwIfAborted();
-        return json(pageSummary(await port.open(threadId, signal)));
-      },
-    },
-    {
-      name: "browser_snapshot",
-      title: "Read page structure",
-      description:
-        'Read the page as compact indented text: one line per meaningful element, e.g. `- button "Save" [ref=e3-41]`. Refs feed browser_act and stay valid until the page navigates. At the default size it costs fewer tokens than a screenshot. Large pages are cut at maxNodes: narrow with ref (a container), interactiveOnly or browser_find.',
-      riskClass: "read-only",
-      input: browserSnapshotShape,
-      timeoutMs: 60_000,
-      run: (args, threadId, signal) =>
-        run(threadId, signal, "snapshot", args, (result) =>
-          snapshotText(result, typeof args["ref"] === "string"),
-        ),
-    },
-    {
-      name: "browser_act",
-      title: "Act on page element",
-      description:
-        "Click, type, press a key, hover, select, check, uncheck, drag, focus, upload, scroll or answer a dialog, using refs from browser_snapshot or browser_find. After an action that navigates, call browser_wait_for, then browser_snapshot for new refs.",
-      riskClass: "external-effect",
-      input: browserActShape,
-      refine: checkAct,
-      timeoutMs: waitTimeoutMs,
-      async run(args, threadId, signal) {
-        const { action, ...rest } = args;
-        if (action === "dialog") return run(threadId, signal, "dialog", rest);
-        const input = action === "scroll" ? { x: rest["x"] ?? 0, y: rest["y"] ?? 0 } : rest;
-        const before = (await port.open(threadId, signal)).url;
-        const result = await port.execute(threadId, command(String(action), input), signal);
-        const pending = pendingDialog(result);
-        if (pending) return pending;
-        const after = (await port.open(threadId, signal)).url;
-        return json({
-          ok: true,
-          url: after,
-          ...(after !== before ? { note: "Page navigated; old refs expired." } : {}),
-        });
-      },
-    },
-    {
-      name: "browser_wait_for",
-      title: "Wait for page",
-      description:
-        "Wait until the page reaches url (loaded through DOMContentLoaded), shows text, or ref reaches state visible/hidden. Pass exactly one of url, text or ref. Safe to call after the change already happened.",
-      riskClass: "read-only",
-      input: browserWaitShape,
-      timeoutMs: waitTimeoutMs,
-      run: (args, threadId, signal) => run(threadId, signal, "wait_for", args),
-    },
-    {
-      name: "browser_find",
-      title: "Find page elements",
-      description:
-        "Find elements by accessible role and/or name (substring, case-insensitive) in every frame and return their snapshot lines with refs, without reading the whole page. With text instead, report whether that visible text is on the page.",
-      riskClass: "read-only",
-      input: browserFindShape,
-      timeoutMs: 60_000,
-      run: (args, threadId, signal) => {
-        const { text, ...query } = args;
-        if (typeof text === "string")
-          return run(threadId, signal, "find_text", { text, forward: true });
-        return run(threadId, signal, "find", query, findText);
-      },
-    },
-    {
-      name: "browser_screenshot",
-      title: "Screenshot page",
-      description:
-        "See the visible viewport as an image (JPEG, at most 1536 px). Use it to check layout and visuals; use browser_snapshot to read structure and get refs.",
-      riskClass: "read-only",
-      input: {},
-      timeoutMs: 60_000,
-      async run(_args, threadId, signal) {
-        const bytes = await port.screenshot(threadId, signal);
-        signal.throwIfAborted();
-        return {
-          content: [
-            {
-              type: "image",
-              mimeType: "image/jpeg",
-              data: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString(
-                "base64",
-              ),
-            },
-          ],
-        };
-      },
-    },
-    {
-      name: "browser_logs",
-      title: "Read console and network",
-      description:
-        "Read recent console messages and network requests, filtered by kind, level, url or status. Pass requestId from a network entry to read that response's body (bounded, secrets redacted).",
-      riskClass: "read-only",
-      input: browserLogsShape,
-      timeoutMs: 60_000,
-      run: (args, threadId, signal) =>
-        typeof args["requestId"] === "string"
-          ? run(threadId, signal, "network_body", { requestId: args["requestId"] })
-          : run(threadId, signal, "logs", args),
-    },
-    {
-      name: "browser_evaluate",
-      title: "Run page script",
-      description:
-        "Evaluate a JavaScript expression in the page and return its JSON value. Use mode read-only for reads. Prefer browser_snapshot or browser_find for reading content.",
-      riskClass: "external-effect",
-      input: browserEvaluateShape,
-      timeoutMs: waitTimeoutMs,
-      run: (args, threadId, signal) => run(threadId, signal, "evaluate", args),
-    },
-    {
-      name: "browser_history",
-      title: "Page history",
-      description:
-        "Without direction, list the page's recent history entries and whether back/forward work. With direction, go back, forward, reload or stop loading.",
-      riskClass: "external-effect",
-      input: browserHistoryShape,
-      timeoutMs: waitTimeoutMs,
-      async run(args, threadId, signal) {
-        if (args["direction"] === undefined) return run(threadId, signal, "navigation_history", {});
-        const result = await port.execute(threadId, command("history", args), signal);
-        return pendingDialog(result) ?? json(pageSummary(await port.open(threadId, signal)));
-      },
-    },
-    {
-      name: "browser_settings",
-      title: "Browser settings",
-      description:
-        "Resize the viewport, emulate a device (scale, mobile, touch, colour scheme), start or stop a recording attached to the thread, or close the browser.",
-      riskClass: "external-effect",
-      input: browserSettingsShape,
-      refine: checkSettings,
-      timeoutMs: 180_000,
-      async run(args, threadId, signal) {
-        const { action, ...rest } = args;
-        if (action === "close") {
-          await port.close(threadId, signal);
-          return json({ closed: true });
-        }
-        if (action === "resize")
-          return run(threadId, signal, "resize", { width: rest["width"], height: rest["height"] });
-        return run(threadId, signal, String(action), action === "emulate" ? rest : {});
-      },
-    },
-    {
-      name: "browser_measure",
-      title: "Measure page smoothness",
-      description:
-        "Measure frame timing while observing, or while performing one browser_act-style interaction.\nLatency is input to next visual update; settle needs 250 ms of stillness.\nHitch time per second: below 5 ms smooth, 5-10 minor, above 10 janky.\nLow confidence means few frames, host load or capture overhead; read notes.\nRepeat returns median/worst metrics plus one timestamped filmstrip.",
-      riskClass: "external-effect",
-      input: browserMeasureShape,
-      timeoutMs: waitTimeoutMs,
-      async run(args, threadId, signal) {
-        validateMeasurementBudget(BrowserMeasurementOptions.parse(args));
-        const result = await port.execute(threadId, command("measure_interaction", args), signal);
-        signal.throwIfAborted();
-        const pending = pendingDialog(result);
-        if (pending) return pending;
-        const { filmstrip, ...metrics } = InteractionMeasurement.parse(result);
-        return {
-          content: [
-            { type: "text", text: JSON.stringify(metrics) },
-            ...(filmstrip ? [filmstrip] : []),
-          ],
-        };
-      },
-    },
-  ];
+/** Runs one command, turning a pending dialog into instructions instead of a bare object. */
+async function run(
+  port: BrowserToolPort,
+  caller: BrowserCaller,
+  signal: AbortSignal,
+  action: string,
+  args: Args,
+  format: (result: unknown) => ToolResult = json,
+): Promise<ToolResult> {
+  const result = await port.execute(caller, command(action, defined(args)), signal);
+  signal.throwIfAborted();
+  return pendingDialog(result) ?? format(result);
+}
+/** The calling agent's view of a tab after a call: its address and the other tabs. */
+async function summary(
+  port: BrowserToolPort,
+  caller: BrowserCaller,
+  tabId: string | undefined,
+  signal: AbortSignal,
+): Promise<ToolResult> {
+  const tab = await port.tab(caller, tabId, signal);
+  return json(pageSummary(port.state(caller), tab));
 }
 
-/** Agents act in the thread's browser; a person's takeover still pauses them until handback. */
-export function browserToolkit(port: BrowserToolPort, route?: BrowserMachineRoute): Toolkit {
+/** A tab command's answer; `current` marks the caller's own tab. */
+const TabsResult = z.object({
+  tabs: z.array(BrowserTab.extend({ current: z.boolean().optional() })),
+  tabId: z.string().optional(),
+});
+
+const tabTools: Tool[] = [
+  {
+    name: "browser_open",
+    title: "Open browser page",
+    description:
+      "Open or join this thread's ace browser: a real Chromium the person watches live in ace and can take over. Pass url (http/https, localhost included) to load it in your tab; omit it to report where you are. Returns your tabId. Prefer it to web fetch when you need to verify UI, test a dev server, show the person a page, or read console and network. Parallel agents each open their own tab (browser_tabs open) and pass its tabId. Next: browser_snapshot. How-to: guide ace-browser.",
+    riskClass: "external-effect",
+    input: browserOpenShape,
+    timeoutMs: 300_000,
+    async run(args, caller, port, signal) {
+      const own = await port.open(caller, signal);
+      const tabId = tabOf(args) ?? own.tabId;
+      if (typeof args["url"] === "string") {
+        const result = await port.execute(
+          caller,
+          command("navigate", { url: args["url"], timeout: args["timeout"], tabId }),
+          signal,
+        );
+        const pending = pendingDialog(result);
+        if (pending) return pending;
+      }
+      signal.throwIfAborted();
+      return summary(port, caller, tabId, signal);
+    },
+  },
+  {
+    name: "browser_tabs",
+    title: "Browser tabs",
+    description:
+      "List, open, select or close tabs in this thread's browser. list shows who opened and drives each tab and whether a person holds it; current marks yours. open gives you a new labelled tab that becomes your current tab. Commands in different tabs run at the same time. Close the tabs you opened when done; closing the last tab closes the browser.",
+    riskClass: "external-effect",
+    input: browserTabsShape,
+    refine: checkTabs,
+    timeoutMs: waitTimeoutMs,
+    async run(args, caller, port, signal) {
+      const { action, ...rest } = args;
+      const result = await port.execute(
+        caller,
+        command("tabs", defined({ ...rest, operation: action })),
+        signal,
+      );
+      signal.throwIfAborted();
+      const pending = pendingDialog(result);
+      if (pending) return pending;
+      const parsed = TabsResult.safeParse(result);
+      // Closing the last tab closes the browser and lists nothing.
+      if (!parsed.success)
+        return json(action === "close" ? { closed: true, browserClosed: true } : result);
+      const { tabs: listed, tabId } = parsed.data;
+      const tabs = listed.map(tabEntry);
+      if (action === "list") return json({ tabs });
+      if (action === "close")
+        return json({ closed: true, tabId: args["tabId"], open: tabs.length });
+      return json(tabs.find((tab) => tab.tabId === tabId) ?? { tabs });
+    },
+  },
+];
+
+const pageTools: Tool[] = [
+  {
+    name: "browser_snapshot",
+    title: "Read page structure",
+    description:
+      'Read the page as compact indented text: one line per meaningful element, e.g. `- button "Save" [ref=e3-41]`. Refs feed browser_act and stay valid until the page navigates. At the default size it costs fewer tokens than a screenshot. Large pages are cut at maxNodes: narrow with ref (a container), interactiveOnly or browser_find.',
+    riskClass: "read-only",
+    input: browserSnapshotShape,
+    timeoutMs: 60_000,
+    run: (args, caller, port, signal) =>
+      run(port, caller, signal, "snapshot", args, (result) =>
+        snapshotText(result, typeof args["ref"] === "string"),
+      ),
+  },
+  {
+    name: "browser_act",
+    title: "Act on page element",
+    description:
+      "Click, type, fill a form, press a key, hover, select, check, uncheck, drag, focus, upload, scroll or answer a dialog, using refs from browser_snapshot or browser_find. After an action that navigates, call browser_wait_for, then browser_snapshot for new refs.",
+    riskClass: "external-effect",
+    input: browserActShape,
+    refine: checkAct,
+    timeoutMs: waitTimeoutMs,
+    async run(args, caller, port, signal) {
+      const { action, ...rest } = args;
+      if (action === "dialog") return run(port, caller, signal, "dialog", rest);
+      const input =
+        action === "scroll"
+          ? defined({ ...rest, x: rest["x"] ?? 0, y: rest["y"] ?? 0 })
+          : defined(rest);
+      const before = await port.tab(caller, tabOf(args), signal);
+      const result = await port.execute(caller, command(String(action), input), signal);
+      const pending = pendingDialog(result);
+      if (pending) return pending;
+      const after = await port.tab(caller, before.tabId, signal);
+      return json({
+        ok: true,
+        tabId: after.tabId,
+        url: after.url,
+        ...(after.url !== before.url ? { note: "Page navigated; old refs expired." } : {}),
+      });
+    },
+  },
+  {
+    name: "browser_wait_for",
+    title: "Wait for page",
+    description:
+      "Wait until the page reaches url (loaded through DOMContentLoaded), shows text, or ref reaches state visible/hidden; or, with downloads, until the tab's downloads finish. Pass exactly one of url, text, ref or downloads. Safe to call after the change already happened.",
+    riskClass: "read-only",
+    input: browserWaitShape,
+    refine: checkWait,
+    timeoutMs: waitTimeoutMs,
+    run: (args, caller, port, signal) => {
+      const { downloads, ...rest } = args;
+      if (downloads === true)
+        return run(port, caller, signal, "downloads", {
+          operation: "wait",
+          timeout: rest["timeout"],
+          tabId: rest["tabId"],
+        });
+      return run(port, caller, signal, "wait_for", rest);
+    },
+  },
+  {
+    name: "browser_find",
+    title: "Find page elements",
+    description:
+      "Find elements by accessible role and/or name (substring, case-insensitive) in every frame and return their snapshot lines with refs, without reading the whole page. With text instead, report whether that visible text is on the page.",
+    riskClass: "read-only",
+    input: browserFindShape,
+    timeoutMs: 60_000,
+    run: (args, caller, port, signal) => {
+      const { text, ...query } = args;
+      if (typeof text === "string")
+        return run(port, caller, signal, "find_text", {
+          text,
+          forward: true,
+          tabId: query["tabId"],
+        });
+      return run(port, caller, signal, "find", query, findText);
+    },
+  },
+  {
+    name: "browser_screenshot",
+    title: "Screenshot page",
+    description:
+      "See one tab as an image (JPEG, at most 1536 px): the viewport, fullPage for the whole page, or ref for one element. It never changes the tab the person sees. format pdf prints the tab to a PDF file and returns its path instead. Use browser_snapshot to read structure and get refs.",
+    riskClass: "read-only",
+    input: browserScreenshotShape,
+    refine: checkScreenshot,
+    timeoutMs: 60_000,
+    async run(args, caller, port, signal) {
+      const tabId = tabOf(args);
+      if (args["format"] === "pdf")
+        return run(port, caller, signal, "pdf", {
+          tabId,
+          landscape: args["landscape"],
+          printBackground: args["printBackground"],
+        });
+      const bytes = await port.screenshot(
+        caller,
+        {
+          ...(tabId ? { tabId } : {}),
+          fullPage: args["fullPage"] === true,
+          ...(typeof args["ref"] === "string" ? { ref: args["ref"] } : {}),
+        },
+        signal,
+      );
+      signal.throwIfAborted();
+      return {
+        content: [
+          {
+            type: "image",
+            mimeType: "image/jpeg",
+            data: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64"),
+          },
+        ],
+      };
+    },
+  },
+  {
+    name: "browser_logs",
+    title: "Read console and network",
+    description:
+      "Read recent console messages and network requests, filtered by kind, level, url or status. Pass requestId from a network entry to read that response's body (bounded, secrets redacted). kind downloads lists the files the thread's tabs downloaded.",
+    riskClass: "read-only",
+    input: browserLogsShape,
+    timeoutMs: 60_000,
+    run: (args, caller, port, signal) => {
+      if (typeof args["requestId"] === "string")
+        return run(port, caller, signal, "network_body", {
+          requestId: args["requestId"],
+          tabId: args["tabId"],
+        });
+      if (args["kind"] === "downloads")
+        return run(port, caller, signal, "downloads", {
+          operation: "list",
+          tabId: args["tabId"],
+        });
+      return run(port, caller, signal, "logs", args);
+    },
+  },
+  {
+    name: "browser_evaluate",
+    title: "Run page script",
+    description:
+      "Evaluate a JavaScript expression in the page and return its JSON value. Use mode read-only for reads. Prefer browser_snapshot or browser_find for reading content.",
+    riskClass: "external-effect",
+    input: browserEvaluateShape,
+    timeoutMs: waitTimeoutMs,
+    run: (args, caller, port, signal) => run(port, caller, signal, "evaluate", args),
+  },
+  {
+    name: "browser_history",
+    title: "Page history",
+    description:
+      "Without direction, list the tab's recent history entries and whether back/forward work. With direction, go back, forward, reload or stop loading.",
+    riskClass: "external-effect",
+    input: browserHistoryShape,
+    timeoutMs: waitTimeoutMs,
+    async run(args, caller, port, signal) {
+      if (args["direction"] === undefined)
+        return run(port, caller, signal, "navigation_history", { tabId: args["tabId"] });
+      const result = await port.execute(caller, command("history", defined(args)), signal);
+      return pendingDialog(result) ?? summary(port, caller, tabOf(args), signal);
+    },
+  },
+  {
+    name: "browser_settings",
+    title: "Browser settings",
+    description:
+      "Resize a tab's viewport, emulate a device (scale, mobile, touch, colour scheme), start or stop a recording attached to the thread, list installed extensions, or close the whole browser.",
+    riskClass: "external-effect",
+    input: browserSettingsShape,
+    refine: checkSettings,
+    timeoutMs: 180_000,
+    async run(args, caller, port, signal) {
+      const { action, tabId, width, height, ...rest } = args;
+      if (action === "close") {
+        await port.close(caller, signal);
+        return json({ closed: true });
+      }
+      if (action === "resize") return run(port, caller, signal, "resize", { tabId, width, height });
+      if (action === "emulate")
+        return run(port, caller, signal, "emulate", { tabId, width, height, ...rest });
+      // Recordings follow the tab the person views; extensions belong to the whole browser.
+      return run(port, caller, signal, String(action), {});
+    },
+  },
+  {
+    name: "browser_measure",
+    title: "Measure page smoothness",
+    description:
+      "Measure frame timing while observing, or while performing one browser_act-style interaction.\nLatency is input to next visual update; settle needs 250 ms of stillness.\nHitch time per second: below 5 ms smooth, 5-10 minor, above 10 janky.\nLow confidence means few frames, host load or capture overhead; read notes.\nRepeat returns median/worst metrics plus one timestamped filmstrip.",
+    riskClass: "external-effect",
+    input: browserMeasureShape,
+    timeoutMs: waitTimeoutMs,
+    async run(args, caller, port, signal) {
+      const { tabId, ...options } = args;
+      validateMeasurementBudget(BrowserMeasurementOptions.parse(defined(options)));
+      const result = await port.execute(
+        caller,
+        command("measure_interaction", defined(args)),
+        signal,
+      );
+      signal.throwIfAborted();
+      const pending = pendingDialog(result);
+      if (pending) return pending;
+      const { filmstrip, ...metrics } = InteractionMeasurement.parse(result);
+      return {
+        content: [
+          { type: "text", text: JSON.stringify({ ...(tabId ? { tabId } : {}), ...metrics }) },
+          ...(filmstrip ? [filmstrip] : []),
+        ],
+      };
+    },
+  },
+];
+
+/**
+ * Agents act in the thread's browser, in tabs of their own; a person's takeover of a tab pauses
+ * agents there until handback. With `route`, every tool takes `machine`; with `user`, `browser`.
+ */
+export function browserToolkit(
+  port: BrowserToolPort,
+  route?: BrowserMachineRoute,
+  /** The person's own Chrome (ADR 0084), for calls with `browser: "user"`. */
+  user?: BrowserToolPort,
+): Toolkit {
   return {
     register(registry) {
-      for (const tool of tools(port)) {
-        const shape = z.strictObject({ ...tool.input, ...(route ? browserMachineInput : {}) });
+      for (const tool of [...tabTools, ...pageTools]) {
+        const shape = z.strictObject({
+          ...tool.input,
+          ...(route ? browserMachineInput : {}),
+          ...(user ? browserChoiceInput : {}),
+        });
         const input = tool.refine ? shape.superRefine(tool.refine) : shape;
         registry.registerContent({
           name: tool.name,
@@ -308,13 +473,22 @@ export function browserToolkit(port: BrowserToolPort, route?: BrowserMachineRout
           async run(raw, context) {
             const { caller, signal } = context;
             signal.throwIfAborted();
-            const { machine, ...args } = z.record(z.string(), z.unknown()).parse(raw);
+            const { machine, browser, ...args } = z.record(z.string(), z.unknown()).parse(raw);
+            // The person's Chrome is on this machine and never stands in for ace's browser.
+            if (browser === "user" && (typeof machine === "string" || !user))
+              throw new PublicToolError("user_browser_unavailable");
             if (route && typeof machine === "string")
               return route(
                 { machine, tool: tool.name, args, timeoutMs: tool.timeoutMs - 5_000 },
                 context,
               );
-            return tool.run(args, caller.threadId, signal);
+            const target = browser === "user" && user ? user : port;
+            return tool.run(
+              args,
+              { threadId: caller.threadId, agentId: caller.agentId },
+              target,
+              signal,
+            );
           },
         });
       }

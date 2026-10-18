@@ -124,6 +124,12 @@ export async function toolFixture(
       [
         browserToolkit({
           async open() {
+            return { tabId: "tab", url: "about:blank", title: "" };
+          },
+          async tab() {
+            return { tabId: "tab", url: "about:blank", title: "" };
+          },
+          state() {
             return BrowserState.parse({
               threadId: thread.id,
               controller: "agent",

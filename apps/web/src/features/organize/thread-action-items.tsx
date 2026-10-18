@@ -71,7 +71,7 @@ export function threadActions(
   const list: ThreadAction[] = [
     {
       id: "new-on-main",
-      label: "New thread on main",
+      label: "New thread from default branch",
       icon: NotePencilIcon,
       section: "start",
       run: () => actions.newThreadOnMain(entry),

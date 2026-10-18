@@ -1,3 +1,4 @@
+import { cardEdge } from "@/components/ui/rules.ts";
 import { useItem, useSidebarThread } from "@ace/client-react";
 import { modelLine, startedThreadOf } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
@@ -23,7 +24,7 @@ export function StartedThreadCard(props: { threadId: string; itemId: string }) {
   return (
     <section
       aria-label={`New thread: ${title}`}
-      className="flex min-h-(--row-height) items-center gap-(--surface-gap) rounded-lg px-(--surface-inset) py-2 shadow-[inset_0_0_0_1px_var(--border)]"
+      className={`flex min-h-(--row-height) items-center gap-(--surface-gap) rounded-lg px-(--surface-inset) py-2 ${cardEdge}`}
     >
       {provider && <ProviderIcon provider={provider} size={16} decorative />}
       <p className="flex min-w-0 flex-1 items-baseline gap-x-1.5 text-ui">

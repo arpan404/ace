@@ -1,3 +1,4 @@
+import { cardEdge } from "@/components/ui/rules.ts";
 import {
   Collapsible,
   CollapsibleTrigger,
@@ -277,7 +278,7 @@ function ShellOutput(props: { output: OutputSummary }) {
   const [full, setFull] = useState<string>();
   const text = stripAnsi(full ?? props.output.tail ?? "");
   return (
-    <div className="overflow-hidden rounded-card bg-code shadow-[inset_0_0_0_1px_var(--border)]">
+    <div className={`overflow-hidden rounded-card bg-code ${cardEdge}`}>
       <pre
         aria-label="Output"
         className="max-h-72 overflow-auto px-3 py-2 font-mono text-xs leading-normal whitespace-pre-wrap text-muted-foreground"
@@ -335,7 +336,7 @@ export function ChangeDiff(props: { change: FileChange; cwd?: string | undefined
     ? patchLines(change.diff)
     : (change.newText ?? "").split("\n").map((text) => ({ kind: "add" as const, text }));
   return (
-    <figure className="overflow-hidden rounded-card shadow-[inset_0_0_0_1px_var(--border)]">
+    <figure className={`overflow-hidden rounded-card ${cardEdge}`}>
       <figcaption className="flex h-8 items-center gap-2 border-b px-3 font-mono text-xs text-muted-foreground">
         <span title={change.movePath ?? change.path} className="truncate">
           {change.movePath ? `${path(change.path)} → ${path(change.movePath)}` : path(change.path)}

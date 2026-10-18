@@ -8,7 +8,7 @@ import { Kbd } from "@/components/ui/kbd.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { fileIcon } from "./file-icon.ts";
+import { fileIcon } from "@/components/file-icon.ts";
 import { useRecentFiles } from "./files-state.ts";
 import { openFile } from "./open-file.ts";
 import { useCheckoutSearch, useEditedPaths } from "./use-checkout.ts";
@@ -154,6 +154,7 @@ export function QuickOpenDialog(props: { threadId: string; onClose(): void }) {
                   {row.group}
                 </p>
               )}
+              {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- keys pick through the combobox's aria-activedescendant */}
               <div
                 id={optionId(index)}
                 role="option"

@@ -2,6 +2,7 @@ import { TrashIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
   Sheet,
@@ -64,7 +65,7 @@ export function AttachmentsSheet(props: { thread: ThreadRef; onClose(): void }) 
             </Button>
           )}
           {files.isPending ? (
-            <p role="status">Loading attachments…</p>
+            <ListSkeleton label="attachments" shape="row" rows={3} />
           ) : (
             <p className="py-2 text-xs text-subtle-foreground">
               {files.data?.length ?? 0} of 256 attachments

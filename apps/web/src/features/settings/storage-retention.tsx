@@ -12,6 +12,7 @@ import { fieldClassName } from "@/components/ui/input.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { cn } from "@/lib/cn.ts";
 import { Button } from "@/components/ui/button.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { storageLabels } from "./storage-copy.ts";
 
 export function StorageRetentionControls(props: { onSaved(): void }) {
@@ -99,12 +100,12 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
             />
           </SettingRow>
         ))
-      ) : (
-        <SettingNote role={query.isError ? "alert" : "status"}>
-          {query.isError
-            ? "Retention could not be loaded. Reconnect and try again."
-            : "Loading retention…"}
+      ) : query.isError ? (
+        <SettingNote role="alert">
+          Retention could not be loaded. Reconnect and try again.
         </SettingNote>
+      ) : (
+        <ListSkeleton label="retention" shape="row" rows={3} />
       )}
       <SettingRow
         title="Daily cleanup"

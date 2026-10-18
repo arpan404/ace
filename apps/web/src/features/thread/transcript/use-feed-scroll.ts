@@ -1,5 +1,13 @@
 import type { Virtualizer } from "@tanstack/react-virtual";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { scrollToEnd as glideToEnd } from "@/lib/motion.ts";
 import { blockItems } from "./blocks.ts";
 import { rowOf, type Row } from "./rows.ts";
@@ -14,6 +22,13 @@ import {
   type ScrollMode,
 } from "./scroll-mode.ts";
 import { useDockShift, useStayPinned } from "./scroll.ts";
+import { useLayout, type SessionKey } from "@/lib/layout.tsx";
+import {
+  createScrollMemory,
+  restoreAt,
+  type SavedScroll,
+  type ScrollMemory,
+} from "./scroll-memory.ts";
 
 /*
  * The I/O shell of the transcript's scroll state machine (`scroll-mode.ts`): it feeds the machine
@@ -48,6 +63,17 @@ export interface FeedScrollOptions {
   now(): number;
   /** The reader scrolled up or down by a gesture, for paging history. */
   onDirection(upward: boolean): void;
+  /** Where the reader was when they last left this thread: reopened there if nothing is new. */
+  restore: SavedScroll | undefined;
+  /** Keeps where the reader is as the feed goes (undefined: at the live end). */
+  remember(saved: SavedScroll | undefined): void;
+}
+
+const threadScrollsKey: SessionKey<ScrollMemory> = { name: "thread scrolls" };
+
+/** Reading positions of the threads left in this app's session. */
+export function useThreadScrolls(): ScrollMemory {
+  return useLayout().sessionValue(threadScrollsKey, createScrollMemory);
 }
 
 const distanceToEnd = (el: HTMLElement) => el.scrollHeight - el.scrollTop - el.clientHeight;
@@ -113,16 +139,18 @@ export function useFeedScroll(options: FeedScrollOptions) {
   const top = useRef<TopRow | undefined>(undefined);
   const upward = useRef(false);
   const glidingUntil = useRef(0);
+  // Each row's index by key: finding a held row costs the same in a thread of any length.
+  const indexOf = useMemo(() => new Map(keys.map((key, index) => [key, index])), [keys]);
 
   /** Where a row is now, by key, else by an item it shows (its key may have changed). */
   const locate = useCallback(
     (key: string, itemId: string | undefined) => {
-      let index = keys.indexOf(key);
+      let index = indexOf.get(key) ?? -1;
       if (index < 0 && itemId !== undefined) index = rowOf(rows, itemId);
       const start = index < 0 ? undefined : virtualizer.measurementsCache[index]?.start;
       return start === undefined ? undefined : { index, start, key: keys[index] ?? key };
     },
-    [keys, rows, virtualizer],
+    [indexOf, keys, rows, virtualizer],
   );
   /** Which resizes the virtualizer answers by moving the view, for the current mode. */
   const compensate = useCallback(() => {
@@ -187,6 +215,45 @@ export function useFeedScroll(options: FeedScrollOptions) {
   useEffect(() => {
     if (detached) apply({ type: "detached" }, viewport.current);
   }, [detached, apply, viewport]);
+
+  // Back in a thread with nothing new since: the row the reader left on, where it was, held
+  // still while the rows around it measure (until the reader scrolls). Once, when rows exist.
+  const restoring = useRef(detached ? undefined : options.restore);
+  useLayoutEffect(() => {
+    const el = viewport.current;
+    const saved = restoring.current;
+    if (!el || !saved || !keys.length) return;
+    restoring.current = undefined;
+    const at = restoreAt(saved, keys);
+    const row = at && rows[at.index];
+    const start = at && virtualizer.measurementsCache[at.index]?.start;
+    if (!at || !row || start === undefined || mode.current.kind !== "following") return;
+    apply({ type: "toggle", key: row.key, itemId: blockItems(row.block)[0] }, el);
+    placeAt(virtualizer, el, start - at.offset);
+    hold(at.index);
+    compensate();
+  }, [keys, rows, viewport, virtualizer, apply, hold, compensate]);
+
+  // Leaving the thread keeps where the reader was, unless they were at the live end.
+  const leaving = useRef({ rows, detached, remember: options.remember });
+  useLayoutEffect(() => {
+    leaving.current = { rows, detached, remember: options.remember };
+  });
+  useEffect(
+    () => () => {
+      const { rows: shown, detached: away, remember } = leaving.current;
+      const at = top.current;
+      const row = at && shown[at.index];
+      if (away || mode.current.kind === "following" || !at || !row) return remember(undefined);
+      remember({
+        key: row.key,
+        offset: at.offset,
+        lastKey: shown.at(-1)?.key,
+        measured: Array.from(virtualizer.measurementsCache, (item) => ({ ...item })),
+      });
+    },
+    [virtualizer],
+  );
 
   // Rows changed: follow the end, or hold the held row where it was. Resizes are the
   // virtualizer's to compensate (by `compensate`'s rule); only added, removed or replaced rows

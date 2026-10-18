@@ -9,6 +9,9 @@
       "$ref": "https://ace.local/protocol/v1/StorageRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/UserBrowserSettings.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/WorktreeCreationRequest.json"
     },
     {
@@ -1598,6 +1601,34 @@
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
         "type": {
+          "const": "browser.tabs.select",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type",
+        "tabId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
           "const": "browser.tabs.close",
           "type": "string"
         }
@@ -1823,6 +1854,11 @@
           "minLength": 1,
           "type": "string"
         },
+        "tabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
@@ -1841,6 +1877,11 @@
     {
       "properties": {
         "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tabId": {
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
@@ -1866,6 +1907,11 @@
           "$ref": "https://ace.local/protocol/v1/BrowserInput.json"
         },
         "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tabId": {
           "maxLength": 256,
           "minLength": 1,
           "type": "string"

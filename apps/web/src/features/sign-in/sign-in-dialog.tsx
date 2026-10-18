@@ -95,8 +95,7 @@ export function SignInDialog(props: {
       }}
     >
       <DialogContent
-        size="md"
-        className="gap-5 px-6 pt-7 pb-5"
+        className="gap-5"
         aria-busy={running || view.kind === "requesting" || undefined}
       >
         <DialogHeader className="items-center gap-1.5 px-6 text-center">
@@ -114,7 +113,7 @@ export function SignInDialog(props: {
               className="relative"
             />
           </span>
-          <DialogTitle className="text-lg font-semibold tracking-title">{title}</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription className="max-w-[44ch] text-balance">{description}</DialogDescription>
         </DialogHeader>
         {/* Each step is read out as it appears: the code, the choices, the outcome. */}

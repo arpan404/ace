@@ -112,7 +112,7 @@ describe.skipIf(!executablePath)("agent browser API with real Chromium", () => {
     });
   }, 60_000);
 
-  it("checks subresources and redirects against the origin hook before making network requests", async () => {
+  it("checks navigations and their redirect hops against the origin hook, not subresources", async () => {
     const origins: string[] = [];
     const f = await fixture({
       originPolicy: ({ url }) => {
@@ -121,15 +121,14 @@ describe.skipIf(!executablePath)("agent browser API with real Chromium", () => {
       },
     });
     await f.navigate();
-    expect(await f.evaluate("fetch('https://example.invalid/data').then(()=>false,()=>true)")).toBe(
-      true,
-    );
-    expect(origins).toContain("https://example.invalid/data");
+    // Subresources go straight to the network; the hook only sees document loads.
+    expect(await f.evaluate("fetch('/data').then(r=>r.text())")).toBe("response-data");
     await expect(f.execute({ action: "navigate", url: `${f.url}/redirect` })).rejects.toThrow();
-    expect(origins).toContain("https://example.invalid/");
+    expect(origins).toEqual(["https://example.invalid/"]);
+    expect(f.service.state("thread").url).toBe(`${f.url}/`);
   }, 60_000);
 
-  it("checks redirect hops initiated by a cross-site iframe", async () => {
+  it("checks a cross-site iframe's document against the origin hook", async () => {
     const origins: string[] = [];
     const f = await fixture({
       originPolicy: ({ url }) => {
@@ -138,10 +137,9 @@ describe.skipIf(!executablePath)("agent browser API with real Chromium", () => {
       },
     });
     await f.navigate();
-    const frameUrl = `${f.url.replace("127.0.0.1", "localhost")}/iframe`;
     await f.evaluate(
-      `new Promise(resolve=>{addEventListener('message',()=>resolve(true),{once:true});const iframe=document.createElement('iframe');iframe.src=${JSON.stringify(frameUrl)};document.body.append(iframe)})`,
+      `new Promise(resolve=>{const iframe=document.createElement('iframe');iframe.onload=()=>resolve(true);iframe.src='https://example.invalid/frame';document.body.append(iframe)})`,
     );
-    expect(origins).toContain("https://example.invalid/");
+    expect(origins).toEqual(["https://example.invalid/frame"]);
   }, 60_000);
 });

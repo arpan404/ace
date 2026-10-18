@@ -124,6 +124,44 @@ test("code and diff text read at AA on the code background and on added and remo
     }
 });
 
+/** How far a colour sits from pure white (dark schemes) or pure black (light ones). */
+const fromExtreme = (colour: string | undefined, scheme: Scheme) =>
+  ratio(colour, scheme === "dark" ? "#FFFFFF" : "#000000");
+
+test("text is a softened ink, never glaring pure white in dark or pure black in light", () => {
+  for (const id of themeIds)
+    for (const scheme of schemes) {
+      const tokens = themeDeclarations(id, scheme);
+      const glaring = [
+        // Body text sits clearly off the extreme; text on glass is a step stronger but still off it.
+        ...(fromExtreme(tokens["--foreground"], scheme) < 1.25 ? ["--foreground"] : []),
+        ...(fromExtreme(tokens["--glass-foreground"], scheme) < 1.12 ? ["--glass-foreground"] : []),
+      ];
+      expect([id, scheme, glaring]).toEqual([id, scheme, []]);
+    }
+});
+
+test("ace's ink-filled primary button uses the same softened ink as its text", () => {
+  for (const scheme of schemes) {
+    const tokens = themeDeclarations("ace", scheme);
+    expect(tokens["--ring"]).toBe(tokens["--foreground"]);
+    expect(fromExtreme(tokens["--ring-hover"], scheme)).toBeGreaterThan(1.1);
+  }
+});
+
+test("text, secondary, quiet and faint text stay one step apart on the page in every theme", () => {
+  const tiers = ["--foreground", "--muted-foreground", "--subtle-foreground", "--faint-foreground"];
+  for (const id of themeIds)
+    for (const scheme of schemes) {
+      const tokens = themeDeclarations(id, scheme);
+      const readings = tiers.map((tier) => ratio(tokens[tier], tokens["--background"]));
+      const outOfOrder = tiers
+        .slice(1)
+        .filter((_, index) => readings[index + 1]! >= readings[index]!);
+      expect([id, scheme, outOfOrder]).toEqual([id, scheme, []]);
+    }
+});
+
 const accentChoices: AccentChoice[] = [
   ...accentIds.map((accent) => ({ accent, customAccent: "#3E8E7E" })),
   ...["#FFFFFF", "#000000", "#FFFF00", "#2A55B0", "#2F906E", "#0E7A6C", "#C93838"].map(

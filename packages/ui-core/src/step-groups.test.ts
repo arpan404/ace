@@ -63,8 +63,8 @@ it("exploration alone reads as files explored and searches, counting each file o
   });
 });
 
-it("a mixed group names at most two kinds, changes first, and counts the rest", () => {
-  const { groups } = groupSteps(
+it("a mixed summary names at most two kinds, changes first, and counts the rest", () => {
+  const summary = groupSummary(
     facts([
       read("a"),
       edit("e1", "a.ts"),
@@ -74,8 +74,58 @@ it("a mixed group names at most two kinds, changes first, and counts the rest", 
       call("plan", { kind: "plan", todos: [] }),
     ]),
   );
-  expect(groups[0]?.summary).toBe("Edited 2 files, ran 1 command and 3 other steps");
-  expect(groups[0]?.icon).toBe("mixed");
+  expect(summary).toBe("Edited 2 files, ran 1 command and 3 other steps");
+});
+
+it("consecutive steps of one family merge; a step of another family starts a new group", () => {
+  const { groups } = groupSteps(
+    facts([
+      read("a"),
+      search("q"),
+      edit("e1", "a.ts"),
+      edit("e2", "b.ts"),
+      shell("test", "bun run test"),
+      shell("lint", "bun run lint"),
+      read("b"),
+    ]),
+  );
+  expect(groups.map((group) => [group.ids, group.single])).toEqual([
+    [["a", "q"], false],
+    [["e1", "e2"], false],
+    [["test", "lint"], false],
+    [["b"], true],
+  ]);
+  expect(groups.map((group) => group.sentence)).toEqual([
+    "Explored 1 file and 1 search",
+    "Edited 2 files",
+    "Ran 2 commands",
+    "",
+  ]);
+});
+
+it("a thought between steps of one family stays in their group", () => {
+  const { groups } = groupSteps(
+    facts([read("a"), thought("why", "Check the caller too."), read("b"), edit("e", "a.ts")]),
+  );
+  expect(groups.map((group) => group.ids)).toEqual([["a", "why", "b"], ["e"]]);
+  expect(groups[0]?.sentence).toBe("Read 2 files and thought once");
+});
+
+it("an error ends the group before it, even between steps of one family", () => {
+  const notice = Item.parse({
+    id: "err",
+    agentId: "root",
+    type: "notice",
+    level: "error",
+    text: "Tool failed",
+    complete: true,
+    createdAt: ++created,
+  });
+  const { groups } = groupSteps(
+    facts([shell("x", "bun install"), notice, shell("y", "bun run build")]),
+  );
+  expect(groups.map((group) => group.ids)).toEqual([["x"], ["err"], ["y"]]);
+  expect(groups.every((group) => group.single)).toBe(true);
 });
 
 it("what the agent says between steps stands alone and splits the groups", () => {
@@ -156,9 +206,9 @@ it("appending a step builds only the last group again; earlier groups stay the s
 });
 
 it("a step settling regroups from its group on and keeps its summary current", () => {
-  const running = facts([read("a"), shell("x", "bun install", "running")]);
+  const running = facts([shell("a", "bun run lint"), shell("x", "bun install", "running")]);
   const before = groupSteps(running);
-  const after = groupSteps(facts([read("a"), shell("x", "bun install")]), before);
+  const after = groupSteps(facts([shell("a", "bun run lint"), shell("x", "bun install")]), before);
   expect(before.groups[0]?.running).toBe(true);
   expect(after.groups[0]?.running).toBe(false);
 });
@@ -182,7 +232,7 @@ it("a thought in view on its own stays its own row when steps follow it", () => 
   const steps = [thought("plan", "Read the router first."), read("a"), shell("b", "bun test")];
   const alone = groupSteps(facts(steps.slice(0, 1)));
   const grown = groupSteps(facts(steps), alone);
-  expect(grown.groups.map((group) => group.ids)).toEqual([["plan"], ["a", "b"]]);
+  expect(grown.groups.map((group) => group.ids)).toEqual([["plan"], ["a"], ["b"]]);
   // The thought's row is the same object: appending steps did not rebuild it.
   expect(grown.groups[0]).toBe(alone.groups[0]);
 });
@@ -213,9 +263,9 @@ it("a shell search with no matches never fails its group", () => {
       shell("test", "bun run test", "failed"),
     ]),
   );
-  expect(groups[0]?.failed).toBe(1);
-  expect(groups[0]?.summary).toBe("Ran 1 command and searched 2 times · 1 failed");
-  expect(groups[0]?.sentence).toBe("Ran 1 command and searched 2 times");
+  expect(groups.map((group) => group.failed)).toEqual([0, 1]);
+  expect(groups[0]?.summary).toBe("Explored 2 searches");
+  expect(groups[1]?.ids).toEqual(["test"]);
 });
 
 it("only shell searches failing reads as a quiet group", () => {

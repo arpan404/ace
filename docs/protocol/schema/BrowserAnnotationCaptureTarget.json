@@ -1,0 +1,36 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserAnnotationCaptureTarget.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "kind": {
+          "const": "page",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "const": "annotation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    }
+  ]
+}

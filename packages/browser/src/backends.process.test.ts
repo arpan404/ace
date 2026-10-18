@@ -8,6 +8,7 @@ import {
   type BrowserFrame,
   type BrowserState,
   type BrowserBackendLost,
+  type BrowserBackendRequest,
 } from "@ace/protocol";
 
 const snapshot = z.object({ nodes: z.array(z.object({ ref: z.string() })) });
@@ -67,7 +68,9 @@ it("pause on desktop loss emits the URL and rejects an in-flight read without re
     "viewer",
     { send: () => true },
     (state) => states.push(state),
-    (event) => events.push(event),
+    (event) => {
+      if (event.type === "browser.backend.lost") events.push(event);
+    },
   );
   f.hold("Accessibility.getFullAXTree");
   const started = once(f.requests, "Accessibility.getFullAXTree");
@@ -279,7 +282,7 @@ it("native permission and download denials flow through bounded daemon logs", as
   expect(paths.entries.some((entry) => entry.text.includes("file.bin"))).toBe(true);
 });
 
-it("bounds outstanding relay commands and rejects every pending result on disconnect", async () => {
+it("holds relay commands over the limit until a slot frees and rejects them all on disconnect", async () => {
   const f = await backendFixture();
   const session = await f.backend.open({
     options: BrowserOpen.parse({ threadId: "raw", workspaceId: "workspace" }),
@@ -291,15 +294,21 @@ it("bounds outstanding relay commands and rejects every pending result on discon
     lost() {},
   });
   f.hold("Runtime.getProperties");
-  const requests = Array.from({ length: 128 }, () =>
+  const sent: BrowserBackendRequest[] = [];
+  f.requests.on("Runtime.getProperties", (request) => sent.push(request));
+  const requests = Array.from({ length: 130 }, () =>
     session.cdp.send("Runtime.getProperties", { objectId: "1" }),
   );
   const finished = Promise.allSettled(requests);
-  await expect(session.cdp.send("Runtime.getProperties", { objectId: "1" })).rejects.toThrow(
-    "request limit",
-  );
+  await expect.poll(() => sent.length).toBe(128);
+  const first = sent[0];
+  if (!first) throw new Error("Missing relayed request");
+  f.reply(first, {});
+  await expect.poll(() => sent.length).toBe(129);
   f.backend.disconnect("Disconnected with pending requests");
-  expect((await finished).every((result) => result.status === "rejected")).toBe(true);
+  const results = await finished;
+  expect(results[0]?.status).toBe("fulfilled");
+  expect(results.slice(1).every((result) => result.status === "rejected")).toBe(true);
   await expect(session.cdp.send("Memory.getDOMCounters")).rejects.toThrow("lost");
 });
 it("a host's evaluate hook and backend loss use the final redirected desktop URL", async () => {

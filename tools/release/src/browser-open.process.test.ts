@@ -16,19 +16,16 @@ it("packaged browser startup owns its guardian before entering the browser launc
   const require = createRequire(import.meta.url);
   const browser = createRequire(require.resolve("@ace/daemon")).resolve("@ace/browser");
   const entry = join(root, "fixture.ts");
-  // A launcher failure after guard startup proves the process edge worked. No browser or owner profile.
+  // A spawn failure after guard startup proves the process edge worked. No browser or owner profile.
   await writeFile(
     entry,
     `
 import { BrowserService } from ${JSON.stringify(browser)};
-import { launchContext } from ${JSON.stringify(join(repo, "packages/browser/src/io.ts"))};
-const service = new BrowserService({dataDir:process.cwd(),executablePath:"/missing-fixture-chromium",launchContext:async(profile,options)=>{
- try { await launchContext(profile,options); } catch(error) {
-  if(error instanceof Error && error.message.toLowerCase().includes("executable doesn't exist")) throw new Error("fixture-launcher-reached");
-  throw error;
- }
-}});
-try {await service.open({threadId:"thread",workspaceId:"workspace",background:true});} catch(error) {console.log(JSON.stringify({failure:error instanceof Error?error.message:"unknown"}));} finally {await service.close();}
+const service = new BrowserService({dataDir:process.cwd(),executablePath:"/missing-fixture-chromium"});
+try {await service.open({threadId:"thread",workspaceId:"workspace",background:true});} catch(error) {
+ const message = error instanceof Error ? error.message : "unknown";
+ console.log(JSON.stringify({failure:message.includes("ENOENT") ? "fixture-launcher-reached" : message}));
+} finally {await service.close();}
 `,
   );
   try {

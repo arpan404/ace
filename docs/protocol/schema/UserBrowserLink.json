@@ -1,0 +1,28 @@
+{
+  "$id": "https://ace.local/protocol/v1/UserBrowserLink.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "detail": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "connecting",
+        "connected",
+        "unauthorized",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "type": {
+      "const": "user_browser.link",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "state"
+  ],
+  "type": "object"
+}

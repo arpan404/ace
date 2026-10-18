@@ -208,7 +208,7 @@ export function HtmlVisualizationView(props: {
         )}
       </div>
       {html && (
-        <div className="mt-1 flex h-7 items-center gap-0.5 opacity-0 transition-opacity duration-150 group-focus-within/visualization:opacity-100 group-hover/visualization:opacity-100 fullscreen:opacity-100">
+        <div className="mt-1 flex h-7 items-center gap-0.5">
           <IconButton size="sm" icon={ArrowSquareOutIcon} label="Open in window" onClick={open} />
           {document.fullscreenEnabled && (
             <IconButton

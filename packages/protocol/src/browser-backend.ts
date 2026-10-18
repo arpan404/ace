@@ -4,7 +4,7 @@ import { ThreadId, WorkspaceId } from "./ids.ts";
 const id = z.string().min(1).max(256);
 /** Browser pages one desktop backend hosts at once; the daemon's own page limit matches it. */
 export const browserSessionLimit = 32;
-export const BrowserBackendKind = z.enum(["embedded", "headless"]);
+export const BrowserBackendKind = z.enum(["embedded", "headless", "user"]);
 export const BrowserBackendPreference = z.enum(["auto", "embedded", "headless"]);
 export const BrowserBackendLossPolicy = z.enum(["pause", "headless"]);
 export const BrowserControllerLease = z.object({

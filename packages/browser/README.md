@@ -118,6 +118,15 @@ Queued commands are capped at 32 per session. There are at most 8 sessions, 8 ta
 64 viewers per session. Reconnects must subscribe again. A closed browser also
 requires a fresh subscription after reopening.
 
+## Annotation
+
+`annotate` and `annotate_capture` commands let the person holding the control lease pin
+numbered comments on page elements ([ADR 0082](../../docs/adr/0082-browser-annotation.md)).
+The overlay from `@ace/browser-annotate` runs in the `ace-annotate` isolated world of the top
+document; its events reach only the connection that started it, as `browser.annotation`
+messages. Navigation, handback, tab switches, backend loss and disconnects end it. Agents get
+no tool for it, and agent snapshots omit the overlay.
+
 ## Files and recordings
 
 Session directories live in `dataDir/browser`. Console and network logs are
@@ -174,12 +183,14 @@ the owner's merge-only policy. Runtime results and throughput need run at merge.
 
 ## Agent tools
 
-`browserToolkit(port)` registers eleven tools: `browser_open`, `browser_snapshot`,
-`browser_act`, `browser_wait_for`, `browser_find`, `browser_screenshot`,
-`browser_logs`, `browser_evaluate`, `browser_history`, `browser_settings` and
-`browser_measure` (`mcp.ts`, schemas in `mcp-schemas.ts`). The daemon supplies the
-port: lazy opening (workspace identity from the attributed thread, automatic backend
-choice), execution and close. Arguments cannot override the credential's thread identity.
+`browserToolkit(port, route?, user?)` registers twelve tools: `browser_open`,
+`browser_tabs`, `browser_snapshot`, `browser_act`, `browser_wait_for`, `browser_find`,
+`browser_screenshot`, `browser_logs`, `browser_evaluate`, `browser_history`,
+`browser_settings` and `browser_measure` (`mcp.ts`, schemas in `mcp-schemas.ts`). Every
+page tool takes `tabId`; without it a call runs in the calling agent's current tab
+(ADR 0083). The daemon supplies the port: lazy opening (workspace identity from the
+attributed thread, automatic backend choice), the caller's own tab, execution and
+close. With `route` every tool takes `machine`; with `user` (Use my Chrome) `browser`. Arguments cannot override the credential's thread identity.
 
 Snapshots are compacted by `snapshot-compact.ts` (a pure function over the CDP
 accessibility tree: ignored nodes, wrappers and repeated text vanish) and rendered as

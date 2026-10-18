@@ -1,4 +1,10 @@
-import { findDraft, putDraft, type ComposerDraft, type KeyValueStorage } from "@ace/ui-core";
+import {
+  findDraft,
+  isEmptyDraft,
+  putDraft,
+  type ComposerDraft,
+  type KeyValueStorage,
+} from "@ace/ui-core";
 import {
   useEffect,
   useEffectEvent,
@@ -61,7 +67,7 @@ export function useDraftPersistence(
     const saved = flushDraft(pending, store, draftKey);
     if (saved !== undefined && mounted.current) setSaveFailed(!saved);
   });
-  const emptyNow = !draft.text.trim() && !draft.attachments.length;
+  const emptyNow = isEmptyDraft(draft);
   const notifyDraft = useEffectEvent(() => onChange?.(draft));
   useEffect(() => {
     if (!key) return;
@@ -165,5 +171,6 @@ function version(draft: ComposerDraft | undefined): string {
     draft?.tokens ?? [],
     draft?.mentions ?? [],
     draft?.attachments ?? [],
+    draft?.annotations ?? null,
   ]);
 }

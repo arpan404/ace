@@ -120,7 +120,7 @@ export function QueuedTray(props: {
           {props.indicators}
         </div>
         {props.notice}
-        <div className="max-h-48 overflow-y-auto overscroll-contain">
+        <div className="max-h-48 overflow-y-auto">
           <p id={hintId} className="sr-only">
             Drag to reorder, or focus a handle and press Alt+Arrow Up or Alt+Arrow Down.
           </p>

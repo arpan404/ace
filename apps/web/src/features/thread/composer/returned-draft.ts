@@ -1,4 +1,12 @@
-import { tokensFromInput, type ComposerDraft, type KeyValueStorage } from "@ace/ui-core";
+import {
+  boundedAnnotations,
+  returnedAnnotations,
+  splitAnnotationParts,
+  tokensFromInput,
+  type ComposerDraft,
+  type DraftAnnotations,
+  type KeyValueStorage,
+} from "@ace/ui-core";
 import { localAttachment, returnDraft, type ReturnedDraft } from "./send-store.ts";
 import { readDraft, writeDraft } from "./draft-store.ts";
 
@@ -7,17 +15,41 @@ export type SendPayload = Extract<
   { type: "thread.send" | "thread.create" }
 >;
 
-/** What Edit gives back to the composer: the text, mentions, files and picks it carried. */
+/**
+ * What Edit gives back to the composer: the text, mentions, files and picks it carried, and its
+ * browser annotations rebuilt from their block, with their images taken out of the files.
+ */
 export function draftOf(payload: SendPayload): ReturnedDraft {
+  const split = splitAnnotationParts(payload.input);
+  const files = (payload.context?.attachments ?? []).map((file) => ({
+    sha256: file.sha256,
+    name: localAttachment(file.sha256)?.name ?? "Attachment",
+  }));
+  const annotated = split.annotations && returnedAnnotations(split.annotations, files);
   return {
-    ...tokensFromInput(payload.input),
+    ...tokensFromInput(split.parts),
     mentions: payload.context?.mentions.map((mention) => mention.path) ?? [],
-    attachments: (payload.context?.attachments ?? []).map((file) => ({
-      sha256: file.sha256,
-      name: localAttachment(file.sha256)?.name ?? "Attachment",
-    })),
+    attachments: annotated?.attachments ?? files,
+    ...(annotated ? { annotations: annotated.annotations } : {}),
     options: payload.options,
   };
+}
+
+/** Two drafts' annotations together, without repeating a record or a page's screenshot. */
+function mergeAnnotations(
+  current: DraftAnnotations | undefined,
+  returned: DraftAnnotations | undefined,
+): DraftAnnotations | undefined {
+  if (!returned) return current;
+  const ids = new Set(current?.items.map((item) => item.annotation.id));
+  const urls = new Set(current?.pages.map((page) => page.url));
+  return boundedAnnotations({
+    items: [
+      ...(current?.items ?? []),
+      ...returned.items.filter((item) => !ids.has(item.annotation.id)),
+    ],
+    pages: [...(current?.pages ?? []), ...returned.pages.filter((page) => !urls.has(page.url))],
+  });
 }
 
 /** A returned message joins the person's current draft instead of replacing work in progress. */
@@ -47,6 +79,7 @@ export function mergeReturnedDraft(
         ]),
       ).values(),
     ],
+    annotations: mergeAnnotations(current?.annotations, returned.annotations),
   };
 }
 

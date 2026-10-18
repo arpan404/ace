@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useTopFade } from "@/lib/edge-fade.ts";
+import { frameThrottle } from "@/lib/frame-throttle.ts";
 import { useListMotion, usePresence } from "@/lib/motion.ts";
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 import { LiveFrames, LiveFramesContext } from "../items/live-frames.ts";
@@ -35,11 +36,10 @@ import { readingColumn } from "../lib/column.ts";
 import type { JumpSnapshot } from "../long/jump-controller.ts";
 import type { ThreadNav } from "../long/nav.tsx";
 import { blockItems, type Block } from "./blocks.ts";
-import { LiveHead } from "../items/live-head.tsx";
 import { useDropTurnSteps } from "../lib/turn-steps.ts";
 import { rowOf, sameRow, transcriptRows, type Row } from "./rows.ts";
 import { useGutter } from "./scroll.ts";
-import { useFeedScroll, writeScroll } from "./use-feed-scroll.ts";
+import { useFeedScroll, useThreadScrolls, writeScroll } from "./use-feed-scroll.ts";
 import { rowGap } from "./row-gap.ts";
 import { useHistoryPaging, usePagingIntent } from "./use-history-paging.ts";
 import { useRunOrdinals } from "./run-ordinals.ts";
@@ -104,9 +104,9 @@ export function Feed(props: FeedProps) {
   const local = useLocalSendsView(threadId);
   const activity = useTurnActivity(threadId);
   useDropTurnSteps(threadId);
-  // The live turn's header sits under its ask; a turn whose ask is not in view (still on its
-  // way, older than the window) keeps it at the end instead. Either way it is one row, which
-  // moves rather than flashing out and back in.
+  // The live turn's one status line ends its flow; a turn with no block in view yet (its ask
+  // still on its way, older than the window) keeps it at the end of the rows. Either way it is
+  // one row, which moves rather than flashing out and back in.
   const working = !detached && !!activity && activity.tone !== "paused";
   const blocks = useMemo(() => {
     const merged = local && !detached ? local.merge(built, blockItems) : built;
@@ -138,6 +138,13 @@ export function Feed(props: FeedProps) {
   // A row filling in (its text, a card's code arriving) moves the rows under it in the same
   // frame, so a thread never paints its rows stacked on each other.
   const placed = usePlaceBeforePaint<HTMLDivElement, Element>();
+  // Where the reader left this thread, and its rows' sizes then, so it reopens there (a link
+  // to an item or an open window goes where it points instead).
+  const threadScrolls = useThreadScrolls();
+  const [left] = useState(() => {
+    const saved = detached || focus ? undefined : threadScrolls.peek(threadId);
+    return { saved, measured: saved ? [...saved.measured] : [] };
+  });
   // Part of the virtualizer's measurement memo: a new function would rebuild every row's
   // measurement on every render.
   const getItemKey = useCallback((index: number) => keys[index] ?? index, [keys]);
@@ -157,6 +164,7 @@ export function Feed(props: FeedProps) {
     scrollMargin: feed.current?.offsetTop ?? 0,
     scrollPaddingStart: topRoom,
     getItemKey,
+    initialMeasurementsCache: left.measured,
     scrollToFn: writeScroll,
     // A jump must measure its target even when estimated sizes initially place
     // it outside the viewport. Retain only that one row alongside the visible
@@ -185,6 +193,8 @@ export function Feed(props: FeedProps) {
     dock,
     now,
     onDirection: intent.onDirection,
+    restore: left.saved,
+    remember: (saved) => threadScrolls.save(threadId, saved),
   });
   const pinned = scroll.following;
   const paging = useHistoryPaging({
@@ -214,22 +224,22 @@ export function Feed(props: FeedProps) {
     return () => clearTimeout(timer);
   }, [nav.jump, window, jump.joined, pinned]);
 
-  // The live header scrolled out of view above: a copy stays pinned at the top.
-  const liveRow = useMemo(() => rows.findIndex((row) => row.block.kind === "live"), [rows]);
-  const [livePinned, setLivePinned] = useState(false);
   /** The first row in view, and which turn the reader is in. */
   const readTop = () => {
-    const el = viewport.current;
     const first = scroll.observe();
-    if (!el || !first) return;
-    const liveItem = virtualizer.getVirtualItems().find((item) => item.index === liveRow);
-    const pinLive =
-      liveRow >= 0 && (liveItem ? liveItem.end <= el.scrollTop : first.index > liveRow);
-    if (pinLive !== livePinned) setLivePinned(pinLive);
+    if (!first) return;
     const topTurn = turnFrom(rows, first.index);
     if (topTurn !== undefined) nav.currentTurn.set(topTurn);
   };
-  useEffect(readTop);
+  // Read at most once a frame while scrolling, and once after the rows change; never after
+  // every render (a measuring pass re-renders this many times a second while text streams).
+  const latestReadTop = useRef(readTop);
+  useLayoutEffect(() => {
+    latestReadTop.current = readTop;
+  });
+  const [topReader] = useState(() => frameThrottle(() => latestReadTop.current()));
+  useEffect(() => () => topReader.cancel(), [topReader]);
+  useEffect(() => latestReadTop.current(), [keys, total]);
 
   // A jump (or a search hit) brings its item into view once its row exists, and holds it there
   // while its neighbours measure, until the reader scrolls (see `scroll-mode.ts`).
@@ -285,7 +295,7 @@ export function Feed(props: FeedProps) {
             className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
             onScroll={(event) => {
               const el = event.currentTarget;
-              readTop();
+              topReader.request();
               paging.onScroll(el);
               scroll.scrolled(el);
             }}
@@ -374,13 +384,6 @@ export function Feed(props: FeedProps) {
               )}
             </div>
           </div>
-          {livePinned && working && (
-            <div className="absolute inset-x-0 top-0 z-[5] bg-reading pb-1">
-              <div className={readingColumn}>
-                <LiveHead threadId={threadId} />
-              </div>
-            </div>
-          )}
           <div className="pointer-events-none absolute inset-x-0 top-3 z-[6] flex flex-col items-center gap-2 px-4">
             {nav.searchOpen && (
               <Suspense fallback={null}>

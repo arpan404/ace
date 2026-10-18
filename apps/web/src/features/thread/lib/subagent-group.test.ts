@@ -82,9 +82,7 @@ test.each(["running", "unknown", "completed"] as const)(
     );
     const entry = readSubagentGroup(reader, ["spawn-review"]).value[0];
     expect(line(reader)).toBe(status === "completed" ? "1 done" : "1 working");
-    expect(entry && subagentLabels[entry.state]).toBe(
-      status === "completed" ? "Finished" : "Running",
-    );
+    expect(entry && subagentLabels[entry.state]).toBe(status === "completed" ? "Done" : "Running");
     expect(entry?.endedAt).toBe(status === "completed" ? 7000 : undefined);
   },
 );
@@ -99,7 +97,7 @@ test("an idle child cannot finish its group while a grandchild waits for a human
   );
   expect(line(reader)).toBe("1 waiting on you");
   const entry = readSubagentGroup(reader, ["spawn-review"]).value[0];
-  expect(entry && subagentLabels[entry.state]).toBe("Waiting on you");
+  expect(entry && subagentLabels[entry.state]).toBe("Needs you");
   expect(entry && subagentTerminal(entry.state)).toBe(false);
 });
 

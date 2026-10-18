@@ -8,6 +8,7 @@ export function DisabledReason(props: { reason: string | undefined; children: Re
       <TooltipTrigger
         render={
           <span
+            // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
             tabIndex={props.reason ? 0 : undefined}
             className="inline-flex rounded-md focus-ring *:flex-1"
           />

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BrowserDialog, type BrowserState } from "@ace/protocol";
+import { BrowserDialog, type BrowserState, type BrowserTab } from "@ace/protocol";
 import type { CompactNode } from "./snapshot-compact.ts";
 import { renderSnapshot, snapshotLine } from "./snapshot-text.ts";
 
@@ -21,29 +21,62 @@ export function pendingDialog(raw: unknown): ToolResult | undefined {
   });
 }
 
-/** What an agent needs from the page state: where it is, who controls it, and its tabs. */
-export function pageSummary(state: BrowserState) {
-  const active = state.tabs?.find((tab) => tab.tabId === state.activeTabId);
+/** One tab as an agent reads it: who opened and drives it, and whether a person holds it. */
+export function tabEntry(tab: BrowserTab & { current?: boolean | undefined }) {
   return {
-    url: state.url,
-    ...(active?.title ? { title: active.title } : {}),
-    controller: state.controller,
-    ...(state.loading ? { loading: true } : {}),
-    ...(state.loadError ? { loadError: state.loadError } : {}),
-    ...(state.blocked ? { blocked: state.blocked } : {}),
-    ...(state.pageStateLost ? { pageStateLost: true } : {}),
-    ...(state.pending_dialog ? { pending_dialog: state.pending_dialog } : {}),
+    tabId: tab.tabId,
+    url: tab.url,
+    title: tab.title,
+    ...(tab.label ? { label: tab.label } : {}),
+    ...(tab.current ? { current: true } : {}),
+    ...(tab.openedBy ? { openedBy: tab.openedBy } : {}),
+    ...(tab.drivenBy ? { drivenBy: tab.drivenBy } : {}),
+    // Agents act unless a person holds the tab; only say so when one does.
+    ...(tab.lease && tab.lease.controller === "human" ? { lease: tab.lease } : {}),
+    ...(tab.lifecycle && tab.lifecycle !== "live" ? { lifecycle: tab.lifecycle } : {}),
+    ...(tab.loading ? { loading: true } : {}),
+    ...(tab.pending_dialog ? { pending_dialog: tab.pending_dialog } : {}),
+  };
+}
+
+/**
+ * What an agent needs after opening: the tab it works in, where that tab is, whether the
+ * person sees or holds it, and the other tabs when there are any.
+ */
+export function pageSummary(
+  state: BrowserState,
+  tab: { tabId: string; url: string; title: string },
+) {
+  const entry = state.tabs?.find((candidate) => candidate.tabId === tab.tabId);
+  const viewed = state.activeTabId === undefined || state.activeTabId === tab.tabId;
+  return {
+    tabId: tab.tabId,
+    url: entry?.url ?? tab.url,
+    ...((entry?.title ?? tab.title) ? { title: entry?.title ?? tab.title } : {}),
+    controller: entry?.lease?.controller ?? state.controller,
+    ...(viewed ? { viewed: true } : {}),
+    ...(entry?.loading || (viewed && state.loading) ? { loading: true } : {}),
+    ...(viewed && state.loadError ? { loadError: state.loadError } : {}),
+    ...(viewed && state.blocked ? { blocked: state.blocked } : {}),
+    ...(viewed && state.pageStateLost ? { pageStateLost: true } : {}),
+    ...(entry?.pending_dialog ? { pending_dialog: entry.pending_dialog } : {}),
     // One tab is the common case; listing it again only costs tokens.
     ...(state.tabs && state.tabs.length > 1
       ? {
-          activeTabId: state.activeTabId,
-          tabs: state.tabs.map((tab) => ({ tabId: tab.tabId, url: tab.url, title: tab.title })),
+          tabs: state.tabs.map((other) => ({
+            tabId: other.tabId,
+            // Agents never read a private tab's address or title.
+            title: other.lease?.mode === "private" ? "" : other.title,
+            ...(other.label ? { label: other.label } : {}),
+            ...(other.openedBy ? { openedBy: other.openedBy.kind } : {}),
+          })),
         }
       : {}),
   };
 }
 
 const Snapshot = z.object({
+  tabId: z.string().optional(),
   url: z.string().optional(),
   nodes: z.array(
     z.object({
@@ -61,7 +94,9 @@ const Snapshot = z.object({
 });
 export function snapshotText(raw: unknown, scoped: boolean): ToolResult {
   const snapshot = Snapshot.parse(raw);
-  const lines = [snapshot.url ? `Page: ${snapshot.url}` : "", renderSnapshot(snapshot.nodes)];
+  // The tab id lets parallel agents confirm which tab they read.
+  const tab = snapshot.tabId ? ` [tab=${snapshot.tabId}]` : "";
+  const lines = [snapshot.url ? `Page: ${snapshot.url}${tab}` : "", renderSnapshot(snapshot.nodes)];
   if (!snapshot.nodes.length) lines.push("(no accessible content)");
   if (snapshot.truncated)
     lines.push(

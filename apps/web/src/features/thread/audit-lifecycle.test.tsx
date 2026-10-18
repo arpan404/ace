@@ -128,7 +128,10 @@ test("a failed create remains reachable as Not sent after leaving its pending ro
   const rows = await screen.findByRole("list", { name: "Starting threads" });
   const row = await within(rows).findByRole("link", { name: /Keep my failed start/ });
   await waitFor(() => expect(row.textContent).toContain("Not sent"));
+  // With several projects New thread asks which.
   await userEvent.click(screen.getByRole("link", { name: "New thread" }));
+  const step = await screen.findByRole("dialog", { name: "New thread in" });
+  await userEvent.click(within(step).getByRole("option", { name: "relay" }));
   expect(await screen.findByRole("heading", { name: "New thread", level: 1 })).toBeTruthy();
   expect(field().textContent).toBe("");
   await userEvent.click(within(rows).getByRole("link", { name: /Keep my failed start/ }));

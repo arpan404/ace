@@ -181,12 +181,7 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
         const results = parseDelegationResults(input.text);
         if (results.length)
           return (
-            <DelegationCard
-              threadId={props.threadId}
-              results={results}
-              received={input.text}
-              at={item.createdAt}
-            />
+            <DelegationCard threadId={props.threadId} results={results} received={input.text} />
           );
         return (
           <EventRow
@@ -332,7 +327,5 @@ function QuietText(props: { text: string }) {
 /** Canonical result receipts render at their delivery point; launches belong to the grouped card. */
 function DelegationItem(props: { threadId: string; item: Item }) {
   const results = settledResults(props.item);
-  return results?.length ? (
-    <DelegationCard threadId={props.threadId} results={results} at={props.item.createdAt} />
-  ) : null;
+  return results?.length ? <DelegationCard threadId={props.threadId} results={results} /> : null;
 }

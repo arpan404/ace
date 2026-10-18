@@ -1,8 +1,15 @@
-import type { Command, CommandId, EventPayload, RunId, ThreadId } from "@ace/protocol";
+import type {
+  Command,
+  CommandId,
+  EventPayload,
+  MessageOrigin,
+  RunId,
+  ThreadId,
+} from "@ace/protocol";
 import type { ThreadState } from "@ace/core";
 import type { EngineRepository } from "./repository.ts";
 import { provisionalTitle } from "./thread-title.ts";
-import { inputOrigin } from "./input-journal.ts";
+import { inputOrigin, personInput } from "./input-journal.ts";
 
 export function syntheticInput(
   repo: EngineRepository,
@@ -54,7 +61,7 @@ export function acceptInput(
   const origin = repo.inputs.origin(id, key) ?? inputOrigin(command);
   const thread = repo.store.getThread(id);
   if (
-    (origin.kind === "person" || origin.kind === "queue") &&
+    personInput(origin) &&
     (thread?.titleSource === "provisional" || !thread?.titleSource) &&
     thread?.title === "New thread"
   )
@@ -65,7 +72,7 @@ export function acceptInput(
     );
   // The person's send makes the thread a task now, even while it waits in a held queue: a thread
   // whose only message is queued or failed must stay listed, never read as an empty draft.
-  if ((origin.kind === "person" || origin.kind === "queue") && !thread?.hasSentMessage)
+  if (personInput(origin) && !thread?.hasSentMessage)
     repo.store.appendEvents(
       id,
       [{ type: "thread.client.updated", changes: { hasSentMessage: true } }],
@@ -90,10 +97,16 @@ export function admitInput(
   const p = command.payload;
   if (p.type !== "thread.create" && p.type !== "thread.send") return;
   const key = `input:${command.id}`;
-  const origin = repo.inputs.origin(id, key) ?? inputOrigin(command);
+  const accepted = repo.inputs.origin(id, key) ?? inputOrigin(command);
+  // The person's words delivered into the running turn are a steer: the bubble says so.
+  const steered = run !== undefined && accepted.kind === "person";
+  const origin: MessageOrigin = steered ? { ...accepted, kind: "steer" } : accepted;
+  if (steered) repo.inputs.restamp(id, key, origin);
   repo.inputs.attachRun(id, key, run);
   if (origin.kind === "subagent_result" && repo.aceInputs.get(id, command.id)) return;
-  if (!repo.requireState(id).items[key]) upsertInput(repo, command, id, at);
+  const existing = repo.requireState(id).items[key];
+  if (!existing || (steered && existing.type === "message" && existing.origin?.kind !== "steer"))
+    upsertInput(repo, command, id, at);
   const state = repo.requireState(id);
   const update = bindItemRun(state, key, run);
   if (update) repo.save(state, [update], at);
@@ -126,7 +139,7 @@ function upsertInput(repo: EngineRepository, command: Command, id: ThreadId, at:
           role: "user",
           parts: p.input,
           origin,
-          synthetic: origin.kind !== "person" && origin.kind !== "queue",
+          synthetic: !personInput(origin),
           complete: true,
           raw: [],
         },
@@ -209,7 +222,7 @@ export function notifyNamingPrompt(repo: EngineRepository, command: Command, id:
   const p = command.payload;
   if (p.type !== "thread.create" && p.type !== "thread.send") return;
   const origin = repo.inputs.origin(id, `input:${command.id}`) ?? inputOrigin(command);
-  if (origin.kind !== "person" && origin.kind !== "queue") return;
+  if (!personInput(origin)) return;
   const thread = repo.store.getThread(id);
   if (thread?.titleSource !== "provisional" || thread.title === "New thread") return;
   if (provisionalTitle(p.input) !== thread.title) return;

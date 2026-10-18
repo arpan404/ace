@@ -40,7 +40,22 @@ export interface ViewHostOptions {
   log(message: string): void;
   /** The connection the renderer showing a thread's view holds the page through, if any. */
   onClaim?(threadId: string, owner: string | undefined): void;
+  /** The number of threads with native pages changed (they keep the app running). */
+  onPages?(count: number): void;
 }
+
+/** How long a shortcut's focus handoff waits for the app's field before focusing the app. */
+const handoffFallbackMs = 300;
+/** Window changes after which a placed view's box is applied again, once they settle. */
+const relayoutEvents = [
+  "resize",
+  "maximize",
+  "unmaximize",
+  "enter-full-screen",
+  "leave-full-screen",
+  "restore",
+] as const;
+const relayoutSettleMs = 100;
 
 /** Schemes a view may load. http(s) requests are approved by the daemon through CDP Fetch. */
 const passive = new Set(["about:", "data:", "blob:", "devtools:"]);
@@ -72,6 +87,10 @@ export class EmbeddedViews implements ViewHost {
   private ready = new Map<string, number>();
   /** Never shown or focused; unseen views render here while an agent drives them. */
   private parking: BaseWindow | undefined;
+  /** App windows whose size changes re-apply the views placed in them. */
+  private watched = new WeakSet<BaseWindow>();
+  /** A shortcut in a native page sent typing to this renderer; see `FocusHandoff`. */
+  private handoff: { host: number; page: EmbeddedPage; cancel(): void } | undefined;
   private options: ViewHostOptions;
 
   constructor(options: ViewHostOptions) {
@@ -84,8 +103,6 @@ export class EmbeddedViews implements ViewHost {
     options: BrowserOpen;
     viewport: { width: number; height: number };
   }): Promise<ViewPage> {
-    const window = this.options.window();
-    if (!window || window.isDestroyed()) throw new Error("No ace window is open");
     const { threadId, workspaceId, profile } = request.options;
     if (this.pages.has(threadId)) throw new Error("This thread already has an embedded view");
     const ephemeral = profile !== "persistent";
@@ -120,6 +137,9 @@ export class EmbeddedViews implements ViewHost {
         });
         view.setVisible(false);
         view.setBounds({ x: 0, y: 0, ...request.viewport });
+        // With no app window open the page starts in the parking window, drawn nowhere.
+        const app = this.options.window();
+        const window = app && !app.isDestroyed() ? app : this.park(request.viewport);
         window.contentView.addChildView(view);
         const page = new EmbeddedPage({
           view,
@@ -133,7 +153,7 @@ export class EmbeddedViews implements ViewHost {
           park: (size) => this.park(size),
           platform: this.options.platform,
           log: this.options.log,
-          forward: (accelerator) => this.forward(threadId, accelerator),
+          forward: (accelerator) => this.forward(threadId, accelerator, page),
           forget: () => this.byContents.delete(view.webContents.id),
           rememberPopup: (contents) => {
             this.byContents.set(contents.id, page);
@@ -160,14 +180,16 @@ export class EmbeddedViews implements ViewHost {
           this.generations.delete(threadId);
           this.ready.delete(threadId);
           this.reportVisibility(threadId);
+          this.options.onPages?.(this.pages.size);
         }
-        // An idle hidden window must not keep the app from quitting once its views are gone.
+        // An idle hidden window must not outlive the views it holds.
         if (!this.pages.size && this.parking && !this.parking.isDestroyed()) this.parking.destroy();
         if (!this.pages.size) this.parking = undefined;
         if (ephemeral) pool.release(partition, await clearPartition(partitionSession));
       },
     );
     this.pages.set(threadId, group);
+    this.options.onPages?.(this.pages.size);
     try {
       await group.openTab();
       this.apply(threadId);
@@ -211,9 +233,26 @@ export class EmbeddedViews implements ViewHost {
     return window;
   }
 
+  /** Threads with a native page here; the app stays running while there are any. */
+  count(): number {
+    return this.pages.size;
+  }
+
+  /**
+   * An app window is closing. Its views move to the parking window before it goes, so no
+   * page is destroyed or reloaded with it; the next window that shows a thread's page takes
+   * its view back as it is.
+   */
+  evacuate(window: BaseWindow): void {
+    let parking: BaseWindow | undefined;
+    for (const group of this.pages.values())
+      group.evacuate(window, (size) => (parking ??= this.park(size)));
+  }
+
   /** Draw (or hide) a thread's view where a renderer's Browser tab shows its page. */
   async place(placement: BrowserPlacement, host: PlacementHost): Promise<BrowserPlacementReceipt> {
     this.hosts.set(host.id, host);
+    this.watch(host.window);
     const { threadId } = placement;
     // Hiding a thread with no view here releases the claim: nothing of it is kept.
     if (!placement.visible && !this.pages.has(threadId)) {
@@ -264,19 +303,75 @@ export class EmbeddedViews implements ViewHost {
   /** A renderer reloaded or closed: the views it placed no longer belong where it put them. */
   forgetHost(id: number): void {
     this.hosts.delete(id);
+    if (this.handoff?.host === id) this.endHandoff();
     for (const threadId of this.placements.forgetHost(id)) this.apply(threadId);
   }
 
-  /** An app shortcut pressed in a thread's view goes to the app page showing that view. */
-  private forward(threadId: string, accelerator: string): void {
+  /** Re-apply the views placed in a window whenever its size or state changes. */
+  private watch(window: BaseWindow): void {
+    if (this.watched.has(window) || window.isDestroyed()) return;
+    this.watched.add(window);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const relayout = () => {
+      timer = undefined;
+      if (window.isDestroyed()) return;
+      for (const [threadId] of this.pages) {
+        const host = this.placements.resolve(threadId).host;
+        if (host !== undefined && this.hosts.get(host)?.window === window) this.apply(threadId);
+      }
+    };
+    const settle = () => {
+      clearTimeout(timer);
+      timer = setTimeout(relayout, relayoutSettleMs);
+    };
+    for (const event of relayoutEvents) window.on(event as "resize", settle);
+    window.once("closed", () => clearTimeout(timer));
+  }
+
+  /**
+   * An app shortcut pressed in a thread's view goes to the app page showing that view. One that
+   * moves typing to the page's own field (address, find) keeps the keys typed meanwhile and
+   * moves focus once the field has it (`focusApp`), or shortly after if it never says so.
+   */
+  private forward(threadId: string, accelerator: string, page: EmbeddedPage): void {
     const host = this.placements.resolve(threadId).host;
     const contents = host === undefined ? undefined : webContents.fromId(host);
-    if (contents && !contents.isDestroyed()) {
+    if (!contents || contents.isDestroyed() || host === undefined) return;
+    const shortcut = BrowserShortcut.safeParse({ threadId, accelerator });
+    if (!shortcut.success) {
       contents.focus();
-      const shortcut = BrowserShortcut.safeParse({ threadId, accelerator });
-      if (shortcut.success) emit(contents, "browser.shortcut", shortcut.data);
-      else replayChord(contents, accelerator, this.options.platform);
+      replayChord(contents, accelerator, this.options.platform);
+      return;
     }
+    if (accelerator === "CmdOrCtrl+L" || accelerator === "CmdOrCtrl+F") {
+      this.endHandoff();
+      page.beginHandoff();
+      const timer = setTimeout(() => this.focusApp(host), handoffFallbackMs);
+      this.handoff = { host, page, cancel: () => clearTimeout(timer) };
+    } else contents.focus();
+    emit(contents, "browser.shortcut", shortcut.data);
+  }
+
+  /**
+   * The app page (`webContents.id`) focused one of its own fields: the OS focus leaves any
+   * native view now, and keys a shortcut's handoff kept are typed into that field.
+   */
+  focusApp(host: number): void {
+    const contents = webContents.fromId(host);
+    if (!contents || contents.isDestroyed()) return;
+    contents.focus();
+    const handoff = this.handoff?.host === host ? this.handoff : undefined;
+    if (!handoff) return;
+    this.handoff = undefined;
+    handoff.cancel();
+    for (const key of handoff.page.takeHandoff()) contents.sendInputEvent(key);
+  }
+
+  private endHandoff(): void {
+    const handoff = this.handoff;
+    this.handoff = undefined;
+    handoff?.cancel();
+    handoff?.page.takeHandoff();
   }
 
   private apply(threadId: string): void {

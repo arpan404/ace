@@ -12,16 +12,17 @@ that calls them applies its own permissions, so every call ace receives proceeds
 
 ## Browser journey
 
-The thread browser is a real Chromium page the person watches in ace, with a visible
-marker while an agent holds control. Prefer it to a provider's web fetch when the work
+The thread browser is a real Chromium browser with tabs (ADR 0083) that the person
+watches in ace, with a visible marker on the tab an agent drives. Prefer it to a provider's web fetch when the work
 needs a rendered page: verifying UI, testing a dev server on localhost, letting the
 person watch, or reading console and network evidence.
 
 1. `browser_open({url: "http://localhost:3000/"})` opens or joins the thread browser
-   and waits for the initial document. Without `url` it reports the current page:
-   `url`, `title`, `controller`, and, when the person has several tabs open, `tabs`
-   and `activeTabId`. `browser_open({tabId})` switches to one of those tabs; agents
-   do not open new tabs. Every other browser tool also opens the browser lazily.
+   and loads the URL in the caller's own tab, waiting for the initial document. It
+   returns `tabId`, `url`, `title`, `controller` and `viewed` (whether the person is
+   looking at that tab), plus a short `tabs` list when there are several. Without `url`
+   it only reports. `tabId` loads the URL in another tab. Every other browser tool also
+   opens the browser lazily.
 2. `browser_snapshot({})` returns compact indented text, one line per meaningful
    accessibility node: `- button "Save" [disabled] [ref=e3-41]`, with field values
    after a colon and headings marked `[level=n]`. Ignored nodes, wrappers and text that
@@ -29,18 +30,46 @@ person watch, or reading console and network evidence.
    a 48 KiB cap bound the result; a cut snapshot ends with a `[truncated: …]` line.
    Narrow with `ref` (a container's subtree), `interactiveOnly: true`, or
    `browser_find({role, name})`, which returns matching lines from every frame.
-3. `browser_act({action, …})` performs `click`, `hover`, `focus`, `check`, `uncheck`
-   (ref), `type` (ref and text; replaces the field's contents), `press` (key, optional
-   ref), `select` (ref and option values), `drag` (ref and toRef), `upload` (ref and
-   files), `scroll` (x/y pixel deltas) and `dialog` (dialogId, accept, promptText).
-   A field another action does not use is refused with `invalid_arguments`. The result
-   is `{ok, url}`, plus a note when the page navigated.
+3. `browser_act({action, …})` performs `click` (ref, or x/y in CSS pixels with optional
+   button, clickCount and modifiers), `hover`, `focus`, `check`, `uncheck` (ref), `type`
+   (ref and text; replaces the field's contents), `fill_form` (fields: `{ref, value}`
+   list), `press` (key, optional ref), `select` (ref and option values), `drag` (ref and
+   toRef), `upload` (ref and files), `scroll` (x/y pixel deltas) and `dialog` (dialogId,
+   accept, promptText). A field another action does not use is refused with
+   `invalid_arguments`. The result is `{ok, tabId, url}`, plus a note when the page
+   navigated.
 4. After an action that navigates, `browser_wait_for` with exactly one of `url` (exact
    destination through DOMContentLoaded), `text` (visible substring) or `ref` with
    `state: "visible" | "hidden"`. These check the current document, so they work if
-   navigation already finished. Then snapshot again.
+   navigation already finished. Then snapshot again. `downloads: true` instead waits
+   until the tab's downloads finish.
 5. `browser_screenshot({})` returns an inline JPEG of the viewport, capped at 1536
-   pixels on its longest side. Use it for visuals; snapshots read structure.
+   pixels on its longest side; `fullPage` captures the whole page and `ref` one element.
+   It never moves the person's view. `format: "pdf"` prints the tab to a PDF file and
+   returns its path. Use it for visuals; snapshots read structure.
+
+### Tabs
+
+Every page tool takes an optional `tabId`. Without one a call runs in the caller's
+current tab (the last it opened or selected, keyed by the MCP scope's agent); an
+identified agent whose fallback would land on another agent's tab gets a tab of its own.
+Commands on different tabs run concurrently, and agent commands never move the tab the
+person views.
+
+`browser_tabs({action})`: `list` (the default; read-only) returns each tab's `tabId`,
+`url`, `title`, `label`, `openedBy`, `drivenBy`, its `lease` while a person holds it,
+a non-live `lifecycle`, `loading` and `pending_dialog`, with `current` on the caller's
+tab. Private tabs show no address or title. `open` (optional `url`, `label`) opens a
+tab of the caller's own and makes it current; `select` makes `tabId` current; `close`
+closes `tabId` (closing the last tab closes the browser). Parallel agents each open a
+labelled tab and pass its `tabId` to every call. Limits: 16 tabs per thread, 8 open per
+agent, 48 across the daemon (`tab_limit`).
+
+With "Use my Chrome" connected, every browser tool takes `browser: "user"` to act in
+the person's own Chrome: `browser_open` gives the agent its own tab in an "ace" window
+there, tabs the person shared list with `openedBy: {kind: "human"}`, and closing one
+releases it without closing it for the person. Calls never fall back to ace's browser;
+a disconnected Chrome answers `user_browser_unavailable`.
 
 Wait and navigation `timeout` values are milliseconds, default 10000, maximum 120000.
 Each text poll visits at most 1024 DOM nodes and 65536 characters; documents over the
@@ -51,13 +80,13 @@ across snapshots of an unchanged element until the document navigates, and they 
 for every DOM-backed node of the latest snapshot, including ones the budget left out.
 A ref is not a CSS selector.
 
-| Tool               | Arguments and result                                                                                            |
-| ------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `browser_logs`     | optional kind, level, url substring, status, limit; `requestId` reads one response body                         |
-| `browser_evaluate` | `expression`, optional `mode: read-only / unrestricted`; bounded JSON                                           |
-| `browser_history`  | no args: recent entries and back/forward; `direction`: back, forward, reload or stop                            |
-| `browser_settings` | `action`: resize/emulate (width, height, scale, mobile, touch, colour scheme), record_start, record_stop, close |
-| `browser_measure`  | optional interaction, observeMs, repeat, filmstrip; frame-timing metrics                                        |
+| Tool               | Arguments and result                                                                                        |
+| ------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `browser_logs`     | optional kind (console, network, downloads), level, url substring, status, limit; `requestId` reads a body  |
+| `browser_evaluate` | `expression`, optional `mode: read-only / unrestricted`; bounded JSON                                       |
+| `browser_history`  | no args: recent entries and back/forward; `direction`: back, forward, reload or stop                        |
+| `browser_settings` | `action`: resize/emulate (width, height, scale, …), record_start/record_stop, extensions (read-only), close |
+| `browser_measure`  | optional interaction, observeMs, repeat, filmstrip; frame-timing metrics                                    |
 
 ## Sites and control
 
@@ -65,11 +94,12 @@ An agent may open any `http(s)` address without URL credentials, in every
 permission mode, without a question to a person. Resources, redirects and
 WebSockets reach any `http(s)`/`ws(s)` origin. Other schemes such as `file:` and
 `chrome:` fail with `invalid_origin`. Read-only tools (snapshot, find, wait_for,
-screenshot, logs, history without direction) are annotated read-only; navigation and
+screenshot, logs, history without direction, tabs list, settings extensions) are read-only; navigation and
 input are open-world but never destructive.
 
 Browser takeover and handback are authenticated human operations, not agent
-tools. A human lease blocks agent input and agent close. Takeover invalidates
+tools. Leases are per tab: a human lease blocks agent input and agent close on that
+tab only. Takeover invalidates
 queued input even if the human hands control back before it dispatches. A click
 already dispatched cannot be undone. Shared disconnect returns browser control; refresh the snapshot before continuing. Private takeover returns `human_private` for agent reads as well as input. A private disconnect pauses until explicit human handback; the agent must wait.
 

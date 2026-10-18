@@ -164,7 +164,12 @@ export function FileTab(props: TabViewProps) {
     actions.update(props.tab.key, { data: { ...data, ...patch } });
 
   return (
-    <div ref={root} className="flex h-full min-h-0 flex-col" onKeyDown={onKeyDown}>
+    <div
+      ref={root}
+      role="presentation"
+      className="flex h-full min-h-0 flex-col"
+      onKeyDown={onKeyDown}
+    >
       {operation && (
         <Suspense fallback={null}>
           <FileOperations

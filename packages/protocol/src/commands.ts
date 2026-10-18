@@ -104,8 +104,9 @@ export const CommandPayload = z.discriminatedUnion("type", [
     input: z.array(ContentPart).min(1),
     context: MessageContext.optional(),
     /**
-     * `steer` injects into the running turn when the provider supports it;
-     * `queue` waits for the thread to settle. Unsupported steer falls back to queue.
+     * `steer` injects into the running turn when the provider supports it, and starts the
+     * next turn when none is running; `queue` waits for the root agent's turn to end, never
+     * for background commands or subagents. Unsupported steer falls back to queue.
      */
     delivery: FollowUpBehavior.optional(),
   }),

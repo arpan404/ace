@@ -84,6 +84,7 @@ export class BrowserInspection {
       this.requests.delete(requestId);
       this.responses.delete(requestId);
       this.log({
+        tabId,
         kind: "network",
         type: "failed",
         requestId,
@@ -113,6 +114,7 @@ export class BrowserInspection {
         mime: response.mimeType,
       });
       this.log({
+        tabId,
         kind: "network",
         type: "response",
         requestId: key,

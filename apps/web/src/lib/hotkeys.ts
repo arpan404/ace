@@ -23,7 +23,8 @@ export function matchesChord(
   return keyNameOf(event) === chord.key || event.key.toLowerCase() === chord.key;
 }
 
-function isEditable(target: EventTarget | null): boolean {
+/** A text field, editable region or select: where plain keys type rather than act. */
+export function isEditable(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return (
     target.isContentEditable ||

@@ -19,8 +19,8 @@ export type DropSide = "before" | "after";
 
 /**
  * A tab's width without its title or badge: 8px lead, 14px icon, 6px gap, then 28px of close
- * room on the showing tab (10px on the others, whose close shows over the title's end on hover,
- * and on a pinned tab, which has none). The strip's layout pass adds the measured title.
+ * room on every closable tab (10px on a pinned tab, which has none), so the title never
+ * re-truncates when the close appears. The strip's layout pass adds the measured title.
  */
 export const tabChrome = (closeRoom: boolean) => 8 + 14 + 6 + (closeRoom ? 28 : 10);
 const badgeGap = 6;
@@ -78,7 +78,7 @@ export function TabItem(props: {
         render={
           <div
             data-tab-key={tab.key}
-            data-close-room={closable && props.active}
+            data-close-room={closable}
             draggable
             style={props.width === undefined ? undefined : { width: props.width }}
             onDragStart={(event) => {
@@ -109,12 +109,12 @@ export function TabItem(props: {
             )}
           />
         )}
-        {/* Folded or clipped, the tab's whole title shows as a tooltip (on keyboard focus too). */}
+        {/* Folded or clipped, the tab's whole title shows as a tooltip, on keyboard focus too. */}
         <Tooltip
           disabled={!iconOnly && !props.clipped}
-          onOpenChange={(open, details) => {
+          onOpenChange={(_open, details) => {
             // A title tooltip must not consume Escape meant for the containing sheet.
-            if (open && details.reason === "trigger-focus") details.cancel();
+            if (details.reason === "escape-key") details.allowPropagation();
           }}
         >
           <TooltipTrigger
@@ -151,12 +151,10 @@ export function TabItem(props: {
                   "aria-selected:bg-foreground/8 aria-selected:text-foreground",
                   iconOnly
                     ? "justify-center gap-0 px-0"
-                    : !closable
-                      ? "pr-2.5"
-                      : props.active
-                        ? "pr-7"
-                        : // The strip sized the tab, so making room for the close never moves it.
-                          "pr-2.5 group-focus-within/tab:pr-7 group-hover/tab:pr-7 pointer-coarse:pr-7",
+                    : // The close's room is always kept, so the title never shifts when it shows.
+                      closable
+                      ? "pr-7"
+                      : "pr-2.5",
                 )}
               />
             }
@@ -220,7 +218,8 @@ export function TabItem(props: {
               onClick={() => void actions.close(tab.key)}
               className={cn(
                 "absolute top-1/2 right-1 grid size-5 -translate-y-1/2 place-items-center rounded-xs text-subtle-foreground outline-none",
-                "opacity-0 transition-[opacity,background-color,color] duration-(--motion-fast) group-hover/tab:opacity-100 pointer-coarse:opacity-100 hover:bg-accent hover:text-foreground",
+                // Shown on keyboard focus too, where Delete closes the tab it marks.
+                "opacity-0 transition-[opacity,background-color,color] duration-(--motion-fast) group-focus-within/tab:opacity-100 group-hover/tab:opacity-100 pointer-coarse:opacity-100 hover:bg-accent hover:text-foreground",
                 props.active && "opacity-100",
               )}
             >

@@ -159,6 +159,16 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
   const [merging, setMerging] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [forking, setForking] = useState<ForkPoint>();
+  // An edit of the person's message forks with its text as the first message.
+  const [forkText, setForkText] = useState<string>();
+  const openFork = (point: ForkPoint, text?: string) => {
+    setForkText(text);
+    setForking(point);
+  };
+  const closeFork = () => {
+    setForking(undefined);
+    setForkText(undefined);
+  };
   const id = props.threadId;
   const outer = useThreadParts();
   const forkPoint = useLatestForkPoint(id);
@@ -248,7 +258,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
           ) : !meta ? (
             <ThreadLoading />
           ) : (
-            <ForkOpener value={setForking}>
+            <ForkOpener value={openFork}>
               <div
                 data-thread-column
                 className="relative grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]"
@@ -303,7 +313,7 @@ function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefine
             )}
             {merging && thread && <MergeDialog thread={thread} onClose={() => setMerging(false)} />}
             {forking && thread && (
-              <ForkDialog thread={thread} point={forking} onClose={() => setForking(undefined)} />
+              <ForkDialog thread={thread} point={forking} text={forkText} onClose={closeFork} />
             )}
           </Suspense>
         </Screen>

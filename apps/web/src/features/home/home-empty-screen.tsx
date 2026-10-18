@@ -4,6 +4,7 @@ import { Navigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
+import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useStartupHold } from "@/lib/startup/startup.tsx";
@@ -38,9 +39,20 @@ export function HomeEmptyScreen() {
   useStartupHold(!target && onboarding.data === undefined && !onboarding.isError);
   if (target) return <Navigate to="/t/$threadId" params={{ threadId: target }} replace />;
   if (onboarding.data && !onboarding.data.dismissed) return <Navigate to="/setup" replace />;
-  // Until it's known whether setup comes first, show nothing rather than a hint that flashes.
+  // Until it's known whether setup comes first, the state's shape rather than a hint that flashes.
   const settled = onboarding.data !== undefined || onboarding.isError;
-  if (!settled) return <Screen title="Home">{null}</Screen>;
+  if (!settled || !loaded)
+    return (
+      <Screen title="Home">
+        <LoadingRegion
+          label="Home"
+          className="flex h-full flex-col items-center justify-center gap-2 px-5 py-6"
+        >
+          <Skeleton className="h-3.5 w-28" />
+          <Skeleton className="h-3 w-64 max-w-full" />
+        </LoadingRegion>
+      </Screen>
+    );
   if (loaded && directory.loaded && directory.projects.length === 0)
     return (
       <Screen title="Home">
@@ -49,18 +61,15 @@ export function HomeEmptyScreen() {
     );
   return (
     <Screen title="Home">
-      {loaded && (
-        <EmptyState
-          icon={ChatsIcon}
-          title="No threads yet"
-          description={
-            <>
-              Start one with <Kbd shortcut="newThread" />, or search with <Kbd shortcut="palette" />
-              .
-            </>
-          }
-        />
-      )}
+      <EmptyState
+        icon={ChatsIcon}
+        title="No threads yet"
+        description={
+          <>
+            Start one with <Kbd shortcut="newThread" />, or search with <Kbd shortcut="palette" />.
+          </>
+        }
+      />
     </Screen>
   );
 }

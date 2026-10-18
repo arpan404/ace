@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import { executablePath, fixture } from "./test-support.ts";
 
 it.skipIf(!executablePath)(
-  "a real Chromium worker completes a POST larger than the nested policy envelope limit",
+  "a real Chromium worker completes a POST larger than 1 MiB",
   async () => {
     const f = await fixture();
     await f.navigate();

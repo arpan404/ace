@@ -1,0 +1,47 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserAnnotationElement.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "box": {
+      "$ref": "https://ace.local/protocol/v1/BrowserAnnotationBox.json"
+    },
+    "frame": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "role": {
+      "maxLength": 128,
+      "type": "string"
+    },
+    "selector": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "tag": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 280,
+      "type": "string"
+    },
+    "xpath": {
+      "maxLength": 2048,
+      "type": "string"
+    }
+  },
+  "required": [
+    "tag",
+    "selector",
+    "xpath",
+    "text",
+    "box"
+  ],
+  "type": "object"
+}

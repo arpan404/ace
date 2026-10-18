@@ -65,23 +65,33 @@ test("a message sent to a settled thread lands in the transcript and the agent s
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
 });
 
-test("while the thread works, Enter queues the message until nothing is running", async () => {
+test("while the thread works, Enter queues the message until the agent's turn ends", async () => {
   const { app, feed, message } = await open("busy");
   await userEvent.type(message, "Also check the iOS cold-start path{Enter}");
   const queue = await screen.findByRole("list", { name: "Queued messages" });
   expect(within(queue).getByText("Also check the iOS cold-start path")).toBeTruthy();
   expect(within(feed).queryByText("Also check the iOS cold-start path")).toBeNull();
 
-  // Stopping the agents leaves the background relay running, so the daemon keeps the message
-  // queued; once the relay ends the thread is idle and the queued message is delivered.
-  await userEvent.click(screen.getByRole("button", { name: "Stop the agent" }));
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull());
-  expect(within(feed).queryByText("Also check the iOS cold-start path")).toBeNull();
+  // The agent's turn ends while its subagents and the background relay keep running: the
+  // queued message starts the next turn without waiting for them.
   app.daemon.apply("thread-replay-cursor", [
-    { type: "background.ended", task: "relay", status: "stopped" },
+    { type: "turn.ended", agent: "root", outcome: "completed" },
   ]);
   expect(await within(feed).findByText("Also check the iOS cold-start path")).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
+});
+
+test("Stop holds the queued message instead of sending it once the turn ends", async () => {
+  const { app, feed, message } = await open("busy");
+  await userEvent.type(message, "Also check the iOS cold-start path{Enter}");
+  await screen.findByRole("list", { name: "Queued messages" });
+  await userEvent.click(screen.getByRole("button", { name: "Stop the agent" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull());
+  app.daemon.apply("thread-replay-cursor", [
+    { type: "background.ended", task: "relay", status: "stopped" },
+  ]);
+  expect(await screen.findByRole("list", { name: "Queued messages" })).toBeTruthy();
+  expect(within(feed).queryByText("Also check the iOS cold-start path")).toBeNull();
 });
 
 test("⌘↵ steers the running turn instead of queueing", async () => {

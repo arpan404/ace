@@ -64,6 +64,8 @@ describe("where the embedded view goes", () => {
 let placed: NativeViewPlacement[] = [];
 let pageX = 500;
 let suggestionVisible = false;
+/** Times the page asked the desktop to take the keyboard from the native page. */
+let focusRequests = 0;
 /** The desktop's "the person clicked a page they don't control" event. */
 let wantsControl: ((event: { threadId: string }) => void) | undefined;
 const box = (x: number, y: number, width: number, height: number) =>
@@ -74,8 +76,12 @@ beforeEach(() => {
   placed = [];
   pageX = 500;
   suggestionVisible = false;
+  focusRequests = 0;
   Reflect.set(globalThis, "ace", {
     browser: {
+      focusApp: async () => {
+        focusRequests++;
+      },
       place: async (placement: NativeViewPlacement) => {
         placed.push(placement);
         return placement.visible;
@@ -227,6 +233,26 @@ test("a panel move without a resize updates the native page before its next pain
   act(() => window.dispatchEvent(new Event("resize")));
   await waitFor(() => expect(last()?.bounds.x).toBe(610));
 });
+test("a layout that settles after the window's last resize event still moves the native page", async () => {
+  await openEmbeddedBrowser();
+  await waitFor(() => expect(last()?.bounds.x).toBe(500));
+  act(() => window.dispatchEvent(new Event("resize")));
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  // The panel clamps to the new width a moment later, with no event of its own.
+  pageX = 640;
+  await waitFor(() => expect(last()?.bounds.x).toBe(640));
+});
+
+test("focusing the address bar takes the keyboard from the native page first", async () => {
+  const { panel } = await openEmbeddedBrowser();
+  await waitFor(() => expect(last()?.visible).toBe(true));
+  const address = within(panel).getByRole("combobox", { name: "Address" });
+  act(() => address.blur());
+  const before = focusRequests;
+  await userEvent.click(address);
+  expect(focusRequests).toBe(before + 1);
+});
+
 test("inline address suggestions leave the native page clear of the list", async () => {
   const { panel } = await openEmbeddedBrowser();
   await waitFor(() => expect(last()?.visible).toBe(true));

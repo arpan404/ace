@@ -9,6 +9,7 @@ import { createDaemonCommandLibrary, defaultCommandInstances } from "../command-
 import { connectDaemonCommandEvents, type CommandEventSource } from "../command-events.ts";
 import { PromptFiles, type ProviderInstance } from "@ace/commands";
 import { join } from "node:path";
+import { builtinSkillsDirectory } from "@ace/plugins";
 import { WorkspaceId, type Thread } from "@ace/protocol";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -134,6 +135,8 @@ async function initializeCommands({
         })),
       ];
     },
+    // Claude, Codex, OpenCode and Pi load the shipped skills natively and advertise them.
+    { directory: builtinSkillsDirectory(), providers: ["cursor", "acp", "antigravity"] },
   );
   if (services.plugins)
     resources.own(services.plugins.subscribeCatalog(() => library.invalidateExtras()));

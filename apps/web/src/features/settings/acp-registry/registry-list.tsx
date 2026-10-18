@@ -22,6 +22,7 @@ import {
   CommandList,
 } from "@/components/ui/command.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { usePhone } from "@/lib/breakpoints.ts";
 import { cn } from "@/lib/cn.ts";
@@ -84,32 +85,34 @@ export function RegistryList(props: {
         placeholder={phone ? "Search agents" : "Search agents by name, publisher or what they do…"}
         closeLabel="Close"
       />
-      <CommandEmpty>
-        {props.loading ? (
-          "Reading the registry…"
-        ) : empty && props.refreshing ? (
-          <span className="inline-flex items-center gap-2">
-            <Spinner label="Downloading the registry" /> Downloading the registry…
-          </span>
-        ) : empty ? (
-          <span role="alert">
-            {props.loadError ??
-              (props.refreshFailed
-                ? "Couldn't reach the ACP registry. Check the connection."
-                : "The registry is empty.")}{" "}
-            <Button variant="ghost" onClick={props.onRefresh}>
-              Try again
-            </Button>
-          </span>
-        ) : (
-          <>
-            No agents match “{query.trim()}”.{" "}
-            <Button variant="ghost" onClick={props.onManual}>
-              Add one by command
-            </Button>
-          </>
-        )}
-      </CommandEmpty>
+      {props.loading ? (
+        <ListSkeleton label="the registry" shape="row" rows={4} className="px-3 py-1" />
+      ) : (
+        <CommandEmpty>
+          {empty && props.refreshing ? (
+            <span className="inline-flex items-center gap-2">
+              <Spinner label="Downloading the registry" /> Downloading the registry…
+            </span>
+          ) : empty ? (
+            <span role="alert">
+              {props.loadError ??
+                (props.refreshFailed
+                  ? "Couldn't reach the ACP registry. Check the connection."
+                  : "The registry is empty.")}{" "}
+              <Button variant="ghost" onClick={props.onRefresh}>
+                Try again
+              </Button>
+            </span>
+          ) : (
+            <>
+              No agents match “{query.trim()}”.{" "}
+              <Button variant="ghost" onClick={props.onManual}>
+                Add one by command
+              </Button>
+            </>
+          )}
+        </CommandEmpty>
+      )}
       <CommandList aria-label="ACP agents">
         {(group: { value: string; items: Row[] }) => (
           <CommandGroup key={group.value} items={group.items}>
