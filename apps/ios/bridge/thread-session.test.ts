@@ -60,6 +60,23 @@ afterEach(async () => {
   sent.length = 0;
 });
 
+/** The daemon turns down the first attempt of a send that asks for it; its retry goes through. */
+function refusal(text: string): string | undefined {
+  const message = JSON.parse(text) as {
+    type?: string;
+    command?: { id?: string; payload?: { type?: string; input?: { text?: string }[] } };
+  };
+  const command = message.type === "command" ? message.command : undefined;
+  if (command?.payload?.type !== "thread.send" || command.id?.endsWith(":retry")) return undefined;
+  if (command.payload.input?.[0]?.text !== "Refuse this once") return undefined;
+  return JSON.stringify({
+    type: "commandResult",
+    commandId: command.id,
+    ok: false,
+    error: "refused",
+  });
+}
+
 function connect(daemon: FakeDaemon): ClientCore {
   let saved: string | null = null;
   client = new ClientCore({
@@ -67,11 +84,17 @@ function connect(daemon: FakeDaemon): ClientCore {
     expectedHostId: HostId.parse("ios-test-host"),
     transport: () => {
       const inner = fakeTransport(daemon);
+      let deliver: ((text: string) => void) | undefined;
       return {
-        open: (events) => inner.open(events),
+        open: (events) => {
+          deliver = (text) => events.message(text);
+          inner.open(events);
+        },
         send: (text) => {
           sent.push(text);
-          inner.send(text);
+          const refused = refusal(text);
+          if (refused) queueMicrotask(() => deliver?.(refused));
+          else inner.send(text);
         },
         close: () => inner.close(),
       };
@@ -413,4 +436,37 @@ test("an approval names Allow once, Always allow and Deny by the request's exact
     ["deny", "deny-it", ""],
   ]);
   expect(card.command).toBe("git push origin fix/queue");
+});
+
+test("a refused send goes again once under its retry id and reaches the transcript", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "again", workspaceId: "ace", title: "Again", provider: "codex" });
+  fake.apply("again", [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")]);
+  const owner = connect(fake);
+  const thread = open(owner, "again");
+  await until(() => latest("thread.controls"), "composer controls");
+  thread.handle({ type: "send", text: "Refuse this once", opposite: false, requestId: "first" });
+  const id = await until(() => {
+    for (const text of sent) {
+      const message = JSON.parse(text) as { type?: string; command?: { id?: string } };
+      if (message.type === "command" && message.command?.id) return message.command.id;
+    }
+    return undefined;
+  }, "the first attempt");
+  await until(() => owner.pendingSend(id)?.state === "failed", "the refusal");
+  thread.handle({ type: "retrySend", id, requestId: "again" });
+  await until(() => latest("admission", "again")?.ok, "the retry admitted");
+  await until(
+    () => rows("thread.item").some((row) => row.role === "user" && row.text === "Refuse this once"),
+    "the message in the transcript",
+  );
+  const attempts = sent.filter(
+    (text) => text.includes('"type":"command"') && text.includes("Refuse this once"),
+  );
+  expect(
+    attempts.map((text) => (JSON.parse(text) as { command: { id: string } }).command.id),
+  ).toEqual([id, `${id}:retry`]);
+  thread.handle({ type: "retrySend", id: `${id}:retry`, requestId: "twice" });
+  await until(() => latest("admission", "twice"), "a second retry");
+  expect(latest("admission", "twice")?.ok).toBe(false);
 });
