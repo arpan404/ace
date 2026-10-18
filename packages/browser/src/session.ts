@@ -102,6 +102,8 @@ export class BrowserSession {
         private: record.private,
       });
     this.tabs.reconcile();
+    // Tabs reopened after a daemon restart: their page state and refs are gone.
+    for (const record of options.restoredTabs ?? []) this.tabs.find(record.tabId)?.refs.restarted();
     this.captured = this.tabs.viewedId();
     this.live = new LiveCapture(
       this.viewedPage().cdp,
@@ -281,6 +283,7 @@ export class BrowserSession {
     signal?: AbortSignal,
   ): Promise<void> {
     await this.swap(backend, kind, signal);
+    for (const tab of this.tabs.all()) tab.refs.restarted();
     this.pageStateLost = true;
     this.reason = "The page was reopened after the browser disconnected";
     this.emit();

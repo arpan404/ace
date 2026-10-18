@@ -3,6 +3,7 @@ import type { BrowserFrame } from "@ace/protocol";
 import { Recording } from "./recording.ts";
 import type { BrowserArtifact } from "@ace/protocol";
 import type { SessionOptions } from "./session-options.ts";
+import { BrowserActionError } from "./action-error.ts";
 
 /** Recording owns disk/process I/O; the session supplies admission fences. */
 export class SessionRecording {
@@ -24,8 +25,8 @@ export class SessionRecording {
   }
   async start(check: () => void): Promise<void> {
     check();
-    if (this.paused()) throw new Error("Browser backend paused");
-    if (this.recording) throw new Error("Recording already started");
+    if (this.paused()) throw new BrowserActionError("browser_paused");
+    if (this.recording) throw new BrowserActionError("recording_active");
     const recording = await Recording.start(
       join(this.options.dir, this.options.id()),
       this.options.ffmpeg,
@@ -51,9 +52,11 @@ export class SessionRecording {
   }
   async stop(): Promise<BrowserArtifact> {
     const recording = this.recording;
-    if (!recording) throw new Error("No browser recording");
+    if (!recording) throw new BrowserActionError("recording_inactive");
     this.recording = undefined;
-    const artifact = await recording.stop();
+    const artifact = await recording.stop().catch(() => {
+      throw new BrowserActionError("recording_failed");
+    });
     await this.options.artifact(artifact);
     return artifact;
   }

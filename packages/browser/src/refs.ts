@@ -29,6 +29,8 @@ function staleFrame(error: unknown): never {
 /** One generation and one bounded snapshot; navigation cannot alias an old ref. */
 export class SnapshotRefs {
   private epoch = 0;
+  /** Reopened since the last full snapshot (`restarted`). */
+  private reopened = false;
   private refs = new Map<string, SnapshotTarget>();
   /** Every frame's session; returns undefined when the page has no frame list (one session). */
   private frames:
@@ -54,6 +56,19 @@ export class SnapshotRefs {
   invalidate(): void {
     this.epoch++;
     this.refs.clear();
+  }
+  /**
+   * The page was reopened after its renderer, its browser or the daemon restarted. Refs from
+   * before fail with `browser_restarted` until the next full snapshot, so the agent learns why
+   * its page state is gone.
+   */
+  restarted(): void {
+    this.invalidate();
+    this.reopened = true;
+  }
+  /** A ref that is not in the latest snapshot. */
+  private unknownRef(): BrowserActionError {
+    return this.reopened ? new BrowserActionError("browser_restarted") : staleRef();
   }
   /**
    * The accessibility tree of the tab's frames, or with `ref` of that element's subtree only.
@@ -110,6 +125,7 @@ export class SnapshotRefs {
     }
     if (epoch !== this.epoch) throw staleRef();
     this.refs = output.refs;
+    this.reopened = false;
     return output.result(domNodes);
   }
   /** A page too large to read whole: its top document's landmarks and headings. */
@@ -132,13 +148,14 @@ export class SnapshotRefs {
     }
     if (epoch !== this.epoch) throw staleRef();
     this.refs = output.refs;
+    this.reopened = false;
     return { ...output.result(domNodes), truncated: true, hint: outlineHint };
   }
   /** One element's subtree, `depth` levels deep; its refs join the latest snapshot's. */
   private async scoped(ref: string, depth = defaultSnapshotDepth) {
     const epoch = this.epoch;
     const target = this.refs.get(ref);
-    if (target === undefined) throw staleRef();
+    if (target === undefined) throw this.unknownRef();
     const raw = AXTree.parse(
       await target.cdp
         .send("Accessibility.queryAXTree", { backendNodeId: target.backendNodeId })
@@ -163,7 +180,7 @@ export class SnapshotRefs {
   guard(ref: string): () => void {
     const epoch = this.epoch;
     const node = this.refs.get(ref);
-    if (node === undefined) throw staleRef();
+    if (node === undefined) throw this.unknownRef();
     return () => {
       if (epoch !== this.epoch || this.refs.get(ref) !== node) throw staleRef();
     };
@@ -185,7 +202,7 @@ export class SnapshotRefs {
     args: unknown[] = [],
   ): Promise<unknown> {
     const target = this.refs.get(ref);
-    if (target === undefined) throw staleRef();
+    if (target === undefined) throw this.unknownRef();
     const { backendNodeId, cdp } = target;
     const epoch = this.epoch;
     const { object } = ResolvedNode.parse(await cdp.send("DOM.resolveNode", { backendNodeId }));
@@ -235,7 +252,7 @@ export class SnapshotRefs {
   }
   async upload(ref: string, files: string[], beforeDispatch: () => void): Promise<void> {
     const target = this.refs.get(ref);
-    if (!target) throw staleRef();
+    if (!target) throw this.unknownRef();
     const guard = this.guard(ref);
     await this.call(
       ref,

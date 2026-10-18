@@ -168,7 +168,7 @@ export class TabRuntime {
   }
   restarted(): void {
     this.annotation.restarted(this.page.cdp);
-    this.refs.invalidate();
+    this.refs.restarted();
   }
   /** Dialog state changed on the page. */
   changed(): void {

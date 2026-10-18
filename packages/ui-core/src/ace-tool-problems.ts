@@ -155,6 +155,19 @@ const browser: Record<string, Wording> = {
     hint: "Only http and https addresses, without a password in them.",
   }),
   timeout: (site) => ({ title: `${site} didn't respond in time` }),
+  page_unreachable: (site) => ({
+    title: `Couldn't reach ${site}`,
+    hint: "If it's a local dev server, check that it's running.",
+  }),
+  browser_restarted: () => ({
+    title: "The browser restarted and reopened the page",
+    hint: readAgain("page"),
+  }),
+  browser_unavailable: () => ({ title: "ace's browser couldn't start" }),
+  evaluate_failed: () => ({ title: "The page script failed" }),
+  recording_active: () => ({ title: "The browser is already recording" }),
+  recording_inactive: () => ({ title: "The browser wasn't recording" }),
+  recording_failed: () => ({ title: "The recording couldn't be saved" }),
 };
 
 const device: Record<string, Wording> = {

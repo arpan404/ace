@@ -2,6 +2,7 @@ import { PublicToolError } from "@ace/mcp-server/errors";
 import { z } from "zod";
 import { ThreadId } from "@ace/protocol";
 import {
+  agentBrowserError,
   browserChoiceInput,
   browserMachineInput,
   browserToolkit as scopedBrowserToolkit,
@@ -116,33 +117,37 @@ export function browserToolkit(
               context,
             );
           const service = pick(choice);
-          await open(caller.threadId, service);
-          signal.throwIfAborted();
-          const actor = { kind: "agent" as const, agentId: caller.agentId };
-          if (args.newTab) {
-            await service.execute(
-              caller.threadId,
-              { action: "tabs", operation: "open", url: args.url, label: args.label },
-              actor,
-              signal,
-            );
+          try {
+            await open(caller.threadId, service);
+            signal.throwIfAborted();
+            const actor = { kind: "agent" as const, agentId: caller.agentId };
+            if (args.newTab) {
+              await service.execute(
+                caller.threadId,
+                { action: "tabs", operation: "open", url: args.url, label: args.label },
+                actor,
+                signal,
+              );
+              return content({
+                ...service.state(caller.threadId),
+                ...tabSummary(service.currentTab(caller.threadId, actor)),
+              });
+            }
+            const current = await service.claimTab(caller.threadId, actor);
+            if (args.url !== undefined)
+              await service.execute(
+                caller.threadId,
+                { action: "navigate", url: args.url, tabId: current.tabId },
+                actor,
+                signal,
+              );
             return content({
               ...service.state(caller.threadId),
               ...tabSummary(service.currentTab(caller.threadId, actor)),
             });
+          } catch (error) {
+            throw agentBrowserError(error);
           }
-          const current = await service.claimTab(caller.threadId, actor);
-          if (args.url !== undefined)
-            await service.execute(
-              caller.threadId,
-              { action: "navigate", url: args.url, tabId: current.tabId },
-              actor,
-              signal,
-            );
-          return content({
-            ...service.state(caller.threadId),
-            ...tabSummary(service.currentTab(caller.threadId, actor)),
-          });
         },
       });
       scopedBrowserToolkit(

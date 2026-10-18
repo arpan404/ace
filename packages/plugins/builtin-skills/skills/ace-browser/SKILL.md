@@ -47,6 +47,15 @@ The person never has to take over or hand back. While you work in a tab it is ma
 - When they are typing, clicking or scrolling in your tab, your clicks, typing, keys, scrolls and navigation there wait until they pause. If they keep going, the tool fails with `human_active`: snapshot again (the page may have changed), then retry or use another tab. Reads (snapshot, screenshot, evaluate, logs) never wait.
 - A tab the person marks "Keep agents out" is theirs alone: tools there fail with `human_private`. Use another tab.
 
+## When a tool fails
+
+Every failure has a `code` and a `hint` that says what to do next. The common ones:
+
+- `page_unreachable`: `detail` names the network error. `net::ERR_CONNECTION_REFUSED` on localhost means the dev server is not running or listens on another port.
+- `browser_restarted`: the browser or the daemon restarted and the tab reopened at its last address. Form input and refs are gone: snapshot again and redo the lost steps.
+- A result with `pending_dialog` means a dialog holds the tab. Answer it with `ace_browser_dialog`, then retry.
+- `evaluate_failed`: the script threw, ran over 10 seconds, or (in `read-only` mode) tried a side effect.
+
 ## Another machine
 
 Every browser tool takes `machine` (a name from `ace_machines`) to act in that machine's ace browser, for example to test a dev server running there.

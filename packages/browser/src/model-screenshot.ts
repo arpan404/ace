@@ -1,6 +1,7 @@
 import { modelImageGeometry } from "@ace/mcp-server";
 import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
+import { BrowserActionError } from "./action-error.ts";
 
 const Metrics = z.object({
   cssVisualViewport: z.object({
@@ -48,7 +49,21 @@ export async function captureClip(cdp: BrowserCdp, region: CaptureRegion) {
   };
 }
 
-/** Keep model images within 1536 pixels without resizing the page or its layout. */
+/** The largest JPEG a model screenshot may be, base64-encoded. */
+const modelImageLimit = 768 * 1024;
+/** Quality, then size, steps for a page whose JPEG is too large (dense text, photos, noise). */
+const attempts = [
+  { quality: 70, shrink: 1 },
+  { quality: 50, shrink: 1 },
+  { quality: 50, shrink: 0.75 },
+  { quality: 40, shrink: 0.5 },
+  { quality: 30, shrink: 0.35 },
+] as const;
+
+/**
+ * Keep model images within 1536 pixels and the model's byte budget without resizing the page or
+ * its layout: a capture over the budget is taken again at lower quality, then smaller.
+ */
 export async function modelScreenshot(
   cdp: BrowserCdp,
   region: CaptureRegion = { kind: "viewport" },
@@ -61,14 +76,16 @@ export async function modelScreenshot(
     }),
   ).result.value;
   const geometry = modelImageGeometry(clip.width, clip.height);
-  const scale = geometry.scale / density;
-  const result = z.object({ data: z.string().max(768 * 1024) }).parse(
-    await cdp.send("Page.captureScreenshot", {
-      format: "jpeg",
-      quality: 70,
-      captureBeyondViewport: region.kind !== "viewport",
-      clip: { ...clip, scale },
-    }),
-  );
-  return Buffer.from(result.data, "base64");
+  for (const attempt of attempts) {
+    const { data } = z.object({ data: z.string().max(64 * 1024 * 1024) }).parse(
+      await cdp.send("Page.captureScreenshot", {
+        format: "jpeg",
+        quality: attempt.quality,
+        captureBeyondViewport: region.kind !== "viewport",
+        clip: { ...clip, scale: (geometry.scale * attempt.shrink) / density },
+      }),
+    );
+    if (data.length <= modelImageLimit) return Buffer.from(data, "base64");
+  }
+  throw new BrowserActionError("limit");
 }

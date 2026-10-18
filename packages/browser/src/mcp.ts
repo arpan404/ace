@@ -11,6 +11,8 @@ import { validateMeasurementBudget } from "@ace/interaction";
 import type { BrowserToolkit } from "@ace/mcp-server";
 import { PublicToolError } from "@ace/mcp-server/errors";
 import type { BrowserService } from "./service.ts";
+import type { Actor } from "./session-options.ts";
+import { agentBrowserError, pendingDialogHint } from "./agent-errors.ts";
 /** Browser actions only a person drives (ADR 0082). */
 type AgentAction = Exclude<BrowserCommand["action"], "annotate" | "annotate_capture">;
 function agentAction(action: BrowserCommand["action"]): action is AgentAction {
@@ -262,54 +264,63 @@ export function browserToolkit(
               );
             }
             const actor = { kind: "agent" as const, agentId: caller.agentId };
-            if (action === "screenshot") {
-              const bytes = await target.screenshot(
-                caller.threadId,
-                signal,
-                typeof args["tabId"] === "string" ? args["tabId"] : undefined,
-                {
-                  fullPage: args["fullPage"] === true,
-                  ...(typeof args["ref"] === "string" ? { ref: args["ref"] } : {}),
-                },
-                actor,
-              );
-              signal.throwIfAborted();
-              return {
-                content: [
-                  {
-                    type: "image",
-                    mimeType: "image/jpeg",
-                    data: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString(
-                      "base64",
-                    ),
-                  },
-                ],
-              };
+            try {
+              return await runCommand(target, action, args, caller.threadId, actor, signal);
+            } catch (error) {
+              throw agentBrowserError(error);
             }
-            const result = await target.execute(
-              caller.threadId,
-              { ...args, action },
-              actor,
-              signal,
-            );
-            signal.throwIfAborted();
-            if (action === "measure_interaction") {
-              const pending = z.object({ pending_dialog: BrowserDialog }).safeParse(result);
-              if (pending.success)
-                return { content: [{ type: "text", text: JSON.stringify(pending.data) }] };
-              const measurement = InteractionMeasurement.parse(result);
-              const { filmstrip, ...metrics } = measurement;
-              return {
-                content: [
-                  { type: "text", text: JSON.stringify(metrics) },
-                  ...(filmstrip ? [filmstrip] : []),
-                ],
-              };
-            }
-            return { content: [{ type: "text", text: JSON.stringify(result ?? null) }] };
           },
         });
       }
     },
   };
+}
+
+/** One browser tool call on this machine, as the content the agent reads. */
+async function runCommand(
+  target: Pick<BrowserService, "execute" | "screenshot">,
+  action: AgentAction,
+  args: Record<string, unknown>,
+  threadId: string,
+  actor: Actor,
+  signal: AbortSignal,
+) {
+  if (action === "screenshot") {
+    const bytes = await target.screenshot(
+      threadId,
+      signal,
+      typeof args["tabId"] === "string" ? args["tabId"] : undefined,
+      {
+        fullPage: args["fullPage"] === true,
+        ...(typeof args["ref"] === "string" ? { ref: args["ref"] } : {}),
+      },
+      actor,
+    );
+    signal.throwIfAborted();
+    return {
+      content: [
+        {
+          type: "image",
+          mimeType: "image/jpeg",
+          data: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64"),
+        },
+      ],
+    };
+  }
+  const result = await target.execute(threadId, { ...args, action }, actor, signal);
+  signal.throwIfAborted();
+  const pending = z.object({ pending_dialog: BrowserDialog }).safeParse(result);
+  if (pending.success)
+    return {
+      content: [
+        { type: "text", text: JSON.stringify({ ...pending.data, hint: pendingDialogHint }) },
+      ],
+    };
+  if (action === "measure_interaction") {
+    const { filmstrip, ...metrics } = InteractionMeasurement.parse(result);
+    return {
+      content: [{ type: "text", text: JSON.stringify(metrics) }, ...(filmstrip ? [filmstrip] : [])],
+    };
+  }
+  return { content: [{ type: "text", text: JSON.stringify(result ?? null) }] };
 }
