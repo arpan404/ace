@@ -1,7 +1,7 @@
 import XCTest
 
 /// The thread screen against the spike fixture's thread scenarios, with screenshots. Run on a
-/// fresh fixture; `TEST_RUNNER_ACE_SPIKE_PORT` selects its port.
+/// fresh fixture; `TEST_RUNNER_ACE_IOS_SPIKE_PORT` selects its port.
 @MainActor final class ThreadUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
     func testWorkedTurnSubagentsChildThreadAndModelPicker() {
@@ -59,7 +59,7 @@ import XCTest
     }
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_SPIKE_PORT"] ?? "9841"]
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
         app.launch()
         return app
     }

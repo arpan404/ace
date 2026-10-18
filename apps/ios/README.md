@@ -120,8 +120,8 @@ SwiftUI renders blocks with native Markdown (`Models/Markdown.swift`, SF Mono co
 collapsible work logs, inline subagent rows (a delegated child thread pushes; a native
 subagent's lane opens a sheet), question and approval cards above the composer, a model
 sheet and the header menu (Stop all agents, Snooze, Archive). The fixture's thread scenarios
-live in `scripts/thread-scenarios.ts`. `ACE_SPIKE_PORT` moves the fixture, and the app's
-`--spike-port N` argument and `TEST_RUNNER_ACE_SPIKE_PORT` for tests follow it. TS bridge
+live in `scripts/thread-scenarios.ts`. `ACE_IOS_SPIKE_PORT` moves the fixture, and the app's
+`--spike-port N` argument and `TEST_RUNNER_ACE_IOS_SPIKE_PORT` for tests follow it. TS bridge
 behavior tests run with `bunx vitest run apps/ios/bridge/thread-session.test.ts`.
 
 ## Scope
@@ -142,6 +142,31 @@ maps token keys to theme colours and draws the rows. Archive, unarchive (Undo), 
 presets and wake go through the SDK's durable outbox. Rows carry a machine id so a
 later multi-machine inbox can merge daemons. `InboxContractTests` and
 `InboxUITests` exercise the inbox against the fixture.
+
+## Agents and Changes sheets
+
+The thread header opens two detent sheets (`Views/Agents`, `Views/Changes`). The bridge
+follows each only while its sheet is shown (`bridge/sheets.ts`), and navigation releases both.
+
+- Agents: `agentSheet` in `@ace/ui-core/mobile` shapes the tree depth-first with each
+  agent's tree-aware status (`agentTreeWork`), so a finished root with a working child never
+  reads done. It also carries usage, the root's context meter and background tasks. Trees cap
+  at 100 agents and 30 tasks. Unsettled agents and their ancestors win the cap, and every
+  hidden agent and task is counted. Only entity changes reshape the tree; transcript deltas
+  don't. Stop all, and stopping an agent with subagents, ask first. Stops go through the
+  durable outbox (`thread.interrupt`, cascading), as does `background_task.stop`.
+- Changes: the bridge reads `git.status` (≤500 files), `git.diff` (≤256 KiB) and, for a
+  linked PR, `pr.status`. It keeps these reads only while the sheet is open. It sends at most
+  200 file rows and one file's diff at a time, within 1,500 lines, 1,000 UTF-16 units per
+  line and 96,000 in total. Past that, the view points to the computer. The next step
+  (commit & push, push, create PR, merge) follows the web's `nextGitStep` and `mergeGate`. It
+  runs through the daemon's guarded git and forge commands. A view-only grant
+  (`ClientModel.canOperate`) shows both sheets without their actions.
+
+`scripts/sheet-scenario.ts` seeds the fixture's `ios-tree` thread with a nested subagent
+tree, a running background command, usage, and a three-file diff. The diff includes a
+3,000-line file and a long line. Set `ACE_IOS_SPIKE_PORT` and launch with
+`--spike-port N` to run a fixture beside another agent's.
 
 ## Pairing with a real daemon
 
@@ -185,7 +210,7 @@ expire in five minutes. These tests skip when the config is absent.
 
 `--spike` (Debug only) keeps the unpinned loopback fixture. Release builds require WSS
 and an exact pin. A real device over Tailscale, the full multi-machine inbox,
-questions, Agents and Changes are still to come.
+and questions are still to come.
 
 Connection replacement now awaits old-runtime shutdown, clears host-specific views
 and rejects its late updates/errors. Concurrent replacements select the newest

@@ -1,6 +1,6 @@
 import type { ThreadStatus } from "@ace/protocol";
 import { syncingWord } from "./row-attention.ts";
-import { taskPill } from "./status.ts";
+import { taskPill, type Tone } from "./status.ts";
 
 /**
  * The design-token colour a native client paints a status with: a key of the shared `status`
@@ -43,3 +43,15 @@ export function mobileStatus(status: ThreadStatus): StatusDisplay {
 
 /** A row restored from disk that the daemon hasn't confirmed: it claims no state. */
 export const syncingStatus: StatusDisplay = { label: syncingWord, token: "neutral" };
+
+const toneTokens: Record<Tone, StatusToken> = {
+  "needs-you": "needsYou",
+  working: "working",
+  waiting: "waiting",
+  failed: "failed",
+  done: "done",
+  idle: "neutral",
+  background: "neutral",
+};
+/** The token for a shared tone, for words other modules already chose. */
+export const toneToken = (tone: Tone): StatusToken => toneTokens[tone];

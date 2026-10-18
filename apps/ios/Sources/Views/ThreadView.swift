@@ -78,6 +78,7 @@ struct ThreadView: View {
                 ToolbarItem(placement: .topBarTrailing) { menu }
             }
             .navigationBarTitleDisplayMode(.inline)
+            .threadSheets(model: model, thread: thread, openThread: openThread)
             .sheet(isPresented: $showDetails) { details }
             .sheet(isPresented: $showModels) {
                 ModelPickerSheet(screen: screen, load: { model.requestModels() }, choose: { await model.switchModel($0) })

@@ -38,6 +38,8 @@ import CryptoKit
     /// A thread a tapped notification asked to open.
     var deepLink: String?
     @ObservationIgnored var notificationSink: ((NotificationPatch) -> Void)?
+    /// The open thread's Agents and Changes sheets (`bridge/sheets.ts`).
+    let sheets = ThreadSheetsModel()
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var runtime: (any ClientSession)?
     @ObservationIgnored private let makeRuntime: ClientSessionFactory
@@ -59,7 +61,7 @@ import CryptoKit
         connectionEpoch += 1
         let epoch = connectionEpoch
         let closing = retireRuntime()
-        inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false
+        inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false; sheets.reset()
         inboxLayout = .empty
         connection = "connecting"; error = nil; problem = nil
         frames = BridgeFrames(); generation = 0
@@ -146,6 +148,11 @@ import CryptoKit
             case .ready(let id, let epoch, _): if thread?.id == id, thread?.epoch == epoch { thread?.loaded = true }
             case .block, .blockPosition, .controls, .history, .models, .queue:
                 if let thread, let scope = patch.screenScope, scope.thread == thread.id, scope.epoch == thread.epoch { thread.screen.apply(patch) }
+            case .agents(let id, let epoch, let sheet): if thread?.id == id, thread?.epoch == epoch { sheets.agents = sheet }
+            case .changesSummary(let id, let epoch, let summary): if thread?.id == id, thread?.epoch == epoch { sheets.changes = summary }
+            case .changesFile(let id, let epoch, let path, let diff):
+                if thread?.id == id, thread?.epoch == epoch { sheets.file = .init(path: path, diff: diff) }
+            case .gitResult(let id, let ok, let message): sheets.outcomes[id] = GitOutcome(ok: ok, message: message)
             }
         }
         thread?.screen.commit()
@@ -158,11 +165,28 @@ import CryptoKit
     }
     func open(_ id: String) {
         generation += 1
+        sheets.reset()
         thread = ThreadModel(id: id)
         thread?.epoch = generation
         action(["type": "open", "threadId": id])
     }
-    func back() { generation += 1; action(["type": "back"]); thread = nil }
+    func back() { generation += 1; action(["type": "back"]); thread = nil; sheets.reset() }
+    /// A sheet action for the open thread (`bridge/sheets.ts`).
+    @discardableResult func sheet(_ value: [String: Any]) -> Bool { action(["type": "sheet", "action": value]) }
+    /// Durable stop through the SDK's outbox: true once admitted on this device. `agentId` nil
+    /// stops the whole tree; otherwise that agent and everything under it.
+    func interrupt(agentId: String?) async -> Bool {
+        guard canOperate, let thread else { return false }
+        var payload: [String: Any] = ["type": "thread.interrupt", "threadId": thread.id, "cascade": true]
+        if let agentId { payload["agentId"] = agentId } else { payload["beforeSeq"] = thread.cursor }
+        let id = admissions.nextId()
+        return await admissions.wait(id: id) { command(payload, requestId: id) }
+    }
+    func stopTask(_ taskId: String) async -> Bool {
+        guard canOperate else { return false }
+        let id = admissions.nextId()
+        return await admissions.wait(id: id) { command(["type": "background_task.stop", "taskId": taskId], requestId: id) }
+    }
     func network(_ online: Bool) { action(["type": "network", "online": online]) }
     func retry() { action(["type": "retry"]) }
     func send(_ text: String, delivery: String) async -> Bool {

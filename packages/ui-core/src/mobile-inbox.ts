@@ -3,14 +3,8 @@ import type { PendingSend } from "@ace/client";
 import { threadAttention } from "@ace/projection";
 import { isDraft, isRemoved } from "./arrange.ts";
 import { activityOf, isSnoozed } from "./thread-state.ts";
-import {
-  mobileStatus,
-  syncingStatus,
-  type StatusDisplay,
-  type StatusToken,
-} from "./mobile-status.ts";
+import { mobileStatus, syncingStatus, toneToken, type StatusDisplay } from "./mobile-status.ts";
 import { recoveryAttention } from "./recovery-attention.ts";
-import type { Tone } from "./status.ts";
 
 /*
  * The native apps' single inbox (issue #560): one list across every paired machine, grouped by
@@ -79,16 +73,6 @@ export function inboxGroup(thread: InboxThread, now: number): InboxGroupKey | un
   return "working";
 }
 
-const toneTokens: Record<Tone, StatusToken> = {
-  "needs-you": "needsYou",
-  working: "working",
-  waiting: "waiting",
-  failed: "failed",
-  done: "done",
-  idle: "neutral",
-  background: "neutral",
-};
-
 /**
  * The status a row shows: a recovery the person must act on ("Not sent", "Review a message"),
  * else the daemon's status, or Syncing while the copy is unconfirmed.
@@ -97,7 +81,7 @@ export function inboxStatus(thread: InboxThread): StatusDisplay {
   const { entry } = thread;
   if (thread.unconfirmed && entry.status.state !== "needs_you") return syncingStatus;
   const recovery = recoveryAttention(entry, undefined);
-  if (recovery) return { label: recovery.label, token: toneTokens[recovery.tone] };
+  if (recovery) return { label: recovery.label, token: toneToken(recovery.tone) };
   return mobileStatus(entry.status);
 }
 
