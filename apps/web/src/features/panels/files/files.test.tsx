@@ -196,12 +196,15 @@ test("the Files tab keeps the checkout tree while a source tab remembers hiding 
   await userEvent.click(within(tree).getByRole("treeitem", { name: "outbox.ts" }));
   await within(side).findByRole("tab", { name: "outbox.ts", selected: true });
   expect(within(side).getByRole("tab", { name: "Files" })).toBeTruthy();
-  // The launcher's Files brings the same tab forward rather than adding another.
+  // Files opens more than once: the launcher's Files turns the new tab into another Files tab
+  // with its own tree, and the first one stays.
   await userEvent.click(within(side).getByRole("button", { name: "New tab" }));
   const tools = await within(side).findByRole("list", { name: "Tools" });
   await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
   expect(await within(side).findByRole("tab", { name: "Files", selected: true })).toBeTruthy();
-  expect(within(side).getAllByRole("tab", { name: "Files" })).toHaveLength(1);
+  expect(within(side).getAllByRole("tab", { name: "Files" })).toHaveLength(2);
+  expect(within(side).queryByRole("list", { name: "Tools" })).toBeNull();
+  expect(await within(side).findByRole("tree", { name: "Checkout files" })).toBeTruthy();
 
   await userEvent.click(within(side).getByRole("tab", { name: "outbox.ts" }));
   await userEvent.click(within(side).getByRole("button", { name: "Hide the file tree" }));
