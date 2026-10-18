@@ -257,7 +257,7 @@ test("the last model, account and work mode are remembered for the next thread",
   expect(created?.live).toMatchObject({ model: "claude-sonnet-5-5", account: "claude-work" });
 });
 
-test("⌘N and the sidebar's New thread start in the project Home is narrowed to, before the last one used", async () => {
+test("⇧⌘N starts in the project Home is narrowed to, before the last one used", async () => {
   const storage = memoryKeyValue();
   // The last thread was started in ace.
   storage.setItem("ace.home.newThread", JSON.stringify({ project: "ace" }));
@@ -270,7 +270,8 @@ test("⌘N and the sidebar's New thread start in the project Home is narrowed to
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "relay" }));
   await openProfileView("Automations");
   await screen.findByRole("heading", { level: 1, name: "Automations" });
-  await userEvent.keyboard("{Meta>}n{/Meta}");
+  // With several projects ⌘N asks which; ⇧⌘N skips the question.
+  await userEvent.keyboard("{Meta>}{Shift>}n{/Shift}{/Meta}");
   await screen.findByRole("button", { name: "Project: relay" });
 
   await openProfileView("Automations");

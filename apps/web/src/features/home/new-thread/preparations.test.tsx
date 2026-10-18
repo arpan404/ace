@@ -316,7 +316,10 @@ test("New thread again for the same project returns to its one draft instead of 
   await screen.findByRole("link", { name: "Half-written plan. Draft, Project relay" });
   for (let press = 0; press < 2; press++) {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    // With several projects ⌘N asks which.
     await userEvent.keyboard("{Meta>}n{/Meta}");
+    const step = await screen.findByRole("dialog", { name: "New thread in" });
+    await userEvent.click(within(step).getByRole("option", { name: "relay" }));
     expect(await screen.findByRole("button", { name: "Project: relay" })).toBeTruthy();
     await waitFor(async () => expect((await message()).textContent).toBe("Half-written plan"));
   }
