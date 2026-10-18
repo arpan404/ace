@@ -14,6 +14,7 @@ import { followMachine, MachineProviders } from "./machine-info.ts";
 import { NotificationAction, NotificationBridge } from "./notifications.ts";
 import { Sheets } from "./sheets.ts";
 import { preview } from "./presentation.ts";
+import { ComposeActions } from "./compose-actions.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -36,6 +37,9 @@ const Action = z.discriminatedUnion("type", [
   z.object({ type: z.literal("thread"), action: z.unknown() }),
   /** The thread's Agents and Changes sheets (`sheets.ts`). */
   z.object({ type: z.literal("sheet"), action: z.unknown() }),
+  /** New thread, Add project (`compose-actions.ts`) and a thread's Files sheet. */
+  z.object({ type: z.literal("compose"), action: z.unknown() }),
+  z.object({ type: z.literal("files"), action: z.unknown() }),
   z.object({
     type: z.literal("inbox"),
     action: z.unknown(),
@@ -51,6 +55,7 @@ let epoch = 0;
 let itemLimit = 200;
 let historyAbort: AbortController | undefined;
 let machine: MachineProviders | undefined;
+let compose: ComposeActions | undefined;
 const pump = new PatchPump();
 const trust = new TrustMonitor();
 const sheets = new Sheets(pump, preview);
@@ -113,6 +118,7 @@ async function start(json: string): Promise<void> {
   followInbox(client, config.hostId, pump);
   followMachine(client, pump, trust);
   machine = new MachineProviders(client, pump);
+  compose = new ComposeActions(client, pump, preview, () => host.now());
   await client.start();
 }
 async function hydrate(
@@ -224,6 +230,12 @@ function action(json: string): void {
         break;
       case "inbox":
         inboxAction(client, value.action, value.requestId, pump);
+        break;
+      case "compose":
+        if (!compose?.compose(value.action)) error();
+        break;
+      case "files":
+        if (!compose?.files(value.action)) error();
         break;
       case "sheet": {
         const thread =
