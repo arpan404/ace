@@ -54,6 +54,7 @@ export async function sizeHeadlessTab(
   cdp: BrowserCdp,
   metrics: HeadlessMetrics,
   deviceScaleFactor: number,
+  zoom = 1,
 ): Promise<void> {
   const { override, contents } = headlessOverride(metrics, deviceScaleFactor);
   await cdp.send("Emulation.setDeviceMetricsOverride", override);

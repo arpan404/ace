@@ -22,10 +22,11 @@ defineBrowserConformance({
     : process.platform === "win32"
       ? "the native host is not supported on Windows yet"
       : undefined,
-  unsupported: {
-    // ADR 0084: the person's browser saves its tabs' downloads itself; ace never sees them.
-    downloads: "not_supported",
-    "zip-download": "not_supported",
+  harnessSkips: {
+    // ADR 0086: the person's browser keeps downloads where it saves them, so there is no
+    // artifact to read; my-chrome-page-edges.process.test.ts checks the listing and the file.
+    downloads: "downloads stay in the person's own download folder, not ace's artifacts",
+    "zip-download": "downloads stay in the person's own download folder, not ace's artifacts",
   },
   knownFailures: {
     // Chrome detaches an extension's debugger from a tab showing its PDF viewer (an extension

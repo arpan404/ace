@@ -2,6 +2,12 @@
   "$id": "https://ace.local/protocol/v1/BrowserTab.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "audible": {
+      "type": "boolean"
+    },
+    "certificate_error": {
+      "$ref": "https://ace.local/protocol/v1/BrowserCertificateError.json"
+    },
     "drivenBy": {
       "$ref": "https://ace.local/protocol/v1/BrowserTabActor.json"
     },
@@ -11,6 +17,9 @@
     "favicon": {
       "maxLength": 8192,
       "type": "string"
+    },
+    "file_chooser": {
+      "$ref": "https://ace.local/protocol/v1/BrowserFileChooser.json"
     },
     "inUse": {
       "$ref": "https://ace.local/protocol/v1/BrowserTabActor.json"
@@ -28,11 +37,17 @@
     "loading": {
       "type": "boolean"
     },
+    "muted": {
+      "type": "boolean"
+    },
     "openedBy": {
       "$ref": "https://ace.local/protocol/v1/BrowserTabActor.json"
     },
     "pageStateLost": {
       "type": "boolean"
+    },
+    "pending_auth": {
+      "$ref": "https://ace.local/protocol/v1/BrowserAuthChallenge.json"
     },
     "pending_dialog": {
       "$ref": "https://ace.local/protocol/v1/BrowserDialog.json"

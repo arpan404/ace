@@ -1,4 +1,11 @@
-import type { BrowserDialog, BrowserTab } from "@ace/protocol";
+import type {
+  BrowserDialog,
+  BrowserDownload,
+  BrowserTab,
+  UserBrowserDownload,
+  UserBrowserTab,
+} from "@ace/protocol";
+import { downloadFlags } from "./headless-downloads.ts";
 import type {
   BackendOpen,
   BackendRestoreTab,
@@ -25,6 +32,8 @@ interface Entry {
   page: BrowserBackendPage;
   /** An agent tab's place in the daemon-wide tab budget. */
   release?: () => void;
+  /** Stops following the tab's downloads. */
+  unwatch?: () => void;
 }
 
 const sharedId = (ref: UserTabRef) => `shared-${ref.connectionId}-${ref.tabId}`;
@@ -58,6 +67,8 @@ class UserTabs {
   /** Popups being adopted, or that could not be, by `refKey`. */
   private adopting = new Set<string>();
   private refused = new Set<string>();
+  /** What the thread's tabs downloaded, as the person's browser saved it (ADR 0086). */
+  private downloaded = new Map<string, BrowserDownload>();
   private activeId = "";
   private sequence = 0;
   private closed = false;
@@ -162,7 +173,13 @@ class UserTabs {
       await session.close();
       throw new Error("Browser closed");
     }
-    this.agents.set(id, { session, page: session, ref: session.ref, release });
+    this.agents.set(id, {
+      session,
+      page: session,
+      ref: session.ref,
+      release,
+      unwatch: this.watchDownloads(id, session.ref),
+    });
     this.held.add(refKey(session.ref));
     return id;
   }
@@ -171,6 +188,7 @@ class UserTabs {
     const entry = this.agents.get(id);
     this.agents.delete(id);
     entry?.release?.();
+    entry?.unwatch?.();
     if (entry?.ref) this.held.delete(refKey(entry.ref));
     return entry;
   }
@@ -217,7 +235,14 @@ class UserTabs {
       await session.close();
       return;
     }
-    this.agents.set(id, { session, page: session, ref, opener, release });
+    this.agents.set(id, {
+      session,
+      page: session,
+      ref,
+      opener,
+      release,
+      unwatch: this.watchDownloads(id, ref),
+    });
     this.held.add(refKey(ref));
     this.request.changed?.();
   }
@@ -249,17 +274,23 @@ class UserTabs {
     if (this.activeId === id) this.activeId = this.agents.keys().next().value ?? "";
     this.request.changed?.();
   }
-  private shared(): (UserTabRef & { tab: { url: string; title: string } })[] {
+  private shared(): (UserTabRef & { tab: UserBrowserTab })[] {
     return this.user.sharedTabs().filter((ref) => !this.released.has(sharedId(ref)));
   }
   private list(): BrowserTab[] {
     return [
-      ...[...this.agents].map(([tabId, entry]) => ({
-        tabId,
-        url: entry.page.url(),
-        title: entry.session?.title() ?? "",
-        pending_dialog: this.dialogOf(tabId, entry),
-      })),
+      ...[...this.agents].map(([tabId, entry]) => {
+        // The tab's sound, as the person's browser reports it.
+        const listed = entry.ref && this.user.tab(entry.ref);
+        return {
+          tabId,
+          url: entry.page.url(),
+          title: entry.session?.title() ?? "",
+          pending_dialog: this.dialogOf(tabId, entry),
+          audible: listed?.audible,
+          muted: listed?.muted,
+        };
+      }),
       ...this.shared().map((ref) => {
         const tabId = sharedId(ref);
         const entry = this.claimed.get(tabId);
@@ -269,9 +300,20 @@ class UserTabs {
           title: ref.tab.title,
           openedBy: { kind: "human" as const },
           pending_dialog: entry && this.dialogOf(tabId, entry),
+          audible: ref.tab.audible,
+          muted: ref.tab.muted,
         };
       }),
     ];
+  }
+  private watchDownloads(id: string, ref: UserTabRef): () => void {
+    return this.user.onDownload(ref, (download) => {
+      if (this.closed) return;
+      const downloadId = `${ref.connectionId}-download-${download.id}`;
+      if (!this.downloaded.has(downloadId) && this.downloaded.size >= 128) return;
+      this.downloaded.set(downloadId, listedDownload(downloadId, id, download));
+      this.request.changed?.();
+    });
   }
   /** The tab's pending dialog, as the thread names it. */
   private dialogOf(tabId: string, entry: Entry): BrowserDialog | undefined {
@@ -302,6 +344,7 @@ class UserTabs {
             throw new Error("Browser tab unavailable");
           }
           entry.session = session;
+          entry.unwatch = this.watchDownloads(id, ref);
           for (const [method, listener] of listeners) session.cdp.on(method, listener);
           return session;
         },
@@ -392,8 +435,15 @@ class UserTabs {
         if (!found?.[1].session) throw new Error("Dialog no longer pending");
         await found[1].session.answerDialog(accept, promptText);
       },
-      // No `downloads`: the person's browser saves what its tabs download itself.
+      // The person's browser saves them where it always does; ace only lists them.
+      downloads: () => [...this.downloaded.values()],
       opener: (id) => this.agents.get(id)?.opener,
+      mute: async (id, muted) => {
+        const ref =
+          this.agents.get(id)?.ref ?? this.shared().find((entry) => sharedId(entry) === id);
+        if (!ref) throw new Error("Browser tab unavailable");
+        await this.user.mute(ref, muted);
+      },
       page: (id) => this.page(id),
     };
   }
@@ -432,6 +482,7 @@ class UserTabs {
     this.closed = true;
     this.stopWatching();
     const entries = [...this.agents.values(), ...this.claimed.values()];
+    for (const entry of entries) entry.unwatch?.();
     for (const entry of this.agents.values()) {
       entry.release?.();
       if (entry.ref) this.held.delete(refKey(entry.ref));
@@ -440,4 +491,22 @@ class UserTabs {
     this.claimed.clear();
     await Promise.allSettled(entries.map((entry) => entry.session?.close()));
   }
+}
+
+const states = { in_progress: "pending", complete: "complete", interrupted: "failed" } as const;
+function listedDownload(
+  downloadId: string,
+  tabId: string,
+  download: UserBrowserDownload,
+): BrowserDownload {
+  return {
+    downloadId,
+    tabId,
+    filename: download.filename,
+    bytes: download.bytes,
+    mimeType: download.mimeType,
+    flags: downloadFlags(download.filename, download.mimeType),
+    state: states[download.state],
+    ...(download.state === "complete" && download.path ? { path: download.path } : {}),
+  };
 }

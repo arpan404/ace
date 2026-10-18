@@ -111,6 +111,25 @@ export const pageScenarios: ConformanceScenario[] = [
     },
   },
   {
+    id: "browser-warnings",
+    title: "the browser's own warnings about a page (CSP) and its console warnings reach its logs",
+    async run(page) {
+      await visit(page, "/policy", "Policy page");
+      await eventually(async () => {
+        const warnings = Entries.parse(
+          await page.execute({ action: "logs", kind: "console", level: "warning" }),
+        );
+        expect(warnings.entries.map((entry) => entry.text)).toContainEqual(
+          expect.stringContaining("conformance-warning-marker"),
+        );
+        const console = Entries.parse(await page.execute({ action: "logs", kind: "console" }));
+        expect(console.entries.map((entry) => entry.text)).toContainEqual(
+          expect.stringMatching(/^\[security\] .*blocked\.png/),
+        );
+      });
+    },
+  },
+  {
     id: "logs",
     title: "the page's console messages and network requests are in its logs",
     async run(page) {

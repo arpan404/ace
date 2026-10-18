@@ -9,6 +9,33 @@ export const BrowserDialog = z.object({
 });
 export type BrowserDialog = z.infer<typeof BrowserDialog>;
 /**
+ * A site's HTTP sign-in prompt (basic or digest auth) holding a tab's page load. Only the person
+ * answers it: their credentials go straight to the browser engine and are never stored.
+ */
+export const BrowserAuthChallenge = z.object({
+  authId: id,
+  tabId: id,
+  origin: z.string().max(8192),
+  realm: z.string().max(1024).optional(),
+  scheme: z.string().max(64).optional(),
+});
+export type BrowserAuthChallenge = z.infer<typeof BrowserAuthChallenge>;
+/**
+ * The page in this tab was not opened because its certificate is not trusted. The person may
+ * proceed past it for this origin and certificate, for the browser's session; agents never may.
+ */
+export const BrowserCertificateError = z.object({
+  url: z.string().max(8192),
+  error: z.string().max(256),
+});
+export type BrowserCertificateError = z.infer<typeof BrowserCertificateError>;
+/**
+ * The page opened a file picker (a file input). The person picks files on their own device;
+ * agents use `upload` with the input's ref instead.
+ */
+export const BrowserFileChooser = z.object({ chooserId: id, tabId: id, multiple: z.boolean() });
+export type BrowserFileChooser = z.infer<typeof BrowserFileChooser>;
+/**
  * Who opened or is driving a tab. `page` is a popup the page itself opened. Unknown kinds decode
  * to undefined on the field that carries them, so a newer daemon never breaks an older client.
  */
@@ -52,6 +79,9 @@ export const BrowserTab = z.object({
   url: z.string().max(8192),
   title: z.string().max(1024),
   pending_dialog: BrowserDialog.optional(),
+  pending_auth: BrowserAuthChallenge.optional(),
+  certificate_error: BrowserCertificateError.optional(),
+  file_chooser: BrowserFileChooser.optional(),
   openedBy: BrowserTabActor.optional(),
   /** The actor whose command ran on this tab most recently. */
   drivenBy: BrowserTabActor.optional(),
@@ -79,6 +109,13 @@ export const BrowserTab = z.object({
   /** Page zoom as a factor (1 is 100%); absent at 100%. Set by the person, per tab. */
   zoom: z.number().min(0.25).max(5).optional(),
   emulation: BrowserTabEmulation.optional(),
+  /** The tab's page plays sound (it may be muted). */
+  audible: z.boolean().optional(),
+  /**
+   * The tab's sound is off. Background tabs and agents' tabs start muted; the tab the person
+   * watches plays. The person can turn it either way (`browser.tabs.mute`).
+   */
+  muted: z.boolean().optional(),
 });
 export type BrowserTab = z.infer<typeof BrowserTab>;
 /** Wire bound on one browser's tab list: far above what a person keeps open, still bounded. */

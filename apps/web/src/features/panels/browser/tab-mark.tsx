@@ -1,6 +1,11 @@
 import { useAgent } from "@ace/client-react";
 import { agentName } from "@ace/ui-core";
-import { EyeSlashIcon, GlobeSimpleIcon } from "@phosphor-icons/react";
+import {
+  EyeSlashIcon,
+  GlobeSimpleIcon,
+  SpeakerHighIcon,
+  SpeakerSlashIcon,
+} from "@phosphor-icons/react";
 import { AgentCursorIcon } from "@/components/ace-icons.tsx";
 import { useCallback, useSyncExternalStore } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -81,18 +86,39 @@ export function BrowserTabMark(props: { scope: string; tab: WorkspaceTab; classN
   );
 }
 
-/** After the title: the person kept agents out of this tab. */
+/** After the title: the tab plays sound (or is muted while it would), and agents kept out. */
 export function BrowserTabBadge(props: { scope: string; tab: WorkspaceTab; folded?: boolean }) {
   const source = useLoadedServices()?.preview;
   const tab = useDaemonTab(source, props.scope, daemonTabId(props.tab));
-  if (!tab?.private) return null;
-  if (props.folded) return null;
+  if (props.folded || !tab) return null;
+  const sound = tab.audible === true;
+  if (!tab.private && !sound) return null;
   return (
-    <EyeSlashIcon
-      role="img"
-      aria-label="Agents kept out"
-      size={12}
-      className="ml-0.5 shrink-0 text-subtle-foreground"
-    />
+    <>
+      {sound &&
+        (tab.muted ? (
+          <SpeakerSlashIcon
+            role="img"
+            aria-label="Muted"
+            size={12}
+            className="ml-0.5 shrink-0 text-subtle-foreground"
+          />
+        ) : (
+          <SpeakerHighIcon
+            role="img"
+            aria-label="Playing sound"
+            size={12}
+            className="ml-0.5 shrink-0 text-subtle-foreground"
+          />
+        ))}
+      {tab.private && (
+        <EyeSlashIcon
+          role="img"
+          aria-label="Agents kept out"
+          size={12}
+          className="ml-0.5 shrink-0 text-subtle-foreground"
+        />
+      )}
+    </>
   );
 }

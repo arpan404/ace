@@ -112,7 +112,7 @@ each agent popup with its `openerTabId`; `cdp` with a tab's CDP event, `sessionI
 its iframes; `detached` with a reason: `closed`, `revoked`, `stopped`,
 `canceled`, `sensitive`, `unreachable`). Daemon → extension: `user_browser.registered` and
 `user_browser.command` with an operation: `tabs.list`, `tabs.open {url?}`, `tabs.attach {tabId}`,
-`tabs.detach {tabId}`, `tabs.close {tabId}` (agent tabs only), `cdp {tabId, sessionId?, method,
+`tabs.detach {tabId}`, `tabs.close {tabId}` (agent tabs only), `tabs.mute {tabId, muted}` (ADR 0086), `cdp {tabId, sessionId?, method,
 params}` and `stop`. Host → extension only: `user_browser.link` with the daemon link state.
 
 Settings use `user_browser.settings` (`status`, `install`, `revoke`, `stop`) and its
@@ -141,9 +141,9 @@ Alerts, confirms and prompts are reported as the tab's `pending_dialog` and answ
 `Page.handleJavaScriptDialog` (the person can still answer them in their browser; a
 `beforeunload` in an agent tab is accepted only when an agent's command leaves a page the person
 has not used; ADR 0067, "Leaving a page the person was editing"). Snapshots and refs reach same-origin frames through
-the tab and cross-site frames through their child sessions. Downloads are not reported: the
-person's browser saves them itself, so `ace_browser_downloads` fails at once with
-`not_supported` instead of waiting for a download it can never see. Loss of a
+the tab and cross-site frames through their child sessions. Downloads a controlled tab starts are reported (amended by ADR 0086): the extension pairs the
+tab's `Page.downloadWillBegin` with `chrome.downloads` and sends `download` events (name, state,
+size, final path); the files stay where the person's browser saved them and are not artifacts. Loss of a
 tab, link or browser closes the thread's session; it never falls back to ace's own browsers,
 because the page's logins would not come with it.
 
@@ -252,4 +252,5 @@ on a real link: the agent's tab opens in the person's browser, a shared tab is l
 person's and attached only on first use, a lost browser closes the thread's session there, and
 ace's own browser is never opened. The shared browser conformance suite
 (`packages/browser-extension/src/conformance.process.test.ts`) runs every engine scenario against
-this backend, with downloads declared `not_supported`.
+this backend; its downloads scenario is skipped there (no artifact) and covered by
+`my-chrome-page-edges.process.test.ts`.

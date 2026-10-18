@@ -15,6 +15,8 @@ import {
   PuzzlePieceIcon,
   RecordIcon,
   ShieldSlashIcon,
+  SpeakerHighIcon,
+  SpeakerSlashIcon,
   StopCircleIcon,
   XCircleIcon,
 } from "@phosphor-icons/react";
@@ -245,6 +247,15 @@ export function BrowserActions(props: {
           Open in your browser
         </MenuItem>
         <AskAgentItem threadId={props.threadId} tab={tab} />
+        {(tab?.audible || tab?.muted) && (
+          <MenuItem
+            icon={icon(tab.muted ? SpeakerHighIcon : SpeakerSlashIcon)}
+            disabled={!usable}
+            onClick={() => void browser.muteTab(tab.tabId, !tab.muted)}
+          >
+            {tab.muted ? "Unmute tab" : "Mute tab"}
+          </MenuItem>
+        )}
         {hidden && (
           <MenuItem icon={icon(PuzzlePieceIcon)} onClick={() => extensionsHidden.set(() => false)}>
             Show extensions in the toolbar

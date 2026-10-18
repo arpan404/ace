@@ -8,6 +8,7 @@ import {
 } from "@phosphor-icons/react";
 import {
   addressHost,
+  describeBrowserFailure,
   displayAddress,
   type AddressSuggestion,
   type BrowserFailure,
@@ -171,6 +172,31 @@ export function LoadFailed(props: {
         {props.extra}
       </div>
     </div>
+  );
+}
+
+/**
+ * The page wasn't opened because its certificate isn't trusted (a self-signed dev server, say).
+ * The person may proceed anyway for this site and certificate until the browser restarts;
+ * agents never can.
+ */
+export function CertificateWarning(props: {
+  url: string;
+  error: string;
+  onReload(): void;
+  onProceed(): void;
+}) {
+  return (
+    <LoadFailed
+      url={props.url}
+      failure={describeBrowserFailure(`net::${props.error}`, props.url)}
+      onReload={props.onReload}
+      extra={
+        <Button size="sm" variant="ghost" onClick={props.onProceed}>
+          Proceed anyway (unsafe)
+        </Button>
+      }
+    />
   );
 }
 

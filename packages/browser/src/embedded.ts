@@ -669,6 +669,8 @@ function embeddedTabList(
     dialog: () => tabs.dialog(),
     answer: (id, accept, text) => tabs.answer(id, accept, text),
     downloads: () => tabs.downloads(),
+    proceedCertificate: (id, url) => tabs.proceedCertificate(id, url),
+    mute: (id, muted) => tabs.mute(id, muted),
     page: (id) => {
       tabs.tab(id);
       let page = pages.get(id);

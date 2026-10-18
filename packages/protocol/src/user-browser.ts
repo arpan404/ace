@@ -44,8 +44,25 @@ export const UserBrowserTab = z.object({
   attached: z.boolean(),
   /** The agent tab whose page opened this one (a `target=_blank` link, `window.open`). */
   openerTabId: tabId.optional(),
+  /** The tab plays sound, and whether it is muted. Agent tabs open muted. */
+  audible: z.boolean().optional(),
+  muted: z.boolean().optional(),
 });
 export type UserBrowserTab = z.infer<typeof UserBrowserTab>;
+
+/**
+ * A download a controlled tab started, as the person's browser saved it. The file stays where
+ * the browser put it (`path`); ace only reports it.
+ */
+export const UserBrowserDownload = z.object({
+  id: z.number().int().nonnegative(),
+  filename: z.string().max(256),
+  path: z.string().max(4096),
+  state: z.enum(["in_progress", "complete", "interrupted"]),
+  bytes: z.number().int().nonnegative(),
+  mimeType: z.string().max(256),
+});
+export type UserBrowserDownload = z.infer<typeof UserBrowserDownload>;
 
 export const UserBrowserIdentity = z.object({
   family: UserBrowserFamily,
@@ -94,6 +111,7 @@ export const UserBrowserEvent = z.object({
       params: z.unknown(),
     }),
     z.object({ kind: z.literal("detached"), tabId, reason: UserBrowserDetachReason }),
+    z.object({ kind: z.literal("download"), tabId, download: UserBrowserDownload }),
   ]),
 });
 /** From the extension, through the host, to the daemon. */
@@ -110,6 +128,8 @@ export const UserBrowserOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("tabs.attach"), tabId }),
   z.object({ op: z.literal("tabs.detach"), tabId }),
   z.object({ op: z.literal("tabs.close"), tabId }),
+  /** The person turns a controlled tab's sound off or on. */
+  z.object({ op: z.literal("tabs.mute"), tabId, muted: z.boolean() }),
   z.object({
     op: z.literal("cdp"),
     tabId,

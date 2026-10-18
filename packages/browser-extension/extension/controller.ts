@@ -6,6 +6,7 @@ import type {
 } from "@ace/protocol";
 import type { ChromeApi, ChromeTab, DebuggeeSource, DebuggerSession } from "./chrome-api.ts";
 import { cdpAllowed, cdpNavigation, pageAllowed } from "./policy.ts";
+import { DownloadReporter } from "./downloads.ts";
 
 const groupTitle = "ace";
 /** Out-of-process iframes one controlled tab may expose; more are left out of reach. */
@@ -40,9 +41,11 @@ export class Controller {
   private linkState: ControllerState["link"] = "offline";
   private linkDetail: string | undefined;
   private listeners = new Set<() => void>();
+  private downloads: DownloadReporter;
   constructor(chrome: ChromeApi, post: (message: UserBrowserExtensionMessage) => void) {
     this.chrome = chrome;
     this.post = post;
+    this.downloads = new DownloadReporter(chrome, post, () => Date.now());
     chrome.debugger.onEvent.addListener((source, method, params) =>
       this.cdpEvent(source, method, params),
     );
@@ -99,6 +102,12 @@ export class Controller {
         await this.detach(operation.tabId, "revoked", false);
         await this.publish();
         return null;
+      case "tabs.mute":
+        if (!this.shared.has(operation.tabId) && !this.agent.has(operation.tabId))
+          throw new Error("That tab is not shared with ace");
+        await this.chrome.tabs.update(operation.tabId, { muted: operation.muted });
+        await this.publish();
+        return null;
       case "tabs.close":
         if (!this.agent.has(operation.tabId)) throw new Error("ace closes only tabs it opened");
         await this.detach(operation.tabId, "closed", false);
@@ -131,6 +140,8 @@ export class Controller {
       access: this.agent.has(tabId) ? "agent" : "shared",
       attached: this.attached.has(tabId),
       ...(this.openers.has(tabId) ? { openerTabId: this.openers.get(tabId) } : {}),
+      audible: tab.audible ?? false,
+      muted: tab.mutedInfo?.muted ?? false,
     };
   }
   /** A new agent tab in ace's own unfocused window, grouped as "ace". */
@@ -156,8 +167,13 @@ export class Controller {
     if (tab?.id === undefined) throw new Error("Your browser did not open a tab");
     const tabId = tab.id;
     this.agent.add(tabId);
+    await this.quiet(tabId);
     await this.group(tabId, tab.windowId);
     return this.attach(tabId);
+  }
+  /** Agents' tabs start muted: their pages never play over what the person is doing. */
+  private async quiet(tabId: number): Promise<void> {
+    await this.chrome.tabs.update(tabId, { muted: true }).catch(() => {});
   }
   private async group(tabId: number, windowId: number): Promise<void> {
     if (!this.chrome.tabGroups) return;
@@ -232,6 +248,7 @@ export class Controller {
     const tabId = tab.id;
     this.agent.add(tabId);
     this.openers.set(tabId, opener);
+    await this.quiet(tabId);
     await this.group(tabId, tab.windowId);
     await this.attach(tabId).catch(async () => {
       this.agent.delete(tabId);
@@ -284,6 +301,7 @@ export class Controller {
     if (method === "Target.detachedFromTarget") this.childDetached(tabId, params);
     // Events of a child session ace does not control (a worker) stay here.
     if (sessionId !== undefined && !this.frames.get(tabId)?.has(sessionId)) return;
+    if (sessionId === undefined) this.downloads.pageEvent(tabId, method, params);
     this.post({
       type: "user_browser.event",
       event: {
@@ -328,7 +346,13 @@ export class Controller {
   }
   private async updated(
     tabId: number,
-    change: { url?: string; title?: string; groupId?: number },
+    change: {
+      url?: string;
+      title?: string;
+      groupId?: number;
+      audible?: boolean;
+      mutedInfo?: { muted: boolean };
+    },
   ): Promise<void> {
     if (!this.shared.has(tabId) && !this.agent.has(tabId)) return;
     if (change.url !== undefined && !pageAllowed(change.url)) {
@@ -344,7 +368,13 @@ export class Controller {
       // Dragged out of ace's group: the tab is the person's now.
       this.agent.delete(tabId);
       await this.detach(tabId, "revoked");
-    } else if (change.url === undefined && change.title === undefined) return;
+    } else if (
+      change.url === undefined &&
+      change.title === undefined &&
+      change.audible === undefined &&
+      change.mutedInfo === undefined
+    )
+      return;
     await this.publish();
   }
   private async publish(): Promise<void> {

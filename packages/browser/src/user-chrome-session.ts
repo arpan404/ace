@@ -4,7 +4,7 @@ import type { BackendOpen, BrowserBackendSession } from "./backend.ts";
 import { cancellableCdp } from "./cancellable-cdp.ts";
 import { navigateCdp } from "./cdp-navigation.ts";
 import { chromeInput } from "./chrome-input.ts";
-import { consoleEntry } from "./console-entry.ts";
+import { consoleEntry, consoleEvents } from "./console-entry.ts";
 import { modelScreenshot } from "./model-screenshot.ts";
 import { pageStatus } from "./page-status.ts";
 import { countingDomNodes } from "./user-chrome-dom-counters.ts";
@@ -104,7 +104,7 @@ export async function userTabSession(
     url = parsed.data.url;
     request.navigation();
   });
-  for (const method of ["Runtime.consoleAPICalled", "Runtime.exceptionThrown"])
+  for (const method of consoleEvents)
     cdp.on(method, (raw) => {
       const entry = consoleEntry(method, raw);
       if (entry) request.log(entry);
@@ -170,7 +170,7 @@ export async function userTabSession(
       await link.command(operation).catch(() => {});
     })());
   try {
-    for (const domain of ["Page.enable", "Runtime.enable", "Network.enable"])
+    for (const domain of ["Page.enable", "Runtime.enable", "Network.enable", "Log.enable"])
       await cdp.send(domain);
     stopWatching = await person.install(cdp, () => request.humanInput?.());
     // The page may have committed before the debugger came (a popup the page just opened).

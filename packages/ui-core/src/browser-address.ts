@@ -172,8 +172,13 @@ const netErrors: Record<string, (host: string) => Omit<BrowserFailure, "code">> 
     detail: `Chromium won't open ${host}: its port is reserved for other services.`,
   }),
   ERR_INTERNET_DISCONNECTED: () => ({
-    title: "No internet connection",
-    detail: "This machine is offline.",
+    title: "You're offline",
+    detail:
+      "The machine running the browser has no connection. The page loads again by itself once it's back.",
+  }),
+  ERR_NETWORK_CHANGED: () => ({
+    title: "The connection changed",
+    detail: "The network changed while the page loaded. It loads again by itself.",
   }),
   ERR_CONNECTION_TIMED_OUT: (host) => ({
     title: "This site took too long to respond",
@@ -192,6 +197,12 @@ const netErrors: Record<string, (host: string) => Omit<BrowserFailure, "code">> 
 export function describeBrowserFailure(message: string, url: string): BrowserFailure {
   const host = addressHost(url) ?? url;
   const net = /net::(ERR_[A-Z_]+)/.exec(message)?.[1];
+  if (net?.startsWith("ERR_CERT_") && !netErrors[net])
+    return {
+      title: "This connection isn't private",
+      detail: `${host}'s certificate isn't valid (${net}), so the page wasn't opened.`,
+      code: net,
+    };
   if (net) {
     const known = netErrors[net];
     return known

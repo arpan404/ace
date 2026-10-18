@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { NavigationPolicies } from "./policy-waits.ts";
 import { BrowserActionError } from "./action-error.ts";
 import type { BackendLog, BrowserBackendSession, PopupTarget } from "./backend.ts";
@@ -18,6 +19,9 @@ import { settleIdleTabs, wakeTab } from "./session-lifecycle.ts";
 import { tabCommand } from "./session-commands.ts";
 import { collaborationTiming } from "./collaboration.ts";
 import { keepAfterPersonMs, temporaryTabs } from "./turn-end.ts";
+import { requestAsPerson, type PersonRequest } from "./person-requests.ts";
+import { OfflineRetries } from "./offline-retry.ts";
+import { printPdf } from "./page-capture.ts";
 
 import type { Actor, SessionOptions } from "./session-options.ts";
 import type { BrowserTabActor } from "@ace/protocol";
@@ -58,6 +62,8 @@ export class BrowserSession {
   private capturing: Promise<void> = Promise.resolve();
   private captureToken = 0;
   private stopLifecycle = () => {};
+  private offline: OfflineRetries;
+  private printing: Promise<void> | undefined;
   get evictable(): boolean {
     return (
       this.tabs.all().every((tab) => !tab.private && !tab.busy) &&
@@ -109,6 +115,9 @@ export class BrowserSession {
       },
     );
     this.tabs = new SessionTabs(this.host(), () => this.options.backend);
+    this.offline = new OfflineRetries(options.navigationClock, async (tabId) => {
+      await this.tabs.page(tabId).cdp.send("Page.reload");
+    });
     for (const record of options.restoredTabs ?? [])
       this.tabs.expect(record.tabId, {
         openedBy: record.openedBy,
@@ -167,6 +176,7 @@ export class BrowserSession {
       }),
       dialog: (tabId) =>
         this.options.backend.tabs?.list().find((tab) => tab.tabId === tabId)?.pending_dialog,
+      listed: (tabId) => this.options.backend.tabs?.list().find((tab) => tab.tabId === tabId),
       answer: async (dialogId, accept, promptText) => {
         const tabs = this.options.backend.tabs;
         if (!tabs) throw new BrowserActionError("not_supported");
@@ -397,6 +407,16 @@ export class BrowserSession {
   restyleCursors(): void {
     for (const tab of this.tabs.all()) tab.cursor.restyle();
   }
+  /** What only the person may ask of a page, such as answering a site's sign-in. */
+  async asPerson(request: PersonRequest): Promise<BrowserState> {
+    this.tab(request.tabId);
+    this.lastActivity = this.options.now();
+    await requestAsPerson(this.options.backend.tabs, request, async () =>
+      join(this.options.dir, "chosen-files", this.options.id()),
+    );
+    this.emit();
+    return this.state;
+  }
   /** The person used a tab in a view the daemon does not route (the desktop's native view). */
   leaveUnasked(tabId?: string): boolean {
     if (this.closed) return false;
@@ -430,6 +450,18 @@ export class BrowserSession {
             await this.tabs.close(tab.id);
         })
         .catch(() => {});
+    this.announcePopups(added);
+    this.offline.update(
+      this.tabs.all().map((tab) => {
+        let status: { loading: boolean; loadError?: string | undefined } | undefined;
+        try {
+          status = this.tabs.page(tab.id).pageStatus?.();
+        } catch {
+          status = undefined;
+        }
+        return { tabId: tab.id, loading: status?.loading ?? false, loadError: status?.loadError };
+      }),
+    );
     const viewedId = this.tabs.viewedId();
     if (viewedId !== this.captured && !this.paused) {
       this.tabs.find(this.captured ?? "")?.annotation.end("tab");
@@ -442,6 +474,54 @@ export class BrowserSession {
     }
     this.persist();
     this.emit();
+  }
+  /**
+   * The page called `window.print()` where no print dialog can show (ace's Chrome, or a desktop
+   * tab the person isn't using): ace saves the page as a PDF and offers it as an artifact. One
+   * at a time; a page asking again meanwhile is ignored.
+   */
+  print(tabId?: string): void {
+    if (this.closed || this.printing) return;
+    const runtime = tabId === undefined ? this.tabs.viewed() : this.tabs.find(tabId);
+    if (!runtime || runtime.private) return;
+    this.printing = (async () => {
+      const pdf = await printPdf(
+        this.tabs.page(runtime.id),
+        this.options.dir,
+        `print-${this.options.id()}`,
+        {
+          landscape: false,
+          printBackground: true,
+        },
+      );
+      await this.options.artifact({ ...pdf, filename: "page.pdf" });
+      this.log({
+        kind: "console",
+        type: "print",
+        tabId: runtime.id,
+        text: `The page asked to print; ace saved it as a PDF: ${pdf.path}`,
+      });
+    })()
+      .catch(() => {})
+      .finally(() => {
+        this.printing = undefined;
+      });
+  }
+  /** Popups the backend adopted as tabs: their openers' agents and the logs hear of them. */
+  private announcePopups(added: readonly TabRuntime[]): void {
+    const tabs = this.options.backend.tabs;
+    for (const tab of added) {
+      const openerId = tabs?.opener?.(tab.id);
+      if (openerId === undefined) continue;
+      const url = tabs?.list().find((entry) => entry.tabId === tab.id)?.url ?? "about:blank";
+      this.tabs.find(openerId)?.popupOpened({ tabId: tab.id, url });
+      this.log({
+        kind: "console",
+        type: "popup",
+        tabId: openerId,
+        text: `The page opened a window as tab ${tab.id}; act in it with that tabId.`,
+      });
+    }
   }
   execute(raw: unknown, actor: Actor = { kind: "agent" }, signal?: AbortSignal): Promise<unknown> {
     return this.submit(BrowserCommand.parse(raw), actor, signal);
@@ -679,6 +759,7 @@ export class BrowserSession {
   close(): Promise<void> {
     this.closing ??= (async () => {
       this.stopLifecycle();
+      this.offline.close();
       for (const tab of this.tabs.all()) tab.annotation.end("stopped");
       this.lastUrl = this.options.backend.url();
       this.closed = true;

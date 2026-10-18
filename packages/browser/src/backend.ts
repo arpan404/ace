@@ -55,6 +55,8 @@ export interface BackendOpen {
   /** The person used a tab directly, in a view the daemon does not route (the desktop's). */
   humanInput?(tabId?: string): void;
   navigation(tabId?: string): void;
+  /** The page called `window.print()` and no print dialog showed for it (ADR 0086). */
+  print?(tabId?: string): void;
   /** A renderer (with `tabId`) or the whole browser (without) came back; re-arm its pages. */
   restarted?(tabId?: string): void;
   log(entry: BackendLog): void;
@@ -100,6 +102,27 @@ export interface BrowserBackendTabs {
    * new tab counts as opened by whoever drove its opener.
    */
   opener?(tabId: string): string | undefined;
+  /**
+   * The person's answer to a site's sign-in prompt (the tab's `pending_auth`); omitted
+   * credentials cancel it. A backend whose engine prompts the person itself has none.
+   */
+  answerAuth?(
+    tabId: string,
+    authId: string,
+    credentials?: { username: string; password: string },
+  ): Promise<void>;
+  /**
+   * The person proceeds past the tab's certificate error to `url`, for that origin and
+   * certificate while the engine runs. Only the person's own request reaches this.
+   */
+  proceedCertificate?(tabId: string, url: string): Promise<void>;
+  /**
+   * The person's files for the tab's open file picker (`file_chooser`), as local paths; none
+   * cancels it.
+   */
+  chooseFiles?(tabId: string, chooserId: string, paths: readonly string[]): Promise<void>;
+  /** The person turns a tab's sound off or on (its `muted`). */
+  mute?(tabId: string, muted: boolean): Promise<void>;
   page?(tabId: string): BrowserBackendPage;
   /** Drops an idle tab's page, keeping the tab listed at its address (ace's Chrome only). */
   discard?(tabId: string): Promise<void>;

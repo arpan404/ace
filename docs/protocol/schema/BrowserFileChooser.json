@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserFileChooser.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "chooserId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "multiple": {
+      "type": "boolean"
+    },
+    "tabId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "chooserId",
+    "tabId",
+    "multiple"
+  ],
+  "type": "object"
+}

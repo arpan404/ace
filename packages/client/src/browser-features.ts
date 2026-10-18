@@ -88,6 +88,65 @@ export class BrowserFeaturesClient {
       options,
     );
   }
+  /**
+   * The person's answer to a site's sign-in prompt; without credentials it is cancelled. The
+   * credentials go to the page's browser for that request; nothing in ace keeps them.
+   */
+  answerAuth(
+    threadId: string,
+    tabId: string,
+    authId: string,
+    credentials?: { username: string; password: string },
+    options?: RequestOptions,
+  ) {
+    return this.read(
+      {
+        type: "browser.auth.answer",
+        threadId: ThreadId.parse(threadId),
+        tabId,
+        authId,
+        ...(credentials ? { credentials } : {}),
+      },
+      BrowserState,
+      options,
+    );
+  }
+  /** The person's files (thread attachments) for the tab's open file picker; none cancels it. */
+  chooseFiles(
+    threadId: string,
+    tabId: string,
+    chooserId: string,
+    files: readonly { sha256: string; name: string }[],
+    options?: RequestOptions,
+  ) {
+    return this.read(
+      {
+        type: "browser.files.choose",
+        threadId: ThreadId.parse(threadId),
+        tabId,
+        chooserId,
+        files: [...files],
+      },
+      BrowserState,
+      options,
+    );
+  }
+  /** Turn a tab's sound off or on; it stays that way until the person changes it. */
+  muteTab(threadId: string, tabId: string, muted: boolean, options?: RequestOptions) {
+    return this.read(
+      { type: "browser.tabs.mute", threadId: ThreadId.parse(threadId), tabId, muted },
+      BrowserState,
+      options,
+    );
+  }
+  /** Proceed past the tab's certificate error to `url`, for that origin and certificate. */
+  proceedCertificate(threadId: string, tabId: string, url: string, options?: RequestOptions) {
+    return this.read(
+      { type: "browser.certificate.proceed", threadId: ThreadId.parse(threadId), tabId, url },
+      BrowserState,
+      options,
+    );
+  }
   private async read<T>(
     request: BrowserRequest,
     schema: z.ZodType<T>,

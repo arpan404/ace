@@ -7,6 +7,7 @@ import {
 } from "./browser-features.ts";
 import { BrowserInteractionAction, BrowserMeasurementOptions } from "./interaction-measurement.ts";
 import { ThreadId, WorkspaceId } from "./ids.ts";
+import { BlobHash } from "./context.ts";
 import {
   BrowserAnnotationCaptureTarget,
   BrowserAnnotationConfig,
@@ -392,11 +393,44 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
     accept: z.boolean(),
     promptText: z.string().max(4096).optional(),
   }),
+  /**
+   * The person answers a site's sign-in prompt. Without `credentials` the sign-in is cancelled.
+   * The credentials go to the browser engine for that request only; ace never stores them.
+   */
+  base.extend({
+    type: z.literal("browser.auth.answer"),
+    tabId: short,
+    authId: short,
+    credentials: z
+      .object({ username: z.string().max(4096), password: z.string().max(4096) })
+      .optional(),
+  }),
+  /**
+   * The person proceeds past a certificate error to `url` (the tab's `certificate_error`), for
+   * that origin and certificate until the browser restarts. Agents have no way to send this.
+   */
+  base.extend({
+    type: z.literal("browser.certificate.proceed"),
+    tabId: short,
+    url: z.string().max(8192),
+  }),
   base.extend({ type: z.literal("browser.execute"), command: BrowserCommand }),
   base.extend({ type: z.literal("browser.subscribe"), subscriberId: short.optional() }),
   base.extend({ type: z.literal("browser.capture"), viewport: BrowserCaptureViewport }),
   base.extend({ type: z.literal("browser.unsubscribe"), subscriberId: short.optional() }),
   base.extend({ type: z.literal("browser.ack"), sequence: z.number().int().nonnegative() }),
+  /**
+   * The person's files for the tab's `file_chooser`, uploaded first as thread attachments
+   * (`upload.begin` … `upload.commit`). No files cancels the picker.
+   */
+  base.extend({
+    type: z.literal("browser.files.choose"),
+    tabId: short,
+    chooserId: short,
+    files: z.array(z.object({ sha256: BlobHash, name: z.string().min(1).max(255) })).max(16),
+  }),
+  /** The person turns a tab's sound off or on; it stays that way until they change it. */
+  base.extend({ type: z.literal("browser.tabs.mute"), tabId: short, muted: z.boolean() }),
   /** "Keep agents out of this tab": agents can neither read nor drive a private tab. */
   base.extend({ type: z.literal("browser.tabs.private"), tabId: short, private: z.boolean() }),
   base.extend({ type: z.literal("browser.input"), input: BrowserInput, tabId: short.optional() }),

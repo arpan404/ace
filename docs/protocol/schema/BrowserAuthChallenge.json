@@ -1,0 +1,34 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserAuthChallenge.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "authId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "origin": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "realm": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "scheme": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "tabId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "authId",
+    "tabId",
+    "origin"
+  ],
+  "type": "object"
+}

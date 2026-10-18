@@ -15,7 +15,6 @@ import {
   approvalByKey,
   approvalCopy,
   browserHelpTitle,
-  privateBrowserGate,
   displayCommand,
   questionTitle,
   requestIdentity,

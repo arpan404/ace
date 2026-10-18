@@ -101,6 +101,22 @@ export function fakeBrowserSession(
                 };
           break;
         }
+        case "browser.auth.answer":
+          browser.signInAnswer(id, message.tabId, message.authId, message.credentials);
+          result = BrowserState.parse(browser.view(id));
+          break;
+        case "browser.certificate.proceed":
+          browser.certificateProceed(id, message.tabId, message.url);
+          result = BrowserState.parse(browser.view(id));
+          break;
+        case "browser.files.choose":
+          browser.chooseFiles(id, message.tabId, message.chooserId, message.files);
+          result = BrowserState.parse(browser.view(id));
+          break;
+        case "browser.tabs.mute":
+          browser.mute(id, message.tabId, message.muted);
+          result = BrowserState.parse(browser.view(id));
+          break;
         case "browser.tabs.private":
           browser.setPrivate(id, message.tabId, message.private);
           result = BrowserState.parse(browser.view(id));

@@ -19,6 +19,11 @@ contextBridge.exposeInMainWorld(
   },
 );
 
+/** `window.print()`: the main process shows the native print dialog, or ace saves a PDF. */
+contextBridge.exposeInMainWorld("__acePrint", () => {
+  ipcRenderer.send("ace:browser.print");
+});
+
 // Install in each frame's main world, including out-of-process cross-origin frames.
 contextBridge.executeInMainWorld({
   func: () => {
@@ -28,6 +33,8 @@ contextBridge.executeInMainWorld({
       dialog("alert", String(message), "");
     };
     window.confirm = (message: unknown = "") => dialog("confirm", String(message), "") === true;
+    const print: unknown = Reflect.get(window, "__acePrint");
+    if (typeof print === "function") window.print = () => void print();
     window.prompt = (message: unknown = "", defaultValue: unknown = "") => {
       const value: unknown = dialog("prompt", String(message), String(defaultValue));
       return typeof value === "string" ? value : null;

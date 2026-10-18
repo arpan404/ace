@@ -36,6 +36,7 @@ export const PublicToolCode = z.enum([
   "stale_ref",
   "human_active",
   "human_private",
+  "needs_person",
   "browser_paused",
   "browser_closed",
   "backend_changed",
@@ -224,6 +225,10 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   human_private: {
     message: "The person keeps agents out of this tab",
     hint: "Use another tab, or ask the person to let agents into this one.",
+  },
+  needs_person: {
+    message: "This page needs the person",
+    hint: "The tab shows a certificate warning that only the person may proceed past. Tell them; they choose in ace's Browser panel. Navigate elsewhere or wait until they have.",
   },
   browser_paused: {
     message: "Browser backend paused",

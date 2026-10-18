@@ -108,6 +108,21 @@ export interface BrowserTabView {
   zoom?: number | undefined;
   /** The device the tab emulates and who set it; absent: it follows the pane. */
   emulation?: (Emulation & { by: "human" | "agent" }) | undefined;
+  /** The page opened a file picker; the person picks files on this device. */
+  fileChooser?: { chooserId: string; tabId: string; multiple: boolean } | undefined;
+  /** The page plays sound; `muted` says whether it is heard. */
+  audible?: boolean | undefined;
+  muted?: boolean | undefined;
+  /** A site's sign-in prompt holding the page; only the person answers it. */
+  pendingAuth?: BrowserSignInView | undefined;
+  /** The page wasn't opened: its certificate isn't trusted. The person may proceed anyway. */
+  certificateError?: { url: string; error: string } | undefined;
+}
+export interface BrowserSignInView {
+  authId: string;
+  tabId: string;
+  origin: string;
+  realm?: string | undefined;
 }
 export interface BrowserDownloadView {
   downloadId: string;

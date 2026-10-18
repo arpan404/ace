@@ -22,7 +22,13 @@ describe.skipIf(!executablePath)("which threads an agent browses in", () => {
       config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
       browser: {
         executablePath,
-        collaboration: { quietMs: 1_500, maxWaitMs: 10_000, inUseMs: 200, followAfterMs: 30_000 },
+        collaboration: {
+          quietMs: 1_500,
+          maxWaitMs: 10_000,
+          inUseMs: 200,
+          followAfterMs: 30_000,
+          presentMs: 30_000,
+        },
       },
     });
     const workspace = daemon.store.createWorkspace(home, "Repo");

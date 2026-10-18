@@ -25,6 +25,8 @@ import { openDevTools, printPage } from "./devtools.ts";
 import type { BrowserContextAction } from "../../shared/contract.ts";
 import { HumanInputReports } from "./human-input.ts";
 import { UnloadGuard } from "./unload.ts";
+import type { CertificateExceptions } from "./certificates.ts";
+import { audioMuted } from "./audio.ts";
 const throttleIdleMs = 30_000;
 /** The longest the view keeps keys for the app before giving them up. */
 const handoffMs = 1_000;
@@ -51,6 +53,8 @@ export interface PageOptions {
   rememberPopup?(contents: WebContents): () => void;
   /** Asks the person whether to leave a page that warns of unsaved changes; true: leave. */
   confirmLeave(window: BaseWindow): boolean;
+  /** Certificates the person trusted in this thread's browser (shared by its tabs). */
+  certificates?: CertificateExceptions | undefined;
 }
 
 export class EmbeddedPage implements ViewPage {
@@ -124,6 +128,11 @@ export class EmbeddedPage implements ViewPage {
   /** When the person last pressed the right button here: only their clicks open the menu. */
   private humanContextAt = -Infinity;
   private unload: UnloadGuard;
+  /** The certificate the shown document last failed on, for the person to proceed past. */
+  private certificateError: { url: string; fingerprint: string } | undefined;
+  /** The person's own sound choice for this tab, once they made one. */
+  private audioChoice: boolean | undefined;
+  private audioReported = "";
 
   constructor(options: PageOptions) {
     this.options = options;
@@ -151,10 +160,11 @@ export class EmbeddedPage implements ViewPage {
       // The daemon's navigation fails at once instead of waiting for a load that never comes.
       () => this.emit("ace.unloadRefused", {}),
     );
+    // A sign-in popup (window.opener, OAuth) opens for the person and for an agent's tab alike.
     this.popups = new NativePopups({
       contents,
       authPreload: options.authPreload,
-      allowed: () => this.nativeInput,
+      allowed: () => this.popupsAllowed(),
       emit: (method, params) => this.emit(method, params),
       remember: (popup) => options.rememberPopup?.(popup) ?? (() => {}),
       navigate: (url) => {
@@ -170,6 +180,14 @@ export class EmbeddedPage implements ViewPage {
       this.emit("ace.title", { title: title.slice(0, 1024) }),
     );
     contents.on("will-attach-webview", (event) => event.preventDefault());
+    contents.on("certificate-error", (event, url, _error, certificate, callback, isMainFrame) => {
+      if (options.certificates?.allows(url, certificate.fingerprint)) {
+        event.preventDefault();
+        callback(true);
+        return;
+      }
+      if (isMainFrame) this.certificateError = { url, fingerprint: certificate.fingerprint };
+    });
     contents.on("before-input-event", (event, input) => {
       if (this.injecting === 0 && this.handoff.capture(Date.now(), input)) {
         event.preventDefault();
@@ -259,6 +277,14 @@ export class EmbeddedPage implements ViewPage {
       if (!contents.isDestroyed() && contents.getZoomFactor() !== this.appliedZoom)
         contents.setZoomFactor(this.appliedZoom);
     });
+    contents.on("audio-state-changed", () => this.reportAudio());
+    // The person's own tab prints through the native dialog; an agent's or unseen tab, which no
+    // dialog can show for, has ace save the page as a PDF instead.
+    contents.ipc.on("ace:browser.print", () => {
+      if (this.nativeInput && this.placed) contents.print({});
+      else this.emit("ace.printRequested", {});
+    });
+    this.applyAudio();
     contents.on("destroyed", () => this.detached("Browser view destroyed"));
   }
 
@@ -477,6 +503,7 @@ export class EmbeddedPage implements ViewPage {
     // Hidden views stay alive (and attached) but stop painting, and send no frames, unless an
     // agent drives them: then they render in the parking window (see `ViewPresence`).
     this.updateThrottle();
+    this.applyAudio();
   }
 
   async placementReady(): Promise<void> {
@@ -559,6 +586,12 @@ export class EmbeddedPage implements ViewPage {
     }
     if (method === "ace.rendererReady") {
       this.recovery.ready();
+      return {};
+    }
+    if (method === "ace.certificate.proceed") return this.proceedCertificate(params);
+    if (method === "ace.audio.mute") {
+      this.audioChoice = z.object({ muted: z.boolean() }).parse(params).muted;
+      this.applyAudio();
       return {};
     }
     if (this.popups.command(method, params) || this.dialogs.answer(method, params)) return {};
@@ -764,15 +797,59 @@ export class EmbeddedPage implements ViewPage {
 
   setNativeInput(enabled: boolean): void {
     this.nativeInput = enabled;
-    if (!enabled) {
-      this.popups.close();
-      this.auth.close();
-    }
+    if (!enabled) this.auth.close();
+    if (!this.popupsAllowed()) this.popups.close();
     this.updateThrottle();
+  }
+
+  /** Sound follows the person's view (see `audioMuted`); the daemon hears of every change. */
+  private applyAudio(): void {
+    if (this.contents.isDestroyed()) return;
+    const muted = audioMuted({
+      shown: this.placed,
+      agentControl: this.agentControl,
+      chosen: this.audioChoice,
+    });
+    if (this.contents.isAudioMuted() !== muted) this.contents.setAudioMuted(muted);
+    this.reportAudio();
+  }
+
+  private reportAudio(): void {
+    if (this.contents.isDestroyed()) return;
+    const audio = {
+      audible: this.contents.isCurrentlyAudible(),
+      muted: this.contents.isAudioMuted(),
+    };
+    const key = JSON.stringify(audio);
+    if (key === this.audioReported) return;
+    this.audioReported = key;
+    this.emit("ace.audio", audio);
+  }
+
+  /** Popups exist while the person or an agent uses the page, never for an idle unseen one. */
+  private popupsAllowed(): boolean {
+    return this.nativeInput || this.agentControl;
+  }
+
+  /**
+   * The person proceeds past the certificate error they were shown for `url`: this thread's
+   * browser trusts that origin's certificate (the one that failed) and loads the page again.
+   * Only the daemon's person-only request sends this; agents have no path to it.
+   */
+  private async proceedCertificate(params: unknown): Promise<unknown> {
+    const { url } = z.object({ url: z.string().max(8192) }).parse(params);
+    const failed = this.certificateError;
+    if (!failed || failed.url !== url || !this.options.certificates)
+      throw new Error("Certificate error no longer shown");
+    this.options.certificates.allow(failed.url, failed.fingerprint);
+    this.certificateError = undefined;
+    return this.send("Page.navigate", { url });
   }
 
   setAgentControl(agent: boolean): void {
     this.agentControl = agent;
+    if (!this.popupsAllowed()) this.popups.close();
+    this.applyAudio();
     void this.send("Page.setInterceptFileChooserDialog", { enabled: agent }).catch((error) =>
       this.options.log(String(error)),
     );

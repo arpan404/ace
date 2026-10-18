@@ -244,6 +244,90 @@
     },
     {
       "properties": {
+        "authId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "credentials": {
+          "properties": {
+            "password": {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            "username": {
+              "maxLength": 4096,
+              "type": "string"
+            }
+          },
+          "required": [
+            "username",
+            "password"
+          ],
+          "type": "object"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.auth.answer",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type",
+        "tabId",
+        "authId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.certificate.proceed",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 8192,
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type",
+        "tabId",
+        "url"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "command": {
           "$ref": "https://ace.local/protocol/v1/BrowserCommand.json"
         },
@@ -373,6 +457,94 @@
         "threadId",
         "type",
         "sequence"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "chooserId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "files": {
+          "items": {
+            "properties": {
+              "name": {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              "sha256": {
+                "$ref": "https://ace.local/protocol/v1/BlobHash.json"
+              }
+            },
+            "required": [
+              "sha256",
+              "name"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.files.choose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type",
+        "tabId",
+        "chooserId",
+        "files"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "muted": {
+          "type": "boolean"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tabId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.tabs.mute",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type",
+        "tabId",
+        "muted"
       ],
       "type": "object"
     },

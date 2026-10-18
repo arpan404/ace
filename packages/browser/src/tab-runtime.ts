@@ -6,6 +6,7 @@ import {
   type BrowserOriginBlock,
   type BrowserState,
   type BrowserAgentPointer,
+  type BrowserTab,
   type BrowserTabActor,
   type BrowserTabLifecycle,
 } from "@ace/protocol";
@@ -23,7 +24,9 @@ import type { TabView } from "./page-tools.ts";
 import { agentScreenshot, type AgentScreenshot } from "./session-images.ts";
 import { sendHumanInput } from "./session-input.ts";
 import type { Actor, SessionOptions } from "./session-options.ts";
-import { SessionQueue, mutatesBrowser, type QueueBudget } from "./session-queue.ts";
+import { SessionQueue, mutatesBrowser, type QueueBudget, type TabHold } from "./session-queue.ts";
+import { personHold, refusesAgent } from "./person-holds.ts";
+import { nextZoom, zoomChord, type ZoomStep } from "./zoom.ts";
 import { TabAccess } from "./tab-access.ts";
 import { waitsForPerson, type CollaborationTiming } from "./collaboration.ts";
 import { AgentInputLane, personReturned } from "./agent-input-lane.ts";
@@ -42,6 +45,8 @@ export interface TabHost {
   /** Thread-wide facts every check reads. */
   flags(): { closed: boolean; paused: boolean; pageStateLost: boolean };
   dialog(tabId: string): BrowserDialog | undefined;
+  /** The backend's listing of this tab: what it waits on (a sign-in, a certificate warning). */
+  listed(tabId: string): BrowserTab | undefined;
   answer(dialogId: string, accept: boolean, promptText?: string): Promise<void>;
   blocked(): BrowserOriginBlock | undefined;
   blockedNavigation(blocked: BrowserOriginBlock): void;
@@ -114,6 +119,7 @@ export class TabRuntime {
   /** The backend knows an agent uses the tab (file choosers, unseen rendering). */
   private agentShown = false;
   private agentSync: Promise<void> = Promise.resolve();
+  private popups: { tabId: string; url: string }[] = [];
   constructor(host: TabHost, id: string, meta: TabMeta = {}) {
     this.host = host;
     this.id = id;
@@ -121,7 +127,7 @@ export class TabRuntime {
     this.label = meta.label;
     this.lastActiveAt = meta.lastActiveAt ?? host.options.now();
     if (meta.private) this.access.setPrivate(true, host.options.now());
-    this.queue = new SessionQueue(() => host.dialog(id), host.budget);
+    this.queue = new SessionQueue(() => this.held(), host.budget);
     this.lane = new AgentInputLane(host.options.navigationClock, host.timing, () => this.humanAt);
     this.annotation = new AnnotationSession(
       (connectionId, event) => host.annotation(connectionId, event),
@@ -435,9 +441,11 @@ export class TabRuntime {
       if (mutatesBrowser(part)) this.check(actor, signal, submittedGeneration, privateEpoch);
       if (flags.paused) throw new BrowserActionError("browser_paused");
       const generation = this.access.generation;
-      // A dialog owns its tab until answered; other tabs keep working.
-      const pending_dialog = this.host.dialog(this.id);
-      if (pending_dialog) return { pending_dialog };
+      // A dialog or a sign-in owns its tab until answered; other tabs keep working.
+      const held = this.held(command);
+      if (held) return held;
+      if (actor.kind === "agent" && refusesAgent(this.host.listed(this.id), command))
+        throw new BrowserActionError("needs_person");
       await this.queue.drainDialog();
       if (waits) {
         // The person came back while this input waited for its turn: it waits again, outside.
@@ -463,7 +471,7 @@ export class TabRuntime {
       const after = this.host.flags();
       if (after.paused || (generation !== this.access.generation && after.pageStateLost))
         throw new BrowserActionError("backend_changed");
-      return result;
+      return actor.kind === "agent" ? this.popupsInto(result) : result;
     };
     // An agent's input waits for the person in its own lane, so reads never queue behind it.
     if (waits && command.action === "fill_form")
@@ -523,8 +531,14 @@ export class TabRuntime {
     if (this.closed || this.host.flags().closed)
       return Promise.reject(new BrowserActionError("browser_closed"));
     const generation = this.access.generation;
+    const zoom = this.page.zoom ? zoomChord(input) : undefined;
     const work = this.personLane.then(async () => {
       this.check(actor, undefined, generation);
+      // ⌘+ / ⌘- / ⌘0 zoom the page, as in a browser; the page never sees them.
+      if (zoom) {
+        if (input.kind === "key" && input.event === "keyDown") await this.zoomStep(zoom);
+        return;
+      }
       await sendHumanInput(input, this.page.cdp, () => this.check(actor, undefined, generation));
     });
     this.personLane = work.catch(() => {});
@@ -539,6 +553,36 @@ export class TabRuntime {
     const pending = this.host.dialog(this.id);
     if (pending?.dialogId === command.dialogId && pending.type === "beforeunload")
       throw new BrowserActionError("unsaved_changes");
+  }
+  /** The person's ⌘+ / ⌘- / ⌘0 in a screencast view: one zoom step, kept like the zoom command's. */
+  private async zoomStep(step: ZoomStep): Promise<void> {
+    const next = nextZoom(this.view.zoom, step);
+    await this.page.zoom?.(next);
+    this.view.zoom = next;
+    this.host.emit();
+  }
+  /**
+   * This tab's page opened a window it talks to (an OAuth sign-in, say); it is now a tab of the
+   * thread. The next agent result from this tab says so once.
+   */
+  popupOpened(popup: { tabId: string; url: string }): void {
+    if (this.popups.length < 8) this.popups.push(popup);
+  }
+  private popupsInto(result: unknown): unknown {
+    if (!this.popups.length || Array.isArray(result)) return result;
+    const popups_opened = this.popups.splice(0);
+    const notice = {
+      popups_opened,
+      popup_hint:
+        "This page opened a window it needs (often a sign-in). Act in it with its tabId; a sign-in there may need the person.",
+    };
+    return typeof result === "object" && result !== null ? { ...result, ...notice } : notice;
+  }
+  /** What holds this tab until it is answered; `command` may be one that leaves the page. */
+  private held(command?: TabCommand): TabHold | undefined {
+    const pending_dialog = this.host.dialog(this.id);
+    if (pending_dialog) return { pending_dialog };
+    return personHold(this.host.listed(this.id), command);
   }
   /** Thread-level work (recording) that must wait its turn behind this tab's commands. */
   serialize<T>(work: () => Promise<T>): Promise<T> {

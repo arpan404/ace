@@ -48,6 +48,11 @@ const tabView = (tab: BrowserTabList[number]): BrowserTabView => ({
   pointer: tab.pointer,
   private: tab.private,
   pendingDialog: tab.pending_dialog,
+  pendingAuth: tab.pending_auth,
+  fileChooser: tab.file_chooser,
+  audible: tab.audible,
+  muted: tab.muted,
+  certificateError: tab.certificate_error,
   zoom: tab.zoom,
   emulation: tab.emulation,
 });

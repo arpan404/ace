@@ -76,6 +76,28 @@
             "reason"
           ],
           "type": "object"
+        },
+        {
+          "properties": {
+            "download": {
+              "$ref": "https://ace.local/protocol/v1/UserBrowserDownload.json"
+            },
+            "kind": {
+              "const": "download",
+              "type": "string"
+            },
+            "tabId": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "tabId",
+            "download"
+          ],
+          "type": "object"
         }
       ]
     },
