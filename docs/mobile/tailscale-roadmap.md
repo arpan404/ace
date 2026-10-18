@@ -82,8 +82,10 @@ host identity. Sources: [connect to devices](https://tailscale.com/docs/how-to/c
   during this follow-up.
 - Android: establish presentation/scroll pacing, a bounded memory plateau and
   daemon-restart durability. Emulator geometry checks do not certify OEM devices.
-- After the gates: implement native pinned HTTP and validate WSS against a real
-  paired daemon, secure storage, onboarding, biometric unlock and machine views.
+- iOS now has native pinned HTTP and WSS, QR/paste onboarding, Keychain tokens,
+  host-bound storage, a minimal machine picker and Face ID unlock. They run against
+  a real daemon's TLS listener on loopback in the simulator (`apps/ios/README.md`).
+  Still to verify: a physical phone over Tailscale and the multi-machine inbox.
 - Verify wrong pins, expiry, revoked/read-only devices, unavailable Tailscale,
   reconnect on network changes, repeated machine switching, and lost-receipt
   replay through app and daemon restarts.

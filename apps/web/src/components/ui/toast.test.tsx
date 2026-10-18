@@ -104,11 +104,12 @@ test("an error toast is announced at once, apart from plain confirmations", asyn
   expect(screen.getAllByRole("alert")).toHaveLength(1);
 });
 
-test("timed confirmations stay quiet and a persistent toast can be dismissed", async () => {
+test("every toast can be dismissed, timed or persistent", async () => {
   setup();
   await userEvent.click(screen.getByRole("button", { name: "Copy" }));
   expect(await screen.findByText("Copied")).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+  await vi.waitFor(() => expect(screen.queryByText("Copied")).toBeNull());
   await userEvent.click(screen.getByRole("button", { name: "Persist" }));
   await userEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
   await vi.waitFor(() => expect(screen.queryByText("Check this")).toBeNull());
@@ -158,7 +159,6 @@ test("a repeated sign-in event announces once and a newer sign-in replaces its w
   expect(await screen.findByText("Signed in to Codex · Personal")).toBeTruthy();
   expect(screen.queryByText("Signed in to Codex · Work")).toBeNull();
   expect(screen.getAllByText("Signed in to Codex · Personal")).toHaveLength(1);
-  expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
 });
 
 test("a newer confirmation of the same kind replaces its action too", async () => {

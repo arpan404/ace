@@ -190,7 +190,7 @@ private struct LiveLine: View {
     var body: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
             ProgressView().controlSize(.mini)
-            Text(StateStyle.label("working")).foregroundStyle(AceTheme.StatusText.working)
+            if let status = thread.metadata?.status { Text(status.label).foregroundStyle(StateStyle.text(status.token)) }
         }
         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
         .accessibilityElement(children: .combine)
@@ -256,7 +256,7 @@ private struct VisualizationRow: View {
             Image(systemName: "chart.bar.doc.horizontal")
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(row.text).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
-                Text("Visualization — view on desktop or web")
+                Text(row.detail ?? "")
             }
             Spacer(minLength: AceTheme.Spacing.none)
         }.aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)

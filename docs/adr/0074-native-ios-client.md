@@ -262,6 +262,22 @@ render FPS/hitches on a supported device or instrumentation path and complete th
 input boundary measurement before approving Phase 1. Any switch to Expo requires
 the maintainer's explicit decision after reviewing the numbers.
 
+## Paired-daemon connection, 2026-10-18
+
+With the Phase 1 hold lifted for features, the app pairs with real daemons. Swift owns
+the QR/paste link parser, pinned HTTPS and WSS (exact SPKI pin plus validity window,
+redirects refused), the Keychain and Face ID. The bridge reuses the SDK's
+`ticketCredential`, access status policy, protocol schemas and `MachineDirectory`.
+JavaScriptCore lacks `URL`, so the bridge polyfills it from Foundation's
+`URLComponents`.
+
+Five XCTest contracts ran in the simulator against a real daemon's TLS listener on
+loopback. They cover pairing, a ticket for every reconnect, revocation, view-only
+grants, a wrong pin and a refused redirect (the code stays unredeemed in both), and an
+unreachable host. A physical phone over Tailscale remains unverified.
+`offlineInputSurvivesRuntimeDestructionAndIsAdmittedOnce` fails on the base commit
+`95a097ea7` too, so this work did not cause it.
+
 ## Primary references
 
 - [Apple JavaScriptCore VM thread behavior](https://developer.apple.com/documentation/javascriptcore/jsvirtualmachine)

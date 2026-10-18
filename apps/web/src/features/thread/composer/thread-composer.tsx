@@ -43,6 +43,7 @@ import {
   DeferredPermissionControl,
 } from "./deferred-parts.tsx";
 import { DeferredComposerStrip } from "./deferred-cards.ts";
+import { finishQueueEdit, queueEditSession, saveQueueEdit } from "./queue-edit.ts";
 import { UsageNotice } from "./usage-notice.tsx";
 import { lastSentText } from "./last-sent.ts";
 import { runsOn, changedTurnOptions, selectionIdentity, type PendingTurn } from "./execution.ts";
@@ -200,6 +201,7 @@ export function ThreadComposer({
 
   const submit = async (draft: Draft) => {
     if (continuing) return continueThread(draft, continuing);
+    if (queueEditSession(props.thread.id)) return saveEdit(draft);
     // Never send options picked for another selection; the controls are re-checking them.
     const commandId = crypto.randomUUID();
     // While the agent works the delivery is said outright, so this window knows at once
@@ -242,6 +244,29 @@ export function ThreadComposer({
     });
     if (ok && sent) setSpent({ commandId, turn: sent });
     return ok;
+  };
+
+  /**
+   * Enter while a queued message is open in the composer saves its new words to the queue, then
+   * brings back what the person had been writing. Only words change: its files stay as they were.
+   */
+  const saveEdit = async (draft: Draft) => {
+    const editing = props.thread.id;
+    const outcome = await saveQueueEdit(editing, draft.text);
+    if (outcome === "saved") {
+      draft.files.release();
+      finishQueueEdit(editing);
+      return true;
+    }
+    if (outcome === "gone") {
+      toast.add({
+        title: "That message already left the queue",
+        description: "Your edit is back in the composer.",
+      });
+      // After the composer has its edited words back.
+      setTimeout(() => finishQueueEdit(editing), 0);
+    }
+    return false;
   };
 
   useEffect(() => void loadSender(), []);

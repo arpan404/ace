@@ -18,10 +18,10 @@ struct SubagentGroupView: View {
             ForEach(agents.entries) { entry in
                 Button { open(entry) } label: {
                     HStack(spacing: AceTheme.Spacing.sm) {
-                        Circle().fill(StateStyle.marker(Self.state(entry.state))).frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
+                        Circle().fill(StateStyle.marker(entry.token)).frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
                         Text(entry.title).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
                         Spacer(minLength: AceTheme.Spacing.sm)
-                        Text(entry.label).foregroundStyle(StateStyle.text(Self.state(entry.state)))
+                        Text(entry.label).foregroundStyle(StateStyle.text(entry.token))
                         if !entry.threadId.isEmpty || !entry.agentId.isEmpty {
                             Image(systemName: "chevron.right").foregroundStyle(AceTheme.Colours.decoration)
                         }
@@ -38,14 +38,6 @@ struct SubagentGroupView: View {
         .padding(.horizontal, AceTheme.Spacing.md)
         .background(AceTheme.Colours.card, in: RoundedRectangle(cornerRadius: AceTheme.Radii.group))
         .overlay(RoundedRectangle(cornerRadius: AceTheme.Radii.group).stroke(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border))
-    }
-    /// The canonical subagent state as the shared status palette names it.
-    static func state(_ value: String) -> String {
-        switch value {
-        case "human": "needs_you"
-        case "working", "waiting", "unresponsive", "failed", "done": value
-        default: "new"
-        }
     }
 }
 
@@ -73,7 +65,7 @@ struct AgentLaneSheet: View {
                     VStack(spacing: AceTheme.Spacing.xxs) {
                         Text(entry.title).aceFont(AceTheme.Typography.title, relativeTo: .headline).lineLimit(1)
                         Text(entry.label).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                            .foregroundStyle(StateStyle.text(SubagentGroupView.state(entry.state)))
+                            .foregroundStyle(StateStyle.text(entry.token))
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }

@@ -37,6 +37,8 @@ struct BlockRow: Codable, Sendable, Equatable {
             let title: String
             let state: String
             let label: String
+            /// The shared status palette key that colours this branch's state.
+            let token: String
             let provider: String
             let model: String
             let result: String

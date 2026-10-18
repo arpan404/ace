@@ -27,6 +27,7 @@
         "@ace/design-tokens": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/ui-core": "workspace:*",
         "@expo/ui": "~57.0.22",
         "@react-native-masked-view/masked-view": "0.3.2",
         "@react-navigation/elements": "^2.9.44",

@@ -75,12 +75,28 @@ export function useDraftSync(args: {
       ? writeDraft(storage, draftKey, { ...current, attachments: attachments.ready })
       : false,
   );
+  /**
+   * Show exactly `next`. In place when its files are the ones attached now, so the strip above
+   * (the queue, with the pages it loaded) stays as it is; a remount only for other files.
+   */
+  const replaceWhole = useEffectEvent((next: ComposerDraft) => {
+    if (!draftKey) return false;
+    const written = writeDraft(storage, draftKey, next);
+    args.takeAnnotations(next.annotations);
+    if (!otherFiles(next)) take(next);
+    else {
+      saved.drop();
+      args.replace(next);
+    }
+    return written;
+  });
   useEffect(() => {
     if (!draftKey) return;
     return takeDraftsFor(
       draftKey,
       (returned) => takeReturned(returned),
       () => saveReturned(),
+      (next) => replaceWhole(next),
     );
   }, [draftKey]);
   return {

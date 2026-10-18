@@ -7,7 +7,9 @@ import {
   subagentStatusLine,
   summarizeWork,
   workCounts,
+  type SubagentState,
 } from "@ace/ui-core";
+import type { StatusToken } from "@ace/ui-core/mobile";
 import { readSubagentGroup } from "@ace/ui-core/subagent-group";
 import { createBlockReader } from "@ace/ui-core/transcript-block-reader";
 import { blockItems, type Block } from "@ace/ui-core/transcript-blocks";
@@ -33,6 +35,16 @@ const live = (key: string) =>
   key.startsWith("agent:") ||
   key.startsWith("run:");
 
+/** A branch's state as a key of the shared status palette (`@ace/ui-core/mobile`). */
+const tokens: Record<SubagentState, StatusToken> = {
+  working: "working",
+  human: "needsYou",
+  waiting: "waiting",
+  unresponsive: "unresponsive",
+  failed: "failed",
+  cancelled: "neutral",
+  done: "done",
+};
 const endings = { failed: "Turn failed", interrupted: "Stopped", paused: "Paused · Usage limit" };
 
 /** A folded head's steps, without the answer shown under it. */
@@ -78,6 +90,7 @@ function subagents(store: ThreadSource, ids: readonly string[]) {
       title: preview(entry.title, 256),
       state: entry.state,
       label: subagentLabels[entry.state],
+      token: tokens[entry.state],
       provider: entry.provider ?? "",
       model: preview(entry.model ?? "", 128),
       result: preview(entry.result ?? "", 512),

@@ -87,7 +87,7 @@ struct ThreadView: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
             Text(metadata?.title ?? "Thread").aceFont(AceTheme.Typography.title, relativeTo: .headline).lineLimit(1)
             HStack(spacing: AceTheme.Spacing.xs) {
-                StateLabel(state: metadata?.state ?? "new")
+                if let status = metadata?.status { StateLabel(status: status) }
                 Text(verbatim: [metadata?.project, metadata?.branch, metadata.map { $0.provider.capitalized }].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
                     .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
             }
@@ -101,8 +101,14 @@ struct ThreadView: View {
             if screen.controls?.canStop == true {
                 Button("Stop all agents", systemImage: "stop.circle", role: .destructive) { model.stopTree() }.disabled(screen.stopping)
             }
-            Button("Snooze for an hour", systemImage: "moon.zzz") { model.snooze(thread.id); dismiss() }
-            Button("Archive", systemImage: "archivebox") { model.archive(thread.id); dismiss() }
+            if !model.inboxLayout.snooze.isEmpty {
+                Menu("Snooze", systemImage: "moon.zzz") {
+                    ForEach(model.inboxLayout.snooze) { option in
+                        Button(option.label) { Task { if await model.snooze(thread.id, preset: option.id) { dismiss() } } }
+                    }
+                }
+            }
+            Button("Archive", systemImage: "archivebox") { Task { if await model.archive(thread.id) { dismiss() } } }
             Divider()
             Button("Connection details", systemImage: "network") { showDetails = true }
         } label: { Image(systemName: "ellipsis") }
@@ -115,7 +121,7 @@ struct ThreadView: View {
                 LabeledContent("Connection", value: model.connection)
                 LabeledContent("Items", value: thread.items.count.formatted())
                 LabeledContent("Machine", value: metadata?.machine ?? "")
-                StateLabel(state: metadata?.state ?? "new")
+                if let status = metadata?.status { StateLabel(status: status) }
             }
             .navigationTitle("Thread").navigationBarTitleDisplayMode(.inline)
         }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
@@ -132,7 +138,7 @@ private struct PendingSendRow: View {
             Text(row.text).aceFont(AceTheme.Typography.body, relativeTo: .body).padding(AceTheme.Spacing.md)
                 .background(AceTheme.Colours.fill, in: RoundedRectangle(cornerRadius: AceTheme.Radii.bubble))
             HStack(spacing: AceTheme.Spacing.sm) {
-                Text(status).foregroundStyle(row.state == "failed" ? AceTheme.StatusText.failed : AceTheme.Colours.mutedForeground)
+                Text(row.label ?? status).foregroundStyle(row.token.map(StateStyle.text) ?? (row.state == "failed" ? AceTheme.StatusText.failed : AceTheme.Colours.mutedForeground))
                 if row.state == "failed" {
                     Button {
                         retrying = true

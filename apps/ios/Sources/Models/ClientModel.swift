@@ -26,9 +26,12 @@ import CryptoKit
     var inbox: [String: ThreadRow] = [:]
     var pending: [String: PendingRow] = [:]
     var connection = "connecting"
+    /// Why the SDK's connection isn't ready (unreachable, revoked, pin mismatch), for a person.
+    var problem: ProblemNotice?
     var error: String?
     var thread: ThreadModel?
     var inboxLoaded = false
+    var inboxLayout = InboxLayout.empty
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var runtime: (any ClientSession)?
@@ -52,13 +55,13 @@ import CryptoKit
         let epoch = connectionEpoch
         let closing = retireRuntime()
         inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false
-        connection = "connecting"; error = nil
+        inboxLayout = .empty
+        connection = "connecting"; error = nil; problem = nil
         frames = BridgeFrames(); generation = 0
         await closing?.value
         guard connectionEpoch == epoch, !Task.isCancelled else { return }
         shutdown = nil
-        let scope = SHA256.hash(data: Data("\(target.hostId)\u{0}\(target.deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
-        let runtime = makeRuntime(target, directory.appendingPathComponent(scope + ".sqlite"), { [weak self] data in
+        let runtime = makeRuntime(target, Self.database(hostId: target.hostId, deviceId: target.deviceId, in: directory), { [weak self] data in
             Task { @MainActor in
                 guard let self, self.connectionEpoch == epoch else { return }
                 let accepted = self.receive(data)
@@ -70,6 +73,11 @@ import CryptoKit
         } })
         self.runtime = runtime
         runtime.start(itemLimit: itemLimit)
+    }
+    /// Outbox and cached views are bound to one host and device identity.
+    nonisolated static func database(hostId: String, deviceId: String, in directory: URL) -> URL {
+        let scope = SHA256.hash(data: Data("\(hostId)\u{0}\(deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
+        return directory.appendingPathComponent(scope + ".sqlite")
     }
     @discardableResult func receive(_ data: Data) -> Bool {
         largestFrame = max(largestFrame, data.count)
@@ -84,7 +92,9 @@ import CryptoKit
             case .fragment: break // BridgeFrames only returns complete patches.
             case .inboxReset: inbox.removeAll(keepingCapacity: true); inboxLoaded = true
             case .inbox(let id, let row): inbox[id] = row
+            case .inboxSections(let layout): if inboxLayout != layout { inboxLayout = layout }
             case .connection(let state): connection = state
+            case .problem(let notice): problem = notice
             case .pending(let id, let row): pending[id] = row
             case .error(let message): error = message
             case .receipt(let id, let ok, let message):
@@ -166,8 +176,13 @@ import CryptoKit
             approvalRequests[id] = nil
         }
     }
-    func archive(_ id: String) { command(["type": "thread.archive", "threadId": id]) }
-    func snooze(_ id: String) { command(["type": "thread.snooze", "threadId": id, "until": now() + 3_600_000]) }
+    /// Inbox organization (`bridge/inbox.ts`): true once the SDK durably admitted the command.
+    func inboxCommand(_ value: [String: Any]) async -> Bool {
+        let id = admissions.nextId()
+        return await admissions.wait(id: id) { action(["type": "inbox", "action": value, "requestId": id]) }
+    }
+    /// Inbox reads that admit nothing durable, such as loading older threads.
+    func inboxRequest(_ value: [String: Any]) { action(["type": "inbox", "action": value, "requestId": admissions.nextId()]) }
     @discardableResult private func command(_ payload: [String: Any], requestId: String? = nil) -> Bool {
         let dispatched = action(["type": "command", "payload": payload, "requestId": requestId ?? admissions.nextId()])
         if !dispatched { error = "Could not submit the request. Your draft is still available." }

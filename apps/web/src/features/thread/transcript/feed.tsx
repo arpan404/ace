@@ -46,6 +46,7 @@ import { useBlocks } from "./use-blocks.ts";
 import { useTurnActivity } from "./use-turn-activity.ts";
 import { useReadMarker } from "./seen.ts";
 import { AgentPageReveal } from "./agent-page-reveal.tsx";
+import { SettledLine } from "./settled-line.tsx";
 
 const tailLive: Block = { kind: "live", key: "live:tail", askId: undefined };
 /** First guess for an unmeasured row's height; measured sizes replace it per row key. */
@@ -386,6 +387,7 @@ export function Feed(props: FeedProps) {
                   <AgentPageReveal threadId={threadId} />
                 </Suspense>
               )}
+              {!detached && !working && <SettledLine threadId={threadId} />}
             </div>
           </div>
           <div className="pointer-events-none absolute inset-x-0 top-3 z-[6] flex flex-col items-center gap-2 px-4">

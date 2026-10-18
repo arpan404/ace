@@ -2,7 +2,7 @@ import { FakeDaemon, facts } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import type { ServerWebSocket } from "bun";
 import { z } from "zod";
-import { ThreadId } from "@ace/protocol";
+import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
 import { oversizedScenario, approvalRetryScenario } from "./review-scenarios.ts";
 import { manyActions, snapshotFrames } from "./many-actions.ts";
 import { LostReceipt } from "./lost-receipt.ts";
@@ -21,6 +21,7 @@ const details = (branch: string) => ({
   machine: { host: "ios-spike-host", name: "arpan-mbp" },
 });
 daemon.createThread({
+  hasSentMessage: true,
   id: "ios-stream",
   workspaceId: "ace",
   title: "ace CLI phase 2",
@@ -52,6 +53,7 @@ daemon.apply("ios-stream", [
   ),
 ]);
 daemon.createThread({
+  hasSentMessage: true,
   id: "ios-approval",
   workspaceId: "ace",
   title: "Fix the flaky queue test",
@@ -100,6 +102,7 @@ daemon.apply("ios-approval", [
   },
 ]);
 daemon.createThread({
+  hasSentMessage: true,
   id: "ios-done",
   workspaceId: "ace",
   title: "Tighten the composer spacing",
@@ -118,6 +121,7 @@ daemon.apply("ios-done", [
   facts.endTurn("root"),
 ]);
 daemon.createThread({
+  hasSentMessage: true,
   id: "ios-tree",
   workspaceId: "ace",
   title: "Review PID-reuse safety",
@@ -131,6 +135,30 @@ daemon.apply("ios-tree", [
   facts.turn("reviewer", "spawn"),
   facts.endTurn("root"),
 ]);
+daemon.createThread({
+  hasSentMessage: true,
+  id: "ios-snoozed",
+  workspaceId: "ace",
+  title: "Release notes for 0.9",
+  provider: "codex",
+  details: details("docs/0.9"),
+});
+daemon.apply("ios-snoozed", [
+  facts.rootAgent("codex"),
+  facts.turn("root"),
+  facts.message("root", "notes", "assistant", "Drafted the 0.9 release notes."),
+  facts.endTurn("root"),
+]);
+// Organization goes through the daemon's own command path, as a client's would.
+daemon.command({
+  id: CommandId.parse("ios-spike-snooze"),
+  deviceId: DeviceId.parse("ios-spike-seed"),
+  payload: {
+    type: "thread.snooze",
+    threadId: ThreadId.parse("ios-snoozed"),
+    until: Date.now() + 3 * 60 * 60 * 1000,
+  },
+});
 
 threadScenarios(daemon, details);
 
