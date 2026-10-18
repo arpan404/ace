@@ -11,12 +11,16 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
+import { EditorIcon } from "@/components/editor-icon.tsx";
+import { useOpenInEditor } from "@/lib/open-in-editor.ts";
 
 /**
  * The end of a file's header: Viewed (folds the file and remembers this version of its diff as
- * read; a later edit to the file clears it) and the file's menu.
+ * read; a later edit to the file clears it) and the file's menu: open it in the editor, copy its
+ * path, fold it.
  */
 export function FileActions(props: {
+  threadId: string;
   path: string;
   viewed: boolean;
   open: boolean;
@@ -56,6 +60,7 @@ export function FileActions(props: {
           }
         />
         <MenuContent align="end">
+          <OpenInEditorItem threadId={props.threadId} path={props.path} />
           <MenuItem icon={<CopyIcon aria-hidden size={16} />} onClick={copy}>
             Copy path
           </MenuItem>
@@ -74,5 +79,17 @@ export function FileActions(props: {
         </MenuContent>
       </Menu>
     </>
+  );
+}
+
+/** The file in the device's editor on the checkout's machine; absent with no editor installed. */
+function OpenInEditorItem(props: { threadId: string; path: string }) {
+  const editing = useOpenInEditor(props.threadId);
+  const editor = editing.editor;
+  if (!editor) return null;
+  return (
+    <MenuItem icon={<EditorIcon id={editor.id} />} onClick={() => void editing.open(props.path)}>
+      Open in {editor.name}
+    </MenuItem>
   );
 }

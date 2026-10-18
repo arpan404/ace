@@ -11,7 +11,9 @@ import {
   type WorkspaceActions,
   type WorkspaceDefinition,
 } from "@/lib/workspace/index.ts";
+import { findComposerInput } from "@/lib/focus-composer.ts";
 import { clampToBounds, type Bounds } from "./bounds.ts";
+import { useFocusBackOnHide } from "./panel-focus.ts";
 import { TabContent } from "./tab-content.tsx";
 
 // The close question ships with the panel: a tab can only be closed once the panel has loaded.
@@ -68,6 +70,8 @@ export function WorkspacePanel(props: {
   const section = useRef<HTMLElement>(null);
   const dismiss = () => actions.setOpen(false);
   const restoreFocus = () => toggleOutside(section.current) ?? props.restoreFocus?.() ?? false;
+  // Beside the column, hiding the panel with focus in it hands focus to the composer.
+  const focusBack = useFocusBackOnHide(section, workspace.open, restoreFocus);
   const size = clampToBounds(layout.size, layout.bounds);
   const shown = shownTab(workspace);
   // The panel's strip is the window's top row (a sheet starts below the top edge).
@@ -79,6 +83,9 @@ export function WorkspacePanel(props: {
       ref={section}
       aria-label={label}
       data-panel
+      data-focus-region="panel"
+      onFocus={dismissable ? undefined : focusBack.onFocus}
+      onBlur={dismissable ? undefined : focusBack.onBlur}
       data-edge={layout.sheet || bottom ? "bottom" : "right"}
       style={dismissable || expanded ? undefined : bottom ? { height: size } : { width: size }}
       className={cn(
@@ -182,7 +189,9 @@ export function WorkspacePanel(props: {
           keepMounted
           hidden={!workspace.open}
           showCloseButton={false}
-          finalFocus={restoreFocus}
+          // Floating beside a desktop column, back to the composer; a phone's sheet goes back to
+          // its toggle, so closing it never raises the keyboard.
+          finalFocus={() => (!layout.sheet && findComposerInput()) || restoreFocus()}
           initialFocus={() =>
             section.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ??
             false

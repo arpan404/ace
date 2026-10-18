@@ -131,11 +131,11 @@ test("the terminal's find shows the key the terminal takes, which can't be chang
 test("fixed keys are listed but can't be recorded or reset", async () => {
   await harness().open("/settings/keyboard");
   await recorder("Command palette");
-  for (const label of ["Focus notifications", "Send", "Find in a terminal or log"]) {
+  for (const label of ["Send", "Find in a terminal or log"]) {
     expect(screen.queryByRole("button", { name: `${label} shortcut` })).toBeNull();
     expect(screen.queryByRole("button", { name: `Actions for ${label}` })).toBeNull();
   }
-  await userEvent.hover(screen.getByLabelText("Focus notifications shortcut"));
+  await userEvent.hover(screen.getByLabelText("Send shortcut"));
   expect(await screen.findByRole("tooltip", { name: /Can't be changed/ })).toBeTruthy();
 });
 

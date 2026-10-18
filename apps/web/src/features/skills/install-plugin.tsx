@@ -128,7 +128,7 @@ export function InstallDialogProvider(props: { children: ReactNode }) {
     <InstallDialogContext value={api}>
       {props.children}
       <Dialog open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>
-        <DialogContent size={step.kind === "review" ? "md" : "sm"}>
+        <DialogContent>
           {step.kind === "source" ? (
             <SourceStep
               form={form}
@@ -375,7 +375,7 @@ function SourceStep(props: {
           {error}
         </p>
       )}
-      <DialogFooter>
+      <DialogFooter submitHint>
         {fetching ? (
           <Button type="button" variant="ghost" onClick={stop}>
             Stop

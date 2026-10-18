@@ -1,5 +1,5 @@
 import { MachineLabel } from "@/components/ui/machine-label.tsx";
-import { ArrowClockwiseIcon, KeyIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon } from "@phosphor-icons/react";
 import {
   childFolder,
   cloneProgress,
@@ -11,15 +11,21 @@ import {
   repositoryName,
 } from "@ace/ui-core";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
+import {
+  CommandStepFooter,
+  CommandStepRow,
+  commandStepField,
+  stepFieldKey,
+} from "@/components/ui/command-step.tsx";
+import { backHint, escapeHint } from "@/components/ui/key-hints.tsx";
 import { ProgressBar } from "@/components/ui/progress-bar.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { applePlatform } from "@/lib/keymap.ts";
 import type { Machine } from "@/lib/machines.ts";
-import { Footer, Problem, TextField } from "./form-parts.tsx";
+import { Problem, TextField } from "./form-parts.tsx";
 import { LocationField, useLocation } from "./location-field.tsx";
 import { projectReads } from "./project-commands.ts";
 import type { CloneControl } from "./use-clone-run.ts";
@@ -54,19 +60,23 @@ function useCloneAddress(machine: Machine, value: string, enabled: boolean) {
 }
 
 /**
- * Clone: an HTTPS, SSH or git@ address, or GitHub's owner/repo, checked as you type and cloned
- * with the person's own Git credentials into a folder on the chosen machine. The destination is
- * suggested (beside the machine's latest project, named after the repository and free there).
- * Progress shows inline with Cancel; a failed clone offers Retry. ace never takes credentials.
+ * Add project › Git URL, as a palette step: the field is the repository's address (HTTPS, SSH,
+ * git@ or GitHub's owner/repo, checked as you type); below it the folder name and location,
+ * suggested beside the machine's latest project. Git uses the person's own credentials on that
+ * machine. Progress shows inline with Cancel and carries on if the palette closes; a failed
+ * clone offers Retry.
  */
-export function CloneProjectTab(props: {
+export function CloneProjectStep(props: {
   machine: Machine;
-  machines: readonly Machine[];
   clone: CloneControl;
-  initialUrl?: string;
+  initialUrl?: string | undefined;
+  onBack: (() => void) | undefined;
+  trailing?: ReactNode;
+  several: boolean;
 }) {
   const { machine, clone } = props;
-  const { run } = clone;
+  const { run, show } = clone;
+  useEffect(show, [show]);
   const previous = run.status === "failed" ? run.input : undefined;
   const [url, setUrl] = useState(props.initialUrl ?? previous?.url ?? "");
   const [name, setName] = useState<string>();
@@ -75,7 +85,6 @@ export function CloneProjectTab(props: {
   const latest = useRecentFolders(only).folders[0];
   const place = useLocation({
     machine,
-    machines: props.machines,
     suggested: previous?.parent ?? (latest ? parentFolder(latest.path) : undefined),
   });
   const running = run.status === "running";
@@ -90,6 +99,7 @@ export function CloneProjectTab(props: {
   const folder = running ? run.input.name : (name ?? freeName(suggestion, place.siblings ?? []));
   const nameProblem = projectNameProblem(folder, running ? [] : place.siblings);
   const address = checked.data?.url ?? value;
+  const shownUrlProblem = touched && !checked.isFetching ? urlProblem : undefined;
 
   const submit = () => {
     setTouched(true);
@@ -101,7 +111,7 @@ export function CloneProjectTab(props: {
   return (
     <form
       noValidate
-      className="grid gap-4"
+      className="flex min-h-0 flex-1 flex-col"
       onSubmit={(event) => {
         event.preventDefault();
         submit();
@@ -112,73 +122,80 @@ export function CloneProjectTab(props: {
         submit();
       }}
     >
-      <TextField
-        label="Repository address"
-        value={running ? run.input.url : url}
-        onChange={(next) => {
-          setUrl(next);
-          if (next.trim()) setTouched(true);
-        }}
-        placeholder="owner/repo, https://github.com/owner/repo.git or git@host:owner/repo.git"
-        problem={urlProblem}
-        showProblem={touched && !checked.isFetching}
-        mono
-        autoFocus
-        disabled={running}
-        hint={
-          !running && checked.data && checked.data.url !== value
-            ? `Clones ${checked.data.url}`
-            : undefined
-        }
-      />
-      <TextField
-        label="Folder name"
-        value={folder}
-        onChange={setName}
-        placeholder="repo"
-        problem={nameProblem}
-        showProblem={touched && (name !== undefined || !urlProblem)}
-        disabled={running}
-        hint={
-          parent && folder && !nameProblem
-            ? `Clones into ${displayPath(childFolder(parent, folder), place.home?.path)}`
-            : undefined
-        }
-      />
-      {!running && <LocationField state={place} several={props.machines.length > 1} />}
-      {running ? (
-        <>
-          <CloneProgress
-            phase={run.phase}
-            percent={run.percent}
-            cancelling={run.cancelling}
-            onCancel={clone.cancel}
-            machine={props.machines.length > 1 ? run.machine : undefined}
-          />
-          {run.cancelProblem && <Problem>{run.cancelProblem}</Problem>}
-        </>
-      ) : run.status === "failed" ? (
-        <Problem
-          action={
-            <Button size="sm" onClick={clone.retry}>
-              <Icon icon={ArrowClockwiseIcon} size={14} />
-              Retry
-            </Button>
+      <CommandStepRow onBack={props.onBack}>
+        <input
+          aria-label="Repository address"
+          aria-invalid={shownUrlProblem ? true : undefined}
+          // oxlint-disable-next-line jsx-a11y/no-autofocus -- A palette step opens to its field.
+          autoFocus
+          value={running ? run.input.url : url}
+          placeholder="owner/repo or a Git URL"
+          spellCheck={false}
+          autoComplete="off"
+          disabled={running}
+          onChange={(event) => {
+            setUrl(event.target.value);
+            if (event.target.value.trim()) setTouched(true);
+          }}
+          onKeyDown={(event) =>
+            stepFieldKey(event, { text: url, onBack: props.onBack, onClear: () => setUrl("") })
           }
-        >
-          {run.problem.message}
-        </Problem>
-      ) : (
-        <p className="flex items-start gap-2 text-sm text-subtle-foreground">
-          <Icon icon={KeyIcon} size={14} className="mt-px" />
-          Git signs in with your own setup on that machine: its SSH keys and credential helper. ace
-          never asks for or stores credentials.
-        </p>
-      )}
-      <Footer
-        {...(running
-          ? { closeLabel: "Hide", note: "The clone carries on while this is hidden." }
-          : {})}
+          className={`${commandStepField} font-mono text-sm`}
+        />
+        {props.trailing}
+      </CommandStepRow>
+      <div className="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto p-4">
+        {shownUrlProblem && value && <p className="text-sm text-destructive">{shownUrlProblem}</p>}
+        {!running && checked.data && checked.data.url !== value && (
+          <p className="font-mono text-xs text-subtle-foreground">{checked.data.url}</p>
+        )}
+        <TextField
+          label="Folder name"
+          value={folder}
+          onChange={setName}
+          placeholder="repo"
+          problem={nameProblem}
+          showProblem={touched && (name !== undefined || !urlProblem)}
+          disabled={running}
+        />
+        {!running && <LocationField state={place} />}
+        {running ? (
+          <>
+            <CloneProgress
+              phase={run.phase}
+              percent={run.percent}
+              cancelling={run.cancelling}
+              onCancel={clone.cancel}
+              machine={props.several ? run.machine : undefined}
+            />
+            {run.cancelProblem && <Problem>{run.cancelProblem}</Problem>}
+          </>
+        ) : (
+          run.status === "failed" && (
+            <Problem
+              action={
+                <Button size="sm" onClick={clone.retry}>
+                  <Icon icon={ArrowClockwiseIcon} size={14} />
+                  Retry
+                </Button>
+              }
+            >
+              {run.problem.message}
+            </Problem>
+          )
+        )}
+      </div>
+      <CommandStepFooter
+        hints={[
+          { keys: ["enter"], label: "Clone" },
+          ...(props.onBack ? [backHint] : []),
+          escapeHint(url),
+        ]}
+        note={
+          parent && folder && !nameProblem
+            ? displayPath(childFolder(parent, folder), place.home?.path)
+            : undefined
+        }
       >
         <Button
           type="submit"
@@ -186,9 +203,8 @@ export function CloneProjectTab(props: {
           disabled={running || machine.client === undefined || !parent}
         >
           {running ? "Cloning…" : "Clone"}
-          {!running && <Kbd aria-hidden keys="mod+enter" variant="on-primary" />}
         </Button>
-      </Footer>
+      </CommandStepFooter>
     </form>
   );
 }

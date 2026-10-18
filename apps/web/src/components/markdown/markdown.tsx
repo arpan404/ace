@@ -1,9 +1,13 @@
 // oxlint-disable react/no-array-index-key -- lexer tokens have no identity; position is it.
 import type { MarkedToken, Token } from "marked";
-import { createContext, memo, useContext, type ReactNode } from "react";
+import { createContext, memo, useContext, useRef, type ReactNode } from "react";
+import { codeFileReference, fileTextSpans } from "@ace/ui-core/file-references";
 import { ThreadReference, ThreadReferenceScope } from "../thread-reference.tsx";
 import { MarkdownImage } from "@/components/attachment-markdown.tsx";
 import { codeSpanClass } from "@/components/inline-markdown.tsx";
+import { FileReferenceLink } from "@/components/file-reference.tsx";
+import { cn } from "@/lib/cn.ts";
+import { useEdgeFade } from "@/lib/edge-fade.ts";
 import type { MarkdownBlock } from "./blocks.ts";
 import type { MarkdownLinks } from "./link-options.ts";
 import { CodeBlock } from "./code-block.tsx";
@@ -58,19 +62,46 @@ function inline(tokens: readonly Token[] | undefined): ReactNode {
 
 const Links = createContext<MarkdownLinks | undefined>(undefined);
 
+/** Inline code; a link into the thread's checkout when it names a file there (settled text). */
+function CodeSpan(props: { text: string }): ReactNode {
+  const scoped = useContext(ThreadReferenceScope) !== undefined;
+  const writing = useContext(Writing);
+  const reference = scoped && !writing ? codeFileReference(props.text) : undefined;
+  if (!reference) return <code className={codeSpanClass}>{props.text}</code>;
+  return <FileReferenceLink text={props.text} reference={reference} code />;
+}
+
+/** Plain text, with the file paths it mentions linked once its block has settled. */
+function ProseText(props: { text: string }): ReactNode {
+  const links = useContext(Links);
+  const scoped = useContext(ThreadReferenceScope) !== undefined;
+  const writing = useContext(Writing);
+  const plain = (text: string) => (links ? links.text(text) : text);
+  if (!scoped || writing) return plain(props.text);
+  const spans = fileTextSpans(props.text);
+  if (spans.length === 1 && spans[0]?.kind === "text") return plain(props.text);
+  return spans.map((span, index) =>
+    span.kind === "file" ? (
+      <FileReferenceLink key={index} text={span.text} reference={span.reference} code={false} />
+    ) : (
+      <span key={index}>{plain(span.text)}</span>
+    ),
+  );
+}
+
 function Inline(props: { token: Token }): ReactNode {
   const links = useContext(Links);
   const token = props.token;
   if (!isKnown(token)) return token.raw;
   switch (token.type) {
     case "strong":
-      return <strong className="font-medium">{inline(token.tokens)}</strong>;
+      return <strong className="font-semibold">{inline(token.tokens)}</strong>;
     case "em":
       return <em>{inline(token.tokens)}</em>;
     case "del":
       return <del className="text-muted-foreground">{inline(token.tokens)}</del>;
     case "codespan":
-      return <code className={codeSpanClass}>{token.text}</code>;
+      return <CodeSpan text={token.text} />;
     case "br":
       return <br />;
     case "link": {
@@ -94,7 +125,7 @@ function Inline(props: { token: Token }): ReactNode {
     case "image":
       return <MarkdownImage src={token.href} alt={token.text} />;
     case "text":
-      return token.tokens ? inline(token.tokens) : links ? links.text(token.text) : token.text;
+      return token.tokens ? inline(token.tokens) : <ProseText text={token.text} />;
     case "escape":
       return token.text;
     case "html":
@@ -116,10 +147,65 @@ function Inline(props: { token: Token }): ReactNode {
 
 const headingClass = [
   "",
-  "mt-5 mb-2 text-[1.2em] font-semibold tracking-title",
-  "mt-5 mb-2 text-[1.1em] font-semibold",
-  "mt-4 mb-1.5 text-[1em] font-semibold",
+  "text-[1.25em] font-semibold",
+  "text-[1.1em] font-semibold",
+  "font-semibold",
 ];
+
+/**
+ * One block rhythm for a run of blocks (an answer, a quote, a loose list item): 12px between
+ * blocks, 24px above a heading, and nothing above the first block, so an answer that opens with
+ * a heading starts flush with its row.
+ */
+export const blockRhythm =
+  "[&>*+*]:mt-3 [&>h3]:mt-6 [&>h4]:mt-6 [&>h5]:mt-6 [&>h6]:mt-6 [&>*:first-child]:mt-0";
+
+/** A table as wide as its content up to the column; a clipped side fades when it scrolls. */
+function Table(props: { token: Extract<MarkedToken, { type: "table" }> }): ReactNode {
+  const tail = useContext(Tail);
+  const token = props.token;
+  const scroller = useRef<HTMLDivElement>(null);
+  const fade = useEdgeFade(scroller);
+  return (
+    <div
+      ref={scroller}
+      className="max-w-full overflow-x-auto"
+      style={fade ? { maskImage: fade } : undefined}
+    >
+      <table className="w-max max-w-full border-collapse text-[0.9em]">
+        <thead className="bg-surface-1">
+          <tr>
+            {token.header.map((cell, index) => (
+              <th
+                key={index}
+                style={{ textAlign: cell.align ?? undefined }}
+                className="border-b px-2 py-1.5 text-left font-semibold"
+              >
+                {inline(cell.tokens)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {token.rows.map((row, rowIndex) => (
+            <tr key={rowIndex}>
+              {row.map((cell, index) => (
+                <td
+                  key={index}
+                  style={{ textAlign: cell.align ?? undefined }}
+                  className="border-b px-2 py-1.5"
+                >
+                  {inline(cell.tokens)}
+                  {rowIndex === token.rows.length - 1 && index === row.length - 1 && tail}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 /** Inside a block still being written: its code shows plain until the block settles. */
 const Writing = createContext(false);
@@ -142,7 +228,7 @@ function Block(props: { token: Token; code?: MarkdownBlock["code"] }): ReactNode
       return null;
     case "paragraph":
       return (
-        <p className="[&+*]:mt-3">
+        <p>
           {inline(token.tokens)}
           {tail}
         </p>
@@ -167,15 +253,22 @@ function Block(props: { token: Token; code?: MarkdownBlock["code"] }): ReactNode
       );
     case "blockquote":
       return (
-        <blockquote className="my-3 border-l-2 pl-3 text-muted-foreground">
+        <blockquote className={cn("border-l-2 pl-3 text-muted-foreground", blockRhythm)}>
           <Blocks tokens={token.tokens} />
         </blockquote>
       );
     case "hr":
-      return <hr className="my-5 border-0 border-t" />;
+      return <hr className="border-0 border-t" />;
     case "list": {
       const items = token.items.map((item, index) => (
-        <li key={index} className={item.task ? "list-none [&+li]:mt-1" : "pl-0.5 [&+li]:mt-1"}>
+        <li
+          key={index}
+          className={cn(
+            "[&+li]:mt-1 [&>ol]:mt-1 [&>ul]:mt-1",
+            item.task ? "list-none" : "pl-0.5",
+            item.loose && blockRhythm,
+          )}
+        >
           {/* Task items carry their own checkbox token. */}
           <Tail.Provider value={index === token.items.length - 1 ? tail : undefined}>
             {item.loose ? <Blocks tokens={item.tokens} /> : <Tight tokens={item.tokens} />}
@@ -185,50 +278,16 @@ function Block(props: { token: Token; code?: MarkdownBlock["code"] }): ReactNode
       return token.ordered ? (
         <ol
           start={token.start === "" ? undefined : token.start}
-          className="my-2 list-decimal pl-[22px] marker:text-muted-foreground"
+          className="list-decimal pl-5 marker:text-subtle-foreground"
         >
           {items}
         </ol>
       ) : (
-        <ul className="my-2 list-disc pl-[22px] marker:text-subtle-foreground">{items}</ul>
+        <ul className="list-disc pl-5 marker:text-subtle-foreground">{items}</ul>
       );
     }
     case "table":
-      return (
-        <div className="my-3 overflow-x-auto">
-          <table className="w-full border-collapse text-[0.9em]">
-            <thead>
-              <tr>
-                {token.header.map((cell, index) => (
-                  <th
-                    key={index}
-                    style={{ textAlign: cell.align ?? undefined }}
-                    className="border-b px-2 py-1.5 text-left font-medium"
-                  >
-                    {inline(cell.tokens)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {token.rows.map((row, rowIndex) => (
-                <tr key={rowIndex}>
-                  {row.map((cell, index) => (
-                    <td
-                      key={index}
-                      style={{ textAlign: cell.align ?? undefined }}
-                      className="border-b px-2 py-1.5"
-                    >
-                      {inline(cell.tokens)}
-                      {rowIndex === token.rows.length - 1 && index === row.length - 1 && tail}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
+      return <Table token={token} />;
     case "html":
       return (
         <p className="whitespace-pre-wrap">
@@ -320,7 +379,7 @@ export const Markdown = memo(function Markdown(props: {
   return (
     <Links value={props.links}>
       <ThreadReferenceScope value={props.thread}>
-        <div className={props.className}>
+        <div className={cn(blockRhythm, props.className)}>
           {doc.blocks.length === 0 && props.tail}
           {doc.blocks.map((block, index) => (
             // A block's place is its identity: the open block keeps it when it settles.

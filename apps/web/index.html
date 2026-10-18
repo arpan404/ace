@@ -22,7 +22,7 @@
        * loads, so a light OS never sees a dark first frame. The script below sets data-first-visit.
        */
       html {
-        background: #0d0d0d;
+        background: #0c0c0c;
         color-scheme: dark;
       }
       @media (prefers-color-scheme: light) {
@@ -32,7 +32,7 @@
         }
         html[data-first-visit] #boot {
           --background: #ffffff;
-          --foreground: #111111;
+          --foreground: #222222;
         }
       }
       /*
@@ -46,7 +46,7 @@
         inset: 0;
         z-index: 140;
         pointer-events: none;
-        background: var(--background, #0d0d0d);
+        background: var(--background, #0c0c0c);
         transition: opacity var(--motion-base, 200ms) var(--ease-out, ease);
       }
       #boot[data-leaving] {
@@ -69,8 +69,8 @@
         height: 44px;
         transform: translate(-50%, -50%);
         border-radius: 30%;
-        background: var(--foreground, #f0f0f0);
-        color: var(--background, #0d0d0d);
+        background: var(--foreground, #dedede);
+        color: var(--background, #0c0c0c);
         /* A slow breath while ace starts, under reduced motion too (opacity only; fx-breathe in
            styles/motion.css carries it on). */
         animation: boot-breathe 1.6s ease-in-out infinite alternate;
@@ -90,12 +90,12 @@
         font:
           13px/1.45 system-ui,
           sans-serif;
-        color: color-mix(in oklab, var(--foreground, #f0f0f0) 70%, transparent);
+        color: color-mix(in oklab, var(--foreground, #dedede) 70%, transparent);
       }
       #boot .stuck button {
         pointer-events: auto;
         font: inherit;
-        color: var(--foreground, #f0f0f0);
+        color: var(--foreground, #dedede);
         background: none;
         border: 0;
         padding: 0;

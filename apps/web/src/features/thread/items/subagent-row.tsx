@@ -6,51 +6,71 @@ import {
   subagentTerminal,
   type SubagentState,
 } from "@ace/ui-core";
-import { CaretRightIcon, RobotIcon } from "@phosphor-icons/react";
+import { RobotIcon } from "@phosphor-icons/react";
 import { useAgent, useItem } from "@ace/client-react";
+import type { CSSProperties } from "react";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { cn } from "@/lib/cn.ts";
 import { SubagentLink } from "@/lib/subagent-link.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useTicker } from "../lib/clock.ts";
 import type { SubagentEntry } from "../lib/subagent-group.ts";
+import { RowParts, pressableRowClass } from "./transcript-row.tsx";
 
+/** Each state's status tone (`data-tone`): its dot's hue and its words' AA hue. */
 export const subagentTones: Record<SubagentState, string> = {
-  working: "text-status-working",
-  human: "text-status-needs-you",
-  waiting: "text-status-waiting",
-  unresponsive: "text-status-failed",
-  failed: "text-status-failed",
-  cancelled: "text-subtle-foreground",
-  done: "text-status-done",
+  working: "working",
+  human: "needs-you",
+  waiting: "waiting",
+  unresponsive: "unresponsive",
+  failed: "failed",
+  cancelled: "idle",
+  done: "done",
 };
 
-/** Static provider mark, with the status as a dot when one is given. */
+/** The status dot's cut-out: the avatar's corner is masked away, never ringed. */
+const dotCut: CSSProperties = {
+  maskImage:
+    "radial-gradient(circle at calc(100% - 4px) calc(100% - 4px), transparent 5.5px, #000 6px)",
+};
+
+/**
+ * A provider mark in a round avatar: 24px in a row, 20px in a stack. With a state, an 8px status
+ * dot sits on its corner, cut out of the avatar rather than ringed.
+ */
 export function SubagentAvatar(props: {
   provider?: ProviderKind | undefined;
   model?: string | undefined;
   state?: SubagentState | undefined;
-  className?: string;
+  size?: 20 | 24;
+  style?: CSSProperties | undefined;
+  className?: string | undefined;
 }) {
+  const small = props.size === 20;
   return (
-    <span
-      aria-hidden
-      className={cn(
-        "relative flex size-8 shrink-0 items-center justify-center rounded-full border bg-background",
-        props.className,
-      )}
-    >
-      {props.provider ? (
-        <ProviderIcon provider={props.provider} model={props.model} size={18} decorative />
-      ) : (
-        <RobotIcon size={18} />
-      )}
+    <span aria-hidden className={cn("relative flex shrink-0", props.className)}>
+      <span
+        className={cn(
+          "flex items-center justify-center rounded-full bg-fill text-muted-foreground",
+          small ? "size-5" : "size-6",
+        )}
+        style={props.state ? { ...props.style, ...dotCut } : props.style}
+      >
+        {props.provider ? (
+          <ProviderIcon
+            provider={props.provider}
+            model={props.model}
+            size={small ? 12 : 14}
+            decorative
+          />
+        ) : (
+          <RobotIcon size={small ? 12 : 14} />
+        )}
+      </span>
       {props.state && (
         <span
-          className={cn(
-            "absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full bg-current ring-2 ring-background",
-            subagentTones[props.state],
-          )}
+          data-tone={subagentTones[props.state]}
+          className="absolute right-0 bottom-0 size-2 rounded-full bg-(--tone)"
         />
       )}
     </span>
@@ -68,29 +88,16 @@ export function SubagentElapsed(props: {
   const end = props.running ? (props.fresh ? now : undefined) : props.endedAt;
   const elapsed = end === undefined ? undefined : end - props.startedAt;
   if (elapsed === undefined || elapsed < 1000 || elapsed >= 7 * 24 * 3_600_000) return null;
-  return (
-    <span
-      aria-label="Elapsed time"
-      className="shrink-0 text-xs text-subtle-foreground tabular-nums"
-    >
-      {formatElapsed(elapsed)}
-    </span>
-  );
+  return <span aria-label="Elapsed time">{formatElapsed(elapsed)}</span>;
 }
 
-/** States the person should act on or know went wrong: shown in words, not just a dot. */
-const needsAttention = (state: SubagentState) =>
-  state === "human" || state === "failed" || state === "unresponsive";
-
-/** A live subagent's latest update, one truncated line under its name. Settled, stale and
- * attention states already speak on the first line, so they add no second one. */
+/** A live subagent's latest update, its row's second line. */
 function SubagentActivity(props: { threadId: string; entry: SubagentEntry; fresh: boolean }) {
   const agent = useAgent(props.threadId, props.entry.agentId ?? "");
   const status = agent?.status;
   const itemId = status && status.state === "working" && status.itemId ? status.itemId : "";
   const tool = useItem(props.threadId, itemId);
   if (!agent || !status || !props.fresh) return null;
-  if (subagentTerminal(props.entry.state)) return null;
   if (status.state === "blocked" && status.on === "human") return null;
   if (
     status.state === "idle" ||
@@ -99,14 +106,21 @@ function SubagentActivity(props: { threadId: string; entry: SubagentEntry; fresh
     status.state === "unresponsive"
   )
     return null;
-  const activity = describeActivity(
-    status,
-    tool?.type === "tool_call" ? tool.call.title : undefined,
-  );
-  return <span className="min-w-0 truncate text-xs text-muted-foreground">{activity}</span>;
+  return describeActivity(status, tool?.type === "tool_call" ? tool.call.title : undefined);
 }
 
-export function SubagentRow(props: { threadId: string; entry: SubagentEntry; fresh: boolean }) {
+/**
+ * One subagent as a row: its avatar with a status dot, its name and status word, what it is
+ * doing now (or, once settled, the first line of what it found), and how long it ran. The whole
+ * row opens the subagent.
+ */
+export function SubagentRow(props: {
+  threadId: string;
+  entry: SubagentEntry;
+  fresh: boolean;
+  /** Its box, when it sits in the group's card rather than flush in the transcript. */
+  className?: string | undefined;
+}) {
   const { entry } = props;
   const workspace = useWorkspaceActions(props.threadId);
   const status = subagentLabels[entry.state];
@@ -115,45 +129,46 @@ export function SubagentRow(props: { threadId: string; entry: SubagentEntry; fre
     : entry.childThreadId
       ? `Open ${entry.title}'s thread, ${status}`
       : `Open ${entry.title}, ${status}`;
-  // Status shows once: the avatar's dot, or, when it needs attention, words in its tone instead.
-  const attention = needsAttention(entry.state);
-  const stale = !props.fresh && !subagentTerminal(entry.state);
-  const words = (
-    <>
-      <SubagentAvatar
-        provider={entry.provider}
-        model={entry.model}
-        state={attention ? undefined : entry.state}
-      />
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="flex min-w-0 items-center gap-2">
-          <span className="min-w-0 truncate text-ui font-medium">{entry.title}</span>
+  const terminal = subagentTerminal(entry.state);
+  const stale = !props.fresh && !terminal;
+  const parts = (
+    <RowParts
+      lead={<SubagentAvatar provider={entry.provider} model={entry.model} state={entry.state} />}
+      tone="strong"
+      title={
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span className="min-w-0 truncate">{entry.title}</span>
           {entry.machine && (
-            <span className="shrink-0 truncate text-xs text-muted-foreground">
+            <span className="shrink-0 truncate font-normal text-muted-foreground">
               on {entry.machine}
             </span>
           )}
-          {(attention || stale) && (
-            <span className={cn("shrink-0 text-xs", subagentTones[entry.state])}>
-              {stale ? `Last seen: ${status}` : status}
-            </span>
-          )}
+          <span className="shrink-0 font-normal text-muted-foreground">
+            {stale ? `Last seen: ${status}` : status}
+          </span>
         </span>
-        <SubagentActivity threadId={props.threadId} entry={entry} fresh={props.fresh} />
-      </span>
-      <SubagentElapsed
-        startedAt={entry.startedAt}
-        endedAt={entry.endedAt}
-        running={!subagentTerminal(entry.state)}
-        fresh={props.fresh}
-      />
-      <CaretRightIcon aria-hidden size={16} className="shrink-0 text-subtle-foreground" />
-    </>
+      }
+      subtitle={
+        // A delegated thread reports no activity here: its result stays in view if it has one.
+        terminal || !entry.agentId ? (
+          entry.result
+        ) : (
+          <SubagentActivity threadId={props.threadId} entry={entry} fresh={props.fresh} />
+        )
+      }
+      meta={
+        <SubagentElapsed
+          startedAt={entry.startedAt}
+          endedAt={entry.endedAt}
+          running={!terminal}
+          fresh={props.fresh}
+        />
+      }
+    />
   );
-  const classes =
-    "flex min-h-(--row-height) pointer-coarse:min-h-11 w-full items-center gap-(--surface-gap) rounded-md px-(--surface-inset) py-[calc(var(--setting-row-padding)/2)] text-left transition-colors duration-(--motion-fast) hover:bg-accent focus-ring-inset";
+  const classes = props.className ?? pressableRowClass;
   return (
-    <li>
+    <li data-subagent-state={entry.state}>
       {/* A child on another machine has no thread here: it opens the Summary instead. */}
       {!entry.machine && (entry.agentId || entry.childThreadId) ? (
         <SubagentLink
@@ -165,7 +180,7 @@ export function SubagentRow(props: { threadId: string; entry: SubagentEntry; fre
           aria-label={label}
           className={classes}
         >
-          {words}
+          {parts}
         </SubagentLink>
       ) : (
         // Its agent hasn't been seen yet: the spawn call is all there is, in the Work tree.
@@ -175,7 +190,7 @@ export function SubagentRow(props: { threadId: string; entry: SubagentEntry; fre
           className={classes}
           onClick={() => workspace.open({ kind: "work" })}
         >
-          {words}
+          {parts}
         </button>
       )}
     </li>

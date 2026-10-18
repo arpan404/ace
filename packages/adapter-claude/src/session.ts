@@ -7,10 +7,10 @@ import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
 import { findExecutable } from "@ace/provider-kit/discovery";
 import { probeOutput, type SupervisedProcess } from "@ace/provider-kit/process";
 import type { InteractionResolution } from "@ace/protocol";
-import type { Query } from "@anthropic-ai/claude-agent-sdk";
+import type { Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { requireReadableMinimum } from "@ace/provider-kit/cli-requirements";
 import { SessionTasks } from "./session-tasks.ts";
-import { InputStream, content } from "./input.ts";
+import { InputStream, admissions } from "./input.ts";
 import { object, string } from "./native.ts";
 import { PendingInteractions } from "./pending-interactions.ts";
 import {
@@ -334,19 +334,25 @@ export async function openSession(
     },
     async send(parts, delivery, commandId, origin) {
       ensureOpen();
-      const message = {
-        type: "user" as const,
-        uuid: randomUUID(),
-        session_id: sessionId,
-        parent_tool_use_id: null,
-        message: { role: "user" as const, content: content(parts) },
-        // CLI 2.1.286+ joins the active turn and backgrounds tools for native steering.
-        priority: delivery === "steer" ? ("now" as const) : ("next" as const),
-        ...(origin === "ace" ? { isSynthetic: true } : {}),
-      };
-      if (commandId) ctx.onInputMessage?.({ commandId, nativeId: message.uuid });
-      input.push(message);
-      frame("send", "sdk", message);
+      // Validate every admission before the first one can reach the harness.
+      const messages = admissions(parts).map((body) => {
+        const message: SDKUserMessage & { uuid: string } = {
+          type: "user",
+          uuid: randomUUID(),
+          session_id: sessionId,
+          parent_tool_use_id: null,
+          message: { role: "user", content: body },
+          // CLI 2.1.286+ joins the active turn and backgrounds tools for native steering.
+          priority: delivery === "steer" ? "now" : "next",
+        };
+        if (origin === "ace") message.isSynthetic = true;
+        return message;
+      });
+      for (const message of messages) {
+        if (commandId) ctx.onInputMessage?.({ commandId, nativeId: message.uuid });
+        input.push(message);
+        frame("send", "sdk", message);
+      }
     },
     async interrupt(target) {
       ensureOpen();

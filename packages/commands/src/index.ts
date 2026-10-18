@@ -5,7 +5,7 @@ export { CommandFiles, type WatchSource, type RecoveryScheduler } from "./files.
 export { SecureCommandIo, type CommandFileIo } from "./secure-io.ts";
 export { openCommandChild, type OpenCommandChild } from "./posix.ts";
 export type { DiscoveryMetrics } from "./file-index.ts";
-export { discoveryRoots, type DiscoveryRoot } from "./roots.ts";
+export { discoveryRoots, type BuiltinSkills, type DiscoveryRoot } from "./roots.ts";
 export { parseMarkdown, parseOpenCodeConfig } from "./parse.ts";
 export { parseRuntime } from "./runtime.ts";
 export { resolveCommand } from "./plan.ts";

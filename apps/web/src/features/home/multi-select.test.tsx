@@ -85,18 +85,12 @@ test("⌘-click picks rows without opening them, Shift-click takes the rows betw
   expect(screen.queryByRole("toolbar", { name: "Selected threads" })).toBeNull();
 });
 
-test("bulk Archive asks first, then archives every picked thread, and one Undo restores them", async () => {
+test("bulk Archive archives every picked thread without asking, and one Undo restores them", async () => {
   const app = await openHome();
   await pick(/^Backpressure/, "{Meta>}");
   await pick(/^Invoice PDF/, "{Meta>}");
-  await userEvent.click(within(bar()).getByRole("button", { name: "Archive 2 threads…" }));
-  const dialog = await screen.findByRole("dialog", { name: "Archive 2 threads?" });
-  expect(within(dialog).getByText("Backpressure on broadcast fan-out")).toBeTruthy();
-  // Cancel has focus: Enter alone never archives.
-  await waitFor(() =>
-    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Cancel" })),
-  );
-  await userEvent.click(within(dialog).getByRole("button", { name: "Archive 2 threads" }));
+  await userEvent.click(within(bar()).getByRole("button", { name: "Archive 2 threads" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
 
   await waitFor(() => expect(gone(/^Backpressure/) && gone(/^Invoice PDF/)).toBe(true));
   await waitFor(() => expect(listed(app, "thread-fan-out")?.archivedAt).toBeDefined());
@@ -155,7 +149,7 @@ test("⌘K offers the picked threads' actions first, and asks before deleting th
   expect(names).toEqual([
     "Pin 2 selected threads",
     "Move 2 selected threads to another project…",
-    "Archive 2 selected threads…",
+    "Archive 2 selected threads",
     "Delete 2 selected threads…",
     "Clear the selection",
   ]);

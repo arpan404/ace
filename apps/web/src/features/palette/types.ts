@@ -8,7 +8,7 @@ export interface PaletteCommand {
   detail?: string;
   /** Shown after the detail only on the highlighted row (a thread's branch). Also searched. */
   more?: string;
-  /** Other words that find it, never shown ("approve" for Allow once). */
+  /** Other words that find it, never shown ("approve" for Allow once, a thread's PR number). */
   keywords?: string;
   /** Keymap notation (a keymap default follows the user's rebinding), shown at the right. */
   keys?: string;
@@ -20,8 +20,17 @@ export interface PaletteCommand {
   danger?: boolean;
   /** Why it can't run now; the row is shown dimmed with this as its detail. */
   disabled?: string;
-  /** Keeps the palette open (the row changes what it lists). */
-  stay?: boolean;
+  /**
+   * What it is, when it isn't an action: a thread, a project, or a message found inside a
+   * thread. A query starting with `>` lists actions only.
+   */
+  kind?: "thread" | "project" | "message";
+  /** When it was last opened or run (ms): breaks ranking ties, newest first. */
+  at?: number;
+  /** The thread a message was found in. */
+  threadId?: string;
+  /** A message's matching text, its matched ranges marked. */
+  snippet?: { text: string; highlights: readonly { start: number; end: number }[] };
   run(): void;
 }
 export interface PaletteGroup {

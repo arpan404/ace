@@ -8,9 +8,9 @@ import { ServerMessage } from "@ace/protocol";
 async function browse(app: ReturnType<typeof harness>) {
   await app.open("/new");
   await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
-  await userEvent.click(await screen.findByRole("option", { name: "GitHub repositories" }));
+  await userEvent.click(await screen.findByRole("option", { name: "GitHub repository" }));
 }
-test("GitHub search filters results and selection reuses the existing clone destination and cancellation flow", async () => {
+test("GitHub search filters results, and Enter on one opens the clone step with its address", async () => {
   const stages: (() => void)[] = [];
   const app = harness({
     throughWorker: true,
@@ -18,11 +18,14 @@ test("GitHub search filters results and selection reuses the existing clone dest
   });
   app.daemon.projects.seedFolders("/home/dev", [{ path: "/home/dev/code" }]);
   await browse(app);
-  await screen.findByRole("button", { name: /ada\/engine/ });
-  await userEvent.type(screen.getByRole("textbox", { name: "Search GitHub repositories" }), "docs");
-  await screen.findByRole("button", { name: /ace-org\/docs/ });
-  await waitFor(() => expect(screen.queryByRole("button", { name: /ada\/engine/ })).toBeNull());
-  await userEvent.click(screen.getByRole("button", { name: /ace-org\/docs/ }));
+  await screen.findByRole("option", { name: /ada\/engine/ });
+  await userEvent.type(
+    screen.getByRole("combobox", { name: "Search GitHub repositories" }),
+    "docs",
+  );
+  await screen.findByRole("option", { name: /ace-org\/docs/ });
+  await waitFor(() => expect(screen.queryByRole("option", { name: /ada\/engine/ })).toBeNull());
+  await userEvent.keyboard("{Enter}");
   const url = await screen.findByRole("textbox", { name: "Repository address" });
   expect(url).toHaveProperty("value", "https://github.com/ace-org/docs.git");
   expect(screen.getByRole("textbox", { name: "Folder name" })).toHaveProperty("value", "docs");
@@ -35,12 +38,13 @@ test("GitHub search filters results and selection reuses the existing clone dest
 test("an explicitly changed account cannot reuse another account's selectable repository results", async () => {
   const app = harness({ throughWorker: true });
   await browse(app);
-  await screen.findByRole("button", { name: /ada\/engine/ });
-  const account = screen.getByRole("textbox", { name: "GitHub account" });
+  await screen.findByRole("option", { name: /ada\/engine/ });
+  await userEvent.click(screen.getByRole("button", { name: "Repository filters" }));
+  const account = await screen.findByRole("textbox", { name: "GitHub account" });
   await userEvent.clear(account);
   await userEvent.type(account, "other");
   await screen.findByText(/Couldn't list repositories\. GitHub denied access/);
-  expect(screen.queryByRole("button", { name: /ada\/engine/ })).toBeNull();
+  expect(screen.queryByRole("option", { name: /ada\/engine/ })).toBeNull();
 });
 async function openPublish() {
   await userEvent.click(await screen.findByRole("button", { name: /^Project filter:/ }));

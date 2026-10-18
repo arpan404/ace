@@ -29,17 +29,17 @@ function keyboardFocus(target: EventTarget): boolean {
 }
 
 /**
- * Whether the Home list holds its order (UX audit TN-3), with the handlers for its viewport:
- * the pointer over it or keyboard focus in it holds the order, released 600 ms after both leave.
+ * Whether the Home list holds its order (UX audit TN-3), with the focus handlers for its
+ * viewport: keyboard focus in it or a drag under way (`dragging`) holds the order, released
+ * 600 ms after both end. The pointer resting on the list never holds it.
  */
-export function useListHold(timers: Timers = browserTimers) {
+export function useListHold(dragging: boolean, timers: Timers = browserTimers) {
   const [hold] = useState(() => new ListHold(timers));
   useEffect(() => () => hold.dispose(), [hold]);
+  useEffect(() => hold.drag(dragging), [hold, dragging]);
   const state = useSyncExternalStore(hold.subscribe, hold.getState, hold.getState);
   const handlers = useMemo(
     () => ({
-      onPointerEnter: () => hold.pointer(true),
-      onPointerLeave: () => hold.pointer(false),
       onFocus: (event: FocusEvent) => hold.focus(keyboardFocus(event.target)),
       onBlur: (event: FocusEvent) => {
         const next = event.relatedTarget;
@@ -55,7 +55,7 @@ export function useListHold(timers: Timers = browserTimers) {
  * The rows to draw: `rows` itself while the list is free; while it holds, the rows in the places
  * they were drawn. A row that changes kind (pinned, settled) still moves, being the person's own
  * doing, as does the Pinned group, ordered by the person (a drag lands at once), and a row that
- * needs you rises once the pointer is off the list.
+ * needs you rises at once unless a drag is under way.
  */
 export function useHeldRows(
   rows: readonly HomeRow[],

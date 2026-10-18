@@ -31,6 +31,11 @@ const glyphs: Record<FileKind, IconGlyph> = {
   binary: FileIcon,
 };
 
+/** The kind's plain glyph, for a file whose type has no mark of its own. */
+export function kindGlyph(kind: FileKind): IconGlyph {
+  return glyphs[kind];
+}
+
 /** Each kind's ink, from the theme's status palette, which every preset keeps legible. */
 const inks: Record<FileKind, string> = {
   image: "var(--status-working)",

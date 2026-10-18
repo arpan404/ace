@@ -321,18 +321,21 @@ test("a sent file says how the agent received it, and its tooltip explains", asy
     }),
   ).toBeTruthy();
   await user.hover(log);
-  expect((await screen.findByRole("tooltip")).textContent).toBe(
+  const tooltip = await screen.findByRole("tooltip");
+  expect(tooltip.textContent).toContain("48 KB · Log · inline text, truncated");
+  expect(tooltip.textContent).toContain(
     "The first 16 KB of text went into the message, with a path to the rest",
   );
 });
 
-test("more than four images show three and a +N tile that opens the rest", async () => {
+test("more than four images show a 2×2 grid whose last tile, dimmed, opens the rest", async () => {
   const user = userEvent.setup();
   const { feed } = await openMessage({
     parts: Array.from({ length: 5 }, () => ({ type: "image", mimeType: "image/png", url: dot })),
   });
   const grid = await within(feed).findByRole("list", { name: "5 images" });
-  expect(within(grid).getAllByRole("img")).toHaveLength(3);
+  await waitFor(() => expect(within(grid).getAllByRole("img")).toHaveLength(4));
+  expect(within(grid).getByText("+2")).toBeTruthy();
   await user.click(within(grid).getByRole("button", { name: "Show 2 more images" }));
   const dialog = await screen.findByRole("dialog");
   expect(within(dialog).getByText("4 of 5")).toBeTruthy();

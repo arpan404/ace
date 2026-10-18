@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useProjectDialogs } from "./projects-host.tsx";
 
-/** The first run's next step: choose a folder, create one or clone inside Add project. */
+/** The first run's next step: Add project, in the palette. */
 export function ProjectsEmptyState(props: { heading?: boolean; className?: string }) {
   const projects = useProjectDialogs();
   return (
@@ -13,7 +13,7 @@ export function ProjectsEmptyState(props: { heading?: boolean; className?: strin
       {...(props.heading ? { heading: true } : {})}
       {...(props.className ? { className: props.className } : {})}
       title="Add your first project"
-      description="A project is a folder on this machine. Open one you have, start a new one, or clone a repository; agents work there with your own tools."
+      description="A folder on this machine that agents work in."
       action={
         <Button
           onClick={() => projects.open({ kind: "add", tab: "sources" })}

@@ -16,15 +16,37 @@ Entries contain an opaque ID, kind, name, description, optional icon, provider/s
 
 Messages gain a `ContentPart` variant with `type: mention`, `entryId`, `name`, `kind`, optional icon, positional arguments and structured prompt values. Prompt invocation descriptors expose the existing argument schema. The client supplies display metadata and the selected ID. The daemon resolves the ID again for the current provider instance, project and session. A supplied invocation descriptor is never trusted. File selections retain their IDs when native metadata subsequently supplies the effective definition; app IDs stay stable across cold and session reads. Missing, shadowed, disabled and foreign entries fail before provider input is sent. The original parts are admitted and stored unchanged, so native expansions and echoes cannot replace the person's chips. Existing persisted input identity correlation is retained.
 
-Native translation is provider-specific:
+Native translation is provider-specific (revised 2026-10-17, see "Skill delivery" below):
 
-- Codex receives native `skill` and `mention` input parts, including `app://` identities.
+- Codex receives native `skill` and `mention` input parts, including `app://` identities. A skill item is preceded by its documented `$name` marker.
 - OpenCode receives native skill IDs and agent mention ranges. Selected commands use `session.command`; several commands make separate ordered admissions carrying the complete message. Failure after an earlier admission is uncertain, not a safe rejection to replay.
-- Claude receives explicit Skill-tool requests, named delegation requests and named plugin/MCP-tool instructions. Custom command files share Claude's Skill surface. This is a request to the agent, not proof that a model executed a tool.
-- ACP and Pi receive one native prefix admission per selected slash command, carrying the complete message as context. ACP's existing queue still waits for child work and shell settlement. Several selections can therefore create several provider turns.
-- Custom prompts, Cursor command files and ace skills expand through the existing prompt owner. Providers without a public typed reference API receive explicit instructions for agents, plugins and tools.
+- Claude, ACP and Pi receive one native prefix admission per selected slash command or skill (`/name args`, Pi `/skill:name args`), carrying the complete message as context. Claude text-only admissions are sent as a prompt string because Claude Code dispatches commands from the start of the prompt. ACP's existing queue still waits for child work and shell settlement. Several selections can therefore create several provider turns; every admission is correlated to the one stored message.
+- Claude agents, plugins and MCP tools, and the same kinds on providers without a typed reference API, receive explicit named instructions. This is a request to the agent, not proof that a model executed a tool.
+- Custom prompts and Cursor command files expand through the existing prompt owner. Skills without a native route are injected (below).
 
 Selection position does not determine execution syntax. Multiple mentions can occur between ordinary text parts. Only prefix-only harnesses move command execution to a prefix; the original transcript retains the selected positions.
+
+## Skill delivery
+
+A selected skill must reach the agent as its instructions, never as bare `/name` text or a request the model may ignore. The daemon picks one route per mention in `@ace/commands` (`mentions.ts`):
+
+| Provider          | Route                                                                                           | Primary source                                                                                                                                        |
+| ----------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude Code       | Native dispatch: prompt string starting `/name args`                                            | [Agent SDK skills: dispatch commands by name](https://code.claude.com/docs/en/agent-sdk/skills), [headless](https://code.claude.com/docs/en/headless) |
+| Codex             | Typed `skill {name, path}` item plus `$name` text                                               | [Codex app-server](https://developers.openai.com/codex/app-server/), generated `v2/UserInput.ts`                                                      |
+| OpenCode          | Typed prompt `skills[{id, mention}]`                                                            | [OpenCode skills](https://opencode.ai/docs/skills/), pinned `@opencode/schema` `prompt-input.d.ts`                                                    |
+| Pi                | Native `/skill:name args` prompt prefix, expanded by the RPC `prompt` command                   | [Pi RPC commands](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md)                                                   |
+| ACP / Antigravity | Advertised command as prompt text                                                               | [ACP slash commands](https://agentclientprotocol.com/protocol/v1/slash-commands)                                                                      |
+| Cursor            | SKILL.md injection; `@cursor/sdk` 1.0.35 has no typed skill input or documented slash expansion | [Cursor SDK](https://cursor.com/docs/sdk/typescript)                                                                                                  |
+| ace skills        | SKILL.md injection on every provider                                                            | ace's own contract                                                                                                                                    |
+
+Injection uses the body the catalog already read through `SecureCommandIo` (containment, depth and 64 KiB file limits), with frontmatter removed. The translated provider input starts with one block per skill: `<skill name="…" path="…/SKILL.md">`, a line naming the skill directory for relative references, then the body, with `$ARGUMENTS` replaced or arguments appended. The chip position becomes `[skill: name]`. Bodies are re-read by the file watchers, so an edited skill sends its current body. A message's injected skills are capped at 256 KiB combined and fail with `catalog_skill_too_large` rather than truncating. A skill whose SKILL.md cannot be found fails with `catalog_skill_unavailable` before provider input exists; deleted or no-longer-user-invocable skills fail as unavailable mentions. Stored parts keep the chip unchanged.
+
+ace's shipped skills (`@ace/plugins` `builtin-skills`) load natively in Claude, Codex, OpenCode and Pi sessions and are advertised there. For Cursor, ACP and Antigravity the daemon also catalogs the shipped directory as ace skills, so selecting one injects its body. ace skills with declared `arguments` keep the prompt-template expansion.
+
+The composer creates a chip when a suggestion is picked with Enter, Tab or a click. A message typed as `/name …` that names an invocable catalog entry exactly is sent with that entry's chip, so it goes through the same routes.
+
+Limits: injection does not apply provider-only skill features such as Claude `allowed-tools`, `context: fork` or `` !`command` `` preprocessing; those apply on the native routes. Claude dispatch from an array of content blocks (a message with images) is not documented; text-only admissions are sent as strings. Cursor plugin skills that ace cannot read from disk receive a named instruction.
 
 ## Discovery and precedence
 

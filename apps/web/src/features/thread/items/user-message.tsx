@@ -1,19 +1,23 @@
-import { MessageReferences } from "./message-references.tsx";
+import { BubbleText } from "./bubble-text.tsx";
+import { messageActions } from "./message-actions.ts";
 import { userBubble } from "./user-bubble.ts";
 import { useItem } from "@ace/client-react";
 import {
   formatClock,
+  messageOrigin,
   withoutPortableHandoff,
   sanitizeUserText,
   splitAnnotationParts,
   splitBrowserAnnotations,
 } from "@ace/ui-core";
 import { AnnotationsCard } from "@/features/annotations/index.ts";
-import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
+import { ArrowBendDownRightIcon, CheckIcon, ClockIcon, CopyIcon } from "@phosphor-icons/react";
+import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useCopy } from "@/components/use-copy.ts";
 import { Suspense, useRef } from "react";
-import type { LocalAttachment } from "@/components/attachment-format.ts";
+import { imageGroupHeight, type LocalAttachment } from "@/components/attachment-format.ts";
+import { cn } from "@/lib/cn.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { DeferredSendStatus } from "../composer/deferred-parts.tsx";
 import {
@@ -23,6 +27,7 @@ import {
   useLocalSendsView,
   type LocalSend,
 } from "../composer/send-store.ts";
+import { EditMessageButton, useEditPoint } from "../transitions/message-edits.tsx";
 
 const nothing: LocalSend = {};
 
@@ -32,19 +37,35 @@ const DeferredAttachments = deferredComponent(() =>
 );
 
 /**
- * Room for a message's attachments while their code arrives: a lone image's box at its known
- * aspect (within 320×240), else a grid's rows of 120, so the bubble keeps its size.
+ * Room for a message's attachments while their code arrives: the image group's height from the
+ * images' known shapes, so the transcript keeps its place.
  */
 function AttachmentsRoom(props: {
   images: readonly { width?: number | undefined; height?: number | undefined }[];
 }) {
-  const [first] = props.images;
-  if (!first) return null;
-  const height =
-    props.images.length === 1
-      ? Math.min(240, (320 * (first.height ?? 3)) / (first.width ?? 4))
-      : Math.ceil(Math.min(props.images.length, 4) / 2) * 126;
-  return <span aria-hidden className="mb-2 block" style={{ height }} />;
+  const height = imageGroupHeight(props.images);
+  if (!height) return null;
+  return <span aria-hidden className="mb-1 block" style={{ height }} />;
+}
+
+/** How a message reached the agent, when that isn't simply typed and sent. */
+const eyebrows: Partial<Record<string, { icon: IconGlyph; label: string }>> = {
+  steer: { icon: ArrowBendDownRightIcon, label: "Steer" },
+  queue: { icon: ClockIcon, label: "Queued" },
+};
+
+function Eyebrow(props: { kind: string | undefined }) {
+  const eyebrow = props.kind ? eyebrows[props.kind] : undefined;
+  if (!eyebrow) return null;
+  return (
+    <span
+      data-origin={props.kind}
+      className="mb-1 flex items-center gap-1 text-xs text-subtle-foreground"
+    >
+      <Icon icon={eyebrow.icon} size={12} />
+      {eyebrow.label}
+    </span>
+  );
 }
 
 /** Files of a message the daemon hasn't echoed yet, as this window knows them. */
@@ -63,30 +84,25 @@ function localFiles(local: LocalSend): readonly LocalAttachment[] | undefined {
 }
 
 /**
- * The person's message: a right-aligned bubble; its time shows on hover, keeping the column
- * quiet. The same bubble is drawn from the moment Enter is pressed (from the outbox, or held
- * while its files upload) until the daemon's item takes over under the same key, with a quiet
- * "Sending…" under it meanwhile and "Not sent" with Retry and Edit if it doesn't go. Attached
- * images show as thumbnails and files by name, never by a host path (AT-1).
+ * The person's message: its attachments above, unframed, then a right-aligned bubble of its words
+ * (none for a message of attachments only), with a quiet eyebrow when it was steered or queued.
+ * Its time, Copy and Edit sit beside the bubble's
+ * foot on hover or focus (always on touch), so an idle message costs no height of its own. The
+ * same bubble is drawn from the moment Enter is pressed (from the outbox, or held while its files
+ * upload) until the daemon's item takes over under the same key, with a quiet "Sending…" under it
+ * meanwhile and "Not sent" with Retry and Edit if it doesn't go. Attached images show as
+ * thumbnails and files by name, never by a host path (AT-1).
  */
 export function UserMessage(props: { threadId: string; itemId: string }) {
   const content = useRef<HTMLDivElement>(null);
   const { copied, copy } = useCopy();
   const item = useItem(leasable(props.threadId), props.itemId);
   const local: LocalSend = useLocalSendsView(props.threadId)?.find(props.itemId) ?? nothing;
+  const editPoint = useEditPoint(props.threadId, props.itemId);
   const noticeId = local.noticeId;
   const message = item?.type === "message" ? item : undefined;
   if (!message && !local.send && !local.staged) return null;
   // Browser annotations travel as a block after the person's words; they show as a card.
-  const text = sanitizeUserText(
-    splitBrowserAnnotations(
-      message
-        ? inputText(message.parts)
-        : local.send
-          ? inputText(local.send.payload.input)
-          : (local.staged?.text ?? ""),
-    ).text,
-  );
   const annotated = splitAnnotationParts(
     withoutPortableHandoff(
       message?.parts ?? local.send?.payload.input ?? local.staged?.input ?? [],
@@ -94,6 +110,11 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
   );
   // Most messages carry no files: only those load the thumbnails' code.
   const parts = annotated.parts;
+  // The words as shown: a portable handoff's envelope stays out of the bubble.
+  const text = sanitizeUserText(
+    splitBrowserAnnotations(message || local.send ? inputText(parts) : (local.staged?.text ?? ""))
+      .text,
+  );
   const images: { width?: number | undefined; height?: number | undefined }[] = [
     ...(message?.attachments ?? []).filter((file) => file.mimeType.startsWith("image/")),
     ...parts.flatMap((part) => (part.type === "image" ? [{}] : [])),
@@ -104,60 +125,58 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
     (!message && localFiles(local)?.length)
       ? { images }
       : undefined;
-  if (!text && !files && !parts.some((part) => part.type === "mention")) return null;
+  const readable = !!text || parts.some((part) => part.type === "mention");
+  if (!readable && !files) return null;
   const saying =
     !!local.staged ||
     noticeId !== undefined ||
     local.send?.state === "saving" ||
     local.send?.state === "sent" ||
     local.send?.state === "failed";
-  const time = (
-    <span className="pr-1 text-xs text-subtle-foreground">
-      {message ? formatClock(message.createdAt) : " "}
-    </span>
-  );
   return (
     <div className="group/bubble flex flex-col items-end">
-      <div className={userBubble}>
-        {files && (
-          <Suspense fallback={<AttachmentsRoom images={files.images} />}>
-            <DeferredAttachments.Component
-              threadId={leasable(props.threadId)}
-              attachments={message?.attachments}
-              parts={message?.parts ?? local.send?.payload.input}
-              local={message ? undefined : localFiles(local)}
-              className={text ? "mb-2" : undefined}
-            />
-          </Suspense>
+      <Eyebrow kind={messageOrigin(message)?.kind} />
+      {files && (
+        <Suspense fallback={<AttachmentsRoom images={files.images} />}>
+          <DeferredAttachments.Component
+            threadId={leasable(props.threadId)}
+            attachments={message?.attachments}
+            parts={message?.parts ?? local.send?.payload.input}
+            local={message ? undefined : localFiles(local)}
+            className={cn("max-w-[80%]", readable && "mb-1")}
+          />
+        </Suspense>
+      )}
+      {/* Touch: the actions under the bubble. A pointer: beside its foot, taking no height. */}
+      <div className="flex w-full min-w-0 flex-col items-end gap-1 pointer-fine:flex-row pointer-fine:items-end pointer-fine:justify-end pointer-fine:gap-2">
+        {readable && (
+          <div className={cn(userBubble, "pointer-fine:order-last")}>
+            <BubbleText text={text} parts={parts} ref={content} />
+          </div>
         )}
-        <div ref={content}>{parts.length ? <MessageReferences parts={parts} /> : text}</div>
-        {annotated.annotations && <AnnotationsCard annotations={annotated.annotations} />}
-      </div>
-      {/* One line under the bubble: how its sending goes, else its time on hover. Both are
-          the same height, so the row doesn't move when "Sending…" goes. */}
-      <div className="mt-1 flex min-h-6 items-center gap-2">
-        {saying ? (
-          <Suspense fallback={time}>
-            <DeferredSendStatus.Component
-              threadId={props.threadId}
-              itemId={props.itemId}
-              send={local.send}
-              staged={local.staged}
-              noticeId={noticeId}
-              otherwise={time}
-            />
-          </Suspense>
-        ) : (
-          time
-        )}
-        {(text || parts.some((part) => part.type === "mention")) && (
-          <div className="flex items-center gap-2 opacity-0 transition-opacity duration-(--motion-fast) group-hover/bubble:opacity-100 group-focus-within/bubble:opacity-100">
-            <IconButton
-              icon={copied ? CheckIcon : CopyIcon}
-              label={copied ? "Copied message" : "Copy message"}
-              size="sm"
-              onClick={() => copy(content.current?.textContent ?? text)}
-            />
+        {message && !saying && (
+          <div className={cn(messageActions("bubble"), "shrink-0")}>
+            <time
+              dateTime={new Date(message.createdAt).toISOString()}
+              className="pr-1 text-xs text-subtle-foreground"
+            >
+              {formatClock(message.createdAt)}
+            </time>
+            {readable && (
+              <IconButton
+                icon={copied ? CheckIcon : CopyIcon}
+                label={copied ? "Copied message" : "Copy message"}
+                size="sm"
+                onClick={() => copy(content.current?.textContent ?? text)}
+              />
+            )}
+            {readable && editPoint && (
+              <EditMessageButton
+                threadId={props.threadId}
+                itemId={props.itemId}
+                point={editPoint}
+              />
+            )}
             {copied && (
               <span role="status" className="text-xs text-muted-foreground">
                 Copied
@@ -166,6 +185,26 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
           </div>
         )}
       </div>
+      {annotated.annotations && (
+        <div className="mt-1 max-w-[80%]">
+          <AnnotationsCard annotations={annotated.annotations} />
+        </div>
+      )}
+      {/* Only while it is on its way (or didn't go): how its sending goes, under the bubble. */}
+      {saying && (
+        <div className="mt-1 flex min-h-6 items-center gap-2">
+          <Suspense fallback={null}>
+            <DeferredSendStatus.Component
+              threadId={props.threadId}
+              itemId={props.itemId}
+              send={local.send}
+              staged={local.staged}
+              noticeId={noticeId}
+              otherwise={null}
+            />
+          </Suspense>
+        </div>
+      )}
     </div>
   );
 }

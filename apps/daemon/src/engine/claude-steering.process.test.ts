@@ -37,3 +37,38 @@ test.each(["2.1.286", "2.1.301"])(
     }
   },
 );
+
+test("a message delivered into the working turn is stamped as a steer; one sent at rest is not", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start)] }, { on: "send" }], frames, {
+    provider: "claude",
+    capabilities: capabilities({
+      installed: true,
+      auth: "logged_in",
+      loginHint: "",
+      version: "2.1.301",
+    }),
+    preferences: { followUpBehavior: "steer" },
+  });
+  try {
+    const id = await h.create();
+    const input = [{ type: "text" as const, text: "change direction" }];
+    expect(h.command({ type: "thread.send", threadId: id, input }, "device", "steer-1").ok).toBe(
+      true,
+    );
+    await h.engine.flush();
+    const items = h.store.snapshotThread(id).items;
+    expect(items["input:steer-1"]).toMatchObject({
+      type: "message",
+      role: "user",
+      synthetic: false,
+      origin: { kind: "steer", commandId: "steer-1" },
+    });
+    const first = Object.entries(items).find(
+      ([key, item]) => key !== "input:steer-1" && item.type === "message" && item.role === "user",
+    );
+    expect(first?.[1]).toMatchObject({ origin: { kind: "person" } });
+  } finally {
+    await h.close();
+  }
+});

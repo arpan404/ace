@@ -133,12 +133,12 @@ test("the desktop app's folder picker adds the chosen folder", async () => {
   await made.open("/new");
   await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
   await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Choose a folder…" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Browse…" }));
   await screen.findByRole("button", { name: "Project: weather" });
   expect(registered(made)).toEqual([`${home}/code/weather`]);
 });
 
-test("a refused native folder pick shows its exact path and allows that folder", async () => {
+test("a refused native folder pick shows its exact path, and one action allows and adds it", async () => {
   const path = "/srv/private/project";
   desktopBridge({ chosen: path });
   const made = host();
@@ -156,13 +156,12 @@ test("a refused native folder pick shows its exact path and allows that folder",
   await made.open("/new");
   await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
   await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Choose a folder…" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Browse…" }));
   const dialog = await screen.findByRole("dialog", { name: "Add project" });
   const failure = await within(dialog).findByRole("alert");
   expect(failure.textContent).toContain(path);
   expect(failure.textContent).toContain("ace isn't allowed to open this folder yet");
-  await userEvent.click(within(failure).getByRole("button", { name: "Allow this folder…" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Allow folder" }));
+  await userEvent.click(within(failure).getByRole("button", { name: "Allow and add" }));
   await screen.findByRole("button", { name: "Project: project" });
   expect(registered(made)).toEqual([path]);
 });
@@ -175,7 +174,7 @@ test("dropping a local folder on a remote primary offers remote browsing without
   dropFolder("weather");
   expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();
   expect(registered(made)).toEqual([]);
-  expect(screen.queryByRole("button", { name: "Choose a folder…" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Browse…" })).toBeNull();
 });
 
 test("a desktop folder link cannot register its local path on a selected remote daemon", async () => {

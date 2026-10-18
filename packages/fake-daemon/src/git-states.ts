@@ -28,6 +28,7 @@ export class FakeGitStates {
   /** Per thread, the remote branch's revision when it has commits the checkout doesn't. */
   private diverged = new Map<string, string>();
   private hooksSkipped = new Set<string>();
+  private defaults = new Map<string, string>();
 
   /**
    * The remote branch has commits the thread's checkout lacks (after a rebase or amend): a plain
@@ -69,6 +70,10 @@ export class FakeGitStates {
   lock(workspaceId: string, repository: string): void {
     this.locks.set(workspaceId, repository);
   }
+  /** The repository's default branch, as `branches.list` reports it ("main" unless set). */
+  setDefaultBranch(workspaceId: string, name: string): void {
+    this.defaults.set(workspaceId, name);
+  }
   /** Every worktree start in the project fails its setup script with `output`, or no longer. */
   failSetup(workspaceId: string, output: readonly string[] | undefined): void {
     if (output) this.setups.set(workspaceId, output);
@@ -99,7 +104,7 @@ export class FakeGitStates {
       branches: ["main", "develop"],
       truncated: false,
       refs: [...fakeBranchRefs],
-      defaultBranch: "main",
+      defaultBranch: this.defaults.get(workspaceId) ?? "main",
     };
   }
 
