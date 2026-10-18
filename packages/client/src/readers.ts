@@ -70,8 +70,17 @@ export interface ThreadReader {
  * `threads` changes with any entry or with membership: one key for views over the whole list,
  * instead of one per thread (a host with thousands of threads would exhaust the listener cap).
  */
-export type SidebarKey = "error" | "ids" | "threads" | "window" | "homeWindow" | `thread:${string}`;
+export type SidebarKey =
+  | "error"
+  | "sync"
+  | "ids"
+  | "threads"
+  | "window"
+  | "homeWindow"
+  | `thread:${string}`;
 export interface SidebarReader {
+  /** Not yet the daemon's list: restored from disk, or waiting for a subscription's snapshot. */
+  readonly syncing?: boolean;
   readonly homeWindow?: import("@ace/protocol").ThreadListWindow | undefined;
   readonly window?: import("@ace/protocol").ThreadListWindow | undefined;
   readonly error: ClientError | undefined;

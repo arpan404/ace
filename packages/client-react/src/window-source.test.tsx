@@ -234,3 +234,42 @@ test("a joined window is followed only by newer tail items, not a root item kept
   });
   expect(source.order).toEqual(["older", "shared", "newest"]);
 });
+
+test("a held window shows that the live thread is still catching up", () => {
+  const live = new ThreadStore(defaultLimits);
+  const thread = Thread.parse({
+    id: "thread",
+    workspaceId: "ws",
+    provider: "codex",
+    title: "Catching up",
+    status: { state: "working", agents: 1 },
+    createdAt: 0,
+    updatedAt: 0,
+  });
+  live.snapshot({
+    kind: "thread",
+    seq: 20,
+    thread,
+    agents: {},
+    agentChildren: {},
+    runs: {},
+    items: { shared: message("shared") },
+    itemOrder: ["shared"],
+    itemSeqs: { shared: 10 },
+    itemsBefore: 10,
+    interactions: {},
+    backgroundTasks: {},
+    usage: {},
+    usageSnapshots: {},
+  });
+  const source = windowSource(live, {
+    items: [message("shared")],
+    seqs: new Map([["shared", 10]]),
+    before: 10,
+    joined: true,
+  });
+  live.setSyncing(true);
+  expect(source.syncing).toBe(true);
+  live.setSyncing(false);
+  expect(source.syncing).toBe(false);
+});

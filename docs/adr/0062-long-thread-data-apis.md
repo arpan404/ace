@@ -126,6 +126,12 @@ resubscribed without a cursor and the snapshot replaced loaded history. Decision
   unfinished one (events the gap skipped may have changed a running item). Otherwise the
   snapshot replaces the store; the view's held window keeps its copies and shows a gap.
 
+- **Cached views carry sequences.** A thread view read back from disk (ADR 0030, read snapshots)
+  holds each item's creation sequence and `itemsBefore`; a record without them is discarded. It
+  is a held transcript, so the daemon's snapshot resumes it under the rule above. PR #898's
+  separate 200-item reader window (retained before the live tail evicts it) is not adopted:
+  `holdTail`, `absorbTail` and the 2,000-item history window cover it.
+
 Older paragraphs of this ADR that describe a 200-item window sliding by 100, or a joined window
 "followed by the tail's newer items", are superseded by this section; ADR 0056 records the new
 window bound.

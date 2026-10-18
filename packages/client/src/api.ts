@@ -101,6 +101,13 @@ export interface ClientApi {
   reconnectNow(): void;
   thread(id: string): Lease<ThreadSource>;
   threads(): Lease<SidebarSource>;
+  /**
+   * The store `thread(id)` would lease, if one is cached, without taking a lease: a view paints
+   * it on its first render, before the lease reconciles it. It may be behind (`syncing`).
+   */
+  cachedThread?(id: string): ThreadSource | undefined;
+  /** Likewise for `threads()`. */
+  cachedThreads?(): SidebarSource | undefined;
   threadsWindow(input: {
     project?: string | undefined;
     archived?: boolean | undefined;
@@ -187,6 +194,7 @@ export interface ThreadExport {
   deleted?: string[];
 }
 export interface SidebarExport {
+  syncing?: boolean;
   loaded?: boolean | undefined;
   homeWindow?: import("@ace/protocol").ThreadListWindow | undefined;
   error: { code: ClientError["code"]; message: string } | undefined;

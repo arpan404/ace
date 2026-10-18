@@ -75,6 +75,11 @@ export interface ClientOptions {
   ): AsyncGenerator<import("./attachment-types.ts").AttachmentFrame>;
   credential(): Promise<Credential>;
   storage: Storage;
+  /**
+   * Where thread and thread-list views keep read snapshots between sessions, so a reload paints
+   * before the daemon answers (ADR 0030). None: views start empty.
+   */
+  readSnapshots?: import("./read-snapshot-storage.ts").ReadSnapshotStorage;
   scheduler: Scheduler;
   random(): number;
   id(): string;

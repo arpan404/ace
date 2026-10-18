@@ -68,3 +68,38 @@ with the normal backoff, whose attempt count resets only once a connection stays
 frame the client's schemas reject (another build's message, or a welcome for another protocol
 version) is reported as `ClientError("version_mismatch")` until a good welcome. Transports pass
 the close reason, and `ConnectionInfo.lastClose` keeps the last `{code, reason, at}`.
+
+## Amendment 2026-10-18: read snapshots and warm views
+
+A reload or a reopened view paints before the daemon answers. `ClientOptions.readSnapshots`
+(`ReadSnapshotStorage`, optional) keeps a read record per thread and per thread-list filter.
+The caller scopes and bounds it; the web app keeps them in IndexedDB (`boot/read-snapshots.ts`)
+under a SHA-256 of the connection (daemon address and identity, device, paired account, token),
+so another daemon, device or credential never reads them and no token is stored.
+
+- **Records.** Version 2 (`read-records.ts`). A thread record is the store's view with `itemSeqs`
+  covering `itemOrder` in ascending order, `itemsBefore` (the lane cursors derive from both, ADR 0062) and the truncated ids. A record of another version, without a sequence for every item,
+  out of creation order, or for another thread is discarded, never loaded: an item without a
+  sequence has no place to merge into. A sidebar record holds only the half its filter shows
+  (home or archive); each half is parsed and bounded on its own.
+- **Restore.** A record is read once when the view's store is created and applied only if the
+  store has not changed since (a live snapshot or a failure wins). The restored store is
+  `syncing` and subscribes without `afterSeq`, since the record may come from another daemon run.
+  The daemon's snapshot then resumes it exactly like a resubscription's (`resumeTranscript`): per
+  lane, held finished items older than the snapshot are kept when the snapshot's lane starts at
+  or before the record's cursor + 1, merged by sequence and deduplicated by id; otherwise the
+  snapshot replaces it. A record never makes a row appear twice or out of order.
+- **Lower snapshots.** A subscription's one snapshot is accepted even below the held cursor (a
+  crashed daemon lost the tail it sent, or the held view came from disk); the store then
+  replaces what it held. Wire ids and the one-snapshot window still fence stale frames. Windowed
+  thread lists always subscribe without a cursor.
+- **Writes.** At most one per store per second after a change, read at the scheduled boundary,
+  never on the delta path; a change during a write waits for it. Closing a client, evicting a
+  cached store or changing a list's filter checkpoints what is unwritten after the write in
+  flight, so the newest copy lands last; `close()` settles once they are written.
+- **Warm views.** `ClientApi.cachedThread(id)` and `cachedThreads()` return the store a lease
+  would get, without leasing, so `useThreadStore` and `useSidebarStore` paint it on their first
+  render. Released stores are marked `syncing`. Unleased SDK stores are bounded by count (32) and
+  by 16 MiB of estimated size, least recently used first; held stores are pinned. A tab keeps its
+  released mirrors under its own 16 MiB / 32-entry budget (`MirrorCache`), dropped when the worker
+  is lost. Sizes are measured at the release boundary only.

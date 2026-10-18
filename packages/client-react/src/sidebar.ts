@@ -69,6 +69,8 @@ class SidebarIndex<T> {
     this.store = store;
     this.pick = pick;
     this.equal = equal;
+    // React reads the snapshot before it subscribes: a cached list paints on the first commit.
+    this.update("all");
   }
   get = (): readonly T[] | undefined => this.snapshot;
   subscribe = (listener: () => void): (() => void) => {

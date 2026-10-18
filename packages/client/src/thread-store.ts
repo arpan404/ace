@@ -193,6 +193,34 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       deleted: [...this.#deleted],
     };
   }
+  /**
+   * Show a view read back from disk until the subscription's snapshot arrives (ADR 0030). It is
+   * held like any transcript, so that snapshot resumes it by creation sequence or replaces it,
+   * exactly as a resubscription's does. False when the store already holds a view or the
+   * record is over this client's limits.
+   */
+  restore(view: ThreadView, truncated: readonly string[]): boolean {
+    if (this.#view) return false;
+    try {
+      this.snapshot(view);
+    } catch (error) {
+      if (!(error instanceof ClientError)) throw error;
+      return false;
+    }
+    const keys = new Set<ThreadKey>(["sync"]);
+    for (const id of truncated)
+      if (this.item(id)) {
+        this.#clipped.add(id);
+        keys.add(`item:${id}`);
+      }
+    this.#syncing = true;
+    this.#notifications.emit(keys);
+    return true;
+  }
+  /** Roughly what the store holds, in bytes. Linear in it: for cache boundaries, never deltas. */
+  retainedBytes(): number {
+    return JSON.stringify(this.export()).length * 2 + this.#journal.retainedBytes();
+  }
   snapshot(view: ThreadView): void {
     const runs = Object.keys(view.runs).length;
     if (runs > this.#limits.entities) endedRuns(view, runs - this.#limits.entities);

@@ -56,6 +56,7 @@ import { WorkerLiveness, replyTimeout } from "./worker-liveness.ts";
 import { IntentCache } from "./intent-cache.ts";
 import { SendCache } from "./send-cache.ts";
 import { MirrorSidebar, MirrorThread } from "./mirror.ts";
+import { MirrorCache } from "./mirror-cache.ts";
 import { toError, trusted } from "./trusted.ts";
 import {
   WorkerMessage,
@@ -142,6 +143,8 @@ export class RemoteClient implements ClientApi {
   private localSaving = new Set<string>();
   private pendingWatchers = 0;
   private mirrors = new Map<string, Mirrored>();
+  /** Released mirrors, kept for the next first render (`cachedThread`). */
+  private released = new MirrorCache();
   private byLease = new Map<number, Mirrored>();
   private pending = new Map<number, Pending>();
   private messageListeners = new Set<(message: ServerMessage) => void>();
@@ -309,6 +312,7 @@ export class RemoteClient implements ClientApi {
     for (const pending of this.pending.values()) pending.reject(new ClientError("offline"));
     this.pending.clear();
     this.messageListeners.clear();
+    this.released.clear();
     for (const id of this.sends.keys()) this.sends.delete(id);
     this.intents.clear();
     this.localSaving.clear();
@@ -331,6 +335,17 @@ export class RemoteClient implements ClientApi {
       { kind: "thread", threadId: id },
       () => new MirrorThread(this.listeners),
     );
+  }
+  cachedThread(id: string): ThreadSource | undefined {
+    if (this.closed || this.workerLost) return undefined;
+    const key = `thread:${id}`;
+    const mirror = this.mirrors.get(key)?.mirror ?? this.released.get(key);
+    return mirror instanceof MirrorThread ? mirror : undefined;
+  }
+  cachedThreads(): SidebarSource | undefined {
+    if (this.closed || this.workerLost) return undefined;
+    const mirror = this.mirrors.get("threads")?.mirror ?? this.released.get("threads");
+    return mirror instanceof MirrorSidebar ? mirror : undefined;
   }
   threadsWindow(input: {
     project?: string | undefined;
@@ -601,7 +616,8 @@ export class RemoteClient implements ClientApi {
     if (this.closed || this.workerLost) throw new ClientError("offline");
     let held = this.mirrors.get(key);
     if (!held) {
-      held = { refs: 0, lease: ++this.sequence, mirror: create() };
+      // A released mirror paints until the worker's copy replaces it.
+      held = { refs: 0, lease: ++this.sequence, mirror: this.released.take(key) ?? create() };
       this.mirrors.set(key, held);
       this.byLease.set(held.lease, held);
       this.post({ t: "lease", lease: held.lease, scope });
@@ -618,6 +634,7 @@ export class RemoteClient implements ClientApi {
         this.mirrors.delete(key);
         this.byLease.delete(owned.lease);
         this.post({ t: "release", lease: owned.lease });
+        if (!this.closed && !this.workerLost) this.released.set(key, owned.mirror);
       },
     };
   }
@@ -727,6 +744,7 @@ export class RemoteClient implements ClientApi {
     }
   }
   private loseWorker(): void {
+    this.released.clear();
     if (this.closed || this.workerLost) return;
     this.workerLost = true;
     this.monitor.close();

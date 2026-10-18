@@ -75,6 +75,9 @@ export function windowSource(live: ThreadSource, window: ThreadWindow): ThreadSo
     get error() {
       return live.error;
     },
+    get syncing() {
+      return live.syncing ?? false;
+    },
     get thread() {
       return live.thread;
     },
