@@ -122,10 +122,10 @@ thread ownership before conditional cache replies. Only single byte ranges up to
 upload cap. ETags include hash, variant and preview version. Private revalidation
 prevents a cached URL from bypassing a later permission check.
 
-Sharp 0.34.5, accepted under Apache-2.0, creates PNG previews bounded to 256 by 256
-pixels and 256 KiB. Decoder input has a 40 million pixel cap; at most two decodes
+Sharp 0.34.5, accepted under Apache-2.0, creates PNG previews bounded to 512 by 512
+pixels and 512 KiB. Decoder input has a 40 million pixel cap; at most two decodes
 run concurrently. The authorized read path pins blobs while decoding. Eight previews
-are cached in memory, at most 2 MiB. No preview replaces or rewrites the original,
+are cached in memory, at most 4 MiB. No preview replaces or rewrites the original,
 including its alpha, ICC profile or EXIF bytes. Standalone releases stage Sharp's
 runtime dependency closure and platform binaries, retaining bundled license notices.
 

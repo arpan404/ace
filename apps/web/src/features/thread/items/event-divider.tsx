@@ -4,6 +4,7 @@ import type { Item } from "@ace/protocol";
 import {
   displayNotice,
   sanitizeUserText,
+  stripAceOriginMarker,
   echoesEarlierError,
   failureCount,
   handoffSummary,
@@ -187,7 +188,7 @@ export function EventBlock(props: { threadId: string; itemId: string }) {
           <EventRow
             line={{ icon: "automation", text: "Delegated work finished" }}
             at={item.createdAt}
-            received={input.text}
+            received={stripAceOriginMarker(input.text.trimStart())}
           />
         );
       }

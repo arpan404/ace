@@ -247,19 +247,28 @@ export async function executeIntent(
     const capabilities =
       actor.effectiveCapabilities ??
       registry.get(state.config.provider, repo.backend(actor.id)).capabilities;
-    if (p.cascade && !capabilities.interruptCascades) {
-      const target = p.agentId ?? state.agents[state.rootKey ?? ""]?.agent.id;
-      const descendants = (id: string): string[] =>
-        Object.keys(state.indexes.childrenByParent[id] ?? {})
-          .filter((key) => !state.agents[key]?.externalStatus)
-          .flatMap((key) => descendants(state.agents[key]?.agent.id ?? "").concat(key));
-      for (const key of target ? descendants(target) : [])
-        await actor.session.interrupt({ agent: key, cascade: false });
+    const session = actor.session;
+    try {
+      if (p.cascade && !capabilities.interruptCascades) {
+        const target = p.agentId ?? state.agents[state.rootKey ?? ""]?.agent.id;
+        const descendants = (id: string): string[] =>
+          Object.keys(state.indexes.childrenByParent[id] ?? {})
+            .filter((key) => !state.agents[key]?.externalStatus)
+            .flatMap((key) => descendants(state.agents[key]?.agent.id ?? "").concat(key));
+        for (const key of target ? descendants(target) : [])
+          await session.interrupt({ agent: key, cascade: false });
+      }
+      await session.interrupt({
+        ...(agent === undefined ? {} : { agent }),
+        cascade: p.cascade,
+      });
+    } catch (error) {
+      if (!stopsWholeThread(p)) throw error;
+      // A Stop always settles. When the provider can't stop the tree itself (its location was
+      // lost, or it holds work it won't interrupt), ace ends the provider session: owned work is
+      // cleaned up and everything still marked running ends with an unknown outcome.
+      await sessions.close(actor, "user");
     }
-    await actor.session.interrupt({
-      ...(agent === undefined ? {} : { agent }),
-      cascade: p.cascade,
-    });
   } else if (p.type === "interaction.resolve") {
     const entry = Object.entries(state.interactions).find(
       ([, item]) => item.id === p.interactionId,
@@ -309,4 +318,13 @@ export async function executeIntent(
     if (!entry || entry[1].status !== "running") throw new Error("Task is no longer running");
     await actor.session.stopTask(entry[0]);
   }
+}
+
+/** A Stop of the whole thread, as opposed to interrupting one agent or one run. */
+function stopsWholeThread(p: {
+  cascade: boolean;
+  agentId?: string | undefined;
+  runId?: string | undefined;
+}): boolean {
+  return p.cascade && p.agentId === undefined && p.runId === undefined;
 }

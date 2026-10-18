@@ -131,7 +131,9 @@ test("a failed child opens its own work without leaking its raw error into the t
   const fixture = workCardScenario("failed");
   app.play(fixture).runUntilBlocked();
   const work = await openWork(app, fixture.thread.id);
-  expect(within(work).queryByText("The test command failed. Check its output.")).toBeNull();
+  // Needs you says why it failed; the tree only says that it did.
+  const tree = await within(work).findByRole("tree", { name: "Agent tree" });
+  expect(within(tree).queryByText("The test command failed. Check its output.")).toBeNull();
   await userEvent.click(
     within(work).getByRole("treeitem", { name: "Check supervisor logs: Failed" }),
   );
@@ -151,8 +153,9 @@ test("an ended parent remains active until its nested child settles", async () =
     name: /^Write retry tests: Waiting on (work|subagents|background task)$/,
   });
   act(() => app.daemon.apply(fixture.thread.id, [facts.endTurn("worker-1")]));
+  // Both of the main agent's subagents completed: they fold into one row.
+  await userEvent.click(await within(work).findByRole("treeitem", { name: "2 done" }));
   await within(work).findByRole("treeitem", { name: "Write retry tests: Idle" });
-  expect(within(work).getByText("2 done")).toBeTruthy();
   expect(
     within(work).getByRole("treeitem", { name: /^Main agent: Waiting on (work|background task)$/ }),
   ).toBeTruthy();

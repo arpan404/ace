@@ -77,15 +77,10 @@ export class OpenCodeTranslator implements Translator {
       }
       if (data.type === "disconnected" || data.type === "resynced") {
         state.disconnected = data.type === "disconnected";
-        return [...state.agents.keys()]
-          .filter(
-            (id) =>
-              state.disconnected || !state.lostLocations.has(state.agents.get(id)?.directory ?? ""),
-          )
-          .map((id) => ({
-            type: state.disconnected ? "agent.disconnected" : "agent.reconnected",
-            agent: state.key(id),
-          }));
+        return [...state.agents.keys()].map((id) => ({
+          type: state.disconnected ? "agent.disconnected" : "agent.reconnected",
+          agent: state.key(id),
+        }));
       }
       return [];
     }
@@ -228,9 +223,11 @@ export class OpenCodeTranslator implements Translator {
     }
     if (state.events.has(e.id)) return [];
     state.events.add(e.id);
+    // OpenCode closed this location's services (a reload or rebuild): its permissions, forms and
+    // shells are gone, and the session reconciles everything else from snapshots before it is
+    // trusted again. Agents read as disconnected until that recovery resyncs them.
     if (type === "location.shutdown" && e.location) {
       const directory = e.location.directory;
-      state.lostLocations.add(directory);
       const facts: Fact[] = [];
       for (const [key, pending] of state.pending)
         if (state.agents.get(pending.session)?.directory === directory) {
@@ -412,6 +409,10 @@ export class OpenCodeTranslator implements Translator {
   }
   taskOwner(task: string): string | undefined {
     return this.state.backgrounds.get(task);
+  }
+  /** True while a native shell still holds its background task open. */
+  liveShell(id: string): boolean {
+    return this.state.backgrounds.has(`shell:${id}`);
   }
   tick(_now: number): Fact[] {
     return [];

@@ -4,7 +4,7 @@ Date: 2026-10-03. Status: accepted.
 
 ## Decision
 
-Persist a turn index alongside canonical event writes. Reuse the stable root run ordinals from ADR 0057. User messages received before a run belong to that next turn; automatic runs also receive an ordinal. Keep item-to-turn and agent-to-turn ownership durable so late background results update their original turn. A root run ending is an outcome fact, not proof that its tree has finished. Turns remain active while their agents, tools, interactions or background tasks are live. Current thread status and its reason always come from the whole-tree status owner in ADR 0004.
+Persist a turn index alongside canonical event writes. Reuse the stable root run ordinals from ADR 0057. User messages received before a run belong to that next turn; automatic runs also receive an ordinal. (Amended 2026-10-18: a turn is an ask and every root run after it until the next ask; automatic runs join the current turn. See "Turns are asks".) Keep item-to-turn and agent-to-turn ownership durable so late background results update their original turn. A root run ending is an outcome fact, not proof that its tree has finished. Turns remain active while their agents, tools, interactions or background tasks are live. Current thread status and its reason always come from the whole-tree status owner in ADR 0004.
 
 `turns.page` returns bounded summaries in ordinal order, with exclusive ordinal cursors and a 1 MiB wire budget. A page may contain fewer turns than requested. Each summary contains times, canonical sequence bounds, initiating-message preview, outcome and deterministic digest. Digests count tools by kind, changed files and known added/removed lines, commands and failures, approvals asked/answered/auto-reviewed, subagents and token usage. Auto-review is an explicit interaction fact, never inferred from a device name. Missing line or token information stays explicitly unknown. Detail previews and nested summaries are capped, with totals and truncation flags; no API returns an unbounded array. Linked subagent threads retain their own turn indexes and are included as bounded nested summaries.
 
@@ -135,3 +135,41 @@ resubscribed without a cursor and the snapshot replaced loaded history. Decision
 Older paragraphs of this ADR that describe a 200-item window sliding by 100, or a joined window
 "followed by the tail's newer items", are superseded by this section; ADR 0056 records the new
 window bound.
+
+## Turns are asks (2026-10-18)
+
+Owner decision. A turn is one ask and every root run that follows it until the next ask. A run
+the agent starts by itself (a background task or subagent finished) no longer opens a turn: the
+rail, ⌥⌘↑/↓, the turns panel, previews, `turns.page`, `turn.steps`, catch-up and whole-turn
+windows all treat the ask and its answers as one turn.
+
+- **Run turn.** `Run.ordinal` stays the run's own number (runs list, checkpoints). Root runs
+  also carry `Run.turn`, allocated once by the daemon when the run starts, dense from 1. Runs
+  recorded before this change omit it and read as `turn ?? ordinal`; a thread's turns continue
+  after its last run ordinal, so nothing is rewritten.
+- **What asks.** A root user-role message asks unless its origin carries the turn on:
+  `subagent_result` (ace's delegation results and native subagent results),
+  `background_completion`, `interaction_answer`, `restart` (ace's "Continue"), `limit_resume`
+  and `handoff`. The person's own words (typed, queued, steered), `automation` and `schedule`
+  prompts, a parent agent's ask in a child thread (`spawn`, `parent_agent`) and a provider-native
+  user message with no origin ask (`startsTurn` in `@ace/projection`).
+- **Which runs open a turn.** A root run opens the next turn when an ask is waiting that no
+  started run took, or when its trigger says it was asked for (`user`, `queue`, `spawn`,
+  `parent_agent`, `goal`, `schedule`: covers a person typing in the provider's own CLI, which
+  ace sees only as a run). Otherwise (`background_completion`, `subagent_result`, `restart`,
+  `limit_resume`, `unknown`) it joins the current turn. Claude reports `unknown` at the start of
+  every run, so for Claude the ask decides.
+- **Steers.** A message steered into a running run belongs to that run's turn and asks for no
+  next turn. A message first indexed ahead of a run and later bound to the running one moves to
+  that run's turn; the empty turn it opened is dropped (likewise for a withdrawn queued message),
+  since no run started it.
+- **Liveness.** A later run reopens its turn (`root_outcome` active, settlement removed) and
+  updates its latest preview, end sequence, outcome and digests; a turn never reads settled
+  while any of its runs is live. Usage for a turn belongs to its live (else newest) root run.
+- **Clients.** `itemTurnOrdinals` numbers items with `Run.turn ?? Run.ordinal`; a carrying-on
+  user-role message stays in the turn before it. The transcript keeps one "Worked for" log for
+  runs that share a turn, as it already did for `background_completion`/`subagent_result` runs.
+  The fake daemon allocates turns by the same rule.
+- **Known gap.** When a provider emits a person's message only after the run it started and with
+  a trigger that does not say so (`unknown`), the run joins the current turn. ace's own sends
+  always index the message before the run, so this only affects provider-native input.

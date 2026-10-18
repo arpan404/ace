@@ -8,6 +8,14 @@
       "pattern": "^[\\w-]*$",
       "type": "string"
     },
+    "ci": {
+      "default": "any",
+      "enum": [
+        "any",
+        "failure"
+      ],
+      "type": "string"
+    },
     "order": {
       "default": "desc",
       "enum": [
@@ -48,7 +56,8 @@
         "open",
         "draft",
         "closed",
-        "merged"
+        "merged",
+        "active"
       ],
       "type": "string"
     }

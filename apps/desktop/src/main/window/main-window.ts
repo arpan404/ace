@@ -1,12 +1,14 @@
 import { readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
-import { app, BrowserWindow, nativeTheme, screen, shell } from "electron";
+import { app, BrowserWindow, dialog, nativeTheme, screen, shell } from "electron";
 import type { WindowState } from "../../shared/contract.ts";
 import { isAppUrl, isExternalUrl } from "../csp.ts";
 import {
   acceptVisualizationWebview,
   guardVisualizationContents,
 } from "../visualization-isolation.ts";
+import { installMainWindowDownloads } from "./downloads.ts";
+import { navigationDecision } from "./navigation.ts";
 import { restoreBounds, SavedWindow } from "./bounds.ts";
 import { macTitleBarCss, titleBarSymbolColor, windowOptions } from "./options.ts";
 
@@ -19,6 +21,8 @@ export interface MainWindowOptions {
   onState(state: WindowState): void;
   /** The colour behind the page in the given OS scheme (the page's theme, once known). */
   background(osDark: boolean): string;
+  /** The person's downloads folder, for the dialog a blob download opens with. */
+  downloadsDir: string;
 }
 
 /** Reduce transparency (macOS), reported to the page with the rest of the native appearance. */
@@ -64,9 +68,24 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
     return { action: "deny" };
   });
   contents.on("will-navigate", (event, url) => {
-    if (isAppUrl(url, options.url)) return;
+    const decision = navigationDecision(url, options.url);
+    if (decision === "allow") return;
     event.preventDefault();
-    if (isExternalUrl(url)) void shell.openExternal(url);
+    if (decision === "external") void shell.openExternal(url);
+  });
+  // The page's own blob downloads (attachment previews, the lightbox) arrive here once the
+  // guard above lets them through; anything else on this session keeps its default path.
+  installMainWindowDownloads({
+    session: contents.session,
+    contents,
+    downloadsDir: options.downloadsDir,
+    dialog: {
+      choosePath: async (defaultPath) => {
+        if (window.isDestroyed()) return undefined;
+        const chosen = await dialog.showSaveDialog(window, { defaultPath });
+        return chosen.canceled ? undefined : chosen.filePath;
+      },
+    },
   });
   contents.on("will-redirect", (event, url) => {
     if (!isAppUrl(url, options.url)) event.preventDefault();

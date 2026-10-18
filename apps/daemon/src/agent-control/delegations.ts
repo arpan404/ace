@@ -932,15 +932,26 @@ export class DelegationService {
           const agent = pending[0]?.parentAgentId;
           if (!agent) throw new Error("Missing delegation owner");
           this.deps.engine.delegationSettled(next.parent_id, agent, id, results, "ace-input", text);
+          // Busy parents whose provider steers get the result injected now;
+          // otherwise it queues hidden from the person's queue list and runs at
+          // the turn end. Never mark delivered until the send was accepted.
+          const delivery = this.deps.engine.supportsSteering(next.parent_id) ? "steer" : "queue";
           const result = this.command(id, {
             type: "thread.send",
             threadId: next.parent_id,
             input: [{ type: "text", text }],
-            delivery: "queue",
+            delivery,
             trigger: "subagent_result",
             origin: { kind: "subagent_result", threadIds: pending.map((edge) => edge.childId) },
           });
           if (!result.ok) throw controlAdmissionError(result.error ?? "Launch failed");
+          if (delivery === "queue") {
+            try {
+              this.deps.engine.prioritizeSubagentResult(next.parent_id, result.commandId);
+            } catch (error) {
+              this.report(error);
+            }
+          }
           this.journal.consumeDelivered(next.parent_id, delivered);
         });
       } catch (error) {

@@ -30,6 +30,7 @@ import { EmbeddedPageGroup } from "./page-group.ts";
 import { CertificateExceptions } from "./certificates.ts";
 import { clearPartition } from "./partition-cleanup.ts";
 import { requestKind } from "./request-schemes.ts";
+import { parkingOrigin, parkingWindowOptions } from "./parking.ts";
 
 /** The app window whose renderer asked to place a view, and that renderer's page zoom. */
 export interface PlacementHost {
@@ -98,7 +99,7 @@ export class EmbeddedViews implements ViewHost {
   private ready = new Map<string, number>();
   /** Each thread's placement keys that name a tab (split view). */
   private tabKeys = new Map<string, Set<string>>();
-  /** Never shown or focused; unseen views render here while an agent drives them. */
+  /** Shown offscreen, never focused; unseen views render here while an agent drives them. */
   private parking: BaseWindow | undefined;
   /** App windows whose size changes re-apply the views placed in them. */
   private watched = new WeakSet<BaseWindow>();
@@ -153,7 +154,7 @@ export class EmbeddedViews implements ViewHost {
         });
         view.setVisible(false);
         view.setBounds({ x: 0, y: 0, ...request.viewport });
-        // With no app window open the page starts in the parking window, drawn nowhere.
+        // With no app window open the page starts in the parking window, drawn offscreen.
         const app = this.options.window();
         const window = app && !app.isDestroyed() ? app : this.park(request.viewport);
         window.contentView.addChildView(view);
@@ -248,14 +249,11 @@ export class EmbeddedViews implements ViewHost {
   private park(size: { width: number; height: number }): BaseWindow {
     let window = this.parking;
     if (!window || window.isDestroyed()) {
-      window = new AppWindow({
-        show: false,
-        focusable: false,
-        skipTaskbar: true,
-        title: "ace browser",
-        width: size.width,
-        height: size.height,
-      });
+      window = new AppWindow(parkingWindowOptions(size));
+      window.setPosition(parkingOrigin.x, parkingOrigin.y);
+      // Visible to the compositor (frames and rAF run) but offscreen and never focused,
+      // so the person never sees it.
+      window.showInactive();
       this.parking = window;
     }
     const [width = 0, height = 0] = window.getContentSize();

@@ -1,6 +1,6 @@
 import { CaretRightIcon } from "@phosphor-icons/react";
 import { useId, useState } from "react";
-import { handoffSummary, resultLead } from "@ace/ui-core";
+import { handoffSummary, resultLead, stripAceOriginMarker } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 
@@ -11,7 +11,8 @@ import { Disclosure } from "@/components/ui/disclosure.tsx";
 export function ModelFacing(props: { text: string; label?: string; className?: string }) {
   const [open, setOpen] = useState(false);
   const body = useId();
-  const summary = handoffSummary(props.text) ?? readableSummary(props.text);
+  const shown = stripAceOriginMarker(props.text.trimStart());
+  const summary = handoffSummary(shown) ?? readableSummary(shown);
   return (
     <div className={props.className}>
       <button
@@ -36,7 +37,7 @@ export function ModelFacing(props: { text: string; label?: string; className?: s
           <p>{summary}</p>
           <Disclosure className="mt-1" summaryClassName="text-xs" summary="Details">
             <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-xs">
-              {props.text}
+              {shown}
             </pre>
           </Disclosure>
         </div>

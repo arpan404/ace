@@ -73,10 +73,10 @@ by every theme.
 | ---- | -------------- | ------- | ------- | ---------------------------------------- |
 | 1    | `canvas`       | #FFFFFF | #0C0C0C | Page and reading column                  |
 | 2    | `sidebar`      | #F9F9F9 | #090909 | Sidebar and side panel                   |
-| 3    | `surface`      | #F5F5F5 | #131313 | Cards, bubbles, settings groups          |
-| 4    | `raised`       | #FFFFFF | #161616 | Floating layers when solid               |
-| 5    | `hover`        | #F1F1F1 | #131313 | Solid hover fill                         |
-| 6    | `active`       | #E9E9E9 | #1C1C1C | Solid pressed or selected fill           |
+| 3    | `surface`      | #FAFAFA | #101010 | Cards, bubbles, settings groups          |
+| 4    | `raised`       | #FFFFFF | #121212 | Floating layers when solid               |
+| 5    | `hover`        | #F8F8F8 | #101010 | Solid hover fill                         |
+| 6    | `active`       | #F0F0F0 | #191919 | Solid pressed or selected fill           |
 | 7    | `border`       | #E2E2E2 | #1E1E1E | Hairlines                                |
 | 8    | `borderStrong` | #CFCFCF | #2B2B2B | Control edges, switch tracks (`--input`) |
 | 9    | `faint`        | #8D8D8D | #5E5E5E | Decorative icons (3:1)                   |

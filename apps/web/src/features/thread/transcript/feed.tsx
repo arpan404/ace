@@ -271,7 +271,10 @@ export function Feed(props: FeedProps) {
   const { hasOlder, loading, loadOlder } = pager;
   const toLive = () => {
     paging.reset();
-    scroll.toLive(window ? undefined : "glide");
+    // A window is discarded below, which may change no rows (a held window shows the tail's
+    // own rows): drive the scroller to the end first, so the reader lands there even when
+    // nothing about the rows moves. The rows changing underneath re-aims at the end again.
+    scroll.toLive(window ? "now" : "glide");
     if (window) nav.jump.live();
   };
 
@@ -425,7 +428,6 @@ export function Feed(props: FeedProps) {
               phase={livePill.phase}
               newItems={props.fresh.count}
               more={props.fresh.more}
-              paused={activity?.tone === "working"}
               onClick={toLive}
             />
           </Suspense>

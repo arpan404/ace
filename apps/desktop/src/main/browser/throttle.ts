@@ -16,9 +16,9 @@ export interface ViewActivity {
 
 /**
  * - `placed`: drawn in a renderer's Browser panel;
- * - `parked`: rendering, unseen, in the app's hidden parking window. Chromium produces no
- *   frames for a hidden view, so screenshots and `requestAnimationFrame` would stall while an
- *   agent drives a view nobody shows;
+ * - `parked`: rendering, unseen, in the app's offscreen parking window (shown, never focused).
+ *   Chromium produces no frames for a hidden view or a hidden window, so screenshots and
+ *   `requestAnimationFrame` would stall while an agent drives a view nobody shows;
  * - `hidden`: not rendering; page timers and state live on.
  */
 export type ViewPresence = "placed" | "parked" | "hidden";

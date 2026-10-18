@@ -255,6 +255,12 @@
         "endedAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
         },
+        "endedBy": {
+          "enum": [
+            "steer"
+          ],
+          "type": "string"
+        },
         "error": {
           "$ref": "https://ace.local/protocol/v1/AgentError.json"
         },

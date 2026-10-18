@@ -1083,3 +1083,62 @@ test("fake human approvals count once on the original turn while a newer turn wo
     await client.close();
   }
 });
+
+const say = (item: string, role: "user" | "assistant", text: string) => ({
+  type: "item.upsert" as const,
+  agent: "root",
+  item,
+  draft: {
+    type: "message" as const,
+    role,
+    complete: true,
+    parts: [{ type: "text" as const, text }],
+  },
+});
+
+test("fake turns hold an ask and the runs the agent starts by itself until the next ask", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  daemon.createThread({
+    id: "asks",
+    workspaceId: "ace",
+    title: "asks",
+    provider: "claude",
+    access: "ask",
+  });
+  daemon.apply("asks", [
+    {
+      type: "agent.seen",
+      agent: "root",
+      origin: "root",
+      fidelity: "full",
+      native: { provider: "claude", nativeId: "root" },
+      cwd: "/fake",
+    },
+    say("ask-1", "user", "Fix the build"),
+    { type: "turn.started", agent: "root", trigger: "unknown" },
+    say("reply-1", "assistant", "Started a background check"),
+    { type: "turn.ended", agent: "root", outcome: "completed" },
+    { type: "turn.started", agent: "root", trigger: "background_completion" },
+    say("reply-2", "assistant", "Build fixed"),
+    { type: "turn.ended", agent: "root", outcome: "completed" },
+    say("ask-2", "user", "Now deploy"),
+    { type: "turn.started", agent: "root", trigger: "unknown" },
+  ]);
+  const client = await connect(daemon);
+  try {
+    const page = await client.turnsPage({ threadId: "asks" });
+    expect(
+      page.turns.map((turn) => [
+        turn.ordinal,
+        turn.initiatingMessagePreview,
+        turn.latestAgentMessagePreview,
+        turn.outcome,
+      ]),
+    ).toEqual([
+      [1, "Fix the build", "Build fixed", "completed"],
+      [2, "Now deploy", "", "active"],
+    ]);
+  } finally {
+    await client.close();
+  }
+});

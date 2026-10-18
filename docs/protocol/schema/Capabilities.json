@@ -147,6 +147,13 @@
     "steer": {
       "type": "boolean"
     },
+    "steerTiming": {
+      "enum": [
+        "immediate",
+        "after_tool"
+      ],
+      "type": "string"
+    },
     "steeringMode": {
       "enum": [
         "native",
