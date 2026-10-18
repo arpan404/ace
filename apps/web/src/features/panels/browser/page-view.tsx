@@ -188,6 +188,9 @@ export function PageView(props: {
   // annotate mode changes hands: dropped to <body>, the composer would take the next keys and
   // Enter would send it. While the page can't take them, keys typed here go nowhere.
   const live = props.interactive && !props.nativeShown;
+  // The daemon draws agents' cursors in the page, so the frames already show them; only a
+  // recording keeps them out of the page, and then they are drawn here instead.
+  const inPage = props.view.features?.includes("page-cursor") === true && !props.view.recording;
   const paste = (event: ClipboardEvent<HTMLElement>) => {
     event.preventDefault();
     const text = event.clipboardData.getData("text");
@@ -226,7 +229,7 @@ export function PageView(props: {
       className={cn(className, "outline-none", live && "cursor-default focus-ring-inset")}
     >
       {image}
-      {image && props.tab?.inUse && props.tab.pointer && (
+      {image && props.tab?.inUse && props.tab.pointer && !inPage && (
         <AgentCursor
           threadId={props.threadId}
           agentId={props.tab.inUse.agentId}

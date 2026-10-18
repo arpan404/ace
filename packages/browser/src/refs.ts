@@ -27,6 +27,7 @@ function staleFrame(error: unknown): never {
     throw staleRef();
   throw error;
 }
+import { maskSecretFields, secretFieldNodes } from "./secret-values.ts";
 
 /** One generation and one bounded snapshot; navigation cannot alias an old ref. */
 export class SnapshotRefs {
@@ -40,12 +41,12 @@ export class SnapshotRefs {
     | undefined;
   private cdp: BrowserCdp;
   private frameSessions = new Map<string, BrowserFrameSession>();
-  /** DOM node whose subtree snapshots omit: ace's annotate overlay in the top document. */
-  private excluded: () => Promise<number | undefined>;
+  /** DOM nodes whose subtrees snapshots omit: ace's own layers (annotate, agent cursor). */
+  private excluded: () => Promise<readonly (number | undefined)[]>;
   constructor(
     cdp: BrowserCdp,
     frames?: () => Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]> | undefined,
-    excluded: () => Promise<number | undefined> = async () => undefined,
+    excluded: () => Promise<readonly (number | undefined)[]> = async () => [],
   ) {
     this.frames = frames;
     this.cdp = cdp;
@@ -113,6 +114,8 @@ export class SnapshotRefs {
     if (domNodes > outlineDomNodes) return this.outline(frames, epoch, domNodes);
     const output = new SnapshotOutput(epoch);
     const excluded = await this.excluded();
+    // Agents never read secret fields' values (ADR 0067, privacy): one lookup per session.
+    const secrets = new Map<BrowserCdp, Promise<Set<number>>>();
     for (const frame of frames) {
       const raw = AXTree.parse(
         await frame.cdp
@@ -122,7 +125,15 @@ export class SnapshotRefs {
           })
           .catch(staleFrame),
       );
-      const tree = frame.parentId ? raw : withoutSubtree(raw, excluded);
+      let secret = secrets.get(frame.cdp);
+      if (!secret) {
+        secret = secretFieldNodes(frame.cdp);
+        secrets.set(frame.cdp, secret);
+      }
+      const tree = maskSecretFields(
+        frame.parentId ? raw : withoutSubtree(raw, excluded),
+        await secret,
+      );
       if (!output.add(tree, frame)) break;
     }
     if (epoch !== this.epoch) throw staleRef();
@@ -136,6 +147,9 @@ export class SnapshotRefs {
     const document = DocumentRoot.parse(await top.cdp.send("DOM.getDocument", { depth: 0 }));
     const excluded = await this.excluded();
     const output = new SnapshotOutput(epoch);
+    // Agents never read secret fields' values (ADR 0067, privacy): one lookup per outline.
+    let found: Promise<Set<number>> | undefined;
+    const secrets = () => (found ??= secretFieldNodes(top.cdp));
     for (const role of outlineRoles) {
       const raw = AXTree.parse(
         await top.cdp.send("Accessibility.queryAXTree", {
@@ -144,7 +158,9 @@ export class SnapshotRefs {
         }),
       );
       // Parsed for this snapshot alone: an outline lists nodes without their children.
-      const nodes = raw.nodes.filter((node) => node.backendDOMNodeId !== excluded);
+      const nodes = maskSecretFields(raw, await secrets()).nodes.filter(
+        (node) => node.backendDOMNodeId === undefined || !excluded.includes(node.backendDOMNodeId),
+      );
       for (const node of nodes) node.childIds = [];
       if (!output.add({ nodes }, top)) break;
     }
@@ -165,7 +181,13 @@ export class SnapshotRefs {
     );
     // ace's overlay lives only in the top document.
     const child = target.frameId && this.frameSessions.get(target.frameId)?.parentId;
-    const tree = limitDepth(child ? raw : withoutSubtree(raw, await this.excluded()), depth);
+    const tree = limitDepth(
+      maskSecretFields(
+        child ? raw : withoutSubtree(raw, await this.excluded()),
+        await secretFieldNodes(target.cdp),
+      ),
+      depth,
+    );
     const output = new SnapshotOutput(epoch);
     output.add(tree, target);
     if (epoch !== this.epoch) throw staleRef();

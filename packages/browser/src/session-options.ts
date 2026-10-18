@@ -9,6 +9,14 @@ import type { ProcessSpawner } from "./io.ts";
 import type { NavigationClock } from "./navigation.ts";
 /** Who submits a command. `agentId` gives an agent its own current tab; omitted agents share one. */
 export type Actor = { kind: "agent"; agentId?: string } | { kind: "human"; connectionId: string };
+export interface SessionCursor {
+  visible: boolean;
+  /** How long a cursor glides before the agent's input lands under it. */
+  glideMs?: number;
+  /** The person's accent, read whenever a layer is drawn or restyled. */
+  style(): import("@ace/browser-annotate").CursorStyle;
+  name?(agentId: string | undefined): string | undefined;
+}
 export interface SessionOptions {
   threadId: ThreadId;
   backend: BrowserBackendSession;
@@ -44,6 +52,10 @@ export interface SessionOptions {
   persistTabs?: (records: import("./tab-store.ts").BrowserTabRecord[]) => void;
   /** A person or agent closed the browser: nothing comes back after a restart. */
   forgetTabs?: () => void;
+  /** Use my Chrome: the person lets agents' evaluate read cookies and storage. Omitted: never. */
+  storageReads?: () => boolean | Promise<boolean>;
+  /** Agents' cursors drawn in the page (ADR 0082); omitted, none (captures still mask secrets). */
+  cursor?: SessionCursor;
   /** Freeze idle tabs; omitted, tabs stay live. */
   lifecycle?: import("./session-lifecycle.ts").LifecycleSchedule;
 }

@@ -114,6 +114,29 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
           )?.value ?? "pause",
         )),
     onArtifact,
+    agentCursor: options.browser?.agentCursor ?? {
+      // A subagent's cursor carries its name; the thread's own agent is just "Agent".
+      name: (threadId, agentId) => {
+        const thread = ThreadId.safeParse(threadId);
+        if (!agentId || !thread.success) return undefined;
+        const agent = store.getMcpAgent(thread.data, agentId);
+        return agent && agent.origin !== "root" ? (agent.name ?? agent.role) : undefined;
+      },
+    },
+    userChromeStorageReads:
+      options.browser?.userChromeStorageReads ??
+      (async (threadId) => {
+        try {
+          const setting = await services.settings?.get(
+            "browser.userChrome.storageReads",
+            settingsScope(store, { threadId: ThreadId.parse(threadId) }),
+          );
+          return setting?.value === true;
+        } catch {
+          // An unknown thread or unreadable settings keep the person's storage closed.
+          return false;
+        }
+      }),
   });
   resources.own(() => browser.close());
   const user = services.userBrowser;

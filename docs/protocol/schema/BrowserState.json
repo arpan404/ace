@@ -83,6 +83,17 @@
       "maxLength": 2048,
       "type": "string"
     },
+    "recording": {
+      "properties": {
+        "by": {
+          "$ref": "https://ace.local/protocol/v1/BrowserTabActor.json"
+        }
+      },
+      "required": [
+        "by"
+      ],
+      "type": "object"
+    },
     "status": {
       "enum": [
         "ready",

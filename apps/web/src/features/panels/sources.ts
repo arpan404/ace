@@ -68,8 +68,13 @@ export interface BrowserView {
   pendingDialog?: BrowserDialogView | undefined;
   /** Set while a connection has annotate mode open on the page (ADR 0082). */
   annotation?: { owner: string } | undefined;
-  /** Optional page features the daemon supports, such as `annotate`. */
+  /**
+   * Optional page features the daemon supports, such as `annotate`; with `page-cursor` agents'
+   * cursors are drawn in the page itself.
+   */
   features?: readonly string[] | undefined;
+  /** A recording of the shown tab runs, started by the person or an agent. */
+  recording?: { by: BrowserActorView } | undefined;
 }
 export interface BrowserDialogView {
   dialogId: string;
@@ -282,6 +287,10 @@ export interface PreviewSource {
   selection?(threadId: string, tabId?: string): Promise<string>;
   nativeShown?(threadId: string, shown: boolean): void;
   capture?(threadId: string, width: number, height: number, devicePixelRatio: number): void;
+  /** The person's accent for agents' cursors drawn in the page (`fill`, `outline`: #RRGGBB). */
+  cursorStyle?(threadId: string, style: { fill: string; outline: string }): void;
+  /** Stop the recording that runs in the thread's browser; its file joins the thread. */
+  stopRecording?(threadId: string): Promise<void>;
   /** Size the page to the pane in CSS pixels (100–4096). */
   resize(threadId: string, width: number, height: number): void;
 }

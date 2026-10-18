@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { UserBrowserConnection, UserBrowserSettings, UserBrowserStatus } from "@ace/protocol";
 import { CopyCommand } from "@/components/copy-command.tsx";
 import { SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { Switch } from "@/components/ui/switch.tsx";
+import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 
 const familyNames: Record<string, string> = {
   chrome: "Chrome",
@@ -42,6 +44,8 @@ export function UseMyChromeSettings() {
   const queries = useQueryClient();
   const [busy, setBusy] = useState<UserBrowserSettings["operation"]>();
   const [error, setError] = useState<string>();
+  const [storageReads, setStorageReads] = useDaemonSetting("browser.userChrome.storageReads");
+  const storageId = useId();
   const key = [client, "user-browser", "status"];
   const request = async (operation: UserBrowserSettings["operation"]) => {
     const response = await client.request({ type: "user_browser.settings", operation });
@@ -116,6 +120,28 @@ export function UseMyChromeSettings() {
                   description={connectionSummary(connection)}
                 />
               ))}
+          {installed && (
+            <SettingRow
+              id="browser.userChrome.storageReads"
+              title="Let agents read cookies and site storage"
+              description="Off: agents' scripts in your tabs read the page, never its cookies or saved site data."
+              htmlFor={storageId}
+              inline
+            >
+              <Switch
+                id={storageId}
+                checked={storageReads === true}
+                disabled={!ready || storageReads === undefined}
+                onCheckedChange={(allowed) =>
+                  void setStorageReads(allowed).catch((cause: unknown) =>
+                    setError(
+                      cause instanceof Error ? cause.message : "Couldn't save that setting.",
+                    ),
+                  )
+                }
+              />
+            </SettingRow>
+          )}
           {installed && (
             <SettingRow
               title="Stop or revoke"

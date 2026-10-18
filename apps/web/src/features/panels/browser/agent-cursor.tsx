@@ -1,6 +1,6 @@
 import { useAgent } from "@ace/client-react";
 import { agentName } from "@ace/ui-core";
-import { CursorIcon } from "@phosphor-icons/react";
+import { AgentCursorIcon } from "@/components/ace-icons.tsx";
 import { useLayoutEffect, useState, type RefObject } from "react";
 
 interface Box {
@@ -42,8 +42,9 @@ function usePictureBox(picture: RefObject<HTMLImageElement | null>): Box | undef
 }
 
 /**
- * The agent working in the shown tab, as a cursor that glides to where it last clicked,
- * hovered or dropped (`pointer`, in the page's CSS pixels). It moves by transform alone and
+ * Over the live frames, for a daemon that does not draw cursors in the page itself (or while a
+ * recording keeps them out of it): the agent working in the shown tab, as a cursor that glides
+ * to where it last clicked, hovered or dropped (`pointer`, in the page's CSS pixels). It moves by transform alone and
  * never takes input: the person keeps using the page under it.
  */
 export function AgentCursor(props: {
@@ -66,9 +67,10 @@ export function AgentCursor(props: {
       aria-label={`${name} is pointing here`}
       data-agent-cursor=""
       style={{ transform: `translate(${Math.round(x)}px, ${Math.round(y)}px)` }}
-      className="pointer-events-none absolute top-0 left-0 text-status-working transition-transform duration-(--motion-slow) ease-smooth"
+      className="pointer-events-none absolute top-0 left-0 transition-transform duration-(--motion-slow) ease-smooth"
     >
-      <CursorIcon aria-hidden size={18} weight="fill" className="drop-shadow-sm" />
+      {/* The Pebble's tip, not its box, sits on the point. */}
+      <AgentCursorIcon aria-hidden size={22} className="-translate-x-[4px] -translate-y-[4.5px]" />
     </span>
   );
 }

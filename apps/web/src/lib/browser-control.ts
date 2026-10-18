@@ -14,6 +14,8 @@ export interface BrowserControl {
   agent: boolean;
   /** The tab the person views is one they keep agents out of. */
   private: boolean;
+  /** The browser is being recorded; the indicator says so wherever the person is. */
+  recording?: boolean;
 }
 
 let controls: ReadonlyMap<string, BrowserControl> = new Map();
@@ -28,7 +30,8 @@ export function reportBrowserControl(threadId: string, control: BrowserControl |
       control &&
       before.url === control.url &&
       before.agent === control.agent &&
-      before.private === control.private)
+      before.private === control.private &&
+      before.recording === control.recording)
   )
     return;
   const next = new Map(controls);

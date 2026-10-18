@@ -110,6 +110,12 @@ const entries = [
     keywords: ["commit", "draft", "generate"],
   },
   {
+    id: "browser.userChrome.storageReads",
+    page: "/settings/computer-use",
+    title: "Let agents read cookies and site storage",
+    keywords: ["use my chrome", "evaluate", "localStorage", "privacy", "browser"],
+  },
+  {
     id: "automations.enabled",
     page: "/settings/general",
     title: "Run automations",

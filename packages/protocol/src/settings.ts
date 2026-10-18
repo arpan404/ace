@@ -57,6 +57,11 @@ export const SettingsValues = z.object({
    */
   "browser.downloadDefault": z.string().max(4096),
   /**
+   * Use my Chrome: agents' `evaluate` may read the page's cookies and web storage. Off by
+   * default: evaluate runs where those APIs are removed (ADR 0084, amended).
+   */
+  "browser.userChrome.storageReads": z.boolean(),
+  /**
    * This daemon's access for new threads: the mode the person last chose or set in Settings.
    * A thread's own choice and its project's default come first.
    */

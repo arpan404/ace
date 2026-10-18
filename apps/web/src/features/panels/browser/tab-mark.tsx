@@ -1,6 +1,7 @@
 import { useAgent } from "@ace/client-react";
 import { agentName } from "@ace/ui-core";
-import { CursorIcon, EyeSlashIcon, GlobeSimpleIcon } from "@phosphor-icons/react";
+import { EyeSlashIcon, GlobeSimpleIcon } from "@phosphor-icons/react";
+import { AgentCursorIcon } from "@/components/ace-icons.tsx";
 import { useCallback, useSyncExternalStore } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -30,7 +31,7 @@ function useDaemonTab(
 }
 
 /**
- * What leads a browser panel tab, from the daemon's tab: the agent cursor in the `working`
+ * What leads a browser panel tab, from the daemon's tab: the agent cursor (in the person's accent)
  * colour while an agent uses it (its name in the tooltip), a spinner while the page loads, else
  * the site's favicon, else a globe.
  */
@@ -48,12 +49,8 @@ export function BrowserTabMark(props: { scope: string; tab: WorkspaceTab; classN
     const worker = agent ? agentName(agent) : "An agent";
     return (
       <Tip label={`${worker} is using this tab`}>
-        <span
-          role="img"
-          aria-label={`${worker} is using this tab`}
-          className={cn(box, "text-status-working")}
-        >
-          <CursorIcon aria-hidden size={14} weight="fill" />
+        <span role="img" aria-label={`${worker} is using this tab`} className={box}>
+          <AgentCursorIcon aria-hidden size={16} />
         </span>
       </Tip>
     );

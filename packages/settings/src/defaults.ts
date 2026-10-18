@@ -42,6 +42,7 @@ export const defaults: SettingsValues = {
   "browser.profile": "persistent",
   "browser.downloadDir": "",
   "browser.downloadDefault": "",
+  "browser.userChrome.storageReads": false,
   "access.defaultMode": "auto-review",
   "access.nativeModes": {},
   "threads.useWorktree": true,

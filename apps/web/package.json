@@ -25,6 +25,7 @@
     "@ace/client-worker": "workspace:*",
     "@ace/commands": "workspace:*",
     "@ace/core": "workspace:*",
+    "@ace/design-tokens": "workspace:*",
     "@ace/forge": "workspace:*",
     "@ace/html": "workspace:*",
     "@ace/project-picker": "workspace:*",

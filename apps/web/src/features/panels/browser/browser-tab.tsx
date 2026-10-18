@@ -22,6 +22,8 @@ import { AnnotateButton } from "./annotate-button.tsx";
 import { useNativeView } from "./native-view.ts";
 import { Disconnected, LoadFailed, Offline, Opening, StartPage } from "./page-states.tsx";
 import { PageView } from "./page-view.tsx";
+import { RecordingIndicator } from "./recording-indicator.tsx";
+import { useCursorStyle } from "./use-cursor-style.ts";
 import { ConnectionMark } from "./connection-mark.tsx";
 import { useBrowserTab } from "./use-browser-tab.ts";
 import { useBrowserTabs } from "./use-browser-tabs.ts";
@@ -58,6 +60,7 @@ function Browser(props: TabViewProps) {
   const page = useBrowserTab(source, threadId, props.tab, tabs);
   const extensionsOff = useLocal(extensionsHidden, (value) => value);
   const { live, shown, online } = tabs;
+  useCursorStyle(source, threadId);
 
   // The rail's indicator: an agent works in this thread's browser, or the shown tab is private.
   const working = tabs.tabs.some((tab) => tab.inUse !== undefined);
@@ -65,7 +68,15 @@ function Browser(props: TabViewProps) {
   useEffect(() => {
     reportBrowserControl(
       threadId,
-      live ? { threadId, url: live.url, agent: working, private: privately } : undefined,
+      live
+        ? {
+            threadId,
+            url: live.url,
+            agent: working,
+            private: privately,
+            recording: live.recording !== undefined,
+          }
+        : undefined,
     );
   }, [threadId, live, working, privately]);
   useEffect(() => () => reportBrowserControl(threadId, undefined), [threadId]);
@@ -277,6 +288,7 @@ function Browser(props: TabViewProps) {
         }
         actions={
           <>
+            <RecordingIndicator source={source} threadId={threadId} view={live} />
             <ToolPill>
               {!extensionsOff && (
                 <ExtensionsMenu

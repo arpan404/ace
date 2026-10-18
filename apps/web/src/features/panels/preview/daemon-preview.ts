@@ -65,6 +65,7 @@ const view = (state: BrowserState): BrowserView => ({
   pendingDialog: state.pending_dialog,
   annotation: state.annotation,
   features: state.features,
+  recording: state.recording,
 });
 
 const wireInput = (input: ForwardedInput): BrowserInput => {
@@ -179,7 +180,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   };
   const requestId = () => `browser-${++requests}`;
   const call = async (
-    type: "browser.subscribe" | "browser.unsubscribe" | "browser.close",
+    type: "browser.subscribe" | "browser.unsubscribe" | "browser.close" | "browser.recording.stop",
     threadId: string,
   ) => {
     if (disposed) throw new Error("preview_disposed");
@@ -624,11 +625,26 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         watch.owed = undefined;
       }
     },
+    cursorStyle(threadId, style) {
+      const watch = watches.get(threadId);
+      if (!watch) return;
+      const before = watch.capture?.cursor;
+      if (before?.fill === style.fill && before.outline === style.outline) return;
+      watch.capture = {
+        ...(watch.capture ?? { width: 1280, height: 720, devicePixelRatio: 1 }),
+        cursor: style,
+      };
+      sendCapture(threadId, watch);
+    },
+    async stopRecording(threadId) {
+      await call("browser.recording.stop", threadId);
+    },
     capture(threadId, width, height, devicePixelRatio) {
       const watch = watches.get(threadId);
       if (!watch) return;
       watch.capture = {
         nativeShown: watch.capture?.nativeShown,
+        ...(watch.capture?.cursor ? { cursor: watch.capture.cursor } : {}),
         width: clamp(width),
         height: clamp(height),
         devicePixelRatio: Math.min(4, Math.max(1, devicePixelRatio)),

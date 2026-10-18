@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { BrowserTabList, BrowserDownload, BrowserDialog } from "./browser-features.ts";
+import {
+  BrowserTabList,
+  BrowserDownload,
+  BrowserDialog,
+  BrowserTabActor,
+} from "./browser-features.ts";
 import { BrowserInteractionAction, BrowserMeasurementOptions } from "./interaction-measurement.ts";
 import { ThreadId, WorkspaceId } from "./ids.ts";
 import {
@@ -321,7 +326,15 @@ export const BrowserState = z.object({
   pending_dialog: BrowserDialog.optional(),
   /** Set while a connection has annotate mode open on this page. */
   annotation: z.object({ owner: short }).optional(),
-  /** Optional page features this daemon supports, such as `annotate`. Unknown names are kept. */
+  /**
+   * A recording of the person's view runs, started by `by`. People see it and can stop it with
+   * `browser.recording.stop`; its frames hide agent cursors and mask secret fields.
+   */
+  recording: z.object({ by: BrowserTabActor }).optional(),
+  /**
+   * Optional page features this daemon supports, such as `annotate`; `page-cursor`: agents'
+   * cursors are drawn in the page itself, so clients draw none over frames. Unknown names are kept.
+   */
   features: z.array(z.string().max(64)).max(32).optional(),
 });
 export type BrowserState = z.infer<typeof BrowserState>;
@@ -343,8 +356,14 @@ export const BrowserArtifact = z.object({
   flags: z.array(z.enum(["executable", "archive"])).optional(),
 });
 export type BrowserArtifact = z.infer<typeof BrowserArtifact>;
+const hexColour = z.string().regex(/^#[0-9a-f]{6}$/i);
 export const BrowserCaptureViewport = z.object({
   nativeShown: z.boolean().optional(),
+  /**
+   * The person's accent on this viewer, for agents' cursors drawn in the page: `fill` is the
+   * accent, `outline` the colour that reads on it. The last viewer to report one sets it.
+   */
+  cursor: z.object({ fill: hexColour, outline: hexColour }).optional(),
   width: dimension,
   height: dimension,
   devicePixelRatio: z.number().finite().min(1).max(4),

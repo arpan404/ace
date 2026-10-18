@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { BrowserFrame } from "@ace/protocol";
+import type { BrowserFrame, BrowserTabActor } from "@ace/protocol";
 import { Recording } from "./recording.ts";
 import type { BrowserArtifact } from "@ace/protocol";
 import type { BrowserBackendPage } from "./backend.ts";
@@ -26,14 +26,26 @@ export class SessionRecording {
   private recording: Recording | undefined;
   private tab: RecordedTab | undefined;
   private stopPolling = () => {};
+  private actor: BrowserTabActor | undefined;
   private options: SessionOptions;
   private paused: () => boolean;
-  constructor(options: SessionOptions, paused: () => boolean) {
+  /** Pages hide ace's cursor and mask secret fields before the first frame, and after the last. */
+  private masked: (on: boolean) => Promise<void>;
+  constructor(
+    options: SessionOptions,
+    paused: () => boolean,
+    masked: (on: boolean) => Promise<void> = async () => {},
+  ) {
     this.options = options;
     this.paused = paused;
+    this.masked = masked;
   }
   get active(): boolean {
     return this.recording !== undefined;
+  }
+  /** Who started the recording that runs now; people see it and can stop it. */
+  get by(): BrowserTabActor | undefined {
+    return this.recording ? this.actor : undefined;
   }
   /** A live capture frame; kept only when it shows the recorded tab. */
   accept(frame: BrowserFrame): void {
@@ -44,10 +56,27 @@ export class SessionRecording {
   async close(): Promise<void> {
     if (this.recording) await this.stop();
   }
-  async start(check: () => void, tab?: RecordedTab): Promise<void> {
+  async start(
+    check: () => void,
+    tab: RecordedTab | undefined,
+    by: BrowserTabActor = { kind: "agent" },
+  ): Promise<void> {
     check();
     if (this.paused()) throw new BrowserActionError("browser_paused");
     if (this.recording) throw new BrowserActionError("recording_active");
+    await this.masked(true);
+    try {
+      await this.begin(check, tab, by);
+    } catch (error) {
+      await this.masked(false);
+      throw error;
+    }
+  }
+  private async begin(
+    check: () => void,
+    tab: RecordedTab | undefined,
+    by: BrowserTabActor,
+  ): Promise<void> {
     const recording = await Recording.start(
       join(this.options.dir, this.options.id()),
       this.options.ffmpeg,
@@ -67,6 +96,7 @@ export class SessionRecording {
       });
       this.recording = recording;
       this.tab = tab;
+      this.actor = by;
       if (tab) this.poll(recording, tab);
     } catch (error) {
       await recording.stop().catch(() => {});
@@ -94,6 +124,7 @@ export class SessionRecording {
     this.recording = undefined;
     this.tab = undefined;
     this.stopPolling();
+    await this.masked(false);
     const artifact = await recording.stop().catch(() => {
       throw new BrowserActionError("recording_failed");
     });

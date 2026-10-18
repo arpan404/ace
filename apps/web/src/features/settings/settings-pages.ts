@@ -4,13 +4,13 @@ import {
   HardDriveIcon,
   BellIcon,
   CodeIcon,
-  CursorClickIcon,
   KeyboardIcon,
   LaptopIcon,
   PaletteIcon,
   PlugIcon,
   SlidersHorizontalIcon,
 } from "@phosphor-icons/react";
+import { ComputerUseIcon } from "@/components/ace-icons.tsx";
 import type { IconGlyph } from "@/components/icon.tsx";
 
 export type SettingsPath =
@@ -35,7 +35,7 @@ export const settingsPages: readonly { to: SettingsPath; title: string; icon: Ic
   { to: "/settings/notifications", title: "Notifications", icon: BellIcon },
   { to: "/settings/source-control", title: "Source control", icon: CodeIcon },
   { to: "/settings/remote", title: "Remote devices", icon: LaptopIcon },
-  { to: "/settings/computer-use", title: "Computer use", icon: CursorClickIcon },
+  { to: "/settings/computer-use", title: "Computer use", icon: ComputerUseIcon },
   { to: "/settings/browser", title: "Browser", icon: BrowserIcon },
   { to: "/settings/keyboard", title: "Keyboard", icon: KeyboardIcon },
   { to: "/settings/storage", title: "Storage", icon: HardDriveIcon },
