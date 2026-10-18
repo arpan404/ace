@@ -64,6 +64,13 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
     tabBudget,
     dataDir: config.dataDir,
     tabStore: options.browser?.tabStore ?? new SqliteBrowserTabStore((sql) => store.statement(sql)),
+    // A fork (not a delegated thread) starts its browser with a copy of its parent's tabs.
+    forkedFrom:
+      options.browser?.forkedFrom ??
+      ((threadId) => {
+        const thread = store.getThread(ThreadId.parse(threadId));
+        return thread && !thread.delegatedBy ? thread.lineage?.parentThreadId : undefined;
+      }),
     workspaceRoot,
     cleanup: {
       ...options.browser?.cleanup,
@@ -136,8 +143,19 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
     resources.own(() => sessions.close());
     services.userBrowserSessions = sessions;
   }
-  forget = new BrowserForget(store, browser, (error) =>
-    context.log.log("warn", `Browser cleanup for a deleted thread: ${String(error)}`),
+  const forgetFailed = (error: unknown) =>
+    context.log.log("warn", `Browser cleanup for a deleted thread: ${String(error)}`);
+  forget = new BrowserForget(
+    store,
+    {
+      closeThread: (threadId) => browser.closeThread(threadId),
+      // The thread's browser data in the person's Chrome sessions goes too (#952).
+      forgetThread: async (threadId, workspaceId) => {
+        await services.userBrowserSessions?.forgetThread(threadId, workspaceId).catch(forgetFailed);
+        return browser.forgetThread(threadId, workspaceId);
+      },
+    },
+    forgetFailed,
   );
   resources.own(() => forget?.close());
   const turns: BrowserTurnPort[] = [browser];

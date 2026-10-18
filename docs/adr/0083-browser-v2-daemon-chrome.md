@@ -69,7 +69,11 @@ Rejected:
   extensions and sign-ins are shared. A thread may opt into a private throwaway context
   (`profile: "ephemeral"`, a `Target.createBrowserContext` context in the same browser). This
   replaces "threads never share cookies" from ADRs 0067 and 0069. Deleting a thread no longer
-  removes a profile.
+  removes a profile; it removes the thread's session folders (`<dataDir>/browser/threads/<hash
+of the thread id>/session-*`: downloads, logs), never what the person saved elsewhere (#952).
+- **Forks** (#952): a forked thread's first browser starts with a copy of its parent's tabs
+  (addresses, titles, labels; new tab ids; private tabs stay behind), taken from the parent's
+  open browser or its records. Delegated threads start empty.
 - **Import extensions from Chrome** copies extension code only, never cookies, passwords or
   `Local Extension Settings`.
 - **Agents may list extensions** and nothing more: no triggering extension actions, no cookie or

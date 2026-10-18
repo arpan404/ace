@@ -43,6 +43,11 @@ export interface BrowserServiceOptions {
    * against the same 48 as ace's own). Omitted: a budget of `maxTabs` for this service.
    */
   tabBudget?: import("./tab-budget.ts").TabBudget;
+  /**
+   * The thread a thread was forked from, if any. A fork opening its browser for the first time
+   * starts with a copy of that thread's tabs (addresses and labels, new tab ids).
+   */
+  forkedFrom?: (threadId: string) => string | undefined;
   /** Where thread tabs are kept for restore after a daemon restart; omitted, nowhere. */
   tabStore?: import("./tab-store.ts").BrowserTabStore;
   /**

@@ -35,9 +35,11 @@ The parking window no longer decides when the app quits. A pure rule (`appLifeti
 with no window, macOS stays open as before; Windows and Linux stay running, with the tray icon
 as the way back in and out, while any thread has a native page or any agent works (the
 daemon link's work summary), and quit as before once neither holds, unless the background
-setting keeps the app anyway. Quit is explicit and unchanged: the backend closes every view,
+setting keeps the app anyway. Quit is explicit: the backend closes every view,
 waiting for them (Electron does not finish quitting with a page alive), within the existing
-two-second grace.
+two-second grace. Amended for #952: while agents work and one of them read or acted in a native page in the
+last minute (`quitNeedsConfirmation`), Quit asks once ("Agents are using the browser": Quit or
+Cancel). Nothing asks otherwise, nor during a system shutdown.
 
 ### Re-adoption after a lost link
 

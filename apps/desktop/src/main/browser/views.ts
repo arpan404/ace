@@ -241,6 +241,13 @@ export class EmbeddedViews implements ViewHost {
     return this.pages.size;
   }
 
+  /** When the daemon last drove any native page here (agents browsing); never: -∞. */
+  lastDriven(): number {
+    let latest = -Infinity;
+    for (const group of this.pages.values()) latest = Math.max(latest, group.lastDriven());
+    return latest;
+  }
+
   /**
    * An app window is closing. Its views move to the parking window before it goes, so no
    * page is destroyed or reloaded with it; the next window that shows a thread's page takes

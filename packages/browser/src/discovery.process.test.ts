@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { BrowserService, installChromium, type ChromiumArtifact } from "./index.ts";
 import { archive } from "./archive-test-support.ts";
+import { sessionDirectories } from "./session-dirs-test-support.ts";
 import type { BrowserDownloadProgress } from "@ace/protocol";
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -222,8 +223,6 @@ it("concurrent headless opens share one verified download instead of running com
     });
   expect(f.downloads).toBe(1);
   // Failed opens leave no session directories behind.
-  expect(
-    (await readdir(join(f.home, "browser"))).filter((name) => name.startsWith("session-")),
-  ).toEqual([]);
+  expect(await sessionDirectories(f.home)).toEqual([]);
   expect(await readdir(join(f.home, "chromium"))).toHaveLength(1);
 });

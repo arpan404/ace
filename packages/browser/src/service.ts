@@ -13,6 +13,7 @@ import { detectFfmpeg } from "./discovery.ts";
 import { ownedHeadless } from "./owned-backend.ts";
 import { BrowserProfiles } from "./profiles.ts";
 import { TabBudget } from "./tab-budget.ts";
+import { forkTabRecords, type BrowserTabRecord } from "./tab-store.ts";
 import { daemonTabLimit, threadTabLimit } from "./tab-limits.ts";
 import { defaultTabLifecycle } from "./tab-lifecycle.ts";
 import type { LifecycleSchedule } from "./session-lifecycle.ts";
@@ -54,6 +55,8 @@ export class BrowserService {
   private headless: BrowserBackend;
   private acquisition: ReturnType<typeof ownedHeadless>;
   private recoveries = new Map<string, Promise<void>>();
+  /** Forks that already took their parent's tabs in this daemon's lifetime. */
+  private seeded = new Set<string>();
   /** Sessions paused by desktop loss, with a single-flight recovery on the available backend. */
   private resumable = new Map<string, () => Promise<void>>();
   get hasActiveSessions(): boolean {
@@ -176,7 +179,7 @@ export class BrowserService {
     );
     let backend = candidates[0] ?? this.headless;
     signal.throwIfAborted();
-    const profileLease = await this.profiles.acquire();
+    const profileLease = await this.profiles.acquire(options.threadId);
     const { profile, dir, downloadDir } = profileLease;
     const store = this.options.tabStore;
     const restoredTabs = this.restoredTabs(options.threadId);
@@ -437,16 +440,35 @@ export class BrowserService {
       throw error;
     }
   }
-  /** The thread's tabs from before a daemon restart; an unreadable store restores none. */
-  private restoredTabs(threadId: string) {
+  /**
+   * The thread's tabs from before a daemon restart, or a fork's copy of its parent's; an
+   * unreadable store restores none.
+   */
+  private restoredTabs(threadId: string): BrowserTabRecord[] {
     try {
-      return (this.options.tabStore?.load(threadId) ?? []).toSorted(
+      const own = (this.options.tabStore?.load(threadId) ?? []).toSorted(
         (a, b) => a.position - b.position,
       );
+      return own.length ? own : this.forkTabs(threadId);
     } catch (error) {
       this.options.onError?.(error);
       return [];
     }
+  }
+  /**
+   * A fork's first browser starts with the tabs its parent has now (open or recorded): their
+   * addresses, titles and labels under new tab ids. Tabs the person keeps agents out of stay
+   * behind, and the copies belong to no agent, so no turn's end closes them.
+   */
+  private forkTabs(threadId: string): BrowserTabRecord[] {
+    if (this.seeded.has(threadId)) return [];
+    const parent = this.options.forkedFrom?.(threadId);
+    if (!parent) return [];
+    this.seeded.add(threadId);
+    const live = this.sessions.get(parent);
+    const source =
+      live && !live.state.closed ? live.tabRecords() : (this.options.tabStore?.load(parent) ?? []);
+    return forkTabRecords(source, () => `tab-${this.id()}`, this.now());
   }
   /** Idle tabs in ace's Chrome freeze; the desktop's views manage themselves. */
   private lifecycle(): { lifecycle?: LifecycleSchedule } {
@@ -491,6 +513,8 @@ export class BrowserService {
   async forgetThread(threadId: string, workspaceId: string): Promise<{ desktop: boolean }> {
     await this.closeThread(threadId);
     this.options.tabStore?.clear(threadId);
+    // Its downloads and logs in ace's data go too; what the person saved elsewhere stays.
+    await this.profiles.forget(threadId);
     const embedded = this.embedded;
     if (!embedded) return { desktop: false };
     await embedded.purge(threadId, workspaceId);

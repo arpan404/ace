@@ -41,7 +41,7 @@ type GroupPage = Pick<
   | "isShown"
   | "picture"
 > &
-  Partial<Pick<EmbeddedPage, "orphan" | "readopt" | "evacuate">>;
+  Partial<Pick<EmbeddedPage, "orphan" | "readopt" | "evacuate" | "lastDriven">>;
 
 interface Tab {
   id: string;
@@ -339,6 +339,14 @@ export class EmbeddedPageGroup implements ViewPage {
 
   url() {
     return this.current().url;
+  }
+
+  /** When the daemon last drove any of the thread's tabs. */
+  lastDriven(): number {
+    let latest = -Infinity;
+    for (const tab of this.tabs.values())
+      latest = Math.max(latest, tab.page.lastDriven?.() ?? -Infinity);
+    return latest;
   }
 
   /** The window is closing: every tab in it moves to the parking window. */

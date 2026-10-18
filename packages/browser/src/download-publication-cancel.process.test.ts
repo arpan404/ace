@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, it, onTestFinished, vi } from "vitest";
 import type { BrowserArtifact } from "@ace/protocol";
 import { backendFixture } from "./backend-test-support.ts";
+import { sessionDirectories } from "./session-dirs-test-support.ts";
 import { keepAgentsOut } from "./collaboration-test-support.ts";
 
 it.each(["published", "rejected"])(
@@ -34,11 +35,9 @@ it.each(["published", "rejected"])(
     );
     await f.open();
     const sessionId = [...f.pages.keys()][0];
-    const sessionDir = (await readdir(join(f.home, "browser"))).find((name) =>
-      name.startsWith("session-"),
-    );
+    const [sessionDir] = await sessionDirectories(f.home);
     if (!sessionId || !sessionDir) throw new Error("Browser session missing");
-    const directory = join(f.home, "browser", sessionDir, "downloads");
+    const directory = join(sessionDir, "downloads");
     const guid = "native-11111111-1111-1111-1111-111111111111";
     await writeFile(join(directory, guid), "report bytes");
     const resumed = once(f.requests, "ace.download.resume");
