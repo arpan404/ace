@@ -39,6 +39,41 @@ export function busy(host: ThreadHost): boolean {
 }
 
 /**
+ * As the daemon: a steer always steers. One that also changes the model or options while the
+ * tree works steers its text now and leaves the change as the thread's pending switch. True
+ * when the caller must deliver the message without its selection. A provider that can't steer,
+ * or a thread with nothing running, keeps the selection on the message.
+ */
+export function splitSteerSelection(
+  host: ThreadHost,
+  message: {
+    model?: string | undefined;
+    options?: import("@ace/protocol").TurnOptions | undefined;
+    delivery: string;
+  },
+): boolean {
+  const thread = host.view.thread;
+  if (
+    message.delivery !== "steer" ||
+    (message.model === undefined && message.options === undefined) ||
+    !busy(host) ||
+    !(thread.effectiveCapabilities ?? thread.capabilities)?.steer
+  )
+    return false;
+  // Built on a switch already waiting, so a new effort keeps the model or account picked before.
+  const queued = thread.switch?.state === "queued" ? thread.switch.selection : undefined;
+  const model = message.model ?? queued?.model ?? thread.live?.model ?? thread.execution?.model;
+  const account = queued?.instanceId ?? thread.live?.account ?? thread.execution?.instanceId;
+  host.steerSwitch = {
+    provider: queued?.provider ?? thread.provider,
+    ...(model ? { model } : {}),
+    ...(account ? { instanceId: account } : {}),
+    options: message.options ?? {},
+  };
+  return true;
+}
+
+/**
  * Like the daemon: a person's plain message starts the next turn once the root agent is between
  * turns, even while background commands and subagents run. One that changes the model or
  * options waits for the whole tree, since switching may reopen the session.
@@ -113,6 +148,8 @@ export function sendFacts(
 ): ThreadCommandOutcome {
   const root = host.state.rootKey;
   if (root === undefined) return { ok: false, error: "no_agent" };
+  if (splitSteerSelection(host, payload))
+    return sendFacts(host, commandId, { ...payload, model: undefined, options: undefined });
   const text = inputText(payload.input, payload.context);
   // Like the daemon: any new message, the person's or a parent agent's, is the go-ahead after a
   // Stop or a restart, so it never waits behind that hold.
@@ -160,7 +197,8 @@ export function sendFacts(
     input: [...payload.input],
     ...(payload.attachments ? { attachments: payload.attachments } : {}),
     ...(payload.context ? { context: payload.context } : {}),
-    delivery: payload.delivery,
+    // A selection belongs to the next turn: a steer that keeps one queues for it.
+    delivery: plain ? payload.delivery : "queue",
     state: "queued",
     ...(payload.model ? { model: payload.model } : {}),
     ...(payload.options ? { options: payload.options } : {}),

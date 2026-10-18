@@ -1319,7 +1319,8 @@ export class Engine {
     if (hasRunningForegroundCommand(state)) return false;
     if (
       this.repo.pending.transition(intent.threadId) &&
-      (this.repo.pending.running(intent.threadId) || this.repo.quiescent(state))
+      // The steer itself counts once claimed; delivery re-checks it after the claim.
+      (this.repo.pending.runningBesides(intent.threadId, intent.id) || this.repo.quiescent(state))
     )
       return false;
     return (

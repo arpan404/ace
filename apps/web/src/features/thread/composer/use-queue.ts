@@ -237,7 +237,6 @@ export function useQueue(threadId: string): QueueControls {
     move: (index, step) => moveTo(index, index + step),
     moveTo,
     sendNow: (message) => {
-      if (message.requiresNextTurn) return;
       void change(
         message.id,
         { kind: "delivering", revision, settled: false },

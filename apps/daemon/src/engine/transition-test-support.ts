@@ -31,6 +31,8 @@ export function transitionHarness(
     prepareInput?: EngineOptions["prepareInput"];
     onProviderDiagnostic?: EngineOptions["onProviderDiagnostic"];
     configure?: boolean;
+    /** The providers advertise steering; false makes every follow-up queue. */
+    steer?: boolean;
     closeFails?: boolean;
     configureFails?: boolean;
     maxActiveThreads?: number;
@@ -59,6 +61,7 @@ export function transitionHarness(
     text: string;
     model?: string | undefined;
     options: ExecutionSelection["options"];
+    delivery: "queue" | "steer";
   }[] = [];
   const held = new Set<ThreadId>();
   const emit = (id: ThreadId, ...facts: Fact[]) => {
@@ -93,7 +96,7 @@ export function transitionHarness(
             nativeAutoReview: false,
             toolGate: true,
           },
-          steer: true,
+          steer: options.steer ?? true,
           interruptCascades: false,
           resume: true,
           fork: options.native ?? false,
@@ -154,7 +157,7 @@ export function transitionHarness(
                   entry.selection = selection;
                 },
               }),
-          async send(parts: ContentPart[]) {
+          async send(parts: ContentPart[], delivery: "queue" | "steer") {
             if (entry.closed) throw new Error("Session is closed");
             const text = parts
               .map((part) => (part.type === "text" ? part.text : "attachment"))
@@ -165,6 +168,7 @@ export function transitionHarness(
               text,
               model: entry.selection.model,
               options: entry.selection.options,
+              delivery,
             });
             const history = histories.get(nativeId);
             if (!history) throw new Error("Missing fake history");
