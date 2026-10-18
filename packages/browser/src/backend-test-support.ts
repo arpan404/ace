@@ -58,6 +58,17 @@ export class FakePage {
       if (expression.includes("this.scrollIntoView")) this.effects.push("scroll");
       if (expression.includes("this.focus()")) this.effects.push("focus");
       if (expression.includes("this.select()")) this.effects.push("selection");
+      if (expression.includes("elementFromPoint"))
+        return {
+          result: { value: { x: 0, y: 0, width: 100, height: 100, point: { x: 50, y: 50 } } },
+        };
+      // An agent typing beside the person: its text goes after the field's.
+      if (expression.includes("execCommand('insertText'")) {
+        const args = z.array(z.object({ value: z.string() })).parse(params?.["arguments"]);
+        const kept = this.text.length > 0;
+        this.text += args[0]?.value ?? "";
+        return { result: { value: { kept } } };
+      }
       return { result: { value: { x: 0, y: 0, width: 100, height: 100 } } };
     }
     if (method === "Runtime.evaluate") return { result: { value: "1" } };

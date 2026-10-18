@@ -22,6 +22,8 @@ import { FocusHandoff, type ReplayedKey } from "./focus-handoff.ts";
 import { popupContextMenu } from "./context-menu.ts";
 import { openDevTools, printPage } from "./devtools.ts";
 import type { BrowserContextAction } from "../../shared/contract.ts";
+import { HumanInputReports } from "./human-input.ts";
+import { UnloadGuard } from "./unload.ts";
 const throttleIdleMs = 30_000;
 /** The longest the view keeps keys for the app before giving them up. */
 const handoffMs = 1_000;
@@ -46,6 +48,8 @@ export interface PageOptions {
   forget(): void;
   authPreload?: string | undefined;
   rememberPopup?(contents: WebContents): () => void;
+  /** Asks the person whether to leave a page that warns of unsaved changes; true: leave. */
+  confirmLeave(window: BaseWindow): boolean;
 }
 
 export class EmbeddedPage implements ViewPage {
@@ -60,8 +64,9 @@ export class EmbeddedPage implements ViewPage {
   private appZoom = 1;
   private nativeInput = false;
   private agentControl = false;
+  /** A page writes the clipboard only on the person's own recent click or key press. */
   allowsClipboard(): boolean {
-    return this.nativeInput;
+    return this.nativeInput && this.activation.byPerson();
   }
   /**
    * Set only while this page itself dispatches an input event (a relayed CDP `Input.*`
@@ -70,7 +75,22 @@ export class EmbeddedPage implements ViewPage {
    * arrive as separate tasks and never see it set. See `inject`.
    */
   private injecting = 0;
-  private lastHuman = 0;
+  /**
+   * The daemon holds an agent's input in this tab while the person is busy here (ADR 0067,
+   * collaboration).
+   */
+  private human = new HumanInputReports(
+    {
+      now: () => Date.now(),
+      set: (delayMs, run) => {
+        const timer = setTimeout(run, delayMs);
+        return () => clearTimeout(timer);
+      },
+    },
+    () => {
+      for (const listener of this.humanInput) listener();
+    },
+  );
   private placed = false;
   private placementPending = false;
   private placementGeneration = 0;
@@ -100,6 +120,7 @@ export class EmbeddedPage implements ViewPage {
   private handoff = new FocusHandoff();
   /** When the person last pressed the right button here: only their clicks open the menu. */
   private humanContextAt = -Infinity;
+  private unload: UnloadGuard;
 
   constructor(options: PageOptions) {
     this.options = options;
@@ -120,6 +141,13 @@ export class EmbeddedPage implements ViewPage {
     const contents = this.contents;
     this.auth = new NativeBasicAuth(contents, () => this.nativeInput, options.authPreload);
     this.dialogs = new NativeDialogs(contents, (method, params) => this.emit(method, params));
+    this.unload = new UnloadGuard(
+      contents,
+      () => ({ agentDriving: this.agentControl, personLeaving: this.activation.byPerson() }),
+      () => options.confirmLeave(this.home),
+      // The daemon's navigation fails at once instead of waiting for a load that never comes.
+      () => this.emit("ace.unloadRefused", {}),
+    );
     this.popups = new NativePopups({
       contents,
       authPreload: options.authPreload,
@@ -167,10 +195,11 @@ export class EmbeddedPage implements ViewPage {
         return;
       }
       if (this.allowInput()) {
-        if (input.type === "keyDown") {
-          this.activation.note();
-          if (this.injecting === 0) this.reportHuman();
-        }
+        if (input.type === "keyDown")
+          this.activation.note(this.injecting === 0 ? "person" : "agent");
+        if (this.injecting === 0 && input.type === "keyDown") this.unload.personUsed();
+        // Key up and IME composition count as much as key down.
+        if (this.injecting === 0) this.human.key();
         return;
       }
       event.preventDefault();
@@ -179,9 +208,10 @@ export class EmbeddedPage implements ViewPage {
       if (this.injecting === 0 && mouse.type === "mouseDown" && mouse.button === "right")
         this.humanContextAt = Date.now();
       if (this.allowInput()) {
-        if (mouse.type === "mouseDown") this.activation.note();
-        if (this.injecting === 0 && (mouse.type === "mouseDown" || mouse.type === "mouseWheel"))
-          this.reportHuman();
+        if (mouse.type === "mouseDown")
+          this.activation.note(this.injecting === 0 ? "person" : "agent");
+        if (this.injecting === 0 && mouse.type === "mouseDown") this.unload.personUsed();
+        if (this.injecting === 0) this.human.mouse(mouse.type, mouse.modifiers);
         return;
       }
       event.preventDefault();
@@ -579,7 +609,7 @@ export class EmbeddedPage implements ViewPage {
     return image.isEmpty() ? undefined : image.toDataURL();
   }
 
-  /** The person pressed a key, clicked or scrolled in the view (at most every 250 ms). */
+  /** The person used the view: keys, IME, pointer moves, clicks, scrolls, drags (`HumanInputReports`). */
   onHumanInput(listener: () => void): () => void {
     this.humanInput.add(listener);
     return () => this.humanInput.delete(listener);
@@ -773,6 +803,7 @@ export class EmbeddedPage implements ViewPage {
     this.downloads.close();
     this.listeners.clear();
     this.humanInput.clear();
+    this.human.close();
     clearTimeout(this.throttleTimer);
     clearTimeout(this.crashReload);
     this.recovery.ready();
@@ -830,17 +861,6 @@ export class EmbeddedPage implements ViewPage {
 
   private allowInput(): boolean {
     return this.nativeInput || this.injecting > 0;
-  }
-
-  /**
-   * The daemon holds an agent's input in this tab while the person is busy here (ADR 0067,
-   * collaboration); a report every 250 ms is enough for its 1.5 s quiet window.
-   */
-  private reportHuman(): void {
-    const now = Date.now();
-    if (now - this.lastHuman < 250) return;
-    this.lastHuman = now;
-    for (const listener of this.humanInput) listener();
   }
 
   /** The view went away without the daemon asking: tell it once, as CDP would. */

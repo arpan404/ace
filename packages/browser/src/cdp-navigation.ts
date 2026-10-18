@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
+import { BrowserActionError } from "./action-error.ts";
 
 const Result = z.object({
   frameId: z.string().optional(),
@@ -80,6 +81,9 @@ export async function navigateCdp(
     settle();
   };
   const abort = () => reject(signal?.reason ?? new Error("Browser navigation cancelled"));
+  // The desktop's view kept a page whose unsaved changes are the person's (`will-prevent-unload`).
+  const refused = () => reject(new BrowserActionError("unsaved_changes"));
+  cdp.on("ace.unloadRefused", refused);
   cdp.on("Page.lifecycleEvent", lifecycle);
   cdp.on("Page.frameNavigated", committed);
   cdp.on("Page.frameStartedLoading", started);
@@ -101,6 +105,7 @@ export async function navigateCdp(
     await completed;
   } finally {
     signal?.removeEventListener("abort", abort);
+    cdp.off("ace.unloadRefused", refused);
     cdp.off("Page.lifecycleEvent", lifecycle);
     cdp.off("Page.frameNavigated", committed);
     cdp.off("Page.frameStartedLoading", started);

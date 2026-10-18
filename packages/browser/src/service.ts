@@ -288,6 +288,7 @@ export class BrowserService {
             : Promise.reject(new Error("Browser session not ready")),
         initiator: () => session?.initiatingHuman() ?? false,
         humanInput: (tabId) => session?.humanActivity(tabId),
+        leaveUnasked: (tabId) => session?.leaveUnasked(tabId) ?? false,
         navigation: (tabId) => session?.navigation(tabId),
         restarted: (tabId) => session?.restarted(tabId),
         log: (entry) => session?.log(entry),

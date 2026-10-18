@@ -13,6 +13,11 @@ export interface CollaborationTiming {
   maxWaitMs: number;
   /** A tab stays marked as in use by an agent for this long after its last command. */
   inUseMs: number;
+  /**
+   * The person counts as working in a tab for this long after their last input there: an
+   * agent's typing then keeps the field's text and gives back the person's focus and caret.
+   */
+  presentMs: number;
   /** After the person picks a tab, an agent's new tab stops taking the view for this long. */
   followAfterMs: number;
 }
@@ -22,6 +27,7 @@ export const collaborationTiming: CollaborationTiming = {
   maxWaitMs: 10_000,
   inUseMs: 8_000,
   followAfterMs: 30_000,
+  presentMs: 30_000,
 };
 
 /**

@@ -18,6 +18,7 @@ import { evaluatePage, evaluateReadOnly } from "./evaluation.ts";
 import { measureBrowserInteraction } from "./measurement.ts";
 import { uploadPaths } from "./uploads.ts";
 import { dragRefs } from "./drag.ts";
+import { keptText } from "./typing.ts";
 import { executeAnnotation } from "./annotation-commands.ts";
 import { emulateDevice, executePageTool, resizePage, type TabView } from "./page-tools.ts";
 import { executeContextCommand } from "./page-context.ts";
@@ -66,6 +67,10 @@ interface CommandContext {
     signal: AbortSignal | undefined,
     generation: number,
   ): { prepare(): void; send(): void };
+  /** The person works in this tab now (`presentMs`): agent typing keeps their text and focus. */
+  personPresent?(): boolean;
+  /** The person used the tab within `quietMs`: an agent's multi-step input stops. */
+  personBusy?(): boolean;
   /** An agent pointed at this spot (CSS pixels); viewers draw its cursor there. */
   point?(point: { x: number; y: number }): void;
   emit(): void;
@@ -253,9 +258,8 @@ export async function executeBrowserCommand(
     }
     case "hover": {
       const dispatch = context.refDispatch(command.ref, actor, signal, generation);
-      const rect = await context.refs.bounds(command.ref, dispatch.prepare);
+      const { point } = await context.refs.target(command.ref, dispatch.prepare);
       dispatch.send();
-      const point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
       context.point?.(point);
       await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...point });
       return { ok: true };
@@ -264,16 +268,18 @@ export async function executeBrowserCommand(
       const from = context.refDispatch(command.ref, actor, signal, generation),
         to = context.refDispatch(command.toRef, actor, signal, generation);
       const document = context.refs.documentGuard();
-      const start = await context.refs.bounds(command.ref, from.prepare),
-        end = await context.refs.bounds(command.toRef, to.prepare);
-      context.point?.({ x: end.x + end.width / 2, y: end.y + end.height / 2 });
+      const start = (await context.refs.target(command.ref, from.prepare)).point,
+        end = (await context.refs.target(command.toRef, to.prepare)).point;
+      context.point?.(end);
       await dragRefs(
         cdp,
-        { x: start.x + start.width / 2, y: start.y + start.height / 2 },
-        { x: end.x + end.width / 2, y: end.y + end.height / 2 },
+        start,
+        end,
         () => {
           from.send();
           to.send();
+          // The person came back mid-drag: the agent lets go rather than drag across them.
+          if (context.personBusy?.()) throw new BrowserActionError("human_active");
         },
         () => {
           context.check(actor, undefined, generation);
@@ -288,10 +294,10 @@ export async function executeBrowserCommand(
       const dispatch = context.refDispatch(command.ref, actor, signal, generation);
       const desired = command.action === "check";
       if ((await context.refs.checked(command.ref, dispatch.prepare)) !== desired) {
-        const rect = await context.refs.bounds(command.ref, dispatch.prepare);
+        const { point } = await context.refs.target(command.ref, dispatch.prepare);
         dispatch.send();
-        context.point?.({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
-        await page.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
+        context.point?.(point);
+        await page.click(point.x, point.y);
         if ((await context.refs.checked(command.ref, dispatch.prepare)) !== desired)
           throw new BrowserActionError("element_unavailable");
       }
@@ -311,10 +317,9 @@ export async function executeBrowserCommand(
         if (command.x !== undefined || command.y !== undefined)
           throw new BrowserActionError("invalid_arguments");
         const dispatch = context.refDispatch(command.ref, actor, signal, generation);
-        const rect = await context.refs.bounds(command.ref, dispatch.prepare);
+        // Only where the element itself would take the click, once it holds still.
+        point = (await context.refs.target(command.ref, dispatch.prepare)).point;
         dispatch.send();
-        if (rect.width <= 0 || rect.height <= 0) throw new BrowserActionError("not_visible");
-        point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
       } else {
         if (command.x === undefined || command.y === undefined)
           throw new BrowserActionError("invalid_arguments");
@@ -328,14 +333,11 @@ export async function executeBrowserCommand(
     }
     case "fill_form": {
       // Each field is its own type step: a stale ref stops the form where it went stale.
+      let kept = false;
       for (const field of command.fields) {
-        const dispatch = context.refDispatch(field.ref, actor, signal, generation);
-        await context.refs.select(field.ref, dispatch.prepare);
-        dispatch.send();
-        context.beforeInput?.();
-        await page.insertText(field.value);
+        kept = (await typeInto(context, field.ref, field.value, actor, signal, generation)) || kept;
       }
-      return { ok: true, filled: command.fields.length };
+      return { ok: true, filled: command.fields.length, ...(kept ? keptText : {}) };
     }
     case "pdf": {
       context.read();
@@ -344,14 +346,10 @@ export async function executeBrowserCommand(
       if (actor.kind === "human") await context.options.artifact(pdf);
       return pdf;
     }
-    case "type": {
-      const dispatch = context.refDispatch(command.ref, actor, signal, generation);
-      await context.refs.select(command.ref, dispatch.prepare);
-      dispatch.send();
-      context.beforeInput?.();
-      await page.insertText(command.text);
-      return { ok: true };
-    }
+    case "type":
+      return (await typeInto(context, command.ref, command.text, actor, signal, generation))
+        ? { ok: true, ...keptText }
+        : { ok: true };
     case "press": {
       const dispatch = command.ref
         ? context.refDispatch(command.ref, actor, signal, generation)
@@ -450,6 +448,32 @@ export async function executeBrowserCommand(
         : evaluatePage(cdp, command.expression);
     }
   }
+}
+
+/**
+ * Types into one field. While the person works in the tab, the field's text is kept and the
+ * person's focus and caret come back; otherwise the agent's text replaces the field's.
+ * Returns whether the field's text was kept.
+ */
+async function typeInto(
+  context: CommandContext,
+  ref: string,
+  text: string,
+  actor: Actor,
+  signal: AbortSignal | undefined,
+  generation: number,
+): Promise<boolean> {
+  const dispatch = context.refDispatch(ref, actor, signal, generation);
+  if (actor.kind === "agent" && context.personPresent?.()) {
+    dispatch.send();
+    context.beforeInput?.();
+    return context.refs.typeKeeping(ref, text, dispatch.send);
+  }
+  await context.refs.select(ref, dispatch.prepare);
+  dispatch.send();
+  context.beforeInput?.();
+  await context.page.insertText(text);
+  return false;
 }
 
 const modifierBits = { Alt: 1, Control: 2, Meta: 4, Shift: 8 } as const;

@@ -64,8 +64,9 @@ describe.skipIf(!executablePath)("live Chromium shared by people and agents", ()
     );
     await f.service.input("thread", { kind: "key", event: "char", key: "!", text: "!" }, "other");
     expect(await f.evaluate("document.querySelector('input').value")).toBe("human!");
+    // The person is still working here: the agent's text goes after theirs.
     await f.execute({ action: "type", ref: name, text: "returned" });
-    expect(await f.evaluate("document.querySelector('input').value")).toBe("returned");
+    expect(await f.evaluate("document.querySelector('input').value")).toBe("human!returned");
     await f.service.closeThread("thread");
   }, 60_000);
 

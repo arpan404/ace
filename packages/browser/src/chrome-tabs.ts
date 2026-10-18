@@ -49,7 +49,7 @@ interface Tab {
   /** Page zoom (1 is 100%) and the device emulated in place of `viewport`, if any. */
   zoom: number;
   device?: HeadlessDevice | undefined;
-  /** An agent uses this tab: its popups reuse the page and beforeunload never prompts. */
+  /** An agent uses this tab: its popups reuse the page. */
   agent: boolean;
   /** Bumped each time the tab gets a new target, so a popup from an old target is refused. */
   binding: number;
@@ -380,7 +380,8 @@ export class ChromeTabs {
     on("Page.javascriptDialogOpening", (raw) => {
       const parsed = Dialog.safeParse(raw);
       if (!parsed.success) return;
-      if (parsed.data.type === "beforeunload" && tab.agent) {
+      // An agent leaving a page only it used goes unasked; anything else asks the person.
+      if (parsed.data.type === "beforeunload" && this.request.leaveUnasked?.(id)) {
         void cdp.send("Page.handleJavaScriptDialog", { accept: true }).catch(() => {});
         return;
       }

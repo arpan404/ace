@@ -81,6 +81,8 @@ class UserTabs {
     return {
       ...this.request,
       navigation: () => this.request.navigation(id),
+      humanInput: () => this.request.humanInput?.(id),
+      leaveUnasked: () => this.request.leaveUnasked?.(id) ?? false,
       log: (entry) => this.request.log({ ...entry, tabId: id }),
       lost: (reason) => this.tabLost(id, reason),
     };

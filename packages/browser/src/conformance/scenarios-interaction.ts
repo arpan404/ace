@@ -24,6 +24,22 @@ export const interactionScenarios: ConformanceScenario[] = [
     },
   },
   {
+    id: "covered-click",
+    title: "a click lands only where the element itself takes it, never on what covers it",
+    async run(page) {
+      await visit(page, "/covered", "Cookie banner");
+      const snapshot = await page.execute({ action: "snapshot" });
+      // A banner covers Buy entirely: nothing is clicked, and the agent is told why.
+      await expect(
+        page.execute({ action: "click", ref: ref(snapshot, "Buy") }),
+      ).rejects.toMatchObject({ code: "covered" });
+      expect(await page.evaluate(result)).toBe("Ready");
+      // A sticky header hides Peek's centre but not its lower part: the click lands there.
+      await page.execute({ action: "click", ref: ref(snapshot, "Peek") });
+      await eventually(async () => expect(await page.evaluate(result)).toBe("Peeked"));
+    },
+  },
+  {
     id: "stable-refs",
     title: "refs stay the same across snapshots of an unchanged page and keep working",
     async run(page) {

@@ -90,7 +90,8 @@ MIME and executable/archive flags. Never execute or open a flagged file by defau
 
 A tab may carry pending_dialog with dialogId, tabId, type and message. Answer with
 `ace_browser_dialog({dialogId,accept:true,promptText:"text"})`, or accept:false to
-dismiss. Agent-owned beforeunload is accepted automatically. Native permission
+dismiss. A beforeunload on a page only you used is accepted automatically; on a page the
+person used it waits for them, and accepting it fails with `unsaved_changes`. Native permission
 prompts and file chooser windows do not grant capabilities.
 
 Evaluate defaults to unrestricted. Use mode read-only to read DOM in an isolated

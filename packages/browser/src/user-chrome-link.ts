@@ -53,7 +53,8 @@ export class UserChromeLink {
   readonly browser: UserBrowserIdentity;
   readonly connectedAt: number;
   private transport: UserChromeTransport;
-  private clock: NavigationClock;
+  /** The daemon's monotonic clock, for timing on this browser's tabs. */
+  readonly clock: NavigationClock;
   private pending = new Map<string, Waiter>();
   private slots = new CommandSlots(64, 1024);
   private sequence = 0;

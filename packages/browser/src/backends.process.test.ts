@@ -36,7 +36,13 @@ it("selects headless after desktop disconnect and rejects an explicit missing em
   expect(await f.open()).toMatchObject({ backend: "headless" });
   await expect(f.open("explicit")).rejects.toThrow("unavailable");
 });
-const quick = { quietMs: 400, maxWaitMs: 1_200, inUseMs: 1_000, followAfterMs: 1_000 };
+const quick = {
+  quietMs: 400,
+  maxWaitMs: 1_200,
+  inUseMs: 1_000,
+  followAfterMs: 1_000,
+  presentMs: 1_000,
+};
 const key = (char: string) => ({ kind: "key", event: "char", key: char }) as const;
 it("agent input waits while the person is active in the tab and proceeds once they pause", async () => {
   const f = await backendFixture({ collaboration: quick });

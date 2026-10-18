@@ -105,7 +105,8 @@ Pending dialog ownership is checked across all tabs before switching or waiting.
 Dialog answers bypass the renderer command queue under the same submitting lease
 checks, so a read targeting another tab cannot block the answer. Other page
 commands return the outstanding dialog until it is answered. Obsolete IDs fail. Beforeunload is
-automatically accepted only under the agent lease. Native permissions remain denied;
+automatically accepted only when an agent's command leaves a page the person has not used
+(see "Leaving a page the person was editing" below). Native permissions remain denied;
 file chooser windows do not grant filesystem access.
 
 Snapshots collect same-origin and out-of-process frames through their own CDP
@@ -174,8 +175,8 @@ together, no need of taking over or handing back." The rules now are:
   `human_active` ("snapshot again, then retry or use another tab"). Reads (snapshot,
   screenshot, evaluate, logs, find, waits) never wait. The desktop reports the person's own
   input on its native view as `ace.humanInput` (at most every 250 ms); the daemon sees the
-  screencast's input directly. Use my Chrome reports no input of the person's, so agent input
-  there does not wait.
+  screencast's input directly; Use my Chrome reports it from a watcher in the page (see "Sharing
+  a tab safely" below).
 - **The view follows an agent's new tab** only while the person has neither picked a tab nor
   used the one they view within `followAfterMs` (30 s); otherwise the new tab joins the strip
   without taking focus.
@@ -194,6 +195,86 @@ Chromium cannot be recalled, and the next agent command waits anyway).
 
 The timings are pure functions in `packages/browser/src/collaboration.ts`, injected through
 `collaboration` in the service options.
+
+### Sharing a tab safely (amendment, 2026-10-17, browser audit)
+
+The audit found ways an agent could still trip over the person. The rules above now also mean:
+
+- **Reads never wait behind a waiting input.** An agent's input that waits for the person waits
+  in the tab's agent-input lane (`agent-input-lane.ts`), in arrival order, outside the tab's
+  command queue. Snapshot, find, screenshot and logs queued after it run at once. An input whose
+  queue turn comes while the person is busy again goes back to the lane, within the same
+  `maxWaitMs` budget.
+- **An agent's click never lets a page write the clipboard.** On the desktop's native view a
+  page gets `clipboard-sanitized-write` only while the last click or key press that activated
+  it was the person's own, within Chromium's five-second activation. Input the daemon relays
+  (an agent's, or the person's from another device) activates the page for popups but not for
+  the clipboard, so a page cannot replace what the person copied after an agent clicks it.
+- **All of the person's input counts.** The desktop view counts every key event (key up and IME
+  composition included) and every mouse event (moves included), not only key down, click and
+  wheel (`human-input.ts`). A pressed button keeps the person active, reported every 250 ms,
+  until it is released, so an agent never acts in the middle of their drag; a release lost to a
+  native drag-and-drop ends at the next move without a button, or after 30 s. In Use my Chrome
+  the extension's debugger never sees real input, so the daemon installs, over that debugger, a
+  listener in its own isolated world (`ace-person-input`) in every document of each controlled
+  tab, including the page a shared tab already shows. It reports trusted pointer, key, IME,
+  touch and drag events through a binding only that world can call; no content script and no
+  extension change is needed. Agent input is trusted too, so reports while one of the tab's
+  `Input.*` commands runs, and for 300 ms after, are ignored. Out-of-process iframes are not
+  watched.
+- **An agent's typing never takes the person's text, focus or caret.** While the person works
+  in the tab (used it within `presentMs`, 30 s), `type` and each `fill_form` field add the
+  agent's text after the field's own instead of replacing it, and give the person back their
+  focused element, caret and selection; focusing never scrolls the page. Focusing, inserting
+  and giving back run as one page task (`typing.ts`), so none of the person's keystrokes land
+  in the agent's field. The result carries `kept_text` when the field already held text. With
+  the person away, `type` replaces the field's text as before.
+- **Multi-step agent input looks again between steps.** `fill_form` is one waiting input per
+  field in the agent-input lane, so a person who returns between two fields makes the next
+  field wait. A drag checks before each pointer step; if the person used the tab within
+  `quietMs` it releases the button where it is and fails with `human_active`.
+
+### Leaving a page the person was editing (amendment, 2026-10-17, browser audit)
+
+ace's Chrome accepted every `beforeunload` prompt for 8 s after an agent used a tab, the
+person's own navigation included, and the desktop's view never answered Electron's
+`will-prevent-unload`, so an agent's navigation off such a page waited out its timeout. Now a
+tab remembers whether the person used the page it shows (any input of theirs, or a command of
+theirs that acts on the page) until the next main-frame navigation, and:
+
+- **An agent leaving a page only it used goes unasked.** While an agent's command runs in the
+  tab and the person has not used the page, its prompt is accepted (`leaveUnasked`, asked by
+  the engine when the prompt opens).
+- **Anything else asks the person.** In ace's Chrome and Use my Chrome the prompt becomes the
+  tab's pending `beforeunload` dialog, which the person answers (Leave page / Stay); an agent's
+  command gets it as `pending_dialog`. An agent may dismiss it (stay) but accepting it on a page
+  the person used fails with `unsaved_changes` ("ask the person, or use another tab").
+- **The desktop decides at once**, since Electron needs the answer synchronously
+  (`unload.ts`): if the person's own click or key press led away, or no agent drives the view,
+  it shows the native leave prompt; if an agent drives it and the person has not pressed a key
+  or button on this page, it leaves; otherwise it stays and reports `ace.unloadRefused`, and
+  the agent's navigation fails at once with `unsaved_changes`. Input relayed from the person's
+  other devices does not count on the desktop. A same-document navigation also clears the
+  person's mark.
+
+### Clicks land where they aim (amendment, 2026-10-17, browser audit)
+
+An agent's pointer input on a ref (click, hover, check, uncheck, both ends of a drag) used to
+measure the element's box once and press its centre, so a layout shift or an overlay took the
+click. Now, in the element's own document and in every engine (`hit-target.ts`):
+
+- **It waits for the element to hold still.** The element is scrolled into view and its box
+  read once per frame (or every 100 ms where frames do not run), in page coordinates, until the
+  centre has stayed put for two frames in a row. A button pulsing in place counts as still; one
+  still sliding after 1 s fails with `not_hittable`.
+- **It hit-tests before pressing.** Candidate points inside the visible part of the box, the
+  centre first and then the centres of its four quarters, are checked with `elementFromPoint`
+  (through open shadow roots). The first point whose hit is the element, a descendant, or one
+  of its labels is pressed; an element with `pointer-events: none` accepts a hit on an
+  ancestor. If something else is on top at every point the command fails with `covered`
+  ("dismiss or close what covers it"); if no point is inside the viewport, with `not_hittable`.
+  Nothing is dispatched in either case. Clicks at x, y are the agent's own aim and are not
+  checked.
 
 ## Private takeover and recording (superseded by Collaboration above)
 

@@ -39,17 +39,17 @@ const actions = {
   click: {
     riskClass: "external-effect",
     description:
-      "Click a ref from ace_browser_snapshot, or a point x, y in CSS pixels (with button, clickCount, modifiers). After a navigation-triggering click, wait_for url or text, then snapshot again. Old document refs expire.",
+      "Click a ref from ace_browser_snapshot, or a point x, y in CSS pixels (with button, clickCount, modifiers). A ref is clicked once it holds still, only where it would take the click itself; covered or not_hittable means nothing was clicked. After a navigation-triggering click, wait_for url or text, then snapshot again. Old document refs expire.",
   },
   fill_form: {
     riskClass: "external-effect",
     description:
-      "Fill several text fields in one call: fields is a list of {ref, value} from the latest snapshot; each value replaces the field's text. Use select or check for other controls.",
+      "Fill several text fields in one call: fields is a list of {ref, value} from the latest snapshot; each value replaces the field's text. While the person works in the tab, each value is added after the field's text instead (kept_text). Use select or check for other controls.",
   },
   type: {
     riskClass: "external-effect",
     description:
-      "Replace all text in an editable element using a snapshot ref. For focused keyboard input use press. Snapshot again after navigation.",
+      "Replace all text in an editable element using a snapshot ref. While the person works in the tab, your text is added after theirs and their focus and caret stay put (the result says kept_text). For focused keyboard input use press. Snapshot again after navigation.",
   },
   press: {
     riskClass: "external-effect",

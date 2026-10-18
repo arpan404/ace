@@ -4,6 +4,8 @@ import type { BrowserCdp } from "./backend.ts";
 import { AXTree, Bounds, CallResult, ResolvedNode, snapshotNodes } from "./cdp.ts";
 import { z } from "zod";
 import { withoutSubtree } from "./snapshot-exclusion.ts";
+import { hitPoint, hitTargetFunction } from "./hit-target.ts";
+import { TypedKeeping, typeKeepingPerson } from "./typing.ts";
 
 /** One generation and one bounded snapshot; navigation cannot alias an old ref. */
 export class SnapshotRefs {
@@ -160,6 +162,7 @@ export class SnapshotRefs {
           objectId: object.objectId,
           functionDeclaration,
           returnByValue: true,
+          awaitPromise: true,
           arguments: args.map((value) => ({ value })),
         }),
       );
@@ -194,6 +197,25 @@ export class SnapshotRefs {
       guard();
     });
     return { ...rect, x: rect.x + offset.x, y: rect.y + offset.y };
+  }
+  /**
+   * Where an agent's pointer lands on `ref`: scrolled into view, its box steady across two
+   * frames, at a point where the element itself would take the click (`hit-target.ts`).
+   * Fails with `not_visible`, `not_hittable` or `covered`. Top-level CSS pixels.
+   */
+  async target(ref: string, beforeDispatch: () => void) {
+    const { rect, point } = hitPoint(await this.call(ref, hitTargetFunction, beforeDispatch));
+    const target = this.refs.get(ref);
+    if (!target?.frameId) return { rect, point };
+    const guard = this.guard(ref);
+    const offset = await frameOffset(target.frameId, this.frameSessions, () => {
+      beforeDispatch();
+      guard();
+    });
+    return {
+      rect: { ...rect, x: rect.x + offset.x, y: rect.y + offset.y },
+      point: { x: point.x + offset.x, y: point.y + offset.y },
+    };
   }
   async upload(ref: string, files: string[], beforeDispatch: () => void): Promise<void> {
     const target = this.refs.get(ref);
@@ -260,6 +282,13 @@ export class SnapshotRefs {
     }`,
       beforeDispatch,
     );
+  }
+  /**
+   * Adds `text` after the field's own text and gives the person back their focus and caret, in
+   * one page task. Returns whether the field already held text.
+   */
+  async typeKeeping(ref: string, text: string, beforeDispatch: () => void): Promise<boolean> {
+    return TypedKeeping.parse(await this.call(ref, typeKeepingPerson, beforeDispatch, [text])).kept;
   }
   async visible(ref: string): Promise<boolean> {
     return z.boolean().parse(
