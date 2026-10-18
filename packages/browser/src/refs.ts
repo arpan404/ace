@@ -1,14 +1,35 @@
 import { frameOffset, type BrowserFrameSession } from "./frame-coordinates.ts";
 import { staleRef, BrowserActionError } from "./action-error.ts";
 import type { BrowserCdp } from "./backend.ts";
-import { AXTree, Bounds, CallResult, ResolvedNode, snapshotNodes } from "./cdp.ts";
+import { AXTree, Bounds, CallResult, ResolvedNode } from "./cdp.ts";
 import { z } from "zod";
 import { withoutSubtree } from "./snapshot-exclusion.ts";
+import {
+  defaultSnapshotDepth,
+  limitDepth,
+  outlineDomNodes,
+  outlineHint,
+  outlineRoles,
+} from "./snapshot-scope.ts";
+import { SnapshotOutput, type SnapshotFrame, type SnapshotTarget } from "./snapshot-output.ts";
+
+const DocumentRoot = z.object({ root: z.object({ backendNodeId: z.number().int() }) });
+/** Frame process swaps can detach an AX target between discovery and this read. */
+function staleFrame(error: unknown): never {
+  if (
+    error instanceof Error &&
+    /Frame with the given frameId is not found|Browser target command failed|No node with given id/.test(
+      error.message,
+    )
+  )
+    throw staleRef();
+  throw error;
+}
 
 /** One generation and one bounded snapshot; navigation cannot alias an old ref. */
 export class SnapshotRefs {
   private epoch = 0;
-  private refs = new Map<string, { backendNodeId: number; cdp: BrowserCdp; frameId?: string }>();
+  private refs = new Map<string, SnapshotTarget>();
   /** Every frame's session; returns undefined when the page has no frame list (one session). */
   private frames:
     | (() => Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]> | undefined)
@@ -34,86 +55,103 @@ export class SnapshotRefs {
     this.epoch++;
     this.refs.clear();
   }
-  async snapshot() {
+  /**
+   * The accessibility tree of the tab's frames, or with `ref` of that element's subtree only.
+   * A full snapshot replaces the actionable refs; a scoped one adds its subtree's refs to them.
+   * Large pages degrade instead of failing: output is truncated with a hint, and a page over
+   * `outlineDomNodes` lists only its landmarks and headings.
+   */
+  async snapshot(options: { ref?: string | undefined; depth?: number | undefined } = {}) {
     for (let attempt = 0; ; attempt++) {
       try {
-        return await this.collect();
+        return options.ref === undefined
+          ? await this.collect(options.depth)
+          : await this.scoped(options.ref, options.depth);
       } catch (error) {
         if (!(error instanceof BrowserActionError && error.code === "stale_ref") || attempt >= 4)
           throw error;
+        // A scoped snapshot's ref went stale: retrying cannot bring it back.
+        if (options.ref !== undefined) throw error;
       }
     }
   }
-  private async collect() {
-    const epoch = this.epoch;
+  private async listFrames(): Promise<SnapshotFrame[]> {
     const listed = this.frames?.();
-    const frames = listed ? await listed : [{ frameId: undefined, cdp: this.cdp }];
+    const frames: SnapshotFrame[] = listed ? await listed : [{ cdp: this.cdp }];
     this.frameSessions = new Map(
       frames
         .filter((frame): frame is BrowserFrameSession => frame.frameId !== undefined)
         .map((frame) => [frame.frameId, frame]),
     );
+    return frames;
+  }
+  private async collect(depth = defaultSnapshotDepth) {
+    const epoch = this.epoch;
+    const frames = await this.listFrames();
     let domNodes = 0;
-    for (const cdp of new Set(frames.map((frame) => frame.cdp))) {
+    for (const cdp of new Set(frames.map((frame) => frame.cdp)))
       domNodes += z
         .object({ nodes: z.number() })
         .parse(await cdp.send("Memory.getDOMCounters")).nodes;
-      if (domNodes > 20000) throw new Error("Browser document exceeds snapshot node limit");
-    }
-    const nodes: (ReturnType<typeof snapshotNodes>[number] & { frameId?: string })[] = [];
-    const refs = new Map<string, { backendNodeId: number; cdp: BrowserCdp; frameId?: string }>();
-    let truncated = false,
-      bytes = 0;
+    if (domNodes > outlineDomNodes) return this.outline(frames, epoch, domNodes);
+    const output = new SnapshotOutput(epoch);
     const excluded = await this.excluded();
     for (const frame of frames) {
       const raw = AXTree.parse(
         await frame.cdp
           .send("Accessibility.getFullAXTree", {
-            depth: 20,
+            depth,
             ...(frame.frameId ? { frameId: frame.frameId } : {}),
           })
-          .catch((error: unknown) => {
-            // Frame process swaps can detach an AX target between discovery and this read.
-            if (
-              error instanceof Error &&
-              /Frame with the given frameId is not found|Browser target command failed/.test(
-                error.message,
-              )
-            )
-              throw staleRef();
-            throw error;
-          }),
+          .catch(staleFrame),
       );
-      const tree = "parentId" in frame && frame.parentId ? raw : withoutSubtree(raw, excluded);
-      for (const node of snapshotNodes(tree, epoch)) {
-        const backendNodeId = node.ref ? Number(node.ref.split("-")[1]) : undefined;
-        const prefix = frame.frameId ? `${frame.frameId}:` : "";
-        const output = {
-          ...node,
-          id: prefix + node.id,
-          children: node.children.map((id) => prefix + id),
-          ...(frame.frameId ? { frameId: frame.frameId } : {}),
-          ...(node.ref ? { ref: prefix + node.ref } : {}),
-        };
-        bytes += Buffer.byteLength(JSON.stringify(output));
-        if (nodes.length >= 10000 || bytes > 512 * 1024) {
-          truncated = true;
-          break;
-        }
-        nodes.push(output);
-        if (output.ref && backendNodeId !== undefined)
-          refs.set(output.ref, {
-            backendNodeId,
-            cdp: frame.cdp,
-            ...(frame.frameId ? { frameId: frame.frameId } : {}),
-          });
-      }
-      if (nodes.length < tree.nodes.length) truncated = true;
-      if (truncated) break;
+      const tree = frame.parentId ? raw : withoutSubtree(raw, excluded);
+      if (!output.add(tree, frame)) break;
     }
     if (epoch !== this.epoch) throw staleRef();
-    this.refs = refs;
-    return { nodes, truncated };
+    this.refs = output.refs;
+    return output.result(domNodes);
+  }
+  /** A page too large to read whole: its top document's landmarks and headings. */
+  private async outline(frames: SnapshotFrame[], epoch: number, domNodes: number) {
+    const top = frames.find((frame) => !frame.parentId) ?? { cdp: this.cdp };
+    const document = DocumentRoot.parse(await top.cdp.send("DOM.getDocument", { depth: 0 }));
+    const excluded = await this.excluded();
+    const output = new SnapshotOutput(epoch);
+    for (const role of outlineRoles) {
+      const raw = AXTree.parse(
+        await top.cdp.send("Accessibility.queryAXTree", {
+          backendNodeId: document.root.backendNodeId,
+          role,
+        }),
+      );
+      // Parsed for this snapshot alone: an outline lists nodes without their children.
+      const nodes = raw.nodes.filter((node) => node.backendDOMNodeId !== excluded);
+      for (const node of nodes) node.childIds = [];
+      if (!output.add({ nodes }, top)) break;
+    }
+    if (epoch !== this.epoch) throw staleRef();
+    this.refs = output.refs;
+    return { ...output.result(domNodes), truncated: true, hint: outlineHint };
+  }
+  /** One element's subtree, `depth` levels deep; its refs join the latest snapshot's. */
+  private async scoped(ref: string, depth = defaultSnapshotDepth) {
+    const epoch = this.epoch;
+    const target = this.refs.get(ref);
+    if (target === undefined) throw staleRef();
+    const raw = AXTree.parse(
+      await target.cdp
+        .send("Accessibility.queryAXTree", { backendNodeId: target.backendNodeId })
+        .catch(staleFrame),
+    );
+    // ace's overlay lives only in the top document.
+    const child = target.frameId && this.frameSessions.get(target.frameId)?.parentId;
+    const tree = limitDepth(child ? raw : withoutSubtree(raw, await this.excluded()), depth);
+    const output = new SnapshotOutput(epoch);
+    output.add(tree, target);
+    if (epoch !== this.epoch) throw staleRef();
+    for (const [key, value] of output.refs) this.refs.set(key, value);
+    return output.result();
   }
 
   documentGuard(): () => void {

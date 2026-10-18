@@ -46,7 +46,6 @@ export const PublicToolCode = z.enum([
   "element_unavailable",
   "not_visible",
   "evaluate_approval_required",
-  "page_text_limit",
   "approval_required",
   "denied",
   "read_only",
@@ -254,10 +253,6 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   evaluate_approval_required: {
     message: "Browser evaluate was refused by the host policy",
     hint: "Read the page with a snapshot or find_text instead.",
-  },
-  page_text_limit: {
-    message: "Browser text search exceeds the bounded page limit",
-    hint: "Use a snapshot or a smaller page. This search reads at most 1024 nodes and 65536 text characters.",
   },
   approval_required: {
     message: "Browser origin was refused by the host policy",

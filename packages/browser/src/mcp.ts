@@ -73,7 +73,7 @@ const actions = {
   snapshot: {
     riskClass: "read-only",
     description:
-      "Read the current page accessibility tree. Use node refs for click/type/press. Refs stay stable within a document and expire on navigation; only the latest snapshot grants actionable refs.",
+      "Read the current page accessibility tree. Use node refs for click/type/press. Refs stay stable within a document and expire on navigation; only the latest snapshot grants actionable refs. Pass ref to read one element's subtree (its refs join the latest snapshot's) and depth to read fewer levels. A large page comes back truncated with a hint, or as an outline of landmarks and headings to scope with ref.",
   },
   screenshot: {
     riskClass: "read-only",

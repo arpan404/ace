@@ -1,4 +1,4 @@
-import { textCondition } from "./text-condition.ts";
+import { nextProbeDelay, textCondition } from "./text-condition.ts";
 import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
 import { NavigationTask, type NavigationClock } from "./navigation.ts";
@@ -7,7 +7,7 @@ import { BrowserActionError } from "./action-error.ts";
 const Result = z.object({
   result: z.object({
     value: z
-      .union([z.boolean(), z.object({ matched: z.boolean(), limited: z.boolean() })])
+      .union([z.boolean(), z.object({ matched: z.boolean(), elapsed: z.number().nonnegative() })])
       .optional(),
   }),
   exceptionDetails: z.unknown().optional(),
@@ -28,13 +28,8 @@ async function waitForPage(
   while (true) {
     signal.throwIfAborted();
     checkNavigation();
+    let delay = 50;
     try {
-      if (condition.text !== undefined) {
-        const counters = z
-          .object({ nodes: z.number().nonnegative() })
-          .parse(await cdp.send("Memory.getDOMCounters"));
-        if (counters.nodes > 20_000) throw new BrowserActionError("page_text_limit");
-      }
       if (element) {
         if (await element()) return;
       } else {
@@ -43,9 +38,8 @@ async function waitForPage(
         );
         if (response.exceptionDetails) throw new BrowserActionError("invalid_data");
         const value = response.result.value;
-        if (typeof value === "object" && value.limited)
-          throw new BrowserActionError("page_text_limit");
         if (value === true || (typeof value === "object" && value.matched)) return;
+        if (typeof value === "object") delay = nextProbeDelay(value.elapsed);
       }
     } catch (error) {
       if (
@@ -61,7 +55,7 @@ async function waitForPage(
         cancel();
         reject(signal.reason);
       };
-      const cancel = clock.set(50, () => {
+      const cancel = clock.set(delay, () => {
         signal.removeEventListener("abort", abort);
         resolve();
       });

@@ -194,7 +194,10 @@ export async function executeBrowserCommand(
       }
     }
     case "snapshot":
-      return { tabId: context.tabId, ...(await context.refs.snapshot()) };
+      return {
+        tabId: context.tabId,
+        ...(await context.refs.snapshot({ ref: command.ref, depth: command.depth })),
+      };
     case "find": {
       const snapshot = await context.refs.snapshot();
       return {

@@ -85,7 +85,21 @@ export const BrowserCommand = z.discriminatedUnion("action", [
     action: z.literal("measure_interaction"),
     ...BrowserMeasurementOptions.shape,
   }),
-  commandBase.extend({ action: z.literal("snapshot") }),
+  commandBase.extend({
+    action: z.literal("snapshot"),
+    ref: short
+      .optional()
+      .describe(
+        "Only this element's subtree (a ref from the latest snapshot). Its refs join that snapshot's.",
+      ),
+    depth: z
+      .number()
+      .int()
+      .min(1)
+      .max(64)
+      .optional()
+      .describe("How many levels below the page (or ref) to read. Default 20."),
+  }),
   commandBase.extend({
     action: z.literal("screenshot"),
     fullPage: z.boolean().default(false).describe("The whole scrollable page, not the viewport."),

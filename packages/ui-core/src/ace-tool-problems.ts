@@ -154,7 +154,6 @@ const browser: Record<string, Wording> = {
     title: "That address isn't one the agent can open",
     hint: "Only http and https addresses, without a password in them.",
   }),
-  page_text_limit: () => ({ title: "The page is too large to search" }),
   timeout: (site) => ({ title: `${site} didn't respond in time` }),
 };
 

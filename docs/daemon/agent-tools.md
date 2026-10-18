@@ -17,7 +17,11 @@ that calls them applies its own permissions, so every call ace receives proceeds
    Other browser tools also open it lazily.
 2. `ace_browser_snapshot({})` returns bounded accessibility `nodes`, with
    `name`, `role`, optional `value`, and optional `ref`. Only nodes with refs
-   can be targeted. Take a new snapshot after navigation.
+   can be targeted. Take a new snapshot after navigation. `ref` reads one
+   element's subtree (its refs join the latest snapshot's) and `depth` limits
+   the levels read. Output over 10000 nodes or 512 KB is cut with
+   `truncated: true` and a `hint`; a page over 50000 DOM nodes returns an
+   outline of its landmarks and headings to scope with `ref`.
 3. `ace_browser_click({ref: "e1-42"})` clicks the element's centre.
    `ace_browser_type({ref: "e1-43", text: "Ada"})` replaces the editable
    element's contents. `ace_browser_press({ref: "e1-43", key: "Enter"})`
@@ -36,9 +40,9 @@ Choose exactly one wait condition: `url`, `text`, or `ref` with
 `state: "visible" | "hidden"`. The element form applies to the current document;
 it cannot wait for a destination element whose ref does not exist yet. Wait and
 navigation `timeout` values are milliseconds, default 10000, maximum 30000.
-Cancellation does not return a late success. Each text poll visits at most 1024 DOM nodes
-and 65536 text characters, and rejects documents over the 20000-node snapshot cap.
-Larger searches return `page_text_limit` instead of repeatedly scanning the page.
+Cancellation does not return a late success. Text waits work on pages of any size: each poll
+first checks the document's text natively and walks only a document that contains it, and
+polls on large pages are spaced so probing takes at most a fifth of the page's main thread.
 
 Refs include frame identity, a document generation and Chromium node identity. They remain
 stable across snapshots of an unchanged element in the same document, but only
