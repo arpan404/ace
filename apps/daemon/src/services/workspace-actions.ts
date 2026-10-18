@@ -187,6 +187,7 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
               .then((result) => {
                 if (connected()) send({ type: "commandResult", ...result });
               })
+              .catch((error: unknown) => options.log?.(error))
               .finally(() => tasks.delete(replay));
             tasks.add(replay);
             return;
@@ -231,6 +232,8 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
                   error: actionErrorCode(error),
                 });
             })
+            // Recording the failure can itself fail (a busy store); never leave it unhandled.
+            .catch((error: unknown) => options.log?.(error))
             .finally(() => {
               preparations.delete(progress);
               tasks.delete(task);

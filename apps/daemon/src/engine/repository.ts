@@ -35,6 +35,7 @@ import { ExecutionOptions, Command, CommandId, ThreadId, type EventPayload } fro
 import type { Store } from "../store.ts";
 import { decodeSnapshot } from "./snapshot.ts";
 import { readRawBlob } from "./raw.ts";
+import { isStoreRetry } from "../store-busy.ts";
 import { QueueStore } from "./queue-store.ts";
 import { Snapshot } from "./persistence.ts";
 import { migrateEngine } from "./migrations.ts";
@@ -206,7 +207,8 @@ export class EngineRepository {
     if (!state) throw new Error("Missing engine state");
     return state;
   }
-  *recoveryStates(): Iterable<ThreadState> {
+  /** `unreadable` skips a thread whose stored state fails to decode; without it, that throws. */
+  *recoveryStates(unreadable?: (id: ThreadId, error: unknown) => void): Iterable<ThreadState> {
     let after = "";
     for (;;) {
       const ids = this.store.atomic(() =>
@@ -224,7 +226,15 @@ export class EngineRepository {
       for (const row of ids) {
         const id = ThreadId.parse(row.thread_id);
         after = id;
-        yield this.requireState(id);
+        let state: ThreadState;
+        try {
+          state = this.requireState(id);
+        } catch (error) {
+          if (!unreadable || isStoreRetry(error)) throw error;
+          unreadable(id, error);
+          continue;
+        }
+        yield state;
       }
     }
   }

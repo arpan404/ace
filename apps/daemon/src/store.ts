@@ -5,7 +5,7 @@ import { CommandReceipts } from "./command-receipts.ts";
 import { EventWriter } from "./event-writer.ts";
 import { decodeThreadRow } from "./thread-row.ts";
 import { StreamSequences } from "./stream-sequences.ts";
-import { StoreStream } from "./store-stream.ts";
+import { StoreStream, type TransactionOutcome } from "./store-stream.ts";
 import { closeStore } from "./store-shutdown.ts";
 import { ThreadReadCache } from "./thread-read-cache.ts";
 import { WalMaintenance } from "./wal-maintenance.ts";
@@ -105,12 +105,13 @@ export class Store {
   private engineSessionsKnown = false;
   private statements = new BoundedCache<string, StatementSync>(256, 256);
   private transactionEvents: Event[] | undefined;
+  private settlements: { at: number; outcome: TransactionOutcome }[] = [];
+  private readonly quarantineListeners = new Set<(thread: ThreadId, error: Error) => void>();
   private rolledBack = 0;
   private readonly streaming: StoreStream;
   private readonly sequences: StreamSequences;
   private readonly readCache: ThreadReadCache;
   private readonly wal: WalMaintenance;
-  private readonly optionsDelay: BufferScheduler["delay"];
   private transactions = 0;
   private eventRows = 0;
   private depth = 0;
@@ -136,7 +137,6 @@ export class Store {
     options: StoreOptions = {},
   ) {
     this.onError = onError;
-    this.optionsDelay = (options.bufferScheduler ?? bufferScheduler).delay;
     this.db = options.database ?? new DatabaseSync(path);
     this.wal = new WalMaintenance({
       path,
@@ -174,11 +174,15 @@ export class Store {
       nextId: this.nextId,
       sequences: this.sequences,
       blocked: () => this.writes.isHeld() || this.historyWriting,
-      transaction: (run, committed) => this.transaction(run, committed),
+      transaction: (run, outcome) => this.transaction(run, outcome),
       persist: (event) => this.appendEventBatch(event.threadId, [event.payload], event.at, [event]),
       append: (event) => this.appendEventBatch(event.threadId, [event.payload], event.at),
+      stored: (event) =>
+        this.statement("SELECT 1 FROM events WHERE seq=? AND id=?").get(event.seq, event.id) !==
+        undefined,
       publish: (events) => this.publish(events),
       report: (error) => this.onError(error),
+      quarantined: (thread, error) => this.quarantine(thread, error),
     });
     this.payloads = new PayloadStore(this.db, this.nextId, (sql) => this.statement(sql));
     this.status = new StatusStore(this.db, (sql) => this.statement(sql));
@@ -311,7 +315,7 @@ export class Store {
     const finished = Promise.withResolvers<void>();
     this.closing = finished.promise;
     void closeStore({
-      flush: () => this.flushLiveWrites(),
+      flush: () => this.streaming.drain(),
       stop: [
         () => this.streaming.buffer.stop(),
         () => this.wal.close(),
@@ -389,16 +393,30 @@ export class Store {
   rollbackGeneration(): number {
     return this.rolledBack;
   }
-  private transaction<T>(run: () => T, committed?: () => void): T {
+  /**
+   * `outcome` marks rows that publish themselves (the live buffer's). Nested in an open
+   * transaction, they settle only when the outermost one does: its commit runs `committed`
+   * in sequence with the transaction's own events, and any rollback runs `rolledBack`.
+   */
+  private transaction<T>(run: () => T, outcome?: TransactionOutcome): T {
     if (!this.streaming.flushing) this.flushLiveWrites();
-    if (this.installingHistory) return run();
+    if (this.installingHistory) {
+      // installHistory drains the buffer before it begins; a live write retries after it.
+      if (outcome) throw new Error("Store is busy");
+      return run();
+    }
     if (this.transactionEvents) {
       const length = this.transactionEvents.length;
+      const settling = this.settlements.length;
       const savepoint = `nested_${++this.depth}`;
       this.db.exec(`SAVEPOINT ${savepoint}`);
       try {
         const result = run();
         this.db.exec(`RELEASE ${savepoint}`);
+        if (outcome) {
+          this.transactionEvents.splice(length);
+          this.settlements.push({ at: length, outcome });
+        }
         return result;
       } catch (error) {
         this.db.exec(`ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
@@ -406,6 +424,7 @@ export class Store {
         this.rolledBack++;
         this.sidebarReads.invalidate();
         this.transactionEvents.length = length;
+        this.settle(this.settlements.splice(settling), "rolledBack");
         throw error;
       } finally {
         this.depth--;
@@ -428,14 +447,22 @@ export class Store {
       this.db.exec("ROLLBACK");
       this.rolledBack++;
       this.sidebarReads.invalidate();
+      this.settle(this.settlements.splice(0), "rolledBack");
       throw error;
     } finally {
       this.transactionEvents = undefined;
     }
     // The live buffer publishes its own commits: stored rows may compact a prefix that
     // subscribers have already received.
-    if (committed) committed();
-    else this.publish(events.filter((event) => event.seq > this.publishedSeq));
+    const settlements = this.settlements.splice(0);
+    if (outcome) outcome.committed();
+    let from = 0;
+    for (const settlement of settlements) {
+      if (!outcome) this.publishFresh(events.slice(from, settlement.at));
+      from = settlement.at;
+      this.settle([settlement], "committed");
+    }
+    if (!outcome) this.publishFresh(events.slice(from));
     for (const listener of this.usageListeners) {
       try {
         listener();
@@ -448,6 +475,48 @@ export class Store {
       }
     }
     return result;
+  }
+  private settle(
+    settlements: { outcome: TransactionOutcome }[],
+    result: keyof TransactionOutcome,
+  ): void {
+    for (const { outcome } of settlements) {
+      try {
+        outcome[result]();
+      } catch (error) {
+        try {
+          this.onError(error);
+        } catch {
+          /* The transaction has already settled. */
+        }
+      }
+    }
+  }
+  private publishFresh(events: Event[]): void {
+    this.publish(events.filter((event) => event.seq > this.publishedSeq));
+  }
+  /** A thread's live batch could not be stored: drop its views and stop its session. */
+  private quarantine(thread: ThreadId, error: Error): void {
+    this.threadReads.invalidateViews();
+    try {
+      this.onError(error);
+    } catch {
+      /* Quarantine has already released the store. */
+    }
+    for (const listener of this.quarantineListeners) {
+      try {
+        listener(thread, error);
+      } catch {
+        /* Each listener stops only its own work. */
+      }
+    }
+  }
+  /** Hear about threads whose live output was dropped after it could not be stored. */
+  onLiveWriteQuarantine(listener: (thread: ThreadId, error: Error) => void): () => void {
+    this.quarantineListeners.add(listener);
+    return () => {
+      this.quarantineListeners.delete(listener);
+    };
   }
   /** Extend a receipt or event transaction on the same connection. No async I/O. */
   atomic<T>(run: (db: DatabaseSync) => T): T {
@@ -504,15 +573,9 @@ export class Store {
       }
       if (!this.historyWriting) {
         if (!this.streaming.buffer.failed) return;
-        try {
-          this.flushLiveWrites();
-          return;
-        } catch (error) {
-          this.onError(error);
-        }
-        await new Promise<void>((resolve) => {
-          this.optionsDelay(resolve, 100);
-        });
+        // A failed live batch retries on its own backoff; it settles by committing or by
+        // quarantining the threads whose rows cannot be stored.
+        await this.streaming.buffer.settled(signal);
         continue;
       }
       await new Promise<void>((resolve, reject) => {
@@ -610,6 +673,7 @@ export class Store {
   }
   installHistory(archive: ArchiveReader, at: number, cancelled: () => boolean): void {
     if (this.transactionEvents || this.installingHistory) throw new Error("Store is busy");
+    this.flushLiveWrites();
     this.db.exec("BEGIN IMMEDIATE");
     this.installingHistory = true;
     try {

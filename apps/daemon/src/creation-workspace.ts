@@ -535,9 +535,15 @@ export class WorkspaceCreations {
   /** Forget a kept worktree whose start the person dismissed. Never throws. */
   async discard(command: Command): Promise<void> {
     const id = creationResourceId(command);
-    const kept = id ? this.journal.held(id) : undefined;
+    let kept: ReturnType<typeof this.journal.held>;
+    try {
+      kept = id ? this.journal.held(id) : undefined;
+      if (kept) this.journal.unhold(kept.resource.id);
+    } catch (error) {
+      this.log("Kept worktree could not be forgotten", error);
+      return;
+    }
     if (!kept) return;
-    this.journal.unhold(kept.resource.id);
     await this.cleanup(kept.resource, { force: true }).catch((error: unknown) =>
       this.log("Kept worktree could not be removed", error),
     );
