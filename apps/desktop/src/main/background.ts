@@ -266,8 +266,8 @@ export class Background {
    * A picture of a thread's shown view as it is now (a PNG `data:` URL), for the renderer to
    * hold in its place while a menu or popover covers it; undefined when nothing shows.
    */
-  snapshotBrowser(threadId: string): Promise<string | undefined> {
-    return this.browser?.views.snapshot(threadId) ?? Promise.resolve(undefined);
+  snapshotBrowser(threadId: string, tabId?: string): Promise<string | undefined> {
+    return this.browser?.views.snapshot(threadId, tabId) ?? Promise.resolve(undefined);
   }
 
   /** Print or developer tools for a thread's shown native tab; false when it has none here. */

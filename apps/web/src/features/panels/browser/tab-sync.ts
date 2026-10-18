@@ -23,6 +23,11 @@ export interface SyncMemory {
   closing: ReadonlySet<string>;
   /** A daemon state was synced before (this thread, this window). */
   seen: boolean;
+  /**
+   * Daemon tabs side by side in the panel's split view: the person showing one of them keeps
+   * the panel on the split, whichever of the two it shows.
+   */
+  split?: readonly string[] | undefined;
 }
 
 /**
@@ -84,7 +89,10 @@ export function syncBrowserTabs(
     browserTabData(shown).open === undefined
   )
     return activateTab(closeTab(next, shown.key), tabKey("browser", active));
-  if (active && active !== memory.active && next.open && showingBrowser) {
+  const panelId = next.open ? shownTab(next)?.id : undefined;
+  const together =
+    !!memory.split && memory.split.includes(active ?? "") && memory.split.includes(panelId ?? "");
+  if (active && active !== memory.active && next.open && showingBrowser && !together) {
     const key = tabKey("browser", active);
     if (next.active !== key) next = activateTab(next, key);
   }

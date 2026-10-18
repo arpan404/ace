@@ -38,5 +38,6 @@ export {
 export { defaultSize, WorkspaceStore, type ClosedTab } from "./store.ts";
 
 export { fileTab, fileTabId } from "./file-tab.ts";
+export { tabDragType } from "./drag.ts";
 
 export { attachWorkspaceScroll } from "./scroll.ts";

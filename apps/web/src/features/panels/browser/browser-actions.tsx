@@ -5,11 +5,13 @@ import {
   ClockCounterClockwiseIcon,
   CodeIcon,
   CopyIcon,
+  SquareSplitHorizontalIcon,
   DevicesIcon,
   DotsThreeIcon,
   DownloadSimpleIcon,
   FileCodeIcon,
   GearSixIcon,
+  EyeIcon,
   MagnifyingGlassIcon,
   PrinterIcon,
   PuzzlePieceIcon,
@@ -18,6 +20,7 @@ import {
   SpeakerHighIcon,
   SpeakerSlashIcon,
   StopCircleIcon,
+  TerminalWindowIcon,
   XCircleIcon,
 } from "@phosphor-icons/react";
 import { openExternal, revealer } from "@/boot/open-external.ts";
@@ -70,6 +73,19 @@ export function BrowserActions(props: {
   onSettings(): void;
   onKeepPrivate(value: boolean): void;
   onCloseTab(): void;
+  /** The console and network drawer shows under the page. */
+  drawer: boolean;
+  onDrawer(open: boolean): void;
+  /** Opens "Screenshot at sizes…" for the tab shown. */
+  onScreenshotSizes(): void;
+  /** Watch mode: on, off, or unavailable (no agent browses). */
+  watching: boolean | undefined;
+  onWatch(): void;
+  /** The thread's other tabs this one can open beside; undefined while already split. */
+  splitWith: readonly { tabId: string; title: string }[] | undefined;
+  onSplit(tabId: string): void;
+  /** In split view: close this half. */
+  onLeaveSplit: (() => void) | undefined;
 }) {
   const toast = useToast();
   const { shownUrl, external, browser, tab, tools, actions } = props;
@@ -256,6 +272,51 @@ export function BrowserActions(props: {
             {tab.muted ? "Unmute tab" : "Mute tab"}
           </MenuItem>
         )}
+        {props.watching !== undefined && (
+          <MenuItem icon={icon(EyeIcon)} onClick={props.onWatch}>
+            {props.watching ? "Stop watching the agent" : "Watch the agent"}
+          </MenuItem>
+        )}
+        {props.splitWith && (
+          <MenuSub>
+            <MenuSubTrigger
+              icon={icon(SquareSplitHorizontalIcon)}
+              disabled={props.splitWith.length === 0}
+            >
+              Open in split view
+            </MenuSubTrigger>
+            <MenuContent side="inline-start" align="start" sideOffset={4}>
+              {props.splitWith.map((other) => (
+                <MenuItem key={other.tabId} onClick={() => props.onSplit(other.tabId)}>
+                  <span className="max-w-60 truncate">{other.title}</span>
+                </MenuItem>
+              ))}
+            </MenuContent>
+          </MenuSub>
+        )}
+        {props.onLeaveSplit && (
+          <MenuItem icon={icon(SquareSplitHorizontalIcon)} onClick={props.onLeaveSplit}>
+            Close split view
+          </MenuItem>
+        )}
+        <MenuItem
+          icon={icon(CameraIcon)}
+          disabled={!live || !props.online || privately}
+          reason={privately ? "Tabs agents are kept out of are never captured" : undefined}
+          onClick={props.onScreenshotSizes}
+        >
+          Screenshot at sizes…
+        </MenuItem>
+        <MenuCheckboxItem
+          checked={props.drawer}
+          disabled={!live}
+          onCheckedChange={(checked) => props.onDrawer(checked)}
+        >
+          <span className="flex items-center gap-2">
+            <Icon icon={TerminalWindowIcon} />
+            Console and network
+          </span>
+        </MenuCheckboxItem>
         {hidden && (
           <MenuItem icon={icon(PuzzlePieceIcon)} onClick={() => extensionsHidden.set(() => false)}>
             Show extensions in the toolbar

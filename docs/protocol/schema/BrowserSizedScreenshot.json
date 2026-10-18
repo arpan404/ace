@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserSizedScreenshot.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "data": {
+      "maxLength": 4194304,
+      "type": "string"
+    },
+    "height": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "mimeType": {
+      "const": "image/jpeg",
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "size": {
+      "$ref": "https://ace.local/protocol/v1/BrowserScreenshotSize.json"
+    },
+    "width": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "size",
+    "width",
+    "height",
+    "mimeType",
+    "data"
+  ],
+  "type": "object"
+}

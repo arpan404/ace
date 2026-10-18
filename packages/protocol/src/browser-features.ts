@@ -116,6 +116,8 @@ export const BrowserTab = z.object({
    * watches plays. The person can turn it either way (`browser.tabs.mute`).
    */
   muted: z.boolean().optional(),
+  /** Audio or video with sound plays in this tab now. */
+  playing: z.boolean().optional(),
 });
 export type BrowserTab = z.infer<typeof BrowserTab>;
 /** Wire bound on one browser's tab list: far above what a person keeps open, still bounded. */

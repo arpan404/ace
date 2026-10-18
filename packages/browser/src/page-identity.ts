@@ -21,8 +21,9 @@ export const faviconLimit = 8192;
 const titleLimit = 1024;
 
 /**
- * Runs once per document in the `ace-identity` world. Reports `{title, icon}` 100 ms after the
- * head settles, the title at once and the icon once it is drawn (32px, else 16px, else none).
+ * Runs once per document in the `ace-identity` world. Reports `{title, icon, media}` 100 ms after
+ * the head settles, the title at once and the icon once it is drawn (32px, else 16px, else none).
+ * `media` is whether audio or video with sound is playing; media events report it again.
  */
 const source = `(() => {
   if (globalThis.__aceIdentityOn) return;
@@ -68,8 +69,14 @@ const source = `(() => {
     image.onerror = () => resolve("");
     image.src = url;
   });
+  const media = () => [...document.querySelectorAll("video, audio")].some((element) =>
+    !element.paused && !element.ended && !element.muted && element.volume > 0);
   const post = () => {
-    const payload = JSON.stringify({ title: String(document.title || "").slice(0, ${titleLimit}), icon });
+    const payload = JSON.stringify({
+      title: String(document.title || "").slice(0, ${titleLimit}),
+      icon,
+      media: media(),
+    });
     if (payload === last) return;
     last = payload;
     try { send(payload); } catch {}
@@ -100,9 +107,11 @@ const source = `(() => {
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", watch, { once: true });
   else watch();
   addEventListener("load", soon);
+  for (const type of ["play", "playing", "pause", "ended", "emptied", "volumechange"])
+    document.addEventListener(type, soon, true);
 })();`;
 
-const Payload = z.object({ title: z.string(), icon: z.string() });
+const Payload = z.object({ title: z.string(), icon: z.string(), media: z.boolean().optional() });
 const BindingCall = z.object({ name: z.string(), payload: z.string().max(64 * 1024) });
 const Navigated = z.object({ frame: z.object({ parentId: z.string().optional() }) });
 const Added = z.object({ identifier: z.string() });
@@ -111,6 +120,8 @@ const pngDataUrl = /^data:image\/png;base64,[A-Za-z0-9+/]+=*$/;
 export interface Identity {
   title?: string | undefined;
   favicon?: string | undefined;
+  /** Audio or video with sound plays now. */
+  playing?: boolean | undefined;
 }
 
 /**
@@ -129,7 +140,11 @@ export function readIdentity(raw: unknown): Identity | undefined {
   const title = parsed.title.replace(/\s+/g, " ").trim().slice(0, titleLimit);
   const favicon =
     parsed.icon.length <= faviconLimit && pngDataUrl.test(parsed.icon) ? parsed.icon : undefined;
-  return { ...(title ? { title } : {}), ...(favicon ? { favicon } : {}) };
+  return {
+    ...(title ? { title } : {}),
+    ...(favicon ? { favicon } : {}),
+    ...(parsed.media ? { playing: true } : {}),
+  };
 }
 
 /**
@@ -150,6 +165,9 @@ export class PageIdentity {
   get favicon(): string | undefined {
     return this.current.favicon;
   }
+  get playing(): boolean {
+    return this.current.playing === true;
+  }
   watch(cdp: BrowserCdp): void {
     this.stop();
     let stopped = false;
@@ -157,7 +175,11 @@ export class PageIdentity {
     const reported = (raw: unknown) => {
       const identity = readIdentity(raw);
       if (!identity || stopped) return;
-      if (identity.title === this.current.title && identity.favicon === this.current.favicon)
+      if (
+        identity.title === this.current.title &&
+        identity.favicon === this.current.favicon &&
+        identity.playing === this.current.playing
+      )
         return;
       this.current = identity;
       this.changed();
@@ -166,7 +188,12 @@ export class PageIdentity {
     const navigated = (raw: unknown) => {
       const frame = Navigated.safeParse(raw);
       if (!frame.success || frame.data.frame.parentId) return;
-      if (this.current.title === undefined && this.current.favicon === undefined) return;
+      if (
+        this.current.title === undefined &&
+        this.current.favicon === undefined &&
+        !this.current.playing
+      )
+        return;
       this.current = {};
       this.changed();
     };

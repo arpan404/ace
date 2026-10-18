@@ -114,7 +114,11 @@ export const events = {
   "theme.changed": NativeAppearance,
   "window.changed": WindowState,
   "settings.changed": DesktopSettings,
-  "browser.visibility": z.object({ threadId: z.string(), visible: z.boolean() }),
+  "browser.visibility": z.object({
+    threadId: z.string(),
+    tabId: z.string().optional(),
+    visible: z.boolean(),
+  }),
   "browser.shortcut": BrowserShortcut,
   "browser.context": BrowserContextAction,
   "updates.status": UpdateStatus,

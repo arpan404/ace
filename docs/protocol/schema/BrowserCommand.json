@@ -399,6 +399,15 @@
           "minLength": 1,
           "type": "string"
         },
+        "sizes": {
+          "description": "Responsive check: lay the page out at each size (phone 390, tablet 768, desktop 1440 CSS px wide), capture it there, then restore the tab's own size. One image per size. Not with ref.",
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/BrowserScreenshotSize.json"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "type": "array"
+        },
         "tabId": {
           "description": "The tab to act in, from ace_browser_tabs. Omitted: your current tab.",
           "maxLength": 256,

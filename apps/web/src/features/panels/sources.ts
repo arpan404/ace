@@ -1,3 +1,4 @@
+import type { BrowserScreenshotSet, BrowserScreenshotSize } from "@ace/protocol";
 import type { AnnotationDriver } from "@/features/annotations/index.ts";
 
 /*
@@ -117,6 +118,8 @@ export interface BrowserTabView {
   pendingAuth?: BrowserSignInView | undefined;
   /** The page wasn't opened: its certificate isn't trusted. The person may proceed anyway. */
   certificateError?: { url: string; error: string } | undefined;
+  /** Audio or video with sound plays in this tab now. */
+  playing?: boolean | undefined;
 }
 export interface BrowserSignInView {
   authId: string;
@@ -141,6 +144,25 @@ export interface BrowserExtensionView {
   name: string;
   version?: string | undefined;
   enabled: boolean;
+}
+/**
+ * One line of a tab's console or network log, as agents read it (BrowserCommand `logs`). A
+ * network entry is a response (`status`) or a failure; `bytes` and `durationMs` arrive once the
+ * request finishes. `at` is when the daemon recorded it, in milliseconds.
+ */
+export interface BrowserLogEntry {
+  kind: "console" | "network";
+  /** The console level (`log`, `warning`, `error`, `pageerror`…) or `response` / `failed`. */
+  type: string;
+  text: string;
+  at: number;
+  tabId?: string | undefined;
+  requestId?: string | undefined;
+  url?: string | undefined;
+  status?: number | undefined;
+  method?: string | undefined;
+  bytes?: number | undefined;
+  durationMs?: number | undefined;
 }
 /** A device the page can pretend to be (BrowserCommand `emulate`). */
 export interface Emulation {
@@ -237,6 +259,11 @@ export interface PreviewSource {
   watch(threadId: string): () => void;
   view(threadId: string): BrowserView | undefined;
   frame(threadId: string): ScreenFrame | undefined;
+  /**
+   * A tab's last frame from when it was the shown one (the screencast follows the shown tab),
+   * for split view's other half; undefined when this client never saw it.
+   */
+  still?(threadId: string, tabId: string): ScreenFrame | undefined;
   servers(threadId: string): readonly PreviewServer[];
   /**
    * The thread's detected dev servers, printed ones first. Kept current while `watch(threadId)`
@@ -294,6 +321,18 @@ export interface PreviewSource {
   keepPrivate(threadId: string, tabId: string, value: boolean): Promise<void>;
   /** One of the person's page commands in a tab (the shown one unless named). */
   pageTool?(threadId: string, command: PageToolCommand, tabId?: string): Promise<unknown>;
+  /**
+   * The tab laid out at each size and captured there, then restored (`screenshot` with
+   * `sizes`). The daemon keeps each as a full-size PNG in the thread; the result holds previews.
+   */
+  screenshotSizes?(
+    threadId: string,
+    tabId: string,
+    sizes: readonly BrowserScreenshotSize[],
+    fullPage: boolean,
+  ): Promise<BrowserScreenshotSet>;
+  /** A tab's console and network log, oldest first (the same entries agents read). */
+  logs?(threadId: string, tabId: string): Promise<readonly BrowserLogEntry[]>;
   /** Extensions the tab's engine runs, as its backend reports them (read-only). */
   extensions?(threadId: string): Promise<readonly BrowserExtensionView[]>;
   /** The person's own input; it lands at once, whoever else works in the tab. */

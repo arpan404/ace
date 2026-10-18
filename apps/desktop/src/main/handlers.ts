@@ -194,7 +194,7 @@ export function createHandlers(options: {
       return "unavailable";
     },
     "browser.snapshot": async (request) =>
-      (await background.snapshotBrowser(request.threadId)) ?? null,
+      (await background.snapshotBrowser(request.threadId, request.tabId)) ?? null,
     "browser.page": (request) => background.browserPage(request),
     "browser.focus-app": (_request, sender) => {
       if (sender) background.focusApp(sender.id);

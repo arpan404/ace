@@ -919,7 +919,9 @@ export class EmbeddedPage implements ViewPage {
     this.throttleTimer = undefined;
     if (this.closing || this.contents.isDestroyed()) return;
     if (this.placementPending) {
-      this.show("hidden");
+      // A view already on screen stays there while its new box's metrics apply (a panel
+      // resizing, the page moving into picture-in-picture): hiding it meanwhile would flash.
+      if (!(this.placed && this.presence === "placed")) this.show("hidden");
       return;
     }
     const decision = throttleDecision(

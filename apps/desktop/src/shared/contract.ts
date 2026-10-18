@@ -288,6 +288,11 @@ export const BrowserPlacement = z.object({
     })
     .optional(),
   threadId: z.string().min(1).max(256),
+  /**
+   * One tab of the thread, drawn here beside the shown one (split view). Omitted: whichever tab
+   * the thread shows.
+   */
+  tabId: z.string().min(1).max(256).optional(),
   bounds: z.object({
     x: z.number().min(0),
     y: z.number().min(0),
@@ -297,8 +302,11 @@ export const BrowserPlacement = z.object({
   visible: z.boolean(),
 });
 export type BrowserPlacement = z.infer<typeof BrowserPlacement>;
-/** Names a thread's embedded browser view. */
-export const BrowserThread = z.object({ threadId: z.string().min(1).max(256) });
+/** Names a thread's embedded browser view (one tab of it with `tabId`). */
+export const BrowserThread = z.object({
+  threadId: z.string().min(1).max(256),
+  tabId: z.string().min(1).max(256).optional(),
+});
 export type BrowserThread = z.infer<typeof BrowserThread>;
 /** A thread view's picture as a PNG `data:` URL; null while nothing shows it. */
 export const BrowserSnapshot = z

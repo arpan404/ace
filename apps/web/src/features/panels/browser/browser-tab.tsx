@@ -41,6 +41,12 @@ import { usePageChrome } from "./use-page-chrome.tsx";
 import { DeviceToolbar } from "./device-toolbar.tsx";
 import { DeviceStage } from "./device-stage.tsx";
 import { ZoomBadge } from "./zoom-controls.tsx";
+import { ConsoleDrawer, drawerHeights } from "./console-drawer.tsx";
+import { ResponsiveScreenshotDialog } from "./responsive-screenshot.tsx";
+import { rememberPageSize } from "./page-size.ts";
+import { WatchButton, useWatchToggle } from "./watch-button.tsx";
+import { SplitBrowser, openSplit, splits, type SplitPane } from "./split-view.tsx";
+import { useSplitDrop } from "./split-drop.tsx";
 
 const permissionLabel = (permission: string) =>
   ({
@@ -58,8 +64,10 @@ const permissionLabel = (permission: string) =>
  * cursor on the panel tab and over the page. The page fills the panel on ace's own surface (or
  * the desktop's native view); a failed load keeps its address with Reload.
  */
-function Browser(props: TabViewProps) {
+function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
+  const pane = props.pane;
   const [finding, setFinding] = useState(false);
+  const [sizing, setSizing] = useState(false);
   const threadId = props.scope;
   const ownId = daemonTabId(props.tab);
   const { preview: source } = usePanelServices();
@@ -94,16 +102,25 @@ function Browser(props: TabViewProps) {
   // showing it asks: when the daemon later shows another tab, the panel follows it instead.
   const reachable = !!live && live.status !== "paused";
   useEffect(() => {
-    if (ownId && reachable) tabs.select(ownId);
+    // In split view only the half the person works in is the shown tab.
+    if (ownId && reachable && (pane?.focused ?? true)) tabs.select(ownId);
     // `tabs.select` reads the daemon's shown tab of this render.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [ownId, reachable]);
+  }, [ownId, reachable, pane?.focused]);
   // A tab kept from before a daemon restart: its browser opens again, with the same tabs.
   const unopened = ownId !== undefined && !live && online && tabs.reachable;
   useEffect(() => {
     if (unopened) void tabs.ensure();
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [unopened]);
+
+  const watch = useWatchToggle(threadId, live);
+  const drop = useSplitDrop(pane ? undefined : ownId, (other) => {
+    if (ownId) openSplit(threadId, ownId, other);
+  });
+  // Live while dragging; saved with the tab when the drag ends.
+  const [drawerHeight, setDrawerHeight] = useState<number>();
+  const drawer = page.data.drawer;
   const shownUrl = page.shownUrl;
   const blank = !shownUrl || shownUrl === "about:blank";
   const offline = online ? undefined : "ace is offline";
@@ -131,9 +148,23 @@ function Browser(props: TabViewProps) {
       online &&
       page.state.phase !== "failed" &&
       !shown?.certificateError,
-    { device: tools.emulation, exact: tools.toolbar },
+    {
+      device: tools.emulation,
+      exact: tools.toolbar,
+      ...(pane ? { tabId: pane.tabId } : {}),
+    },
   );
   const nativeShown = native.shown || native.frozen !== undefined;
+  // Picture-in-picture lays the page out at the size it had here.
+  useEffect(() => {
+    const element = pageArea.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() =>
+      rememberPageSize(threadId, element.clientWidth, element.clientHeight),
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [threadId]);
 
   useEffect(() => {
     source.nativeShown?.(threadId, nativeShown);
@@ -249,7 +280,14 @@ function Browser(props: TabViewProps) {
   else content = <StartPage suggestions={page.suggestions} disabled={offline} onGo={page.go} />;
 
   return (
-    <div ref={root} className="flex h-full min-h-0 flex-col" onKeyDownCapture={onKeyDown}>
+    <div
+      ref={root}
+      data-browser-tab=""
+      className="relative flex h-full min-h-0 flex-col"
+      onKeyDownCapture={onKeyDown}
+      {...drop.handlers}
+    >
+      {drop.indicator}
       <PageToolbar
         nav={
           <PageNav
@@ -309,6 +347,7 @@ function Browser(props: TabViewProps) {
         actions={
           <>
             <RecordingIndicator source={source} threadId={threadId} view={live} />
+            {watch.watching !== undefined && <WatchButton {...watch} />}
             <ToolPill>
               {!extensionsOff && (
                 <ExtensionsMenu
@@ -340,6 +379,20 @@ function Browser(props: TabViewProps) {
               onSettings={chrome.openSettings}
               onKeepPrivate={(value) => shown && tabs.keepPrivate(shown.tabId, value)}
               onCloseTab={() => shown && tabs.close(shown.tabId)}
+              drawer={drawer !== undefined}
+              onDrawer={(open) => page.save({ drawer: open ? "console" : undefined })}
+              onScreenshotSizes={() => setSizing(true)}
+              watching={watch.watching}
+              onWatch={watch.toggle}
+              splitWith={
+                pane || !ownId
+                  ? undefined
+                  : tabs.tabs
+                      .filter((tab) => tab.tabId !== ownId)
+                      .map((tab) => ({ tabId: tab.tabId, title: tab.title || tab.url }))
+              }
+              onSplit={(other) => ownId && openSplit(threadId, ownId, other)}
+              onLeaveSplit={pane?.onLeave}
             />
           </>
         }
@@ -378,6 +431,29 @@ function Browser(props: TabViewProps) {
         )}
       </div>
       {chrome.dialogs}
+      {sizing && shown && (
+        <ResponsiveScreenshotDialog
+          source={source}
+          threadId={threadId}
+          tabId={shown.tabId}
+          onClose={() => setSizing(false)}
+        />
+      )}
+      {drawer && shown && (
+        <ConsoleDrawer
+          source={source}
+          threadId={threadId}
+          tabId={shown.tabId}
+          section={drawer}
+          onSection={(section) => page.save({ drawer: section })}
+          height={drawerHeight ?? page.data.drawerHeight ?? drawerHeights.initial}
+          onHeight={(height, persist) => {
+            setDrawerHeight(persist ? undefined : height);
+            if (persist) page.save({ drawerHeight: height });
+          }}
+          onClose={() => page.save({ drawer: undefined })}
+        />
+      )}
     </div>
   );
 }
@@ -403,10 +479,26 @@ function FrozenPage(props: { frozen: NonNullable<ReturnType<typeof useNativeView
   );
 }
 
+/** One tab, or the two of a split view this tab is part of. */
+function BrowserOrSplit(props: TabViewProps) {
+  const own = daemonTabId(props.tab);
+  const split = useLocal(splits, (all) => all.get(props.scope));
+  if (split && own && (split.left === own || split.right === own))
+    return (
+      <SplitBrowser
+        threadId={props.scope}
+        split={split}
+        from={own}
+        render={(tab, pane) => <Browser {...props} key={tab.key} tab={tab} pane={pane} />}
+      />
+    );
+  return <Browser {...props} />;
+}
+
 export default function BrowserTab(props: TabViewProps) {
   return (
     <WithServices>
-      <Browser {...props} />
+      <BrowserOrSplit {...props} />
     </WithServices>
   );
 }

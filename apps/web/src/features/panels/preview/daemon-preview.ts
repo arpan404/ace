@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ClientApi } from "@ace/client";
 import {
+  BrowserScreenshotSet,
   BrowserState,
   BrowserTabList,
   BrowserTabsResult,
@@ -26,6 +27,7 @@ import { documentVisibility, type PageVisibility } from "@/lib/page-visibility.t
 import { daemonAnnotate } from "./daemon-annotate.ts";
 import { decodeFrame, type FrameDecoder } from "./frames.ts";
 import { SuggestionStore } from "./preview-suggestions.ts";
+import { readBrowserLogs } from "./browser-logs.ts";
 
 /** How often a watched thread without a browser asks again, and re-reads its dev servers. */
 const retryMs = 5_000;
@@ -33,6 +35,8 @@ const retryMs = 5_000;
 const openTimeoutMs = 660_000;
 /** Threads no view shows whose last browser state and frame are kept, so coming back is instant. */
 const keptThreads = 8;
+/** Tabs per thread whose last frame is kept for split view. */
+const stillsPerThread = 4;
 /** BrowserCommand `resize` bounds. */
 const clamp = (value: number) => Math.min(4096, Math.max(100, Math.round(value)));
 
@@ -53,6 +57,7 @@ const tabView = (tab: BrowserTabList[number]): BrowserTabView => ({
   audible: tab.audible,
   muted: tab.muted,
   certificateError: tab.certificate_error,
+  playing: tab.playing,
   zoom: tab.zoom,
   emulation: tab.emulation,
 });
@@ -155,6 +160,24 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   const listeners = new Map<() => void, string | undefined>();
   const views = new Map<string, BrowserView>();
   const frames = new Map<string, Shown>();
+  /** Each thread's tabs' last frames from when they were shown (split view's other half). */
+  const stills = new Map<string, Map<string, Shown>>();
+  /** The shown tab changed: its frame stays as that tab's still instead of being dropped. */
+  const keepStill = (threadId: string, tabId: string) => {
+    const frame = frames.get(threadId);
+    if (!frame) return;
+    frames.delete(threadId);
+    const kept = stills.get(threadId) ?? new Map<string, Shown>();
+    kept.get(tabId)?.release();
+    kept.delete(tabId);
+    kept.set(tabId, frame);
+    for (const [oldest, still] of kept) {
+      if (kept.size <= stillsPerThread) break;
+      still.release();
+      kept.delete(oldest);
+    }
+    stills.set(threadId, kept);
+  };
   const servers = new Map<string, readonly PreviewServer[]>();
   const suggestions = new SuggestionStore();
   const watches = new Map<string, Watch>();
@@ -176,6 +199,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   const release = (threadId: string) => {
     frames.get(threadId)?.release();
     frames.delete(threadId);
+    for (const still of stills.get(threadId)?.values() ?? []) still.release();
+    stills.delete(threadId);
     views.delete(threadId);
     servers.delete(threadId);
     suggestions.delete(threadId);
@@ -359,6 +384,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           (previous &&
             (previous.backend !== state.backend || previous.activeTabId !== state.activeTabId)))
       ) {
+        if (previous?.activeTabId && previous.activeTabId !== state.activeTabId)
+          keepStill(state.threadId, previous.activeTabId);
         invalidate(state.threadId, watch);
         watch.subscribed = false;
         if (!state.closed)
@@ -432,7 +459,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       for (const stop of stops) stop();
       for (const watch of watches.values()) watch.cancel?.();
       watches.clear();
-      for (const threadId of frames.keys()) release(threadId);
+      for (const threadId of new Set([...frames.keys(), ...stills.keys()])) release(threadId);
       views.clear();
       servers.clear();
       suggestions.clear();
@@ -493,6 +520,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     },
     view: (threadId) => views.get(threadId),
     frame: (threadId) => frames.get(threadId),
+    still: (threadId, tabId) => stills.get(threadId)?.get(tabId),
     servers: (threadId) => servers.get(threadId) ?? [],
     suggestions: (threadId) => suggestions.get(threadId),
     download: () => download,
@@ -597,6 +625,19 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     pageTool(threadId, command, tabId) {
       // Printing a long page or capturing a full page can take a while.
       return execute(threadId, { ...command, ...(tabId ? { tabId } : {}) }, 60_000);
+    },
+    async screenshotSizes(threadId, tabId, sizes, fullPage) {
+      return BrowserScreenshotSet.parse(
+        await execute(
+          threadId,
+          { action: "screenshot", tabId, sizes: [...sizes], fullPage },
+          // Three layouts and captures, each written to the thread's files.
+          90_000,
+        ),
+      );
+    },
+    async logs(threadId, tabId) {
+      return readBrowserLogs(await execute(threadId, { action: "logs", tabId, limit: 200 }));
     },
     async extensions(threadId): Promise<readonly BrowserExtensionView[]> {
       return Extensions.parse(await execute(threadId, { action: "extensions" })).extensions;

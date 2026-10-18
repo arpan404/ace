@@ -8,6 +8,7 @@ import type {
 } from "@ace/protocol";
 import { BrowserDocumentHistory } from "./browser-history.ts";
 import { FakeAnnotations } from "./browser-annotation.ts";
+import { FakeBrowserLogs } from "./browser-logs.ts";
 import { pairPhoneFrame, sitePage } from "./preview-page.ts";
 
 /**
@@ -85,6 +86,10 @@ export class FakeBrowser {
     (threadId) => this.entries.get(threadId)?.view,
     () => this.changed(),
   );
+  /** Each thread's console and network log (`logs`); tests add what a page logged. */
+  readonly logs = new FakeBrowserLogs();
+  /** Multi-size screenshots a person took (`screenshot` with `sizes`), in order. */
+  readonly sizedCaptures: { threadId: string; tabId?: string | undefined; sizes: string[] }[] = [];
   private watchers = new Set<() => void>();
   private revision = 0;
   readonly available = true;
@@ -186,6 +191,14 @@ export class FakeBrowser {
     tab.title = identity.title;
     if (identity.favicon) tab.favicon = identity.favicon;
     else delete tab.favicon;
+    this.changed();
+  }
+  /** A tab starts or stops playing sound (the page's media). */
+  mediaPlays(threadId: string, playing: boolean, tabId?: string): void {
+    const tab = this.tab(threadId, tabId);
+    if (!tab) return;
+    if (playing) tab.playing = true;
+    else delete tab.playing;
     this.changed();
   }
   /** Scripting: the agent went idle; its mark leaves the tab. */

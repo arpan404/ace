@@ -15,6 +15,10 @@ export const BrowserTabData = z.object({
   /** The page's address and title as the daemon last reported them (strip, composer). */
   url: z.optional(z.string()),
   title: z.optional(z.string()),
+  /** The console drawer is open on this tab, at this section. */
+  drawer: z.optional(z.enum(["console", "network"])),
+  /** The console drawer's height in CSS pixels. */
+  drawerHeight: z.optional(z.number().check(z.gte(80), z.lte(2000))),
 });
 export type BrowserTabData = z.infer<typeof BrowserTabData>;
 

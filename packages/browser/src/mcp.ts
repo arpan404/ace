@@ -4,6 +4,7 @@ import {
   BrowserMeasurementOptions,
   InteractionMeasurement,
   BrowserDialog,
+  BrowserScreenshotSet,
   browserWaitLimitMs,
 } from "@ace/protocol";
 import type { ApprovalTarget } from "@ace/protocol";
@@ -89,7 +90,7 @@ const actions = {
   screenshot: {
     riskClass: "read-only",
     description:
-      "Read a screenshot of one tab without changing what the person sees: the viewport, fullPage for the whole page, or ref for one element. Beside the image: its width and height, scale (CSS pixels per image pixel) and origin (the viewport point of its top-left corner). To click a point you see at image pixel (px, py), pass click x = origin.x + px * scale, y = origin.y + py * scale.",
+      "Read a screenshot of one tab without changing what the person sees: the viewport, fullPage for the whole page, or ref for one element. Beside the image: its width and height, scale (CSS pixels per image pixel) and origin (the viewport point of its top-left corner). To click a point you see at image pixel (px, py), pass click x = origin.x + px * scale, y = origin.y + py * scale. With sizes it checks a responsive layout instead: the page is laid out at each size in turn (the person sees it briefly), one image per size, and the tab's own size is restored.",
   },
   pdf: {
     riskClass: "read-only",
@@ -299,6 +300,18 @@ async function runCommand(
   actor: Actor,
   signal: AbortSignal,
 ) {
+  if (action === "screenshot" && Array.isArray(args["sizes"])) {
+    const set = BrowserScreenshotSet.parse(
+      await target.execute(threadId, { ...args, action }, actor, signal),
+    );
+    signal.throwIfAborted();
+    return {
+      content: set.images.flatMap((image) => [
+        { type: "text" as const, text: `${image.size}: ${image.width}×${image.height} CSS px` },
+        { type: "image" as const, mimeType: image.mimeType, data: image.data },
+      ]),
+    };
+  }
   if (action === "screenshot") {
     const tabId = typeof args["tabId"] === "string" ? args["tabId"] : undefined;
     const options = {

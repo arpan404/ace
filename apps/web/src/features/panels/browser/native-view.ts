@@ -44,14 +44,17 @@ export function nativeViewPlacement(input: {
   /** The area is the device's own viewport (the device toolbar's frame): fill it exactly. */
   exact?: boolean | undefined;
   overlays: readonly PageBox[];
+  /** Space kept around a device-sized page; picture-in-picture keeps none. */
+  padding?: number | undefined;
 }): { bounds: PageBox; visible: boolean; covered: boolean } {
   const { area, device } = input;
+  const padding = input.padding ?? devicePadding;
   let box = area;
   if (device && !input.exact) {
     const scale = Math.min(
       1,
-      Math.max(0, area.width - 2 * devicePadding) / device.width,
-      Math.max(0, area.height - 2 * devicePadding) / device.height,
+      Math.max(0, area.width - 2 * padding) / device.width,
+      Math.max(0, area.height - 2 * padding) / device.height,
     );
     const width = device.width * scale;
     const height = device.height * scale;
@@ -103,7 +106,13 @@ export function useNativeView(
   threadId: string,
   area: RefObject<HTMLElement | null>,
   active: boolean,
-  options: { device: NativeViewPlacement["device"]; exact?: boolean | undefined },
+  options: {
+    device: NativeViewPlacement["device"];
+    exact?: boolean | undefined;
+    padding?: number;
+    /** One tab of the thread (split view); omitted: the tab the thread shows. */
+    tabId?: string | undefined;
+  },
 ): { shown: boolean; frozen: FrozenPage | undefined } {
   const [shown, setShown] = useState(false);
   const [frozen, setFrozen] = useState<FrozenPage>();
@@ -114,12 +123,14 @@ export function useNativeView(
   const deviceKey = options.device
     ? `${options.device.width}x${options.device.height}:${options.device.mobile}:${options.device.deviceScaleFactor}:${options.exact}`
     : `none:${options.exact}`;
+  const placeKey = `${deviceKey}:${options.padding ?? 0}`;
+  const tabId = options.tabId;
   const sync = useEffectEvent(() => {
     latest.current = options;
     replace.current?.();
   });
   // oxlint-disable-next-line react/exhaustive-effect-dependencies -- the key names the change.
-  useLayoutEffect(() => sync(), [deviceKey]);
+  useLayoutEffect(() => sync(), [placeKey]);
   useLayoutEffect(() => {
     const views = desktopBrowserViews();
     const element = area.current;
@@ -162,7 +173,7 @@ export function useNativeView(
       attempted = true;
       const origin = rect;
       void views
-        .snapshot(threadId)
+        .snapshot(threadId, tabId)
         .then(async (src) => {
           if (!src) return undefined;
           // Decoded before it is shown, so it paints in the same frame it is placed.
@@ -207,6 +218,7 @@ export function useNativeView(
         device: size,
         exact: latest.current.exact,
         overlays: overlayBoxes(element),
+        padding: latest.current.padding,
       });
       // Covered and not yet captured: keep showing the page until its picture is ready.
       if (!box.covered) attempted = false;
@@ -214,6 +226,7 @@ export function useNativeView(
       const hidden = box.covered && !capturing;
       controller.place({
         threadId,
+        ...(tabId === undefined ? {} : { tabId }),
         bounds: box.bounds,
         visible: box.visible && !hidden,
         ...(size ? { device: size } : {}),
@@ -275,7 +288,9 @@ export function useNativeView(
       document.removeEventListener("scroll", schedule, true);
       for (const type of motionEvents) document.removeEventListener(type, transition);
     };
-    const stopVisibility = views.onVisibility((id, visible) => controller.visibility(id, visible));
+    const stopVisibility = views.onVisibility((id, visible, tab) =>
+      controller.visibility(id, visible, tab),
+    );
     const stopOverlays = observeOverlays(element, schedule);
     return () => {
       alive = false;
@@ -287,6 +302,6 @@ export function useNativeView(
       stopVisibility();
       stopOverlays();
     };
-  }, [threadId, area, active]);
+  }, [threadId, area, active, tabId]);
   return { shown: active && shown, frozen: active ? frozen : undefined };
 }

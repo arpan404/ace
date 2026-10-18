@@ -20,6 +20,12 @@ const dimension = z.number().int().min(100).max(4096);
 const coordinate = z.number().finite().min(-100_000).max(100_000);
 /** Longest a navigate or wait_for may run; slow dev servers and cold builds need minutes. */
 export const browserWaitLimitMs = 120_000;
+/**
+ * The widths a multi-size screenshot lays the page out at: phone 390×844, tablet 768×1024 and
+ * desktop 1440×900 CSS pixels, phone and tablet as mobile devices.
+ */
+export const BrowserScreenshotSize = z.enum(["phone", "tablet", "desktop"]);
+export type BrowserScreenshotSize = z.infer<typeof BrowserScreenshotSize>;
 const timeout = z.number().int().min(1).max(browserWaitLimitMs).default(10_000);
 export const BrowserOpen = z.object({
   threadId: ThreadId,
@@ -121,6 +127,14 @@ export const BrowserCommand = z.discriminatedUnion("action", [
     action: z.literal("screenshot"),
     fullPage: z.boolean().default(false).describe("The whole scrollable page, not the viewport."),
     ref: short.optional().describe("Only this element from the latest snapshot."),
+    sizes: z
+      .array(BrowserScreenshotSize)
+      .min(1)
+      .max(3)
+      .optional()
+      .describe(
+        "Responsive check: lay the page out at each size (phone 390, tablet 768, desktop 1440 CSS px wide), capture it there, then restore the tab's own size. One image per size. Not with ref.",
+      ),
   }),
   commandBase.extend({
     action: z.literal("evaluate"),
@@ -363,6 +377,23 @@ export const BrowserArtifact = z.object({
 });
 export type BrowserArtifact = z.infer<typeof BrowserArtifact>;
 const hexColour = z.string().regex(/^#[0-9a-f]{6}$/i);
+/** One capture of a multi-size screenshot (`screenshot` with `sizes`). */
+export const BrowserSizedScreenshot = z.object({
+  size: BrowserScreenshotSize,
+  /** The captured area in CSS pixels (the page's whole height with `fullPage`). */
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  /** A JPEG within the model image limits, base64. */
+  mimeType: z.literal("image/jpeg"),
+  data: z.string().max(4 * 1024 * 1024),
+  /** A person's capture is also kept at full resolution as a thread artifact (PNG). */
+  path: z.string().optional(),
+});
+export type BrowserSizedScreenshot = z.infer<typeof BrowserSizedScreenshot>;
+export const BrowserScreenshotSet = z.object({
+  images: z.array(BrowserSizedScreenshot).min(1).max(3),
+});
+export type BrowserScreenshotSet = z.infer<typeof BrowserScreenshotSet>;
 export const BrowserCaptureViewport = z.object({
   nativeShown: z.boolean().optional(),
   /**

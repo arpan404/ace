@@ -1,5 +1,10 @@
-import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
-import { useScopeWorkspace, useWorkspaceStore } from "@/lib/workspace/index.ts";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  tabKey,
+  useScopeWorkspace,
+  useWorkspaceActions,
+  useWorkspaceStore,
+} from "@/lib/workspace/index.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { WithServices } from "../with-services.tsx";
 import { usePanelServices } from "../services.ts";
@@ -8,6 +13,15 @@ import { desktopBrowserViews } from "@/boot/desktop-browser.ts";
 import { reason, useBrowserFeatures } from "./use-browser-features.ts";
 import { registerBrowserCloser, setShownBrowserTab } from "./browser-closers.ts";
 import { syncBrowserTabs } from "./tab-sync.ts";
+import { usePhone } from "@/lib/breakpoints.ts";
+import { LocalStore, useLocal } from "../store.ts";
+import { BrowserPip } from "./browser-pip.tsx";
+import { pipPage } from "./pip-rules.ts";
+import { useWatchMode } from "./use-watch-mode.ts";
+import { splits } from "./split-view.tsx";
+
+/** Threads whose picture-in-picture the person closed, until their Browser shows again. */
+const dismissedPip = new LocalStore<ReadonlySet<string>>(new Set());
 
 /**
  * The thread's browser for as long as the thread shows: keeps the panel's browser tabs in step
@@ -28,7 +42,12 @@ function ThreadBrowser(props: { threadId: string }) {
   );
   useSyncExternalStore(subscribe, () => source.version);
   useEffect(() => source.watch(threadId), [source, threadId]);
-  const memory = useRef<{ active: string | undefined; closing: Set<string>; seen: boolean }>({
+  const memory = useRef<{
+    active: string | undefined;
+    closing: Set<string>;
+    seen: boolean;
+    split?: readonly string[] | undefined;
+  }>({
     active: undefined,
     closing: new Set(),
     seen: false,
@@ -51,6 +70,8 @@ function ThreadBrowser(props: { threadId: string }) {
       tabs: view.tabs ?? [],
       activeTabId: view.activeTabId,
     };
+    const split = splits.get().get(threadId);
+    memory.current.split = split ? [split.left, split.right] : undefined;
     store.update(threadId, (current) => syncBrowserTabs(current, daemon, memory.current));
     if (!daemon) return;
     const listed = new Set(daemon.closed ? [] : daemon.tabs.map((tab) => tab.tabId));
@@ -68,11 +89,39 @@ function ThreadBrowser(props: { threadId: string }) {
     if (!showingBrowser)
       source.nativeShown?.(threadId, !!desktopBrowserViews() && view?.backend === "embedded");
   }, [source, threadId, showingBrowser, view?.backend]);
-  return view?.pendingDialog && !showingBrowser ? (
-    <div className="pointer-events-auto overflow-hidden rounded-popup ace-floating-solid shadow-glass">
-      <PageDialog view={view} browser={browser} />
-    </div>
-  ) : null;
+  const actions = useWorkspaceActions(threadId);
+  const phone = usePhone();
+  useWatchMode(store, threadId, view, workspace);
+  const dismissed = useLocal(dismissedPip, (threads) => threads.has(threadId));
+  // Only a page the person has looked at in the panel follows them out of it.
+  const [seenIn, setSeenIn] = useState<string>();
+  if (showingBrowser && seenIn !== threadId) setSeenIn(threadId);
+  // Showing the Browser again lets picture-in-picture come back the next time it leaves.
+  useEffect(() => {
+    if (showingBrowser && dismissedPip.get().has(threadId))
+      dismissedPip.set((threads) => new Set([...threads].filter((id) => id !== threadId)));
+  }, [showingBrowser, threadId]);
+  const floating =
+    phone || seenIn !== threadId ? undefined : pipPage({ view, showingBrowser, dismissed });
+  return (
+    <>
+      {view?.pendingDialog && !showingBrowser && (
+        <div className="pointer-events-auto overflow-hidden rounded-popup ace-floating-solid shadow-glass">
+          <PageDialog view={view} browser={browser} />
+        </div>
+      )}
+      {floating && view && (
+        <BrowserPip
+          source={source}
+          threadId={threadId}
+          view={view}
+          page={floating}
+          onRestore={() => actions.activate(tabKey("browser", floating.tabId))}
+          onDismiss={() => dismissedPip.set((threads) => new Set(threads).add(threadId))}
+        />
+      )}
+    </>
+  );
 }
 export default function ThreadBrowserBoundary(props: { threadId: string }) {
   return (

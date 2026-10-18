@@ -33,3 +33,17 @@ describe("a tab's identity report", () => {
     expect(readIdentity(call({ title: "x".repeat(5000), icon: "" }))?.title).toHaveLength(1024);
   });
 });
+
+describe("a tab's media report", () => {
+  it("says the tab plays sound only while the page reports media playing", () => {
+    expect(readIdentity(call({ title: "Song", icon: "", media: true }))).toEqual({
+      title: "Song",
+      playing: true,
+    });
+    expect(readIdentity(call({ title: "Song", icon: "", media: false }))).toEqual({
+      title: "Song",
+    });
+    // A page script from before this field reports nothing about media.
+    expect(readIdentity(call({ title: "Song", icon: "" }))).toEqual({ title: "Song" });
+  });
+});

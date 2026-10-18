@@ -1,5 +1,17 @@
 import type { NativeViewPlacement, DesktopBrowserViews } from "@/boot/desktop-browser.ts";
 
+/**
+ * The placer that last asked to show each view. Another one may take a view over as the first
+ * lets go (the panel closing as picture-in-picture opens, in the same commit): the one letting
+ * go then leaves it where it is instead of hiding it, so the view never blinks.
+ */
+const showing = new Map<string, NativePlacement>();
+/** A view's key: the thread's shown tab, or one tab of it (split view). */
+const viewKey = (placement: { threadId: string; tabId?: string | undefined }) =>
+  placement.tabId === undefined
+    ? placement.threadId
+    : `${placement.threadId}\u0000${placement.tabId}`;
+
 /** Own pending IPC receipts and bounded retries independently of React render lifetimes. */
 export class NativePlacement {
   private readonly ports: {
@@ -33,10 +45,13 @@ export class NativePlacement {
       previous?.visible &&
       next.visible &&
       previous.threadId === next.threadId &&
+      previous.tabId === next.tabId &&
       previous.bounds.width === next.bounds.width &&
       previous.bounds.height === next.bounds.height &&
       JSON.stringify(previous.device) === JSON.stringify(next.device);
     this.requested = next;
+    if (next.visible) showing.set(viewKey(next), this);
+    else if (showing.get(viewKey(next)) === this) showing.delete(viewKey(next));
     this.acknowledged = !!retain;
     this.superseded = false;
     this.cancelRetry?.();
@@ -63,8 +78,9 @@ export class NativePlacement {
     }, failed);
   }
 
-  visibility(threadId: string, visible: boolean): void {
+  visibility(threadId: string, visible: boolean, tabId?: string): void {
     if (!this.alive || this.requested?.threadId !== threadId) return;
+    if (this.requested.tabId !== tabId) return;
     // Main restores retained claims only after the other window closes and metrics settle.
     if (this.superseded && this.requested.visible && visible) {
       this.acknowledged = true;
@@ -78,10 +94,19 @@ export class NativePlacement {
     this.cancelRetry?.();
     this.cancelRetry = undefined;
     this.ports.changed(false);
-    if (this.requested)
+    const requested = this.requested;
+    if (!requested) return;
+    const { threadId, tabId, bounds } = requested;
+    const key = viewKey(requested);
+    // Hidden once whatever replaces this in the same commit has had its say.
+    queueMicrotask(() => {
+      const current = showing.get(key);
+      if (current && current !== this) return;
+      showing.delete(key);
       void this.ports
-        .place({ threadId: this.requested.threadId, bounds: this.requested.bounds, visible: false })
+        .place({ threadId, ...(tabId === undefined ? {} : { tabId }), bounds, visible: false })
         .catch(() => {});
+    });
   }
 }
 

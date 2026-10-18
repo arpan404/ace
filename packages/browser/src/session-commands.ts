@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { writeFile } from "node:fs/promises";
 import type { BrowserBackendPage } from "./backend.ts";
 import { pngScreenshot, printPdf, screenshotRegion } from "./page-capture.ts";
+import { captureAtSizes } from "./responsive-capture.ts";
 import { BrowserActionError } from "./action-error.ts";
 import { waitForBrowser } from "./wait.ts";
 import { BrowserOriginError, browserOrigin } from "./policy.ts";
@@ -421,6 +422,10 @@ export async function executeBrowserCommand(
         },
       });
     case "screenshot": {
+      if (command.sizes) {
+        if (command.ref) throw new BrowserActionError("invalid_arguments");
+        return screenshotAtSizes(command.sizes, command.fullPage, actor, context);
+      }
       const path = join(dir, `${id()}.png`);
       const region = await screenshotRegion(command, context.refs, context.read);
       const bytes = await context.capture(() => pngScreenshot(page, region));
@@ -518,6 +523,48 @@ async function typeInto(
   context.beforeInput?.();
   await context.page.insertText(text);
   return false;
+}
+
+/**
+ * The page at each responsive size, one image each. A person's captures are also kept at full
+ * resolution as thread artifacts; an agent gets the images only.
+ */
+async function screenshotAtSizes(
+  sizes: NonNullable<Extract<TabCommand, { action: "screenshot" }>["sizes"]>,
+  fullPage: boolean,
+  actor: Actor,
+  context: CommandContext,
+) {
+  const human = actor.kind === "human";
+  const captures = await captureAtSizes(context.page, sizes, {
+    fullPage,
+    png: human,
+    emulation: context.view.emulation,
+    check: () => context.read(),
+  });
+  context.read();
+  const images = [];
+  for (const capture of captures) {
+    let path: string | undefined;
+    if (capture.png) {
+      path = join(context.options.dir, `${context.options.id()}-${capture.size}.png`);
+      await writeFile(path, capture.png, { mode: 0o600 });
+      await context.options.artifact({
+        path,
+        mimeType: "image/png",
+        bytes: capture.png.byteLength,
+      });
+    }
+    images.push({
+      size: capture.size,
+      width: capture.width,
+      height: capture.height,
+      mimeType: "image/jpeg" as const,
+      data: capture.jpeg.toString("base64"),
+      ...(path ? { path } : {}),
+    });
+  }
+  return { images };
 }
 
 const modifierBits = { Alt: 1, Control: 2, Meta: 4, Shift: 8 } as const;

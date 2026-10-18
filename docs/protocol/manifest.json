@@ -493,8 +493,8 @@
       "sha256": "f576978bfb47205f71703cf98c131577d36638e113aa16d46e13dae175d82b16"
     },
     "schema/BrowserCommand.json": {
-      "bytes": 31211,
-      "sha256": "ab1271a9c3a489af69c1487771f6e05a9ac18ad98514b9d88a2ed733f67cf6f6"
+      "bytes": 31642,
+      "sha256": "df6bc5c0ab02d52e3afae95b21854d11b2cace5cf216651aa7945faeeb2e7a6d"
     },
     "schema/BrowserDialog.json": {
       "bytes": 724,
@@ -540,17 +540,29 @@
       "bytes": 435,
       "sha256": "632800d0c585487f2fdfaf52267617438c33f6fd1c6df5e76944a25bb1ec5a04"
     },
+    "schema/BrowserScreenshotSet.json": {
+      "bytes": 397,
+      "sha256": "1a0780091c9817c7675091676999334f65de54ffd314a546a4add93e2704eaf5"
+    },
+    "schema/BrowserScreenshotSize.json": {
+      "bytes": 211,
+      "sha256": "4e5a749aa9ef2bcf5db9fbe0e35630b494886cfdb8d847474db91195ca52d2cc"
+    },
     "schema/BrowserServerMessage.json": {
       "bytes": 1782,
       "sha256": "1e767c704624bc070e39f026a4a614622adb5bafe3c183ce9be68cc276843f0b"
+    },
+    "schema/BrowserSizedScreenshot.json": {
+      "bytes": 771,
+      "sha256": "11a841fe4be5699b44dbee53402f724ad20dd23ab8b589e378a2f303659452de"
     },
     "schema/BrowserState.json": {
       "bytes": 2399,
       "sha256": "2b80de752e976005867dd29a2989494dc1685164bf7d74d09c8fc2d8b85d2dc0"
     },
     "schema/BrowserTab.json": {
-      "bytes": 1933,
-      "sha256": "2dee5946860e14214978f5c66db21f18c6c1108d5995cf23f645b17164dfe837"
+      "bytes": 1981,
+      "sha256": "48456007b2a28ddc276709e50a13ec06211c7a3a8e1238d624849ac14fffec4b"
     },
     "schema/BrowserTabActor.json": {
       "bytes": 412,
@@ -3893,10 +3905,10 @@
       "sha256": "eadd796e5214ab35199731ca1c2f0faa3dd65dab3d6150142a57acda545ef06d"
     },
     "types.md": {
-      "bytes": 815998,
-      "sha256": "6472764669cb4852c5ae3434229662f9c776207b9675afd24776fe55da339eb0"
+      "bytes": 811387,
+      "sha256": "c9edfcab18a8a7f0a659b5f4799f465282210469b848f1141988381da12d89a5"
     }
   },
-  "input": "bf9420e5621c612c1da7f7a41ea8b59af0a5f5aef6ea10374facd43af9b9631f",
+  "input": "e3d9680177dada030aa8fc2482677099cd94abd0f16ddd33afafd2bc95050f9a",
   "version": 1
 }

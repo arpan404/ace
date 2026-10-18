@@ -165,6 +165,7 @@ export class SessionTabs {
       if (runtime.view.emulation) entry.emulation = runtime.view.emulation;
       if (this.keptIds.has(tab.tabId)) entry.kept = true;
       if (this.lostIds.has(tab.tabId)) entry.pageStateLost = true;
+      if (runtime.identity.playing) entry.playing = true;
       const status = this.statusOf(tab.tabId);
       if (status) entry.loading = status.loading;
       if (cursor === tab.tabId) entry.current = true;

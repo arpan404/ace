@@ -1,6 +1,7 @@
 import { BrowserOriginError } from "@ace/browser/policy";
 import { BrowserState, type BrowserClientMessage, type ServerMessage } from "@ace/protocol";
 import type { FakeBrowser } from "./browser.ts";
+import { fakeScreenshotSet } from "./browser-captures.ts";
 import type { FakeServiceContext } from "./service-context.ts";
 
 /** The fixture emits data URLs for its synthetic SVG frames, with the same ACK lifetime. */
@@ -229,8 +230,11 @@ export function fakeBrowserSession(
           else if (command.action === "pdf")
             result = { path: "/fixture/page.pdf", mimeType: "application/pdf", bytes: 1024 };
           else if (command.action === "snapshot") result = { text: "Synthetic fixture page" };
-          else if (command.action === "screenshot") result = browser.frame(id);
-          else if (command.action === "logs") result = { entries: [], limit: command.limit };
+          else if (command.action === "screenshot" && command.sizes) {
+            browser.sizedCaptures.push({ threadId: id, tabId, sizes: command.sizes });
+            result = fakeScreenshotSet(id, command.sizes);
+          } else if (command.action === "screenshot") result = browser.frame(id);
+          else if (command.action === "logs") result = browser.logs.read(id, command);
           else if (command.action === "annotate" || command.action === "annotate_capture")
             result = await browser.annotations.execute(id, connectionId, command);
           else if (command.action === "evaluate")
