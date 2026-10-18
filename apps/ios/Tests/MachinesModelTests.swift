@@ -89,6 +89,7 @@ import Testing
                                           "row": ["busy": true, "delivery": "queue", "alternate": NSNull(), "canStop": true, "provider": "codex", "model": "", "switching": ""]]]
         client.receive(try JSONSerialization.data(withJSONObject: controls))
         client.stopTree()
+        for _ in 0..<20 where operating.submitted.isEmpty { await Task.yield() }
         #expect(operating.submitted.count == 1)
     }
 
