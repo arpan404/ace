@@ -465,8 +465,8 @@
       "sha256": "dfef2d0ac1265645318111de4f90e896913b51d77a6dee036a388f3df9e5f833"
     },
     "schema/BrowserCommand.json": {
-      "bytes": 27486,
-      "sha256": "0efb481fd209f17c92c8a8f7f5cf6bd0441a5fa6f7f169796379b5d0e48c2f09"
+      "bytes": 27566,
+      "sha256": "02197cc66a77c857cea793f1a95b2a4b06d326b0e0bbbc6679abff954ec4f268"
     },
     "schema/BrowserControllerLease.json": {
       "bytes": 553,
@@ -3601,6 +3601,6 @@
       "sha256": "39317447119ed954bbd7ed0127478e9e2514406067ae24c95a21f2904baa3ea0"
     }
   },
-  "input": "8687921d76df2f19176e73a0517209e4cdac6871c3a5f4e11ebfe2099b548870",
+  "input": "5101eab0f4cbe92e10d1fd94c62100227f0f5898767a02620ff1f61d6559c586",
   "version": 1
 }

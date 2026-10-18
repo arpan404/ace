@@ -1081,7 +1081,10 @@
             },
             "config": {
               "$ref": "https://ace.local/protocol/v1/BrowserAnnotationConfig.json",
-              "default": {}
+              "default": {
+                "nextNumber": 1,
+                "theme": "dark"
+              }
             },
             "operation": {
               "const": "start",
