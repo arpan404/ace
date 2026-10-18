@@ -103,7 +103,11 @@ describe("daemon lifecycle", () => {
     expect((await second.exited)[0]).toBe(1);
     const client = await connect(url, home);
     const welcome = await client.next();
-    expect(welcome).toMatchObject({ type: "welcome", headSeq: 1 });
+    // The dev thread is committed. The organizer may also have scheduled its auto-settle
+    // asynchronously, so the exact head depends on timing; expectRestored checks the replay.
+    expect(welcome).toMatchObject({ type: "welcome" });
+    if (welcome.type !== "welcome") throw new Error(`Expected a welcome, got ${welcome.type}`);
+    expect(welcome.headSeq).toBeGreaterThanOrEqual(1);
     const closed = once(client.socket, "close");
     first.child.kill("SIGTERM");
     expect((await first.exited)[0]).toBe(0);

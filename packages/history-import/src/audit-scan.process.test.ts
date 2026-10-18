@@ -62,7 +62,9 @@ test("transcript sampling yields without holding the index write lock", async ()
     indexPath,
     instances: [{ id: "account", provider: "claude", homeDir: home }],
   });
-  const writer = new DatabaseSync(indexPath);
+  // Progress is posted without pausing the worker, so this write can meet one of its short
+  // single-statement writes. Wait briefly for that statement, as any other writer would.
+  const writer = new DatabaseSync(indexPath, { timeout: 100 });
   let sampled = false;
   try {
     await service.scan(undefined, (files) => {

@@ -69,12 +69,15 @@ test("explicit work restores a filtered intermediate member while its unmatched 
       }).ok,
     ).toBe(true);
     await engine.flush();
-    // Queued input waits for the whole tree, so the active unmatched child holds it.
-    expect(f.h.inputs.get(member) ?? []).not.toContain("Explicit new work");
+    // A person's message waits only for the member's own turn (ADR 0053, 2026-10-17
+    // amendment), so it starts while the unmatched child is still active.
+    expect(f.h.inputs.get(member)).toContain("Explicit new work");
+    expect(
+      JSON.parse((await invoke(home, ["task", "status", child, "--json"])).stdout),
+    ).toMatchObject({ state: "working" });
     await f.h.complete(child, "Unmatched child result");
     f.h.clock.advance(f.h.clock.now() + f.controls.delegations.policy.coalesceMs + 1000);
     await engine.flush();
-    expect(f.h.inputs.get(member)).toContain("Explicit new work");
     // The child's result wakes the member only after the explicit turn ends.
     await f.h.complete(member, "Explicit turn finished");
     f.h.clock.advance(f.h.clock.now() + f.controls.delegations.policy.coalesceMs + 1000);

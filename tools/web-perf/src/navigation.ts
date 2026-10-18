@@ -77,8 +77,7 @@ export async function scrollTranscript(page: Page, delta: number, paceMs: number
 export async function stepTurn(page: Page, key: string): Promise<void> {
   const feed = page.getByRole("feed", { name: "Transcript" });
   const viewport = feed.locator("xpath=ancestor::*[@data-virtual-viewport][1]");
-  const status = page.getByRole("status", { name: "Jumped" });
-  const before = await status.textContent();
+  const before = await feed.getByRole("article").first().textContent();
   const top = await viewport.evaluate((element) => element.scrollTop);
   await page.keyboard.press(key);
   await page.waitForTimeout(150);
@@ -86,8 +85,7 @@ export async function stepTurn(page: Page, key: string): Promise<void> {
     .poll(
       async () =>
         (await viewport.evaluate((element) => element.scrollTop)) !== top ||
-        (await status.count()) === 0 ||
-        (await status.textContent()) !== before,
+        (await feed.getByRole("article").first().textContent()) !== before,
     )
     .toBe(true);
   await expect(feed).toHaveAttribute("aria-busy", "false");

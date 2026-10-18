@@ -32,6 +32,17 @@ afterEach(() => {
 const frosted = (element: Element) =>
   /blur\(/.test(getComputedStyle(element).getPropertyValue("backdrop-filter"));
 
+/**
+ * The fill a surface paints. The dock's background reads a quieter mix of the material
+ * (`var(--dock-tint, …)`), so the variable is resolved to the colour it mixes from.
+ */
+function fill(element: Element) {
+  const computed = getComputedStyle(element);
+  const background = computed.getPropertyValue("background");
+  const variable = /^var\((--[\w-]+),/.exec(background)?.[1];
+  return variable ? computed.getPropertyValue(variable).trim() : background;
+}
+
 /** A thread waiting on an approval: its card sits in the strip attached above the composer. */
 async function threadWithStrip(translucency?: number) {
   const storage = memoryKeyValue();
@@ -53,16 +64,18 @@ test("the composer and its strip are glass while Translucency is above Solid", a
   expect(document.documentElement.getAttribute("data-surface")).toBe("translucent");
   expect(frosted(composer)).toBe(true);
   expect(frosted(strip)).toBe(true);
-  // One tint for both, driven by the slider.
-  expect(getComputedStyle(composer).getPropertyValue("background")).toBe("var(--glass-tint)");
-  expect(getComputedStyle(strip).getPropertyValue("background")).toBe("var(--glass-tint)");
+  // One tint for both, mixed from the glass tint the slider drives.
+  expect(fill(composer)).toContain("var(--glass-tint)");
+  expect(fill(strip)).toBe(fill(composer));
 });
 
 test("at Solid the composer and its strip are solid, with no backdrop filter", async () => {
   const { composer, strip } = await threadWithStrip(0);
   expect(document.documentElement.getAttribute("data-surface")).toBe("solid");
   expect([frosted(composer), frosted(strip)]).toEqual([false, false]);
-  expect(getComputedStyle(composer).getPropertyValue("background")).toBe("var(--surface-2)");
+  expect(fill(composer)).toContain("var(--surface-2)");
+  expect(fill(composer)).not.toContain("glass-tint");
+  expect(fill(strip)).toBe(fill(composer));
 });
 
 test("the composer area never frosts glass on glass: no blur inside a blur, and the strip's glass stops at the composer's edge", async () => {

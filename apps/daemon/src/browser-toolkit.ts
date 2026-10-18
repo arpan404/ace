@@ -48,8 +48,12 @@ function port(service: BrowserService, store: Store, connected: () => void): Bro
       const threadId = await ensure(caller, signal);
       if (tabId === undefined) return service.currentTab(threadId, agentOf(caller));
       const listed = service.state(threadId).tabs?.find((tab) => tab.tabId === tabId);
+      if (listed) return { tabId, url: listed.url, title: listed.title };
+      // A one-page backend lists no tabs: its page is the agent's current tab.
+      const current = service.currentTab(threadId, agentOf(caller));
+      if (current.tabId === tabId) return current;
       // An unknown tab fails on the command itself with tab_not_found.
-      return { tabId, url: listed?.url ?? "", title: listed?.title ?? "" };
+      return { tabId, url: "", title: "" };
     },
     state: (caller) => service.state(caller.threadId),
     async execute(caller, command, signal) {

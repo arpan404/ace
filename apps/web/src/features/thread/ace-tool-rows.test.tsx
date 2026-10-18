@@ -112,7 +112,9 @@ test("browser and device steps name the element and device from what earlier ste
   ).toBeTruthy();
   expect(steps.textContent).not.toContain("octocat");
   expect(within(steps).getByRole("button", { name: "Clicked “Sign in”" })).toBeTruthy();
-  expect(within(steps).getByRole("button", { name: "You have the browser Failed" })).toBeTruthy();
+  expect(
+    within(steps).getByRole("button", { name: "You were using that tab Failed" }),
+  ).toBeTruthy();
 });
 
 test("device steps read on the named simulator", async () => {

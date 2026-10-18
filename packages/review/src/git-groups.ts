@@ -9,8 +9,15 @@ export class ReviewGitGroups {
       return;
     }
     if (!this.groups.has(pid) && this.groups.size >= 64) throw new Error("Review Git group limit");
+    try {
+      registerGroup(pid, (graceMs) => stopRetainedGroup(pid, graceMs));
+    } catch {
+      // The report crosses threads, so a quick Git child may already have exited: macOS then
+      // has no identity for its zombie and the journal refuses it. registerGroup has killed
+      // the group, so nothing runs unowned; the isolate and its other requests carry on.
+      return;
+    }
     this.groups.add(pid);
-    registerGroup(pid, (graceMs) => stopRetainedGroup(pid, graceMs));
   }
   async close(): Promise<void> {
     // Called only after isolate exit, when no more groups can be published.
