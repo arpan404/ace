@@ -3,7 +3,8 @@ import { createContext, lazy, Suspense, useCallback, useContext, useMemo, useSta
 import type { ReactNode, CSSProperties } from "react";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
-import { useLayout } from "@/lib/layout.tsx";
+import { sidebarWidths, useLayout } from "@/lib/layout.tsx";
+import { ResizeHandle, clampSize } from "@/components/ui/resize-handle.tsx";
 import { crowdedQuery, overlayPanelsQuery, useSidebarInline } from "@/lib/breakpoints.ts";
 import { useMediaQuery } from "@/lib/media.ts";
 import { Sidebar, SidebarProvider } from "@/components/ui/sidebar.tsx";
@@ -46,14 +47,17 @@ const SidebarSheet = lazy(() =>
 );
 
 /**
- * The one sidebar (280px, translucent) and the selected view beside it. ⌘\ hides and shows the
- * sidebar. At 896px and below it is a sheet opened from the header. Below 1100px it steps aside while
+ * The one sidebar (336px by default, dragged between 220 and 480; double-click its edge resets it) and
+ * the selected view beside it. ⌘\ hides and shows the sidebar. At 896px and below it is a sheet opened from the header. Below 1100px it steps aside while
  * the screen's right panel is open, so the panel can dock beside the column, and comes back when
  * it closes; where panels float anyway (896px and below) it stays put. It stays mounted for the
  * app's life; Home and Settings draw their list into its body.
  */
 export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode }) {
-  const { layout, setSidebarOpen, hideRightPanel, rightPanelShown } = useLayout();
+  const { layout, setSidebarOpen, setSidebarWidth, hideRightPanel, rightPanelShown } = useLayout();
+  // The width while a drag is under way; it is remembered once the drag ends.
+  const [dragWidth, setDragWidth] = useState<number>();
+  const width = clampSize(dragWidth ?? layout.sidebarWidth, sidebarWidths.min, sidebarWidths.max);
   const wide = useSidebarInline();
   const crowded = useMediaQuery(crowdedQuery, false);
   const overlay = useMediaQuery(overlayPanelsQuery, false);
@@ -113,13 +117,32 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
         isMobile={!wide}
         openMobile={sheetOpen}
         onOpenMobileChange={setSheetOpen}
-        style={{ "--sidebar-width": "280px" } as CSSProperties}
+        style={{ "--sidebar-width": `${width}px` } as CSSProperties}
         data-sidebar={wide ? (inline ? "shown" : "hidden") : "sheet"}
         className="relative z-[1]"
       >
         <RegionKeys showSidebar={value.hasSidebar && !shown ? value.showSidebar : undefined} />
         {setup ? null : wide ? (
-          <Sidebar>{region}</Sidebar>
+          <Sidebar
+            edge={
+              <ResizeHandle
+                label="Resize sidebar"
+                edge="right"
+                size={width}
+                min={sidebarWidths.min}
+                max={sidebarWidths.max}
+                onResize={setDragWidth}
+                onResizeEnd={(next) => {
+                  setDragWidth(undefined);
+                  setSidebarWidth(next);
+                }}
+                onReset={() => setSidebarWidth(sidebarWidths.preferred)}
+                className="z-20 [-webkit-app-region:no-drag]"
+              />
+            }
+          >
+            {region}
+          </Sidebar>
         ) : (
           <Suspense fallback={null}>
             <SidebarSheet open={sheetOpen} onOpenChange={setSheetOpen}>

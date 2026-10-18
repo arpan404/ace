@@ -8,10 +8,11 @@ export function clampSize(value: number, min: number, max: number): number {
 /**
  * Drag or arrow-key handle for a resizable pane edge. `edge` is the side of the pane it sits
  * on: dragging away from the pane grows it. Accessible as a focusable separator with a value.
+ * With `onReset`, a double-click puts the pane back to its preferred size.
  */
 function ResizeHandle(props: {
   label: string;
-  edge: "left" | "top";
+  edge: "left" | "right" | "top";
   size: number;
   min: number;
   max: number;
@@ -19,13 +20,16 @@ function ResizeHandle(props: {
   /** Fires once when a drag ends, for persisting. */
   onResizeEnd?(size: number): void;
   onDraggingChange?(dragging: boolean): void;
+  onReset?(): void;
   className?: string;
 }) {
   const drag = useRef<{ pointerId: number; start: number; size: number; last: number } | undefined>(
     undefined,
   );
   const [dragging, setDragging] = useState(false);
-  const vertical = props.edge === "left";
+  const vertical = props.edge !== "top";
+  // Left of the pane (or above it), moving towards the origin grows it; right of it, moving away.
+  const away = props.edge === "right" ? 1 : -1;
   const clamp = (value: number) => clampSize(value, props.min, props.max);
   const step = (delta: number) => {
     const next = clamp(props.size + delta);
@@ -54,9 +58,9 @@ function ResizeHandle(props: {
       data-dragging={dragging ? "" : undefined}
       className={cn(
         "absolute z-[3] outline-none transition-colors duration-(--motion-fast) hover:bg-ring/45 focus-visible:bg-ring/45 data-dragging:bg-ring/45",
-        vertical
-          ? "inset-y-0 -left-[3px] w-1.5 cursor-col-resize"
-          : "inset-x-0 -top-[3px] h-1.5 cursor-row-resize",
+        props.edge === "left" && "inset-y-0 -left-[3px] w-1.5 cursor-col-resize",
+        props.edge === "right" && "inset-y-0 -right-[3px] w-1.5 cursor-col-resize",
+        props.edge === "top" && "inset-x-0 -top-[3px] h-1.5 cursor-row-resize",
         props.className,
       )}
       onPointerDown={(event) => {
@@ -72,16 +76,16 @@ function ResizeHandle(props: {
         const current = drag.current;
         if (!current || current.pointerId !== event.pointerId) return;
         const position = vertical ? event.clientX : event.clientY;
-        // The pane is right of (or below) the handle, so moving towards the origin grows it.
-        current.last = clamp(current.size + (current.start - position));
+        current.last = clamp(current.size + away * (position - current.start));
         props.onResize(current.last);
       }}
       onPointerUp={finish}
       onPointerCancel={finish}
       onLostPointerCapture={finish}
+      onDoubleClick={props.onReset}
       onKeyDown={(event) => {
-        const grow = vertical ? "ArrowLeft" : "ArrowUp";
-        const shrink = vertical ? "ArrowRight" : "ArrowDown";
+        const grow = { left: "ArrowLeft", right: "ArrowRight", top: "ArrowUp" }[props.edge];
+        const shrink = { left: "ArrowRight", right: "ArrowLeft", top: "ArrowDown" }[props.edge];
         const amount = event.shiftKey ? 64 : 16;
         if (event.key === grow) step(amount);
         else if (event.key === shrink) step(-amount);

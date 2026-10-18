@@ -252,7 +252,7 @@ test("at 1024px the right panel docks beside the thread instead of floating over
 test("on a tablet the sidebar waits in a sheet, so the thread keeps the window's width", async () => {
   windowWidth(768);
   await openThread();
-  // Docked, a 280px sidebar would leave the thread under 500px and fold the composer.
+  // Docked, a 336px sidebar would leave the thread under 500px and fold the composer.
   expect(sidebar()).toBeNull();
   await userEvent.click(
     within(screen.getByRole("banner")).getByRole("button", { name: /sidebar/ }),

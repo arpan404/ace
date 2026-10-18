@@ -10,13 +10,18 @@ import type { WorkspaceStore } from "./workspace/store.ts";
  * Local UI state, persisted to storage. The side panel's tabs and width are per scope (thread) in the
  * workspace store (`lib/workspace`), which reads the same storage.
  */
+/** How narrow and wide the sidebar may be dragged, and where a double-click puts it back. */
+export const sidebarWidths = { min: 220, max: 480, preferred: 336 };
+
 export const ShellLayout = z.object({
   /** The sidebar is on screen (⌘\ hides it). */
   sidebarOpen: z.catch(z.boolean(), true),
+  /** The sidebar's width beside the content, as last dragged. Clamped to `sidebarWidths` on use. */
+  sidebarWidth: z.catch(z.number(), () => sidebarWidths.preferred),
 });
 export type ShellLayout = z.infer<typeof ShellLayout>;
 
-const defaultLayout: ShellLayout = { sidebarOpen: true };
+const defaultLayout: ShellLayout = { sidebarOpen: true, sidebarWidth: sidebarWidths.preferred };
 const storageKey = "ace.layout";
 
 export interface ScreenActions {
@@ -70,6 +75,8 @@ interface LayoutValue {
   setComposerActions(actions: ComposerActions | undefined): void;
   layout: ShellLayout;
   setSidebarOpen(open: boolean): void;
+  /** Remember the sidebar's width (once a drag or key press settles on it). */
+  setSidebarWidth(width: number): void;
   shortcutsOpen: boolean;
   setShortcutsOpen(open: boolean): void;
   paletteOpen: boolean;
@@ -191,6 +198,7 @@ export function LayoutProvider(props: {
       workspaceStore,
       sessionValue,
       setSidebarOpen: (open) => change((p) => ({ ...p, sidebarOpen: open })),
+      setSidebarWidth: (width) => change((p) => ({ ...p, sidebarWidth: width })),
     }),
     [
       layout,
