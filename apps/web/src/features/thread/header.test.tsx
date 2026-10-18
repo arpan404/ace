@@ -13,6 +13,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import { harness } from "@/test/harness.tsx";
+import { createIdleTask } from "@/test/tasks.ts";
 
 // Warm the details card's editor menu code before behavioural deadlines; editor discovery and
 // launch still run through the real fixture wire.
@@ -682,10 +683,9 @@ test("archiving the open thread opens the other thread in the list, caret in its
   for (const [id, title] of [
     ["thread-notes", "Tidy the release notes"],
     ["thread-replay-cursor", "Replay cursor resets on every resume"],
-  ] as const) {
-    app.daemon.createThread({ id, workspaceId: "relay", provider: "claude", title });
-    app.daemon.apply(id, [facts.rootAgent("claude")]);
-  }
+  ] as const)
+    // Sent requests: a thread with nothing sent yet is a draft, not in the list.
+    createIdleTask(app.daemon, { id, workspaceId: "relay", provider: "claude", title });
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("heading", { level: 1, name: "Replay cursor resets on every resume" });
   // Opening the menu loads the thread's shortcuts with it.
