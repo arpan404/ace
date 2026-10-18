@@ -218,6 +218,8 @@ test("⌘\\ hides the sidebar, and the choice survives a reload", async () => {
 
   await harness({ storage }).open("/new");
   await title("New thread");
+  // The page proper, past its skeleton (which draws a header of its own).
+  await screen.findByRole("button", { name: "Add a project" });
   expect(list("Threads")).toBeNull();
   await userEvent.click(button("Show sidebar"));
   expect(await screen.findByRole("complementary", { name: "Threads" })).toBeTruthy();
