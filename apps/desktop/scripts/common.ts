@@ -106,6 +106,19 @@ export function appVersion(): string {
   return manifest.version;
 }
 
+/**
+ * The version electron-builder packages. `ACE_VERSION` leaks in from a running daemon's
+ * environment as `development` (see `daemonVersion` in `src/main/daemon/spawn.ts`), which is
+ * not semver and makes electron-builder fail with `Invalid version: "development"`. Only a
+ * semver candidate is used; anything else falls back to the manifest version.
+ */
+export function packagedAppVersion(env: NodeJS.ProcessEnv, manifestVersion: string): string {
+  const candidate = env.ACE_VERSION ?? manifestVersion;
+  return /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(candidate)
+    ? candidate
+    : manifestVersion;
+}
+
 export function electronVersion(): string {
   const manifest: unknown = JSON.parse(
     readFileSync(join(desktop, "node_modules/electron/package.json"), "utf8"),

@@ -13,6 +13,7 @@ import {
   dist,
   electronBundles,
   mainEntry,
+  packagedAppVersion,
   releasePublicKey,
   repo,
   targetArch,
@@ -57,13 +58,15 @@ run(
 const manifest = z
   .object({ version: z.string(), description: z.string(), license: z.string() })
   .parse(JSON.parse(await readFile(join(desktop, "package.json"), "utf8")));
+// ACE_VERSION may be "development" from a running daemon's environment: only semver ships.
+const appVersion = packagedAppVersion(process.env, manifest.version);
 await writeFile(
   join(app, "package.json"),
   JSON.stringify(
     {
       name: "ace",
       productName: "ace",
-      version: process.env.ACE_VERSION ?? manifest.version,
+      version: appVersion,
       description: manifest.description,
       license: manifest.license,
       author: "ace",
@@ -102,7 +105,7 @@ if (
   await mkdir(cacheDir, { recursive: true });
   await stageNodeRuntime({
     target: releaseTarget,
-    version: process.env.ACE_VERSION ?? manifest.version,
+    version: appVersion,
     cacheDir,
     destination: runtime,
   });

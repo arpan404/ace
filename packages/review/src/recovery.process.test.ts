@@ -1,9 +1,13 @@
 import { Worker } from "node:worker_threads";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { Command } from "@ace/protocol";
+import { observeProcessGroups } from "@ace/provider-kit/process";
+import { ProcessInventory } from "@ace/provider-kit/process-inventory";
 import { ReviewWorker } from "./index.ts";
 import { repository } from "./test-support.ts";
 
@@ -223,3 +227,39 @@ test("normal idle retirement reopens the same owner without exhausting recovery"
     await rm(root, { recursive: true, force: true });
   }
 }, 25_000);
+
+test("a Git child that exited before its report arrives does not fail the review in flight", async () => {
+  const repo = await repository();
+  const stopObserving = observeProcessGroups(
+    new ProcessInventory(join(repo.directory, "p.sqlite")),
+  );
+  // A group leader that has exited but is not reaped yet, as a quick Git run is by the time
+  // the isolate's report reaches this thread.
+  const holder = spawn("/bin/sh", ["-c", "set -m; true & echo $!; exec sleep 30"], {
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  const isolate = Promise.withResolvers<Worker>();
+  const owner = new ReviewWorker(join(repo.directory, "zombie.sqlite"), undefined, {
+    createWorker(url, options) {
+      const worker = new Worker(url, options);
+      isolate.resolve(worker);
+      return worker;
+    },
+  });
+  try {
+    const [line] = await once(holder.stdout, "data");
+    const pid = Number(String(line).trim());
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const opened = owner.handle(
+      repo.command({ type: "review.open", source: repo.session.source }),
+      repo.root,
+    );
+    (await isolate.promise).emit("message", { type: "git-group", pid, active: true });
+    expect(await opened).toMatchObject({ ok: true, review: { session: { status: "open" } } });
+  } finally {
+    holder.kill("SIGKILL");
+    await owner.close();
+    stopObserving();
+    await repo.close();
+  }
+});

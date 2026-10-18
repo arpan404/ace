@@ -91,7 +91,12 @@ export function createBlockReader(
         order:
           ownerId === undefined
             ? reader.order
-            : reader.order.filter((id) => reader.item(id)?.agentId === ownerId),
+            : reader.order.filter((id) => {
+                // The thread's own items (a device recording, say) carry no agent: they read
+                // in the thread's transcript, never in a subagent's.
+                const owned = reader.item(id)?.agentId;
+                return owned === ownerId || (agentId === undefined && owned === undefined);
+              }),
       };
     const order = ownOrder?.order ?? noKeys;
     const fixed = [

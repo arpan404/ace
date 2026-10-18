@@ -118,8 +118,11 @@ test("ace start exposes a loopback preview that requires forwarding and paired o
     threadId: thread.id,
     operation: { op: "forward", port: address.port },
   });
-  const forwarded = await client.next();
-  expect(forwarded).toMatchObject({ type: "preview.result", ok: true });
+  // The thread subscription may push live events (the organizer schedules the new thread's
+  // auto-settle asynchronously) before the preview result arrives.
+  let forwarded = await client.next();
+  while (forwarded.type === "events") forwarded = await client.next();
+  expect(forwarded).toMatchObject({ type: "preview.result", requestId: "forward", ok: true });
   await expect(accessRequest(origin, path, { method: "POST", token })).rejects.toThrow("HTTP 403");
   const link = await accessRequest(origin, path, { method: "POST", token: paired.token });
   const url = PairingResponse.pick({ url: true }).parse(link).url;

@@ -62,13 +62,25 @@ test("the person proceeds past an untrusted certificate for the address they wer
 
 test("a tab playing sound gets a speaker the person turns on and off", async () => {
   const { panel, browser, tabId } = await openBrowser();
-  const tabs = within(panel).getByRole("tablist", { name: "Browser tabs" });
-  expect(within(tabs).queryByRole("button", { name: /^(Mute|Unmute) / })).toBeNull();
+  const tabs = within(panel).getByRole("tablist", { name: "Thread panel tabs" });
+  const soundMenuItem = async (name: RegExp) => {
+    await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
+    return screen.findByRole("menuitem", { name });
+  };
+  expect(within(tabs).queryByRole("img", { name: /^(Muted|Playing sound)$/ })).toBeNull();
+  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
+  await screen.findByRole("menu");
+  expect(screen.queryByRole("menuitem", { name: /^(Mute|Unmute) tab$/ })).toBeNull();
+  await userEvent.keyboard("{Escape}");
+
   act(() => browser.sound(thread, tabId, true, true));
-  await userEvent.click(await within(tabs).findByRole("button", { name: /^Unmute / }));
+  await within(tabs).findByRole("img", { name: "Muted" });
+  await userEvent.click(await soundMenuItem(/^Unmute tab$/));
   await waitFor(() => expect(browser.tab(thread, tabId)?.muted).toBe(false));
-  await userEvent.click(await within(tabs).findByRole("button", { name: /^Mute / }));
+  await within(tabs).findByRole("img", { name: "Playing sound" });
+  await userEvent.click(await soundMenuItem(/^Mute tab$/));
   await waitFor(() => expect(browser.tab(thread, tabId)?.muted).toBe(true));
+  await within(tabs).findByRole("img", { name: "Muted" });
 });
 
 test("a page's file picker takes the files the person picks on this device", async () => {

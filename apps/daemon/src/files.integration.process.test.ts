@@ -147,9 +147,12 @@ it("publishes daemon file mutations to affected workspace thread events and serv
     expected: null,
     text: "visible",
   });
-  expect(
-    f.daemon.store.readEvents({ afterSeq: before, threadId: thread.id, limit: 10 }),
-  ).toMatchObject([
+  // The organizer also schedules each new thread's auto-settle; only file events matter here.
+  const fileEvents = (threadId: typeof thread.id) =>
+    f.daemon.store
+      .readEvents({ afterSeq: before, threadId, limit: 10 })
+      .filter((event) => event.payload.type === "workspace.files_changed");
+  expect(fileEvents(thread.id)).toMatchObject([
     {
       payload: {
         type: "workspace.files_changed",
@@ -158,9 +161,7 @@ it("publishes daemon file mutations to affected workspace thread events and serv
       },
     },
   ]);
-  expect(f.daemon.store.readEvents({ afterSeq: before, threadId: other.id, limit: 10 })).toEqual(
-    [],
-  );
+  expect(fileEvents(other.id)).toEqual([]);
   const client = await f.connect();
   expect(await client.request({ op: "artifacts.list" })).toMatchObject({
     value: [expect.objectContaining({ id: "daemon-support", category: "support" })],

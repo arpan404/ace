@@ -38,7 +38,7 @@ export async function bundleDaemon(
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|fork|pty|account-management|process-guardian|pi-login-driver|session|api-key|builtins)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|fork|pty|account-management|process-guardian|pi-login-driver|session|api-key|builtins|install)\.ts$/,
             },
             async (args) => {
               let contents = await readFile(args.path, "utf8");
@@ -81,6 +81,8 @@ export async function bundleDaemon(
                 contents = contents.replaceAll('"./extension.ts"', '"./pi-extension.mjs"');
               if (args.path.endsWith("/adapter-cursor/src/api-key.ts"))
                 contents = contents.replace('"./api-key-entry.ts"', '"./cursor-api-key.mjs"');
+              if (args.path.endsWith("/browser-extension/src/install.ts"))
+                contents = contents.replace('"./host-main.ts"', '"./browser-extension-host.mjs"');
               if (args.path.endsWith("/adapter-cursor/src/host.ts"))
                 contents = contents.replace('"./host-entry.ts"', '"./cursor-sdk-host.mjs"');
               if (args.path.endsWith("/workspace/src/descriptor.ts"))
@@ -195,6 +197,7 @@ export async function bundleDaemon(
     ["packages/diagnostics/src/log-worker.ts", "diagnostics-log-worker.mjs"],
     ["packages/diagnostics/src/thread-worker.ts", "diagnostics-thread-worker.mjs"],
     ["packages/diagnostics/src/sqlite-process.ts", "diagnostics-sqlite-process.mjs"],
+    ["packages/browser-extension/src/host-main.ts", "browser-extension-host.mjs"],
   ];
   if (workspaceIncluded)
     helpers.push(["packages/workspace/src/node-search-worker.ts", "workspace-search-worker.mjs"]);

@@ -151,7 +151,7 @@ export function DownloadsButton(props: {
           {pending > 0 && (
             <span
               aria-hidden
-              className="absolute inset-0.5 animate-spin rounded-full border-2 border-foreground/15 border-t-foreground/70 motion-reduce:animate-none"
+              className="absolute inset-0.5 animate-spin rounded-full border-2 border-foreground/15 border-t-foreground/70"
             />
           )}
         </PopoverTrigger>

@@ -208,7 +208,10 @@ test("hovering a row's link shows what its marks mean in a tooltip", async () =>
   await userEvent.hover(await within(threads()).findByRole("link", { name: /^Partial refunds/ }));
   const tip = await screen.findByLabelText(/^Details for /);
   expect(tip.textContent).toContain("billing-api");
-  expect(within(tip).getByRole("img", { name: "open pull request #77" })).toBeTruthy();
+  const prs = within(tip).getByRole("list", {
+    name: "Pull requests in github.com/acme/billing-api",
+  });
+  expect(within(prs).getByRole("listitem", { name: /^#77, open\b/ })).toBeTruthy();
 });
 
 test("Settle drops a finished thread into Settled on the daemon and Undo puts it back", async () => {
