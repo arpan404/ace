@@ -277,23 +277,29 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       if (!file) throw new Error("Download artifact missing");
       expect(await readFile(file, "utf8")).toBe("sandbox download\n");
       await expect.poll(async () => (await geometry()).native?.visible).toBe(true);
-      const pageSize = async (name: string | RegExp) => {
-        await p.getByRole("button", { name: "Browser options" }).click();
-        await p.getByRole("menuitem", { name: "Page size" }).click();
-        await p.getByRole("menuitemradio", { name }).click();
-        // The options menu and its Page size submenu both close.
-        await expect.poll(() => p.getByRole("menu").count()).toBe(0);
+      // The device toolbar (⋯ › Device toolbar) picks the page's device.
+      const toolbar = p.getByRole("toolbar", { name: "Device toolbar" });
+      await p.getByRole("button", { name: "Browser options" }).click();
+      await p.getByRole("menuitem", { name: "Device toolbar" }).click();
+      await p.getByRole("menuitemcheckbox", { name: "Show device toolbar" }).click();
+      // A checkbox item leaves the menu and its submenu open: Escape closes each.
+      while ((await p.getByRole("menu").count()) > 0) await p.keyboard.press("Escape");
+      await toolbar.waitFor();
+      const pageSize = async (name: string) => {
+        await toolbar.getByRole("combobox", { name: "Device" }).click();
+        await p.getByRole("option", { name, exact: true }).click();
       };
-      await pageSize(/iPhone 16 Pro/);
+      await pageSize("iPhone 16 Pro");
       await expect.poll(() => nativeRead("innerWidth")).toBe(402);
       await expect.poll(() => nativeRead("devicePixelRatio")).toBe(3);
       const emulated = (await geometry()).native?.bounds;
       if (!emulated) throw new Error("Native emulation missing");
       expect(emulated.width / emulated.height).toBeCloseTo(402 / 874, 2);
-      await pageSize(/Laptop/);
+      await pageSize("Laptop");
       await expect.poll(() => nativeRead("innerWidth")).toBe(1280);
       await expect.poll(() => nativeRead("devicePixelRatio")).toBe(1);
-      await pageSize("Fit the panel");
+      // Closing the toolbar gives the page the panel's size again.
+      await toolbar.getByRole("button", { name: "Close device toolbar" }).click();
       await expect.poll(exact).toBe(true);
       await p.getByRole("button", { name: "Browser options" }).click();
       await p.getByRole("menuitem", { name: "Copy address", exact: true }).click();
