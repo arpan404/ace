@@ -1,8 +1,8 @@
 import { host } from "../bridge/polyfills.ts";
 /** Test-only entry point: the production pump and presenters, with native decoding in Swift. */
 import { PatchPump } from "../bridge/patches.ts";
-import { itemRow } from "../bridge/presentation.ts";
-import { Item } from "@ace/protocol";
+import { itemRow, threadRow } from "../bridge/presentation.ts";
+import { Item, ThreadListEntry } from "@ace/protocol";
 
 const pump = new PatchPump();
 const largeId = "large-" + "x".repeat(100 * 1024);
@@ -62,21 +62,18 @@ function status() {
   pump.put("inbox:status", () => ({
     type: "inbox.row",
     id: "status",
-    row: {
-      id: "status",
-      title: "Working",
-      state: "working",
-      attention: null,
-      project: "ace",
-      branch: "",
-      machine: "",
-      provider: "codex",
-      model: "",
-      agents: 2,
-      snoozedUntil: null,
-      updatedAt: 0,
-      canSteer: false,
-    },
+    row: threadRow(
+      ThreadListEntry.parse({
+        id: "status",
+        workspaceId: "ace",
+        title: "Working",
+        provider: "codex",
+        createdAt: 0,
+        updatedAt: 0,
+        status: { state: "working", agents: 2 },
+        live: { subagentCount: 1, backgroundTaskCount: 0 },
+      }),
+    ),
   }));
 }
 function approval(broken: boolean, optionPrefix = "action-") {

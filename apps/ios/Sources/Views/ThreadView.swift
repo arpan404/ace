@@ -62,7 +62,7 @@ struct ThreadView: View {
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showDetails) {
                 NavigationStack {
-                    Form { LabeledContent("Connection", value: model.connection); LabeledContent("Items", value: thread.items.count.formatted()); StateLabel(state: metadata?.state ?? "new") }
+                    Form { LabeledContent("Connection", value: model.connection); LabeledContent("Items", value: thread.items.count.formatted()); if let status = metadata?.status { StateLabel(status: status) } }
                         .navigationTitle("Thread").navigationBarTitleDisplayMode(.inline)
                 }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
             }
@@ -97,7 +97,7 @@ private struct TranscriptItemView: View {
                 Image(systemName: "chart.bar.doc.horizontal")
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                     Text(row.text).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
-                    Text("Visualization — view on desktop or web")
+                    Text(row.detail ?? "")
                 }
                 Spacer(minLength: AceTheme.Spacing.none)
             }.aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)

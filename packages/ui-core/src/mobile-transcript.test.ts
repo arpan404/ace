@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { Item } from "@ace/protocol";
-import { transcriptRowContent } from "./transcript-row.ts";
+import { transcriptRowContent } from "./mobile-transcript.ts";
 
 function visualization(title: string) {
   return Item.parse({
@@ -21,7 +21,7 @@ function visualization(title: string) {
   });
 }
 
-it("shows an HTML visualization's title with the view-elsewhere fallback", () => {
+it("a native transcript row shows an HTML visualization's title with the view-elsewhere fallback", () => {
   const row = transcriptRowContent(visualization("Latency by region"));
   expect(row.text).toBe("Latency by region");
   expect(row.detail).toBe("Visualization — view on desktop or web");

@@ -13,6 +13,7 @@ import Testing
         for _ in 0..<4 { try harness.step() }
         #expect(harness.model.thread?.items["unicode"]?.row.text == String(repeating: "x", count: 8191))
         #expect(harness.model.inbox["status"]?.state == "working")
+        #expect(harness.model.inbox["status"]?.status == StatusDisplay(label: "Working", token: "working"))
         #expect(harness.model.thread?.items["malformed"]?.row.text == "�a")
         #expect(harness.rejected == 0)
     }
@@ -131,6 +132,7 @@ import Testing
         let row = try #require(harness.model.thread?.items["visualization"]?.row)
         #expect(row.type == "html")
         #expect(row.text == "Latency by region")
+        #expect(row.detail == "Visualization — view on desktop or web")
         #expect(row.complete)
         #expect(harness.rejected == 0)
     }

@@ -1,5 +1,6 @@
 import type { Item, Thread, ThreadListEntry, Interaction } from "@ace/protocol";
 import { threadAttention } from "@ace/projection";
+import { mobileStatus, transcriptRowContent } from "@ace/ui-core/mobile";
 import type { ThreadReader } from "@ace/client";
 import { host } from "./host.ts";
 
@@ -13,6 +14,7 @@ export function threadRow(thread: Thread | ThreadListEntry) {
     id: thread.id,
     title: preview(thread.title),
     state: thread.status.state,
+    status: mobileStatus(thread.status),
     attention: threadAttention(thread) ?? null,
     project: preview(thread.details?.workspace?.name ?? thread.workspaceId),
     branch: preview(thread.details?.branch ?? ""),
@@ -26,20 +28,19 @@ export function threadRow(thread: Thread | ThreadListEntry) {
   };
 }
 export function itemRow(item: Item, index?: number, sourceTruncated = false) {
-  let text = "";
-  let role = "";
-  if (item.type === "message") {
-    text = item.parts
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("");
-    role = item.role;
-  } else if (item.type === "html") text = item.visualization.title;
-  else if (item.type === "tool_call") text = item.call.title;
-  else if (item.type === "reasoning" || item.type === "notice") text = item.text;
+  // Shared row content; iOS expands steps in place, so they carry their full text.
+  const content = transcriptRowContent(item);
+  let text = content.text;
+  const role = item.type === "message" ? item.role : "";
+  if (item.type === "tool_call") text = item.call.title;
+  else if (item.type === "reasoning") text = item.text;
   else if (item.type === "delegation.started") text = item.title;
-  else text = item.type;
+  else if (item.type !== "message" && item.type !== "html" && item.type !== "notice")
+    text = item.type;
   return {
+    /** The shared secondary line, such as the visualization fallback. */
+    detail: preview(content.detail, 512),
+    quiet: content.quiet,
     id: item.id,
     index: index ?? null,
     type: item.type,

@@ -28,6 +28,7 @@ import CryptoKit
     var error: String?
     var thread: ThreadModel?
     var inboxLoaded = false
+    var inboxLayout = InboxLayout.empty
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var runtime: (any ClientSession)?
@@ -51,6 +52,7 @@ import CryptoKit
         let epoch = connectionEpoch
         let closing = retireRuntime()
         inbox = [:]; pending = [:]; thread = nil; inboxLoaded = false
+        inboxLayout = .empty
         connection = "connecting"; error = nil
         frames = BridgeFrames(); generation = 0
         await closing?.value
@@ -83,6 +85,7 @@ import CryptoKit
             case .fragment: break // BridgeFrames only returns complete patches.
             case .inboxReset: inbox.removeAll(keepingCapacity: true); inboxLoaded = true
             case .inbox(let id, let row): inbox[id] = row
+            case .inboxSections(let layout): if inboxLayout != layout { inboxLayout = layout }
             case .connection(let state): connection = state
             case .pending(let id, let row): pending[id] = row
             case .error(let message): error = message
@@ -165,8 +168,13 @@ import CryptoKit
             approvalRequests[id] = nil
         }
     }
-    func archive(_ id: String) { command(["type": "thread.archive", "threadId": id]) }
-    func snooze(_ id: String) { command(["type": "thread.snooze", "threadId": id, "until": now() + 3_600_000]) }
+    /// Inbox organization (`bridge/inbox.ts`): true once the SDK durably admitted the command.
+    func inboxCommand(_ value: [String: Any]) async -> Bool {
+        let id = admissions.nextId()
+        return await admissions.wait(id: id) { action(["type": "inbox", "action": value, "requestId": id]) }
+    }
+    /// Inbox reads that admit nothing durable, such as loading older threads.
+    func inboxRequest(_ value: [String: Any]) { action(["type": "inbox", "action": value, "requestId": admissions.nextId()]) }
     @discardableResult private func command(_ payload: [String: Any], requestId: String? = nil) -> Bool {
         let dispatched = action(["type": "command", "payload": payload, "requestId": requestId ?? admissions.nextId()])
         if !dispatched { error = "Could not submit the request. Your draft is still available." }
