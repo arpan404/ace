@@ -2,13 +2,15 @@ import {
   askingLabel,
   livePlanStep,
   subagentBranchStates,
+  timedWords,
+  waitingOnSubagentsLabel,
   workingSubagentsText,
   type TurnActivity,
 } from "@ace/ui-core";
 import { useTreeWork } from "@/features/panels/index.ts";
 import { useShownPlans } from "@/lib/use-plans.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
-import { WorkingIndicator } from "@/components/working-indicator.tsx";
+import { ElapsedTime } from "@/components/working-indicator.tsx";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
 import { PauseCircleIcon } from "@phosphor-icons/react";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
@@ -16,8 +18,9 @@ import { useDescendantRequest } from "../composer/descendant-request.ts";
 import { SystemRow } from "./system-row.tsx";
 
 /*
- * The live turn's one status line, at the end of its flow (DESIGN.md §8): one muted
- * `[grid] Working for 3m 6s` row after the turn's steps.
+ * The live turn's one status line, at the top of its flow under its ask (DESIGN.md §8): one
+ * muted `Working for 3m 6s` row, where the turn's "Worked for" stands once it settles.
+ * While the agent only waits on its subagents it reads `Waiting for 3 subagents · 3m 6s`.
  * It reads the same `turnActivity` as every other surface, counting the whole tree. The timer
  * writes its text through a ref, so a ticking second re-renders nothing, and it stands at the
  * time reached while the turn waits on the person (that time comes from the thread, so a redrawn
@@ -49,7 +52,8 @@ export function LiveHead(props: { threadId: string }) {
 }
 
 /**
- * The live line, muted: `[ring] Working for 1m 14s` moving; `(!) Waiting for your answer`
+ * The live line, muted text with no glyph: `Working for 1m 14s`; `Waiting for 2 subagents ·
+ * 1m 14s` while the agent only waits on its subagents; `(!) Waiting for your answer`
  * while the person is asked (the request itself is in the composer's strip); a held line as it
  * is; a usage-limit pause as a quiet row.
  */
@@ -59,7 +63,11 @@ export function ActivityLine(props: {
   /** Subagents still working, by the shared rule; the activity's own count otherwise. */
   subagents?: number | undefined;
 }) {
-  const { activity } = props;
+  const subagents = props.subagents ?? props.activity.subagents ?? 0;
+  // Counted as the subagents block counts them, so the label and the block agree.
+  const activity = props.activity.waitingOnSubagents
+    ? { ...props.activity, label: waitingOnSubagentsLabel(subagents) }
+    : props.activity;
   if (activity.tone === "paused")
     return (
       <SystemRow
@@ -80,16 +88,22 @@ export function ActivityLine(props: {
       className="@container/live flex min-h-8 min-w-0 items-center text-ui text-muted-foreground"
     >
       {activity.tone === "working" ? (
+        // Words and time only: the moving glyph is the sidebar's, not the transcript's.
         <span className="flex min-w-0 items-center gap-1.5">
-          <WorkingIndicator
-            label={activity.label}
-            from={activity.elapsedFrom}
-            className="shrink-0"
-          />
+          <span className="shrink-0">
+            {activity.elapsedFrom === undefined ? (
+              activity.label
+            ) : (
+              <>
+                {`${timedWords(activity.label)} `}
+                <ElapsedTime from={activity.elapsedFrom} />
+              </>
+            )}
+          </span>
           <Context
             activity={activity}
             progress={props.progress}
-            subagents={props.subagents ?? activity.subagents ?? 0}
+            subagents={activity.waitingOnSubagents ? 0 : subagents}
           />
         </span>
       ) : activity.tone === "needs-you" ? (
@@ -118,7 +132,8 @@ function useWorkingSubagents(threadId: string, fallback: number | undefined): nu
 
 /**
  * What else the whole tree is doing, quietly after the time: the plan's step, the subagents
- * still working ("2 subagents working", in the block's words), background commands.
+ * still working ("2 subagents working", in the block's words) unless the label already counts
+ * them, background commands.
  */
 function Context(props: {
   activity: TurnActivity;
