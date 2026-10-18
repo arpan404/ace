@@ -13,17 +13,25 @@ enum NotificationActionID {
     }
 }
 
-/// The connection a background launch uses. Spike builds reach the fixture daemon; paired
-/// targets plug in here when native pairing lands.
+/// The connection a background launch uses: the spike fixture under `--spike`, otherwise the
+/// paired machine a relaunch would reconnect to, with its grant, Keychain token and outbox.
 enum BackgroundConnection {
-    @MainActor static var target: () -> ConnectionTarget? = { SpikeConfiguration.target() }
     @MainActor static func connect(_ coordinator: NotificationCoordinator) async -> ClientModel? {
-        guard let target = target(), let directory = try? FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
-        ).appendingPathComponent("ace", isDirectory: true) else { return nil }
+        guard let directory = try? ProductionApp.storageDirectory() else { return nil }
         let model = ClientModel(now: coordinator.now)
-        await coordinator.attach(model, target: target)
-        await model.connect(target: target, directory: directory)
+        if SpikeConfiguration.enabled {
+            guard let target = SpikeConfiguration.target() else { return nil }
+            await coordinator.attach(model, target: target)
+            await model.connect(target: target, directory: directory)
+            return model
+        }
+        let machines = ProductionApp.machines(client: model, directory: directory, notifications: coordinator)
+        await machines.load()
+        guard machines.active?.connectionTarget != nil else {
+            coordinator.detach(model)
+            await model.disconnectAndWait()
+            return nil
+        }
         return model
     }
 }
@@ -57,6 +65,8 @@ extension NotificationCoordinator {
     }
     func resolve(threadId: String, interactionId: String, optionId: String) async -> NotificationPatch.ActionOutcome? {
         guard let model = await session(.seconds(10)) else { return .unreachable }
+        // A view-only pairing answers nothing; the person answers on the computer.
+        guard model.canOperate else { return .refused }
         let requestId = makeId()
         let outcome = Waiter<NotificationPatch.ActionOutcome>()
         expect(requestId, outcome)

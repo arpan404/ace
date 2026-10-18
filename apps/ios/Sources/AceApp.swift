@@ -9,7 +9,12 @@ import QuartzCore
     @State private var production = ProductionApp.make()
     var body: some Scene {
         WindowGroup {
-            if SpikeConfiguration.enabled { spike } else if let production { production.root(model: model) } else { storageUnavailable }
+            if SpikeConfiguration.enabled { spike }
+            else if let production {
+                production.root(model: model, notifications: notificationDelegate.coordinator)
+                    .environment(notificationDelegate.coordinator)
+                    .onChange(of: scenePhase) { _, phase in notificationDelegate.coordinator.scene(active: phase == .active) }
+            } else { storageUnavailable }
         }
     }
     private var storageUnavailable: some View {
@@ -63,9 +68,16 @@ import QuartzCore
     }
     nonisolated static func machineDirectory(in directory: URL) -> URL { directory.appendingPathComponent("machines.json") }
 
-    func root(model: ClientModel) -> some View {
-        let machines = self.machines ?? MachinesModel(client: model, access: BridgeMachineAccess(directoryURL: Self.machineDirectory(in: directory)),
-                                                      storage: directory.appendingPathComponent("machines", isDirectory: true))
+    /// The paired directory driving `client`. Background launches build one for their own client.
+    static func machines(client: ClientModel, directory: URL, notifications: NotificationCoordinator) -> MachinesModel {
+        let machines = MachinesModel(client: client, access: BridgeMachineAccess(directoryURL: machineDirectory(in: directory)),
+                                     storage: directory.appendingPathComponent("machines", isDirectory: true))
+        machines.beforeConnect = { [weak notifications] model, target in await notifications?.attach(model, target: target) }
+        return machines
+    }
+
+    func root(model: ClientModel, notifications: NotificationCoordinator) -> some View {
+        let machines = self.machines ?? Self.machines(client: model, directory: directory, notifications: notifications)
         if self.machines == nil {
             self.machines = machines
             network.start { change in

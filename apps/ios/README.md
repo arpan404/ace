@@ -136,6 +136,10 @@ leave the link; the code goes in the `/v1/pair` POST body.
   background. Nothing is read or connected before unlock.
 - The machine bar shows the SDK's connection problem: unreachable (still retrying),
   offline, revoked, pin mismatch, or another host. It also marks view-only grants.
+- Local notifications bind to whichever paired machine connects. A background refresh
+  reconnects to the machine chosen last (its grant, Keychain token and outbox) only to
+  catch up on daemon alerts; it shows no UI, so the app lock still guards the app itself.
+  A view-only pairing never answers Allow/Deny from a notification.
 - A view-only grant replaces the composer with a note, leaves approval choices disabled
   and drops archive and snooze. `ClientModel` submits no commands for that machine.
   `NWPathMonitor` reports network changes to the SDK, which owns reconnect.

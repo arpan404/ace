@@ -87,6 +87,20 @@ import Testing
         #expect(operating.submitted.count == 1)
     }
 
+    @Test func notificationsBindToEachMachineBeforeItsRuntimeOpens() async throws {
+        let fixture = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
+        defer { fixture.cleanUp() }
+        var bound: [(host: String, runtimesBefore: Int)] = []
+        fixture.model.beforeConnect = { _, target in bound.append((target.hostId, fixture.sessions.started.count)) }
+        await fixture.model.load()
+        let switching = Task { await fixture.model.select("laptop") }
+        for _ in 0..<20 { await Task.yield() }
+        try #require(fixture.sessions.started.first).finishShutdown()
+        await switching.value
+        #expect(bound.map(\.host) == ["studio", "laptop"])
+        #expect(bound.map(\.runtimesBefore) == [0, 1])
+    }
+
     @Test func aRefusedPairingAddsNothingAndReportsWhy() async throws {
         let fixture = try Fixture(machines: [])
         defer { fixture.cleanUp() }
