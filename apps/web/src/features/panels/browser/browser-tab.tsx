@@ -23,6 +23,7 @@ import { AnnotateButton } from "./annotate-button.tsx";
 import { useNativeView } from "./native-view.ts";
 import { Disconnected, LoadFailed, Offline, Opening, StartPage } from "./page-states.tsx";
 import { PageView } from "./page-view.tsx";
+import { useCursorStyle } from "./use-cursor-style.ts";
 import { ConnectionMark } from "./connection-mark.tsx";
 import { useBrowserTab } from "./use-browser-tab.ts";
 import { useBrowserTabs } from "./use-browser-tabs.ts";
@@ -53,6 +54,7 @@ function Browser(props: TabViewProps) {
   const toast = useToast();
   const extensionsOff = useLocal(extensionsHidden, (value) => value);
   const { live, shown, online } = tabs;
+  useCursorStyle(source, threadId);
 
   // The rail's indicator: an agent works in this thread's browser, or the shown tab is private.
   const working = tabs.tabs.some((tab) => tab.inUse !== undefined);

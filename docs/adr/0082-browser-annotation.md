@@ -5,6 +5,9 @@ Date: 2026-10-17. Status: accepted. Amends [ADR 0009](0009-browser-service.md),
 
 Amended 2026-10-17 by [ADR 0083](0083-browser-v2-daemon-chrome.md): in the daemon's Chrome the overlay is reinstalled after a renderer crash, and annotate mode belongs to one tab's runtime.
 
+Amended 2026-10-17 (#942): the same technique draws agents' cursors in the page in every engine;
+see "Agent cursor" below.
+
 ## Context
 
 People reviewing a page in ace's Browser want to point at things: "this heading", "this
@@ -140,6 +143,40 @@ host's backend node and removes its accessibility subtree from the top document'
 **Delivery** (implemented by the web client, phase 2). The person's text is followed by a
 versioned `<browser_annotations version="1">` text part and the images, last and in fixed order.
 No daemon, engine or adapter change is involved.
+
+## Agent cursor (amendment, 2026-10-17, #942)
+
+Agents' cursors used to be drawn only by clients over the screencast, so the desktop's native
+view and Use my Chrome (ADR 0084) showed none. They are now drawn **in the page**, by a second
+bundle from this package (`src/cursor`, `cursor-bundle.gen.ts`, checked by `check:annotate`)
+evaluated in its own isolated world, `ace-cursor`, through the same CDP calls as the annotate
+overlay. It works unchanged in the native view (through `ace.tabs.cdp`), ace's Chrome and the
+person's own Chrome. Its host (`<ace-agent-cursor>`, closed shadow root, top layer, no pointer
+events) never takes input. The world has no binding: it only draws.
+
+- **Shape and colour.** The "Pebble" (`@ace/design-tokens/glyphs`), filled with the person's
+  accent and outlined in the colour that reads on it, with a soft shadow. Viewers report the
+  accent on screen in `BrowserCaptureViewport.cursor` (`fill`, `outline`) and again when the
+  theme, mode or accent changes; the last report wins for every tab. Before any report the
+  cursor uses ace's own accent.
+- **One cursor per agent**, labelled with the agent's name (subagents by name or role, the
+  thread's agent as "Agent", unnamed agents numbered). It leaves `inUseMs` after the agent's last
+  action. The daemon (`PageCursor`, one per tab) keeps the state and replays it into a new layer
+  after a top-frame navigation, a renderer restart or a replaced page; stale layers on a
+  re-adopted desktop view are torn down with the annotate overlay's.
+- **Cues.** The cursor glides to a click, hover, check or drag start and the input waits for the
+  glide (`agentCursor.glideMs`, 220 ms) so it lands under it; a click pulses a ring; typing moves
+  the cursor to the field and rings it; a scroll shows an arrow; a drag draws a dashed trail from
+  its start while the cursor glides to the drop.
+- **Out of the way.** The layer fades while the person uses the tab and returns once they have
+  paused for `quietMs`. A private tab tears it down. Agent snapshots omit its subtree like the
+  annotate overlay's. Captures for agents (screenshots, the person's annotation captures) hide it
+  and wait two frames first; during a recording it stays hidden, so recordings never show it,
+  and clients draw their own cursor over the live frames meanwhile. `BrowserState.features`
+  contains `page-cursor` when the daemon draws cursors; clients then draw none over frames.
+
+The screencast the person watches shows the in-page cursor; that is the person's own view and
+not a capture for an agent.
 
 ## Wire
 

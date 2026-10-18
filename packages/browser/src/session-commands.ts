@@ -37,6 +37,12 @@ export function tabCommand(raw: unknown): TabCommand {
     throw new BrowserActionError("invalid_arguments");
   return command;
 }
+interface CommandCursor {
+  point(at: { x: number; y: number }, click?: boolean): Promise<void>;
+  drag(from: { x: number; y: number }, to: { x: number; y: number }): Promise<void>;
+  typing(field: { x: number; y: number; width: number; height: number }): Promise<void>;
+  scroll(dx: number, dy: number): void;
+}
 interface CommandContext {
   options: SessionOptions;
   /** The tab this command runs on, and its page. */
@@ -62,6 +68,13 @@ interface CommandContext {
   ): { prepare(): void; send(): void };
   /** An agent pointed at this spot (CSS pixels); viewers draw its cursor there. */
   point?(point: { x: number; y: number }): void;
+  /**
+   * The agent's cursor in the page, while one is drawn; each resolves once the cursor has
+   * landed, so the input that follows happens under it.
+   */
+  cursor?: CommandCursor | undefined;
+  /** Runs a capture with ace's page layers hidden and secret fields masked. */
+  capture<T>(work: () => Promise<T>): Promise<T>;
   emit(): void;
   run(
     command: TabCommand,
@@ -70,7 +83,7 @@ interface CommandContext {
     generation: number,
     beforeInput?: () => void,
   ): Promise<unknown>;
-  beginRecording(check: () => void): Promise<void>;
+  beginRecording(check: () => void, by: Actor): Promise<void>;
   finishRecording(): Promise<BrowserArtifact>;
 }
 export async function executeBrowserCommand(
@@ -85,8 +98,10 @@ export async function executeBrowserCommand(
   const cdp = page.cdp;
   switch (command.action) {
     case "annotate":
-    case "annotate_capture":
       return executeAnnotation(command, actor, cdp, context.annotation);
+    case "annotate_capture":
+      // The person's capture goes to the agent: no cursor and no secret in it.
+      return context.capture(() => executeAnnotation(command, actor, cdp, context.annotation));
     case "measure_interaction":
       return measureBrowserInteraction(
         {
@@ -251,6 +266,7 @@ export async function executeBrowserCommand(
       dispatch.send();
       const point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
       context.point?.(point);
+      await context.cursor?.point(point);
       await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...point });
       return { ok: true };
     }
@@ -261,6 +277,10 @@ export async function executeBrowserCommand(
       const start = await context.refs.bounds(command.ref, from.prepare),
         end = await context.refs.bounds(command.toRef, to.prepare);
       context.point?.({ x: end.x + end.width / 2, y: end.y + end.height / 2 });
+      await context.cursor?.drag(
+        { x: start.x + start.width / 2, y: start.y + start.height / 2 },
+        { x: end.x + end.width / 2, y: end.y + end.height / 2 },
+      );
       await dragRefs(
         cdp,
         { x: start.x + start.width / 2, y: start.y + start.height / 2 },
@@ -284,8 +304,10 @@ export async function executeBrowserCommand(
       if ((await context.refs.checked(command.ref, dispatch.prepare)) !== desired) {
         const rect = await context.refs.bounds(command.ref, dispatch.prepare);
         dispatch.send();
-        context.point?.({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
-        await page.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
+        const point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        context.point?.(point);
+        await context.cursor?.point(point, true);
+        await page.click(point.x, point.y);
         if ((await context.refs.checked(command.ref, dispatch.prepare)) !== desired)
           throw new BrowserActionError("element_unavailable");
       }
@@ -295,7 +317,7 @@ export async function executeBrowserCommand(
       if (!page.networkBody) throw new BrowserActionError("not_supported");
       return page.networkBody(command.requestId);
     case "record_start":
-      await context.beginRecording(() => context.check(actor, signal, generation));
+      await context.beginRecording(() => context.check(actor, signal, generation), actor);
       return { recording: true };
     case "record_stop":
       return context.finishRecording();
@@ -315,8 +337,9 @@ export async function executeBrowserCommand(
         context.check(actor, signal, generation);
         point = { x: command.x, y: command.y };
       }
-      context.beforeInput?.();
       context.point?.(point);
+      await context.cursor?.point(point, true);
+      context.beforeInput?.();
       await clickAt(page, point, command);
       return { ok: true };
     }
@@ -325,6 +348,8 @@ export async function executeBrowserCommand(
       for (const field of command.fields) {
         const dispatch = context.refDispatch(field.ref, actor, signal, generation);
         await context.refs.select(field.ref, dispatch.prepare);
+        if (context.cursor)
+          await context.cursor.typing(await context.refs.bounds(field.ref, dispatch.prepare));
         dispatch.send();
         context.beforeInput?.();
         await page.insertText(field.value);
@@ -341,6 +366,8 @@ export async function executeBrowserCommand(
     case "type": {
       const dispatch = context.refDispatch(command.ref, actor, signal, generation);
       await context.refs.select(command.ref, dispatch.prepare);
+      if (context.cursor)
+        await context.cursor.typing(await context.refs.bounds(command.ref, dispatch.prepare));
       dispatch.send();
       context.beforeInput?.();
       await page.insertText(command.text);
@@ -361,6 +388,7 @@ export async function executeBrowserCommand(
     }
     case "scroll":
       context.check(actor, signal, generation);
+      context.cursor?.scroll(command.x, command.y);
       context.beforeInput?.();
       await page.wheel(command.x, command.y);
       return { ok: true };
@@ -387,7 +415,7 @@ export async function executeBrowserCommand(
     case "screenshot": {
       const path = join(dir, `${id()}.png`);
       const region = await screenshotRegion(command, context.refs, context.read);
-      const bytes = await pngScreenshot(page, region);
+      const bytes = await context.capture(() => pngScreenshot(page, region));
       context.read();
       await writeFile(path, bytes, { mode: 0o600 });
       // A person's capture is kept like a recording; agents read theirs as tool images.

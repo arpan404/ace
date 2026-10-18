@@ -47,6 +47,9 @@
           ],
           "type": "string"
         },
+        "browser.userChrome.storageReads": {
+          "type": "boolean"
+        },
         "clients.keybindings": {
           "$ref": "https://ace.local/protocol/v1/JsonValue.json"
         },

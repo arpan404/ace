@@ -204,7 +204,10 @@ export function connectBrowser(
             service.acknowledge(threadId, options.connectionId, message.sequence);
             break;
           case "browser.recording.start":
-            await service.startRecording(threadId);
+            await service.startRecording(threadId, {
+              kind: "human",
+              connectionId: options.connectionId,
+            });
             respond(null);
             break;
           case "browser.recording.stop":

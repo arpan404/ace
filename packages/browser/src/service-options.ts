@@ -15,6 +15,21 @@ export interface BrowserServiceOptions {
   executablePath?: string;
   ffmpeg?: string;
   originPolicy?: OriginPolicy;
+  /**
+   * Use my Chrome: whether the person lets agents' `evaluate` read the page's cookies and web
+   * storage (`browser.userChrome.storageReads`). Omitted: never.
+   */
+  userChromeStorageReads?: (threadId: string) => boolean | Promise<boolean>;
+  /**
+   * Draw agents' cursors in pages, in every engine (ADR 0082, agent cursor); omitted, none are
+   * drawn. Agent screenshots and recordings mask secret fields either way.
+   */
+  agentCursor?: {
+    /** How long a cursor glides before the agent's input lands; default 220 ms. */
+    glideMs?: number;
+    /** The agent's name for its cursor's label. */
+    name?(threadId: string, agentId: string | undefined): string | undefined;
+  };
   /** How people and agents share tabs; omitted, `collaborationTiming`. */
   collaboration?: import("./collaboration.ts").CollaborationTiming;
   evaluatePolicy?: (

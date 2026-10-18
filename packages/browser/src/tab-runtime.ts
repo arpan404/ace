@@ -24,6 +24,8 @@ import type { Actor, SessionOptions } from "./session-options.ts";
 import { SessionQueue, mutatesBrowser, type QueueBudget } from "./session-queue.ts";
 import { TabAccess } from "./tab-access.ts";
 import { agentInputDelay, waitsForPerson, type CollaborationTiming } from "./collaboration.ts";
+import { PageCursor } from "./page-cursor.ts";
+import { defaultCursorStyle } from "@ace/browser-annotate";
 
 /** What a tab needs from the thread browser that holds it. */
 export interface TabHost {
@@ -46,9 +48,11 @@ export interface TabHost {
   privacyChanged(): void;
   /** Bring a frozen tab back before work runs on it. */
   wake(tabId: string): Promise<void>;
-  beginRecording(check: () => void): Promise<void>;
+  beginRecording(check: () => void, by: Actor): Promise<void>;
   finishRecording(): Promise<BrowserArtifact>;
   annotation(connectionId: string, event: BrowserAnnotationEvent): void;
+  /** An agent recording runs in this browser: new tabs start hidden and masked too. */
+  recording?(): boolean;
 }
 export interface TabMeta {
   openedBy?: BrowserTabActor | undefined;
@@ -73,6 +77,8 @@ export class TabRuntime {
   readonly access = new TabAccess();
   readonly refs: SnapshotRefs;
   readonly annotation: AnnotationSession;
+  /** Agents' cursors drawn in the page, and the mask over secret fields in captures. */
+  readonly cursor: PageCursor;
   /** When the person last used this tab (collaboration clock); -Infinity: never. */
   humanAt = -Infinity;
   private queue: SessionQueue;
@@ -107,10 +113,21 @@ export class TabRuntime {
       on: (method, listener) => this.page.cdp.on(method, listener),
       off: (method, listener) => this.page.cdp.off(method, listener),
     };
+    const cursor = host.options.cursor;
+    this.cursor = new PageCursor(() => this.page.cdp, {
+      visible: cursor?.visible ?? false,
+      glideMs: cursor?.glideMs ?? 0,
+      inUseMs: host.timing.inUseMs,
+      quietMs: host.timing.quietMs,
+      clock: host.options.navigationClock,
+      style: () => cursor?.style() ?? defaultCursorStyle,
+      name: (agentId) => cursor?.name?.(agentId),
+    });
+    if (host.recording?.()) void this.cursor.setRecording(true);
     this.refs = new SnapshotRefs(
       cdp,
       () => this.page.frames?.(),
-      () => this.annotation.hostNode(),
+      async () => [await this.annotation.hostNode(), await this.cursor.hostNode()],
     );
   }
   get page(): BrowserBackendPage {
@@ -163,11 +180,13 @@ export class TabRuntime {
   /** The tab's page was replaced; refs from the old page expire and the backend relearns. */
   rebind(): void {
     this.refs.invalidate();
+    this.cursor.rebind();
     this.agentShown = false;
     this.syncAgent();
   }
   restarted(): void {
     this.annotation.restarted(this.page.cdp);
+    this.cursor.rebind();
     this.refs.invalidate();
   }
   /** Dialog state changed on the page. */
@@ -184,6 +203,7 @@ export class TabRuntime {
     this.closed = true;
     this.stopInUse?.();
     this.annotation.end("stopped");
+    this.cursor.close();
     return this.queue.settled();
   }
   /**
@@ -213,6 +233,7 @@ export class TabRuntime {
     if (this.closed) throw new BrowserActionError("browser_closed");
     if (!this.access.setPrivate(value, this.host.options.now())) return false;
     this.refs.invalidate();
+    this.cursor.setPrivate(value);
     if (value) {
       this.agent = undefined;
       this.pointed = undefined;
@@ -229,6 +250,7 @@ export class TabRuntime {
   humanActivity(): void {
     this.humanAt = this.host.options.navigationClock.now();
     this.lastActiveAt = this.host.options.now();
+    this.cursor.personActed();
   }
   private touch(actor: Actor): void {
     this.lastActiveAt = this.host.options.now();
@@ -399,21 +421,23 @@ export class TabRuntime {
     const work = this.enqueue(async () => {
       await this.host.wake(this.id);
       this.crashCheck();
-      return agentScreenshot(
-        this.page,
-        () => screenshotRegion(options, this.refs, () => this.readCheck(actor, privateEpoch)),
-        {
-          read: () => this.readCheck(actor, privateEpoch),
-          ready: () => {
-            const flags = this.host.flags();
-            if (flags.closed || this.closed) throw new BrowserActionError("browser_closed");
-            if (flags.paused) throw new BrowserActionError("browser_paused");
+      return this.cursor.capture(() =>
+        agentScreenshot(
+          this.page,
+          () => screenshotRegion(options, this.refs, () => this.readCheck(actor, privateEpoch)),
+          {
+            read: () => this.readCheck(actor, privateEpoch),
+            ready: () => {
+              const flags = this.host.flags();
+              if (flags.closed || this.closed) throw new BrowserActionError("browser_closed");
+              if (flags.paused) throw new BrowserActionError("browser_paused");
+            },
+            generation: () => this.access.generation,
+            lost: () => this.host.flags().pageStateLost,
+            paused: () => this.host.flags().paused,
           },
-          generation: () => this.access.generation,
-          lost: () => this.host.flags().pageStateLost,
-          paused: () => this.host.flags().paused,
-        },
-        signal,
+          signal,
+        ),
       );
     });
     void work.then(end, end);
@@ -472,9 +496,19 @@ export class TabRuntime {
       refDispatch: (ref) =>
         this.refs.dispatch(ref, () => this.check(actor, signal, generation, epoch)),
       point: (point) => this.point(actor, point),
+      cursor:
+        actor.kind === "agent" && this.cursor.visible
+          ? {
+              point: (at, click) => this.cursor.point(actor.agentId, at, click),
+              drag: (from, to) => this.cursor.drag(actor.agentId, from, to),
+              typing: (field) => this.cursor.typing(actor.agentId, field),
+              scroll: (dx, dy) => this.cursor.scroll(actor.agentId, dx, dy),
+            }
+          : undefined,
+      capture: (work) => this.cursor.capture(work),
       emit: () => host.emit(),
       run: (...args) => this.run(...args),
-      beginRecording: (check) => host.beginRecording(check),
+      beginRecording: (check, by) => host.beginRecording(check, by),
       finishRecording: () => host.finishRecording(),
     });
   }

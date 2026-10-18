@@ -4,6 +4,7 @@ import type { BrowserCdp } from "./backend.ts";
 import { AXTree, Bounds, CallResult, ResolvedNode, snapshotNodes } from "./cdp.ts";
 import { z } from "zod";
 import { withoutSubtree } from "./snapshot-exclusion.ts";
+import { maskSecretFields, secretFieldNodes } from "./secret-values.ts";
 
 /** One generation and one bounded snapshot; navigation cannot alias an old ref. */
 export class SnapshotRefs {
@@ -15,12 +16,12 @@ export class SnapshotRefs {
     | undefined;
   private cdp: BrowserCdp;
   private frameSessions = new Map<string, BrowserFrameSession>();
-  /** DOM node whose subtree snapshots omit: ace's annotate overlay in the top document. */
-  private excluded: () => Promise<number | undefined>;
+  /** DOM nodes whose subtrees snapshots omit: ace's own layers (annotate, agent cursor). */
+  private excluded: () => Promise<readonly (number | undefined)[]>;
   constructor(
     cdp: BrowserCdp,
     frames?: () => Promise<{ frameId: string; cdp: BrowserCdp; parentId?: string }[]> | undefined,
-    excluded: () => Promise<number | undefined> = async () => undefined,
+    excluded: () => Promise<readonly (number | undefined)[]> = async () => [],
   ) {
     this.frames = frames;
     this.cdp = cdp;
@@ -65,6 +66,8 @@ export class SnapshotRefs {
     let truncated = false,
       bytes = 0;
     const excluded = await this.excluded();
+    // Agents never read secret fields' values (ADR 0067, privacy): one lookup per session.
+    const secrets = new Map<BrowserCdp, Promise<Set<number>>>();
     for (const frame of frames) {
       const raw = AXTree.parse(
         await frame.cdp
@@ -84,7 +87,15 @@ export class SnapshotRefs {
             throw error;
           }),
       );
-      const tree = "parentId" in frame && frame.parentId ? raw : withoutSubtree(raw, excluded);
+      let secret = secrets.get(frame.cdp);
+      if (!secret) {
+        secret = secretFieldNodes(frame.cdp);
+        secrets.set(frame.cdp, secret);
+      }
+      const tree = maskSecretFields(
+        "parentId" in frame && frame.parentId ? raw : withoutSubtree(raw, excluded),
+        await secret,
+      );
       for (const node of snapshotNodes(tree, epoch)) {
         const backendNodeId = node.ref ? Number(node.ref.split("-")[1]) : undefined;
         const prefix = frame.frameId ? `${frame.frameId}:` : "";

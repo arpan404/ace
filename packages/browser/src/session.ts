@@ -18,7 +18,14 @@ import { tabCommand } from "./session-commands.ts";
 import { collaborationTiming } from "./collaboration.ts";
 
 import type { Actor, SessionOptions } from "./session-options.ts";
+import type { BrowserTabActor } from "@ace/protocol";
 export type { Actor, SessionOptions } from "./session-options.ts";
+
+function tabActor(actor: Actor): BrowserTabActor {
+  return actor.kind === "agent"
+    ? { kind: "agent", ...(actor.agentId ? { agentId: actor.agentId } : {}) }
+    : { kind: "human" };
+}
 
 /**
  * One thread's browser: its tabs, the person's view of them, and the thread-wide facts every tab
@@ -92,7 +99,13 @@ export class BrowserSession {
     this.options = options;
     this.lastActivity = options.now();
     this.logs = new SessionLogs(options.dir);
-    this.recordings = new SessionRecording(options, () => this.paused);
+    this.recordings = new SessionRecording(
+      options,
+      () => this.paused,
+      async (on) => {
+        await Promise.all(this.tabs.all().map((tab) => tab.cursor.setRecording(on)));
+      },
+    );
     this.tabs = new SessionTabs(this.host(), () => this.options.backend);
     for (const record of options.restoredTabs ?? [])
       this.tabs.expect(record.tabId, {
@@ -160,8 +173,12 @@ export class BrowserSession {
         const runtime = this.tabs.find(tabId);
         if (runtime && (await wakeTab(runtime))) this.emit();
       },
-      beginRecording: (check) => this.recordings.start(check),
-      finishRecording: () => this.recordings.stop(),
+      beginRecording: async (check, by) => {
+        await this.recordings.start(check, tabActor(by));
+        this.emit();
+      },
+      finishRecording: () => this.finishRecording(),
+      recording: () => this.recordings.active,
       annotation: (connectionId: string, event: BrowserAnnotationEvent) =>
         this.options.annotation?.(connectionId, event),
     };
@@ -178,6 +195,7 @@ export class BrowserSession {
       lastUrl: this.lastUrl,
       blocked: this.blocked,
       annotation: viewed?.annotation.owner,
+      recording: this.recordings.by,
     });
   }
   private emit(): void {
@@ -344,6 +362,10 @@ export class BrowserSession {
     if (this.tab(tabId).setPrivate(value)) this.emit();
     return this.state;
   }
+  /** The person picked another accent: every drawn cursor follows it. */
+  restyleCursors(): void {
+    for (const tab of this.tabs.all()) tab.cursor.restyle();
+  }
   /** The person used a tab in a view the daemon does not route (the desktop's native view). */
   humanActivity(tabId?: string): void {
     if (this.closed) return;
@@ -489,20 +511,31 @@ export class BrowserSession {
   input(raw: unknown, connectionId: string, tabId?: string): Promise<void> {
     return this.tab(tabId).input(raw, connectionId);
   }
-  startRecording(): Promise<void> {
+  startRecording(actor: Actor = { kind: "agent" }): Promise<void> {
     const viewed = this.tab();
     const epoch = viewed.access.epoch;
-    return viewed.serialize(() =>
-      this.recordings.start(() => viewed.readCheck({ kind: "agent" }, epoch)),
-    );
+    return viewed.serialize(async () => {
+      await this.recordings.start(
+        () => viewed.readCheck({ kind: "agent" }, epoch),
+        tabActor(actor),
+      );
+      this.emit();
+    });
   }
   stopRecording(actor: Actor = { kind: "agent" }): Promise<BrowserArtifact> {
     const viewed = this.tab();
     const epoch = viewed.access.epoch;
     return viewed.serialize(() => {
       viewed.readCheck(actor, epoch);
-      return this.recordings.stop();
+      return this.finishRecording();
     });
+  }
+  private async finishRecording(): Promise<BrowserArtifact> {
+    try {
+      return await this.recordings.stop();
+    } finally {
+      this.emit();
+    }
   }
   private scheduleLifecycle(): void {
     const lifecycle = this.options.lifecycle;

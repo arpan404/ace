@@ -30,6 +30,7 @@
     "browser.backend",
     "browser.backendLoss",
     "browser.profile",
+    "browser.userChrome.storageReads",
     "access.defaultMode",
     "access.nativeModes",
     "threads.useWorktree",

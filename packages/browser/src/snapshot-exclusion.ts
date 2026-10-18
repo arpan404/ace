@@ -4,15 +4,17 @@ import type { AXTree } from "./cdp.ts";
 type Tree = z.infer<typeof AXTree>;
 
 /**
- * Drop the accessibility nodes of one DOM subtree (ace's own annotate overlay) so agent
- * snapshots describe only the page. Work is proportional to the tree, once per snapshot.
+ * Drop the accessibility nodes of DOM subtrees (ace's own layers: the annotate overlay, the
+ * agent cursor) so agent snapshots describe only the page. Work is proportional to the tree,
+ * once per snapshot.
  */
-export function withoutSubtree(tree: Tree, backendNodeId: number | undefined): Tree {
-  if (backendNodeId === undefined) return tree;
+export function withoutSubtree(tree: Tree, backendNodeIds: readonly (number | undefined)[]): Tree {
+  const roots = new Set(backendNodeIds.filter((id) => id !== undefined));
+  if (!roots.size) return tree;
   const byId = new Map(tree.nodes.map((node) => [node.nodeId, node]));
   const removed = new Set<string>();
   const pending = tree.nodes
-    .filter((node) => node.backendDOMNodeId === backendNodeId)
+    .filter((node) => node.backendDOMNodeId !== undefined && roots.has(node.backendDOMNodeId))
     .map((node) => node.nodeId);
   while (pending.length) {
     const id = pending.pop();

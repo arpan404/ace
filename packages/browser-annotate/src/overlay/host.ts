@@ -48,8 +48,8 @@ const bubbling = [
  * One host on `<html>` with a closed shadow root. When the Popover API exists the host sits in
  * the top layer so page stacking contexts, transforms and z-index wars cannot cover it.
  */
-export function createHost(sheet: CSSStyleSheet): OverlayHost {
-  const host = document.createElement("ace-annotation-layer");
+export function createHost(sheet: CSSStyleSheet, tag = "ace-annotation-layer"): OverlayHost {
+  const host = document.createElement(tag);
   place(host, hostStyle, true);
   const shadow = host.attachShadow({ mode: "closed" });
   shadow.adoptedStyleSheets = [sheet];

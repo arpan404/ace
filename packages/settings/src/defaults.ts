@@ -40,6 +40,7 @@ export const defaults: SettingsValues = {
   "browser.backend": "auto",
   "browser.backendLoss": "pause",
   "browser.profile": "persistent",
+  "browser.userChrome.storageReads": false,
   "access.defaultMode": "auto-review",
   "access.nativeModes": {},
   "threads.useWorktree": true,

@@ -26,6 +26,10 @@ import type {
 import { sessionPolicies } from "./session-policies.ts";
 import { agentResumes, backendCandidates } from "./backend-choice.ts";
 import { BrowserSession, type Actor } from "./session.ts";
+import { defaultCursorStyle, type CursorStyle } from "@ace/browser-annotate";
+
+/** How long an agent's cursor glides before its click lands: long enough to follow by eye. */
+const defaultGlideMs = 220;
 import type { FrameSink } from "./fanout.ts";
 import { BrowserSubscriptions } from "./subscriptions.ts";
 
@@ -38,6 +42,8 @@ export class BrowserService {
   private options: BrowserServiceOptions;
   private tabs: TabBudget;
   private sessions = new Map<string, BrowserSession>();
+  /** The person's accent, from the viewer that reported it last; every tab's cursor uses it. */
+  private cursorStyle: CursorStyle = defaultCursorStyle;
   private generations = new WeakMap<BrowserSession, number>();
   private sequence = 0;
   private opening = new Map<string, Promise<BrowserSession>>();
@@ -355,6 +361,22 @@ export class BrowserService {
         id: this.id,
         navigationClock: this.navigationClock,
         cancelPolicy: () => scope.abort(),
+        ...(this.options.userChromeStorageReads
+          ? {
+              storageReads: () => this.options.userChromeStorageReads?.(options.threadId) ?? false,
+            }
+          : {}),
+        ...(this.options.agentCursor
+          ? {
+              cursor: {
+                visible: true,
+                glideMs: this.options.agentCursor.glideMs ?? defaultGlideMs,
+                style: () => this.cursorStyle,
+                name: (agentId: string | undefined) =>
+                  this.options.agentCursor?.name?.(options.threadId, agentId),
+              },
+            }
+          : {}),
         ...(this.options.collaboration ? { collaboration: this.options.collaboration } : {}),
         ...(this.options.spawn ? { spawn: this.options.spawn } : {}),
         ...(ffmpeg ? { ffmpeg } : {}),
@@ -544,6 +566,14 @@ export class BrowserService {
   ): void {
     this.subscriptions.configure(threadId, connectionId, capture);
     this.get(threadId).live.fanout.configure(connectionId, capture);
+    const style = capture.viewport.cursor;
+    if (
+      style &&
+      (style.fill !== this.cursorStyle.fill || style.outline !== this.cursorStyle.outline)
+    ) {
+      this.cursorStyle = { fill: style.fill, outline: style.outline };
+      for (const session of this.sessions.values()) session.restyleCursors();
+    }
   }
   acknowledge(threadId: string, connectionId: string, sequence: number): void {
     this.get(threadId).live.fanout.acknowledge(connectionId, sequence);
@@ -560,8 +590,8 @@ export class BrowserService {
   private emit(state: BrowserState): void {
     this.subscriptions.state(state);
   }
-  startRecording(threadId: string): Promise<void> {
-    return this.get(threadId).startRecording();
+  startRecording(threadId: string, actor?: Actor): Promise<void> {
+    return this.get(threadId).startRecording(actor);
   }
   stopRecording(threadId: string, actor?: Actor): Promise<BrowserArtifact> {
     return this.get(threadId).stopRecording(actor);
