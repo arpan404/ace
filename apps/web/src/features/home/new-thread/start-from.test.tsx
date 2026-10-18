@@ -40,6 +40,37 @@ const issue = {
   updatedAt: "2026-10-17T10:00:00Z",
 };
 
+type App = ReturnType<typeof harness>;
+
+/** What the daemon answers for the project's open pull requests matching `search`. */
+function seedPullRequests(app: App, search: string, items: ReturnType<typeof pr>[], total: number) {
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.list", workspaceId, query: ForgePrSearch.parse({ search }) },
+    {
+      resource: "prList",
+      value: {
+        repository,
+        items,
+        total,
+        counts: { open: total, draft: 0, closed: 0, merged: 0 },
+        incomplete: false,
+        truncated: false,
+      },
+    },
+  );
+}
+
+/** A busy project: 25 of its 140 open pull requests loaded, newest first. */
+function withManyPullRequests() {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  const loaded = Array.from({ length: 25 }, (_, index) =>
+    pr(200 - index, `Change number ${200 - index}`, "success"),
+  );
+  seedPullRequests(app, "", loaded, 140);
+  return app;
+}
+
 function withOpenWork() {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
@@ -157,7 +188,7 @@ test("the Issues tab lists open issues and picking one fills the composer from i
   );
   await app.open("/new?project=ace");
   const work = await screen.findByRole("region", { name: "Open work" });
-  await userEvent.click(await within(work).findByRole("tab", { name: "Issues" }));
+  await userEvent.click(await within(work).findByRole("tab", { name: "Issues 1" }));
   const row = await within(work).findByRole("button", { name: /Sidebar loses scroll position/ });
   expect(row.textContent).toContain("bug");
   await userEvent.click(row);
@@ -166,4 +197,48 @@ test("the Issues tab lists open issues and picking one fills the composer from i
       "Switching threads jumps the sidebar to the top.",
     ),
   );
+});
+
+test("a long list shows its first rows and its total, and Show more reveals the rest it loaded", async () => {
+  const app = withManyPullRequests();
+  await app.open("/new?project=ace");
+  const work = await screen.findByRole("region", { name: "Open work" });
+  expect(await within(work).findByRole("tab", { name: "Pull requests 140" })).toBeTruthy();
+  expect(within(work).getAllByRole("button", { name: /^#\d+/ })).toHaveLength(5);
+  await userEvent.click(within(work).getByRole("button", { name: "Show 20 more" }));
+  expect(within(work).getAllByRole("button", { name: /^#\d+/ })).toHaveLength(25);
+  expect(within(work).queryByRole("button", { name: /^Show \d+ more$/ })).toBeNull();
+});
+
+test("searching a long list asks GitHub, and a search with no matches says so", async () => {
+  const app = withManyPullRequests();
+  seedPullRequests(app, "reconnect", [pr(9, "Fix reconnect loop", "failure")], 1);
+  seedPullRequests(app, "nothing like this", [], 0);
+  await app.open("/new?project=ace");
+  const work = await screen.findByRole("region", { name: "Open work" });
+  const search = await within(work).findByRole("searchbox", { name: "Search pull requests" });
+  await userEvent.type(search, "reconnect");
+  await waitFor(() =>
+    expect(
+      within(work)
+        .getAllByRole("button", { name: /^#\d+/ })
+        .map((row) => row.textContent),
+    ).toEqual([expect.stringMatching(/^#9Fix reconnect loop/)]),
+  );
+  await userEvent.clear(search);
+  await userEvent.type(search, "nothing like this");
+  expect(await within(work).findByText("No open pull requests match.")).toBeTruthy();
+  // Escape clears the search and brings the whole list back.
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() =>
+    expect(within(work).getAllByRole("button", { name: /^#\d+/ })).toHaveLength(5),
+  );
+});
+
+test("a short list has no search box", async () => {
+  const app = withOpenWork();
+  await app.open("/new?project=ace");
+  const work = await screen.findByRole("region", { name: "Open work" });
+  await within(work).findByRole("tab", { name: "Pull requests 2" });
+  expect(within(work).queryByRole("searchbox")).toBeNull();
 });

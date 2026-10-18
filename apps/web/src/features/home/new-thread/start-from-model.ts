@@ -10,7 +10,7 @@ export interface StartRow {
   updatedAt: number | undefined;
 }
 
-/** How many rows each list shows: a starting point, not a browser. */
+/** How many rows a list shows before "Show more": a starting point, not a browser. */
 export const startRowLimit = 5;
 
 function time(text: string): number | undefined {
@@ -32,7 +32,7 @@ function prNote(row: ForgePrRow): StartRow["note"] {
 export function pullRequestRows(rows: readonly ForgePrRow[]): StartRow[] {
   const failing = rows.filter((row) => row.ci === "failure");
   const rest = rows.filter((row) => row.ci !== "failure");
-  return [...failing, ...rest].slice(0, startRowLimit).map((row) => ({
+  return [...failing, ...rest].map((row) => ({
     url: row.url,
     number: row.ref.number,
     title: row.title,
@@ -43,7 +43,7 @@ export function pullRequestRows(rows: readonly ForgePrRow[]): StartRow[] {
 
 /** Open issues in the daemon's order (newest activity first), each with its first label. */
 export function issueRows(rows: readonly ForgeIssueRow[]): StartRow[] {
-  return rows.slice(0, startRowLimit).map((row) => ({
+  return rows.map((row) => ({
     url: row.url,
     number: row.ref.number,
     title: row.title,
