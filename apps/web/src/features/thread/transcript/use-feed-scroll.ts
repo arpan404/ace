@@ -16,6 +16,7 @@ import {
   compensation,
   correction,
   heldKey,
+  joinedAtTop,
   transition,
   type Held,
   type ScrollEvent,
@@ -126,9 +127,17 @@ function aimAt(
 
 function compensateBy(
   virtualizer: FeedVirtualizer,
-  rule: ((start: number) => boolean) | undefined,
+  rule: ((row: { index: number }) => boolean) | undefined,
+  grewAtTop: RefObject<string | undefined>,
 ): void {
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = rule && ((item) => rule(item.start));
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange =
+    rule &&
+    ((item) => {
+      const adjust = rule(item);
+      // That growth is in: from the next look on, the row grows downward like any other.
+      if (adjust && item.key === grewAtTop.current) grewAtTop.current = undefined;
+      return adjust;
+    });
 }
 
 export function useFeedScroll(options: FeedScrollOptions) {
@@ -152,10 +161,17 @@ export function useFeedScroll(options: FeedScrollOptions) {
     },
     [indexOf, keys, rows, virtualizer],
   );
+  // The held row older history just joined at its top: its next growth is above the reader.
+  const grewAtTop = useRef<string | undefined>(undefined);
   /** Which resizes the virtualizer answers by moving the view, for the current mode. */
   const compensate = useCallback(() => {
-    const at = mode.current.kind === "anchoring" ? held.current : undefined;
-    compensateBy(virtualizer, compensation(mode.current, at && locate(at.key, at.itemId)?.start));
+    const was = mode.current.kind === "following" ? undefined : held.current;
+    const at = was && locate(was.key, was.itemId);
+    const rule = compensation(
+      mode.current,
+      at && { index: at.index, grewAtTop: grewAtTop.current === at.key },
+    );
+    compensateBy(virtualizer, rule, grewAtTop);
   }, [locate, virtualizer]);
   const apply = useCallback(
     (event: ScrollEvent, el: HTMLElement | null) => {
@@ -258,11 +274,12 @@ export function useFeedScroll(options: FeedScrollOptions) {
   // Rows changed: follow the end, or hold the held row where it was. Resizes are the
   // virtualizer's to compensate (by `compensate`'s rule); only added, removed or replaced rows
   // are corrected here, so no growth is counted twice.
-  const previous = useRef({ keys, total });
+  const previous = useRef({ keys, total, rows, indexOf });
   useLayoutEffect(() => {
-    const structural = previous.current.keys !== keys;
-    const grew = previous.current.total !== total;
-    previous.current = { keys, total };
+    const before = previous.current;
+    const structural = before.keys !== keys;
+    const grew = before.total !== total;
+    previous.current = { keys, total, rows, indexOf };
     const el = viewport.current;
     if (!el || (mode.current.kind === "following" ? !structural && !grew : !structural)) return;
     const was = held.current;
@@ -271,9 +288,20 @@ export function useFeedScroll(options: FeedScrollOptions) {
     if (fix.kind === "end") toEndOf(virtualizer, el);
     else if (fix.kind === "shift") placeAt(virtualizer, el, el.scrollTop + fix.by);
     else if (fix.kind === "aim") aimAt(virtualizer, el, fix.index, fix.align);
-    if (was && at) held.current = { ...was, key: at.key, start: at.start };
+    if (was && at) {
+      held.current = { ...was, key: at.key, start: at.start };
+      const earlier = before.rows[before.indexOf.get(was.key) ?? -1];
+      const shown = rows[at.index];
+      if (
+        structural &&
+        earlier &&
+        shown &&
+        joinedAtTop(blockItems(earlier.block), blockItems(shown.block))
+      )
+        grewAtTop.current = at.key;
+    }
     compensate();
-  }, [keys, total, locate, now, viewport, virtualizer, compensate]);
+  }, [keys, total, rows, indexOf, locate, now, viewport, virtualizer, compensate]);
 
   const isFollowing = useCallback(() => mode.current.kind === "following", []);
   const toEnd = useCallback((el: HTMLElement) => toEndOf(virtualizer, el), [virtualizer]);
@@ -300,6 +328,8 @@ export function useFeedScroll(options: FeedScrollOptions) {
       const which = heldKey(mode.current, shown);
       const at = which && locate(which.key, which.itemId);
       held.current = which && at ? { ...which, key: at.key, start: at.start } : undefined;
+      // The rows above this one are what the virtualizer compensates for, as the reader moves.
+      compensate();
       return first;
     },
     /** A scroll event, from any cause. */

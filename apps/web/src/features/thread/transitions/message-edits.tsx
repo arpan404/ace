@@ -1,43 +1,21 @@
 import type { ThreadReader } from "@ace/client";
 import { useClient, useItem, useThread, useThreadMeta } from "@ace/client-react";
-import { sanitizeUserText } from "@ace/ui-core";
-import { ArrowClockwiseIcon, PencilSimpleIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon } from "@phosphor-icons/react";
 import { useCallback, useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { failureMessage, useDaemonReady } from "@/lib/daemon-command.ts";
-import { focusComposerSoon } from "@/lib/focus-composer.ts";
-import { useLayout } from "@/lib/layout.tsx";
-import { draftOf, restoreReturnedDraft } from "../composer/returned-draft.ts";
-import { inputText } from "../composer/send-store.ts";
 import { useThreadSources } from "../sources/index.ts";
-import {
-  editPointOf,
-  retryPointOf,
-  sameEditPoint,
-  sameRetryPoint,
-  type EditPoint,
-  type RetryPoint,
-} from "./edit-point.ts";
-import { useForkOpener } from "./fork-opener.ts";
+import { retryPointOf, sameRetryPoint, type EditPoint, type RetryPoint } from "./edit-point.ts";
 import { resendPayload } from "./resend.ts";
 
 /*
- * Edit and Retry on the transcript's messages, through what the daemon already offers: Pi
- * rewinds its own session in place (`pi.control` rollback); every provider can fork from the
- * turn before. A control that can't act renders nothing, never a disabled button.
+ * Retry on the transcript's newest answer, through what the daemon already offers: Pi rewinds its
+ * own session in place (`pi.control` rollback). A control that can't act renders nothing, never
+ * a disabled button.
  */
 
 const watched = ["thread", "order"] as const;
-
-/** Where an edit of the person's message `itemId` would continue from. */
-export function useEditPoint(threadId: string, itemId: string): EditPoint | undefined {
-  const read = useCallback(
-    (reader: ThreadReader) => editPointOf(reader, itemId, reader.thread?.rootAgentId),
-    [itemId],
-  );
-  return useThread(threadId, watched, read, sameEditPoint);
-}
 
 /** Where a retry of answer `itemId` would start, when it is the newest answer. */
 export function useRetryPoint(threadId: string, itemId: string): RetryPoint | undefined {
@@ -54,39 +32,6 @@ function usePiEntry(threadId: string, point: EditPoint): string | undefined {
   const ready = useDaemonReady().ready;
   const settled = meta?.status.state === "done" || meta?.status.state === "failed";
   return meta?.provider === "pi" && settled && ready ? point.piEntry : undefined;
-}
-
-/**
- * Edit the person's message: the thread goes back to just before it and its text returns for
- * sending again. Pi rewinds in place and the text goes to the composer; other providers open a
- * fork from the turn before with the text as its first message.
- */
-export function EditMessageButton(props: { threadId: string; itemId: string; point: EditPoint }) {
-  const { threadId, point } = props;
-  const item = useItem(threadId, props.itemId);
-  const piEntry = usePiEntry(threadId, point);
-  const fork = useForkOpener();
-  const sources = useThreadSources();
-  const { storage } = useLayout();
-  const toast = useToast();
-  const payload = resendPayload(threadId, item);
-  if (!payload || (!piEntry && !fork)) return null;
-  const edit = () => {
-    if (!piEntry) return fork?.(point.fork, sanitizeUserText(inputText(payload.input)));
-    void sources.actions.rewind(threadId, piEntry).then(
-      () => {
-        if (restoreReturnedDraft(storage, `thread:${threadId}`, draftOf(payload)))
-          focusComposerSoon();
-        else toast.error({ title: "Couldn't put the message back in the composer" });
-      },
-      (failure: unknown) =>
-        toast.error({
-          title: "Couldn't go back to this message",
-          description: failureMessage(failure),
-        }),
-    );
-  };
-  return <IconButton icon={PencilSimpleIcon} label="Edit message" size="sm" onClick={edit} />;
 }
 
 /**

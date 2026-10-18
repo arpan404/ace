@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { answerStore } from "@/features/thread/interactions/answers.ts";
 import { harness } from "@/test/harness.tsx";
+import { chooseEffort, closeModelControl, openEffortControl } from "@/test/model-control.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 beforeEach(() => localStorage.clear());
@@ -65,8 +66,8 @@ test("the parent reads Waiting for your answer, naming the child, only while the
   expect(row.getAttribute("aria-label")).not.toContain("needs you");
 });
 
-test("a message typed while the child asks waits in the queue, and the strip says it sends once the child is done", async () => {
-  const { app, region } = await openParent();
+test("a plain message typed while the child asks goes to the parent now, and the child's question stays in the strip", async () => {
+  const { app, feed, region } = await openParent();
   await within(region).findByRole("article", {
     name: "Should the review include the archived blog posts?",
   });
@@ -75,12 +76,40 @@ test("a message typed while the child asks waits in the queue, and the strip say
     "Check the pricing page first{Enter}",
   );
 
-  // The question keeps the strip; the queued message is its indicator, and the card says when
-  // it goes instead of leaving it to sit there unexplained.
+  // The parent is between turns: a delegated child never holds the person's message
+  // (ADR 0053, 2026-10-17 amendment), so it starts the parent's next turn instead of queueing.
+  expect(await within(feed).findByText("Check the pricing page first")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /queued message/ })).toBeNull();
+  expect(within(region).queryByText(/queued message/)).toBeNull();
+  expect(
+    within(region).getByRole("article", {
+      name: "Should the review include the archived blog posts?",
+    }),
+  ).toBeTruthy();
+  expect(app.daemon.isPending(child, "pages")).toBe(true);
+});
+
+test("a message that changes the effort while the child asks waits in the queue, and the strip says it sends once the child is done", async () => {
+  const { app, feed, region } = await openParent();
+  await within(region).findByRole("article", {
+    name: "Should the review include the archived blog posts?",
+  });
+  const popover = await openEffortControl();
+  await chooseEffort(popover, "{End}");
+  await closeModelControl();
+  await userEvent.type(
+    screen.getByRole("combobox", { name: "Message" }),
+    "Check the pricing page first{Enter}",
+  );
+
+  // A new effort may reopen the session, so it waits for the whole tree, the asking child
+  // included. The question keeps the strip; the queued message is its indicator, and the card
+  // says when it goes instead of leaving it to sit there unexplained.
   await screen.findByRole("button", { name: "Show 1 queued message" });
   expect(
     await within(region).findByText("Your queued message sends once general assistant is done."),
   ).toBeTruthy();
+  expect(within(feed).queryByText("Check the pricing page first")).toBeNull();
   expect(app.daemon.isPending(child, "pages")).toBe(true);
 });
 

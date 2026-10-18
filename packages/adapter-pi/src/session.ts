@@ -119,6 +119,8 @@ export async function openPiSession(
       env,
       name: "ace-pi",
       maxLineBytes: 1024 * 1024,
+      // Pi echoes every image in message_end/agent_end; their bytes never count toward a line.
+      elideStdout: { holdBytes: 16 * 1024, textBytes: 1024 * 1024 },
     });
   } catch (error) {
     configuration.remove();

@@ -25,7 +25,7 @@ export const minTickSpacing = 3;
 /**
  * An outline of the conversation's turns down the transcript's left edge. It is never taller
  * than `height` and never scrolls: ticks spread evenly over the rail and close up as turns are
- * added. Every tick is the same size: the reader's turn and the tick under the pointer only draw
+ * added. Every tick is the same size: the turns on screen and the tick under the pointer only draw
  * brighter, and the reader's mark steps aside while the transcript is flung so it never flickers.
  * A click jumps. Keyboard focus on a tick previews its turn; the pointer sweeping past never pops
  * a card. Shown only with a fine pointer: on touch the Turns panel reaches the same turns.
@@ -38,6 +38,8 @@ export function ConversationRail(props: {
   renderPreview(id: string): ReactNode;
   /** The reader's turn, marked whenever the transcript is not being flung. */
   current?: string;
+  /** Every turn on screen, marked with the reader's; defaults to just `current`. */
+  inView?: readonly string[];
   /** The transcript beside the rail: its scroll speed decides when the mark shows. */
   scroller?: RefObject<HTMLElement | null> | undefined;
   /** The clock scroll speed is measured on; tests pass a fake. */
@@ -49,6 +51,7 @@ export function ConversationRail(props: {
   const { markers } = props;
   const settled = useRailHighlight(props.scroller, props.time);
   const current = settled ? props.current : undefined;
+  const lit = new Set(settled ? (props.inView ?? (current ? [current] : [])) : []);
   // The tick under the pointer, which only brightens, and the keyboard-focused one, which previews.
   const [hovered, setHovered] = useState<number>();
   const [previewed, setPreviewed] = useState<number>();
@@ -105,12 +108,14 @@ export function ConversationRail(props: {
     >
       {markers.map((marker, index) => {
         const reading = marker.id === current;
+        const visible = reading || lit.has(marker.id);
         return (
           <button
             key={marker.id}
             type="button"
             aria-label={marker.label}
             aria-current={reading ? "location" : undefined}
+            data-in-view={visible ? "" : undefined}
             tabIndex={marker.id === tabStop ? 0 : -1}
             // Each tick owns the band around it, so the whole rail answers the pointer.
             className="absolute left-0 grid w-full -translate-y-1/2 cursor-pointer items-center outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -136,10 +141,10 @@ export function ConversationRail(props: {
                 // One size for every tick: emphasis is colour alone, so neither the pointer
                 // sweeping past nor the reader's turn moving shifts anything on the rail.
                 "ml-2 h-0.5 w-3 rounded-full transition-colors duration-(--motion-fast) ease-(--ease-out) motion-reduce:transition-none",
-                reading
-                  ? "bg-muted-foreground"
+                visible
+                  ? "bg-foreground"
                   : hovered === index || previewed === index
-                    ? "bg-subtle-foreground"
+                    ? "bg-muted-foreground"
                     : "bg-faint-foreground",
               )}
             />

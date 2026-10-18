@@ -316,8 +316,29 @@ test("sidebar metadata says the root agent is running tests, from its step's sto
   expect(f.store.getThread(f.thread.id)?.live?.step).toBeUndefined();
 });
 
-test("completed old turns with retained queue holds cannot be settled from another device", async () => {
-  const f = await setup();
+test("a thread waiting on the person settles by hand and stays settled; a running thread refuses", async () => {
+  let now = 1000;
+  const f = await setup(() => now);
+  const organizer = new ThreadOrganizer(
+    f.store,
+    undefined,
+    () => now,
+    () => () => {},
+  );
+  close = async () => {
+    await organizer.close();
+    await f.close();
+  };
+  f.store.appendEvents(
+    f.thread.id,
+    [{ type: "thread.updated", status: { state: "working", agents: 1 } }],
+    now,
+  );
+  expect(await f.command({ type: "thread.settle", threadId: f.thread.id })).toMatchObject({
+    type: "commandResult",
+    ok: false,
+    error: "thread_not_done",
+  });
   f.store.appendEvents(
     f.thread.id,
     [
@@ -331,31 +352,20 @@ test("completed old turns with retained queue holds cannot be settled from anoth
         pendingCount: 1,
       },
     ],
-    1000,
+    now,
   );
-  expect(await f.command({ type: "thread.settle", threadId: f.thread.id })).toMatchObject({
-    type: "commandResult",
-    ok: false,
-    error: "thread_not_done",
-  });
+  // A request for the person never settles on its own.
+  now += 7 * 86_400_000;
+  await organizer.sweep();
   expect(f.store.getThread(f.thread.id)?.settledAt).toBeUndefined();
-  f.store.appendEvents(
-    f.thread.id,
-    [
-      {
-        type: "queue.updated",
-        paused: false,
-        reason: null,
-        resumeAt: null,
-        revision: 2,
-        pendingCount: 0,
-      },
-    ],
-    1001,
-  );
   expect(await f.command({ type: "thread.settle", threadId: f.thread.id })).toMatchObject({
     type: "commandResult",
     ok: true,
   });
-  expect(f.store.getThread(f.thread.id)?.settledAt).toBe(1000);
+  await organizer.sweep();
+  expect(f.store.getThread(f.thread.id)).toMatchObject({
+    settledAt: now,
+    settledReason: "manual",
+    queue: { paused: true, reason: "not_sent" },
+  });
 });

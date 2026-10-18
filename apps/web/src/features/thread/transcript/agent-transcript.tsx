@@ -11,10 +11,12 @@ import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { BlockView } from "../items/block-view.tsx";
 import { DeferredFailedTurn } from "../items/deferred-review.ts";
-import { Jump } from "../long/jump.ts";
+import { Jump, preloadJump } from "../long/jump.ts";
 import { useAgentBlocks } from "./use-blocks.ts";
 
 const FailedTurn = DeferredFailedTurn.Component;
+/** A subagent transcript renders every row it holds, so it holds about one live tail's worth. */
+const agentWindow = { capacity: 400, weight: 2 * 1024 * 1024 };
 
 /**
  * A provider subagent's own transcript, as its whole chat: its work from the thread's loaded
@@ -27,15 +29,20 @@ const FailedTurn = DeferredFailedTurn.Component;
 export function AgentTranscript(props: { threadId: string; agentId: string }) {
   const client = useClient();
   const live = useThreadStore(props.threadId);
-  const [jump] = useState(() => new Jump(client, props.threadId));
+  // Not virtualized: its window stays near the size of the live tail.
+  const [jump] = useState(() => new Jump(client, props.threadId, preloadJump, agentWindow));
+  const { agentId } = props;
   useEffect(
     () =>
       jump.setTail(() => ({
         order: live?.order ?? [],
         before: live?.itemsBefore,
         firstItemOf: () => undefined,
+        seq: (id) => live?.itemSeq?.(id),
+        item: (id) => live?.item(id),
+        inLane: (id) => live?.item(id)?.agentId === agentId,
       })),
-    [jump, live],
+    [jump, live, agentId],
   );
   useEffect(() => () => jump.dispose(), [jump]);
   const state = useSyncExternalStore(jump.subscribe, jump.snapshot, jump.snapshot);

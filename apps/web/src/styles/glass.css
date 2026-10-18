@@ -117,10 +117,12 @@
 
   /*
    * The command palette (`.ace-modal`) sits over `.ace-backdrop`, which has already blurred the
-   * page once, so the panel adds no blur of its own: the same tint and rim over that blur, one
-   * frosted layer and not two.
+   * page once, so the panel adds no blur of its own: one frosted layer and not two. That blur is
+   * light, so the panel takes the near-solid modal tint (`--glass-tint-modal`), not the thin
+   * floating one, and text and fields read as on a solid surface.
    */
   :root[data-surface="translucent"] :is(.ace-floating, .glass).ace-modal {
+    background: var(--glass-tint-modal, var(--surface-2));
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }

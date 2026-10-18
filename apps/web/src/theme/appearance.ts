@@ -13,9 +13,6 @@ export const ReduceMotion = z.enum(["system", "on", "off"]);
 export type ReduceMotion = z.infer<typeof ReduceMotion>;
 export const Density = z.enum(["comfortable", "compact"]);
 export type Density = z.infer<typeof Density>;
-/** How round corners are, from controls to the composer (`tokens.css`). */
-export const Corners = z.enum(["sharp", "default", "round"]);
-export type Corners = z.infer<typeof Corners>;
 export const TranscriptSize = z.enum(["small", "default", "large"]);
 export type TranscriptSize = z.infer<typeof TranscriptSize>;
 
@@ -33,7 +30,6 @@ export const Appearance = z.object({
   translucency: z.catch(z.int().check(z.gte(0), z.lte(translucencyClearMax)), defaultTranslucency),
   reduceMotion: z.catch(ReduceMotion, "system"),
   density: z.catch(Density, "comfortable"),
-  corners: z.catch(Corners, "default"),
   transcriptSize: z.catch(TranscriptSize, "default"),
 });
 export type Appearance = z.infer<typeof Appearance>;
@@ -46,7 +42,6 @@ export const defaultAppearance: Appearance = {
   translucency: defaultTranslucency,
   reduceMotion: "system",
   density: "comfortable",
-  corners: "default",
   transcriptSize: "default",
 };
 
@@ -133,7 +128,6 @@ export interface BootAppearance {
   translucency: number;
   reduceMotion: ReduceMotion;
   density: Density;
-  corners: Corners;
   transcriptPx: number;
   css: string;
 }

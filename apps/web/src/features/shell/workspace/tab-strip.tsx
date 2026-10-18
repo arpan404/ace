@@ -82,7 +82,7 @@ export function TabStrip(props: {
     else if (event.key === "ArrowLeft") goTo(index === 0 ? last : index - 1);
     else if (event.key === "Home") goTo(0);
     else if (event.key === "End") goTo(last);
-    else if ((event.key === "Delete" || event.key === "Backspace") && !tab.pinned) {
+    else if (event.key === "Delete" || event.key === "Backspace") {
       const next = state.tabs[index + 1] ?? state.tabs[index - 1];
       const title = titleOf(tab.key);
       // A tab that asks first (a running shell) keeps focus until the answer is yes.

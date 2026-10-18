@@ -300,6 +300,11 @@ export const BrowserPlacement = z.object({
     height: z.number().min(0).max(16384),
   }),
   visible: z.boolean(),
+  /**
+   * Hidden only while one of the app's menus is drawn over it: the person still watches the
+   * page, so it keeps rendering and its sound plays.
+   */
+  covered: z.boolean().optional(),
 });
 export type BrowserPlacement = z.infer<typeof BrowserPlacement>;
 /** Names a thread's embedded browser view (one tab of it with `tabId`). */

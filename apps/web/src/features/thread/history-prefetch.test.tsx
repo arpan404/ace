@@ -1,7 +1,8 @@
 import { longHistory } from "@ace/fake-daemon";
-import { fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { gestureWindowMs } from "./transcript/use-history-paging.ts";
 
 beforeEach(() => localStorage.clear());
 
@@ -15,13 +16,37 @@ test("one upward scroll prefetches one older page without the reply paging the r
   const viewport = feed.closest("[data-virtual-viewport]");
   if (!viewport) throw new Error("No transcript viewport");
   fireEvent.wheel(viewport, { deltaY: -100 });
-  await within(feed).findByText("Question 366: what does route 366 render?");
+  // One page: the 199 items before the 20 shown (one long turn, so the page's size cuts it).
+  await within(feed).findByText("Question 292: what does route 292 render?");
   // Paging older history is seamless: no overlay bar appears at the top.
   expect(screen.queryByRole("status", { name: "Jumped" })).toBeNull();
   // jsdom's tall viewport exposes the first row even after the page merges. Loading
   // itself must not keep chaining through all 400 turns while the reader is still.
-  expect(within(feed).queryByText("Question 365: what does route 365 render?")).toBeNull();
+  expect(within(feed).queryByText("Question 291: what does route 291 render?")).toBeNull();
   expect(within(feed).getByText("Question 400: what does route 400 render?")).toBeTruthy();
   fireEvent.wheel(viewport, { deltaY: -100 });
-  expect(await within(feed).findByText("Question 316: what does route 316 render?")).toBeTruthy();
+  expect(await within(feed).findByText("Question 192: what does route 192 render?")).toBeTruthy();
+});
+
+test("a scroll long after the reader's last gesture never pages older history", async () => {
+  const app = harness({ snapshotItems: 20 });
+  app.play(longHistory(400)).runUntilBlocked();
+  await app.open("/t/thread-router");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  await within(feed).findByText("Question 400: what does route 400 render?");
+  const viewport = feed.closest("[data-virtual-viewport]");
+  if (!viewport) throw new Error("No transcript viewport");
+  // The reader scrolls up, far from the top: nothing to page yet.
+  viewport.scrollTop = 5_000;
+  fireEvent.wheel(viewport, { deltaY: -100 });
+  fireEvent.scroll(viewport);
+  // Later, with no gesture, something above resizes and the view lands near the top.
+  await act(() => new Promise((resolve) => setTimeout(resolve, gestureWindowMs + 100)));
+  viewport.scrollTop = 100;
+  fireEvent.scroll(viewport);
+  await act(() => new Promise((resolve) => setTimeout(resolve, 100)));
+  expect(within(feed).queryByText("Question 366: what does route 366 render?")).toBeNull();
+  // The reader's own gesture there pages at once.
+  fireEvent.wheel(viewport, { deltaY: -100 });
+  expect(await within(feed).findByText("Question 366: what does route 366 render?")).toBeTruthy();
 });

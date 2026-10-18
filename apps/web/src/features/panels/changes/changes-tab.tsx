@@ -55,7 +55,12 @@ const splitNeeds = 640;
  * files tree in the toolbar; per file, Viewed and its actions; per line, comments that go to the
  * agent through review mode (draft → sent → resolved), summed up in the review bar.
  */
-export function ChangesTab(props: { threadId: string; path?: string | undefined }) {
+export function ChangesTab(props: {
+  threadId: string;
+  path?: string | undefined;
+  /** This Changes tab, whose scope and tree state it keeps; several can be open. */
+  tabKey?: string | undefined;
+}) {
   const { threadId } = props;
   const services = usePanelServices();
   const client = useClient();
@@ -70,7 +75,10 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
     read: (daemon) => refreshDrafts(daemon, services.drafts, threadId),
   });
   const queries = useQueryClient();
-  const { scope, setScope, edited, files, pending, versions, stat } = useScopedDiff(threadId);
+  const { scope, setScope, edited, files, pending, versions, stat } = useScopedDiff(
+    threadId,
+    props.tabKey,
+  );
   const prefs = useLocal(services.diffPrefs, identity);
   const allDrafts = useLocal(services.drafts, identity);
   const drafts = useMemo(
@@ -343,6 +351,7 @@ export function ChangesTab(props: { threadId: string; path?: string | undefined 
   const tree = showTree && (
     <FileTree
       threadId={threadId}
+      tabKey={props.tabKey}
       files={files}
       current={current}
       viewed={viewed}

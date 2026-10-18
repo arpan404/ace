@@ -287,12 +287,20 @@ export class Engine {
       updateChild: (parent, child) => this.updateChild(parent, child),
     });
     // Settling or archiving releases a done thread's warm provider without the idle wait.
-    this.stopReleaseWatch = store.subscribe((events) => {
+    const stopReleases = store.subscribe((events) => {
       for (const event of events) {
         const request = releaseRequest(event.payload);
         if (request) this.requestRelease(event.threadId, request);
       }
     });
+    // Live output the store had to drop stops only that thread's session, visibly.
+    const stopQuarantine = store.onLiveWriteQuarantine((id, error) =>
+      this.actors.get(id)?.quarantine(error),
+    );
+    this.stopReleaseWatch = () => {
+      stopReleases();
+      stopQuarantine();
+    };
     this.repo.observe = (state, facts, events, at) => {
       if (facts.some((fact) => fact.type === "process.started"))
         this.meters.invalidate(state.threadId, at);
@@ -346,6 +354,13 @@ export class Engine {
     this.handler = {
       handle: (command, context) => this.internalHandler.handle(personCommand(command), context),
     };
+    // A thread whose stored state cannot be read is left out of startup, never the daemon.
+    const unreadable = (id: ThreadId, error: unknown) =>
+      this.report(
+        new Error(`Thread ${id} was skipped at startup: its stored state could not be read`, {
+          cause: error,
+        }),
+      );
     const recover = () =>
       recoverEngine(
         this.repo,
@@ -353,13 +368,14 @@ export class Engine {
         this.clock,
         (intent, message) => this.delivery.fail(intent, message),
         (id) => this.wake(id),
+        unreadable,
       );
     const recovery = this.recovery;
     const repo = this.repo;
     if (options.recovery?.preferences || options.models) {
       this.readyPromise = (async () => {
         await recovery.prepare();
-        for (const state of repo.recoveryStates()) await recovery.prepare(state.threadId);
+        for (const state of repo.recoveryStates(unreadable)) await recovery.prepare(state.threadId);
         models.migrateCachedDefaults();
         if (!this.closing) recover();
         this.readyState = true;

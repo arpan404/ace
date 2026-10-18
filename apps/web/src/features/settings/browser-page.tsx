@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
-import { useAlwaysShowDevices } from "@/features/panels/index.ts";
+import { useAlwaysShowDevices, useAutomaticPip } from "@/features/panels/index.ts";
 import { settingKeys } from "./data/setting-keys.ts";
 import { useDesktopPreferences } from "./data/desktop-preferences.ts";
 import { useSetting, useSettingControl, useSettingWrite } from "./data/use-settings.ts";
@@ -84,6 +84,7 @@ export function BrowserSettings() {
   const write = useSettingWrite("Downloads folder");
   const folders = desktopFolders();
   const [always, setAlways] = useAlwaysShowDevices();
+  const [automaticPip, setAutomaticPip] = useAutomaticPip();
   const appFolder = desktop.value?.browserDownloads ?? null;
   return (
     <>
@@ -203,6 +204,14 @@ export function BrowserSettings() {
           inline
         >
           <Switch id="browser-device-toolbar" checked={always} onCheckedChange={setAlways} />
+        </SettingRow>
+        <SettingRow
+          {...settingRow("browser.pip")}
+          description="Float the page in a small window when you leave the Browser while an agent browses or the page plays sound."
+          htmlFor="browser-pip"
+          inline
+        >
+          <Switch id="browser-pip" checked={automaticPip} onCheckedChange={setAutomaticPip} />
         </SettingRow>
       </SettingSection>
     </>

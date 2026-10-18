@@ -26,9 +26,11 @@ test("the new tab lists its tools as cards with their shortcuts, and no Side cha
   expect(within(tools).getByRole("button", { name: "More for Files" })).toBeTruthy();
   expect(within(tools).queryByRole("button", { name: /Side chat/ })).toBeNull();
   expect(within(panel).queryByRole("tab", { name: "Side chat" })).toBeNull();
-  // Terminals open one per tab, so its card offers another beside this one.
+  // Terminals and Changes open more than once, so their cards offer another beside this one;
+  // Summary is the thread's one summary.
   expect(within(tools).getByRole("button", { name: "More for Terminal" })).toBeTruthy();
-  expect(within(tools).queryByRole("button", { name: "More for Changes" })).toBeNull();
+  expect(within(tools).getByRole("button", { name: "More for Changes" })).toBeTruthy();
+  expect(within(tools).queryByRole("button", { name: "More for Summary" })).toBeNull();
 });
 
 test("the new tab suggests the dev servers the daemon detected for the thread", async () => {

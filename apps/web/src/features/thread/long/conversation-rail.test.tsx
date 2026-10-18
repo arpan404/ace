@@ -86,6 +86,25 @@ test("the reader's turn draws brighter than the rest but the same size", () => {
   expect(sizeOf(first).length).toBeGreaterThan(0);
 });
 
+test("every turn on screen draws as bright as the reader's, and the rest stay dim", () => {
+  render(
+    <ConversationRail
+      markers={markers}
+      height={400}
+      current="first"
+      inView={["first", "second"]}
+      onJump={() => {}}
+      renderPreview={preview}
+    />,
+  );
+  const [first, second, third] = screen.getAllByRole("button");
+  if (!first || !second || !third) throw new Error("expected three ticks");
+  expect(colourOf(second)).toBe(colourOf(first));
+  expect(colourOf(third)).not.toBe(colourOf(first));
+  // Only the top turn is the reader's location; the others are merely in view.
+  expect(second.getAttribute("aria-current")).toBeNull();
+});
+
 test("hovering a tick brightens it without resizing any tick", async () => {
   render(<Rail />);
   const user = userEvent.setup();

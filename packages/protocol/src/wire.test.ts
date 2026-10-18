@@ -136,6 +136,7 @@ it("decodes every own snapshot entity key without losing prototype-like identifi
     thread,
     ...Object.fromEntries(Object.entries(rows).map(([key, row]) => [key, { ["__proto__"]: row }])),
     itemOrder: ["__proto__"],
+    itemSeqs: { ["__proto__"]: 2 },
     itemsBefore: null,
     usageSnapshots: {},
   };
@@ -153,4 +154,7 @@ it("decodes every own snapshot entity key without losing prototype-like identifi
     view: { ...view, items: { ["__proto__"]: { ...rows.items, text: 123 } } },
   };
   expect(ServerMessage.safeParse(invalid).success).toBe(false);
+  // An item without its creation sequence has no place in a transcript.
+  const unordered = { ...snapshot, view: { ...view, itemSeqs: {} } };
+  expect(ServerMessage.safeParse(unordered).success).toBe(false);
 });

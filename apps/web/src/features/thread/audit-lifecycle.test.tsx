@@ -174,15 +174,15 @@ test("a failed local save leaves one recoverable copy outside the composer", asy
   await userEvent.type(field(), "Retain this once{Enter}");
   await screen.findByRole("button", { name: "Retry" });
   expect(field().textContent).toBe("");
-  expect(
-    within(screen.getByRole("feed", { name: "Transcript" })).getAllByText("Retain this once"),
-  ).toHaveLength(1);
-  fail = false;
-  await userEvent.click(screen.getByRole("button", { name: "Edit" }));
-  await waitFor(() => expect(field().textContent).toBe("Retain this once"));
+  const kept = screen.getByRole("region", { name: "Messages on their way" });
+  expect(within(kept).getAllByText("Retain this once")).toHaveLength(1);
   expect(
     within(screen.getByRole("feed", { name: "Transcript" })).queryByText("Retain this once"),
   ).toBeNull();
+  fail = false;
+  await userEvent.click(within(kept).getByRole("button", { name: "Edit" }));
+  await waitFor(() => expect(field().textContent).toBe("Retain this once"));
+  expect(screen.queryByRole("region", { name: "Messages on their way" })).toBeNull();
   expect(made.client.pendingSends("thread-router").getSnapshot()).toHaveLength(1);
 });
 
@@ -413,7 +413,9 @@ test("Retry after a local save failure still retains only one recoverable messag
   await screen.findByRole("heading", { name: "It still didn't go" });
   await waitFor(() =>
     expect(
-      within(screen.getByRole("feed", { name: "Transcript" })).getAllByText("Keep the retry once"),
+      within(screen.getByRole("region", { name: "Messages on their way" })).getAllByText(
+        "Keep the retry once",
+      ),
     ).toHaveLength(1),
   );
   expect(field().textContent).toBe("");
@@ -421,8 +423,11 @@ test("Retry after a local save failure still retains only one recoverable messag
   await userEvent.click(screen.getByRole("button", { name: "Retry" }));
   await waitFor(() => expect(screen.queryByRole("button", { name: "Retry" })).toBeNull());
   expect(
-    within(screen.getByRole("feed", { name: "Transcript" })).getAllByText("Keep the retry once"),
+    await within(screen.getByRole("feed", { name: "Transcript" })).findAllByText(
+      "Keep the retry once",
+    ),
   ).toHaveLength(1);
+  expect(screen.getAllByText("Keep the retry once")).toHaveLength(1);
   expect(
     made.client
       .pendingSends("thread-router")

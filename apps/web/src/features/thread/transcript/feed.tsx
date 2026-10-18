@@ -30,12 +30,11 @@ import {
 } from "../deferred.ts";
 import { BlockView } from "../items/block-view.tsx";
 import { JumpedItem } from "../items/jumped-item.ts";
-import { DeferredHeldSend, DeferredLocalSends } from "../composer/deferred-parts.tsx";
-import { useLocalSendsView } from "../composer/send-store.ts";
+import { DeferredHeldSend } from "../composer/deferred-parts.tsx";
 import { readingColumn } from "../lib/column.ts";
 import type { JumpSnapshot } from "../long/jump-controller.ts";
 import type { ThreadNav } from "../long/nav.tsx";
-import { blockItems, type Block } from "./blocks.ts";
+import type { Block } from "./blocks.ts";
 import { useDropTurnSteps } from "../lib/turn-steps.ts";
 import { rowOf, sameRow, transcriptRows, type Row } from "./rows.ts";
 import { useGutter } from "./scroll.ts";
@@ -99,21 +98,18 @@ export function Feed(props: FeedProps) {
   useReadMarker(threadId, nav);
   const window = jump.window;
   const detached = !!window && !jump.joined;
-  // The person's messages on their way join the live tail as the bubbles their items become.
+  // Only the daemon's items: a message still on its way is in the composer's strip.
   const built = useBlocks(threadId);
-  const local = useLocalSendsView(threadId);
   const activity = useTurnActivity(threadId);
   useDropTurnSteps(threadId);
   // The live turn's one status line ends its flow; a turn with no block in view yet (its ask
   // still on its way, older than the window) keeps it at the end of the rows. Either way it is
   // one row, which moves rather than flashing out and back in.
   const working = !detached && !!activity && activity.tone !== "paused";
-  const blocks = useMemo(() => {
-    const merged = local && !detached ? local.merge(built, blockItems) : built;
-    return working && !merged.some((block) => block.kind === "live")
-      ? [...merged, tailLive]
-      : merged;
-  }, [local, built, detached, working]);
+  const blocks = useMemo(
+    () => (working && !built.some((block) => block.kind === "live") ? [...built, tailLive] : built),
+    [built, working],
+  );
   const runOrdinals = useRunOrdinals(threadId);
   const { seqTurns } = props;
   const ordinalOf = useCallback(
@@ -181,7 +177,7 @@ export function Feed(props: FeedProps) {
   const total = virtualizer.getTotalSize();
   const margin = virtualizer.options.scrollMargin;
 
-  const intent = usePagingIntent();
+  const intent = usePagingIntent(now);
   const scroll = useFeedScroll({
     viewport,
     virtualizer,
@@ -224,12 +220,21 @@ export function Feed(props: FeedProps) {
     return () => clearTimeout(timer);
   }, [nav.jump, window, jump.joined, pinned]);
 
-  /** The first row in view, and which turn the reader is in. */
+  /** The first row in view, and which turns the reader sees, top to bottom. */
   const readTop = () => {
     const first = scroll.observe();
     if (!first) return;
     const topTurn = turnFrom(rows, first.index);
     if (topTurn !== undefined) nav.currentTurn.set(topTurn);
+    const el = viewport.current;
+    const fold = el ? el.scrollTop + el.clientHeight : undefined;
+    const last =
+      fold === undefined
+        ? undefined
+        : virtualizer.getVirtualItems().findLast((item) => item.start < fold);
+    // Rows carry their turn forward, so the last row in view names the bottom turn.
+    const bottomTurn = last ? rows[last.index]?.ordinal : undefined;
+    nav.bottomTurn.set(bottomTurn ?? topTurn);
   };
   // Read at most once a frame while scrolling, and once after the rows change; never after
   // every render (a measuring pass re-renders this many times a second while text streams).
@@ -377,7 +382,6 @@ export function Feed(props: FeedProps) {
               <div ref={dock} className="mt-4 empty:hidden" />
               {!detached && (
                 <Suspense fallback={null}>
-                  <DeferredLocalSends.Component threadId={threadId} />
                   <DeferredHeldSend.Component threadId={threadId} />
                   <AgentPageReveal threadId={threadId} />
                 </Suspense>
@@ -405,7 +409,11 @@ export function Feed(props: FeedProps) {
             rows={rows}
             top={scroll.top}
             nav={nav}
-            scrollTo={(index) => scroll.jumpTo(index, "start")}
+            scrollTo={(index) => {
+              // A turn key jumps the view: where it lands is no gesture toward history.
+              paging.reset();
+              scroll.jumpTo(index, "start");
+            }}
             toLive={toLive}
           />
         </Suspense>

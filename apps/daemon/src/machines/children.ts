@@ -239,12 +239,24 @@ export class MachineChildren implements RemoteChildren {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
-  /** Polls only while a child is unsettled or a result is undelivered. */
+  /**
+   * Polls only while a child is unsettled or a result is undelivered. A failed poll or ledger
+   * read, such as a busy store, is logged and polled again.
+   */
   private arm() {
-    if (this.closed || this.cancelTimer || !this.rows("settled=0 OR delivered=0").length) return;
+    if (this.closed || this.cancelTimer) return;
+    let due = true;
+    try {
+      due = this.rows("settled=0 OR delivered=0").length > 0;
+    } catch (error) {
+      this.deps.log("Machine children poll failed", { error });
+    }
+    if (!due) return;
     this.cancelTimer = this.deps.schedule(this.deps.pollMs, () => {
       this.cancelTimer = undefined;
-      void this.poll().finally(() => this.arm());
+      void this.poll()
+        .catch((error: unknown) => this.deps.log("Machine children poll failed", { error }))
+        .finally(() => this.arm());
     });
   }
   async poll(): Promise<void> {

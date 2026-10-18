@@ -462,6 +462,8 @@ test("turn completion waits for a failed forced flush and the provider stays usa
   } finally {
     repair.exec("DROP TRIGGER fail_boundary");
     repair.close();
+    // The pinned batch retries on the store's backoff; the mailbox waits for it to settle.
+    h.scheduler.advance(1100);
     h.clock.advance(1100);
   }
   await admission;

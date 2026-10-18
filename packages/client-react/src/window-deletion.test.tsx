@@ -42,14 +42,19 @@ for (const action of ["delete", "evict"] as const) {
     });
     view.items = { queued: message("queued"), newer: message("newer") };
     view.itemOrder = ["queued", "newer"];
-    view.itemSeqs = { queued: 1, newer: 2 };
-    view.seq = 2;
+    view.itemSeqs = { queued: 2, newer: 3 };
+    view.seq = 3;
     store.snapshot(view);
     const items = [message("older"), message("queued")];
+    const seqs = new Map([
+      ["older", 1],
+      ["queued", 2],
+    ]);
     const deleted = new Set<string>();
     const source = windowSource(store, {
       deleted,
       items,
+      seqs,
       before: null,
       joined: true,
     });
@@ -62,13 +67,13 @@ for (const action of ["delete", "evict"] as const) {
     store.delivery({
       type: "events",
       subscriptionId: "thread",
-      afterSeq: 2,
-      throughSeq: 3,
+      afterSeq: 3,
+      throughSeq: 4,
       events: [
         Event.parse({
           id: "change",
           threadId: thread.id,
-          seq: 3,
+          seq: 4,
           at: 0,
           payload:
             action === "delete"
@@ -89,7 +94,7 @@ for (const action of ["delete", "evict"] as const) {
       store.snapshot(
         ThreadView.parse({
           ...view,
-          seq: 3,
+          seq: 4,
           items: { newer: message("newer") },
           itemOrder: ["newer"],
         }),

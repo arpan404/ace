@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
   compensation,
   correction,
+  joinedAtTop,
   transition,
   type ScrollEvent,
   type ScrollMode,
@@ -78,11 +79,39 @@ test("opening a disclosure while following holds its row instead of scrolling pa
 test("rows above a held row move the view with them; rows below it do not", () => {
   const rule = compensation(
     { kind: "anchoring", key: "k", itemId: undefined, aimUntil: 0, align: "start" },
-    900,
+    { index: 9 },
   );
-  expect(rule?.(300)).toBe(true);
-  expect(rule?.(900)).toBe(false);
-  expect(rule?.(1400)).toBe(false);
+  expect(rule?.({ index: 3 })).toBe(true);
+  expect(rule?.({ index: 9 })).toBe(false);
+  expect(rule?.({ index: 14 })).toBe(false);
+});
+
+test("a reader inside a long answer keeps their place while it grows below them", () => {
+  const { mode } = run(following, wheel(true));
+  // The first row in view is the answer the reader is part way down; rows above it measure.
+  const rule = compensation(mode, { index: 12 });
+  expect(rule?.({ index: 11 })).toBe(true);
+  // The answer itself streaming on grows below what the reader sees: nothing moves.
+  expect(rule?.({ index: 12 })).toBe(false);
+  expect(rule?.({ index: 13 })).toBe(false);
+});
+
+test("loading older turns keeps the reader's first visible row in place", () => {
+  const { mode } = run(following, wheel(true));
+  // The first row in view was the turn's log at 2,000; three older rows arrived above it.
+  const held = { key: "work:turn-40", itemId: "step-12", start: 2_000 };
+  expect(correction(mode, held, { index: 3, start: 2_288 }, 0)).toEqual({ kind: "shift", by: 288 });
+  // As those rows measure, they move the view with them, and the held row does not.
+  const rule = compensation(mode, { index: 3 });
+  expect([0, 1, 2].every((index) => rule?.({ index }))).toBe(true);
+  expect(rule?.({ index: 3 })).toBe(false);
+  // When the page carried the turn's earlier steps, they joined the held row at its top: its
+  // growth is then above the reader, and the view moves with it once.
+  expect(joinedAtTop(["step-12", "step-13"], ["step-10", "step-11", "step-12", "step-13"])).toBe(
+    true,
+  );
+  expect(joinedAtTop(["step-12", "step-13"], ["step-12", "step-13", "step-14"])).toBe(false);
+  expect(compensation(mode, { index: 3, grewAtTop: true })?.({ index: 3 })).toBe(true);
 });
 
 test("following stays at the end through growth and resizes", () => {
@@ -90,7 +119,7 @@ test("following stays at the end through growth and resizes", () => {
   for (const atEnd of [true, true]) mode = transition(mode, scrolled(atEnd)).mode;
   expect(mode.kind).toBe("following");
   expect(correction(mode, undefined, undefined, 0)).toEqual({ kind: "end" });
-  expect(compensation(mode, undefined)?.(0)).toBe(false);
+  expect(compensation(mode, undefined)?.({ index: 0 })).toBe(false);
   // An upward gesture releases it.
   expect(run(mode, wheel(true)).mode.kind).toBe("free");
 });

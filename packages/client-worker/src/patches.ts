@@ -20,6 +20,8 @@ export interface Patch {
   /** Item keys only: the item holds a prefix of its full text (ThreadReader.truncated). */
   cut?: boolean | undefined;
   deleted?: boolean | undefined;
+  /** Item keys sent whole: the item's creation sequence, its place in every transcript. */
+  s?: number | undefined;
 }
 
 /** Ids and parent links of a thread's agents: what the "agents" key covers. */
@@ -169,7 +171,7 @@ export function threadPatches(
       append !== undefined
         ? { k, append, cut }
         : item
-          ? { k, v: item, cut }
+          ? { k, v: item, cut, s: reader.itemSeq?.(id) }
           : { k, cut, deleted: reader.deleted?.(id) },
     );
   }

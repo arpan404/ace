@@ -61,8 +61,7 @@ import { readingColumn } from "./lib/column.ts";
 import { isPendingThread } from "./composer/send-store.ts";
 import { useShownTitle } from "./lib/shown-title.ts";
 import { DeferredComposerStrip } from "./composer/deferred-cards.ts";
-import { DeferredLocalSends } from "./composer/deferred-parts.tsx";
-import { UserMessage } from "./items/user-message.tsx";
+import { StartingMessage } from "./items/user-message.tsx";
 import { ActivityLine } from "./items/live-head.tsx";
 import { LongThreadHotkeys } from "./long/nav-keys.tsx";
 import { ThreadNavProvider, useThreadNav } from "./long/nav.tsx";
@@ -84,14 +83,7 @@ function PendingThread(props: { threadId: string }) {
         threadId={props.threadId}
         parts={{
           column: readingColumn,
-          bubble: (
-            <>
-              <UserMessage threadId={props.threadId} itemId={`input:${commandId}`} />
-              <Suspense fallback={null}>
-                <DeferredLocalSends.Component threadId={props.threadId} />
-              </Suspense>
-            </>
-          ),
+          bubble: <StartingMessage threadId={props.threadId} commandId={commandId} />,
           Line: ActivityLine,
         }}
       />

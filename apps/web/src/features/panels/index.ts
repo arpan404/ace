@@ -52,3 +52,4 @@ export { freshView, type FileView } from "./changes/file-view.ts";
 export type { LineRange, LineTarget } from "./changes/file-diff.tsx";
 export { bindTerminalEndDelivery } from "./terminal/end-delivery.ts";
 export { useAlwaysShowDevices } from "./browser/device-settings.ts";
+export { useAutomaticPip } from "./browser/pip-setting.ts";

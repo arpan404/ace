@@ -4,6 +4,7 @@ import { throttleDecision, type ViewActivity } from "./throttle.ts";
 const idleMs = 30_000;
 const hiddenIdle: ViewActivity = {
   visible: false,
+  covered: false,
   nativeInput: false,
   agentControl: true,
   screencasting: false,
@@ -47,4 +48,11 @@ it("keeps a remote viewer's human-controlled page rendering offscreen", () => {
     presence: "hidden",
     throttle: false,
   });
+});
+
+it("keeps a view the person watches rendering while one of the app's menus covers it", () => {
+  // Nobody drives it and no screencast runs yet: it still renders (parked) at full speed.
+  expect(
+    throttleDecision({ ...hiddenIdle, agentControl: false, covered: true }, 60_000, idleMs),
+  ).toEqual({ presence: "parked", throttle: false });
 });

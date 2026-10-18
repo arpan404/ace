@@ -5,10 +5,13 @@ import { MessageDeltas } from "./message-deltas.ts";
 import { PageJournal } from "./page-journal.ts";
 import {
   applyDelivery,
+  inRootLane,
+  mergeBySeq,
   usageSnapshotKey,
   rebuildAgentChildren,
   retainedTail,
 } from "@ace/projection";
+import { resumeTranscript } from "./snapshot-merge.ts";
 import type { ThreadView, EventBatch, Progress, Item, ItemsPage } from "@ace/protocol";
 import type { Mirrorable, ThreadExport, ThreadSource } from "./api.ts";
 import type { ThreadKey, ThreadReader } from "./readers.ts";
@@ -18,6 +21,17 @@ import { ClientError, type Limits } from "./types.ts";
 export type { ThreadKey, ThreadReader } from "./readers.ts";
 
 const emptyOrder: readonly string[] = [];
+const agentOf = (record: Record<string, Item>) => (id: string) =>
+  Object.hasOwn(record, id) ? record[id]?.agentId : undefined;
+/** Finished: no longer streaming, and no tool call still waiting or running. */
+const complete = (record: Record<string, Item>) => (id: string) => {
+  const item = Object.hasOwn(record, id) ? record[id] : undefined;
+  if (!item?.complete) return false;
+  return (
+    item.type !== "tool_call" ||
+    !["pending", "awaiting_approval", "running"].includes(item.call.status)
+  );
+};
 export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   #messageDeltas = new MessageDeltas();
   #journal: PageJournal;
@@ -101,6 +115,9 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   item(id: string) {
     return this.#own(this.#view?.items, id);
   }
+  itemSeq(id: string): number | undefined {
+    return this.#creation.get(id);
+  }
   agent(id: string) {
     return this.#own(this.#view?.agents, id);
   }
@@ -157,6 +174,12 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
         runs: view.runs,
         items: view.items,
         itemOrder: view.itemOrder,
+        itemSeqs: Object.fromEntries(
+          view.itemOrder.flatMap((id) => {
+            const seq = this.#creation.get(id);
+            return seq === undefined ? [] : [[id, seq]];
+          }),
+        ),
         itemsBefore: view.itemsBefore,
         ...(view.entitiesBefore ? { entitiesBefore: view.entitiesBefore } : {}),
         interactions: view.interactions,
@@ -197,23 +220,69 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       usageSnapshots: view.usageSnapshots,
     }))
       counts.set(name, Object.keys(record).length);
-    // The daemon sends its window in creation order; that order is kept as given.
+    // The daemon sends its window in creation order; that order is kept as given. A snapshot
+    // answering a resubscription resumes what was held instead of replacing it (ADR 0062).
+    const resumed = this.#resume(view);
+    const creation = new Map<string, number>();
+    for (const id of resumed?.kept ?? []) {
+      const seq = this.#creation.get(id);
+      const item = this.item(id);
+      if (seq === undefined || !item) continue;
+      creation.set(id, seq);
+      if (!Object.hasOwn(view.items, id))
+        Object.defineProperty(view.items, id, {
+          value: item,
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        });
+    }
+    const clipped = new Set((resumed?.kept ?? []).filter((id) => this.#clipped.has(id)));
+    for (const id of view.itemOrder) {
+      const seq = view.itemSeqs?.[id];
+      if (seq !== undefined) creation.set(id, seq);
+    }
+    if (resumed) {
+      view.itemOrder = mergeBySeq(resumed.kept, view.itemOrder, (id) => creation.get(id));
+      view.itemsBefore = resumed.before;
+    }
     this.#view = view;
     this.#failure = undefined;
     this.#journal.reset(view.seq);
     this.#hydrated.clear();
-    this.#creation.clear();
-    this.#clipped.clear();
+    this.#creation = creation;
+    this.#clipped = clipped;
     this.#deleted.clear();
     this.#counts = counts;
-    for (const id of view.itemOrder) {
-      const seq = view.itemSeqs?.[id];
-      if (seq !== undefined) this.#creation.set(id, seq);
-    }
     delete view.itemSeqs;
     this.#trim();
     for (const id of view.itemOrder) this.#clip(id);
     this.#notifications.emitAll();
+  }
+  /** What a held transcript keeps of itself when `view` arrives for the same thread. */
+  #resume(view: ThreadView): ReturnType<typeof resumeTranscript> {
+    const held = this.#view;
+    if (!held || held.thread.id !== view.thread.id || view.seq < held.seq) return undefined;
+    const seqs = view.itemSeqs;
+    if (!seqs) return undefined;
+    return resumeTranscript(
+      {
+        order: held.itemOrder,
+        seq: (id) => this.#creation.get(id),
+        agentOf: agentOf(held.items),
+        complete: complete(held.items),
+        before: held.itemsBefore,
+      },
+      held.seq,
+      {
+        order: view.itemOrder,
+        seq: (id) => (Object.hasOwn(seqs, id) ? seqs[id] : undefined),
+        agentOf: agentOf(view.items),
+        complete: complete(view.items),
+        before: view.itemsBefore,
+      },
+      view.thread.rootAgentId,
+    );
   }
   #copy<T>(record: Record<string, T>, id: string): void {
     const value = this.#own(record, id);
@@ -260,7 +329,9 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
                   ? payload.itemId
                   : undefined;
             if (itemId && event.seq <= (this.#hydrated.get(itemId) ?? -1)) return false;
-            if (payload.type === "item.created") this.#creation.set(payload.item.id, event.seq);
+            // An item's place is its first upsert's sequence; a repeated create never moves it.
+            if (payload.type === "item.created" && !this.#creation.has(payload.item.id))
+              this.#creation.set(payload.item.id, event.seq);
             if (payload.type === "item.created") {
               admitted.add(payload.item.id);
               return true;
@@ -481,7 +552,7 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       view.itemOrder.map((id) => ({
         id,
         seq: this.#creation.get(id),
-        root: root !== undefined && this.item(id)?.agentId === root,
+        root: inRootLane(this.item(id)?.agentId, root),
       })),
       this.#limits.items,
     );

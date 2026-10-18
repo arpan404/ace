@@ -81,8 +81,8 @@ import {
   type ThreadCommandOutcome,
 } from "./thread-commands.ts";
 import { holdOnLimit, isQueueCommand, queueCommand, queuePage } from "./queue-commands.ts";
-import { forkPointError, mergeForkError, switchEvents } from "./transitions.ts";
-import { fakeWorktreeBase } from "./worktree-base.ts";
+import { forkPointError, mergeFacts, mergeForkError, switchEvents } from "./transitions.ts";
+import { fakeCheckoutPath, fakeWorktreeBase } from "./worktree-base.ts";
 
 export interface FakeDaemonOptions {
   /** Injected clock for event timestamps and core facts. */
@@ -1275,26 +1275,7 @@ export class FakeDaemon implements Host {
         const error = mergeForkError(fork, parent, payload);
         if (error || !parent)
           return { commandId, ok: false, error: error ?? "source_thread_not_found" };
-        this.apply(parent.id, [
-          {
-            type: "item.upsert",
-            agent: "root",
-            item: `merge:${commandId}`,
-            draft: {
-              type: "message",
-              role: "user",
-              synthetic: true,
-              complete: true,
-              mergedContext: {
-                sourceThreadId: payload.threadId,
-                summary: payload.summary,
-                citations: payload.citations,
-                patchApplied: payload.patch !== undefined,
-              },
-              parts: [{ type: "text", text: payload.summary }],
-            },
-          },
-        ]);
+        this.apply(parent.id, mergeFacts(payload, commandId));
         return { commandId, ok: true };
       }
       case "thread.switch": {
@@ -1380,10 +1361,7 @@ export class FakeDaemon implements Host {
           ...(payload.access && payload.access !== "inherit" ? { access: payload.access } : {}),
           details: {
             mode: payload.mode ?? "local",
-            worktree:
-              payload.mode === "worktree"
-                ? `/fake/worktrees/${payload.threadId}`
-                : `/fake/${payload.workspaceId}`,
+            worktree: fakeCheckoutPath(payload.mode, payload.threadId, payload.workspaceId),
             ...base.fields,
           },
         });
@@ -1413,10 +1391,7 @@ export class FakeDaemon implements Host {
               path: `/fake/${payload.workspaceId}`,
             },
             mode: payload.mode ?? "local",
-            worktree:
-              payload.mode === "worktree"
-                ? `/fake/worktrees/${id}`
-                : `/fake/${payload.workspaceId}`,
+            worktree: fakeCheckoutPath(payload.mode, id, payload.workspaceId),
             ...base.fields,
             machine: { host: this.hostId, name: this.displayName },
             diff: { files: 0, additions: 0, deletions: 0 },

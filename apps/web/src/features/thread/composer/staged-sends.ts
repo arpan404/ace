@@ -311,8 +311,8 @@ function settle(
 }
 
 /**
- * Wait for a held message's uploads, then enqueue it under its own command id (its bubble
- * carries on as the outbox entry). A file that didn't upload leaves it failed, kept for Retry
+ * Wait for a held message's uploads, then enqueue it under its own command id (its line in the
+ * strip carries on as the outbox entry). A file that didn't upload leaves it failed, kept for Retry
  * or Edit. Only the page that staged it, still owning it, settles it. Resolves true once
  * enqueued.
  */

@@ -53,7 +53,7 @@ const emptyDraft: ComposerDraft = { text: "", mentions: [], attachments: [] };
  * and model/effort, Stop and send on the right. The one strip (`attached`) sits behind its top
  * edge; nothing sits below it. + opens the Add menu, `@` completes files, a leading `/`
  * completes commands, and paste or drop attach files. Enter empties it at once: the message
- * shows as its bubble straight away (UX audit SY-2) and comes back here only if this device
+ * waits in the strip above it until the daemon has it (UX audit SY-2) and comes back here only if this device
  * couldn't even save it. The unsent draft is kept per `draftKey` across navigation, reloads and
  * windows.
  */

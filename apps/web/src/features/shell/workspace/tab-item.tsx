@@ -23,7 +23,7 @@ export type DropSide = "before" | "after";
 
 /**
  * A tab's width without its title or badge: 8px lead, 14px icon, 6px gap, then 28px of close
- * room on every closable tab (10px on a pinned tab, which has none), so the title never
+ * room (10px on an icon-only tab, which has none), so the title never
  * re-truncates when the close appears. The strip's layout pass adds the measured title.
  */
 export const tabChrome = (closeRoom: boolean) => 8 + 14 + 6 + (closeRoom ? 28 : 10);
@@ -72,7 +72,8 @@ export function TabItem(props: {
   const kind = definition.kind(tab.kind);
   const title = definition.title(tab);
   const Badge = kind?.Badge;
-  const closable = !tab.pinned;
+  // Every tab closes, pinned ones too: the launcher opens any tool again.
+  const closable = true;
   const iconOnly = props.iconOnly;
   const badgeDot = props.badgeDot && !iconOnly;
   const closeLabel = kind?.closeLabel ?? "Close";
