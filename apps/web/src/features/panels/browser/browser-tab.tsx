@@ -231,7 +231,7 @@ function Browser(props: TabViewProps) {
                 online={online}
                 page={
                   live && shown && !blank && !page.loading && page.state.phase !== "failed"
-                    ? { ...live, url: shown.url }
+                    ? { ...live, url: shown.url, tabId: shown.tabId }
                     : undefined
                 }
               />

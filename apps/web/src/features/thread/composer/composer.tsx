@@ -408,7 +408,7 @@ function ComposerBody({
     at: Trigger,
     values?: NonNullable<CatalogMention["values"]>,
   ) => {
-    const label = item.entry || item.threadId ? item.label : `@${item.label}`;
+    const label = item.entry || item.threadId || item.tab ? item.label : `@${item.label}`;
     const next = accept(text, at, label);
     const catalog: CatalogMention | undefined = item.entry
       ? {
@@ -437,6 +437,16 @@ function ComposerBody({
             },
           }
         : {}),
+      ...(item.tab
+        ? {
+            browserTab: {
+              type: "browser_tab",
+              tabId: item.tab.tabId,
+              url: item.tab.url,
+              title: item.tab.title,
+            },
+          }
+        : {}),
     };
     if (item.path) rememberMention(item.path);
     edit(next);
@@ -450,7 +460,8 @@ function ComposerBody({
     if (!trigger) return;
     if (
       tokens.length >= 64 ||
-      (item.threadId && tokens.filter((token) => token.thread).length >= 8)
+      (item.threadId && tokens.filter((token) => token.thread).length >= 8) ||
+      (item.tab && tokens.filter((token) => token.browserTab).length >= 4)
     ) {
       setNotice("This message has enough references. Remove one before adding another.");
       return;
@@ -558,6 +569,7 @@ function ComposerBody({
     const draft: Draft = {
       text,
       ...content,
+      threadRefs: [...content.threadRefs, ...(annotated?.items ?? [])],
       input: message.input,
       files: {
         ...message.files,

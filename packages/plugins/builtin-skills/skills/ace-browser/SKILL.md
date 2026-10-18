@@ -27,6 +27,10 @@ Every page tool takes an optional `tabId`. Without one, a tool acts in your curr
 
 **Parallel agents and subagents** share one browser. Each must open its own labelled tab (`ace_browser_open` with `newTab` and `label`) and pass that `tabId` to every browser tool, so no two agents drive the same page. Subagents of one provider can share an identity, so do not rely on the current tab there.
 
+## Tabs the person points at
+
+A message can carry a `<browser_tab tabId=… url=… title=…>` block: the person mentioned that tab. It holds a snapshot excerpt taken when the message arrived, and the tab's screenshot is attached. Pass its `tabId` to act there; its refs work until the page changes. `<browser_annotation_refs tabId=…>` names the elements the person annotated by ref, in the tab they annotated.
+
 ## Evidence
 
 - `ace_browser_logs`: console and network entries, filtered by kind, level, URL or status. `ace_browser_network_body` reads one response body by its `requestId` from the logs.

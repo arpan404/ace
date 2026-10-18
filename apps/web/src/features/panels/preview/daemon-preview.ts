@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ClientApi } from "@ace/client";
 import {
   BrowserState,
+  BrowserTabList,
   BrowserTabsResult,
   ThreadId,
   WorkspaceId,
@@ -12,6 +13,7 @@ import {
 import type {
   BrowserDownload,
   BrowserExtensionView,
+  BrowserTabView,
   BrowserView,
   ForwardedInput,
   PreviewLink,
@@ -34,6 +36,20 @@ const keptThreads = 8;
 /** BrowserCommand `resize` bounds. */
 const clamp = (value: number) => Math.min(4096, Math.max(100, Math.round(value)));
 
+const tabView = (tab: BrowserTabList[number]): BrowserTabView => ({
+  tabId: tab.tabId,
+  url: tab.url,
+  title: tab.title,
+  favicon: tab.favicon,
+  loading: tab.loading,
+  label: tab.label,
+  openedBy: tab.openedBy,
+  inUse: tab.inUse,
+  pointer: tab.pointer,
+  private: tab.private,
+  pendingDialog: tab.pending_dialog,
+});
+
 const view = (state: BrowserState): BrowserView => ({
   threadId: state.threadId,
   url: state.url,
@@ -42,19 +58,7 @@ const view = (state: BrowserState): BrowserView => ({
   reason: state.reason,
   backend: state.backend,
   pageStateLost: state.pageStateLost,
-  tabs: state.tabs?.map((tab) => ({
-    tabId: tab.tabId,
-    url: tab.url,
-    title: tab.title,
-    favicon: tab.favicon,
-    loading: tab.loading,
-    label: tab.label,
-    openedBy: tab.openedBy,
-    inUse: tab.inUse,
-    pointer: tab.pointer,
-    private: tab.private,
-    pendingDialog: tab.pending_dialog,
-  })),
+  tabs: state.tabs?.map(tabView),
   activeTabId: state.activeTabId,
   loading: state.loading,
   loadError: state.loadError,
@@ -559,6 +563,15 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     },
     async selectTab(threadId, tabId) {
       await tabs({ type: "browser.tabs.select", tabId }, threadId);
+    },
+    async listTabs(threadId) {
+      const reply = await request({
+        type: "browser.tabs.list",
+        threadId: ThreadId.parse(threadId),
+      });
+      if (!reply.ok) return [];
+      const listed = BrowserTabList.safeParse(reply.result);
+      return listed.success ? listed.data.map(tabView) : [];
     },
     async closeTab(threadId, tabId) {
       await tabs({ type: "browser.tabs.close", tabId }, threadId);

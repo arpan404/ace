@@ -98,6 +98,8 @@ export const BrowserAnnotation = z.looseObject({
   styles: z.array(BrowserAnnotationStyleChange).max(24).default([]),
   text: BrowserAnnotationTextChange.optional(),
   viewport: BrowserAnnotationViewport,
+  /** The browser tab the person annotated, when the client knows it. */
+  tabId: id.optional(),
 });
 export type BrowserAnnotation = z.infer<typeof BrowserAnnotation>;
 

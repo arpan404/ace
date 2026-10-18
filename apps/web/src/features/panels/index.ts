@@ -33,6 +33,8 @@ export const loadAuthTerminal = () => import("./terminal/auth-terminal.tsx");
 export const loadThreadBrowser = () => import("./browser/thread-browser.tsx");
 /** Bring one of the thread's browser tabs to the person (a help request's Open tab). */
 export { useRevealBrowserTab } from "./browser/reveal-tab.ts";
+/** The thread's browser tabs the composer's `@` list offers. */
+export { useMentionTabs, type MentionTab } from "./browser/mention-tabs.ts";
 
 /**
  * Shared, bounded diff rendering for hosted and local changes. Its code loads with the view that

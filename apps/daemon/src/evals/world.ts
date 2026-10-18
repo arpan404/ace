@@ -297,6 +297,8 @@ export async function evalWorld(options: {
         },
       });
     },
+    /** The text parts the scripted provider of `thread` received, in order. */
+    received: (thread: ThreadId): readonly string[] => h.inputs.get(thread) ?? [],
     /** The scripted model starts a new turn, or ends the one it is in. */
     startTurn: (thread: ThreadId) => emit(thread, start),
     endTurn: (thread: ThreadId) => emit(thread, end),

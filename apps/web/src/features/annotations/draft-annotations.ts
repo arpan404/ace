@@ -1,5 +1,15 @@
-import { boundedAnnotations, formatBrowserAnnotations, type DraftAnnotations } from "@ace/ui-core";
-import { browserAnnotationLimit, type BrowserAnnotation, type ContentPart } from "@ace/protocol";
+import {
+  annotationContextItems,
+  boundedAnnotations,
+  formatBrowserAnnotations,
+  type DraftAnnotations,
+} from "@ace/ui-core";
+import {
+  browserAnnotationLimit,
+  type BrowserAnnotation,
+  type BrowserAnnotationsContextItem,
+  type ContentPart,
+} from "@ace/protocol";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { composerPorts, type ComposerAnnotationPort } from "./store.ts";
 
@@ -33,6 +43,8 @@ export interface AnnotationHandOff {
   local: { name: string; mimeType: string; bytes: number; sha256?: string | undefined }[];
   outcomes: Promise<AnnotationOutcome>[];
   files: (File | undefined)[];
+  /** The annotated tabs, so the agent gets each marker's element as a ref in its tab. */
+  items: BrowserAnnotationsContextItem[];
   /** The annotations as a draft keeps them, for a message that comes back. */
   returned: DraftAnnotations;
   /** Put them back after a refused send. */
@@ -247,6 +259,7 @@ export function useDraftAnnotations(options: {
         (image) => image.pending ?? Promise.resolve(image.ready ?? { error: "it was removed" }),
       ),
       files: images.map((image) => image.file),
+      items: annotationContextItems(taken.items.map((item) => item.annotation)),
       returned: draftOf(taken),
       restore: () =>
         update((now) => ({

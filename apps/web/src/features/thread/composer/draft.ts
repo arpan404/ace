@@ -1,11 +1,12 @@
-import type { Mention, ContentPart, ThreadRefContextItem } from "@ace/protocol";
+import type { Mention, ContentPart, MessageContextItem } from "@ace/protocol";
 import type { LocalAttachment } from "@/components/attachment-format.ts";
 
 /** A message the composer hands over on Enter. */
 export interface Draft {
   text: string;
   input?: ContentPart[] | undefined;
-  threadRefs?: ThreadRefContextItem[] | undefined;
+  /** Other threads and browser tabs the message points at (`MessageContext.items`). */
+  threadRefs?: MessageContextItem[] | undefined;
   mentions: Mention[];
   /** Files the daemon already holds. */
   attachments: { sha256: string }[];

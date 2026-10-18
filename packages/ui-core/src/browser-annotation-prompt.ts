@@ -1,4 +1,8 @@
-import type { BrowserAnnotation, BrowserAnnotationElement } from "@ace/protocol";
+import type {
+  BrowserAnnotation,
+  BrowserAnnotationElement,
+  BrowserAnnotationsContextItem,
+} from "@ace/protocol";
 
 /*
  * The agent-facing form of browser annotations (ADR 0082, version 1): one text block after the
@@ -187,4 +191,37 @@ export function formatBrowserAnnotations(
   }
   lines.push(browserAnnotationsClose);
   return { text: lines.join("\n"), images };
+}
+
+/**
+ * What the daemon needs to name each annotated element by a snapshot ref when the message is
+ * delivered: per tab and page, each marker's role, accessible name and text. Annotations made
+ * before tabs were recorded (no `tabId`) have none.
+ */
+export function annotationContextItems(
+  annotations: readonly BrowserAnnotation[],
+): BrowserAnnotationsContextItem[] {
+  const groups = new Map<string, BrowserAnnotationsContextItem>();
+  for (const annotation of [...annotations].toSorted((a, b) => a.number - b.number)) {
+    const { tabId } = annotation;
+    if (!tabId) continue;
+    const key = `${tabId}\u0000${annotation.url}`;
+    const group = groups.get(key) ?? {
+      type: "browser_annotations" as const,
+      tabId,
+      url: annotation.url.slice(0, 8192),
+      annotations: [],
+    };
+    groups.set(key, group);
+    if (group.annotations.length >= 20) continue;
+    const { element } = annotation;
+    const text = excerpt(element.text, 280);
+    group.annotations.push({
+      number: annotation.number,
+      ...(element.role ? { role: element.role.slice(0, 128) } : {}),
+      ...(element.name ? { name: element.name.slice(0, 256) } : {}),
+      ...(text ? { text } : {}),
+    });
+  }
+  return [...groups.values()];
 }

@@ -12,6 +12,8 @@ const pageSettleMs = 400;
 /** The page as annotate mode needs to know it. */
 export interface AnnotatablePage {
   url: string;
+  /** The browser tab showing it, so each annotation says which tab it was made in. */
+  tabId?: string | undefined;
   closed: boolean;
   status?: "ready" | "paused" | "recovering" | undefined;
   features?: readonly string[] | undefined;
@@ -61,6 +63,8 @@ export function useAnnotate(options: {
   driver: AnnotationDriver | undefined;
   /** The page shown now; `unavailable` says why annotating can't start. */
   url: string | undefined;
+  /** The tab showing it. */
+  tabId?: string | undefined;
   unavailable: string | undefined;
 }) {
   const { threadId, driver } = options;
@@ -152,6 +156,11 @@ export function useAnnotate(options: {
     if (session.current.started) finish();
   };
 
+  // The tab the page is in, stamped on each annotation as it is saved.
+  const annotatedTab = useRef(options.tabId);
+  useLayoutEffect(() => {
+    annotatedTab.current = options.tabId;
+  });
   const onEvent = useEffectEvent((event: BrowserAnnotationEvent) => {
     const port = composerPorts.get(threadId);
     switch (event.kind) {
@@ -168,7 +177,8 @@ export function useAnnotate(options: {
       }
       case "saved": {
         if (!port || !driver) return;
-        const { annotation } = event;
+        const tabId = event.annotation.tabId ?? annotatedTab.current;
+        const annotation = tabId ? { ...event.annotation, tabId } : event.annotation;
         const known = port.annotations().some((existing) => existing.id === annotation.id);
         if (known) return port.save(annotation);
         port.save(

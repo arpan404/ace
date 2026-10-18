@@ -246,7 +246,11 @@ test("a draft's annotations come back after the thread is reopened, and annotati
   await waitFor(() => expect(annotateButton(reopened).getAttribute("aria-disabled")).toBeNull());
   commands.length = 0;
   await userEvent.click(annotateButton(reopened));
-  await waitFor(() => expect(commands).toContainEqual({ op: "restore", annotations: [pinned] }));
+  // The record comes back as pinned, with the tab it was made in.
+  const tabId = browser.view(threadId)?.activeTabId;
+  await waitFor(() =>
+    expect(commands).toContainEqual({ op: "restore", annotations: [{ ...pinned, tabId }] }),
+  );
 });
 
 test("keys typed at the page never reach the composer, even once the page stops taking them", async () => {
@@ -313,4 +317,34 @@ test("a dragged-out region joins the draft as a region that lists what it holds"
   expect(within(list).getByText("Too cramped")).toBeTruthy();
   // The section around the region is context for the agent, not the row's text.
   expect(within(list).queryByText("Pair a device")).toBeNull();
+});
+
+test("an annotation names the tab it was made in, so the agent can find its element there", async () => {
+  const { app, panel, browser } = await annotating();
+  const items: unknown[] = [];
+  const receive = app.daemon.command.bind(app.daemon);
+  app.daemon.command = (command) => {
+    if (command.payload.type === "thread.send") items.push(command.payload.context?.items);
+    return receive(command);
+  };
+  const tabId = browser.view(threadId)?.activeTabId;
+  await userEvent.click(annotateButton(panel));
+  await waitFor(() => expect(browser.view(threadId)?.annotation?.owner).toBeTruthy());
+  act(
+    () =>
+      void browser.annotations.pin(threadId, { comment: "Bigger", tag: "button", text: "Pair" }),
+  );
+  await screen.findByRole("button", { name: "Show 1 annotation" });
+
+  act(() => browser.annotations.emit(threadId, { kind: "send" }));
+  await waitFor(() =>
+    expect(items.at(-1)).toEqual([
+      {
+        type: "browser_annotations",
+        tabId,
+        url: "http://localhost:5173/settings/devices",
+        annotations: [{ number: 1, text: "Pair" }],
+      },
+    ]),
+  );
 });

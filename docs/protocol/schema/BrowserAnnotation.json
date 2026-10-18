@@ -59,6 +59,11 @@
       "maxItems": 24,
       "type": "array"
     },
+    "tabId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
     "text": {
       "$ref": "https://ace.local/protocol/v1/BrowserAnnotationTextChange.json"
     },

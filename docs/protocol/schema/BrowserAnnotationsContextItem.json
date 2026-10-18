@@ -1,0 +1,58 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserAnnotationsContextItem.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "annotations": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "number": {
+            "maximum": 99,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "role": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 280,
+            "type": "string"
+          }
+        },
+        "required": [
+          "number"
+        ],
+        "type": "object"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "type": "array"
+    },
+    "tabId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "browser_annotations",
+      "type": "string"
+    },
+    "url": {
+      "maxLength": 8192,
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "tabId",
+    "url",
+    "annotations"
+  ],
+  "type": "object"
+}

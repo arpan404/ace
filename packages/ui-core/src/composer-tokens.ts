@@ -1,4 +1,10 @@
-import type { CatalogMention, ContentPart, Mention, ThreadRefContextItem } from "@ace/protocol";
+import type {
+  BrowserTabContextItem,
+  CatalogMention,
+  ContentPart,
+  Mention,
+  ThreadRefContextItem,
+} from "@ace/protocol";
 
 /** Offsets use the draft's plain text, including each reference's visible name. */
 export interface ComposerToken {
@@ -8,6 +14,8 @@ export interface ComposerToken {
   catalog?: CatalogMention | undefined;
   file?: Mention | undefined;
   thread?: ThreadRefContextItem | undefined;
+  /** A tab of the thread's browser (`@` a tab). */
+  browserTab?: BrowserTabContextItem | undefined;
 }
 
 /** An edit touching a reference removes it; edits around it preserve its position. */

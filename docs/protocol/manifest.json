@@ -345,8 +345,8 @@
       "sha256": "6baf3e3b8be75e95a37aa9c83f9eac72ad6177f130c117be7cd89ab26905beaa"
     },
     "schema/BrowserAnnotation.json": {
-      "bytes": 1877,
-      "sha256": "9cbf9fdec746c44c0ec729d5a5a4e9ecb95b9e2742f121fcb23b3e8e350508d8"
+      "bytes": 1968,
+      "sha256": "7cc3c0e7bcfc8d47ae28694aa04339c78466793d00f3822e2d89ad95c87599e3"
     },
     "schema/BrowserAnnotationBox.json": {
       "bytes": 452,
@@ -407,6 +407,10 @@
     "schema/BrowserAnnotationViewport.json": {
       "bytes": 590,
       "sha256": "0930252350012bc5aee832696d52c227c4a1165ded05624590567d105ad68532"
+    },
+    "schema/BrowserAnnotationsContextItem.json": {
+      "bytes": 1195,
+      "sha256": "8d172bea0f43625189291857f21aa722bfc2785f4ad280794f810075cd152971"
     },
     "schema/BrowserArtifact.json": {
       "bytes": 663,
@@ -527,6 +531,10 @@
     "schema/BrowserTabActor.json": {
       "bytes": 412,
       "sha256": "f84fbf5185b8d6f82980fc5336628824f3399cf9da7ef60c9a92714932cd7059"
+    },
+    "schema/BrowserTabContextItem.json": {
+      "bytes": 580,
+      "sha256": "f6f4c2f916d45abfbc43aef21bc747ca40a9a09eb24286f430c1a95b068a9a2f"
     },
     "schema/BrowserTabLifecycle.json": {
       "bytes": 225,
@@ -1597,8 +1605,12 @@
       "sha256": "35d18cbcf2fed167fa0a4758ce437b5f7725286cebd9c2d4bd2e4d3acbb88e8c"
     },
     "schema/MessageContext.json": {
-      "bytes": 965,
-      "sha256": "13a8f28d432d18b5a6e1ae65a2da1b43d45bfdcea21a717b2d99a15df0493df6"
+      "bytes": 963,
+      "sha256": "0ae8fbe1ece280ee154505daf74dde8aaabfc22e295b9b8ad65bb6cd8fca913c"
+    },
+    "schema/MessageContextItem.json": {
+      "bytes": 412,
+      "sha256": "132349b2b11e424441d12493f19fe066eb8cbbb34ea95ca8e0fe0ba983775fc5"
     },
     "schema/MessageOrigin.json": {
       "bytes": 1594,
@@ -3849,10 +3861,10 @@
       "sha256": "eadd796e5214ab35199731ca1c2f0faa3dd65dab3d6150142a57acda545ef06d"
     },
     "types.md": {
-      "bytes": 796538,
-      "sha256": "55eace8020ec23adfeb81d7d8c2405ffb7af91e365ea3d59e00685a052e146e8"
+      "bytes": 802757,
+      "sha256": "2d70d0ebab46d6a56b9ad83573c04fcff0ecc9f1670349909189c40103088d45"
     }
   },
-  "input": "1bd186a3c7333279c36fb098666af9e05ef99b01f7b65c2ddc0d5732be2d2f00",
+  "input": "bc9ec873ea8168bdc9636d4a24ab72f67ebb7a9214cd01d940d683ea6a034229",
   "version": 1
 }

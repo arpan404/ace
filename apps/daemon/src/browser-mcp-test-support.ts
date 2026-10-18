@@ -80,8 +80,11 @@ export async function setup(provider: ProviderKind) {
   return { home, thread, browser, mcp, store };
 }
 
-/** A headless backend with no Chromium: pages navigate in memory and screenshot one byte. */
-export function fakeHeadlessBackend(): BrowserBackend {
+/**
+ * A headless backend with no Chromium: pages navigate in memory and screenshot one byte. With
+ * `page`, every page's accessibility tree is those CDP nodes, so snapshots read them.
+ */
+export function fakeHeadlessBackend(page?: readonly Record<string, unknown>[]): BrowserBackend {
   let url = "about:blank";
   const events = new EventEmitter();
   return {
@@ -89,7 +92,14 @@ export function fakeHeadlessBackend(): BrowserBackend {
     async open(request: BackendOpen) {
       return {
         cdp: {
-          send: async (method) => (method === "Page.captureScreenshot" ? { data: "AA==" } : {}),
+          send: async (method) =>
+            method === "Page.captureScreenshot"
+              ? { data: "AA==" }
+              : page && method === "Memory.getDOMCounters"
+                ? { nodes: page.length }
+                : page && method === "Accessibility.getFullAXTree"
+                  ? { nodes: page }
+                  : {},
           on: (method, listener) => events.on(method, listener),
           off: (method, listener) => events.off(method, listener),
         },

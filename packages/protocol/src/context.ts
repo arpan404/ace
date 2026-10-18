@@ -23,6 +23,46 @@ export const ThreadRefContextItem = z.strictObject({
   budgetBytes: z.number().int().min(1024).max(8192).default(4096),
 });
 export type ThreadRefContextItem = z.infer<typeof ThreadRefContextItem>;
+const tabId = z.string().min(1).max(256);
+/**
+ * A tab of the thread's browser the person pointed the agent at (an `@` mention). When the
+ * message is delivered the daemon adds a fresh snapshot excerpt and a screenshot of the tab.
+ */
+export const BrowserTabContextItem = z.strictObject({
+  type: z.literal("browser_tab"),
+  tabId,
+  url: z.string().max(8192),
+  title: z.string().max(1024),
+});
+export type BrowserTabContextItem = z.infer<typeof BrowserTabContextItem>;
+/**
+ * The elements the person annotated in one tab (ADR 0082). When the message is delivered and
+ * the tab still shows the page, the daemon names each marker's element by a snapshot ref.
+ */
+export const BrowserAnnotationsContextItem = z.strictObject({
+  type: z.literal("browser_annotations"),
+  tabId,
+  url: z.string().max(8192),
+  annotations: z
+    .array(
+      z.strictObject({
+        number: z.number().int().min(1).max(99),
+        role: z.string().max(128).optional(),
+        name: z.string().max(256).optional(),
+        text: z.string().max(280).optional(),
+      }),
+    )
+    .min(1)
+    .max(20),
+});
+export type BrowserAnnotationsContextItem = z.infer<typeof BrowserAnnotationsContextItem>;
+/** What a message points the agent at besides files: other threads and browser tabs. */
+export const MessageContextItem = z.discriminatedUnion("type", [
+  ThreadRefContextItem,
+  BrowserTabContextItem,
+  BrowserAnnotationsContextItem,
+]);
+export type MessageContextItem = z.infer<typeof MessageContextItem>;
 export const ResolvedThreadReference = z.object({
   type: z.literal("thread_ref"),
   threadId: ThreadId,
@@ -33,7 +73,7 @@ export const ResolvedThreadReference = z.object({
 export type ResolvedThreadReference = z.infer<typeof ResolvedThreadReference>;
 export const MessageContext = z.object({
   draftId: key.optional(),
-  items: z.array(ThreadRefContextItem).max(32).optional(),
+  items: z.array(MessageContextItem).max(32).optional(),
   mentions: z.array(Mention).max(64).default([]),
   attachments: z
     .array(z.object({ sha256: BlobHash }))
