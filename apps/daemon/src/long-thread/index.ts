@@ -5,7 +5,7 @@ import { LongThreadDatabase } from "./database.ts";
 import { TurnWriter } from "./writer.ts";
 import { TurnReader } from "./reader.ts";
 import { RangeMigration } from "./range-migration.ts";
-import { isStoreBusy } from "../store-busy.ts";
+import { isStoreRetry } from "../store-busy.ts";
 
 interface Source {
   headSeq(): number;
@@ -40,7 +40,7 @@ export class LongThreadIndex {
         return;
       } catch (error) {
         if (signal.aborted) return;
-        if (!isStoreBusy(error)) throw error;
+        if (!isStoreRetry(error)) throw error;
         // Every batch commits its cursor atomically. Retry from that durable cursor.
         await setTimeout(delay, undefined, { signal }).catch((waitingError: unknown) => {
           if (!signal.aborted) throw waitingError;

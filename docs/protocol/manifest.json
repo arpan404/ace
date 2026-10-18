@@ -3113,8 +3113,8 @@
       "sha256": "63967c808099806e20b3902dbc59181647e26f67efc36cc3f8d7b9308958e75f"
     },
     "schema/ThreadSwitch.json": {
-      "bytes": 736,
-      "sha256": "581427494f108a08e891b01f544ba8ef801608f4f0def9e8796e4bfb82050e7b"
+      "bytes": 874,
+      "sha256": "aed1b594beee4f5b5caa588049ae0061ad8ecb1264f67890bcaf633e01164561"
     },
     "schema/ThreadTransitionView.json": {
       "bytes": 537,
@@ -3677,10 +3677,10 @@
       "sha256": "3c00a18ea5c34e708a57c9d0f5d0cdba097745d6b5fc80bd543053d4c1079efc"
     },
     "types.md": {
-      "bytes": 787075,
-      "sha256": "ceee79bb1b752a593eb286da957b05ef1b2f60d9acccd40ce5377a0d5adaedca"
+      "bytes": 787180,
+      "sha256": "3ba22d84d33afde9486b81544bf43ffbed6ddcd5a4f8707caff321f3ef51c08c"
     }
   },
-  "input": "6dcf2b8a4f533a087275d8b6c63118b732f7827a707f5f9e01b54505d60d4d97",
+  "input": "210e5a4ea44a5ccda125b83be3b1d1c2ce1cce832ff8031f7b5857dd2caf4fb8",
   "version": 1
 }

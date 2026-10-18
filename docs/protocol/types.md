@@ -26969,7 +26969,7 @@ Example:
 | selection | yes | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | state | yes | ["queued","applied","failed"] |  |
 | lossy | yes | boolean |  |
-| recommendation | no | `"delegate"` |  |
+| recommendation | no | ["delegate","delegate_task"] | {"x-ace-constraint":"The stored legacy value \"delegate_task\" decodes as \"delegate\"."} |
 | error | no | string | {"maxLength":2048} |
 | at | yes | [Timestamp.json](schema/Timestamp.json) |  |
 

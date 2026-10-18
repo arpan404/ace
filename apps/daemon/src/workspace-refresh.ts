@@ -65,14 +65,19 @@ export class WorkspaceRefresh {
           dirty(event.threadId);
       }
     });
-    const arm = () => {
-      if (this.closed) return;
-      this.cancel = schedule(60_000, () => {
-        this.pending = sweep().finally(() => {
+    // A failed sweep, including one that finds the store busy, is reported and tried again
+    // next cycle. It never rejects into the timer, where it would end the daemon.
+    const sweepAndArm = () => {
+      this.pending = sweep()
+        .catch(report)
+        .finally(() => {
           this.pending = undefined;
           arm();
         });
-      });
+    };
+    const arm = () => {
+      if (this.closed) return;
+      this.cancel = schedule(60_000, sweepAndArm);
     };
     const sweep = async () => {
       const viewed = privateStore.viewedThreads();
@@ -130,10 +135,7 @@ export class WorkspaceRefresh {
         }
       }
     };
-    this.pending = sweep().finally(() => {
-      this.pending = undefined;
-      arm();
-    });
+    sweepAndArm();
     const heads = new HeadWatch(async (id) => headStamp(runtime.root(id)));
     const watch = () => {
       if (this.closed) return;

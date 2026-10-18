@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, expect, test } from "vitest";
 import { spawnGitProcess } from "@ace/git";
 import { Thread, type ThreadStatus } from "@ace/protocol";
@@ -80,6 +81,8 @@ async function refreshing(status: ThreadStatus, options: { viewed?: boolean } = 
   return {
     root,
     store,
+    path: join(home, "events.sqlite"),
+    failures,
     time,
     statusReads: () => statusReads,
     changedFiles: () => store.getThread(thread.id)?.details?.diff?.files,
@@ -111,4 +114,28 @@ test("an agent's edit in a thread nobody is viewing shows by the next sweep", as
   thread.agentEdited();
   await thread.time.advance(minute);
   expect(thread.changedFiles()).toBe(1);
+});
+
+test("a sweep that finds the store busy is reported and the next sweep still runs", async () => {
+  const unhandled: unknown[] = [];
+  const keep = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", keep);
+  try {
+    const thread = await refreshing({ state: "done" }, { viewed: true });
+    // Another connection holds the write lock and the store's writers fail at once.
+    thread.store.atomic((db) => db.exec("PRAGMA busy_timeout=0"));
+    const lock = new DatabaseSync(thread.path);
+    lock.exec("BEGIN IMMEDIATE");
+    await writeFile(join(thread.root, "edited-in-an-editor.txt"), "new\n");
+    await thread.time.advance(minute);
+    expect(thread.failures).toEqual([expect.objectContaining({ errcode: 5 })]);
+    lock.exec("ROLLBACK");
+    lock.close();
+    await thread.time.advance(minute);
+    expect(thread.changedFiles()).toBe(1);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(unhandled).toEqual([]);
+  } finally {
+    process.off("unhandledRejection", keep);
+  }
 });
