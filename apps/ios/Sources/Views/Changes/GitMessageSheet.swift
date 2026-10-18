@@ -65,7 +65,7 @@ struct GitMessageSheet: View {
                     }
                 }
             }
-            .navigationTitle(commit ? "Commit message" : "Pull request")
+            .navigationTitle(commit ? "Commit" : "Pull request")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

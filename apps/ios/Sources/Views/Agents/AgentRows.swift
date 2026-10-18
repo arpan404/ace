@@ -9,9 +9,9 @@ struct AgentRowView: View {
                 .frame(width: AceTheme.Dimensions.statusDot, height: AceTheme.Dimensions.statusDot)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(row.model.isEmpty ? row.name : "\(row.name) · \(row.model)")
-                    .aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
+                    .aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
                 Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(row.needsYou ? StateStyle.text(row.status.token) : AceTheme.Colours.mutedForeground).lineLimit(2)
+                    .foregroundStyle(row.needsYou ? StateStyle.text(row.status.token) : AceTheme.Colours.mutedForeground).lineLimit(4)
             }
         }
         // Depth beyond a few levels keeps its own line rather than squeezing the name.
@@ -44,7 +44,7 @@ struct TaskRowView: View {
             }
             Spacer(minLength: AceTheme.Spacing.none)
             if canStop && task.stoppable {
-                Button("Stop", role: .destructive, action: stop).buttonStyle(.bordered).controlSize(.small)
+                Button("Stop", role: .destructive, action: stop).buttonStyle(.bordered).frame(minHeight: AceTheme.Dimensions.touchTarget)
                     .accessibilityIdentifier("agents.task.stop.\(task.id)")
             }
         }

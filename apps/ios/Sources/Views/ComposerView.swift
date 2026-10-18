@@ -20,8 +20,14 @@ struct ComposerView: View {
         HStack(alignment: .bottom, spacing: AceTheme.Spacing.md) {
             NativeTextInput(text: $draft.text, inputBegan: inputBegan)
                 .overlay(alignment: .leading) {
-                    if draft.text.isEmpty { Text(placeholder).aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.subtleForeground).allowsHitTesting(false) }
+                    // Visual only: VoiceOver hears the field's own label.
+                    if draft.text.isEmpty {
+                        Text(placeholder).aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.subtleForeground)
+                            .lineLimit(1).minimumScaleFactor(0.8).fixedSize(horizontal: false, vertical: true)
+                            .allowsHitTesting(false).accessibilityHidden(true)
+                    }
                 }
+                .accessibilityLabel(placeholder)
             if let model = controls?.model, !model.isEmpty {
                 Button(action: openModels) {
                     HStack(spacing: AceTheme.Spacing.xxs) {

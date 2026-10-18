@@ -57,6 +57,7 @@ struct InboxView: View {
                     }
                     .buttonStyle(.plain)
                     .listRowSeparator(.hidden)
+                    .frame(minHeight: AceTheme.Dimensions.touchTarget)
                     .accessibilityIdentifier("inbox.settled")
                     .accessibilityValue(showSettled ? "Expanded" : "Collapsed")
                     if showSettled {
@@ -68,6 +69,7 @@ struct InboxView: View {
                 if !merged.more.isEmpty && search.isEmpty {
                     Button("Show older threads") { for id in merged.more { inbox.client(id)?.loadOlderThreads() } }
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .frame(minHeight: AceTheme.Dimensions.touchTarget)
                         .listRowSeparator(.hidden).accessibilityIdentifier("inbox.more")
                 }
                 emptyState.listRowSeparator(.hidden)
@@ -198,13 +200,13 @@ struct InboxView: View {
                 Button("Undo") {
                     self.archived = nil
                     Task { _ = await inbox.client(archived.key.machineId)?.unarchive(archived.key.id) }
-                }.bold().accessibilityIdentifier("inbox.undoArchive")
+                }.bold().frame(minHeight: AceTheme.Dimensions.touchTarget).accessibilityIdentifier("inbox.undoArchive")
             }
             .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
             .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.md)
             .floatingGlass()
             .padding(.horizontal, AceTheme.Spacing.lg).padding(.bottom, AceTheme.Spacing.md)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             .task(id: archived.key) {
                 try? await Task.sleep(for: .seconds(5))
                 if self.archived?.key == archived.key { withAnimation(reduceMotion ? nil : AceTheme.Motion.spring) { self.archived = nil } }

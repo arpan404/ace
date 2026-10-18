@@ -106,11 +106,12 @@ struct ThreadView: View {
     /// Title, the whole tree's canonical status, and where it runs.
     private var header: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            Text(metadata?.title ?? "Thread").aceFont(AceTheme.Typography.title, relativeTo: .headline).lineLimit(1)
+            Text(metadata?.title ?? "Thread").aceFont(AceTheme.Typography.title, relativeTo: .headline).lineLimit(1).minimumScaleFactor(0.7)
             HStack(spacing: AceTheme.Spacing.xs) {
                 if let status = metadata?.status { StateLabel(status: status) }
                 Text(verbatim: [metadata?.project, metadata?.branch, metadata.map { $0.provider.capitalized }].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                    // On the bar's glass: the material's own secondary ink keeps its contrast.
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

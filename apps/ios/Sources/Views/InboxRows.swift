@@ -7,19 +7,26 @@ struct InboxThreadRow: View {
     let row: ThreadRow
     let snoozed: Bool
     var machine: String? = nil
+    @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
+        // At accessibility text sizes the side-by-side lines stack, so nothing is cut off.
+        let stacked = typeSize.isAccessibilitySize
+        let lines = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceTheme.Spacing.xxs))
+                            : AnyLayout(HStackLayout(spacing: AceTheme.Spacing.sm))
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            HStack(spacing: AceTheme.Spacing.sm) {
-                Image(systemName: "folder").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                Text(row.project).aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1)
-                Spacer(minLength: AceTheme.Spacing.sm)
+            lines {
+                HStack(spacing: AceTheme.Spacing.sm) {
+                    Image(systemName: "folder").aceFont(AceTheme.Typography.caption, relativeTo: .caption).accessibilityHidden(true)
+                    Text(row.project).aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(stacked ? nil : 1)
+                }
+                if !stacked { Spacer(minLength: AceTheme.Spacing.sm) }
                 StateLabel(status: row.status)
             }.foregroundStyle(AceTheme.Colours.mutedForeground)
-            Text(row.title).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
-            HStack(spacing: AceTheme.Spacing.sm) {
-                if !row.branch.isEmpty { Text(row.branch).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1) }
-                if let machine, !machine.isEmpty { Text(row.branch.isEmpty ? machine : "· \(machine)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1) }
-                Spacer(minLength: AceTheme.Spacing.none)
+            Text(row.title).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(stacked ? nil : 2)
+            lines {
+                if !row.branch.isEmpty { Text(row.branch).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(stacked ? nil : 1) }
+                if let machine, !machine.isEmpty { Text(row.branch.isEmpty || stacked ? machine : "· \(machine)").aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1) }
+                if !stacked { Spacer(minLength: AceTheme.Spacing.none) }
                 if row.agents > 1 {
                     Label("\(row.agents) agents", systemImage: "point.3.connected.trianglepath.dotted")
                         .labelStyle(.titleAndIcon).aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1)
@@ -28,6 +35,7 @@ struct InboxThreadRow: View {
             }.foregroundStyle(AceTheme.Colours.mutedForeground)
         }
         .padding(.vertical, AceTheme.Spacing.sm)
+        .frame(minHeight: AceTheme.Dimensions.touchTarget)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
@@ -49,7 +57,7 @@ struct InboxUnsentRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             HStack(spacing: AceTheme.Spacing.sm) {
-                Image(systemName: "folder").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                Image(systemName: "folder").aceFont(AceTheme.Typography.caption, relativeTo: .caption).accessibilityHidden(true)
                 Text(thread?.project ?? "").aceFont(AceTheme.Typography.caption, relativeTo: .caption).lineLimit(1)
                 Spacer(minLength: AceTheme.Spacing.sm)
                 Text(entry.label ?? "").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(StateStyle.text(entry.token ?? "neutral"))
