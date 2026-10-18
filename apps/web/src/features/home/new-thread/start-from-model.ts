@@ -27,12 +27,19 @@ function prNote(row: ForgePrRow): StartRow["note"] {
 
 /**
  * Open pull requests with failing checks first, since they need fixing; otherwise in the
- * daemon's order (newest activity first).
+ * daemon's order (newest activity first). `failing` are PRs GitHub found by failed checks, which
+ * may be older than any in `rows`: they lead, each PR listed once.
  */
-export function pullRequestRows(rows: readonly ForgePrRow[]): StartRow[] {
-  const failing = rows.filter((row) => row.ci === "failure");
-  const rest = rows.filter((row) => row.ci !== "failure");
-  return [...failing, ...rest].map((row) => ({
+export function pullRequestRows(
+  rows: readonly ForgePrRow[],
+  failing: readonly ForgePrRow[] = [],
+): StartRow[] {
+  const byUrl = new Map<string, ForgePrRow>();
+  for (const row of [...failing, ...rows]) if (!byUrl.has(row.url)) byUrl.set(row.url, row);
+  const all = [...byUrl.values()];
+  const first = all.filter((row) => row.ci === "failure");
+  const rest = all.filter((row) => row.ci !== "failure");
+  return [...first, ...rest].map((row) => ({
     url: row.url,
     number: row.ref.number,
     title: row.title,
