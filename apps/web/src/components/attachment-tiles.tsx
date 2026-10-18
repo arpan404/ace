@@ -7,7 +7,13 @@ import { ImageUrl, type ImageState } from "./attachment-bytes.tsx";
 import { FileChips } from "./attachment-file-chips.tsx";
 import { ImageGroup } from "./attachment-image-group.tsx";
 import { UnavailableTile } from "./attachment-unavailable.tsx";
-import { imageLayout, tileSize, type Shown, type ShownImage } from "./attachment-format.ts";
+import {
+  imageLayout,
+  postedImageSize,
+  tileSize,
+  type Shown,
+  type ShownImage,
+} from "./attachment-format.ts";
 import { deliveryDetails } from "./attachment-kind.ts";
 import { useFilePreview, useLightbox } from "./attachment-open.tsx";
 
@@ -52,7 +58,9 @@ export function AttachmentTiles(props: Shown & { className?: string | undefined 
 /** One thumbnail: a skeleton at its final size until the bytes arrive, never a broken image. */
 export function ImageTile(props: TileProps) {
   return (
-    <ImageUrl source={props.image.source}>{(image) => <Tile {...props} url={image} />}</ImageUrl>
+    <ImageUrl source={props.image.source} full={props.full}>
+      {(image) => <Tile {...props} url={image} />}
+    </ImageUrl>
   );
 }
 
@@ -61,6 +69,8 @@ interface TileProps {
   size: { width: number; height: number };
   /** `contain` letterboxes an image whose shape isn't known instead of cropping it. */
   fit?: "cover" | "contain" | undefined;
+  /** Load the original rather than the daemon's small preview, for an image shown large. */
+  full?: boolean | undefined;
   /** The tile stands for this many images: dimmed under "+N", it opens the rest. */
   more?: number | undefined;
   className?: string | undefined;
@@ -145,25 +155,29 @@ export function InlineImage(props: { src: string; alt: string }) {
   );
 }
 
+function attachmentImage(threadId: string, attachment: Attachment, alt?: string): ShownImage {
+  return {
+    key: attachment.sha256,
+    name: alt || attachment.name,
+    width: attachment.width,
+    height: attachment.height,
+    source: {
+      kind: "attachment",
+      threadId,
+      sha256: attachment.sha256,
+      bytes: attachment.bytes,
+      thumbnail: attachment.thumbnailAvailable === true,
+    },
+  };
+}
+
 /** A captured local image remains phrasing content inside markdown paragraphs. */
 export function CapturedInlineImage(props: {
   threadId: string;
   attachment: Attachment;
   alt?: string | undefined;
 }) {
-  const image: ShownImage = {
-    key: props.attachment.sha256,
-    name: props.alt || props.attachment.name,
-    width: props.attachment.width,
-    height: props.attachment.height,
-    source: {
-      kind: "attachment",
-      threadId: props.threadId,
-      sha256: props.attachment.sha256,
-      bytes: props.attachment.bytes,
-      thumbnail: props.attachment.thumbnailAvailable === true,
-    },
-  };
+  const image = attachmentImage(props.threadId, props.attachment, props.alt);
   const { show, lightbox } = useLightbox([image]);
   return (
     <span className="my-1 inline-block align-middle">
@@ -175,5 +189,32 @@ export function CapturedInlineImage(props: {
       />
       {lightbox}
     </span>
+  );
+}
+
+/** An image an agent posted with image_show: large, its caption beneath, opening the lightbox. */
+export function PostedImage(props: {
+  threadId: string;
+  attachment: Attachment;
+  alt: string;
+  caption?: string | undefined;
+}) {
+  const image = attachmentImage(props.threadId, props.attachment, props.alt);
+  const { show, lightbox } = useLightbox([image]);
+  return (
+    <figure className="flex flex-col items-start gap-1.5">
+      <ImageTile
+        image={image}
+        size={postedImageSize(image)}
+        fit="contain"
+        full
+        className="rounded-lg"
+        onOpen={(element) => show(0, element)}
+      />
+      {props.caption && (
+        <figcaption className="text-meta text-muted-foreground">{props.caption}</figcaption>
+      )}
+      {lightbox}
+    </figure>
   );
 }

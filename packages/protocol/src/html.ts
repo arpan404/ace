@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { Attachment } from "./context.ts";
 
-export const HtmlDocument = z.string().min(1).max(262144);
+/** A page with its base64 images inline: as large as the largest base64 image an agent may post. */
+export const maxHtmlDocumentBytes = 16 * 1024 * 1024;
+export const HtmlDocument = z.string().min(1).max(maxHtmlDocumentBytes);
 export const HtmlHeight = z.number().int().min(80).max(2000);
 /**
  * How a published page runs. `interactive` runs its scripts in the visualization sandbox;
@@ -10,7 +12,7 @@ export const HtmlHeight = z.number().int().min(80).max(2000);
  */
 export const HtmlMode = z.enum(["interactive", "static"]);
 export type HtmlMode = z.infer<typeof HtmlMode>;
-export const HtmlPreviewInput = z.strictObject({ html: z.string().max(1024 * 1024) });
+export const HtmlPreviewInput = z.strictObject({ html: z.string().max(maxHtmlDocumentBytes + 1) });
 export const HtmlRenderInput = z.strictObject({
   title: z.string().min(1).max(160).regex(/\S/),
   html: HtmlDocument,

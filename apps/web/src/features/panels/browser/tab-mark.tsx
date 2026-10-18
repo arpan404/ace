@@ -37,7 +37,7 @@ function useDaemonTab(
 
 /**
  * What leads a browser panel tab, from the daemon's tab: the agent cursor (in the person's accent)
- * colour while an agent uses it (its name in the tooltip), a spinner while the page loads, else
+ * colour, pulsing, while an agent uses it (its name in the tooltip), a spinner while the page loads, else
  * the site's favicon, else a globe.
  */
 export function BrowserTabMark(props: { scope: string; tab: WorkspaceTab; className?: string }) {
@@ -54,7 +54,13 @@ export function BrowserTabMark(props: { scope: string; tab: WorkspaceTab; classN
     const worker = agent ? agentName(agent) : "An agent";
     return (
       <Tip label={`${worker} is using this tab`}>
-        <span role="img" aria-label={`${worker} is using this tab`} className={box}>
+        <span
+          role="img"
+          aria-label={`${worker} is using this tab`}
+          // The tab's title pulses in step with the cursor (styles/motion.css).
+          data-agent-driving=""
+          className={cn(box, "fx-agent-pulse")}
+        >
           <AgentCursorIcon aria-hidden size={16} />
         </span>
       </Tip>

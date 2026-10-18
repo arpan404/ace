@@ -8,7 +8,7 @@ Built-in definitions come from `@ace/mcp-server`. The local /mcp endpoint uses s
 
 ## html_render
 
-Show a chart, diagram, mockup or small interactive page inline in your reply. An invalid page returns invalid_html listing every problem and publishes nothing. Design and sandbox rules: guide visualize.
+Show a chart, diagram, mockup or interactive page inline in your reply. First read guide visualize and follow it: ace's style kit, responsive from 360 px, no decoration. invalid_html lists every problem and publishes nothing.
 
 Required capability: none beyond session authentication. Timeout: 30000 ms.
 
@@ -19,7 +19,7 @@ Required capability: none beyond session authentication. Timeout: 30000 ms.
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | title | yes | string | {"minLength":1,"maxLength":160,"pattern":"\\S","description":"A short caption shown above the page."} |
-| html | yes | string | {"minLength":1,"maxLength":262144,"description":"A complete self-contained HTML document: inline CSS, JS, SVG and data: images, no network."} |
+| html | yes | string | {"minLength":1,"maxLength":16777216,"description":"A complete self-contained HTML document: inline CSS, JS, SVG and data: images, no network."} |
 | height | no | [HtmlHeight.json](schema/HtmlHeight.json) | {"description":"Frame height in CSS pixels; default fits the content."} |
 | mode | no | [HtmlMode.json](schema/HtmlMode.json) | {"description":"interactive runs its scripts in a sandbox; static strips them (charts, diagrams). Default: inferred."} |
 
@@ -28,13 +28,56 @@ Example:
 ```json
 {
   "html": "example",
-  "title": "M"
+  "title": "_"
 }
 ```
 
 ## html_render.output
 
 [JSON Schema](schema/html_render.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| itemId | yes | string | {"minLength":1} |
+
+Example:
+
+```json
+{
+  "itemId": "example"
+}
+```
+
+## image_show
+
+Post an image into your reply: a screenshot, a rendered chart or diagram, a generated picture. Pass it as base64 data (up to 16 MiB), or a file path on this machine for larger files (up to 128 MiB). PNG, JPEG, WebP or GIF.
+
+Required capability: none beyond session authentication. Timeout: 120000 ms.
+
+## image_show.input
+
+[JSON Schema](schema/image_show.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| path | no | string | {"description":"An image file on this machine, absolute or relative to your working directory.","minLength":1,"maxLength":4096} |
+| data | no | string | {"description":"The image as base64 (no data: prefix), up to 16 MiB decoded.","minLength":1,"maxLength":22369624,"pattern":"^[A-Za-z0-9+/]*={0,2}$"} |
+| mimeType | no | [SharedImageType.json](schema/SharedImageType.json) | {"description":"The type of data. ace checks the bytes either way."} |
+| alt | yes | string | {"minLength":1,"maxLength":300,"pattern":"\\S","description":"What the image shows, for people who cannot see it."} |
+| caption | no | [SharedImageCaption.json](schema/SharedImageCaption.json) | {"description":"A short line shown under the image."} |
+
+Example:
+
+```json
+{
+  "alt": "v",
+  "mimeType": "image/webp"
+}
+```
+
+## image_show.output
+
+[JSON Schema](schema/image_show.output.json), output validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -112,14 +155,15 @@ Example:
 {
   "tasks": [
     {
-      "access": "inherit",
-      "model": "example",
-      "project": "example",
-      "requestId": "_",
+      "requestId": "ek7IA1P",
       "role": "example",
-      "task": "example"
+      "task": "example",
+      "workspace": {
+        "kind": "project"
+      }
     }
-  ]
+  ],
+  "waitSeconds": 9
 }
 ```
 
@@ -138,10 +182,6 @@ Example:
 
 ```json
 {
-  "code": "invalid",
-  "data": {
-    "threadIds": []
-  },
   "ok": true
 }
 ```
@@ -187,7 +227,11 @@ Example:
 
 ```json
 {
-  "hint": "example",
+  "data": {
+    "mode": "all",
+    "status": "needs_you",
+    "threads": []
+  },
   "ok": false
 }
 ```
@@ -227,11 +271,7 @@ Example:
 
 ```json
 {
-  "data": {
-    "state": "example",
-    "threadId": "example"
-  },
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -256,7 +296,7 @@ Example:
 
 ```json
 {
-  "requestId": "RROFJmxa5",
+  "requestId": ".sR0hPAM",
   "text": "example",
   "threadId": "example"
 }
@@ -276,7 +316,6 @@ Example:
 
 ```json
 {
-  "code": "forbidden",
   "hint": "example",
   "ok": true
 }
@@ -301,7 +340,7 @@ Example:
 
 ```json
 {
-  "requestId": "WLWnkoEq",
+  "requestId": "T_wbi",
   "threadId": "example"
 }
 ```
@@ -320,7 +359,7 @@ Example:
 
 ```json
 {
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -357,8 +396,10 @@ Example:
 
 ```json
 {
-  "code": "limit",
-  "ok": true
+  "code": "forbidden",
+  "data": null,
+  "hint": "example",
+  "ok": false
 }
 ```
 
@@ -381,6 +422,7 @@ Example:
 
 ```json
 {
+  "offset": 2,
   "provider": "antigravity"
 }
 ```
@@ -402,7 +444,7 @@ Example:
 {
   "data": null,
   "hint": "example",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -429,11 +471,7 @@ Semantic rule: With threadId, query must not be empty.
 Example:
 
 ```json
-{
-  "cursor": "example",
-  "project": "example",
-  "query": "example"
-}
+{}
 ```
 
 ## threads_find.output
@@ -451,8 +489,7 @@ Example:
 
 ```json
 {
-  "hint": "example",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -492,8 +529,11 @@ Example:
 
 ```json
 {
-  "hint": "example",
-  "ok": true
+  "code": "not_ready",
+  "data": {
+    "projects": []
+  },
+  "ok": false
 }
 ```
 
@@ -520,8 +560,7 @@ Example:
 
 ```json
 {
-  "before": 10,
-  "limit": 10
+  "threadId": "example"
 }
 ```
 
@@ -540,14 +579,7 @@ Example:
 
 ```json
 {
-  "code": "unavailable",
-  "data": {
-    "items": [],
-    "itemsBefore": 9,
-    "linkedPrs": [],
-    "queue": null
-  },
-  "hint": "example",
+  "code": "forbidden",
   "ok": true
 }
 ```
@@ -578,10 +610,7 @@ Example:
 
 ```json
 {
-  "effort": "example",
-  "project": "example",
-  "provider": "codex",
-  "requestId": ".uMmBNGX",
+  "requestId": "gZ5jP",
   "text": "example",
   "title": "example"
 }
@@ -625,7 +654,7 @@ Example:
 
 ```json
 {
-  "requestId": "ziPIl4v.",
+  "requestId": "l04Q3W",
   "threadId": "example"
 }
 ```
@@ -675,9 +704,10 @@ Example:
 
 ```json
 {
-  "action": "cancel",
+  "action": "edit",
   "entryId": "example",
-  "requestId": "3yKYn8dOwK",
+  "requestId": "hSZHDx",
+  "text": "example",
   "threadId": "example"
 }
 ```
@@ -696,6 +726,7 @@ Example:
 
 ```json
 {
+  "code": "unavailable",
   "ok": false
 }
 ```
@@ -724,8 +755,10 @@ Example:
 ```json
 {
   "answers": {},
+  "dismissed": false,
+  "feedback": "example",
   "interactionId": "example",
-  "requestId": "OZI",
+  "requestId": "jfHvBCX3Nvj",
   "threadId": "example"
 }
 ```
@@ -744,7 +777,9 @@ Example:
 
 ```json
 {
-  "ok": true
+  "code": "not_ready",
+  "hint": "example",
+  "ok": false
 }
 ```
 
@@ -772,8 +807,8 @@ Example:
 
 ```json
 {
-  "number": 7,
-  "unlink": false
+  "unlink": true,
+  "url": "https://example.invalid/"
 }
 ```
 
@@ -792,9 +827,8 @@ Example:
 
 ```json
 {
-  "data": null,
   "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -830,13 +864,12 @@ Example:
 
 ```json
 {
-  "action": "rename",
+  "action": "fork",
   "branch": "example",
-  "effort": "example",
-  "name": "example",
   "onlyIfProvisional": true,
-  "previewId": "example",
-  "until": null
+  "requestId": "ZB",
+  "runId": "example",
+  "title": "example"
 }
 ```
 
@@ -856,7 +889,7 @@ Example:
 ```json
 {
   "hint": "example",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -880,9 +913,7 @@ Required capability: none beyond session authentication. Timeout: 630000 ms.
 Example:
 
 ```json
-{
-  "limit": 2
-}
+{}
 ```
 
 ## automations_list.output
@@ -900,6 +931,7 @@ Example:
 
 ```json
 {
+  "data": null,
   "ok": false
 }
 ```
@@ -930,10 +962,10 @@ Example:
 
 ```json
 {
+  "enabled": false,
   "id": "example",
-  "missedRun": "skip",
-  "model": "example",
   "prompt": "example",
+  "provider": "codex",
   "title": "example"
 }
 ```
@@ -954,7 +986,7 @@ Example:
 ```json
 {
   "hint": "example",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -979,8 +1011,7 @@ Example:
 ```json
 {
   "id": "example",
-  "requestId": "vwDNgt",
-  "variables": {}
+  "requestId": "yIK7BYnL"
 }
 ```
 
@@ -999,8 +1030,7 @@ Example:
 
 ```json
 {
-  "code": "unsupported",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1040,9 +1070,8 @@ Example:
 
 ```json
 {
-  "code": "not_found",
   "hint": "example",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1069,8 +1098,8 @@ Example:
 
 ```json
 {
-  "offset": 7,
-  "sourceThreadId": "example"
+  "sourceThreadId": "example",
+  "streamId": "example"
 }
 ```
 
@@ -1091,7 +1120,10 @@ Example:
 Example:
 
 ```json
-{}
+{
+  "encoding": "utf-16le",
+  "nextOffset": 3
+}
 ```
 
 ## context
@@ -1131,7 +1163,8 @@ Example:
 
 ```json
 {
-  "prs": []
+  "changes": null,
+  "recent": []
 }
 ```
 
@@ -1171,7 +1204,7 @@ Example:
 ```json
 {
   "noteId": "example",
-  "notes": 7
+  "notes": 2
 }
 ```
 
@@ -1235,7 +1268,8 @@ Example:
 ```json
 {
   "allowOther": true,
-  "question": "example"
+  "question": "example",
+  "timeoutSeconds": 12
 }
 ```
 
@@ -1254,7 +1288,7 @@ Example:
 ```json
 {
   "askId": "example",
-  "status": "declined"
+  "status": "pending"
 }
 ```
 
@@ -1278,7 +1312,6 @@ Example:
 
 ```json
 {
-  "limit": 9,
   "query": "example"
 }
 ```

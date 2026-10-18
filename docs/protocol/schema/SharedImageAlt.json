@@ -1,0 +1,8 @@
+{
+  "$id": "https://ace.local/protocol/v1/SharedImageAlt.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "maxLength": 300,
+  "minLength": 1,
+  "pattern": "\\S",
+  "type": "string"
+}

@@ -64,6 +64,9 @@ export function HtmlFrame(props: {
   );
 }
 
+/** Content height changes ease in, so a page that grows (a tab, a step) doesn't jump. */
+const resizes = "transition-[height] duration-200 ease-out motion-reduce:transition-none";
+
 function IframeSurface(props: SurfaceProps) {
   const frame = useRef<HTMLIFrameElement>(null);
   const theme = useRef(props.theme);
@@ -98,7 +101,7 @@ function IframeSurface(props: SurfaceProps) {
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"
       onLoad={send}
-      className="block w-full border-0"
+      className={`block w-full border-0 ${resizes}`}
       style={{ height: props.height }}
     />
   );
@@ -155,5 +158,5 @@ function WebviewSurface(props: SurfaceProps) {
     if (ready.current && view.current)
       runInGuest(view.current, `postMessage(${JSON.stringify(themeMessage(props.theme))}, "*")`);
   }, [props.theme]);
-  return <div ref={host} className="block w-full" style={{ height: props.height }} />;
+  return <div ref={host} className={`block w-full ${resizes}`} style={{ height: props.height }} />;
 }

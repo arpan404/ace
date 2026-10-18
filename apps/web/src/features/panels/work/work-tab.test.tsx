@@ -49,7 +49,8 @@ test("an idle thread shows one quiet line and no empty sections", async () => {
 
 test("a working tree leads with its live state and says each agent's status once", async () => {
   const { work } = await open();
-  await waitFor(() => expect(head(work)).toMatch(/^Working/));
+  // The main agent waits on its subagents: the head says so, timed, as the live line does.
+  await waitFor(() => expect(head(work)).toMatch(/^Waiting for \d+ subagents? · \d/));
   expect(within(work).getByRole("heading", { name: "Agents" })).toBeTruthy();
   expect(within(work).getByRole("heading", { name: "Background" })).toBeTruthy();
   const done = await within(work).findByRole("treeitem", { name: "Read restart history: Idle" });
@@ -61,7 +62,8 @@ test("a working tree leads with its live state and says each agent's status once
 test("the Automations section is left out when the project has none", async () => {
   const { work } = await open();
   await within(work).findByRole("tree", { name: "Agent tree" });
-  await waitFor(() => expect(head(work)).toMatch(/^Working/));
+  // The main agent waits on its subagents: the head says so, timed, as the live line does.
+  await waitFor(() => expect(head(work)).toMatch(/^Waiting for \d+ subagents? · \d/));
   expect(within(work).queryByRole("region", { name: "Automations" })).toBeNull();
   expect(within(work).queryByRole("button", { name: "Automation settings" })).toBeNull();
   expect(within(work).queryByText("No scheduled tasks")).toBeNull();

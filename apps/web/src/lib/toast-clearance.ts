@@ -4,8 +4,8 @@ const paneCenterVar = "--toast-pane-center";
 const paneWidthVar = "--toast-pane-width";
 
 /**
- * Centres toasts over the main pane, clear of the side panels: publishes the pane's
- * horizontal centre and width as custom properties, following resizes until unmount. Full
+ * Keeps toasts at the main pane's top right, clear of the side panels: publishes the pane's
+ * horizontal centre, right inset and width as custom properties, following resizes until unmount. Full
  * view hides the main pane, so use the visible sidebar, or the viewport when neither shows.
  */
 export function useToastAnchor(): RefCallback<HTMLElement> {
@@ -17,6 +17,7 @@ export function useToastAnchor(): RefCallback<HTMLElement> {
     const clear = () => {
       root.style.removeProperty(paneCenterVar);
       root.style.removeProperty(paneWidthVar);
+      root.style.removeProperty("--toast-pane-right");
       root.style.removeProperty("--toast-pane-top");
       root.style.removeProperty("--toast-pane-bottom");
       root.style.removeProperty("--toast-stack-dir");
@@ -49,9 +50,7 @@ export function useToastAnchor(): RefCallback<HTMLElement> {
       }
       root.style.setProperty(
         "--toast-pane-top",
-        fallback
-          ? "auto"
-          : "calc(env(safe-area-inset-top,0px) + (var(--header-h,44px) - 36px) / 2)",
+        fallback ? "auto" : "calc(env(safe-area-inset-top,0px) + var(--header-h,44px) + 8px)",
       );
       root.style.setProperty("--toast-pane-bottom", fallback ? "16px" : "auto");
       // A deck pinned to the bottom fans out upwards.
@@ -61,6 +60,9 @@ export function useToastAnchor(): RefCallback<HTMLElement> {
       if (width <= 32) return clear();
       root.style.setProperty(paneCenterVar, `${Math.round(left + width / 2)}px`);
       root.style.setProperty(paneWidthVar, `${Math.round(width)}px`);
+      // Flush with the pane's right edge; the fallback rectangle keeps its own edge.
+      const inset = Math.max(0, (view?.innerWidth ?? right) - right) + (fallback ? 0 : 12);
+      root.style.setProperty("--toast-pane-right", `${Math.round(inset)}px`);
     };
     const observer = new ResizeObserver(place);
     observer.observe(element);

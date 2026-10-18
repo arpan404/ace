@@ -18,7 +18,7 @@ import { useTopFade } from "@/lib/edge-fade.ts";
 import { frameThrottle } from "@/lib/frame-throttle.ts";
 import { useListMotion, usePresence } from "@/lib/motion.ts";
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
-import { LiveFrames, LiveFramesContext } from "../items/live-frames.ts";
+import { LiveFrames, LiveFramesContext } from "@/features/visualization/index.ts";
 import { usePlaceBeforePaint } from "@/lib/virtual-paint.ts";
 import {
   DeferredGapRow,
@@ -46,6 +46,7 @@ import { useBlocks } from "./use-blocks.ts";
 import { useTurnActivity } from "./use-turn-activity.ts";
 import { useReadMarker } from "./seen.ts";
 import { AgentPageReveal } from "./agent-page-reveal.tsx";
+import { SettledLine } from "./settled-line.tsx";
 
 const tailLive: Block = { kind: "live", key: "live:tail", askId: undefined };
 /** First guess for an unmeasured row's height; measured sizes replace it per row key. */
@@ -102,8 +103,8 @@ export function Feed(props: FeedProps) {
   const built = useBlocks(threadId);
   const activity = useTurnActivity(threadId);
   useDropTurnSteps(threadId);
-  // The live turn's one status line ends its flow; a turn with no block in view yet (its ask
-  // still on its way, older than the window) keeps it at the end of the rows. Either way it is
+  // The live turn's one status line heads its flow, under its ask; a turn with no block in view
+  // yet (its ask still on its way, older than the window) keeps it at the end of the rows. Either way it is
   // one row, which moves rather than flashing out and back in.
   const working = !detached && !!activity && activity.tone !== "paused";
   const blocks = useMemo(
@@ -386,6 +387,7 @@ export function Feed(props: FeedProps) {
                   <AgentPageReveal threadId={threadId} />
                 </Suspense>
               )}
+              {!detached && !working && <SettledLine threadId={threadId} />}
             </div>
           </div>
           <div className="pointer-events-none absolute inset-x-0 top-3 z-[6] flex flex-col items-center gap-2 px-4">

@@ -1,11 +1,10 @@
-import { constants } from "node:fs";
-import { open, lstat, realpath, stat as pathStat } from "node:fs/promises";
-import { isAbsolute, resolve, relative, parse, join, extname, normalize } from "node:path";
+import { isAbsolute, resolve, relative, extname, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ThreadId, Item, Agent, type Attachment } from "@ace/protocol";
+import { ThreadId, Item, type Attachment } from "@ace/protocol";
 import type { ContextService } from "@ace/context";
 import type { Store } from "./store.ts";
 import { toolImage } from "./tool-result-content.ts";
+import { agentCwd, agentDirectory, readImageFile } from "./image-files.ts";
 
 export function imageReference(reference: string): string | undefined {
   if (reference.startsWith("file:")) {
@@ -18,48 +17,6 @@ export function imageReference(reference: string): string | undefined {
   return /^[a-z][a-z\d+.-]*:/i.test(reference) || reference.includes("\0")
     ? undefined
     : normalize(reference);
-}
-
-/** Read only the exact image a native tool produced, never follow filesystem links. */
-async function readImage(path: string): Promise<Buffer> {
-  const root = parse(path).root;
-  let part = root;
-  for (const segment of path.slice(root.length).split("/").filter(Boolean)) {
-    part = join(part, segment);
-    if ((await lstat(part)).isSymbolicLink()) throw new Error("Image is a symbolic link");
-  }
-  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-  try {
-    const stat = await file.stat();
-    const sameFile = async () => {
-      const current = await pathStat(path);
-      const opened = await file.stat();
-      return (
-        (await realpath(path)) === path &&
-        current.ino === stat.ino &&
-        current.dev === stat.dev &&
-        opened.size === stat.size &&
-        opened.mtimeMs === stat.mtimeMs &&
-        opened.ctimeMs === stat.ctimeMs &&
-        current.size === stat.size &&
-        current.mtimeMs === stat.mtimeMs &&
-        current.ctimeMs === stat.ctimeMs
-      );
-    };
-    if (!(await sameFile()) || !stat.isFile() || stat.size > 8 * 1024 * 1024)
-      throw new Error("Image unavailable");
-    const bytes = Buffer.alloc(stat.size + 1);
-    let size = 0;
-    while (size < bytes.length) {
-      const read = await file.read(bytes, size, bytes.length - size, size);
-      if (!read.bytesRead) break;
-      size += read.bytesRead;
-    }
-    if (size !== stat.size || !(await sameFile())) throw new Error("Image changed while reading");
-    return bytes.subarray(0, size);
-  } finally {
-    await file.close();
-  }
 }
 
 function nativePath(item: Item): string | undefined {
@@ -93,31 +50,23 @@ export function observeNativeImages(
     try {
       if (stopped || signal.aborted) return;
       const reference = imageReference(source);
-      const agentRow = store
-        .statement(
-          "SELECT value FROM view_entities WHERE thread_id=? AND collection='agents' AND id=?",
-        )
-        .get(id, item.agentId);
-      const cwd = agentRow ? Agent.parse(JSON.parse(String(agentRow.value))).cwd : undefined;
+      const cwd = agentCwd(store, id, item.agentId);
       if (reference && isAbsolute(reference)) path = reference;
       else if (reference) {
-        if (typeof cwd === "string" && isAbsolute(cwd)) path = resolve(cwd, reference);
-        else {
-          const binding = store.executionWorkspace(id);
-          if (binding.ready) path = resolve(binding.path, reference);
-        }
+        const directory = agentDirectory(store, id, item.agentId);
+        if (directory) path = resolve(directory, reference);
       }
       if (!path) throw new Error("Image environment is unavailable");
       // Preserve relative prose references even when tools report an absolute path and
       // the producing agent later changes folders. This alias never performs file IO.
-      if (reference && isAbsolute(reference) && cwd && isAbsolute(cwd)) alias = relative(cwd, path);
+      if (reference && isAbsolute(reference) && cwd) alias = relative(cwd, path);
       const mimeType =
         extname(path).toLowerCase() === ".jpg" || extname(path).toLowerCase() === ".jpeg"
           ? "image/jpeg"
           : extname(path).toLowerCase() === ".webp"
             ? "image/webp"
             : "image/png";
-      const bytes = await readImage(path);
+      const bytes = await readImageFile(path);
       if (stopped || signal.aborted) return;
       attachment = await toolImage(
         context,

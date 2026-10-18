@@ -1,4 +1,5 @@
 import { htmlToolCatalog } from "./html-tools.ts";
+import { imageToolCatalog } from "./image-tools.ts";
 import type { ApprovalTarget } from "@ace/protocol";
 import type { z } from "zod";
 import { agentControlToolCatalog } from "./agent-control.ts";
@@ -23,6 +24,7 @@ const definitions = new Map<string, Definition>(
     ...contextToolCatalog,
     ...knowledgeToolCatalog,
     ...htmlToolCatalog,
+    ...imageToolCatalog,
     ...metaToolCatalog,
   ].map((entry) => [entry.name, entry]),
 );

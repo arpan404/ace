@@ -24,7 +24,7 @@ export type LiveFact =
   | { kind: "tests" };
 
 export interface LiveStatus {
-  /** "Waiting on 2 subagents", "Running in background", "Limited until 3:20 PM". */
+  /** "Waiting for 2 subagents", "Running in background", "Limited until 3:20 PM". */
   label: string;
   /** A command the label names, shown as code after it: "bun run dev:relay". */
   code: string | undefined;
@@ -38,6 +38,13 @@ export function askingLabel(request: string): string {
   if (request === "approval") return "Waiting for your approval";
   if (request === "plan_review") return "Waiting for your review";
   return "Waiting for your answer";
+}
+
+/** "Waiting for 2 subagents"; bare "Waiting for subagents" when the count is unknown. */
+export function waitingOnSubagentsLabel(count: number): string {
+  return count > 0
+    ? `Waiting for ${pluralCount(count, "subagent", "subagents")}`
+    : "Waiting for subagents";
 }
 
 /** "general assistant needs you": a delegated child's request, answered from its parent. */
@@ -62,7 +69,7 @@ export function describeLive(fact: LiveFact, now: number, locale?: string): Live
       return { label: limitedLabel(fact.until, now, locale), code: undefined, tone: "waiting" };
     case "subagents":
       return {
-        label: `Waiting on ${pluralCount(fact.count, "subagent", "subagents")}`,
+        label: waitingOnSubagentsLabel(fact.count),
         code: undefined,
         tone: "working",
       };
