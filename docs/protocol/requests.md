@@ -2810,12 +2810,9 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "commentIds": [
-        "example"
-      ],
+      "commentId": "example",
       "sessionId": "example",
-      "threadId": "example",
-      "type": "review.sendToAgent"
+      "type": "review.applySuggestion"
     }
   },
   "type": "command"
